@@ -3,8 +3,6 @@ extern crate clap;
 extern crate env_logger;
 #[macro_use]
 extern crate log;
-extern crate rustpython_parser;
-extern crate rustpython_vm;
 extern crate rustyline;
 
 use clap::{App, Arg};

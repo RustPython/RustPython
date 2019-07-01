@@ -44,7 +44,6 @@ pub fn parse_statement(source: &str) -> Result<Vec<ast::LocatedStatement>, Parse
 /// # Example
 /// ```
 /// extern crate num_bigint;
-/// extern crate rustpython_parser;
 /// use num_bigint::BigInt;
 /// use rustpython_parser::{parser, ast};
 /// let expr = parser::parse_expression("1+2").unwrap();

@@ -1,5 +1,5 @@
 [package]
-name = "rustpython_parser"
+name = "rustpython-parser"
 version = "0.0.1"
 authors = [ "Shing Lyu", "Windel Bouwman" ]
 build = "build.rs"

@@ -11,9 +11,9 @@ edition = "2018"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rustpython_compiler = { path = "../../compiler" }
-rustpython_parser = { path = "../../parser" }
-rustpython_vm = { path = "../../vm" }
+rustpython-compiler = { path = "../../compiler" }
+rustpython-parser = { path = "../../parser" }
+rustpython-vm = { path = "../../vm" }
 cfg-if = "0.1.2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.3"

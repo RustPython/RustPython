@@ -16,9 +16,9 @@ path = "./benchmarks/bench.rs"
 log="0.4.1"
 env_logger="0.5.10"
 clap = "2.31.2"
-rustpython_compiler = {path = "compiler"}
-rustpython_parser = {path = "parser"}
-rustpython_vm = {path = "vm"}
+rustpython-compiler = {path = "compiler"}
+rustpython-parser = {path = "parser"}
+rustpython-vm = {path = "vm"}
 rustyline = "4.1.0"
 xdg = "2.2.0"
 

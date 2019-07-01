@@ -1,5 +1,5 @@
 [package]
-name = "rustpython_derive"
+name = "rustpython-derive"
 version = "0.1.0"
 authors = ["Joey <jmhain@protonmail.com>"]
 edition = "2018"
@@ -11,7 +11,7 @@ proc-macro = true
 syn = { version = "0.15.29", features = ["full"] }
 quote = "0.6.11"
 proc-macro2 = "0.4.27"
-rustpython_compiler = { path = "../compiler" }
-rustpython_bytecode = { path = "../bytecode" }
+rustpython-compiler = { path = "../compiler" }
+rustpython-bytecode = { path = "../bytecode" }
 bincode =  "1.1"
 proc-macro-hack = "0.5"

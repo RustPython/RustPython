@@ -1,5 +1,5 @@
 [package]
-name = "rustpython_bytecode"
+name = "rustpython-bytecode"
 version = "0.1.0"
 authors = ["Windel Bouwman <windel@windel.nl>"]
 edition = "2018"

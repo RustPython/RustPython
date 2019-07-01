@@ -18,7 +18,7 @@ use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
-#[cfg(feature = "rustpython_compiler")]
+#[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
 use crate::frame::Scope;
@@ -99,7 +99,7 @@ struct CompileArgs {
     optimize: OptionalArg<PyIntRef>,
 }
 
-#[cfg(feature = "rustpython_compiler")]
+#[cfg(feature = "rustpython-compiler")]
 fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef> {
     // TODO: compile::compile should probably get bytes
     let source = match args.source {
@@ -155,7 +155,7 @@ fn builtin_divmod(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /// Implements `eval`.
 /// See also: https://docs.python.org/3/library/functions.html#eval
-#[cfg(feature = "rustpython_compiler")]
+#[cfg(feature = "rustpython-compiler")]
 fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: support any mapping for `locals`
     arg_check!(
@@ -187,7 +187,7 @@ fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /// Implements `exec`
 /// https://docs.python.org/3/library/functions.html#exec
-#[cfg(feature = "rustpython_compiler")]
+#[cfg(feature = "rustpython-compiler")]
 fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -789,7 +789,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     #[cfg(not(target_arch = "wasm32"))]
     let open = vm.ctx.new_rustfunc(io_open);
 
-    #[cfg(feature = "rustpython_compiler")]
+    #[cfg(feature = "rustpython-compiler")]
     {
         extend_module!(vm, module, {
             "compile" => ctx.new_rustfunc(builtin_compile),

@@ -10,7 +10,7 @@ use crate::obj::{objcode, objsequence, objstr};
 use crate::pyobject::{ItemProtocol, PyResult, PyValue};
 use crate::util;
 use crate::vm::VirtualMachine;
-#[cfg(feature = "rustpython_compiler")]
+#[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
 pub fn init_importlib(vm: &VirtualMachine) -> PyResult {
@@ -57,7 +57,7 @@ pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &s
         import_frozen(vm, module_name)
     } else if vm.stdlib_inits.borrow().contains_key(module_name) {
         import_builtin(vm, module_name)
-    } else if cfg!(feature = "rustpython_compiler") {
+    } else if cfg!(feature = "rustpython-compiler") {
         let notfound_error = &vm.ctx.exceptions.module_not_found_error;
         let import_error = &vm.ctx.exceptions.import_error;
 
@@ -79,7 +79,7 @@ pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &s
     }
 }
 
-#[cfg(feature = "rustpython_compiler")]
+#[cfg(feature = "rustpython-compiler")]
 pub fn import_file(
     vm: &VirtualMachine,
     module_name: &str,
