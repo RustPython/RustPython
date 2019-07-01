@@ -1,3 +1,7 @@
+# It's recommended to run this with `python3 -I not_impl_gen.py`, to make sure
+# that nothing in your global Python environment interferes with what's being
+# extracted here.
+
 import pkgutil
 import os
 import sys
