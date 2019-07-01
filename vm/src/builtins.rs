@@ -10,7 +10,6 @@ use std::str;
 use num_bigint::Sign;
 use num_traits::{Signed, ToPrimitive, Zero};
 
-use crate::compile;
 use crate::obj::objbool;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCodeRef;
@@ -19,6 +18,8 @@ use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
+#[cfg(feature = "rustpython_compiler")]
+use rustpython_compiler::compile;
 
 use crate::frame::Scope;
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
@@ -98,6 +99,7 @@ struct CompileArgs {
     optimize: OptionalArg<PyIntRef>,
 }
 
+#[cfg(feature = "rustpython_compiler")]
 fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef> {
     // TODO: compile::compile should probably get bytes
     let source = match args.source {
@@ -153,6 +155,7 @@ fn builtin_divmod(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /// Implements `eval`.
 /// See also: https://docs.python.org/3/library/functions.html#eval
+#[cfg(feature = "rustpython_compiler")]
 fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: support any mapping for `locals`
     arg_check!(
@@ -184,6 +187,7 @@ fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /// Implements `exec`
 /// https://docs.python.org/3/library/functions.html#exec
+#[cfg(feature = "rustpython_compiler")]
 fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -785,6 +789,15 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     #[cfg(not(target_arch = "wasm32"))]
     let open = vm.ctx.new_rustfunc(io_open);
 
+    #[cfg(feature = "rustpython_compiler")]
+    {
+        extend_module!(vm, module, {
+            "compile" => ctx.new_rustfunc(builtin_compile),
+            "eval" => ctx.new_rustfunc(builtin_eval),
+            "exec" => ctx.new_rustfunc(builtin_exec),
+        });
+    }
+
     extend_module!(vm, module, {
         //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
         "__name__" => ctx.new_str(String::from("__main__")),
@@ -799,15 +812,12 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "callable" => ctx.new_rustfunc(builtin_callable),
         "chr" => ctx.new_rustfunc(builtin_chr),
         "classmethod" => ctx.classmethod_type(),
-        "compile" => ctx.new_rustfunc(builtin_compile),
         "complex" => ctx.complex_type(),
         "delattr" => ctx.new_rustfunc(builtin_delattr),
         "dict" => ctx.dict_type(),
         "divmod" => ctx.new_rustfunc(builtin_divmod),
         "dir" => ctx.new_rustfunc(builtin_dir),
         "enumerate" => ctx.enumerate_type(),
-        "eval" => ctx.new_rustfunc(builtin_eval),
-        "exec" => ctx.new_rustfunc(builtin_exec),
         "float" => ctx.float_type(),
         "frozenset" => ctx.frozenset_type(),
         "filter" => ctx.filter_type(),

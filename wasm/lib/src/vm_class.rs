@@ -5,7 +5,7 @@ use std::rc::{Rc, Weak};
 use js_sys::{Object, Reflect, SyntaxError, TypeError};
 use wasm_bindgen::prelude::*;
 
-use rustpython_vm::compile;
+use rustpython_compiler::{compile, error::CompileErrorType};
 use rustpython_vm::frame::{NameProtocol, Scope};
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue};
@@ -280,9 +280,7 @@ impl WASMVirtualMachine {
                 let code = vm.compile(&source, &mode, "<wasm>".to_string());
                 let code = code.map_err(|err| {
                     let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
-                    if let rustpython_vm::error::CompileErrorType::Parse(ref parse_error) =
-                        err.error
-                    {
+                    if let CompileErrorType::Parse(ref parse_error) = err.error {
                         use rustpython_parser::error::ParseError;
                         if let ParseError::EOF(Some(ref loc))
                         | ParseError::ExtraToken((ref loc, ..))
