@@ -1,0 +1,15 @@
+
+rustpymods = set(
+    map(
+        lambda mod: mod[0],
+        filter(
+            lambda mod: mod[1] == "" or mod[1] == ".py",
+            map(os.path.splitext, os.listdir(libdir)),
+        ),
+    )
+)
+rustpymods |= set(sys.builtin_module_names)
+
+for mod in cpymods - rustpymods:
+    print(mod)
+
