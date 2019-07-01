@@ -20,11 +20,11 @@ impl Location {
         Location { row, column }
     }
 
-    pub fn get_row(&self) -> usize {
+    pub fn row(&self) -> usize {
         self.row
     }
 
-    pub fn get_column(&self) -> usize {
+    pub fn column(&self) -> usize {
         self.column
     }
 }

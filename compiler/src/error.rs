@@ -56,7 +56,7 @@ impl fmt::Display for CompileError {
         }?;
 
         // Print line number:
-        write!(f, " at line {:?}", self.location.get_row())
+        write!(f, " at line {:?}", self.location.row())
     }
 }
 

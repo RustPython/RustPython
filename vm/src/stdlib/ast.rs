@@ -205,7 +205,7 @@ fn statement_to_ast(
     }?;
 
     // set lineno on node:
-    let lineno = vm.ctx.new_int(statement.location.get_row());
+    let lineno = vm.ctx.new_int(statement.location.row());
     vm.set_attr(node.as_object(), "lineno", lineno).unwrap();
 
     Ok(node)

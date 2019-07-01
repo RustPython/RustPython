@@ -1803,7 +1803,7 @@ impl Compiler {
     }
 
     fn get_source_line_number(&mut self) -> usize {
-        self.current_source_location.get_row()
+        self.current_source_location.row()
     }
 
     fn create_qualified_name(&self, name: &str, suffix: &str) -> String {
@@ -1835,7 +1835,7 @@ fn get_doc(body: &[ast::LocatedStatement]) -> (&[ast::LocatedStatement], Option<
 }
 
 fn compile_location(location: &ast::Location) -> bytecode::Location {
-    bytecode::Location::new(location.get_row(), location.get_column())
+    bytecode::Location::new(location.row(), location.column())
 }
 
 fn compile_varargs(varargs: &ast::Varargs) -> bytecode::Varargs {

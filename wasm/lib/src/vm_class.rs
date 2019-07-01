@@ -289,29 +289,20 @@ impl WASMVirtualMachine {
                         | ParseError::InvalidToken(ref loc)
                         | ParseError::UnrecognizedToken((ref loc, ..), _) = parse_error
                         {
-                            let _ = Reflect::set(
-                                &js_err,
-                                &"row".into(),
-                                &(loc.get_row() as u32).into(),
-                            );
-                            let _ = Reflect::set(
-                                &js_err,
-                                &"col".into(),
-                                &(loc.get_column() as u32).into(),
-                            );
+                            let _ =
+                                Reflect::set(&js_err, &"row".into(), &(loc.row() as u32).into());
+                            let _ =
+                                Reflect::set(&js_err, &"col".into(), &(loc.column() as u32).into());
                         }
                         if let ParseError::ExtraToken((_, _, ref loc))
                         | ParseError::UnrecognizedToken((_, _, ref loc), _) = parse_error
                         {
-                            let _ = Reflect::set(
-                                &js_err,
-                                &"endrow".into(),
-                                &(loc.get_row() as u32).into(),
-                            );
+                            let _ =
+                                Reflect::set(&js_err, &"endrow".into(), &(loc.row() as u32).into());
                             let _ = Reflect::set(
                                 &js_err,
                                 &"endcol".into(),
-                                &(loc.get_column() as u32).into(),
+                                &(loc.column() as u32).into(),
                             );
                         }
                     }
