@@ -138,6 +138,14 @@ fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
     Ok(result)
 }
 
+fn inner_mod(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
+    if int2.value != BigInt::zero() {
+        Ok(vm.ctx.new_int(&int1.value % &int2.value))
+    } else {
+        Err(vm.new_zero_division_error("integer modulo by zero".to_string()))
+    }
+}
+
 #[pyimpl]
 impl PyInt {
     #[pymethod(name = "__eq__")]
@@ -369,12 +377,18 @@ impl PyInt {
     #[pymethod(name = "__mod__")]
     fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let v2 = get_value(&other);
-            if *v2 != BigInt::zero() {
-                Ok(vm.ctx.new_int((&self.value) % v2))
-            } else {
-                Err(vm.new_zero_division_error("integer modulo by zero".to_string()))
-            }
+            let other = other.payload::<PyInt>().unwrap();
+            inner_mod(self, &other, vm)
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    #[pymethod(name = "__rmod__")]
+    fn rmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &vm.ctx.int_type()) {
+            let other = other.payload::<PyInt>().unwrap();
+            inner_mod(&other, self, vm)
         } else {
             Ok(vm.ctx.not_implemented())
         }
