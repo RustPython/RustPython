@@ -303,33 +303,31 @@ impl VirtualMachine {
     }
 
     pub fn import(&self, module: &str, from_list: &PyObjectRef, level: usize) -> PyResult {
-        let sys_modules = self
-            .get_attribute(self.sys_module.clone(), "modules")
-            .unwrap();
-        if let Ok(module) = sys_modules.get_item(module.to_string(), self) {
-            Ok(module)
-        } else {
-            match self.get_attribute(self.builtins.clone(), "__import__") {
-                Ok(func) => self.invoke(
-                    func,
-                    vec![
-                        self.ctx.new_str(module.to_string()),
-                        if self.current_frame().is_some() {
-                            self.get_locals().into_object()
-                        } else {
-                            self.get_none()
-                        },
-                        self.get_none(),
-                        from_list.clone(),
-                        self.ctx.new_int(level),
-                    ],
-                ),
-                Err(_) => Err(self.new_exception(
-                    self.ctx.exceptions.import_error.clone(),
-                    "__import__ not found".to_string(),
-                )),
-            }
-        }
+        let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
+        sys_modules.get_item(module.to_string(), self).or_else(|_| {
+            let import_func = self
+                .get_attribute(self.builtins.clone(), "__import__")
+                .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
+
+            let (locals, globals) = if let Some(frame) = self.current_frame() {
+                (
+                    frame.scope.get_locals().into_object(),
+                    frame.scope.globals.clone().into_object(),
+                )
+            } else {
+                (self.get_none(), self.get_none())
+            };
+            self.invoke(
+                import_func,
+                vec![
+                    self.ctx.new_str(module.to_string()),
+                    globals,
+                    locals,
+                    from_list.clone(),
+                    self.ctx.new_int(level),
+                ],
+            )
+        })
     }
 
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via

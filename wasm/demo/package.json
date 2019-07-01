@@ -5,6 +5,7 @@
     "main": "index.js",
     "dependencies": {
         "codemirror": "^5.42.0",
+        "serve": "^11.0.2",
         "xterm": "^3.8.0"
     },
     "devDependencies": {
@@ -24,7 +25,7 @@
         "build": "webpack",
         "dist": "webpack --mode production",
         "test": "cd ../tests; pipenv run pytest",
-        "ci": "start-server-and-test dev http-get://localhost:8080 test"
+        "ci": "start-server-and-test 'npm run build && serve dist/ -n -p 8080' :8080 test"
     },
     "repository": {
         "type": "git",

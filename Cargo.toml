@@ -1,11 +1,11 @@
 [package]
 name = "rustpython"
 version = "0.0.1"
-authors = ["Windel Bouwman", "Shing Lyu <shing.lyu@gmail.com>"]
+authors = ["Windel Bouwman <windel@windel.nl>", "Shing Lyu <shing.lyu@gmail.com>"]
 edition = "2018"
 
 [workspace]
-members = [".", "derive", "vm", "wasm/lib", "parser", "compiler"]
+members = [".", "derive", "vm", "wasm/lib", "parser", "compiler", "bytecode"]
 
 [[bench]]
 name = "bench"

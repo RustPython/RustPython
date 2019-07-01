@@ -23,7 +23,6 @@ extern crate log;
 extern crate maplit;
 // extern crate env_logger;
 
-extern crate rustpython_parser;
 #[macro_use]
 extern crate rustpython_derive;
 
@@ -65,6 +64,7 @@ mod vm;
 // pub use self::pyobject::Executor;
 pub use self::exceptions::print_exception;
 pub use self::vm::VirtualMachine;
+pub use rustpython_bytecode::*;
 pub use rustpython_compiler::*;
 
 #[doc(hidden)]

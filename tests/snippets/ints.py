@@ -40,6 +40,14 @@ assert (2).__rtruediv__(1) == 0.5
 assert (2).__pow__(3) == 8
 assert (10).__pow__(-1) == 0.1
 assert (2).__rpow__(3) == 9
+assert (10).__mod__(5) == 0
+assert (10).__mod__(6) == 4
+with assertRaises(ZeroDivisionError):
+    (10).__mod__(0)
+assert (5).__rmod__(10) == 0
+assert (6).__rmod__(10) == 4
+with assertRaises(ZeroDivisionError):
+    (0).__rmod__(10)
 
 # real/imag attributes
 assert (1).real == 1
@@ -63,6 +71,8 @@ assert (2).__truediv__(1.0) == NotImplemented
 assert (2).__rtruediv__(1.0) == NotImplemented
 assert (2).__pow__(3.0) == NotImplemented
 assert (2).__rpow__(3.0) == NotImplemented
+assert (2).__mod__(3.0) == NotImplemented
+assert (2).__rmod__(3.0) == NotImplemented
 
 assert 10 // 4 == 2
 assert -10 // 4 == -3

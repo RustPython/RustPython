@@ -5,10 +5,10 @@
 //!   https://github.com/python/cpython/blob/master/Python/compile.c
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
-use crate::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use crate::error::{CompileError, CompileErrorType};
 use crate::symboltable::{make_symbol_table, statements_to_symbol_table, SymbolRole, SymbolScope};
 use num_complex::Complex64;
+use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use rustpython_parser::{ast, parser};
 
 struct Compiler {
@@ -252,13 +252,16 @@ impl Compiler {
                     module,
                     symbols,
                     alias,
+                    level,
                 } in import_parts
                 {
+                    let level = *level;
                     if let Some(alias) = alias {
                         // import module as alias
                         self.emit(Instruction::Import {
                             name: module.clone(),
                             symbols: vec![],
+                            level,
                         });
                         self.store_name(&alias);
                     } else if symbols.is_empty() {
@@ -266,6 +269,7 @@ impl Compiler {
                         self.emit(Instruction::Import {
                             name: module.clone(),
                             symbols: vec![],
+                            level,
                         });
                         self.store_name(&module.clone());
                     } else {
@@ -276,6 +280,7 @@ impl Compiler {
                             // from module import *
                             self.emit(Instruction::ImportStar {
                                 name: module.clone(),
+                                level,
                             });
                         } else {
                             // from module import symbol
@@ -292,6 +297,7 @@ impl Compiler {
                             self.emit(Instruction::Import {
                                 name: module.clone(),
                                 symbols: symbols_strings,
+                                level,
                             });
                             names.iter().rev().for_each(|name| self.store_name(&name));
                         }
@@ -593,9 +599,9 @@ impl Compiler {
         let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             args.args.iter().map(|a| a.arg.clone()).collect(),
-            Varargs::from(&args.vararg),
+            compile_varargs(&args.vararg),
             args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
-            Varargs::from(&args.kwarg),
+            compile_varargs(&args.kwarg),
             self.source_path.clone().unwrap(),
             line_number,
             name.to_string(),
@@ -1737,7 +1743,7 @@ impl Compiler {
             } => {
                 self.compile_expression(value)?;
                 self.emit(Instruction::FormatValue {
-                    conversion: *conversion,
+                    conversion: conversion.map(compile_conversion_flag),
                     spec: spec.clone(),
                 });
             }
@@ -1767,7 +1773,7 @@ impl Compiler {
 
     // Low level helper functions:
     fn emit(&mut self, instruction: Instruction) {
-        let location = self.current_source_location.clone();
+        let location = compile_location(&self.current_source_location);
         let cur_code_obj = self.current_code_object();
         cur_code_obj.instructions.push(instruction);
         cur_code_obj.locations.push(location);
@@ -1828,13 +1834,33 @@ fn get_doc(body: &[ast::LocatedStatement]) -> (&[ast::LocatedStatement], Option<
     (body, None)
 }
 
+fn compile_location(location: &ast::Location) -> bytecode::Location {
+    bytecode::Location::new(location.get_row(), location.get_column())
+}
+
+fn compile_varargs(varargs: &ast::Varargs) -> bytecode::Varargs {
+    match varargs {
+        ast::Varargs::None => bytecode::Varargs::None,
+        ast::Varargs::Unnamed => bytecode::Varargs::Unnamed,
+        ast::Varargs::Named(param) => bytecode::Varargs::Named(param.arg.clone()),
+    }
+}
+
+fn compile_conversion_flag(conversion_flag: ast::ConversionFlag) -> bytecode::ConversionFlag {
+    match conversion_flag {
+        ast::ConversionFlag::Ascii => bytecode::ConversionFlag::Ascii,
+        ast::ConversionFlag::Repr => bytecode::ConversionFlag::Repr,
+        ast::ConversionFlag::Str => bytecode::ConversionFlag::Str,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Compiler;
-    use crate::bytecode::CodeObject;
-    use crate::bytecode::Constant::*;
-    use crate::bytecode::Instruction::*;
     use crate::symboltable::make_symbol_table;
+    use rustpython_bytecode::bytecode::CodeObject;
+    use rustpython_bytecode::bytecode::Constant::*;
+    use rustpython_bytecode::bytecode::Instruction::*;
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {

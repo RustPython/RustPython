@@ -2,8 +2,6 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-use rustpython_parser::ast;
-
 use crate::builtins;
 use crate::bytecode;
 use crate::function::PyFuncArgs;
@@ -358,8 +356,12 @@ impl Frame {
             bytecode::Instruction::Import {
                 ref name,
                 ref symbols,
-            } => self.import(vm, name, symbols),
-            bytecode::Instruction::ImportStar { ref name } => self.import_star(vm, name),
+                ref level,
+            } => self.import(vm, name, symbols, level),
+            bytecode::Instruction::ImportStar {
+                ref name,
+                ref level,
+            } => self.import_star(vm, name, level),
             bytecode::Instruction::LoadName {
                 ref name,
                 ref scope,
@@ -861,7 +863,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::FormatValue { conversion, spec } => {
-                use ast::ConversionFlag::*;
+                use bytecode::ConversionFlag::*;
                 let value = match conversion {
                     Some(Str) => vm.to_str(&self.pop_value())?.into_object(),
                     Some(Repr) => vm.to_repr(&self.pop_value())?.into_object(),
@@ -907,14 +909,18 @@ impl Frame {
         }
     }
 
-    fn import(&self, vm: &VirtualMachine, module: &str, symbols: &Vec<String>) -> FrameResult {
+    fn import(
+        &self,
+        vm: &VirtualMachine,
+        module: &str,
+        symbols: &Vec<String>,
+        level: &usize,
+    ) -> FrameResult {
         let from_list = symbols
             .iter()
             .map(|symbol| vm.ctx.new_str(symbol.to_string()))
             .collect();
-        let level = module.chars().take_while(|char| *char == '.').count();
-        let module_name = &module[level..];
-        let module = vm.import(module_name, &vm.ctx.new_tuple(from_list), level)?;
+        let module = vm.import(module, &vm.ctx.new_tuple(from_list), *level)?;
 
         if symbols.is_empty() {
             self.push_value(module);
@@ -929,9 +935,8 @@ impl Frame {
         Ok(None)
     }
 
-    fn import_star(&self, vm: &VirtualMachine, module: &str) -> FrameResult {
-        let level = module.chars().take_while(|char| *char == '.').count();
-        let module = vm.import(module, &vm.ctx.new_tuple(vec![]), level)?;
+    fn import_star(&self, vm: &VirtualMachine, module: &str, level: &usize) -> FrameResult {
+        let module = vm.import(module, &vm.ctx.new_tuple(vec![]), *level)?;
 
         // Grab all the names from the module and put them in the context
         if let Some(dict) = &module.dict {
@@ -1270,7 +1275,7 @@ impl Frame {
         Ok(None)
     }
 
-    pub fn get_lineno(&self) -> ast::Location {
+    pub fn get_lineno(&self) -> bytecode::Location {
         self.code.locations[*self.lasti.borrow()].clone()
     }
 
