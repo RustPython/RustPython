@@ -244,6 +244,11 @@ impl PyRange {
             false
         }
     }
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(&self, vm: &VirtualMachine) -> PyResult<PyInt> {
+        let quo = int(self.stop-self.start /self.step);
+        quo  * size_of::<PyInt>()
+    }
 
     #[pymethod(name = "__lt__")]
     fn lt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -276,7 +281,6 @@ impl PyRange {
             Err(vm.new_value_error("sequence.index(x): x not in sequence".to_string()))
         }
     }
-
     #[pymethod(name = "count")]
     fn count(&self, item: PyObjectRef, _vm: &VirtualMachine) -> PyInt {
         if let Ok(int) = item.downcast::<PyInt>() {
