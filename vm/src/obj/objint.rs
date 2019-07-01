@@ -145,7 +145,7 @@ fn inner_mod(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_zero_division_error("integer modulo by zero".to_string()))
     }
 }
- 
+
 #[pyimpl]
 impl PyInt {
     #[pymethod(name = "__eq__")]
