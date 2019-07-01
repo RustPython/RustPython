@@ -23,7 +23,7 @@ cd "$(dirname "$0")"
 
 # show the building first, so people aren't confused why it's taking so long to
 # run whats_left_to_implement
-cargo build
+cargo build --release
 
 if [ $# -eq 0 ]; then
   sections=(${ALL_SECTIONS[@]})
@@ -39,5 +39,5 @@ for section in "${sections[@]}"; do
     continue
   fi
   h "$section" >&2
-  cargo run -q -- "$snippet"
+  cargo run --release -q -- "$snippet"
 done

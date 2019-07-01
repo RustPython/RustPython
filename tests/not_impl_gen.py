@@ -64,7 +64,19 @@ def gen_methods(header, footer, output):
 def gen_modules(header, footer, output):
     output.write(header.read())
 
-    modules = set(map(lambda mod: mod.name, pkgutil.iter_modules()))
+    modules = dict(
+        map(
+            lambda mod: (
+                mod.name,
+                # check name b/c modules listed have side effects on import,
+                # e.g. printing something or opening a webpage
+                set(dir(__import__(mod.name)))
+                if mod.name not in ("this", "antigravity")
+                else None,
+            ),
+            pkgutil.iter_modules(),
+        )
+    )
 
     print(
         f"""
