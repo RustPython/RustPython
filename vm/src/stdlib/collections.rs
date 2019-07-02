@@ -1,5 +1,5 @@
 use crate::function::OptionalArg;
-use crate::obj::{objbool, objint::PyIntRef, objtype::PyClassRef};
+use crate::obj::{objbool, objtype::PyClassRef};
 use crate::pyobject::{PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::VirtualMachine;
 use std::cell::RefCell;
@@ -9,6 +9,7 @@ use std::collections::VecDeque;
 #[derive(Debug, Clone)]
 struct PyDeque {
     deque: RefCell<VecDeque<PyObjectRef>>,
+    maxlen: Option<usize>,
 }
 
 impl PyValue for PyDeque {
@@ -23,7 +24,7 @@ impl PyDeque {
     fn new(
         cls: PyClassRef,
         iter: OptionalArg<PyIterable>,
-        _maxlen: OptionalArg<PyIntRef>,
+        maxlen: OptionalArg<Option<usize>>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         let deque = if let OptionalArg::Present(iter) = iter {
@@ -33,18 +34,31 @@ impl PyDeque {
         };
         PyDeque {
             deque: RefCell::new(deque),
+            maxlen: maxlen.into_option().and_then(|x| x),
         }
         .into_ref_with_type(vm, cls)
     }
 
     #[pymethod]
     fn append(&self, obj: PyObjectRef, _vm: &VirtualMachine) {
-        self.deque.borrow_mut().push_back(obj)
+        let mut deque = self.deque.borrow_mut();
+        if let Some(maxlen) = self.maxlen {
+            if deque.len() == maxlen {
+                deque.pop_front();
+            }
+        }
+        deque.push_back(obj);
     }
 
     #[pymethod]
     fn appendleft(&self, obj: PyObjectRef, _vm: &VirtualMachine) {
-        self.deque.borrow_mut().push_front(obj)
+        let mut deque = self.deque.borrow_mut();
+        if let Some(maxlen) = self.maxlen {
+            if deque.len() == maxlen {
+                deque.pop_back();
+            }
+        }
+        deque.push_front(obj);
     }
 
     #[pymethod]
@@ -71,18 +85,16 @@ impl PyDeque {
     #[pymethod]
     fn extend(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: use length_hint here and for extendleft
-        let mut deque = self.deque.borrow_mut();
         for elem in iter.iter(vm)? {
-            deque.push_back(elem?);
+            self.append(elem?, vm);
         }
         Ok(())
     }
 
     #[pymethod]
     fn extendleft(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
-        let mut deque = self.deque.borrow_mut();
         for elem in iter.iter(vm)? {
-            deque.push_front(elem?);
+            self.appendleft(elem?, vm);
         }
         Ok(())
     }
@@ -111,8 +123,14 @@ impl PyDeque {
     }
 
     #[pymethod]
-    fn insert(&self, idx: i32, obj: PyObjectRef, _vm: &VirtualMachine) -> PyResult<()> {
+    fn insert(&self, idx: i32, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut deque = self.deque.borrow_mut();
+
+        if let Some(maxlen) = self.maxlen {
+            if deque.len() == maxlen {
+                return Err(vm.new_index_error("deque already at its maximum size".to_string()));
+            }
+        }
 
         let idx = if idx < 0 {
             if -idx as usize > deque.len() {
@@ -186,6 +204,13 @@ impl PyDeque {
             }
         }
     }
+
+    #[pyproperty]
+    fn maxlen(&self, _vm: &VirtualMachine) -> Option<usize> {
+        self.maxlen
+    }
+
+    // TODO: proper repr
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
