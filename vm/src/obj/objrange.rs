@@ -1,5 +1,5 @@
 use std::cell::Cell;
-
+use std::mem;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
@@ -244,6 +244,21 @@ impl PyRange {
             false
         }
     }
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(&self, vm: &VirtualMachine) -> PyInt {
+        let start = self.start.as_bigint();
+        let stop = self.stop.as_bigint();
+        let step = self.step.as_bigint();
+        let bint_sz=BigInt::from(mem::size_of_val(&start));
+        let mut size = 0; 
+        if start < stop {
+            size =  ((stop - start - 1usize) / step + 1) * bint_sz;
+        }
+        if start > stop {
+            size = ((start - stop - 1usize) / (-step) + 1) * bint_sz;
+        }
+        PyInt::new(size)
+    }
 
     #[pymethod(name = "index")]
     fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyInt> {
@@ -256,7 +271,6 @@ impl PyRange {
             Err(vm.new_value_error("sequence.index(x): x not in sequence".to_string()))
         }
     }
-
     #[pymethod(name = "count")]
     fn count(&self, item: PyObjectRef, _vm: &VirtualMachine) -> PyInt {
         if let Ok(int) = item.downcast::<PyInt>() {
