@@ -1,0 +1,32 @@
+
+
+rustpymods = list(
+    map(
+        lambda mod: mod[0],
+        filter(
+            lambda mod: (mod[1] == "" or mod[1] == ".py") and "LICENSE" not in mod[0],
+            map(os.path.splitext, os.listdir(libdir)),
+        ),
+    )
+)
+rustpymods += list(sys.builtin_module_names)
+
+rustpymods = dict(map(
+    lambda mod: (
+        mod,
+        set(dir(__import__(mod)))
+        if mod not in ("this", "antigravity")
+        else None,
+    ),
+    rustpymods
+))
+
+for modname, cpymod in cpymods.items():
+    if modname in rustpymods:
+        rustpymod = rustpymods[modname]
+        if rustpymod:
+            for item in cpymod - rustpymod:
+                print(f"{modname}.{item}")
+    else:
+        print(f"{modname} (entire module)")
+
