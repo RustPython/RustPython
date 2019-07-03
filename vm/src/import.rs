@@ -13,15 +13,18 @@ use crate::vm::VirtualMachine;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
-pub fn init_importlib(vm: &VirtualMachine) -> PyResult {
+pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
     let importlib = import_frozen(vm, "_frozen_importlib")?;
     let impmod = import_builtin(vm, "_imp")?;
     let install = vm.get_attribute(importlib.clone(), "_install")?;
     vm.invoke(install, vec![vm.sys_module.clone(), impmod])?;
     vm.import_func
         .replace(vm.get_attribute(importlib.clone(), "__import__")?);
-    let install_external = vm.get_attribute(importlib.clone(), "_install_external_importers")?;
-    vm.invoke(install_external, vec![])?;
+    if external {
+        let install_external =
+            vm.get_attribute(importlib.clone(), "_install_external_importers")?;
+        vm.invoke(install_external, vec![])?;
+    }
     Ok(vm.get_none())
 }
 

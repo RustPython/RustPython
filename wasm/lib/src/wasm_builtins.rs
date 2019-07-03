@@ -8,7 +8,6 @@ use js_sys::{self, Array};
 use web_sys::{self, console};
 
 use rustpython_vm::function::{Args, KwArgs, PyFuncArgs};
-use rustpython_vm::import;
 use rustpython_vm::obj::{
     objstr::{self, PyStringRef},
     objtype,
@@ -79,30 +78,4 @@ pub fn builtin_print_console(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult 
     }
     console::log(&arr);
     Ok(vm.get_none())
-}
-
-pub fn builtin_import(
-    module_name: PyStringRef,
-    _args: Args,
-    _kwargs: KwArgs,
-    vm: &VirtualMachine,
-) -> PyResult<PyObjectRef> {
-    let module_name = module_name.as_str();
-
-    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
-
-    // First, see if we already loaded the module:
-    if let Ok(module) = sys_modules.get_item(module_name.to_string(), vm) {
-        Ok(module)
-    } else if vm.frozen.borrow().contains_key(module_name) {
-        import::import_frozen(vm, module_name)
-    } else if vm.stdlib_inits.borrow().contains_key(module_name) {
-        import::import_builtin(vm, module_name)
-    } else {
-        let notfound_error = vm.context().exceptions.module_not_found_error.clone();
-        Err(vm.new_exception(
-            notfound_error,
-            format!("Module {:?} not found", module_name),
-        ))
-    }
 }

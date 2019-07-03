@@ -8,6 +8,7 @@ use wasm_bindgen::prelude::*;
 use rustpython_compiler::{compile, error::CompileErrorType};
 use rustpython_vm::frame::{NameProtocol, Scope};
 use rustpython_vm::function::PyFuncArgs;
+use rustpython_vm::import;
 use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
 
@@ -43,7 +44,7 @@ impl StoredVirtualMachine {
             setup_browser_module(&vm);
         }
 
-        *vm.import_func.borrow_mut() = vm.ctx.new_rustfunc(wasm_builtins::builtin_import);
+        import::init_importlib(&vm, false);
 
         StoredVirtualMachine {
             vm,
