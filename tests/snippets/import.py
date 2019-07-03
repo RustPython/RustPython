@@ -25,6 +25,11 @@ try:
 except ImportError:
     pass
 
+try:
+    import mymodule
+except ModuleNotFoundError as exc:
+    assert exc.name == 'mymodule'
+
 
 test = __import__("import_target")
 assert test.X == import_target.X
