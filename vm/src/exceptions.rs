@@ -312,6 +312,35 @@ impl ExceptionZoo {
     }
 }
 
+fn import_error_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    // TODO: call super().__init__(*args) instead
+    exception_init(vm, args.clone())?;
+
+    let exc_self = args.args[0].clone();
+    vm.set_attr(
+        &exc_self,
+        "name",
+        args.kwargs
+            .get("name")
+            .cloned()
+            .unwrap_or_else(|| vm.get_none()),
+    )?;
+    vm.set_attr(
+        &exc_self,
+        "path",
+        args.kwargs
+            .get("path")
+            .cloned()
+            .unwrap_or_else(|| vm.get_none()),
+    )?;
+    vm.set_attr(
+        &exc_self,
+        "msg",
+        args.args.get(1).cloned().unwrap_or_else(|| vm.get_none()),
+    )?;
+    Ok(vm.get_none())
+}
+
 pub fn init(context: &PyContext) {
     let base_exception_type = &context.exceptions.base_exception_type;
     extend_class!(context, base_exception_type, {
@@ -322,5 +351,10 @@ pub fn init(context: &PyContext) {
     extend_class!(context, exception_type, {
         "__str__" => context.new_rustfunc(exception_str),
         "__repr__" => context.new_rustfunc(exception_repr),
+    });
+
+    let import_error_type = &context.exceptions.import_error;
+    extend_class!(context, import_error_type, {
+        "__init__" => context.new_rustfunc(import_error_init)
     });
 }
