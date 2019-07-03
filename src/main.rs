@@ -51,7 +51,7 @@ fn main() {
     // Construct vm:
     let vm = VirtualMachine::new();
 
-    let res = import::init_importlib(&vm);
+    let res = import::init_importlib(&vm, true);
     handle_exception(&vm, res);
 
     // Figure out if a -c option was given:
