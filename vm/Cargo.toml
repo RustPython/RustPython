@@ -1,11 +1,11 @@
 [package]
-name = "rustpython_vm"
+name = "rustpython-vm"
 version = "0.1.0"
-authors = ["Shing Lyu <shing.lyu@gmail.com>"]
+authors = ["RustPython Team"]
 edition = "2018"
 
 [features]
-default = ["rustpython_parser", "rustpython_compiler"]
+default = ["rustpython-parser", "rustpython-compiler"]
 
 [dependencies]
 # Crypto:
@@ -23,10 +23,10 @@ num-integer = "0.1.39"
 num-rational = "0.2.1"
 rand = "0.5"
 log = "0.3"
-rustpython_derive = {path = "../derive"}
-rustpython_parser = {path = "../parser", optional = true}
-rustpython_compiler = {path = "../compiler", optional = true}
-rustpython_bytecode = { path = "../bytecode" }
+rustpython-derive = {path = "../derive"}
+rustpython-parser = {path = "../parser", optional = true}
+rustpython-compiler = {path = "../compiler", optional = true}
+rustpython-bytecode = { path = "../bytecode" }
 serde = { version = "1.0.66", features = ["derive"] }
 serde_json = "1.0.26"
 byteorder = "1.2.6"

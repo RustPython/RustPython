@@ -1,4 +1,4 @@
-#[cfg(feature = "rustpython_parser")]
+#[cfg(feature = "rustpython-parser")]
 mod ast;
 mod binascii;
 mod dis;
@@ -6,7 +6,7 @@ mod hashlib;
 mod imp;
 mod itertools;
 mod json;
-#[cfg(feature = "rustpython_parser")]
+#[cfg(feature = "rustpython-parser")]
 mod keyword;
 mod marshal;
 mod math;
@@ -18,7 +18,7 @@ pub mod socket;
 mod string;
 mod thread;
 mod time_module;
-#[cfg(feature = "rustpython_parser")]
+#[cfg(feature = "rustpython-parser")]
 mod tokenize;
 mod unicodedata;
 mod warnings;
@@ -62,7 +62,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     };
 
     // Insert parser related modules:
-    #[cfg(feature = "rustpython_parser")]
+    #[cfg(feature = "rustpython-parser")]
     {
         modules.insert(
             "ast".to_string(),
