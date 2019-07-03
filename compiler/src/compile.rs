@@ -1426,11 +1426,15 @@ impl Compiler {
             ast::Expression::IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
                 let end_label = self.new_label();
-                self.compile_test(test, None, Some(no_label), EvalContext::Expression)?;
+                self.compile_test(test, None, None, EvalContext::Expression)?;
+                self.emit(Instruction::JumpIfFalse { target: no_label });
+                // True case
                 self.compile_expression(body)?;
                 self.emit(Instruction::Jump { target: end_label });
+                // False case
                 self.set_label(no_label);
                 self.compile_expression(orelse)?;
+                // End
                 self.set_label(end_label);
             }
         }
