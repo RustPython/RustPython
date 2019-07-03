@@ -2,10 +2,8 @@
 /// support threading
 use super::super::pyobject::PyObjectRef;
 use crate::function::PyFuncArgs;
-use crate::import;
 use crate::pyobject::PyResult;
 use crate::vm::VirtualMachine;
-use std::path::PathBuf;
 
 fn rlock_acquire(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
@@ -38,7 +36,7 @@ fn get_ident(_vm: &VirtualMachine) -> u32 {
 }
 
 fn allocate_lock(vm: &VirtualMachine) -> PyResult {
-    let module = import::import_module(vm, PathBuf::default(), "_thread")?;
+    let module = vm.import("_thread", &vm.ctx.new_tuple(vec![]), 0)?;
     let lock_class = vm.get_attribute(module.clone(), "RLock")?;
     vm.invoke(lock_class, vec![])
 }

@@ -6,14 +6,11 @@ use std::io::prelude::*;
 use std::io::Cursor;
 use std::io::SeekFrom;
 
-use std::path::PathBuf;
-
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 use super::os;
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::import;
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
 use crate::obj::objbytes::PyBytes;
@@ -532,7 +529,7 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     };
 
-    let io_module = import::import_module(vm, PathBuf::default(), "io").unwrap();
+    let io_module = vm.import("_io", &vm.ctx.new_tuple(vec![]), 0)?;
 
     // Construct a FileIO (subclass of RawIOBase)
     // This is subsequently consumed by a Buffered Class.
