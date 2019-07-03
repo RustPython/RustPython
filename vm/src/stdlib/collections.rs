@@ -1,7 +1,9 @@
 use crate::function::OptionalArg;
 use crate::obj::{objbool, objtype::PyClassRef};
 use crate::pyobject::{PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::vm::ReprGuard;
 use crate::VirtualMachine;
+use itertools::Itertools;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 
@@ -17,6 +19,7 @@ impl PyValue for PyDeque {
         vm.class("_collections", "deque")
     }
 }
+
 
 #[pyimpl]
 impl PyDeque {
@@ -210,7 +213,25 @@ impl PyDeque {
         self.maxlen
     }
 
-    // TODO: proper repr
+    #[pymethod(name = "__repr__")]
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let repr = if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
+            let elements = zelf
+                .deque
+                .borrow()
+                .iter()
+                .map(|obj| vm.to_repr(obj))
+                .collect::<Result<Vec<_>, _>>()?;
+            let maxlen = zelf
+                .maxlen
+                .map(|maxlen| format!(", maxlen={}", maxlen))
+                .unwrap_or_default();
+            format!("deque([{}]{})", elements.into_iter().format(", "), maxlen)
+        } else {
+            "[...]".to_string()
+        };
+        Ok(repr)
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
