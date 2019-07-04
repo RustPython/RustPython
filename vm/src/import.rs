@@ -4,8 +4,8 @@
 
 use crate::bytecode::CodeObject;
 use crate::frame::Scope;
-use crate::obj::objcode;
-use crate::pyobject::{ItemProtocol, PyResult, PyValue};
+use crate::obj::{objcode, objsequence, objstr, objtype};
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
@@ -81,4 +81,36 @@ pub fn import_codeobj(
         Scope::with_builtins(None, attrs, vm),
     )?;
     Ok(module)
+}
+
+pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyObjectRef) -> PyObjectRef {
+    let always_trim = objtype::isinstance(exc, &vm.ctx.exceptions.import_error);
+
+    if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
+        if objtype::isinstance(&tb, &vm.ctx.list_type()) {
+            let mut tb_entries = objsequence::get_elements_list(&tb).to_vec();
+            tb_entries.reverse();
+            let mut new_tb = Vec::with_capacity(tb_entries.len());
+
+            for tb_entry in tb_entries.iter() {
+                let mut current_chunk = vec![];
+                let location_attrs = objsequence::get_elements_tuple(&tb_entry);
+                let file_name = objstr::get_value(&location_attrs[0]);
+                if file_name != "_frozen_importlib" && file_name != "_frozen_importlib_external" {
+                    current_chunk.clear();
+                    new_tb.push(tb_entry.clone())
+                } else {
+                    current_chunk.push(tb_entry.clone());
+                    let run_obj_name = objstr::get_value(&location_attrs[0]);
+                    if run_obj_name == "_call_with_frames_removed" || always_trim {
+                        new_tb.append(&mut current_chunk);
+                    }
+                };
+            }
+            new_tb.reverse();
+            vm.set_attr(exc, "__traceback__", vm.ctx.new_list(new_tb))
+                .unwrap();
+        }
+    }
+    exc.clone()
 }
