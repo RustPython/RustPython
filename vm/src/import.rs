@@ -2,13 +2,10 @@
  * Import mechanics
  */
 
-use std::path::PathBuf;
-
 use crate::bytecode::CodeObject;
 use crate::frame::Scope;
-use crate::obj::{objcode, objsequence, objstr};
+use crate::obj::objcode;
 use crate::pyobject::{ItemProtocol, PyResult, PyValue};
-use crate::util;
 use crate::vm::VirtualMachine;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
@@ -20,7 +17,7 @@ pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
     vm.invoke(install, vec![vm.sys_module.clone(), impmod])?;
     vm.import_func
         .replace(vm.get_attribute(importlib.clone(), "__import__")?);
-    if external {
+    if external && cfg!(feature = "rustpython-compiler") {
         let install_external =
             vm.get_attribute(importlib.clone(), "_install_external_importers")?;
         vm.invoke(install_external, vec![])?;
@@ -47,39 +44,6 @@ pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
             sys_modules.set_item(module_name, module.clone(), vm)?;
             Ok(module)
         })
-}
-
-pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &str) -> PyResult {
-    // Cached modules:
-    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
-
-    // First, see if we already loaded the module:
-    if let Ok(module) = sys_modules.get_item(module_name.to_string(), vm) {
-        Ok(module)
-    } else if vm.frozen.borrow().contains_key(module_name) {
-        import_frozen(vm, module_name)
-    } else if vm.stdlib_inits.borrow().contains_key(module_name) {
-        import_builtin(vm, module_name)
-    } else if cfg!(feature = "rustpython-compiler") {
-        let notfound_error = &vm.ctx.exceptions.module_not_found_error;
-        let import_error = &vm.ctx.exceptions.import_error;
-
-        // Time to search for module in any place:
-        let file_path = find_source(vm, current_path, module_name)
-            .map_err(|e| vm.new_exception(notfound_error.clone(), e))?;
-        let source = util::read_file(file_path.as_path())
-            .map_err(|e| vm.new_exception(import_error.clone(), e.to_string()))?;
-
-        import_file(
-            vm,
-            module_name,
-            file_path.to_str().unwrap().to_string(),
-            source,
-        )
-    } else {
-        let notfound_error = &vm.ctx.exceptions.module_not_found_error;
-        Err(vm.new_exception(notfound_error.clone(), module_name.to_string()))
-    }
 }
 
 #[cfg(feature = "rustpython-compiler")]
@@ -117,30 +81,4 @@ pub fn import_codeobj(
         Scope::with_builtins(None, attrs, vm),
     )?;
     Ok(module)
-}
-
-fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result<PathBuf, String> {
-    let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
-    let mut paths: Vec<PathBuf> = objsequence::get_elements_list(&sys_path)
-        .iter()
-        .map(|item| PathBuf::from(objstr::get_value(item)))
-        .collect();
-
-    paths.insert(0, current_path);
-
-    let rel_name = name.replace('.', "/");
-    let suffixes = [".py", "/__init__.py"];
-    let mut file_paths = vec![];
-    for path in paths {
-        for suffix in suffixes.iter() {
-            let mut file_path = path.clone();
-            file_path.push(format!("{}{}", rel_name, suffix));
-            file_paths.push(file_path);
-        }
-    }
-
-    match file_paths.iter().find(|p| p.exists()) {
-        Some(path) => Ok(path.to_path_buf()),
-        None => Err(format!("No module named '{}'", name)),
-    }
 }
