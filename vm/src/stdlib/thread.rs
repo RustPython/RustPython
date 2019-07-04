@@ -36,9 +36,8 @@ fn get_ident(_vm: &VirtualMachine) -> u32 {
 }
 
 fn allocate_lock(vm: &VirtualMachine) -> PyResult {
-    let module = vm.import("_thread", &vm.ctx.new_tuple(vec![]), 0)?;
-    let lock_class = vm.get_attribute(module.clone(), "RLock")?;
-    vm.invoke(lock_class, vec![])
+    let lock_class = vm.class("_thread", "RLock");
+    vm.invoke(lock_class.into_object(), vec![])
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
