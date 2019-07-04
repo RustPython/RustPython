@@ -60,6 +60,12 @@ def gen_methods(header, footer, output):
     output.write("}\n\n")
     output.write(footer.read())
 
+def get_module_methods(name):
+    try:
+        return set(dir(__import__(name))) if name not in ("this", "antigravity") else None
+    except ModuleNotFoundError:
+        return None
+
 
 def gen_modules(header, footer, output):
     output.write(header.read())
@@ -70,9 +76,7 @@ def gen_modules(header, footer, output):
                 mod.name,
                 # check name b/c modules listed have side effects on import,
                 # e.g. printing something or opening a webpage
-                set(dir(__import__(mod.name)))
-                if mod.name not in ("this", "antigravity")
-                else None,
+                get_module_methods(mod.name)
             ),
             pkgutil.iter_modules(),
         )
