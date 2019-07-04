@@ -17,7 +17,7 @@ pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
     vm.invoke(install, vec![vm.sys_module.clone(), impmod])?;
     vm.import_func
         .replace(vm.get_attribute(importlib.clone(), "__import__")?);
-    if external {
+    if external && cfg!(feature = "rustpython-compiler") {
         let install_external =
             vm.get_attribute(importlib.clone(), "_install_external_importers")?;
         vm.invoke(install_external, vec![])?;
