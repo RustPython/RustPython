@@ -24,7 +24,7 @@ pub enum ParseError {
     /// Parser encountered an unexpected token
     UnrecognizedToken(TokSpan, Vec<String>),
     /// Maps to `User` type from `lalrpop-util`
-    Other,
+    Other(LexicalError),
 }
 
 /// Convert `lalrpop_util::ParseError` to our internal type
@@ -34,8 +34,7 @@ impl From<InnerError<Location, Tok, LexicalError>> for ParseError {
             // TODO: Are there cases where this isn't an EOF?
             InnerError::InvalidToken { location } => ParseError::EOF(Some(location)),
             InnerError::ExtraToken { token } => ParseError::ExtraToken(token),
-            // Inner field is a unit-like enum `LexicalError::StringError` with no useful info
-            InnerError::User { .. } => ParseError::Other,
+            InnerError::User { error } => ParseError::Other(error),
             InnerError::UnrecognizedToken { token, expected } => {
                 match token {
                     Some(tok) => ParseError::UnrecognizedToken(tok, expected),
@@ -66,8 +65,7 @@ impl fmt::Display for ParseError {
             ParseError::UnrecognizedToken(ref t_span, _) => {
                 write!(f, "Got unexpected token: {:?} at {:?}", t_span.1, t_span.0)
             }
-            // This is user defined, it probably means a more useful error should have been given upstream.
-            ParseError::Other => write!(f, "Got unsupported token(s)"),
+            ParseError::Other(ref error) => write!(f, "{}", error),
         }
     }
 }

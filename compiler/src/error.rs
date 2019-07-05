@@ -56,7 +56,10 @@ impl fmt::Display for CompileError {
         }?;
 
         // Print line number:
-        write!(f, " at line {:?}", self.location.row())
+        match &self.error {
+            CompileErrorType::Parse(..) => Ok(()),
+            _ => write!(f, " at line {:?}", self.location.row()),
+        }
     }
 }
 
