@@ -1,6 +1,6 @@
 use crate::function::OptionalArg;
-use crate::obj::{objbool, objtype::PyClassRef};
-use crate::pyobject::{PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::obj::{objbool, objsequence, objtype::PyClassRef};
+use crate::pyobject::{IdProtocol, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::ReprGuard;
 use crate::VirtualMachine;
 use itertools::Itertools;
@@ -231,6 +231,96 @@ impl PyDeque {
             "[...]".to_string()
         };
         Ok(repr)
+    }
+
+    #[pymethod(name = "__eq__")]
+    fn eq(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if zelf.as_object().is(&other) {
+            return Ok(vm.new_bool(true));
+        }
+
+        let other = match_class!(other,
+            other @ Self => other,
+            _ => return Ok(vm.ctx.not_implemented()),
+        );
+
+        let lhs: &VecDeque<_> = &zelf.deque.borrow();
+        let rhs: &VecDeque<_> = &other.deque.borrow();
+
+        let eq = objsequence::seq_equal(vm, lhs, rhs)?;
+        Ok(vm.new_bool(eq))
+    }
+
+    #[pymethod(name = "__lt__")]
+    fn lt(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if zelf.as_object().is(&other) {
+            return Ok(vm.new_bool(true));
+        }
+
+        let other = match_class!(other,
+            other @ Self => other,
+            _ => return Ok(vm.ctx.not_implemented()),
+        );
+
+        let lhs: &VecDeque<_> = &zelf.deque.borrow();
+        let rhs: &VecDeque<_> = &other.deque.borrow();
+
+        let eq = objsequence::seq_lt(vm, lhs, rhs)?;
+        Ok(vm.new_bool(eq))
+    }
+
+    #[pymethod(name = "__gt__")]
+    fn gt(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if zelf.as_object().is(&other) {
+            return Ok(vm.new_bool(true));
+        }
+
+        let other = match_class!(other,
+            other @ Self => other,
+            _ => return Ok(vm.ctx.not_implemented()),
+        );
+
+        let lhs: &VecDeque<_> = &zelf.deque.borrow();
+        let rhs: &VecDeque<_> = &other.deque.borrow();
+
+        let eq = objsequence::seq_gt(vm, lhs, rhs)?;
+        Ok(vm.new_bool(eq))
+    }
+
+    #[pymethod(name = "__le__")]
+    fn le(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if zelf.as_object().is(&other) {
+            return Ok(vm.new_bool(true));
+        }
+
+        let other = match_class!(other,
+            other @ Self => other,
+            _ => return Ok(vm.ctx.not_implemented()),
+        );
+
+        let lhs: &VecDeque<_> = &zelf.deque.borrow();
+        let rhs: &VecDeque<_> = &other.deque.borrow();
+
+        let eq = objsequence::seq_le(vm, lhs, rhs)?;
+        Ok(vm.new_bool(eq))
+    }
+
+    #[pymethod(name = "__ge__")]
+    fn ge(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if zelf.as_object().is(&other) {
+            return Ok(vm.new_bool(true));
+        }
+
+        let other = match_class!(other,
+            other @ Self => other,
+            _ => return Ok(vm.ctx.not_implemented()),
+        );
+
+        let lhs: &VecDeque<_> = &zelf.deque.borrow();
+        let rhs: &VecDeque<_> = &other.deque.borrow();
+
+        let eq = objsequence::seq_ge(vm, lhs, rhs)?;
+        Ok(vm.new_bool(eq))
     }
 }
 

@@ -491,7 +491,7 @@ impl PyListRef {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements_list(&other);
-            let res = seq_equal(vm, &zelf, &other)?;
+            let res = seq_equal(vm, &zelf.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -502,7 +502,7 @@ impl PyListRef {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements_list(&other);
-            let res = seq_lt(vm, &zelf, &other)?;
+            let res = seq_lt(vm, &zelf.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -513,7 +513,7 @@ impl PyListRef {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements_list(&other);
-            let res = seq_gt(vm, &zelf, &other)?;
+            let res = seq_gt(vm, &zelf.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -524,7 +524,7 @@ impl PyListRef {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements_list(&other);
-            let res = seq_ge(vm, &zelf, &other)?;
+            let res = seq_ge(vm, &zelf.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -535,7 +535,7 @@ impl PyListRef {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements_list(&other);
-            let res = seq_le(vm, &zelf, &other)?;
+            let res = seq_le(vm, &zelf.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())

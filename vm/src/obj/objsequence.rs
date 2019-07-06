@@ -216,10 +216,35 @@ pub fn get_item(
     }
 }
 
-pub fn seq_equal(
+pub trait SimpleSeq<'a> {
+    fn len(&self) -> usize;
+    fn iter(&'a self) -> Box<dyn Iterator<Item = &'a PyObjectRef> + 'a>;
+}
+
+impl<'a> SimpleSeq<'a> for &'a [PyObjectRef] {
+    fn len(&self) -> usize {
+        (&**self).len()
+    }
+    fn iter(&'a self) -> Box<dyn Iterator<Item = &'a PyObjectRef> + 'a> {
+        Box::new((&**self).iter())
+    }
+}
+
+impl<'a> SimpleSeq<'a> for std::collections::VecDeque<PyObjectRef> {
+    fn len(&self) -> usize {
+        self.len()
+    }
+    fn iter(&'a self) -> Box<dyn Iterator<Item = &'a PyObjectRef> + 'a> {
+        Box::new(self.iter())
+    }
+}
+
+// impl<'a, I>
+
+pub fn seq_equal<'a>(
     vm: &VirtualMachine,
-    zelf: &[PyObjectRef],
-    other: &[PyObjectRef],
+    zelf: &'a dyn SimpleSeq<'a>,
+    other: &'a dyn SimpleSeq<'a>,
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -237,10 +262,10 @@ pub fn seq_equal(
     }
 }
 
-pub fn seq_lt(
+pub fn seq_lt<'a>(
     vm: &VirtualMachine,
-    zelf: &[PyObjectRef],
-    other: &[PyObjectRef],
+    zelf: &'a dyn SimpleSeq<'a>,
+    other: &'a dyn SimpleSeq<'a>,
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -277,10 +302,10 @@ pub fn seq_lt(
     }
 }
 
-pub fn seq_gt(
+pub fn seq_gt<'a>(
     vm: &VirtualMachine,
-    zelf: &[PyObjectRef],
-    other: &[PyObjectRef],
+    zelf: &'a dyn SimpleSeq<'a>,
+    other: &'a dyn SimpleSeq<'a>,
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -316,18 +341,18 @@ pub fn seq_gt(
     }
 }
 
-pub fn seq_ge(
+pub fn seq_ge<'a>(
     vm: &VirtualMachine,
-    zelf: &[PyObjectRef],
-    other: &[PyObjectRef],
+    zelf: &'a dyn SimpleSeq<'a>,
+    other: &'a dyn SimpleSeq<'a>,
 ) -> Result<bool, PyObjectRef> {
     Ok(seq_gt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
 }
 
-pub fn seq_le(
+pub fn seq_le<'a>(
     vm: &VirtualMachine,
-    zelf: &[PyObjectRef],
-    other: &[PyObjectRef],
+    zelf: &'a dyn SimpleSeq<'a>,
+    other: &'a dyn SimpleSeq<'a>,
 ) -> Result<bool, PyObjectRef> {
     Ok(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
 }

@@ -53,7 +53,7 @@ impl PyTupleRef {
     fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let other = get_elements_tuple(&other);
-            let res = seq_lt(vm, &self.elements, &other)?;
+            let res = seq_lt(vm, &self.elements.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -63,7 +63,7 @@ impl PyTupleRef {
     fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let other = get_elements_tuple(&other);
-            let res = seq_gt(vm, &self.elements, &other)?;
+            let res = seq_gt(vm, &self.elements.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -73,7 +73,7 @@ impl PyTupleRef {
     fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let other = get_elements_tuple(&other);
-            let res = seq_ge(vm, &self.elements, &other)?;
+            let res = seq_ge(vm, &self.elements.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -83,7 +83,7 @@ impl PyTupleRef {
     fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let other = get_elements_tuple(&other);
-            let res = seq_le(vm, &self.elements, &other)?;
+            let res = seq_le(vm, &self.elements.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -122,7 +122,7 @@ impl PyTupleRef {
     fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let other = get_elements_tuple(&other);
-            let res = seq_equal(vm, &self.elements, &other)?;
+            let res = seq_equal(vm, &self.elements.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
