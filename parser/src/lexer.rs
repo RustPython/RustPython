@@ -5,12 +5,12 @@ extern crate unic_emoji_char;
 extern crate unicode_xid;
 
 pub use super::token::Tok;
+use crate::error::{LexicalError, LexicalErrorType};
+use crate::location::Location;
 use num_bigint::BigInt;
 use num_traits::Num;
-use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fmt;
 use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
 use unicode_xid::UnicodeXID;
@@ -58,61 +58,6 @@ pub struct Lexer<T: Iterator<Item = char>> {
     chr1: Option<char>,
     location: Location,
     keywords: HashMap<String, Tok>,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct LexicalError {
-    pub error: LexicalErrorType,
-    pub location: Location,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum LexicalErrorType {
-    StringError,
-    UnicodeError,
-    NestingError,
-    UnrecognizedToken { tok: char },
-    OtherError(String),
-}
-
-impl fmt::Display for LexicalErrorType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            LexicalErrorType::StringError => write!(f, "Got unexpected string"),
-            LexicalErrorType::UnicodeError => write!(f, "Got unexpected unicode"),
-            LexicalErrorType::NestingError => write!(f, "Got unexpected nesting"),
-            LexicalErrorType::UnrecognizedToken { tok } => {
-                write!(f, "Got unexpected token {}", tok)
-            }
-            LexicalErrorType::OtherError(ref msg) => write!(f, "{}", msg),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Location {
-    row: usize,
-    column: usize,
-}
-
-impl fmt::Display for Location {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "line {} column {}", self.row, self.column)
-    }
-}
-
-impl Location {
-    pub fn new(row: usize, column: usize) -> Self {
-        Location { row, column }
-    }
-
-    pub fn row(&self) -> usize {
-        self.row
-    }
-
-    pub fn column(&self) -> usize {
-        self.column
-    }
 }
 
 pub fn get_keywords() -> HashMap<String, Tok> {
@@ -299,8 +244,7 @@ where
         lxr.next_char();
         lxr.next_char();
         // Start at top row (=1) left column (=1)
-        lxr.location.row = 1;
-        lxr.location.column = 1;
+        lxr.location.reset();
         lxr
     }
 
@@ -615,7 +559,10 @@ where
         let tok = if is_bytes {
             if string_content.is_ascii() {
                 Tok::Bytes {
-                    value: lex_byte(string_content)?,
+                    value: lex_byte(string_content).map_err(|error| LexicalError {
+                        error,
+                        location: self.get_pos(),
+                    })?,
                 }
             } else {
                 return Err(LexicalError {
@@ -684,7 +631,7 @@ where
         let nxt = self.chars.next();
         self.chr0 = self.chr1;
         self.chr1 = nxt;
-        self.location.column += 1;
+        self.location.go_right();
         c
     }
 
@@ -693,8 +640,7 @@ where
     }
 
     fn new_line(&mut self) {
-        self.location.row += 1;
-        self.location.column = 1;
+        self.location.newline();
     }
 
     /// Given we are at the start of a line, count the number of spaces and/or tabs until the first character.
@@ -1252,7 +1198,7 @@ where
     }
 }
 
-fn lex_byte(s: String) -> Result<Vec<u8>, LexicalError> {
+fn lex_byte(s: String) -> Result<Vec<u8>, LexicalErrorType> {
     let mut res = vec![];
     let mut escape = false; //flag if previous was \
     let mut hex_on = false; // hex mode on or off
@@ -1271,10 +1217,7 @@ fn lex_byte(s: String) -> Result<Vec<u8>, LexicalError> {
                     hex_value.clear();
                 }
             } else {
-                return Err(LexicalError {
-                    error: LexicalErrorType::StringError,
-                    location: Default::default(),
-                });
+                return Err(LexicalErrorType::StringError);
             }
         } else {
             match (c, escape) {

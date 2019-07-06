@@ -6,8 +6,10 @@
 use std::iter::FromIterator;
 
 use crate::ast;
-use crate::fstring::parse_fstring;
+use crate::fstring::parse_located_fstring;
+use crate::error::LexicalError;
 use crate::lexer;
+use crate::location;
 
 use num_bigint::BigInt;
 
@@ -982,11 +984,11 @@ Number: ast::Number = {
 };
 
 StringGroup: ast::StringGroup = {
-    <s:string+> =>? {
+    <loc:@L> <s:string+> =>? {
         let mut values = vec![];
         for (value, is_fstring) in s {
             values.push(if is_fstring {
-                parse_fstring(&value)?
+                parse_located_fstring(&value, loc.clone())?
             } else {
                 ast::StringGroup::Constant { value }
             })
@@ -1010,8 +1012,8 @@ Identifier: String = <s:name> => s;
 
 // Hook external lexer:
 extern {
-    type Location = lexer::Location;
-    type Error = lexer::LexicalError;
+    type Location = location::Location;
+    type Error = LexicalError;
 
     enum lexer::Tok {
         indent => lexer::Tok::Indent,

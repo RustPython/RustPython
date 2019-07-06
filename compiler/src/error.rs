@@ -1,5 +1,5 @@
 use rustpython_parser::error::{ParseError, ParseErrorType};
-use rustpython_parser::lexer::Location;
+use rustpython_parser::location::Location;
 
 use std::error::Error;
 use std::fmt;

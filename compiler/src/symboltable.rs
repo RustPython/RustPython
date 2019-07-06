@@ -9,7 +9,7 @@ Inspirational file: https://github.com/python/cpython/blob/master/Python/symtabl
 
 use crate::error::{CompileError, CompileErrorType};
 use rustpython_parser::ast;
-use rustpython_parser::lexer::Location;
+use rustpython_parser::location::Location;
 use std::collections::HashMap;
 
 pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolScope, SymbolTableError> {

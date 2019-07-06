@@ -1,13 +1,88 @@
 //! Define internal parse error types
 //! The goal is to provide a matching and a safe error API, maksing errors from LALR
-extern crate lalrpop_util;
-use self::lalrpop_util::ParseError as InnerError;
+use lalrpop_util::ParseError as InnerError;
+use lalrpop_util::ParseError as LalrpopError;
 
-use crate::lexer::{LexicalError, LexicalErrorType, Location};
+use crate::location::Location;
 use crate::token::Tok;
 
 use std::error::Error;
 use std::fmt;
+
+/// Represents an error during lexical scanning.
+#[derive(Debug, PartialEq)]
+pub struct LexicalError {
+    pub error: LexicalErrorType,
+    pub location: Location,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum LexicalErrorType {
+    StringError,
+    UnicodeError,
+    NestingError,
+    UnrecognizedToken { tok: char },
+    FStringError(FStringErrorType),
+    OtherError(String),
+}
+
+impl fmt::Display for LexicalErrorType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LexicalErrorType::StringError => write!(f, "Got unexpected string"),
+            LexicalErrorType::FStringError(error) => write!(f, "Got error in f-string: {}", error),
+            LexicalErrorType::UnicodeError => write!(f, "Got unexpected unicode"),
+            LexicalErrorType::NestingError => write!(f, "Got unexpected nesting"),
+            LexicalErrorType::UnrecognizedToken { tok } => {
+                write!(f, "Got unexpected token {}", tok)
+            }
+            LexicalErrorType::OtherError(msg) => write!(f, "{}", msg),
+        }
+    }
+}
+
+// TODO: consolidate these with ParseError
+#[derive(Debug, PartialEq)]
+pub struct FStringError {
+    pub error: FStringErrorType,
+    pub location: Location,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum FStringErrorType {
+    UnclosedLbrace,
+    UnopenedRbrace,
+    InvalidExpression(Box<ParseErrorType>),
+    InvalidConversionFlag,
+    EmptyExpression,
+    MismatchedDelimiter,
+}
+
+impl fmt::Display for FStringErrorType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            FStringErrorType::UnclosedLbrace => write!(f, "Unclosed '('"),
+            FStringErrorType::UnopenedRbrace => write!(f, "Unopened ')'"),
+            FStringErrorType::InvalidExpression(error) => {
+                write!(f, "Invalid expression: {}", error)
+            }
+            FStringErrorType::InvalidConversionFlag => write!(f, "Invalid conversion flag"),
+            FStringErrorType::EmptyExpression => write!(f, "Empty expression"),
+            FStringErrorType::MismatchedDelimiter => write!(f, "Mismatched delimiter"),
+        }
+    }
+}
+
+impl From<FStringError> for LalrpopError<Location, Tok, LexicalError> {
+    fn from(err: FStringError) -> Self {
+        lalrpop_util::ParseError::User {
+            error: LexicalError {
+                error: LexicalErrorType::FStringError(err.error),
+                location: err.location,
+            },
+        }
+    }
+}
 
 /// Represents an error during parsing
 #[derive(Debug, PartialEq)]

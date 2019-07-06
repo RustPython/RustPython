@@ -2,9 +2,8 @@
 //!
 //! Roughly equivalent to this: https://docs.python.org/3/library/ast.html
 
-pub use super::lexer::Location;
+pub use crate::location::Location;
 use num_bigint::BigInt;
-use serde::{Deserialize, Serialize};
 
 /*
 #[derive(Debug)]
@@ -390,7 +389,7 @@ pub enum Number {
 }
 
 /// Transforms a value prior to formatting it.
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ConversionFlag {
     /// Converts by calling `str(<value>)`.
     Str,

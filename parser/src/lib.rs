@@ -6,6 +6,7 @@ pub mod ast;
 pub mod error;
 mod fstring;
 pub mod lexer;
+pub mod location;
 pub mod parser;
 lalrpop_mod!(
     #[allow(clippy::all)]
