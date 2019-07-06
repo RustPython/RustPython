@@ -83,6 +83,7 @@ pub fn import_codeobj(
     Ok(module)
 }
 
+// TODO: This function should do nothing on verbose mode.
 pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyObjectRef) -> PyObjectRef {
     let always_trim = objtype::isinstance(exc, &vm.ctx.exceptions.import_error);
 
