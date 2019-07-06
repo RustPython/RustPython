@@ -1,27 +1,15 @@
-extern crate rustpython_parser;
-
-use std::error::Error;
-
-use crate::compile;
 use crate::frame::Scope;
 use crate::pyobject::PyResult;
 use crate::vm::VirtualMachine;
+use rustpython_compiler::compile;
 
 pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) -> PyResult {
-    match compile::compile(
-        source,
-        &compile::Mode::Eval,
-        source_path.to_string(),
-        vm.ctx.code_type(),
-    ) {
+    match vm.compile(source, &compile::Mode::Eval, source_path.to_string()) {
         Ok(bytecode) => {
             debug!("Code object: {:?}", bytecode);
             vm.run_code_obj(bytecode, scope)
         }
-        Err(err) => {
-            let syntax_error = vm.context().exceptions.syntax_error.clone();
-            Err(vm.new_exception(syntax_error, err.description().to_string()))
-        }
+        Err(err) => Err(vm.new_syntax_error(&err)),
     }
 }
 
@@ -34,7 +22,7 @@ mod tests {
     fn test_print_42() {
         let source = String::from("print('Hello world')\n");
         let mut vm = VirtualMachine::new();
-        let vars = vm.ctx.new_scope();
+        let vars = vm.new_scope_with_builtins();
         let _result = eval(&mut vm, &source, vars, "<unittest>");
 
         // TODO: check result?

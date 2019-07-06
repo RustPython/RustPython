@@ -35,7 +35,7 @@ pub fn parse_program(source: &str) -> Result<ast::Program, ParseError> {
     do_lalr_parsing!(source, Program, StartProgram)
 }
 
-pub fn parse_statement(source: &str) -> Result<ast::LocatedStatement, ParseError> {
+pub fn parse_statement(source: &str) -> Result<Vec<ast::LocatedStatement>, ParseError> {
     do_lalr_parsing!(source, Statement, StartStatement)
 }
 
@@ -44,7 +44,6 @@ pub fn parse_statement(source: &str) -> Result<ast::LocatedStatement, ParseError
 /// # Example
 /// ```
 /// extern crate num_bigint;
-/// extern crate rustpython_parser;
 /// use num_bigint::BigInt;
 /// use rustpython_parser::{parser, ast};
 /// let expr = parser::parse_expression("1+2").unwrap();
@@ -180,7 +179,7 @@ mod tests {
         let parse_ast = parse_statement(&source).unwrap();
         assert_eq!(
             parse_ast,
-            ast::LocatedStatement {
+            vec![ast::LocatedStatement {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::If {
                     test: ast::Expression::Number {
@@ -229,7 +228,7 @@ mod tests {
                         }
                     },]),
                 }
-            }
+            }]
         );
     }
 
@@ -239,7 +238,7 @@ mod tests {
         let parse_ast = parse_statement(&source);
         assert_eq!(
             parse_ast,
-            Ok(ast::LocatedStatement {
+            Ok(vec![ast::LocatedStatement {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::Expression {
                     expression: ast::Expression::Lambda {
@@ -271,7 +270,7 @@ mod tests {
                         })
                     }
                 }
-            })
+            }])
         )
     }
 
@@ -281,7 +280,7 @@ mod tests {
 
         assert_eq!(
             parse_statement(&source),
-            Ok(ast::LocatedStatement {
+            Ok(vec![ast::LocatedStatement {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::Assign {
                     targets: vec![ast::Expression::Tuple {
@@ -309,7 +308,7 @@ mod tests {
                         ]
                     }
                 }
-            })
+            }])
         )
     }
 
@@ -320,7 +319,7 @@ mod tests {
         );
         assert_eq!(
             parse_statement(&source),
-            Ok(ast::LocatedStatement {
+            Ok(vec![ast::LocatedStatement {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::ClassDef {
                     name: String::from("Foo"),
@@ -393,7 +392,7 @@ mod tests {
                     ],
                     decorator_list: vec![],
                 }
-            })
+            }])
         )
     }
 
@@ -460,26 +459,30 @@ mod tests {
                         },
                         ifs: vec![
                             ast::Expression::Compare {
-                                a: Box::new(ast::Expression::Identifier {
-                                    name: "a".to_string()
-                                }),
-                                op: ast::Comparison::Less,
-                                b: Box::new(ast::Expression::Number {
-                                    value: ast::Number::Integer {
-                                        value: BigInt::from(5)
+                                vals: vec![
+                                    ast::Expression::Identifier {
+                                        name: "a".to_string()
+                                    },
+                                    ast::Expression::Number {
+                                        value: ast::Number::Integer {
+                                            value: BigInt::from(5)
+                                        }
                                     }
-                                }),
+                                ],
+                                ops: vec![ast::Comparison::Less],
                             },
                             ast::Expression::Compare {
-                                a: Box::new(ast::Expression::Identifier {
-                                    name: "a".to_string()
-                                }),
-                                op: ast::Comparison::Greater,
-                                b: Box::new(ast::Expression::Number {
-                                    value: ast::Number::Integer {
-                                        value: BigInt::from(10)
+                                vals: vec![
+                                    ast::Expression::Identifier {
+                                        name: "a".to_string()
+                                    },
+                                    ast::Expression::Number {
+                                        value: ast::Number::Integer {
+                                            value: BigInt::from(10)
+                                        }
                                     }
-                                }),
+                                ],
+                                ops: vec![ast::Comparison::Greater],
                             },
                         ],
                     }

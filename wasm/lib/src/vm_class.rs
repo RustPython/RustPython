@@ -5,40 +5,51 @@ use std::rc::{Rc, Weak};
 use js_sys::{Object, Reflect, SyntaxError, TypeError};
 use wasm_bindgen::prelude::*;
 
-use rustpython_vm::compile;
+use rustpython_compiler::{compile, error::CompileErrorType};
 use rustpython_vm::frame::{NameProtocol, Scope};
 use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::pyobject::{PyContext, PyObjectRef, PyResult};
+use rustpython_vm::import;
+use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
 
 use crate::browser_module::setup_browser_module;
 use crate::convert;
+use crate::js_module;
 use crate::wasm_builtins;
-
-pub trait HeldRcInner {}
-
-impl<T> HeldRcInner for T {}
 
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
     pub scope: RefCell<Scope>,
     /// you can put a Rc in here, keep it as a Weak, and it'll be held only for
     /// as long as the StoredVM is alive
-    held_rcs: RefCell<Vec<Rc<dyn HeldRcInner>>>,
+    held_objects: RefCell<Vec<PyObjectRef>>,
 }
 
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
         let mut vm = VirtualMachine::new();
-        let scope = vm.ctx.new_scope();
+        vm.wasm_id = Some(id);
+        let scope = vm.new_scope_with_builtins();
+
+        js_module::setup_js_module(&vm);
         if inject_browser_module {
+            vm.stdlib_inits.borrow_mut().insert(
+                "_window".to_string(),
+                Box::new(|vm| {
+                    py_module!(vm, "_window", {
+                        "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(vm),
+                    })
+                }),
+            );
             setup_browser_module(&vm);
         }
-        vm.wasm_id = Some(id);
+
+        import::init_importlib(&vm, false);
+
         StoredVirtualMachine {
             vm,
             scope: RefCell::new(scope),
-            held_rcs: RefCell::new(Vec::new()),
+            held_objects: RefCell::new(Vec::new()),
         }
     }
 }
@@ -47,9 +58,26 @@ impl StoredVirtualMachine {
 // probably gets compiled down to a normal-ish static varible, like Atomic* types do:
 // https://rustwasm.github.io/2018/10/24/multithreading-rust-and-wasm.html#atomic-instructions
 thread_local! {
-    static STORED_VMS: RefCell<HashMap<String, Rc<StoredVirtualMachine>>> =
-        RefCell::default();
-    static ACTIVE_VMS: RefCell<HashMap<String, *const VirtualMachine>> = RefCell::default();
+    static STORED_VMS: RefCell<HashMap<String, Rc<StoredVirtualMachine>>> = RefCell::default();
+}
+
+pub fn get_vm_id(vm: &VirtualMachine) -> &str {
+    vm.wasm_id
+        .as_ref()
+        .expect("VirtualMachine inside of WASM crate should have wasm_id set")
+}
+pub(crate) fn stored_vm_from_wasm(wasm_vm: &WASMVirtualMachine) -> Rc<StoredVirtualMachine> {
+    STORED_VMS.with(|cell| {
+        cell.borrow()
+            .get(&wasm_vm.id)
+            .expect("VirtualMachine is not valid")
+            .clone()
+    })
+}
+pub(crate) fn weak_vm(vm: &VirtualMachine) -> Weak<StoredVirtualMachine> {
+    let id = get_vm_id(vm);
+    STORED_VMS
+        .with(|cell| Rc::downgrade(cell.borrow().get(id).expect("VirtualMachine is not valid")))
 }
 
 #[wasm_bindgen(js_name = vmStore)]
@@ -109,44 +137,6 @@ impl VMStore {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct AccessibleVM {
-    weak: Weak<StoredVirtualMachine>,
-    id: String,
-}
-
-impl AccessibleVM {
-    pub fn from_id(id: String) -> AccessibleVM {
-        let weak = STORED_VMS
-            .with(|cell| Rc::downgrade(cell.borrow().get(&id).expect("WASM VM to be valid")));
-        AccessibleVM { weak, id }
-    }
-
-    pub fn upgrade(&self) -> Option<Rc<StoredVirtualMachine>> {
-        self.weak.upgrade()
-    }
-}
-
-impl From<WASMVirtualMachine> for AccessibleVM {
-    fn from(vm: WASMVirtualMachine) -> AccessibleVM {
-        AccessibleVM::from_id(vm.id)
-    }
-}
-impl From<&WASMVirtualMachine> for AccessibleVM {
-    fn from(vm: &WASMVirtualMachine) -> AccessibleVM {
-        AccessibleVM::from_id(vm.id.clone())
-    }
-}
-impl From<&VirtualMachine> for AccessibleVM {
-    fn from(vm: &VirtualMachine) -> AccessibleVM {
-        AccessibleVM::from_id(
-            vm.wasm_id
-                .clone()
-                .expect("VM passed to from::<VirtualMachine>() to have wasm_id be Some()"),
-        )
-    }
-}
-
 #[wasm_bindgen(js_name = VirtualMachine)]
 #[derive(Clone)]
 pub struct WASMVirtualMachine {
@@ -178,13 +168,13 @@ impl WASMVirtualMachine {
         STORED_VMS.with(|cell| cell.borrow().contains_key(&self.id))
     }
 
-    pub(crate) fn push_held_rc<T: HeldRcInner + 'static>(
+    pub(crate) fn push_held_rc(
         &self,
-        rc: Rc<T>,
-    ) -> Result<Weak<T>, JsValue> {
+        obj: PyObjectRef,
+    ) -> Result<Weak<PyObject<dyn PyObjectPayload>>, JsValue> {
         self.with(|stored_vm| {
-            let weak = Rc::downgrade(&rc);
-            stored_vm.held_rcs.borrow_mut().push(rc);
+            let weak = Rc::downgrade(&obj);
+            stored_vm.held_objects.borrow_mut().push(obj);
             weak
         })
     }
@@ -224,15 +214,15 @@ impl WASMVirtualMachine {
             fn error() -> JsValue {
                 TypeError::new("Unknown stdout option, please pass a function or 'console'").into()
             }
-            let print_fn: Box<Fn(&VirtualMachine, PyFuncArgs) -> PyResult> =
-                if let Some(s) = stdout.as_string() {
-                    match s.as_str() {
-                        "console" => Box::new(wasm_builtins::builtin_print_console),
-                        _ => return Err(error()),
-                    }
-                } else if stdout.is_function() {
-                    let func = js_sys::Function::from(stdout);
-                    Box::new(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
+            let print_fn: PyObjectRef = if let Some(s) = stdout.as_string() {
+                match s.as_str() {
+                    "console" => vm.ctx.new_rustfunc(wasm_builtins::builtin_print_console),
+                    _ => return Err(error()),
+                }
+            } else if stdout.is_function() {
+                let func = js_sys::Function::from(stdout);
+                vm.ctx
+                    .new_rustfunc(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
                         func.call1(
                             &JsValue::UNDEFINED,
                             &wasm_builtins::format_print_args(vm, args)?.into(),
@@ -240,16 +230,15 @@ impl WASMVirtualMachine {
                         .map_err(|err| convert::js_to_py(vm, err))?;
                         Ok(vm.get_none())
                     })
-                } else if stdout.is_undefined() || stdout.is_null() {
-                    fn noop(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-                        Ok(vm.get_none())
-                    }
-                    Box::new(noop)
-                } else {
-                    return Err(error());
-                };
-            let rustfunc = vm.ctx.new_rustfunc(print_fn);
-            vm.ctx.set_attr(&vm.builtins, "print", rustfunc);
+            } else if stdout.is_undefined() || stdout.is_null() {
+                fn noop(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+                    Ok(vm.get_none())
+                }
+                vm.ctx.new_rustfunc(noop)
+            } else {
+                return Err(error());
+            };
+            vm.set_attr(&vm.builtins, "print", print_fn).unwrap();
             Ok(())
         })?
     }
@@ -266,12 +255,12 @@ impl WASMVirtualMachine {
 
             let mod_name = name.clone();
 
-            let stdlib_init_fn = move |ctx: &PyContext| {
-                let py_mod = ctx.new_module(&name, ctx.new_dict());
+            let stdlib_init_fn = move |vm: &VirtualMachine| {
+                let module = vm.ctx.new_module(&name, vm.ctx.new_dict());
                 for (key, value) in module_items.clone() {
-                    ctx.set_attr(&py_mod, &key, value);
+                    vm.set_attr(&module, key, value).unwrap();
                 }
-                py_mod
+                module
             };
 
             vm.stdlib_inits
@@ -289,40 +278,30 @@ impl WASMVirtualMachine {
                  ref vm, ref scope, ..
              }| {
                 source.push('\n');
-                let code =
-                    compile::compile(&source, &mode, "<wasm>".to_string(), vm.ctx.code_type());
+                let code = vm.compile(&source, &mode, "<wasm>".to_string());
                 let code = code.map_err(|err| {
                     let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
-                    if let rustpython_vm::error::CompileError::Parse(ref parse_error) = err {
+                    if let CompileErrorType::Parse(ref parse_error) = err.error {
                         use rustpython_parser::error::ParseError;
                         if let ParseError::EOF(Some(ref loc))
                         | ParseError::ExtraToken((ref loc, ..))
                         | ParseError::InvalidToken(ref loc)
                         | ParseError::UnrecognizedToken((ref loc, ..), _) = parse_error
                         {
-                            let _ = Reflect::set(
-                                &js_err,
-                                &"row".into(),
-                                &(loc.get_row() as u32).into(),
-                            );
-                            let _ = Reflect::set(
-                                &js_err,
-                                &"col".into(),
-                                &(loc.get_column() as u32).into(),
-                            );
+                            let _ =
+                                Reflect::set(&js_err, &"row".into(), &(loc.row() as u32).into());
+                            let _ =
+                                Reflect::set(&js_err, &"col".into(), &(loc.column() as u32).into());
                         }
                         if let ParseError::ExtraToken((_, _, ref loc))
                         | ParseError::UnrecognizedToken((_, _, ref loc), _) = parse_error
                         {
-                            let _ = Reflect::set(
-                                &js_err,
-                                &"endrow".into(),
-                                &(loc.get_row() as u32).into(),
-                            );
+                            let _ =
+                                Reflect::set(&js_err, &"endrow".into(), &(loc.row() as u32).into());
                             let _ = Reflect::set(
                                 &js_err,
                                 &"endcol".into(),
-                                &(loc.get_column() as u32).into(),
+                                &(loc.column() as u32).into(),
                             );
                         }
                     }

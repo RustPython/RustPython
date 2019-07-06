@@ -1,17 +1,10 @@
 use num_traits::Zero;
 
 use crate::function::PyFuncArgs;
-use crate::pyobject::{
-    IntoPyObject, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
-};
+use crate::pyobject::{IntoPyObject, PyContext, PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
 
-use super::objdict::PyDict;
-use super::objfloat::PyFloat;
 use super::objint::PyInt;
-use super::objlist::PyList;
-use super::objstr::PyString;
-use super::objtuple::PyTuple;
 use super::objtype;
 
 impl IntoPyObject for bool {
@@ -26,35 +19,21 @@ impl TryFromObject for bool {
     }
 }
 
+/// Convert Python bool into Rust bool.
 pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
-    if let Some(s) = obj.payload::<PyString>() {
-        return Ok(!s.value.is_empty());
-    }
-    if let Some(value) = obj.payload::<PyFloat>() {
-        return Ok(*value != PyFloat::from(0.0));
-    }
-    if let Some(dict) = obj.payload::<PyDict>() {
-        return Ok(!dict.entries.borrow().is_empty());
-    }
-    if let Some(i) = obj.payload::<PyInt>() {
-        return Ok(!i.value.is_zero());
-    }
-    if let Some(list) = obj.payload::<PyList>() {
-        return Ok(!list.elements.borrow().is_empty());
-    }
-    if let Some(tuple) = obj.payload::<PyTuple>() {
-        return Ok(!tuple.elements.borrow().is_empty());
-    }
-
-    Ok(if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
-        let bool_res = vm.invoke(f, PyFuncArgs::default())?;
-        match bool_res.payload::<PyInt>() {
-            Some(i) => !i.value.is_zero(),
-            None => return Err(vm.new_type_error(String::from("TypeError"))),
+    let rs_bool = match vm.get_method(obj.clone(), "__bool__") {
+        Some(method_or_err) => {
+            // If descriptor returns Error, propagate it further
+            let method = method_or_err?;
+            let bool_obj = vm.invoke(method, PyFuncArgs::default())?;
+            match bool_obj.payload::<PyInt>() {
+                Some(int_obj) => !int_obj.as_bigint().is_zero(),
+                None => return Err(vm.new_type_error(String::from(""))),
+            }
         }
-    } else {
-        true
-    })
+        None => true,
+    };
+    Ok(rs_bool)
 }
 
 pub fn init(context: &PyContext) {
@@ -65,9 +44,17 @@ The builtins True and False are the only two instances of the class bool.
 The class bool is a subclass of the class int, and cannot be subclassed.";
 
     let bool_type = &context.bool_type;
-    context.set_attr(&bool_type, "__new__", context.new_rustfunc(bool_new));
-    context.set_attr(&bool_type, "__repr__", context.new_rustfunc(bool_repr));
-    context.set_attr(&bool_type, "__doc__", context.new_str(bool_doc.to_string()));
+    extend_class!(context, bool_type, {
+        "__new__" => context.new_rustfunc(bool_new),
+        "__repr__" => context.new_rustfunc(bool_repr),
+        "__or__" => context.new_rustfunc(bool_or),
+        "__ror__" => context.new_rustfunc(bool_ror),
+        "__and__" => context.new_rustfunc(bool_and),
+        "__rand__" => context.new_rustfunc(bool_rand),
+        "__xor__" => context.new_rustfunc(bool_xor),
+        "__rxor__" => context.new_rustfunc(bool_rxor),
+        "__doc__" => context.new_str(bool_doc.to_string())
+    });
 }
 
 pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult {
@@ -81,7 +68,7 @@ pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult {
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> bool {
-    !obj.payload::<PyInt>().unwrap().value.is_zero()
+    !obj.payload::<PyInt>().unwrap().as_bigint().is_zero()
 }
 
 fn bool_repr(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
@@ -93,6 +80,72 @@ fn bool_repr(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObj
         "False".to_string()
     };
     Ok(vm.new_str(s))
+}
+
+fn do_bool_or(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyResult {
+    if objtype::isinstance(lhs, &vm.ctx.bool_type())
+        && objtype::isinstance(rhs, &vm.ctx.bool_type())
+    {
+        let lhs = get_value(lhs);
+        let rhs = get_value(rhs);
+        (lhs || rhs).into_pyobject(vm)
+    } else {
+        Ok(lhs.payload::<PyInt>().unwrap().or(rhs.clone(), vm))
+    }
+}
+
+fn bool_or(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
+    do_bool_or(vm, lhs, rhs)
+}
+
+fn bool_ror(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(rhs, None), (lhs, None)]);
+    do_bool_or(vm, lhs, rhs)
+}
+
+fn do_bool_and(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyResult {
+    if objtype::isinstance(lhs, &vm.ctx.bool_type())
+        && objtype::isinstance(rhs, &vm.ctx.bool_type())
+    {
+        let lhs = get_value(lhs);
+        let rhs = get_value(rhs);
+        (lhs && rhs).into_pyobject(vm)
+    } else {
+        Ok(lhs.payload::<PyInt>().unwrap().and(rhs.clone(), vm))
+    }
+}
+
+fn bool_and(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
+    do_bool_and(vm, lhs, rhs)
+}
+
+fn bool_rand(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(rhs, None), (lhs, None)]);
+    do_bool_and(vm, lhs, rhs)
+}
+
+fn do_bool_xor(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyResult {
+    if objtype::isinstance(lhs, &vm.ctx.bool_type())
+        && objtype::isinstance(rhs, &vm.ctx.bool_type())
+    {
+        let lhs = get_value(lhs);
+        let rhs = get_value(rhs);
+        (lhs ^ rhs).into_pyobject(vm)
+    } else {
+        Ok(lhs.payload::<PyInt>().unwrap().xor(rhs.clone(), vm))
+    }
+}
+
+fn bool_xor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
+    do_bool_xor(vm, lhs, rhs)
+}
+
+fn bool_rxor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(rhs, None), (lhs, None)]);
+    do_bool_xor(vm, lhs, rhs)
 }
 
 fn bool_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {

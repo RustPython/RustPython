@@ -1,3 +1,5 @@
+from testutils import assert_raises
+
 assert "a" == 'a'
 assert """a""" == "a"
 assert len(""" " "" " "" """) == 11
@@ -27,14 +29,29 @@ assert repr('\n\t') == "'\\n\\t'"
 
 assert str(["a", "b", "can't"]) == "['a', 'b', \"can't\"]"
 
+assert "xy" * 3 == "xyxyxy"
+assert "x" * 0 == ""
+assert "x" * -1 == ""
+
+assert 3 * "xy" == "xyxyxy"
+assert 0 * "x" == ""
+assert -1 * "x" == ""
+
+assert_raises(OverflowError, lambda: 'xy' * 234234234234234234234234234234)
+
 a = 'Hallo'
 assert a.lower() == 'hallo'
 assert a.upper() == 'HALLO'
-assert a.split('al') == ['H', 'lo']
 assert a.startswith('H')
+assert a.startswith(('H', 1))
+assert a.startswith(('A', 'H'))
 assert not a.startswith('f')
+assert not a.startswith(('A', 'f'))
 assert a.endswith('llo')
+assert a.endswith(('lo', 1))
+assert a.endswith(('A', 'lo'))
 assert not a.endswith('on')
+assert not a.endswith(('A', 'll'))
 assert a.zfill(8) == '000Hallo'
 assert a.isalnum()
 assert not a.isdigit()
@@ -43,16 +60,58 @@ assert not a.isnumeric()
 assert a.istitle()
 assert a.isalpha()
 
-
+s = '1 2 3'
+assert s.split(' ', 1) == ['1', '2 3']
+assert s.rsplit(' ', 1) == ['1 2', '3']
 
 b = '  hallo  '
 assert b.strip() == 'hallo'
 assert b.lstrip() == 'hallo  '
 assert b.rstrip() == '  hallo'
 
+s = '^*RustPython*^'
+assert s.strip('^*') == 'RustPython'
+assert s.lstrip('^*') == 'RustPython*^'
+assert s.rstrip('^*') == '^*RustPython'
+
+s = 'RustPython'
+assert s.ljust(8) == 'RustPython'
+assert s.rjust(8) == 'RustPython'
+assert s.ljust(12) == 'RustPython  '
+assert s.rjust(12) == '  RustPython'
+assert s.ljust(12, '_') == 'RustPython__'
+assert s.rjust(12, '_') == '__RustPython'
+# The fill character must be exactly one character long
+assert_raises(TypeError, lambda: s.ljust(12, '__'))
+assert_raises(TypeError, lambda: s.rjust(12, '__'))
+
 c = 'hallo'
 assert c.capitalize() == 'Hallo'
 assert c.center(11, '-') == '---hallo---'
+assert ["koki".center(i, "|") for i in range(3, 10)] == [
+    "koki",
+    "koki",
+    "|koki",
+    "|koki|",
+    "||koki|",
+    "||koki||",
+    "|||koki||",
+]
+
+
+assert ["kok".center(i, "|") for i in range(2, 10)] == [
+    "kok",
+    "kok",
+    "kok|",
+    "|kok|",
+    "|kok||",
+    "||kok||",
+    "||kok|||",
+    "|||kok|||",
+]
+
+
+# requires CPython 3.7, and the CI currently runs with 3.6
 # assert c.isascii()
 assert c.index('a') == 1
 assert c.rindex('l') == 3
@@ -94,6 +153,7 @@ assert '___a__'.find('a', 3, 4) == 3
 assert '___a__'.find('a', 4, 3) == -1
 
 assert 'abcd'.startswith('b', 1)
+assert 'abcd'.startswith(('b', 'z'), 1)
 assert not 'abcd'.startswith('b', -4)
 assert 'abcd'.startswith('b', -3)
 
@@ -107,16 +167,56 @@ assert 'abc\t12345\txyz'.expandtabs() == 'abc     12345   xyz'
 assert '-'.join(['1', '2', '3']) == '1-2-3'
 assert 'HALLO'.isupper()
 assert "hello, my name is".partition("my ") == ('hello, ', 'my ', 'name is')
+assert "hello".partition("is") == ('hello', '', '')
 assert "hello, my name is".rpartition("is") == ('hello, my name ', 'is', '')
+assert "hello".rpartition("is") == ('', '', 'hello')
 assert not ''.isdecimal()
 assert '123'.isdecimal()
 assert not '\u00B2'.isdecimal()
 
+assert not ''.isidentifier()
+assert 'python'.isidentifier()
+assert '_'.isidentifier()
+assert '유니코드'.isidentifier()
+assert not '😂'.isidentifier()
+assert not '123'.isidentifier()
+
 # String Formatting
-assert "{} {}".format(1,2) == "1 2"
-assert "{0} {1}".format(2,3) == "2 3"
+assert "{} {}".format(1, 2) == "1 2"
+assert "{0} {1}".format(2, 3) == "2 3"
 assert "--{:s>4}--".format(1) == "--sss1--"
 assert "{keyword} {0}".format(1, keyword=2) == "2 1"
+assert "repr() shows quotes: {!r}; str() doesn't: {!s}".format(
+    'test1', 'test2'
+) == "repr() shows quotes: 'test1'; str() doesn't: test2", 'Output: {!r}, {!s}'.format('test1', 'test2')
+
+
+class Foo:
+    def __str__(self):
+        return 'str(Foo)'
+
+    def __repr__(self):
+        return 'repr(Foo)'
+
+
+f = Foo()
+assert "{} {!s} {!r} {!a}".format(f, f, f, f) == 'str(Foo) str(Foo) repr(Foo) repr(Foo)'
+assert "{foo} {foo!s} {foo!r} {foo!a}".format(foo=f) == 'str(Foo) str(Foo) repr(Foo) repr(Foo)'
+# assert '{} {!r} {:10} {!r:10} {foo!r:10} {foo!r} {foo}'.format('txt1', 'txt2', 'txt3', 'txt4', 'txt5', foo='bar')
+
+
+# Printf-style String formatting
+assert "%d %d" % (1, 2) == "1 2"
+assert "%*c  " % (3, '❤') == "  ❤  "
+assert "%(first)s %(second)s" % {'second': 'World!', 'first': "Hello,"} == "Hello, World!"
+assert "%(key())s" % {'key()': 'aaa'}
+assert "%s %a %r" % (f, f, f) == "str(Foo) repr(Foo) repr(Foo)"
+assert "repr() shows quotes: %r; str() doesn't: %s" % ("test1", "test2") == "repr() shows quotes: 'test1'; str() doesn't: test2"
+
+assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25), msg="format requires a mapping")
+assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo", msg="format requires a mapping")
+assert_raises(ValueError, lambda: "This %(food}s is great!" % {"food": "cookie"}, msg="incomplete format key")
+assert_raises(ValueError, lambda: "My name is %" % "Foo", msg="incomplete format")
 
 assert 'a' < 'b'
 assert 'a' <= 'b'
@@ -124,3 +224,42 @@ assert 'a' <= 'a'
 assert 'z' > 'b'
 assert 'z' >= 'b'
 assert 'a' >= 'a'
+
+# str.translate
+assert "abc".translate({97: '🎅', 98: None, 99: "xd"}) == "🎅xd"
+
+# str.maketrans
+assert str.maketrans({"a": "abc", "b": None, "c": 33}) == {97: "abc", 98: None, 99: 33}
+assert str.maketrans("hello", "world", "rust") == {104: 119, 101: 111, 108: 108, 111: 100, 114: None, 117: None, 115: None, 116: None}
+
+def try_mutate_str():
+   word = "word"
+   word[0] = 'x'
+
+assert_raises(TypeError, try_mutate_str)
+
+ss = ['Hello', '안녕', '👋']
+bs = [b'Hello', b'\xec\x95\x88\xeb\x85\x95', b'\xf0\x9f\x91\x8b']
+
+for s, b in zip(ss, bs):
+    assert s.encode() == b
+
+for s, b, e in zip(ss, bs, ['u8', 'U8', 'utf-8', 'UTF-8', 'utf_8']):
+    assert s.encode(e) == b
+    # assert s.encode(encoding=e) == b
+
+# str.isisprintable
+assert "".isprintable()
+assert " ".isprintable()
+assert "abcdefg".isprintable()
+assert not "abcdefg\n".isprintable()
+assert "ʹ".isprintable()
+
+# test unicode iterals
+assert "\xac" == "¬"
+assert "\u0037" == "7"
+assert "\u0040" == "@"
+assert "\u0041" == "A"
+assert "\u00BE" == "¾"
+assert "\u9487" == "钇"
+assert "\U0001F609" == "😉"

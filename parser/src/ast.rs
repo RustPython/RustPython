@@ -4,6 +4,8 @@
 
 pub use super::lexer::Location;
 use num_bigint::BigInt;
+use serde::{Deserialize, Serialize};
+
 /*
 #[derive(Debug)]
 
@@ -16,7 +18,7 @@ pub struct Node {
 #[derive(Debug, PartialEq)]
 pub enum Top {
     Program(Program),
-    Statement(LocatedStatement),
+    Statement(Vec<LocatedStatement>),
     Expression(Expression),
 }
 
@@ -26,11 +28,17 @@ pub struct Program {
 }
 
 #[derive(Debug, PartialEq)]
+pub struct ImportSymbol {
+    pub symbol: String,
+    pub alias: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct SingleImport {
     pub module: String,
-    // (symbol name in module, name it should be assigned locally)
-    pub symbol: Option<String>,
     pub alias: Option<String>,
+    pub symbols: Vec<ImportSymbol>,
+    pub level: usize,
 }
 
 #[derive(Debug, PartialEq)]
@@ -42,12 +50,13 @@ pub struct Located<T> {
 pub type LocatedStatement = Located<Statement>;
 
 /// Abstract syntax tree nodes for python statements.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
 pub enum Statement {
     Break,
     Continue,
     Return {
-        value: Option<Vec<Expression>>,
+        value: Option<Box<Expression>>,
     },
     Import {
         import_parts: Vec<SingleImport>,
@@ -94,7 +103,13 @@ pub enum Statement {
     },
     For {
         target: Expression,
-        iter: Vec<Expression>,
+        iter: Expression,
+        body: Vec<LocatedStatement>,
+        orelse: Option<Vec<LocatedStatement>>,
+    },
+    AsyncFor {
+        target: Expression,
+        iter: Expression,
         body: Vec<LocatedStatement>,
         orelse: Option<Vec<LocatedStatement>>,
     },
@@ -114,12 +129,17 @@ pub enum Statement {
         bases: Vec<Expression>,
         keywords: Vec<Keyword>,
         decorator_list: Vec<Expression>,
-        // TODO: docstring: String,
     },
     FunctionDef {
         name: String,
         args: Parameters,
-        // docstring: String,
+        body: Vec<LocatedStatement>,
+        decorator_list: Vec<Expression>,
+        returns: Option<Expression>,
+    },
+    AsyncFunctionDef {
+        name: String,
+        args: Parameters,
         body: Vec<LocatedStatement>,
         decorator_list: Vec<Expression>,
         returns: Option<Expression>,
@@ -152,6 +172,9 @@ pub enum Expression {
         op: UnaryOperator,
         a: Box<Expression>,
     },
+    Await {
+        value: Box<Expression>,
+    },
     Yield {
         value: Option<Box<Expression>>,
     },
@@ -159,9 +182,8 @@ pub enum Expression {
         value: Box<Expression>,
     },
     Compare {
-        a: Box<Expression>,
-        op: Comparison,
-        b: Box<Expression>,
+        vals: Vec<Expression>,
+        ops: Vec<Comparison>,
     },
     Attribute {
         value: Box<Expression>,
@@ -182,7 +204,7 @@ pub enum Expression {
         elements: Vec<Expression>,
     },
     Dict {
-        elements: Vec<(Expression, Expression)>,
+        elements: Vec<(Option<Expression>, Expression)>,
     },
     Set {
         elements: Vec<Expression>,
@@ -230,6 +252,7 @@ impl Expression {
         match self {
             BoolOp { .. } | Binop { .. } | Unop { .. } => "operator",
             Subscript { .. } => "subscript",
+            Await { .. } => "await expression",
             Yield { .. } | YieldFrom { .. } => "yield expression",
             Compare { .. } => "comparison",
             Attribute { .. } => "attribute",
@@ -367,7 +390,7 @@ pub enum Number {
 }
 
 /// Transforms a value prior to formatting it.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ConversionFlag {
     /// Converts by calling `str(<value>)`.
     Str,

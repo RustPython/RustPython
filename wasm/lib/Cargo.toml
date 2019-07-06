@@ -1,7 +1,7 @@
 [package]
 name = "rustpython_wasm"
-version = "0.1.0-pre-alpha.1"
-authors = ["Ryan Liddle <ryan@rmliddle.com>"]
+version = "0.1.0-pre-alpha.2"
+authors = ["RustPython Team"]
 license = "MIT"
 description = "A Python-3 (CPython >= 3.5.0) Interpreter written in Rust, compiled to WASM"
 repository = "https://github.com/RustPython/RustPython/tree/master/wasm/lib"
@@ -11,11 +11,14 @@ edition = "2018"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rustpython_parser = { path = "../../parser" }
-rustpython_vm = { path = "../../vm" }
+rustpython-compiler = { path = "../../compiler" }
+rustpython-parser = { path = "../../parser" }
+rustpython-vm = { path = "../../vm" }
 cfg-if = "0.1.2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.3"
+serde-wasm-bindgen = "0.1"
+serde = "1.0"
 js-sys = "0.3"
 futures = "0.1"
 num-traits = "0.2"

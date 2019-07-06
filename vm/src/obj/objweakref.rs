@@ -1,19 +1,20 @@
+use crate::function::OptionalArg;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::PyValue;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult};
+use crate::pyobject::{PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult};
 use crate::vm::VirtualMachine;
 
 use std::rc::{Rc, Weak};
 
 #[derive(Debug)]
 pub struct PyWeak {
-    referent: Weak<PyObject>,
+    referent: Weak<PyObject<dyn PyObjectPayload>>,
 }
 
 impl PyWeak {
-    pub fn downgrade(obj: PyObjectRef) -> PyWeak {
+    pub fn downgrade(obj: &PyObjectRef) -> PyWeak {
         PyWeak {
-            referent: Rc::downgrade(&obj),
+            referent: Rc::downgrade(obj),
         }
     }
 
@@ -23,7 +24,7 @@ impl PyWeak {
 }
 
 impl PyValue for PyWeak {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.weakref_type()
     }
 }
@@ -32,8 +33,13 @@ pub type PyWeakRef = PyRef<PyWeak>;
 
 impl PyWeakRef {
     // TODO callbacks
-    fn create(cls: PyClassRef, referent: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        PyWeak::downgrade(referent).into_ref_with_type(vm, cls)
+    fn create(
+        cls: PyClassRef,
+        referent: PyObjectRef,
+        _callback: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
+        PyWeak::downgrade(&referent).into_ref_with_type(vm, cls)
     }
 
     fn call(self, vm: &VirtualMachine) -> PyObjectRef {

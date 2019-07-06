@@ -7,8 +7,8 @@ use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
 
 use crate::function::PyFuncArgs;
-use crate::obj::objfloat;
-use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::obj::{objfloat, objtype};
+use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 // Helper macro:
@@ -172,8 +172,63 @@ fn math_lgamma(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "math", {
+fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -> PyResult {
+    let method = vm.get_method_or_type_error(value.clone(), func_name, || {
+        format!(
+            "type '{}' doesn't define '{}' method",
+            value.class().name,
+            func_name,
+        )
+    })?;
+    vm.invoke(method, vec![])
+}
+
+fn math_trunc(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(value, None)]);
+    try_magic_method("__trunc__", vm, value)
+}
+
+fn math_ceil(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(value, None)]);
+    if objtype::isinstance(value, &vm.ctx.float_type) {
+        let v = objfloat::get_value(value);
+        Ok(vm.ctx.new_float(v.ceil()))
+    } else {
+        try_magic_method("__ceil__", vm, value)
+    }
+}
+
+fn math_floor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(value, None)]);
+    if objtype::isinstance(value, &vm.ctx.float_type) {
+        let v = objfloat::get_value(value);
+        Ok(vm.ctx.new_float(v.floor()))
+    } else {
+        try_magic_method("__floor__", vm, value)
+    }
+}
+
+fn math_frexp(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    objfloat::try_float(&value, vm)?.map_or_else(
+        || Err(vm.new_type_error(format!("must be real number, not {}", value.class()))),
+        |value| {
+            let (m, e) = if value.is_finite() {
+                let (m, e) = objfloat::ufrexp(value);
+                (m * value.signum(), e)
+            } else {
+                (value, 0)
+            };
+            Ok(vm
+                .ctx
+                .new_tuple(vec![vm.ctx.new_float(m), vm.ctx.new_int(e)]))
+        },
+    )
+}
+
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    py_module!(vm, "math", {
         // Number theory functions:
         "fabs" => ctx.new_rustfunc(math_fabs),
         "isfinite" => ctx.new_rustfunc(math_isfinite),
@@ -216,6 +271,13 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "erfc" => ctx.new_rustfunc(math_erfc),
         "gamma" => ctx.new_rustfunc(math_gamma),
         "lgamma" => ctx.new_rustfunc(math_lgamma),
+
+        "frexp" => ctx.new_rustfunc(math_frexp),
+
+        // Rounding functions:
+        "trunc" => ctx.new_rustfunc(math_trunc),
+        "ceil" => ctx.new_rustfunc(math_ceil),
+        "floor" => ctx.new_rustfunc(math_floor),
 
         // Constants:
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...

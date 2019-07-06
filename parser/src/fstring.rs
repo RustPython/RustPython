@@ -5,7 +5,7 @@ use std::str;
 use lalrpop_util::ParseError as LalrpopError;
 
 use crate::ast::{ConversionFlag, StringGroup};
-use crate::lexer::{LexicalError, Location, Tok};
+use crate::lexer::{LexicalError, LexicalErrorType, Location, Tok};
 use crate::parser::parse_expression;
 
 use self::FStringError::*;
@@ -25,7 +25,10 @@ pub enum FStringError {
 impl From<FStringError> for LalrpopError<Location, Tok, LexicalError> {
     fn from(_err: FStringError) -> Self {
         lalrpop_util::ParseError::User {
-            error: LexicalError::StringError,
+            error: LexicalError {
+                error: LexicalErrorType::StringError,
+                location: Default::default(),
+            },
         }
     }
 }

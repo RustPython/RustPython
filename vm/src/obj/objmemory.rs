@@ -1,34 +1,51 @@
-use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::obj::objbyteinner::try_as_byte;
+use crate::obj::objtype::PyClassRef;
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
+#[pyclass(name = "memoryview")]
 #[derive(Debug)]
 pub struct PyMemoryView {
-    obj: PyObjectRef,
+    obj_ref: PyObjectRef,
+}
+
+pub type PyMemoryViewRef = PyRef<PyMemoryView>;
+
+#[pyimpl]
+impl PyMemoryView {
+    pub fn get_obj_value(&self) -> Option<Vec<u8>> {
+        try_as_byte(&self.obj_ref)
+    }
+
+    #[pymethod(name = "__new__")]
+    fn new(
+        cls: PyClassRef,
+        bytes_object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyMemoryViewRef> {
+        PyMemoryView {
+            obj_ref: bytes_object.clone(),
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
+    #[pyproperty]
+    fn obj(&self, __vm: &VirtualMachine) -> PyObjectRef {
+        self.obj_ref.clone()
+    }
+
+    #[pymethod(name = "__getitem__")]
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm.call_method(&self.obj_ref, "__getitem__", vec![needle])
+    }
 }
 
 impl PyValue for PyMemoryView {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.memoryview_type()
     }
 }
 
-pub fn new_memory_view(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(cls, None), (bytes_object, None)]);
-    vm.ctx.set_attr(&cls, "obj", bytes_object.clone());
-    Ok(PyObject::new(
-        PyMemoryView {
-            obj: bytes_object.clone(),
-        },
-        cls.clone(),
-    ))
-}
-
 pub fn init(ctx: &PyContext) {
-    let memoryview_type = &ctx.memoryview_type;
-    ctx.set_attr(
-        &memoryview_type,
-        "__new__",
-        ctx.new_rustfunc(new_memory_view),
-    );
+    PyMemoryView::extend_class(ctx, &ctx.memoryview_type)
 }

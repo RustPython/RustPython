@@ -5,12 +5,14 @@
 use std::fmt;
 
 use crate::bytecode;
-use crate::function::PyFuncArgs;
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::obj::objtype::PyClassRef;
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
+pub type PyCodeRef = PyRef<PyCode>;
+
 pub struct PyCode {
-    code: bytecode::CodeObject,
+    pub code: bytecode::CodeObject,
 }
 
 impl PyCode {
@@ -26,94 +28,68 @@ impl fmt::Debug for PyCode {
 }
 
 impl PyValue for PyCode {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.code_type()
     }
 }
 
+impl PyCodeRef {
+    #[allow(clippy::new_ret_no_self)]
+    fn new(_cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("Cannot directly create code object".to_string()))
+    }
+
+    fn repr(self, _vm: &VirtualMachine) -> String {
+        let code = &self.code;
+        format!(
+            "<code object {} at 0x{:x} file {:?}, line {}>",
+            code.obj_name,
+            self.get_id(),
+            code.source_path,
+            code.first_line_number
+        )
+    }
+
+    fn co_argcount(self, _vm: &VirtualMachine) -> usize {
+        self.code.arg_names.len()
+    }
+
+    fn co_filename(self, _vm: &VirtualMachine) -> String {
+        self.code.source_path.clone()
+    }
+
+    fn co_firstlineno(self, _vm: &VirtualMachine) -> usize {
+        self.code.first_line_number
+    }
+
+    fn co_kwonlyargcount(self, _vm: &VirtualMachine) -> usize {
+        self.code.kwonlyarg_names.len()
+    }
+
+    fn co_consts(self, vm: &VirtualMachine) -> PyObjectRef {
+        let consts = self
+            .code
+            .get_constants()
+            .map(|x| vm.ctx.unwrap_constant(x))
+            .collect();
+        vm.ctx.new_tuple(consts)
+    }
+
+    fn co_name(self, _vm: &VirtualMachine) -> String {
+        self.code.obj_name.clone()
+    }
+}
+
 pub fn init(context: &PyContext) {
-    let code_type = &context.code_type;
-    context.set_attr(code_type, "__new__", context.new_rustfunc(code_new));
-    context.set_attr(code_type, "__repr__", context.new_rustfunc(code_repr));
+    extend_class!(context, &context.code_type, {
+        "__new__" => context.new_rustfunc(PyCodeRef::new),
+        "__repr__" => context.new_rustfunc(PyCodeRef::repr),
 
-    for (name, f) in &[
-        (
-            "co_argcount",
-            code_co_argcount as fn(&VirtualMachine, PyFuncArgs) -> PyResult,
-        ),
-        ("co_consts", code_co_consts),
-        ("co_filename", code_co_filename),
-        ("co_firstlineno", code_co_firstlineno),
-        ("co_kwonlyargcount", code_co_kwonlyargcount),
-        ("co_name", code_co_name),
-    ] {
-        context.set_attr(code_type, name, context.new_property(f))
-    }
-}
-
-pub fn get_value(obj: &PyObjectRef) -> bytecode::CodeObject {
-    if let Some(code) = obj.payload::<PyCode>() {
-        code.code.clone()
-    } else {
-        panic!("Inner error getting code {:?}", obj)
-    }
-}
-
-fn code_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(_cls, None)]);
-    Err(vm.new_type_error("Cannot directly create code object".to_string()))
-}
-
-fn code_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(o, Some(vm.ctx.code_type()))]);
-
-    let code = get_value(o);
-    let repr = format!(
-        "<code object {} at 0x{:x} file {:?}, line {}>",
-        code.obj_name,
-        o.get_id(),
-        code.source_path,
-        code.first_line_number
-    );
-    Ok(vm.new_str(repr))
-}
-
-fn member_code_obj(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult<bytecode::CodeObject> {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.code_type()))]);
-    Ok(get_value(zelf))
-}
-
-fn code_co_argcount(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let code_obj = member_code_obj(vm, args)?;
-    Ok(vm.ctx.new_int(code_obj.arg_names.len()))
-}
-
-fn code_co_filename(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let code_obj = member_code_obj(vm, args)?;
-    let source_path = code_obj.source_path;
-    Ok(vm.new_str(source_path))
-}
-
-fn code_co_firstlineno(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let code_obj = member_code_obj(vm, args)?;
-    Ok(vm.ctx.new_int(code_obj.first_line_number))
-}
-
-fn code_co_kwonlyargcount(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let code_obj = member_code_obj(vm, args)?;
-    Ok(vm.ctx.new_int(code_obj.kwonlyarg_names.len()))
-}
-
-fn code_co_consts(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let code_obj = member_code_obj(vm, args)?;
-    let consts = code_obj
-        .get_constants()
-        .map(|x| vm.ctx.unwrap_constant(x))
-        .collect();
-    Ok(vm.ctx.new_tuple(consts))
-}
-
-fn code_co_name(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let code_obj = member_code_obj(vm, args)?;
-    Ok(vm.new_str(code_obj.obj_name))
+        "co_argcount" => context.new_property(PyCodeRef::co_argcount),
+        "co_consts" => context.new_property(PyCodeRef::co_consts),
+        "co_filename" => context.new_property(PyCodeRef::co_filename),
+        "co_firstlineno" => context.new_property(PyCodeRef::co_firstlineno),
+        "co_kwonlyargcount" => context.new_property(PyCodeRef::co_kwonlyargcount),
+        "co_name" => context.new_property(PyCodeRef::co_name),
+    });
 }

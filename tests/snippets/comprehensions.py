@@ -22,3 +22,8 @@ assert u['1'] == -1
 y = [a+2 for a in x if a % 2]
 print(y)
 assert y == [3, 5]
+
+z = [(9,), (10,)]
+w = [x for x, in z]
+assert w == [9, 10]
+

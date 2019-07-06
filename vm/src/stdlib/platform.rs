@@ -1,9 +1,10 @@
 use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyObjectRef, PyResult};
+use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "platform", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+    py_module!(vm, "platform", {
         "python_compiler" => ctx.new_rustfunc(platform_python_compiler),
         "python_implementation" => ctx.new_rustfunc(platform_python_implementation),
         "python_version" => ctx.new_rustfunc(platform_python_version),

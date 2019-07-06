@@ -1,0 +1,12 @@
+not_implemented = [(name, method)
+                   for name, (val, methods) in expected_methods.items()
+                   for method in methods
+                   if not hasattr(val, method)]
+
+for r in not_implemented:
+    print(r[0], ".", r[1], sep="")
+if not not_implemented:
+    print("Not much \\o/")
+
+if platform.python_implementation() == "CPython":
+    assert len(not_implemented) == 0, "CPython should have all the methods"

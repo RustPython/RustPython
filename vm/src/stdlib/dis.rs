@@ -1,29 +1,26 @@
-use crate::function::PyFuncArgs;
-use crate::obj::objcode;
-use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::obj::objcode::PyCodeRef;
+use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
 
-fn dis_dis(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, None)]);
-
+fn dis_dis(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     // Method or function:
     if let Ok(co) = vm.get_attribute(obj.clone(), "__code__") {
-        return dis_disassemble(vm, PyFuncArgs::new(vec![co], vec![]));
+        return dis_disassemble(co, vm);
     }
 
-    dis_disassemble(vm, PyFuncArgs::new(vec![obj.clone()], vec![]))
+    dis_disassemble(obj, vm)
 }
 
-fn dis_disassemble(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(co, Some(vm.ctx.code_type()))]);
-
-    let code = objcode::get_value(co);
+fn dis_disassemble(co: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let code = &PyCodeRef::try_from_object(vm, co)?.code;
     print!("{}", code);
     Ok(vm.get_none())
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "dis", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    py_module!(vm, "dis", {
         "dis" => ctx.new_rustfunc(dis_dis),
         "disassemble" => ctx.new_rustfunc(dis_disassemble)
     })

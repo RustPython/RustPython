@@ -1,22 +1,28 @@
 use std::cell::{Cell, RefCell};
 use std::fmt;
 
-use num_traits::ToPrimitive;
+use std::ops::Range;
+
+use num_bigint::{BigInt, ToBigInt};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
-use super::objint;
+//use super::objint;
+use super::objiter;
 use super::objsequence::{
-    get_elements, get_elements_cell, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
-    PySliceableSequence,
+    get_elements_cell, get_elements_list, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt,
+    seq_mul, SequenceIndex,
 };
+use super::objslice::PySliceRef;
 use super::objtype;
+use crate::obj::objtype::PyClassRef;
 
 #[derive(Default)]
 pub struct PyList {
@@ -40,8 +46,56 @@ impl From<Vec<PyObjectRef>> for PyList {
 }
 
 impl PyValue for PyList {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.list_type()
+    }
+}
+
+impl PyList {
+    pub fn get_len(&self) -> usize {
+        self.elements.borrow().len()
+    }
+
+    pub fn get_pos(&self, p: i32) -> Option<usize> {
+        // convert a (potentially negative) positon into a real index
+        if p < 0 {
+            if -p as usize > self.get_len() {
+                None
+            } else {
+                Some(self.get_len() - ((-p) as usize))
+            }
+        } else if p as usize >= self.get_len() {
+            None
+        } else {
+            Some(p as usize)
+        }
+    }
+
+    pub fn get_slice_pos(&self, slice_pos: &BigInt) -> usize {
+        if let Some(pos) = slice_pos.to_i32() {
+            if let Some(index) = self.get_pos(pos) {
+                // within bounds
+                return index;
+            }
+        }
+
+        if slice_pos.is_negative() {
+            // slice past start bound, round to start
+            0
+        } else {
+            // slice past end bound, round to end
+            self.get_len()
+        }
+    }
+
+    pub fn get_slice_range(&self, start: &Option<BigInt>, stop: &Option<BigInt>) -> Range<usize> {
+        let start = start.as_ref().map(|x| self.get_slice_pos(x)).unwrap_or(0);
+        let stop = stop
+            .as_ref()
+            .map(|x| self.get_slice_pos(x))
+            .unwrap_or_else(|| self.get_len());
+
+        start..stop
     }
 }
 
@@ -75,7 +129,7 @@ impl PyListRef {
     fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let e1 = self.elements.borrow();
-            let e2 = get_elements(&other);
+            let e2 = get_elements_list(&other);
             let elements = e1.iter().chain(e2.iter()).cloned().collect();
             Ok(vm.ctx.new_list(elements))
         } else {
@@ -87,11 +141,15 @@ impl PyListRef {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             self.elements
                 .borrow_mut()
-                .extend_from_slice(&get_elements(&other));
+                .extend_from_slice(&get_elements_list(&other));
             Ok(self.into_object())
         } else {
             Ok(vm.ctx.not_implemented())
         }
+    }
+
+    fn bool(self, _vm: &VirtualMachine) -> bool {
+        !self.elements.borrow().is_empty()
     }
 
     fn clear(self, _vm: &VirtualMachine) {
@@ -119,29 +177,199 @@ impl PyListRef {
         )
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> PyIteratorValue {
-        PyIteratorValue {
+    fn iter(self, _vm: &VirtualMachine) -> PyListIterator {
+        PyListIterator {
             position: Cell::new(0),
-            iterated_obj: self.into_object(),
+            list: self,
         }
     }
 
-    fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let mut elements = self.elements.borrow_mut();
+    fn setitem(
+        self,
+        subscript: SequenceIndex,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match subscript {
+            SequenceIndex::Int(index) => self.setindex(index, value, vm),
+            SequenceIndex::Slice(slice) => {
+                if let Ok(sec) = PyIterable::try_from_object(vm, value) {
+                    return self.setslice(slice, sec, vm);
+                }
+                Err(vm.new_type_error("can only assign an iterable to a slice".to_string()))
+            }
+        }
+    }
 
-        if objtype::isinstance(&key, &vm.ctx.int_type()) {
-            let idx = objint::get_value(&key).to_i32().unwrap();
-            if let Some(pos_index) = elements.get_pos(idx) {
-                elements[pos_index] = value;
-                Ok(vm.get_none())
+    fn setindex(self, index: i32, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(pos_index) = self.get_pos(index) {
+            self.elements.borrow_mut()[pos_index] = value;
+            Ok(vm.get_none())
+        } else {
+            Err(vm.new_index_error("list assignment index out of range".to_string()))
+        }
+    }
+
+    fn setslice(self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult {
+        let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
+
+        if step.is_zero() {
+            Err(vm.new_value_error("slice step cannot be zero".to_string()))
+        } else if step.is_positive() {
+            let range = self.get_slice_range(&slice.start_index(vm)?, &slice.stop_index(vm)?);
+            if range.start < range.end {
+                match step.to_i32() {
+                    Some(1) => self._set_slice(range, sec, vm),
+                    Some(num) => {
+                        // assign to extended slice
+                        self._set_stepped_slice(range, num as usize, sec, vm)
+                    }
+                    None => {
+                        // not sure how this is reached, step too big for i32?
+                        // then step is bigger than the than len of the list, no question
+                        #[allow(clippy::range_plus_one)]
+                        self._set_stepped_slice(range.start..(range.start + 1), 1, sec, vm)
+                    }
+                }
             } else {
-                Err(vm.new_index_error("list index out of range".to_string()))
+                // this functions as an insert of sec before range.start
+                self._set_slice(range.start..range.start, sec, vm)
             }
         } else {
-            panic!(
-                "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
-                elements, key
-            )
+            // calculate the range for the reverse slice, first the bounds needs to be made
+            // exclusive around stop, the lower number
+            let start = &slice.start_index(vm)?.as_ref().map(|x| {
+                if *x == (-1).to_bigint().unwrap() {
+                    self.get_len() + BigInt::one() //.to_bigint().unwrap()
+                } else {
+                    x + 1
+                }
+            });
+            let stop = &slice.stop_index(vm)?.as_ref().map(|x| {
+                if *x == (-1).to_bigint().unwrap() {
+                    self.get_len().to_bigint().unwrap()
+                } else {
+                    x + 1
+                }
+            });
+            let range = self.get_slice_range(&stop, &start);
+            match (-step).to_i32() {
+                Some(num) => self._set_stepped_slice_reverse(range, num as usize, sec, vm),
+                None => {
+                    // not sure how this is reached, step too big for i32?
+                    // then step is bigger than the than len of the list no question
+                    self._set_stepped_slice_reverse(range.end - 1..range.end, 1, sec, vm)
+                }
+            }
+        }
+    }
+
+    fn _set_slice(self, range: Range<usize>, sec: PyIterable, vm: &VirtualMachine) -> PyResult {
+        // consume the iter, we  need it's size
+        // and if it's going to fail we want that to happen *before* we start modifing
+        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
+        let items = items?;
+
+        // replace the range of elements with the full sequence
+        self.elements.borrow_mut().splice(range, items);
+
+        Ok(vm.get_none())
+    }
+
+    fn _set_stepped_slice(
+        self,
+        range: Range<usize>,
+        step: usize,
+        sec: PyIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let slicelen = if range.end > range.start {
+            ((range.end - range.start - 1) / step) + 1
+        } else {
+            0
+        };
+        // consume the iter, we  need it's size
+        // and if it's going to fail we want that to happen *before* we start modifing
+        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
+        let items = items?;
+
+        let n = items.len();
+
+        if range.start < range.end {
+            if n == slicelen {
+                let indexes = range.step_by(step);
+                self._replace_indexes(indexes, &items);
+                Ok(vm.get_none())
+            } else {
+                Err(vm.new_value_error(format!(
+                    "attempt to assign sequence of size {} to extended slice of size {}",
+                    n, slicelen
+                )))
+            }
+        } else if n == 0 {
+            // slice is empty but so is sequence
+            Ok(vm.get_none())
+        } else {
+            // empty slice but this is an error because stepped slice
+            Err(vm.new_value_error(format!(
+                "attempt to assign sequence of size {} to extended slice of size 0",
+                n
+            )))
+        }
+    }
+
+    fn _set_stepped_slice_reverse(
+        self,
+        range: Range<usize>,
+        step: usize,
+        sec: PyIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let slicelen = if range.end > range.start {
+            ((range.end - range.start - 1) / step) + 1
+        } else {
+            0
+        };
+
+        // consume the iter, we  need it's size
+        // and if it's going to fail we want that to happen *before* we start modifing
+        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
+        let items = items?;
+
+        let n = items.len();
+
+        if range.start < range.end {
+            if n == slicelen {
+                let indexes = range.rev().step_by(step);
+                self._replace_indexes(indexes, &items);
+                Ok(vm.get_none())
+            } else {
+                Err(vm.new_value_error(format!(
+                    "attempt to assign sequence of size {} to extended slice of size {}",
+                    n, slicelen
+                )))
+            }
+        } else if n == 0 {
+            // slice is empty but so is sequence
+            Ok(vm.get_none())
+        } else {
+            // empty slice but this is an error because stepped slice
+            Err(vm.new_value_error(format!(
+                "attempt to assign sequence of size {} to extended slice of size 0",
+                n
+            )))
+        }
+    }
+
+    fn _replace_indexes<I>(self, indexes: I, items: &[PyObjectRef])
+    where
+        I: Iterator<Item = usize>,
+    {
+        let mut elements = self.elements.borrow_mut();
+
+        for (i, value) in indexes.zip(items) {
+            // clone for refrence count
+            elements[i] = value.clone();
         }
     }
 
@@ -159,9 +387,19 @@ impl PyListRef {
         Ok(s)
     }
 
+    fn hash(self, vm: &VirtualMachine) -> PyResult<()> {
+        Err(vm.new_type_error("unhashable type".to_string()))
+    }
+
     fn mul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
         let new_elements = seq_mul(&self.elements.borrow(), counter);
         vm.ctx.new_list(new_elements)
+    }
+
+    fn imul(self, counter: isize, _vm: &VirtualMachine) -> Self {
+        let new_elements = seq_mul(&self.elements.borrow(), counter);
+        self.elements.replace(new_elements);
+        self
     }
 
     fn count(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
@@ -252,7 +490,7 @@ impl PyListRef {
 
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
-            let other = get_elements(&other);
+            let other = get_elements_list(&other);
             let res = seq_equal(vm, &zelf, &other)?;
             Ok(vm.new_bool(res))
         } else {
@@ -263,7 +501,7 @@ impl PyListRef {
     fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
-            let other = get_elements(&other);
+            let other = get_elements_list(&other);
             let res = seq_lt(vm, &zelf, &other)?;
             Ok(vm.new_bool(res))
         } else {
@@ -274,7 +512,7 @@ impl PyListRef {
     fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
-            let other = get_elements(&other);
+            let other = get_elements_list(&other);
             let res = seq_gt(vm, &zelf, &other)?;
             Ok(vm.new_bool(res))
         } else {
@@ -285,7 +523,7 @@ impl PyListRef {
     fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
-            let other = get_elements(&other);
+            let other = get_elements_list(&other);
             let res = seq_ge(vm, &zelf, &other)?;
             Ok(vm.new_bool(res))
         } else {
@@ -296,31 +534,158 @@ impl PyListRef {
     fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
-            let other = get_elements(&other);
+            let other = get_elements_list(&other);
             let res = seq_le(vm, &zelf, &other)?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
         }
     }
+
+    fn delitem(self, subscript: SequenceIndex, vm: &VirtualMachine) -> PyResult {
+        match subscript {
+            SequenceIndex::Int(index) => self.delindex(index, vm),
+            SequenceIndex::Slice(slice) => self.delslice(slice, vm),
+        }
+    }
+
+    fn delindex(self, index: i32, vm: &VirtualMachine) -> PyResult {
+        if let Some(pos_index) = self.get_pos(index) {
+            self.elements.borrow_mut().remove(pos_index);
+            Ok(vm.get_none())
+        } else {
+            Err(vm.new_index_error("Index out of bounds!".to_string()))
+        }
+    }
+
+    fn delslice(self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult {
+        let start = slice.start_index(vm)?;
+        let stop = slice.stop_index(vm)?;
+        let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
+
+        if step.is_zero() {
+            Err(vm.new_value_error("slice step cannot be zero".to_string()))
+        } else if step.is_positive() {
+            let range = self.get_slice_range(&start, &stop);
+            if range.start < range.end {
+                #[allow(clippy::range_plus_one)]
+                match step.to_i32() {
+                    Some(1) => {
+                        self._del_slice(range);
+                        Ok(vm.get_none())
+                    }
+                    Some(num) => {
+                        self._del_stepped_slice(range, num as usize);
+                        Ok(vm.get_none())
+                    }
+                    None => {
+                        self._del_slice(range.start..range.start + 1);
+                        Ok(vm.get_none())
+                    }
+                }
+            } else {
+                // no del to do
+                Ok(vm.get_none())
+            }
+        } else {
+            // calculate the range for the reverse slice, first the bounds needs to be made
+            // exclusive around stop, the lower number
+            let start = start.as_ref().map(|x| {
+                if *x == (-1).to_bigint().unwrap() {
+                    self.get_len() + BigInt::one() //.to_bigint().unwrap()
+                } else {
+                    x + 1
+                }
+            });
+            let stop = stop.as_ref().map(|x| {
+                if *x == (-1).to_bigint().unwrap() {
+                    self.get_len().to_bigint().unwrap()
+                } else {
+                    x + 1
+                }
+            });
+            let range = self.get_slice_range(&stop, &start);
+            if range.start < range.end {
+                match (-step).to_i32() {
+                    Some(1) => {
+                        self._del_slice(range);
+                        Ok(vm.get_none())
+                    }
+                    Some(num) => {
+                        self._del_stepped_slice_reverse(range, num as usize);
+                        Ok(vm.get_none())
+                    }
+                    None => {
+                        self._del_slice(range.end - 1..range.end);
+                        Ok(vm.get_none())
+                    }
+                }
+            } else {
+                // no del to do
+                Ok(vm.get_none())
+            }
+        }
+    }
+
+    fn _del_slice(self, range: Range<usize>) {
+        self.elements.borrow_mut().drain(range);
+    }
+
+    fn _del_stepped_slice(self, range: Range<usize>, step: usize) {
+        // no easy way to delete stepped indexes so here is what we'll do
+        let mut deleted = 0;
+        let mut elements = self.elements.borrow_mut();
+        let mut indexes = range.clone().step_by(step).peekable();
+
+        for i in range.clone() {
+            // is this an index to delete?
+            if indexes.peek() == Some(&i) {
+                // record and move on
+                indexes.next();
+                deleted += 1;
+            } else {
+                // swap towards front
+                elements.swap(i - deleted, i);
+            }
+        }
+        // then drain (the values to delete should now be contiguous at the end of the range)
+        elements.drain((range.end - deleted)..range.end);
+    }
+
+    fn _del_stepped_slice_reverse(self, range: Range<usize>, step: usize) {
+        // no easy way to delete stepped indexes so here is what we'll do
+        let mut deleted = 0;
+        let mut elements = self.elements.borrow_mut();
+        let mut indexes = range.clone().rev().step_by(step).peekable();
+
+        for i in range.clone().rev() {
+            // is this an index to delete?
+            if indexes.peek() == Some(&i) {
+                // record and move on
+                indexes.next();
+                deleted += 1;
+            } else {
+                // swap towards back
+                elements.swap(i + deleted, i);
+            }
+        }
+        // then drain (the values to delete should now be contiguous at teh start of the range)
+        elements.drain(range.start..(range.start + deleted));
+    }
 }
 
 fn list_new(
-    cls: PyRef<objtype::PyClass>,
+    cls: PyClassRef,
     iterable: OptionalArg<PyObjectRef>,
     vm: &VirtualMachine,
-) -> PyResult {
-    if !objtype::issubclass(cls.as_object(), &vm.ctx.list_type()) {
-        return Err(vm.new_type_error(format!("{} is not a subtype of list", cls)));
-    }
-
+) -> PyResult<PyListRef> {
     let elements = if let OptionalArg::Present(iterable) = iterable {
         vm.extract_elements(&iterable)?
     } else {
         vec![]
     };
 
-    Ok(PyObject::new(PyList::from(elements), cls.into_object()))
+    PyList::from(elements).into_ref_with_type(vm, cls)
 }
 
 fn quicksort(
@@ -412,6 +777,38 @@ fn list_sort(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+#[pyclass]
+#[derive(Debug)]
+pub struct PyListIterator {
+    pub position: Cell<usize>,
+    pub list: PyListRef,
+}
+
+impl PyValue for PyListIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.listiterator_type()
+    }
+}
+
+#[pyimpl]
+impl PyListIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        if self.position.get() < self.list.elements.borrow().len() {
+            let ret = self.list.elements.borrow()[self.position.get()].clone();
+            self.position.set(self.position.get() + 1);
+            Ok(ret)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
     let list_type = &context.list_type;
@@ -420,31 +817,39 @@ pub fn init(context: &PyContext) {
                     If no argument is given, the constructor creates a new empty list.\n\
                     The argument must be an iterable if specified.";
 
-    context.set_attr(&list_type, "__add__", context.new_rustfunc(PyListRef::add));
-    context.set_attr(&list_type, "__iadd__", context.new_rustfunc(PyListRef::iadd));
-    context.set_attr(&list_type, "__contains__", context.new_rustfunc(PyListRef::contains));
-    context.set_attr(&list_type, "__eq__", context.new_rustfunc(PyListRef::eq));
-    context.set_attr(&list_type, "__lt__", context.new_rustfunc(PyListRef::lt));
-    context.set_attr(&list_type, "__gt__", context.new_rustfunc(PyListRef::gt));
-    context.set_attr(&list_type, "__le__", context.new_rustfunc(PyListRef::le));
-    context.set_attr(&list_type, "__ge__", context.new_rustfunc(PyListRef::ge));
-    context.set_attr(&list_type, "__getitem__", context.new_rustfunc(PyListRef::getitem));
-    context.set_attr(&list_type, "__iter__", context.new_rustfunc(PyListRef::iter));
-    context.set_attr(&list_type, "__setitem__", context.new_rustfunc(PyListRef::setitem));
-    context.set_attr(&list_type, "__mul__", context.new_rustfunc(PyListRef::mul));
-    context.set_attr(&list_type, "__len__", context.new_rustfunc(PyListRef::len));
-    context.set_attr(&list_type, "__new__", context.new_rustfunc(list_new));
-    context.set_attr(&list_type, "__repr__", context.new_rustfunc(PyListRef::repr));
-    context.set_attr(&list_type, "__doc__", context.new_str(list_doc.to_string()));
-    context.set_attr(&list_type, "append", context.new_rustfunc(PyListRef::append));
-    context.set_attr(&list_type, "clear", context.new_rustfunc(PyListRef::clear));
-    context.set_attr(&list_type, "copy", context.new_rustfunc(PyListRef::copy));
-    context.set_attr(&list_type, "count", context.new_rustfunc(PyListRef::count));
-    context.set_attr(&list_type, "extend", context.new_rustfunc(PyListRef::extend));
-    context.set_attr(&list_type, "index", context.new_rustfunc(PyListRef::index));
-    context.set_attr(&list_type, "insert", context.new_rustfunc(PyListRef::insert));
-    context.set_attr(&list_type, "reverse", context.new_rustfunc(PyListRef::reverse));
-    context.set_attr(&list_type, "sort", context.new_rustfunc(list_sort));
-    context.set_attr(&list_type, "pop", context.new_rustfunc(PyListRef::pop));
-    context.set_attr(&list_type, "remove", context.new_rustfunc(PyListRef::remove));
+    extend_class!(context, list_type, {
+        "__add__" => context.new_rustfunc(PyListRef::add),
+        "__iadd__" => context.new_rustfunc(PyListRef::iadd),
+        "__bool__" => context.new_rustfunc(PyListRef::bool),
+        "__contains__" => context.new_rustfunc(PyListRef::contains),
+        "__delitem__" => context.new_rustfunc(PyListRef::delitem),
+        "__eq__" => context.new_rustfunc(PyListRef::eq),
+        "__lt__" => context.new_rustfunc(PyListRef::lt),
+        "__gt__" => context.new_rustfunc(PyListRef::gt),
+        "__le__" => context.new_rustfunc(PyListRef::le),
+        "__ge__" => context.new_rustfunc(PyListRef::ge),
+        "__getitem__" => context.new_rustfunc(PyListRef::getitem),
+        "__iter__" => context.new_rustfunc(PyListRef::iter),
+        "__setitem__" => context.new_rustfunc(PyListRef::setitem),
+        "__mul__" => context.new_rustfunc(PyListRef::mul),
+        "__imul__" => context.new_rustfunc(PyListRef::imul),
+        "__len__" => context.new_rustfunc(PyListRef::len),
+        "__new__" => context.new_rustfunc(list_new),
+        "__repr__" => context.new_rustfunc(PyListRef::repr),
+        "__hash__" => context.new_rustfunc(PyListRef::hash),
+        "__doc__" => context.new_str(list_doc.to_string()),
+        "append" => context.new_rustfunc(PyListRef::append),
+        "clear" => context.new_rustfunc(PyListRef::clear),
+        "copy" => context.new_rustfunc(PyListRef::copy),
+        "count" => context.new_rustfunc(PyListRef::count),
+        "extend" => context.new_rustfunc(PyListRef::extend),
+        "index" => context.new_rustfunc(PyListRef::index),
+        "insert" => context.new_rustfunc(PyListRef::insert),
+        "reverse" => context.new_rustfunc(PyListRef::reverse),
+        "sort" => context.new_rustfunc(list_sort),
+        "pop" => context.new_rustfunc(PyListRef::pop),
+        "remove" => context.new_rustfunc(PyListRef::remove)
+    });
+
+    PyListIterator::extend_class(context, &context.listiterator_type);
 }

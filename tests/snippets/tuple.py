@@ -9,7 +9,7 @@ assert y[0] == 1
 assert x + y == (1, 2, 1)
 
 assert x * 3 == (1, 2, 1, 2, 1, 2)
-# assert 3 * x == (1, 2, 1, 2, 1, 2)
+assert 3 * x == (1, 2, 1, 2, 1, 2)
 assert x * 0 == ()
 assert x * -1 == ()  # integers less than zero treated as 0
 
@@ -34,3 +34,7 @@ class Foo(object):
 
 foo = Foo()
 assert (foo,) == (foo,)
+
+a = (1, 2, 3)
+a += 1,
+assert a == (1, 2, 3, 1)

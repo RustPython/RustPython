@@ -1,17 +1,19 @@
+use crate::function::OptionalArg;
+use crate::obj::objnone::PyNone;
 use std::cell::RefCell;
 use std::marker::Sized;
 use std::ops::{Deref, DerefMut, Range};
 
-use num_bigint::BigInt;
-use num_traits::{One, Signed, ToPrimitive, Zero};
+use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 
-use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
+use num_bigint::{BigInt, ToBigInt};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::objbool;
 use super::objint::PyInt;
 use super::objlist::PyList;
-use super::objslice::PySlice;
+use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
 
 pub trait PySliceableSequence {
@@ -65,14 +67,15 @@ pub trait PySliceableSequence {
     where
         Self: Sized,
     {
-        // TODO: we could potentially avoid this copy and use slice
-        match slice.payload() {
-            Some(PySlice { start, stop, step }) => {
-                let step = step.clone().unwrap_or_else(BigInt::one);
+        match slice.clone().downcast::<PySlice>() {
+            Ok(slice) => {
+                let start = slice.start_index(vm)?;
+                let stop = slice.stop_index(vm)?;
+                let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
                 if step.is_zero() {
                     Err(vm.new_value_error("slice step cannot be zero".to_string()))
                 } else if step.is_positive() {
-                    let range = self.get_slice_range(start, stop);
+                    let range = self.get_slice_range(&start, &stop);
                     if range.start < range.end {
                         #[allow(clippy::range_plus_one)]
                         match step.to_i32() {
@@ -86,8 +89,20 @@ pub trait PySliceableSequence {
                 } else {
                     // calculate the range for the reverse slice, first the bounds needs to be made
                     // exclusive around stop, the lower number
-                    let start = start.as_ref().map(|x| x + 1);
-                    let stop = stop.as_ref().map(|x| x + 1);
+                    let start = start.as_ref().map(|x| {
+                        if *x == (-1).to_bigint().unwrap() {
+                            self.len() + BigInt::one() //.to_bigint().unwrap()
+                        } else {
+                            x + 1
+                        }
+                    });
+                    let stop = stop.as_ref().map(|x| {
+                        if *x == (-1).to_bigint().unwrap() {
+                            self.len().to_bigint().unwrap()
+                        } else {
+                            x + 1
+                        }
+                    });
                     let range = self.get_slice_range(&stop, &start);
                     if range.start < range.end {
                         match (-step).to_i32() {
@@ -137,6 +152,24 @@ impl<T: Clone> PySliceableSequence for Vec<T> {
     }
 }
 
+pub enum SequenceIndex {
+    Int(i32),
+    Slice(PySliceRef),
+}
+
+impl TryFromObject for SequenceIndex {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match_class!(obj,
+            i @ PyInt => Ok(SequenceIndex::Int(i32::try_from_object(vm, i.into_object())?)),
+            s @ PySlice => Ok(SequenceIndex::Slice(s)),
+            obj => Err(vm.new_type_error(format!(
+                "sequence indices be integers or slices, not {}",
+                obj.class(),
+            )))
+        )
+    }
+}
+
 pub fn get_item(
     vm: &VirtualMachine,
     sequence: &PyObjectRef,
@@ -144,7 +177,7 @@ pub fn get_item(
     subscript: PyObjectRef,
 ) -> PyResult {
     if let Some(i) = subscript.payload::<PyInt>() {
-        return match i.value.to_i32() {
+        return match i.as_bigint().to_i32() {
             Some(value) => {
                 if let Some(pos_index) = elements.to_vec().get_pos(value) {
                     let obj = elements[pos_index].clone();
@@ -163,12 +196,14 @@ pub fn get_item(
         if sequence.payload::<PyList>().is_some() {
             Ok(PyObject::new(
                 PyList::from(elements.to_vec().get_slice_items(vm, &subscript)?),
-                sequence.typ(),
+                sequence.class(),
+                None,
             ))
         } else if sequence.payload::<PyTuple>().is_some() {
             Ok(PyObject::new(
                 PyTuple::from(elements.to_vec().get_slice_items(vm, &subscript)?),
-                sequence.typ(),
+                sequence.class(),
+                None,
             ))
         } else {
             panic!("sequence get_item called for non-sequence")
@@ -313,18 +348,19 @@ pub fn get_elements_cell<'a>(obj: &'a PyObjectRef) -> &'a RefCell<Vec<PyObjectRe
     if let Some(list) = obj.payload::<PyList>() {
         return &list.elements;
     }
-    if let Some(tuple) = obj.payload::<PyTuple>() {
-        return &tuple.elements;
+    panic!("Cannot extract elements from non-sequence");
+}
+
+pub fn get_elements_list<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
+    if let Some(list) = obj.payload::<PyList>() {
+        return list.elements.borrow();
     }
     panic!("Cannot extract elements from non-sequence");
 }
 
-pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
-    if let Some(list) = obj.payload::<PyList>() {
-        return list.elements.borrow();
-    }
+pub fn get_elements_tuple<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
     if let Some(tuple) = obj.payload::<PyTuple>() {
-        return tuple.elements.borrow();
+        return &tuple.elements;
     }
     panic!("Cannot extract elements from non-sequence");
 }
@@ -333,8 +369,22 @@ pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<
     if let Some(list) = obj.payload::<PyList>() {
         return list.elements.borrow_mut();
     }
-    if let Some(tuple) = obj.payload::<PyTuple>() {
-        return tuple.elements.borrow_mut();
-    }
     panic!("Cannot extract elements from non-sequence");
+}
+
+//Check if given arg could be used with PySciceableSequance.get_slice_range()
+pub fn is_valid_slice_arg(
+    arg: OptionalArg<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> Result<Option<BigInt>, PyObjectRef> {
+    if let OptionalArg::Present(value) = arg {
+        match_class!(value,
+        i @ PyInt => Ok(Some(i.as_bigint().clone())),
+        _obj @ PyNone => Ok(None),
+        _=> {return Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()));}
+        // TODO: check for an __index__ method
+        )
+    } else {
+        Ok(None)
+    }
 }

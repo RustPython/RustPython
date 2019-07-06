@@ -1,29 +1,60 @@
 use crate::frame::Scope;
-use crate::function::PyFuncArgs;
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::function::{Args, KwArgs};
+use crate::obj::objcode::PyCodeRef;
+use crate::obj::objdict::PyDictRef;
+use crate::obj::objtuple::PyTupleRef;
+use crate::obj::objtype::PyClassRef;
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
+
+pub type PyFunctionRef = PyRef<PyFunction>;
 
 #[derive(Debug)]
 pub struct PyFunction {
     // TODO: these shouldn't be public
-    pub code: PyObjectRef,
+    pub code: PyCodeRef,
     pub scope: Scope,
-    pub defaults: PyObjectRef,
+    pub defaults: Option<PyTupleRef>,
+    pub kw_only_defaults: Option<PyDictRef>,
 }
 
 impl PyFunction {
-    pub fn new(code: PyObjectRef, scope: Scope, defaults: PyObjectRef) -> Self {
+    pub fn new(
+        code: PyCodeRef,
+        scope: Scope,
+        defaults: Option<PyTupleRef>,
+        kw_only_defaults: Option<PyDictRef>,
+    ) -> Self {
         PyFunction {
             code,
             scope,
             defaults,
+            kw_only_defaults,
         }
     }
 }
 
 impl PyValue for PyFunction {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.function_type()
+    }
+}
+
+impl PyFunctionRef {
+    fn call(self, args: Args, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult {
+        vm.invoke(self.into_object(), (&args, &kwargs))
+    }
+
+    fn code(self, _vm: &VirtualMachine) -> PyCodeRef {
+        self.code.clone()
+    }
+
+    fn defaults(self, _vm: &VirtualMachine) -> Option<PyTupleRef> {
+        self.defaults.clone()
+    }
+
+    fn kwdefaults(self, _vm: &VirtualMachine) -> Option<PyDictRef> {
+        self.kw_only_defaults.clone()
     }
 }
 
@@ -41,7 +72,7 @@ impl PyMethod {
 }
 
 impl PyValue for PyMethod {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.bound_method_type()
     }
 }
@@ -50,7 +81,10 @@ pub fn init(context: &PyContext) {
     let function_type = &context.function_type;
     extend_class!(context, function_type, {
         "__get__" => context.new_rustfunc(bind_method),
-        "__code__" => context.new_property(function_code)
+        "__call__" => context.new_rustfunc(PyFunctionRef::call),
+        "__code__" => context.new_property(PyFunctionRef::code),
+        "__defaults__" => context.new_property(PyFunctionRef::defaults),
+        "__kwdefaults__" => context.new_property(PyFunctionRef::kwdefaults),
     });
 
     let builtin_function_or_method_type = &context.builtin_function_or_method_type;
@@ -59,23 +93,15 @@ pub fn init(context: &PyContext) {
     });
 }
 
-fn bind_method(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(function, None), (obj, None), (cls, None)]
-    );
-
-    if obj.is(&vm.get_none()) && !cls.is(&obj.typ()) {
-        Ok(function.clone())
+fn bind_method(
+    function: PyObjectRef,
+    obj: PyObjectRef,
+    cls: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult {
+    if obj.is(&vm.get_none()) && !cls.is(&obj.class()) {
+        Ok(function)
     } else {
-        Ok(vm.ctx.new_bound_method(function.clone(), obj.clone()))
-    }
-}
-
-fn function_code(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    match args.args[0].payload() {
-        Some(PyFunction { ref code, .. }) => Ok(code.clone()),
-        None => Err(vm.new_type_error("no code".to_string())),
+        Ok(vm.ctx.new_bound_method(function, obj))
     }
 }

@@ -1,12 +1,17 @@
-use crate::function::PyFuncArgs;
-use crate::pyobject::{
-    IdProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
 
 use super::objbool;
 use super::objiter;
+use crate::obj::objtype::PyClassRef;
 
+pub type PyFilterRef = PyRef<PyFilter>;
+
+/// filter(function or None, iterable) --> filter object
+///
+/// Return an iterator yielding those items of iterable for which function(item)
+/// is true. If function is None, return the items that are true.
+#[pyclass]
 #[derive(Debug)]
 pub struct PyFilter {
     predicate: PyObjectRef,
@@ -14,35 +19,32 @@ pub struct PyFilter {
 }
 
 impl PyValue for PyFilter {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.filter_type()
     }
 }
 
-fn filter_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(cls, None), (function, None), (iterable, None)]
-    );
-    let iterator = objiter::get_iter(vm, iterable)?;
-    Ok(PyObject::new(
-        PyFilter {
-            predicate: function.clone(),
-            iterator,
-        },
-        cls.clone(),
-    ))
+fn filter_new(
+    cls: PyClassRef,
+    function: PyObjectRef,
+    iterable: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<PyFilterRef> {
+    let iterator = objiter::get_iter(vm, &iterable)?;
+
+    PyFilter {
+        predicate: function.clone(),
+        iterator,
+    }
+    .into_ref_with_type(vm, cls)
 }
 
-fn filter_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(filter, Some(vm.ctx.filter_type()))]);
-
-    if let Some(PyFilter {
-        ref predicate,
-        ref iterator,
-    }) = filter.payload()
-    {
+#[pyimpl]
+impl PyFilter {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let predicate = &self.predicate;
+        let iterator = &self.iterator;
         loop {
             let next_obj = objiter::call_next(vm, iterator)?;
             let predicate_value = if predicate.is(&vm.get_none()) {
@@ -56,24 +58,17 @@ fn filter_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                 return Ok(next_obj);
             }
         }
-    } else {
-        panic!("filter doesn't have correct payload");
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
 pub fn init(context: &PyContext) {
-    let filter_type = &context.filter_type;
-
-    objiter::iter_type_init(context, filter_type);
-
-    let filter_doc =
-        "filter(function or None, iterable) --> filter object\n\n\
-         Return an iterator yielding those items of iterable for which function(item)\n\
-         is true. If function is None, return the items that are true.";
-
-    extend_class!(context, filter_type, {
+    PyFilter::extend_class(context, &context.filter_type);
+    extend_class!(context, &context.filter_type, {
         "__new__" => context.new_rustfunc(filter_new),
-        "__doc__" => context.new_str(filter_doc.to_string()),
-        "__next__" => context.new_rustfunc(filter_next)
     });
 }

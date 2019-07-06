@@ -1,4 +1,5 @@
 from testutils import assert_raises
+import io
 
 print(2 + 3)
 
@@ -9,3 +10,7 @@ try:
     print('test', end=None, sep=None, flush=None)
 except:
     assert False, 'Expected None passed to end, sep, and flush to not raise errors'
+
+buf = io.StringIO()
+print('hello, world', file=buf)
+assert buf.getvalue() == 'hello, world\n', buf.getvalue()

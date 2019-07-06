@@ -17,6 +17,7 @@ assert_raises(ValueError, lambda: range(10).index(-1), 'out of bounds')
 assert_raises(ValueError, lambda: range(10).index(10), 'out of bounds')
 assert_raises(ValueError, lambda: range(4, 10, 2).index(5), 'out of step')
 assert_raises(ValueError, lambda: range(10).index('foo'), 'not an int')
+assert_raises(ValueError, lambda: range(1, 10, 0), 'step is zero')
 
 # count tests
 assert range(10).count(2) == 1
@@ -26,6 +27,11 @@ assert range(9, 12).count(10) == 1
 assert range(4, 10, 2).count(4) == 1
 assert range(4, 10, 2).count(7) == 0
 assert range(10).count("foo") == 0
+
+# __eq__
+assert range(1, 2, 3) == range(1, 2, 3)
+assert range(1, 2, 1) == range(1, 2)
+assert range(2) == range(0, 2)
 
 # __bool__
 assert bool(range(1))
@@ -50,3 +56,13 @@ assert 'foo' not in range(10)
 assert list(reversed(range(5))) == [4, 3, 2, 1, 0]
 assert list(reversed(range(5, 0, -1))) == [1, 2, 3, 4, 5]
 assert list(reversed(range(1,10,5))) == [6, 1]
+
+# range retains the original int refs
+i = 2**64
+assert range(i).stop is i
+
+# negative index
+assert range(10)[-1] == 9
+assert_raises(IndexError, lambda: range(10)[-11], 'out of bound')
+assert range(10)[-2:4] == range(8, 4)
+assert range(10)[-6:-2] == range(4, 8)

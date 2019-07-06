@@ -2,7 +2,6 @@
 // See also: https://github.com/antlr/grammars-v4/blob/master/python3/Python3.g4
 // See also: file:///usr/share/doc/python/html/reference/compound_stmts.html#function-definitions
 // See also: https://greentreesnakes.readthedocs.io/en/latest/nodes.html#keyword
-#![allow(unknown_lints,clippy)]
 
 use std::iter::FromIterator;
 
@@ -25,29 +24,32 @@ pub Top: ast::Top = {
 
 Program: ast::Program = {
     <lines:FileLine*> => ast::Program {
-        statements: Vec::from_iter(lines.into_iter().filter_map(|e| e))
+        statements: Vec::from_iter(lines.into_iter().flatten())
     },
 };
 
 // A file line either has a declaration, or an empty newline:
-FileLine: Option<ast::LocatedStatement> = {
-    <s:Statement> => Some(s),
-    "\n" => None,
+FileLine: Vec<ast::LocatedStatement> = {
+    Statement,
+    "\n" => vec![],
 };
 
 Suite: Vec<ast::LocatedStatement> = {
-    <s:SimpleStatement> => vec![s],
-    "\n" indent <s:Statement+> dedent => s,
-};
-
-Statement: ast::LocatedStatement = {
     SimpleStatement,
-    CompoundStatement,
+    "\n" indent <s:Statement+> dedent => s.into_iter().flatten().collect(),
 };
 
-SimpleStatement: ast::LocatedStatement = {
-    <s:SmallStatement> "\n" => s,
-    <s:SmallStatement> ";" => s,
+Statement: Vec<ast::LocatedStatement> = {
+    SimpleStatement,
+    <s:CompoundStatement> => vec![s],
+};
+
+SimpleStatement: Vec<ast::LocatedStatement> = {
+    <s1:SmallStatement> <s2:(";" SmallStatement)*> ";"? "\n" => {
+        let mut statements = vec![s1];
+        statements.extend(s2.into_iter().map(|e| e.1));
+        statements
+    }
 };
 
 SmallStatement: ast::LocatedStatement = {
@@ -103,9 +105,7 @@ ExpressionStatement: ast::LocatedStatement = {
           }
         }
     },
-    <loc:@L> <expr:TestOrStarExprList> <op:AugAssign> <e2:TestList> => {
-        // TODO: this works in most cases:
-        let rhs = e2.into_iter().next().unwrap();
+    <loc:@L> <expr:TestOrStarExprList> <op:AugAssign> <rhs:TestList> => {
         ast::LocatedStatement {
             location: loc,
             node: ast::Statement::AugAssign {
@@ -118,31 +118,17 @@ ExpressionStatement: ast::LocatedStatement = {
 };
 
 AssignSuffix: ast::Expression = {
-    "=" <e:TestList> => {
-        if e.len() > 1 {
-            ast::Expression::Tuple {
-                elements: e
-            }
-        } else {
-            e.into_iter().next().unwrap()
-        }
-    },
+    "=" <e:TestList> => e,
     "=" <e:YieldExpr> => e,
 };
 
 TestOrStarExprList: ast::Expression = {
-    <e:TestOrStarExpr> <e2:("," TestOrStarExpr)*> <comma:","?> => {
-        let mut res = vec![e];
-        res.extend(e2.into_iter().map(|x| x.1));
-
-        // First build tuple from first item:
-        let expr = if (res.len() > 1) || comma.is_some() {
-            ast::Expression::Tuple { elements: res }
+    <elements:OneOrMore<TestOrStarExpr>> <comma:","?> => {
+        if elements.len() == 1 && comma.is_none() {
+            elements.into_iter().next().unwrap()
         } else {
-            res.into_iter().next().unwrap()
-        };
-
-        expr
+            ast::Expression::Tuple { elements }
+        }
     }
 };
 
@@ -183,7 +169,7 @@ FlowStatement: ast::LocatedStatement = {
     <loc:@L> "return" <t:TestList?> => {
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::Return { value: t },
+            node: ast::Statement::Return { value: t.map(Box::new) },
         }
     },
     <loc:@L> <y:YieldExpr> => {
@@ -220,8 +206,9 @@ ImportStatement: ast::LocatedStatement = {
             .map(|(n, a)|
                 ast::SingleImport {
                     module: n.to_string(),
-                    symbol: None,
-                    alias: a.clone()
+                    symbols: vec![],
+                    alias: a.clone(),
+                    level: 0,
                 })
             .collect()
       },
@@ -231,35 +218,30 @@ ImportStatement: ast::LocatedStatement = {
     ast::LocatedStatement {
       location: loc,
       node: ast::Statement::Import {
-        import_parts: i
-            .iter()
-            .map(|(i, a)|
-                ast::SingleImport {
-                    module: n.to_string(),
-                    symbol: Some(i.to_string()),
-                    alias: a.clone()
-                })
-            .collect()
+        import_parts: vec![
+            ast::SingleImport {
+                module: n.0.to_string(),
+                symbols: i.iter()
+                    .map(|(i, a)|
+                        ast::ImportSymbol {
+                            symbol: i.to_string(),
+                            alias: a.clone(),
+                        })
+                    .collect(),
+                alias: None,
+                level: n.1
+        }]
       },
     }
   },
 };
 
-ImportFromLocation: String = {
+ImportFromLocation: (String, usize) = {
     <dots: "."*> <name:DottedName> => {
-       let mut r = "".to_string();
-       for _dot in dots {
-         r.push_str(".");
-       }
-      r.push_str(&name);
-      r
+       (name, dots.len())
     },
     <dots: "."+> => {
-       let mut r = "".to_string();
-       for _dot in dots {
-         r.push_str(".");
-       }
-      r
+       ("".to_string(), dots.len())
     },
 };
 
@@ -310,15 +292,11 @@ NonlocalStatement: ast::LocatedStatement = {
 };
 
 AssertStatement: ast::LocatedStatement = {
-    <loc:@L> "assert" <t:Test> <m: ("," Test)?> => {
+    <loc:@L> "assert" <test:Test> <msg: ("," Test)?> => {
         ast::LocatedStatement {
           location: loc,
           node: ast::Statement::Assert {
-            test: t,
-            msg: match m {
-              Some(e) => Some(e.1),
-              None => None,
-            }
+            test, msg: msg.map(|e| e.1)
           }
         }
     },
@@ -335,12 +313,9 @@ CompoundStatement: ast::LocatedStatement = {
 };
 
 IfStatement: ast::LocatedStatement = {
-    <loc:@L> "if" <t:Test> ":" <s1:Suite> <s2:(@L "elif" Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
+    <loc:@L> "if" <test:Test> ":" <s1:Suite> <s2:(@L "elif" Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
         // Determine last else:
-        let mut last = match s3 {
-            Some(s) => Some(s.2),
-            None => None,
-        };
+        let mut last = s3.map(|s| s.2);
 
         // handle elif:
         for i in s2.into_iter().rev() {
@@ -353,35 +328,30 @@ IfStatement: ast::LocatedStatement = {
 
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::If { test: t, body: s1, orelse: last }
+            node: ast::Statement::If { test, body: s1, orelse: last }
         }
     },
 };
 
 WhileStatement: ast::LocatedStatement = {
-    <loc:@L> "while" <e:Test> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
-        let or_else = match s2 {
-            Some(s) => Some(s.2),
-            None => None,
-        };
+    <loc:@L> "while" <test:Test> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
+        let or_else = s2.map(|s| s.2);
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::While { test: e, body: s, orelse: or_else },
+            node: ast::Statement::While { test, body, orelse: or_else },
         }
     },
 };
 
 ForStatement: ast::LocatedStatement = {
-    <loc:@L> "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
-        let or_else = match s2 {
-            Some(s) => Some(s.2),
-            None => None,
-        };
+    <loc:@L> <is_async:"async"?> "for" <target:ExpressionList> "in" <iter:TestList> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
+        let orelse = s2.map(|s| s.2);
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::For {
-                target: e,
-                iter: t, body: s, orelse: or_else
+            node: if is_async.is_some() {
+                ast::Statement::AsyncFor { target, iter, body, orelse }
+            } else {
+                ast::Statement::For { target, iter, body, orelse }
             },
         }
     },
@@ -389,14 +359,8 @@ ForStatement: ast::LocatedStatement = {
 
 TryStatement: ast::LocatedStatement = {
     <loc:@L> "try" ":" <body:Suite> <handlers:ExceptClause*> <else_suite:("else" ":" Suite)?> <finally:("finally" ":" Suite)?> => {
-        let or_else = match else_suite {
-            Some(s) => Some(s.2),
-            None => None,
-        };
-        let finalbody = match finally {
-            Some(s) => Some(s.2),
-            None => None,
-        };
+        let or_else = else_suite.map(|s| s.2);
+        let finalbody = finally.map(|s| s.2);
         ast::LocatedStatement {
             location: loc,
             node: ast::Statement::Try {
@@ -437,51 +401,48 @@ WithStatement: ast::LocatedStatement = {
 
 WithItem: ast::WithItem = {
     <t:Test> <n:("as" Expression)?> => {
-        let optional_vars = match n {
-            Some(val) => Some(val.1),
-            None => None,
-        };
+        let optional_vars = n.map(|val| val.1);
         ast::WithItem { context_expr: t, optional_vars }
     },
 };
 
 FuncDef: ast::LocatedStatement = {
-    <d:Decorator*> <loc:@L> "def" <i:Identifier> <a:Parameters> <r:("->" Test)?> ":" <s:Suite> => {
+    <d:Decorator*> <loc:@L> <is_async:"async"?> "def" <i:Identifier> <a:Parameters> <r:("->" Test)?> ":" <s:Suite> => {
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::FunctionDef {
-                name: i,
-                args: a,
-                body: s,
-                decorator_list: d,
-                returns: r.map(|x| x.1),
-            }
+            node: if is_async.is_some() {
+                    ast::Statement::AsyncFunctionDef {
+                        name: i,
+                        args: a,
+                        body: s,
+                        decorator_list: d,
+                        returns: r.map(|x| x.1),
+                    }
+                } else {
+                    ast::Statement::FunctionDef {
+                        name: i,
+                        args: a,
+                        body: s,
+                        decorator_list: d,
+                        returns: r.map(|x| x.1),
+                    }
+                }
         }
     },
 };
 
 Parameters: ast::Parameters = {
-    "(" <a: (TypedArgsList<TypedParameter>)?> ")" => {
-        match a {
-            Some(a) => a,
-            None => Default::default(),
-        }
-    },
+    "(" <a: (ParameterList<TypedParameter>)?> ")" => a.unwrap_or_else(Default::default),
 };
 
-// parameters are (String, None), kwargs are (String, Some(Test)) where Test is
-// the default
 // Note that this is a macro which is used once for function defs, and
 // once for lambda defs.
-TypedArgsList<ArgType>: ast::Parameters = {
-    <param1:TypedParameters<ArgType>> <args2:("," ParameterListStarArgs<ArgType>)?> => {
+ParameterList<ArgType>: ast::Parameters = {
+    <param1:ParameterDefs<ArgType>> <args2:("," ParameterListStarArgs<ArgType>)?> ","? => {
         let (names, default_elements) = param1;
 
         // Now gather rest of parameters:
-        let (vararg, kwonlyargs, kw_defaults, kwarg) = match args2 {
-            Some((_, x)) => x,
-            None => (None, vec![], vec![], None),
-        };
+        let (vararg, kwonlyargs, kw_defaults, kwarg) = args2.map_or((None, vec![], vec![], None), |x| x.1);
 
         ast::Parameters {
             args: names,
@@ -492,7 +453,7 @@ TypedArgsList<ArgType>: ast::Parameters = {
             kw_defaults: kw_defaults,
         }
     },
-    <param1:TypedParameters<ArgType>> <kw:("," KwargParameter<ArgType>)> => {
+    <param1:ParameterDefs<ArgType>> <kw:("," KwargParameter<ArgType>)> ","? => {
         let (names, default_elements) = param1;
 
         // Now gather rest of parameters:
@@ -510,7 +471,7 @@ TypedArgsList<ArgType>: ast::Parameters = {
             kw_defaults: kw_defaults,
         }
     },
-    <params:ParameterListStarArgs<ArgType>> => {
+    <params:ParameterListStarArgs<ArgType>> ","? => {
         let (vararg, kwonlyargs, kw_defaults, kwarg) = params;
         ast::Parameters {
             args: vec![],
@@ -521,7 +482,7 @@ TypedArgsList<ArgType>: ast::Parameters = {
             kw_defaults: kw_defaults,
         }
     },
-    <kw:KwargParameter<ArgType>> => {
+    <kw:KwargParameter<ArgType>> ","? => {
         ast::Parameters {
             args: vec![],
             kwonlyargs: vec![],
@@ -535,8 +496,8 @@ TypedArgsList<ArgType>: ast::Parameters = {
 
 // Use inline here to make sure the "," is not creating an ambiguity.
 #[inline]
-TypedParameters<ArgType>: (Vec<ast::Parameter>, Vec<ast::Expression>) = {
-    <param1:TypedParameterDef<ArgType>> <param2:("," TypedParameterDef<ArgType>)*> => {
+ParameterDefs<ArgType>: (Vec<ast::Parameter>, Vec<ast::Expression>) = {
+    <param1:ParameterDef<ArgType>> <param2:("," ParameterDef<ArgType>)*> => {
         // Combine first parameters:
         let mut args = vec![param1];
         args.extend(param2.into_iter().map(|x| x.1));
@@ -564,7 +525,7 @@ TypedParameters<ArgType>: (Vec<ast::Parameter>, Vec<ast::Expression>) = {
     }
 };
 
-TypedParameterDef<ArgType>: (ast::Parameter, Option<ast::Expression>) = {
+ParameterDef<ArgType>: (ast::Parameter, Option<ast::Expression>) = {
     <i:ArgType> => (i, None),
     <i:ArgType> "=" <e:Test> => (i, Some(e)),
 };
@@ -580,8 +541,11 @@ TypedParameter: ast::Parameter = {
     },
 };
 
+// Use inline here to make sure the "," is not creating an ambiguity.
+// TODO: figure out another grammar that makes this inline no longer required.
+#[inline]
 ParameterListStarArgs<ArgType>: (Option<Option<ast::Parameter>>, Vec<ast::Parameter>, Vec<Option<ast::Expression>>, Option<Option<ast::Parameter>>) = {
-    "*" <va:ArgType?> <kw:("," TypedParameterDef<ArgType>)*> <kwarg:("," KwargParameter<ArgType>)?> => {
+    "*" <va:ArgType?> <kw:("," ParameterDef<ArgType>)*> <kwarg:("," KwargParameter<ArgType>)?> => {
         // Extract keyword arguments:
         let mut kwonlyargs = vec![];
         let mut kw_defaults = vec![];
@@ -590,10 +554,7 @@ ParameterListStarArgs<ArgType>: (Option<Option<ast::Parameter>>, Vec<ast::Parame
             kw_defaults.push(value);
         }
 
-        let kwarg = match kwarg {
-            Some((_, name)) => Some(name),
-            None => None,
-        };
+        let kwarg = kwarg.map(|n| n.1);
 
         (Some(va), kwonlyargs, kw_defaults, kwarg)
     }
@@ -649,66 +610,59 @@ Decorator: ast::Expression = {
 };
 
 YieldExpr: ast::Expression = {
-    "yield" <ex:TestList?> => {
-        ast::Expression::Yield {
-            value: ex.map(|expr| Box::new(
-                if expr.len() > 1 {
-                    ast::Expression::Tuple { elements: expr }
-                } else {
-                    expr.into_iter().next().unwrap()
-                })
-            )
-        }
-    },
-    "yield" "from" <e:Test> => {
-        ast::Expression::YieldFrom {
-            value: Box::new(e),
-        }
-    },
+    "yield" <value:TestList?> => ast::Expression::Yield { value: value.map(Box::new) },
+    "yield" "from" <e:Test> => ast::Expression::YieldFrom { value: Box::new(e) },
 };
 
 Test: ast::Expression = {
-    <e:OrTest> <c: ("if" OrTest "else" Test)?> => {
-        match c {
-            Some(c) => {
-                ast::Expression::IfExpression {
-                    test: Box::new(c.1),
-                    body: Box::new(e),
-                    orelse: Box::new(c.3),
-                }
-            },
-            None => e,
+    <expr:OrTest> <condition: ("if" OrTest "else" Test)?> => {
+        if let Some(c) = condition {
+            ast::Expression::IfExpression {
+                test: Box::new(c.1),
+                body: Box::new(expr),
+                orelse: Box::new(c.3),
+            }
+        } else {
+            expr
         }
     },
-    <e:LambdaDef> => e,
+    LambdaDef,
 };
 
 LambdaDef: ast::Expression = {
-    "lambda" <p:TypedArgsList<UntypedParameter>?> ":" <b:Test> =>
+    "lambda" <p:ParameterList<UntypedParameter>?> ":" <body:Test> =>
         ast::Expression::Lambda {
             args: p.unwrap_or(Default::default()),
-            body:Box::new(b)
+            body: Box::new(body)
        }
 }
 
 OrTest: ast::Expression = {
-    <e:AndTest> => e,
+    AndTest,
     <e1:OrTest> "or" <e2:AndTest> => ast::Expression::BoolOp { a: Box::new(e1), op: ast::BooleanOperator::Or, b: Box::new(e2) },
 };
 
 AndTest: ast::Expression = {
-    <e:NotTest> => e,
+    NotTest,
     <e1:AndTest> "and" <e2:NotTest> => ast::Expression::BoolOp { a: Box::new(e1), op: ast::BooleanOperator::And, b: Box::new(e2) },
 };
 
 NotTest: ast::Expression = {
     "not" <e:NotTest> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Not },
-    <e:Comparison> => e,
+    Comparison,
 };
 
 Comparison: ast::Expression = {
-    <e1:Comparison> <op:CompOp> <e2:Expression> => ast::Expression::Compare { a: Box::new(e1), op: op, b: Box::new(e2) },
-    <e:Expression> => e,
+    <e:Expression> <comparisons:(CompOp Expression)+> => {
+        let mut vals = vec![e];
+        let mut ops = vec![];
+        for x in comparisons {
+            ops.push(x.0);
+            vals.push(x.1);
+        }
+        ast::Expression::Compare { vals, ops }
+    },
+    Expression,
 };
 
 CompOp: ast::Comparison = {
@@ -726,7 +680,7 @@ CompOp: ast::Comparison = {
 
 Expression: ast::Expression = {
     <e1:Expression> "|" <e2:XorExpression> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::BitOr, b: Box::new(e2) },
-    <e:XorExpression> => e,
+    XorExpression,
 };
 
 XorExpression: ast::Expression = {
@@ -776,7 +730,7 @@ Factor: ast::Expression = {
     "+" <e:Factor> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Pos },
     "-" <e:Factor> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Neg },
     "~" <e:Factor> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Inv },
-    <e:Power> => e,
+    Power,
 };
 
 Power: ast::Expression = {
@@ -789,10 +743,20 @@ Power: ast::Expression = {
 };
 
 AtomExpr: ast::Expression = {
-    <e:Atom> => e,
-    <f:AtomExpr>  "(" <a:ArgumentList> ")" => ast::Expression::Call { function: Box::new(f), args: a.0, keywords: a.1 },
-    <e:AtomExpr>  "[" <s:SubscriptList> "]" => ast::Expression::Subscript { a: Box::new(e), b: Box::new(s) },
-    <e:AtomExpr> "." <n:Identifier> => ast::Expression::Attribute { value: Box::new(e), name: n },
+    <is_await:"await"?> <atom:AtomExpr2> => {
+        if is_await.is_some() {
+            ast::Expression::Await { value: Box::new(atom) }
+        } else {
+            atom
+        }
+    }
+}
+
+AtomExpr2: ast::Expression = {
+    Atom,
+    <f:AtomExpr2> "(" <a:ArgumentList> ")" => ast::Expression::Call { function: Box::new(f), args: a.0, keywords: a.1 },
+    <e:AtomExpr2> "[" <s:SubscriptList> "]" => ast::Expression::Subscript { a: Box::new(e), b: Box::new(s) },
+    <e:AtomExpr2> "." <n:Identifier> => ast::Expression::Attribute { value: Box::new(e), name: n },
 };
 
 SubscriptList: ast::Expression = {
@@ -810,7 +774,7 @@ SubscriptList: ast::Expression = {
 };
 
 Subscript: ast::Expression = {
-    <e:Test> => e,
+    Test,
     <e1:Test?> ":" <e2:Test?> <e3:SliceOp?>  => {
         let s1 = e1.unwrap_or(ast::Expression::None);
         let s2 = e2.unwrap_or(ast::Expression::None);
@@ -824,30 +788,17 @@ SliceOp: ast::Expression = {
 }
 
 Atom: ast::Expression = {
-    <s:StringGroup> => ast::Expression::String { value: s },
-    <b:Bytes> => ast::Expression::Bytes { value: b },
-    <n:Number> => ast::Expression::Number { value: n },
-    <i:Identifier> => ast::Expression::Identifier { name: i },
+    <value:StringGroup> => ast::Expression::String { value },
+    <value:Bytes> => ast::Expression::Bytes { value },
+    <value:Number> => ast::Expression::Number { value },
+    <name:Identifier> => ast::Expression::Identifier { name },
     "[" <e:TestListComp?> "]" => {
         let elements = e.unwrap_or(Vec::new());
         ast::Expression::List { elements }
     },
-    "[" <e:TestListComp2> "]" => {
-        // List comprehension:
-        e
-    },
-    "(" <e:TestList?> <trailing_comma:","?> ")" => {
-         match e {
-             None => ast::Expression::Tuple { elements: Vec::new() },
-             Some(elements) => {
-                 if elements.len() == 1 && trailing_comma.is_none() {
-                   // This is "(e)", which is equivalent to "e"
-                   elements.into_iter().next().unwrap()
-                 } else {
-                   ast::Expression::Tuple { elements }
-                 }
-             }
-         }
+    "[" <e:TestListComp2> "]" => e,
+    "(" <elements:TestList?> ")" => {
+         elements.unwrap_or(ast::Expression::Tuple { elements: Vec::new() })
     },
     "(" <e:Test> <c:CompFor> ")" => {
         ast::Expression::Comprehension {
@@ -866,9 +817,7 @@ Atom: ast::Expression = {
 };
 
 TestListComp: Vec<ast::Expression> = {
-    <e:OneOrMore<TestOrStarExpr>> <_trailing_comma:","?> => {
-        e
-    },
+    <e:OneOrMore<TestOrStarExpr>> <_trailing_comma:","?> => e,
 };
 
 TestListComp2: ast::Expression = {
@@ -880,10 +829,8 @@ TestListComp2: ast::Expression = {
     },
 };
 
-TestDict: Vec<(ast::Expression, ast::Expression)> = {
-    <e1:OneOrMore<DictEntry>> <_trailing_comma:","?> => {
-        e1
-    }
+TestDict: Vec<(Option<ast::Expression>, ast::Expression)> = {
+    <elements:OneOrMore<DictElement>> <_trailing_comma:","?> => elements,
 };
 
 TestDictComp: ast::Expression = {
@@ -899,10 +846,13 @@ DictEntry: (ast::Expression, ast::Expression) = {
     <e1: Test> ":" <e2: Test> => (e1, e2),
 };
 
+DictElement: (Option<ast::Expression>, ast::Expression) = {
+    <e:DictEntry> => (Some(e.0), e.1),
+    "**" <e:Expression> => (None, e),
+};
+
 TestSet: Vec<ast::Expression> = {
-    <e1:OneOrMore<Test>> ","? => {
-        e1
-    }
+    <e1:OneOrMore<Test>> ","? => e1
 };
 
 TestSetComp: ast::Expression = {
@@ -914,31 +864,37 @@ TestSetComp: ast::Expression = {
     }
 };
 
+ExpressionOrStarExpression = {
+    Expression,
+    StarExpr
+};
+
 ExpressionList: ast::Expression = {
-    <e: ExpressionList2> => {
-        if e.len() == 1 {
-            e.into_iter().next().unwrap()
+    <elements: OneOrMore<ExpressionOrStarExpression>> <trailing_comma:","?> => {
+        if elements.len() == 1 && trailing_comma.is_none() {
+            elements.into_iter().next().unwrap()
         } else {
-            ast::Expression::Tuple { elements: e }
+            ast::Expression::Tuple { elements }
         }
     },
 };
 
 ExpressionList2: Vec<ast::Expression> = {
-    <e1:Expression> <e2:("," Expression)*> ","? => {
-        let mut l = vec![e1];
-        l.extend(e2.into_iter().map(|x| x.1));
-        l
-    },
+    <elements:OneOrMore<Expression>> ","? => elements,
 };
 
-#[inline]
-TestList: Vec<ast::Expression> = {
-  <e1:Test> <e2: ("," Test)*> => {
-    let mut l = vec![e1];
-    l.extend(e2.into_iter().map(|x| x.1));
-    l
-  }
+// A test list is one of:
+// - a list of expressions
+// - a single expression
+// - a single expression followed by a trailing comma
+TestList: ast::Expression = {
+    <elements:OneOrMore<Test>> <trailing_comma: ","?> => {
+        if elements.len() == 1 && trailing_comma.is_none() {
+            elements.into_iter().next().unwrap()
+        } else {
+            ast::Expression::Tuple { elements }
+        }
+    }
 };
 
 // Test
@@ -947,27 +903,16 @@ StarExpr: ast::Expression = {
 };
 
 // Comprehensions:
-CompFor: Vec<ast::Comprehension> = {
-    <c:SingleForComprehension+> => c,
-};
+CompFor: Vec<ast::Comprehension> = <c:SingleForComprehension+> => c;
 
 SingleForComprehension: ast::Comprehension = {
-    "for" <e:ExpressionList> "in" <i:OrTest> <c2:ComprehensionIf*> => {
-        ast::Comprehension {
-            target: e,
-            iter: i,
-            ifs: c2,
-        }
+    "for" <target:ExpressionList> "in" <iter:OrTest> <c2:ComprehensionIf*> => {
+        ast::Comprehension { target, iter, ifs: c2 }
     }
 };
 
-ExpressionNoCond: ast::Expression = {
-    OrTest,
-};
-
-ComprehensionIf: ast::Expression = {
-    "if" <c:ExpressionNoCond> => c,
-};
+ExpressionNoCond: ast::Expression = OrTest;
+ComprehensionIf: ast::Expression = "if" <c:ExpressionNoCond> => c;
 
 ArgumentList: (Vec<ast::Expression>, Vec<ast::Keyword>) = {
     <e: Comma<FunctionArgument>> => {
@@ -979,8 +924,15 @@ ArgumentList: (Vec<ast::Expression>, Vec<ast::Keyword>) = {
                     keywords.push(ast::Keyword { name: n, value: value });
                 },
                 None => {
-                    if keywords.len() > 0 {
-                        panic!("positional argument follows keyword argument");
+                    // Allow starred args after keyword arguments.
+                    let is_starred = if let ast::Expression::Starred { .. } = &value {
+                        true
+                    } else {
+                        false
+                    };
+
+                    if keywords.len() > 0 && !is_starred {
+                        panic!("positional argument follows keyword argument {:?}", keywords);
                     };
                     args.push(value);
                 },
@@ -1024,8 +976,8 @@ OneOrMore<T>: Vec<T> = {
 };
 
 Number: ast::Number = {
-    <s:int> => { ast::Number::Integer { value: s } },
-    <s:float> => { ast::Number::Float { value: s } },
+    <value:int> => { ast::Number::Integer { value } },
+    <value:float> => { ast::Number::Float { value } },
     <s:complex> => { ast::Number::Complex { real: s.0, imag: s.1 } },
 };
 
@@ -1115,6 +1067,8 @@ extern {
         "and" => lexer::Tok::And,
         "as" => lexer::Tok::As,
         "assert" => lexer::Tok::Assert,
+        "async" => lexer::Tok::Async,
+        "await" => lexer::Tok::Await,
         "break" => lexer::Tok::Break,
         "class" => lexer::Tok::Class,
         "continue" => lexer::Tok::Continue,

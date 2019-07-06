@@ -2,23 +2,27 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::function::PyFuncArgs;
+use crate::function::{Args, KwArgs, PyFuncArgs};
 use crate::pyobject::{
-    AttributeProtocol, FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, PyAttributes, PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
-use super::objdict;
+use super::objdict::PyDictRef;
 use super::objlist::PyList;
+use super::objmappingproxy::PyMappingProxy;
 use super::objproperty::PropertyBuilder;
-use super::objstr::{self, PyStringRef};
+use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
+use super::objweakref::PyWeak;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PyClass {
     pub name: String,
     pub mro: Vec<PyClassRef>,
+    pub subclasses: RefCell<Vec<PyWeak>>,
+    pub attributes: RefCell<PyAttributes>,
 }
 
 impl fmt::Display for PyClass {
@@ -30,20 +34,8 @@ impl fmt::Display for PyClass {
 pub type PyClassRef = PyRef<PyClass>;
 
 impl PyValue for PyClass {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.type_type()
-    }
-}
-
-impl IdProtocol for PyClassRef {
-    fn get_id(&self) -> usize {
-        self.as_object().get_id()
-    }
-}
-
-impl TypeProtocol for PyClassRef {
-    fn type_ref(&self) -> &PyObjectRef {
-        &self.as_object().type_ref()
     }
 }
 
@@ -101,19 +93,96 @@ impl PyClassRef {
     }
 
     fn instance_check(self, obj: PyObjectRef, _vm: &VirtualMachine) -> bool {
-        isinstance(&obj, self.as_object())
+        isinstance(&obj, &self)
     }
 
-    fn subclass_check(self, subclass: PyObjectRef, _vm: &VirtualMachine) -> bool {
-        issubclass(&subclass, self.as_object())
+    fn subclass_check(self, subclass: PyClassRef, _vm: &VirtualMachine) -> bool {
+        issubclass(&subclass, &self)
+    }
+
+    fn name(self, _vm: &VirtualMachine) -> String {
+        self.name.clone()
     }
 
     fn repr(self, _vm: &VirtualMachine) -> String {
         format!("<class '{}'>", self.name)
     }
 
-    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.new_dict()
+    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
+        vm.ctx.new_dict()
+    }
+
+    fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let name = &name_ref.value;
+        trace!("type.__getattribute__({:?}, {:?})", self, name);
+        let mcl = self.class();
+
+        if let Some(attr) = class_get_attr(&mcl, &name) {
+            let attr_class = attr.class();
+            if class_has_attr(&attr_class, "__set__") {
+                if let Some(descriptor) = class_get_attr(&attr_class, "__get__") {
+                    return vm.invoke(
+                        descriptor,
+                        vec![attr, self.into_object(), mcl.into_object()],
+                    );
+                }
+            }
+        }
+
+        if let Some(attr) = class_get_attr(&self, &name) {
+            let attr_class = attr.class();
+            if let Some(descriptor) = class_get_attr(&attr_class, "__get__") {
+                let none = vm.get_none();
+                return vm.invoke(descriptor, vec![attr, none, self.into_object()]);
+            }
+        }
+
+        if let Some(cls_attr) = class_get_attr(&self, &name) {
+            Ok(cls_attr)
+        } else if let Some(attr) = class_get_attr(&mcl, &name) {
+            vm.call_get_descriptor(attr, self.into_object())
+        } else if let Some(getter) = class_get_attr(&self, "__getattr__") {
+            vm.invoke(getter, vec![mcl.into_object(), name_ref.into_object()])
+        } else {
+            Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
+        }
+    }
+
+    fn set_attr(
+        self,
+        attr_name: PyStringRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(attr) = class_get_attr(&self.class(), &attr_name.value) {
+            if let Some(descriptor) = class_get_attr(&attr.class(), "__set__") {
+                vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
+                return Ok(());
+            }
+        }
+
+        self.attributes
+            .borrow_mut()
+            .insert(attr_name.to_string(), value);
+        Ok(())
+    }
+
+    // This is used for class initialisation where the vm is not yet available.
+    pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
+        self.attributes
+            .borrow_mut()
+            .insert(attr_name.to_string(), value.into());
+    }
+
+    fn subclasses(self, _vm: &VirtualMachine) -> PyList {
+        let mut subclasses = self.subclasses.borrow_mut();
+        subclasses.retain(|x| x.upgrade().is_some());
+        PyList::from(
+            subclasses
+                .iter()
+                .map(|x| x.upgrade().unwrap())
+                .collect::<Vec<_>>(),
+        )
     }
 }
 
@@ -128,15 +197,24 @@ pub fn init(ctx: &PyContext) {
 
     extend_class!(&ctx, &ctx.type_type, {
         "__call__" => ctx.new_rustfunc(type_call),
+        "__dict__" =>
+        PropertyBuilder::new(ctx)
+                .add_getter(type_dict)
+                .add_setter(type_dict_setter)
+                .create(),
         "__new__" => ctx.new_rustfunc(type_new),
         "__mro__" =>
             PropertyBuilder::new(ctx)
                 .add_getter(PyClassRef::mro)
                 .add_setter(PyClassRef::set_mro)
                 .create(),
+        "__name__" => ctx.new_property(PyClassRef::name),
         "__repr__" => ctx.new_rustfunc(PyClassRef::repr),
         "__prepare__" => ctx.new_rustfunc(PyClassRef::prepare),
-        "__getattribute__" => ctx.new_rustfunc(type_getattribute),
+        "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
+        "__setattr__" => ctx.new_rustfunc(PyClassRef::set_attr),
+        "__subclasses__" => ctx.new_rustfunc(PyClassRef::subclasses),
+        "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
         "__instancecheck__" => ctx.new_rustfunc(PyClassRef::instance_check),
         "__subclasscheck__" => ctx.new_rustfunc(PyClassRef::subclass_check),
         "__doc__" => ctx.new_str(type_doc.to_string()),
@@ -150,83 +228,51 @@ fn _mro(cls: &PyClassRef) -> Vec<PyClassRef> {
 
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
-pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
-    issubclass(obj.type_ref(), &cls)
+pub fn isinstance(obj: &PyObjectRef, cls: &PyClassRef) -> bool {
+    issubclass(&obj.class(), &cls)
 }
 
 /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
 /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
 /// method.
-pub fn issubclass(subclass: &PyObjectRef, cls: &PyObjectRef) -> bool {
-    let mro = &subclass.payload::<PyClass>().unwrap().mro;
-    subclass.is(cls) || mro.iter().any(|c| c.is(cls))
-}
-
-pub fn get_type_name(typ: &PyObjectRef) -> String {
-    if let Some(PyClass { name, .. }) = &typ.payload::<PyClass>() {
-        name.clone()
-    } else {
-        panic!("Cannot get type_name of non-type type {:?}", typ);
-    }
+pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
+    let mro = &subclass.mro;
+    subclass.is(cls) || mro.iter().any(|c| c.is(cls.as_object()))
 }
 
 pub fn type_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     debug!("type.__new__ {:?}", args);
     if args.args.len() == 2 {
-        arg_check!(
-            vm,
-            args,
-            required = [(_typ, Some(vm.ctx.type_type())), (obj, None)]
-        );
-        Ok(obj.typ())
+        Ok(args.args[1].class().into_object())
     } else if args.args.len() == 4 {
-        arg_check!(
-            vm,
-            args,
-            required = [
-                (typ, Some(vm.ctx.type_type())),
-                (name, Some(vm.ctx.str_type())),
-                (bases, None),
-                (dict, Some(vm.ctx.dict_type()))
-            ]
-        );
-        type_new_class(vm, typ, name, bases, dict)
+        let (typ, name, bases, dict) = args.bind(vm)?;
+        type_new_class(vm, typ, name, bases, dict).map(PyRef::into_object)
     } else {
-        Err(vm.new_type_error(format!(": type_new: {:?}", args)))
+        Err(vm.new_type_error("type() takes 1 or 3 arguments".to_string()))
     }
 }
 
 pub fn type_new_class(
     vm: &VirtualMachine,
-    typ: &PyObjectRef,
-    name: &PyObjectRef,
-    bases: &PyObjectRef,
-    dict: &PyObjectRef,
-) -> PyResult {
-    let mut bases: Vec<PyClassRef> = vm
-        .extract_elements(bases)?
-        .iter()
-        .map(|x| FromPyObjectRef::from_pyobj(x))
-        .collect();
-    bases.push(FromPyObjectRef::from_pyobj(&vm.ctx.object()));
-    let name = objstr::get_value(name);
-    new(
-        typ.clone(),
-        &name,
-        bases,
-        objdict::py_dict_to_attributes(dict),
-    )
+    typ: PyClassRef,
+    name: PyStringRef,
+    bases: PyIterable<PyClassRef>,
+    dict: PyDictRef,
+) -> PyResult<PyClassRef> {
+    let mut bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
+    bases.push(vm.ctx.object());
+    new(typ.clone(), &name.value, bases, dict.to_attributes())
 }
 
-pub fn type_call(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    debug!("type_call: {:?}", args);
-    let cls = args.shift();
-    let new = cls.get_attr("__new__").unwrap();
-    let new_wrapped = vm.call_get_descriptor(new, cls)?;
-    let obj = vm.invoke(new_wrapped, args.clone())?;
+pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult {
+    debug!("type_call: {:?}", class);
+    let new = class_get_attr(&class, "__new__").expect("All types should have a __new__.");
+    let new_wrapped = vm.call_get_descriptor(new, class.into_object())?;
+    let obj = vm.invoke(new_wrapped, (&args, &kwargs))?;
 
-    if let Ok(init) = vm.get_method(obj.clone(), "__init__") {
-        let res = vm.invoke(init, args)?;
+    if let Some(init_method_or_err) = vm.get_method(obj.clone(), "__init__") {
+        let init_method = init_method_or_err?;
+        let res = vm.invoke(init_method, (&args, &kwargs))?;
         if !res.is(&vm.get_none()) {
             return Err(vm.new_type_error("__init__ must return None".to_string()));
         }
@@ -234,45 +280,36 @@ pub fn type_call(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     Ok(obj)
 }
 
-pub fn type_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (cls, Some(vm.ctx.object())),
-            (name_str, Some(vm.ctx.str_type()))
-        ]
-    );
-    let name = objstr::get_value(&name_str);
-    trace!("type.__getattribute__({:?}, {:?})", cls, name);
-    let mcl = cls.typ();
+fn type_dict(class: PyClassRef, _vm: &VirtualMachine) -> PyMappingProxy {
+    PyMappingProxy::new(class)
+}
 
-    if let Some(attr) = mcl.get_attr(&name) {
-        let attr_class = attr.typ();
-        if attr_class.has_attr("__set__") {
-            if let Some(descriptor) = attr_class.get_attr("__get__") {
-                return vm.invoke(descriptor, vec![attr, cls.clone(), mcl]);
-            }
+fn type_dict_setter(_instance: PyClassRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    Err(vm.new_not_implemented_error(
+        "Setting __dict__ attribute on a type isn't yet implemented".to_string(),
+    ))
+}
+
+/// This is the internal get_attr implementation for fast lookup on a class.
+pub fn class_get_attr(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
+    if let Some(item) = class.attributes.borrow().get(attr_name).cloned() {
+        return Some(item);
+    }
+    for class in &class.mro {
+        if let Some(item) = class.attributes.borrow().get(attr_name).cloned() {
+            return Some(item);
         }
     }
+    None
+}
 
-    if let Some(attr) = cls.get_attr(&name) {
-        let attr_class = attr.typ();
-        if let Some(descriptor) = attr_class.get_attr("__get__") {
-            let none = vm.get_none();
-            return vm.invoke(descriptor, vec![attr, none, cls.clone()]);
-        }
-    }
-
-    if let Some(cls_attr) = cls.get_attr(&name) {
-        Ok(cls_attr)
-    } else if let Some(attr) = mcl.get_attr(&name) {
-        vm.call_get_descriptor(attr, cls.clone())
-    } else if let Some(getter) = cls.get_attr("__getattr__") {
-        vm.invoke(getter, vec![mcl, name_str.clone()])
-    } else {
-        Err(vm.new_attribute_error(format!("{} has no attribute '{}'", cls, name)))
-    }
+// This is the internal has_attr implementation for fast lookup on a class.
+pub fn class_has_attr(class: &PyClassRef, attr_name: &str) -> bool {
+    class.attributes.borrow().contains_key(attr_name)
+        || class
+            .mro
+            .iter()
+            .any(|c| c.attributes.borrow().contains_key(attr_name))
 }
 
 pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
@@ -283,10 +320,8 @@ pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
     base_classes.reverse();
 
     for bc in base_classes {
-        if let Some(ref dict) = &bc.as_object().dict {
-            for (name, value) in dict.borrow().iter() {
-                attributes.insert(name.to_string(), value.clone());
-            }
+        for (name, value) in bc.attributes.borrow().iter() {
+            attributes.insert(name.to_string(), value.clone());
         }
     }
 
@@ -300,10 +335,7 @@ fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> Option<(PyClassRef, Vec<Ve
 
     for base in &bases {
         let head = base[0].clone();
-        if !(&bases)
-            .iter()
-            .any(|x| x[1..].iter().any(|x| x.get_id() == head.get_id()))
-        {
+        if !(&bases).iter().any(|x| x[1..].iter().any(|x| x.is(&head))) {
             next = Some(head);
             break;
         }
@@ -311,7 +343,7 @@ fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> Option<(PyClassRef, Vec<Ve
 
     if let Some(head) = next {
         for item in &mut bases {
-            if item[0].get_id() == head.get_id() {
+            if item[0].is(&head) {
                 item.remove(0);
             }
         }
@@ -339,27 +371,35 @@ fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Option<Vec<PyClassRef>> {
 }
 
 pub fn new(
-    typ: PyObjectRef,
+    typ: PyClassRef,
     name: &str,
     bases: Vec<PyClassRef>,
     dict: HashMap<String, PyObjectRef>,
-) -> PyResult {
-    let mros = bases.into_iter().map(|x| _mro(&x)).collect();
+) -> PyResult<PyClassRef> {
+    let mros = bases.iter().map(|x| _mro(&x)).collect();
     let mro = linearise_mro(mros).unwrap();
-    Ok(PyObject {
-        payload: Box::new(PyClass {
+    let new_type = PyObject {
+        payload: PyClass {
             name: String::from(name),
             mro,
-        }),
-        dict: Some(RefCell::new(dict)),
+            subclasses: RefCell::new(vec![]),
+            attributes: RefCell::new(dict),
+        },
+        dict: None,
         typ,
     }
-    .into_ref())
+    .into_ref();
+    for base in bases {
+        base.subclasses
+            .borrow_mut()
+            .push(PyWeak::downgrade(&new_type));
+    }
+
+    Ok(new_type.downcast().unwrap())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::FromPyObjectRef;
     use super::{linearise_mro, new};
     use super::{HashMap, IdProtocol, PyClassRef, PyContext};
 
@@ -373,14 +413,11 @@ mod tests {
     #[test]
     fn test_linearise() {
         let context = PyContext::new();
-        let object: PyClassRef = FromPyObjectRef::from_pyobj(&context.object);
+        let object: PyClassRef = context.object.clone();
         let type_type = &context.type_type;
 
         let a = new(type_type.clone(), "A", vec![object.clone()], HashMap::new()).unwrap();
         let b = new(type_type.clone(), "B", vec![object.clone()], HashMap::new()).unwrap();
-
-        let a: PyClassRef = FromPyObjectRef::from_pyobj(&a);
-        let b: PyClassRef = FromPyObjectRef::from_pyobj(&b);
 
         assert_eq!(
             map_ids(linearise_mro(vec![
