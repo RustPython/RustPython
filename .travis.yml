@@ -1,17 +1,18 @@
-language: rust
-rust: stable
-cache: cargo
 
 matrix:
   fast_finish: true
   include:
-    - name: rust unittests and doctests
+    - name: Run rust tests
       language: rust
       rust: stable
       cache: cargo
       script:
         - cargo build --verbose --all
         - cargo test --verbose --all
+      env:
+        # Prevention of cache corruption.
+        # See: https://docs.travis-ci.com/user/caching/#caches-and-build-matrices
+        - JOBCACHE=1
 
     # To test the snippets, we use Travis' Python environment (because
     # installing rust ourselves is a lot easier than installing Python)
@@ -19,29 +20,25 @@ matrix:
       language: python
       python: 3.6
       cache:
-        pip: true
-        # Because we're using the Python Travis environment, we can't use
-        # the built-in cargo cacher
-        directories:
-          - /home/travis/.cargo
-          - target
+        - pip
+        - cargo
       env:
+        - JOBCACHE=2
         - TRAVIS_RUST_VERSION=stable
         - CODE_COVERAGE=false
       script: tests/.travis-runner.sh
-    - name: rustfmt
+
+    - name: Check rust code style with rustfmt
       language: rust
       rust: stable
       cache: cargo
       before_script:
-        - rustup component add rustfmt-preview
+        - rustup component add rustfmt
       script:
-        # Code references the generated python.rs, so put something in
-        # place to make `cargo fmt` happy.  (We use `echo` rather than
-        # `touch` because rustfmt complains about the empty file touch
-        # creates.)
-        - echo > parser/src/python.rs
         - cargo fmt --all -- --check
+      env:
+        - JOBCACHE=3
+
     - name: publish documentation
       language: rust
       rust: stable
@@ -50,7 +47,17 @@ matrix:
         - cargo doc --no-deps --all
       if: branch = release
       env:
-        - DEPLOY_DOC=true
+        - JOBCACHE=4
+      deploy:
+        - provider: pages
+          repo: RustPython/website
+          target-branch: master
+          local-dir: target/doc
+          skip-cleanup: true
+          # Set in the settings page of your repository, as a secure variable
+          github-token: $WEBSITE_GITHUB_TOKEN
+          keep-history: true
+
     - name: WASM online demo
       language: rust
       rust: stable
@@ -65,42 +72,38 @@ matrix:
         - npm run dist
       if: branch = release
       env:
-        - DEPLOY_DEMO=true
-    - name: cargo-clippy
-      language: rust
-      rust: stable
-      cache: cargo
-      before_script:
-        - rustup component add clippy
-      script:
-        - cargo clippy
+        - JOBCACHE=5
+      deploy:
+        - provider: pages
+          repo: RustPython/demo
+          target-branch: master
+          local-dir: wasm/demo/dist
+          skip-cleanup: true
+          # Set in the settings page of your repository, as a secure variable
+          github-token: $WEBSITE_GITHUB_TOKEN
+          keep-history: true
+
     - name: Code Coverage
       language: python
       python: 3.6
       cache:
-        pip: true
-        # Because we're using the Python Travis environment, we can't use
-        # the built-in cargo cacher
-        directories:
-          - /home/travis/.cargo
-          - target
+        - pip
+        - cargo
       script:
         - tests/.travis-runner.sh
       # Only do code coverage on master via a cron job.
       if: branch = master AND type = cron
       env:
+        - JOBCACHE=6
         - TRAVIS_RUST_VERSION=nightly
         - CODE_COVERAGE=true
+
     - name: test WASM
       language: python
       python: 3.6
       cache:
-        pip: true
-        # Because we're using the Python Travis environment, we can't use
-        # the built-in cargo cacher
-        directories:
-          - /home/travis/.cargo
-          - target
+        - pip
+        - cargo
       addons:
         firefox: latest
       install:
@@ -109,30 +112,5 @@ matrix:
       script:
         - wasm/tests/.travis-runner.sh
       env:
+        - JOBCACHE=7
         - TRAVIS_RUST_VERSION=stable
-  allow_failures:
-    - name: cargo-clippy
-
-deploy:
-  - provider: pages
-    repo: RustPython/website
-    target-branch: master
-    local-dir: target/doc
-    skip-cleanup: true
-    # Set in the settings page of your repository, as a secure variable
-    github-token: $WEBSITE_GITHUB_TOKEN
-    keep-history: true
-    on:
-      branch: release
-      condition: $DEPLOY_DOC = true
-  - provider: pages
-    repo: RustPython/demo
-    target-branch: master
-    local-dir: wasm/demo/dist
-    skip-cleanup: true
-    # Set in the settings page of your repository, as a secure variable
-    github-token: $WEBSITE_GITHUB_TOKEN
-    keep-history: true
-    on:
-      branch: release
-      condition: $DEPLOY_DEMO = true
