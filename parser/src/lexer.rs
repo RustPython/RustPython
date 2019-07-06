@@ -75,9 +75,9 @@ pub enum LexicalErrorType {
     OtherError(String),
 }
 
-impl fmt::Display for LexicalError {
+impl fmt::Display for LexicalErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.error {
+        match *self {
             LexicalErrorType::StringError => write!(f, "Got unexpected string"),
             LexicalErrorType::UnicodeError => write!(f, "Got unexpected unicode"),
             LexicalErrorType::NestingError => write!(f, "Got unexpected nesting"),
@@ -85,13 +85,7 @@ impl fmt::Display for LexicalError {
                 write!(f, "Got unexpected token {}", tok)
             }
             LexicalErrorType::OtherError(ref msg) => write!(f, "{}", msg),
-        }?;
-        write!(
-            f,
-            " at line {} column {}",
-            self.location.row(),
-            self.location.column()
-        )
+        }
     }
 }
 
@@ -99,6 +93,12 @@ impl fmt::Display for LexicalError {
 pub struct Location {
     row: usize,
     column: usize,
+}
+
+impl fmt::Display for Location {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "line {} column {}", self.row, self.column)
+    }
 }
 
 impl Location {
