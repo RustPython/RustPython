@@ -2,7 +2,7 @@
 matrix:
   fast_finish: true
   include:
-    - name: rust unittests and doctests
+    - name: Run rust tests
       language: rust
       rust: stable
       cache: cargo
@@ -28,18 +28,13 @@ matrix:
         - CODE_COVERAGE=false
       script: tests/.travis-runner.sh
 
-    - name: rustfmt
+    - name: Check rust code style with rustfmt
       language: rust
       rust: stable
       cache: cargo
       before_script:
-        - rustup component add rustfmt-preview
+        - rustup component add rustfmt
       script:
-        # Code references the generated python.rs, so put something in
-        # place to make `cargo fmt` happy.  (We use `echo` rather than
-        # `touch` because rustfmt complains about the empty file touch
-        # creates.)
-        - echo > parser/src/python.rs
         - cargo fmt --all -- --check
       env:
         - JOBCACHE=3
