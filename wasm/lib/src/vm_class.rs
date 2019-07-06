@@ -5,7 +5,7 @@ use std::rc::{Rc, Weak};
 use js_sys::{Object, Reflect, SyntaxError, TypeError};
 use wasm_bindgen::prelude::*;
 
-use rustpython_compiler::{compile, error::CompileErrorType};
+use rustpython_compiler::compile;
 use rustpython_vm::frame::{NameProtocol, Scope};
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::import;
@@ -44,7 +44,7 @@ impl StoredVirtualMachine {
             setup_browser_module(&vm);
         }
 
-        import::init_importlib(&vm, false);
+        import::init_importlib(&vm, false).unwrap();
 
         StoredVirtualMachine {
             vm,
