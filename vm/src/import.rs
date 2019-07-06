@@ -88,26 +88,31 @@ pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyObjectRef) -> PyObje
 
     if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
-            let mut tb_entries = objsequence::get_elements_list(&tb).to_vec();
-            tb_entries.reverse();
-            let mut new_tb = Vec::with_capacity(tb_entries.len());
-
-            for tb_entry in tb_entries.iter() {
-                let mut current_chunk = vec![];
-                let location_attrs = objsequence::get_elements_tuple(&tb_entry);
-                let file_name = objstr::get_value(&location_attrs[0]);
-                if file_name != "_frozen_importlib" && file_name != "_frozen_importlib_external" {
-                    current_chunk.clear();
-                    new_tb.push(tb_entry.clone())
-                } else {
-                    current_chunk.push(tb_entry.clone());
-                    let run_obj_name = objstr::get_value(&location_attrs[0]);
-                    if run_obj_name == "_call_with_frames_removed" || always_trim {
-                        new_tb.append(&mut current_chunk);
+            let tb_entries = objsequence::get_elements_list(&tb).to_vec();
+            let mut in_importlib = false;
+            let new_tb = tb_entries
+                .iter()
+                .filter(|tb_entry| {
+                    let location_attrs = objsequence::get_elements_tuple(&tb_entry);
+                    let file_name = objstr::get_value(&location_attrs[0]);
+                    if file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external"
+                    {
+                        let run_obj_name = objstr::get_value(&location_attrs[2]);
+                        if run_obj_name == "_call_with_frames_removed" {
+                            in_importlib = true;
+                        }
+                        if always_trim || in_importlib {
+                            false
+                        } else {
+                            true
+                        }
+                    } else {
+                        in_importlib = false;
+                        true
                     }
-                };
-            }
-            new_tb.reverse();
+                })
+                .map(|x| x.clone())
+                .collect();
             vm.set_attr(exc, "__traceback__", vm.ctx.new_list(new_tb))
                 .unwrap();
         }
