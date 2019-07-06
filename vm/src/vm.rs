@@ -15,6 +15,7 @@ use crate::bytecode;
 use crate::frame::{ExecutionResult, Frame, FrameRef, Scope};
 use crate::frozen;
 use crate::function::PyFuncArgs;
+use crate::import;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::{PyCode, PyCodeRef};
@@ -305,30 +306,33 @@ impl VirtualMachine {
 
     pub fn import(&self, module: &str, from_list: &PyObjectRef, level: usize) -> PyResult {
         let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
-        sys_modules.get_item(module.to_string(), self).or_else(|_| {
-            let import_func = self
-                .get_attribute(self.builtins.clone(), "__import__")
-                .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
+        sys_modules
+            .get_item(module.to_string(), self)
+            .or_else(|_| {
+                let import_func = self
+                    .get_attribute(self.builtins.clone(), "__import__")
+                    .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
 
-            let (locals, globals) = if let Some(frame) = self.current_frame() {
-                (
-                    frame.scope.get_locals().into_object(),
-                    frame.scope.globals.clone().into_object(),
+                let (locals, globals) = if let Some(frame) = self.current_frame() {
+                    (
+                        frame.scope.get_locals().into_object(),
+                        frame.scope.globals.clone().into_object(),
+                    )
+                } else {
+                    (self.get_none(), self.get_none())
+                };
+                self.invoke(
+                    import_func,
+                    vec![
+                        self.ctx.new_str(module.to_string()),
+                        globals,
+                        locals,
+                        from_list.clone(),
+                        self.ctx.new_int(level),
+                    ],
                 )
-            } else {
-                (self.get_none(), self.get_none())
-            };
-            self.invoke(
-                import_func,
-                vec![
-                    self.ctx.new_str(module.to_string()),
-                    globals,
-                    locals,
-                    from_list.clone(),
-                    self.ctx.new_int(level),
-                ],
-            )
-        })
+            })
+            .map_err(|exc| import::remove_importlib_frames(self, &exc))
     }
 
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via
