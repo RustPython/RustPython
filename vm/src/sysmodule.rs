@@ -5,6 +5,7 @@ use crate::frame::FrameRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
+use crate::version;
 use crate::vm::VirtualMachine;
 
 /*
@@ -160,6 +161,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         "unknown".to_string()
     };
 
+    let copyright = "Copyright (c) 2019 RustPython Team";
+
     let sys_doc = "This module provides access to some objects used or maintained by the
 interpreter and to functions that interact strongly with the interpreter.
 
@@ -229,16 +232,23 @@ setprofile() -- set the global profiling function
 setrecursionlimit() -- set the max recursion depth for the interpreter
 settrace() -- set the global debug tracing function
 ";
-    let mut module_names: Vec<_> = vm.stdlib_inits.borrow().keys().cloned().collect();
+    let mut module_names: Vec<String> = vm.stdlib_inits.borrow().keys().cloned().collect();
     module_names.push("sys".to_string());
     module_names.push("builtins".to_string());
     module_names.sort();
+    let builtin_module_names = ctx.new_tuple(
+        module_names
+            .iter()
+            .map(|v| v.into_pyobject(vm).unwrap())
+            .collect(),
+    );
     let modules = ctx.new_dict();
     extend_module!(vm, module, {
       "__name__" => ctx.new_str(String::from("sys")),
       "argv" => argv(ctx),
-      "builtin_module_names" => ctx.new_tuple(module_names.iter().map(|v| v.into_pyobject(vm).unwrap()).collect()),
+      "builtin_module_names" => builtin_module_names,
       "byteorder" => ctx.new_str(bytorder),
+      "copyright" => ctx.new_str(copyright.to_string()),
       "flags" => flags,
       "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
       "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
@@ -260,6 +270,7 @@ settrace() -- set the global debug tracing function
       "path_importer_cache" => ctx.new_dict(),
       "pycache_prefix" => vm.get_none(),
       "dont_write_bytecode" => vm.new_bool(true),
+      "version" => vm.new_str(version::get_version()),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();
