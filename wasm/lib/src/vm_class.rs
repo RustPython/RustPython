@@ -281,30 +281,13 @@ impl WASMVirtualMachine {
                 let code = vm.compile(&source, &mode, "<wasm>".to_string());
                 let code = code.map_err(|err| {
                     let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
-                    if let CompileErrorType::Parse(ref parse_error) = err.error {
-                        use rustpython_parser::error::ParseError;
-                        if let ParseError::EOF(Some(ref loc))
-                        | ParseError::ExtraToken((ref loc, ..))
-                        | ParseError::InvalidToken(ref loc)
-                        | ParseError::UnrecognizedToken((ref loc, ..), _) = parse_error
-                        {
-                            let _ =
-                                Reflect::set(&js_err, &"row".into(), &(loc.row() as u32).into());
-                            let _ =
-                                Reflect::set(&js_err, &"col".into(), &(loc.column() as u32).into());
-                        }
-                        if let ParseError::ExtraToken((_, _, ref loc))
-                        | ParseError::UnrecognizedToken((_, _, ref loc), _) = parse_error
-                        {
-                            let _ =
-                                Reflect::set(&js_err, &"endrow".into(), &(loc.row() as u32).into());
-                            let _ = Reflect::set(
-                                &js_err,
-                                &"endcol".into(),
-                                &(loc.column() as u32).into(),
-                            );
-                        }
-                    }
+                    let _ =
+                        Reflect::set(&js_err, &"row".into(), &(err.location.row() as u32).into());
+                    let _ = Reflect::set(
+                        &js_err,
+                        &"col".into(),
+                        &(err.location.column() as u32).into(),
+                    );
                     js_err
                 })?;
                 let result = vm.run_code_obj(code, scope.borrow().clone());

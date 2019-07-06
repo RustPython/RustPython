@@ -10,6 +10,7 @@ use num_traits::Num;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::fmt;
 use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
 use unicode_xid::UnicodeXID;
@@ -59,13 +60,13 @@ pub struct Lexer<T: Iterator<Item = char>> {
     keywords: HashMap<String, Tok>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct LexicalError {
     pub error: LexicalErrorType,
     pub location: Location,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum LexicalErrorType {
     StringError,
     UnicodeError,
@@ -74,10 +75,30 @@ pub enum LexicalErrorType {
     OtherError(String),
 }
 
+impl fmt::Display for LexicalErrorType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            LexicalErrorType::StringError => write!(f, "Got unexpected string"),
+            LexicalErrorType::UnicodeError => write!(f, "Got unexpected unicode"),
+            LexicalErrorType::NestingError => write!(f, "Got unexpected nesting"),
+            LexicalErrorType::UnrecognizedToken { tok } => {
+                write!(f, "Got unexpected token {}", tok)
+            }
+            LexicalErrorType::OtherError(ref msg) => write!(f, "{}", msg),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Location {
     row: usize,
     column: usize,
+}
+
+impl fmt::Display for Location {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "line {} column {}", self.row, self.column)
+    }
 }
 
 impl Location {
