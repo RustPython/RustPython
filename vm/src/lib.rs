@@ -60,6 +60,7 @@ pub mod stdlib;
 mod sysmodule;
 mod traceback;
 pub mod util;
+mod version;
 mod vm;
 
 // pub use self::pyobject::Executor;

@@ -1,12 +1,16 @@
 use crate::function::PyFuncArgs;
 use crate::pyobject::{PyObjectRef, PyResult};
+use crate::version;
 use crate::vm::VirtualMachine;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     py_module!(vm, "platform", {
+        "python_branch" => ctx.new_rustfunc(platform_python_branch),
+        "python_build" => ctx.new_rustfunc(platform_python_build),
         "python_compiler" => ctx.new_rustfunc(platform_python_compiler),
         "python_implementation" => ctx.new_rustfunc(platform_python_implementation),
+        "python_revision" => ctx.new_rustfunc(platform_python_revision),
         "python_version" => ctx.new_rustfunc(platform_python_version),
     })
 }
@@ -18,12 +22,28 @@ fn platform_python_implementation(vm: &VirtualMachine, args: PyFuncArgs) -> PyRe
 
 fn platform_python_version(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args);
-    // TODO: fetch version from somewhere.
-    Ok(vm.new_str("4.0.0".to_string()))
+    Ok(vm.new_str(version::get_version_number()))
 }
 
 fn platform_python_compiler(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args);
-    let version = rustc_version_runtime::version_meta();
-    Ok(vm.new_str(format!("rustc {}", version.semver)))
+    Ok(vm.new_str(version::get_compiler()))
+}
+
+fn platform_python_build(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args);
+    let (git_hash, git_timestamp) = version::get_build_info();
+    Ok(vm
+        .ctx
+        .new_tuple(vec![vm.new_str(git_hash), vm.new_str(git_timestamp)]))
+}
+
+fn platform_python_branch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args);
+    Ok(vm.new_str(version::get_git_branch()))
+}
+
+fn platform_python_revision(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args);
+    Ok(vm.new_str(version::get_git_revision()))
 }
