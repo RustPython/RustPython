@@ -7,7 +7,7 @@ extern crate rustyline;
 
 use clap::{App, Arg};
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
-use rustpython_parser::error::ParseError;
+use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
     frame::Scope,
     import,
@@ -181,7 +181,7 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), Com
         // Don't inject syntax errors for line continuation
         Err(
             err @ CompileError {
-                error: CompileErrorType::Parse(ParseError::EOF(_)),
+                error: CompileErrorType::Parse(ParseErrorType::EOF),
                 ..
             },
         ) => Err(err),
@@ -258,7 +258,7 @@ fn run_shell(vm: &VirtualMachine) -> PyResult {
 
                 match shell_exec(vm, &input, vars.clone()) {
                     Err(CompileError {
-                        error: CompileErrorType::Parse(ParseError::EOF(_)),
+                        error: CompileErrorType::Parse(ParseErrorType::EOF),
                         ..
                     }) => {
                         continuing = true;

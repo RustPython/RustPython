@@ -7,12 +7,9 @@
 use js_sys::{self, Array};
 use web_sys::{self, console};
 
-use rustpython_vm::function::{Args, KwArgs, PyFuncArgs};
-use rustpython_vm::obj::{
-    objstr::{self, PyStringRef},
-    objtype,
-};
-use rustpython_vm::pyobject::{IdProtocol, ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
+use rustpython_vm::function::PyFuncArgs;
+use rustpython_vm::obj::{objstr, objtype};
+use rustpython_vm::pyobject::{IdProtocol, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
 
 pub(crate) fn window() -> web_sys::Window {
