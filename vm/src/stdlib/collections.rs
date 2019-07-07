@@ -332,6 +332,11 @@ impl PyDeque {
             maxlen: self.maxlen.clone(),
         }
     }
+
+    #[pymethod(name = "__len__")]
+    fn len(&self, _vm: &VirtualMachine) -> usize {
+        self.deque.borrow().len()
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
