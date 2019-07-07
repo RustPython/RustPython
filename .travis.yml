@@ -48,7 +48,7 @@ matrix:
       script:
         - cargo clippy --all -- -Dwarnings
       env:
-        - JOBCACHE=3
+        - JOBCACHE=8
 
     - name: publish documentation
       language: rust
