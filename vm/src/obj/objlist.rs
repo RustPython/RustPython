@@ -392,12 +392,16 @@ impl PyListRef {
     }
 
     fn mul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = seq_mul(&self.elements.borrow(), counter);
+        let new_elements = seq_mul(&self.elements.borrow().as_slice(), counter)
+            .cloned()
+            .collect();
         vm.ctx.new_list(new_elements)
     }
 
     fn imul(self, counter: isize, _vm: &VirtualMachine) -> Self {
-        let new_elements = seq_mul(&self.elements.borrow(), counter);
+        let new_elements = seq_mul(&self.elements.borrow().as_slice(), counter)
+            .cloned()
+            .collect();
         self.elements.replace(new_elements);
         self
     }

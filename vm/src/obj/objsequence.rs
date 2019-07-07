@@ -216,35 +216,37 @@ pub fn get_item(
     }
 }
 
-pub trait SimpleSeq<'a> {
+type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef> + 'a>;
+
+pub trait SimpleSeq {
     fn len(&self) -> usize;
-    fn iter(&'a self) -> Box<dyn Iterator<Item = &'a PyObjectRef> + 'a>;
+    fn iter(&self) -> DynPyIter;
 }
 
-impl<'a> SimpleSeq<'a> for &'a [PyObjectRef] {
+impl SimpleSeq for &[PyObjectRef] {
     fn len(&self) -> usize {
         (&**self).len()
     }
-    fn iter(&'a self) -> Box<dyn Iterator<Item = &'a PyObjectRef> + 'a> {
+    fn iter(&self) -> DynPyIter {
         Box::new((&**self).iter())
     }
 }
 
-impl<'a> SimpleSeq<'a> for std::collections::VecDeque<PyObjectRef> {
+impl SimpleSeq for std::collections::VecDeque<PyObjectRef> {
     fn len(&self) -> usize {
         self.len()
     }
-    fn iter(&'a self) -> Box<dyn Iterator<Item = &'a PyObjectRef> + 'a> {
+    fn iter(&self) -> DynPyIter {
         Box::new(self.iter())
     }
 }
 
 // impl<'a, I>
 
-pub fn seq_equal<'a>(
+pub fn seq_equal(
     vm: &VirtualMachine,
-    zelf: &'a dyn SimpleSeq<'a>,
-    other: &'a dyn SimpleSeq<'a>,
+    zelf: &dyn SimpleSeq,
+    other: &dyn SimpleSeq,
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -262,10 +264,10 @@ pub fn seq_equal<'a>(
     }
 }
 
-pub fn seq_lt<'a>(
+pub fn seq_lt(
     vm: &VirtualMachine,
-    zelf: &'a dyn SimpleSeq<'a>,
-    other: &'a dyn SimpleSeq<'a>,
+    zelf: &dyn SimpleSeq,
+    other: &dyn SimpleSeq,
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -302,10 +304,10 @@ pub fn seq_lt<'a>(
     }
 }
 
-pub fn seq_gt<'a>(
+pub fn seq_gt(
     vm: &VirtualMachine,
-    zelf: &'a dyn SimpleSeq<'a>,
-    other: &'a dyn SimpleSeq<'a>,
+    zelf: &dyn SimpleSeq,
+    other: &dyn SimpleSeq,
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -341,32 +343,61 @@ pub fn seq_gt<'a>(
     }
 }
 
-pub fn seq_ge<'a>(
+pub fn seq_ge(
     vm: &VirtualMachine,
-    zelf: &'a dyn SimpleSeq<'a>,
-    other: &'a dyn SimpleSeq<'a>,
+    zelf: &dyn SimpleSeq,
+    other: &dyn SimpleSeq,
 ) -> Result<bool, PyObjectRef> {
     Ok(seq_gt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
 }
 
-pub fn seq_le<'a>(
+pub fn seq_le(
     vm: &VirtualMachine,
-    zelf: &'a dyn SimpleSeq<'a>,
-    other: &'a dyn SimpleSeq<'a>,
+    zelf: &dyn SimpleSeq,
+    other: &dyn SimpleSeq,
 ) -> Result<bool, PyObjectRef> {
     Ok(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
 }
 
-pub fn seq_mul(elements: &[PyObjectRef], counter: isize) -> Vec<PyObjectRef> {
-    let current_len = elements.len();
-    let new_len = counter.max(0) as usize * current_len;
-    let mut new_elements = Vec::with_capacity(new_len);
-
-    for _ in 0..counter {
-        new_elements.extend(elements.to_owned());
+pub struct SeqMul<'a> {
+    seq: &'a dyn SimpleSeq,
+    repetitions: usize,
+    iter: DynPyIter<'a>,
+}
+impl SeqMul<'_> {
+    fn next_iter(&mut self) {
+        self.repetitions -= 1;
+        self.iter = self.seq.iter();
     }
+}
+impl<'a> Iterator for SeqMul<'a> {
+    type Item = &'a PyObjectRef;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.iter.next() {
+            Some(item) => Some(item),
+            None => {
+                if self.repetitions == 0 {
+                    None
+                } else {
+                    self.next_iter();
+                    self.next()
+                }
+            }
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let size = self.iter.len() + (self.repetitions * self.seq.len());
+        (size, Some(size))
+    }
+}
+impl ExactSizeIterator for SeqMul<'_> {}
 
-    new_elements
+pub fn seq_mul(seq: &dyn SimpleSeq, repetitions: isize) -> SeqMul {
+    SeqMul {
+        seq,
+        repetitions: repetitions.max(0) as usize - 1,
+        iter: seq.iter(),
+    }
 }
 
 pub fn get_elements_cell<'a>(obj: &'a PyObjectRef) -> &'a RefCell<Vec<PyObjectRef>> {

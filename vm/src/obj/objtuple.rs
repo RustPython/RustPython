@@ -164,13 +164,14 @@ impl PyTupleRef {
     }
 
     fn mul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = seq_mul(&self.elements, counter);
+        let new_elements = seq_mul(&self.elements.as_slice(), counter)
+            .cloned()
+            .collect();
         vm.ctx.new_tuple(new_elements)
     }
 
     fn rmul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = seq_mul(&self.elements, counter);
-        vm.ctx.new_tuple(new_elements)
+        self.mul(counter, vm)
     }
 
     fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {

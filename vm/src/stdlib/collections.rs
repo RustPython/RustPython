@@ -45,8 +45,8 @@ impl PyDeque {
     fn append(&self, obj: PyObjectRef, _vm: &VirtualMachine) {
         let mut deque = self.deque.borrow_mut();
         if self.maxlen.get() == Some(deque.len()) {
-                deque.pop_front();
-            }
+            deque.pop_front();
+        }
         deque.push_back(obj);
     }
 
@@ -54,8 +54,8 @@ impl PyDeque {
     fn appendleft(&self, obj: PyObjectRef, _vm: &VirtualMachine) {
         let mut deque = self.deque.borrow_mut();
         if self.maxlen.get() == Some(deque.len()) {
-                deque.pop_back();
-            }
+            deque.pop_back();
+        }
         deque.push_front(obj);
     }
 
@@ -125,8 +125,8 @@ impl PyDeque {
         let mut deque = self.deque.borrow_mut();
 
         if self.maxlen.get() == Some(deque.len()) {
-                return Err(vm.new_index_error("deque already at its maximum size".to_string()));
-            }
+            return Err(vm.new_index_error("deque already at its maximum size".to_string()));
+        }
 
         let idx = if idx < 0 {
             if -idx as usize > deque.len() {
@@ -320,6 +320,22 @@ impl PyDeque {
 
         let eq = objsequence::seq_ge(vm, lhs, rhs)?;
         Ok(vm.new_bool(eq))
+    }
+
+    #[pymethod(name = "__mul__")]
+    fn mul(&self, n: isize, _vm: &VirtualMachine) -> Self {
+        let deque: &VecDeque<_> = &self.deque.borrow();
+        let mul = objsequence::seq_mul(deque, n);
+        let skipped = if let Some(maxlen) = self.maxlen.get() {
+            mul.len() - maxlen
+        } else {
+            0
+        };
+        let deque = mul.skip(skipped).cloned().collect();
+        PyDeque {
+            deque: RefCell::new(deque),
+            maxlen: self.maxlen.clone(),
+        }
     }
 }
 
