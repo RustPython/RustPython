@@ -19,5 +19,4 @@ num-bigint = "0.2"
 num-traits = "0.2"
 unicode-xid = "0.1.0"
 unic-emoji-char = "0.9.0"
-serde = { version = "1.0.66", features = ["derive"] }
 wtf8 = "0.0.3"
