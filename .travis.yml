@@ -39,6 +39,17 @@ matrix:
       env:
         - JOBCACHE=3
 
+    - name: Lint code with clippy
+      language: rust
+      rust: stable
+      cache: cargo
+      before_script:
+        - rustup component add clippy
+      script:
+        - cargo clippy --all -- -Dwarnings
+      env:
+        - JOBCACHE=3
+
     - name: publish documentation
       language: rust
       rust: stable
