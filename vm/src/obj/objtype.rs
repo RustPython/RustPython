@@ -114,7 +114,7 @@ impl PyClassRef {
 
     fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let name = &name_ref.value;
-        trace!("type.__getattribute__({:?}, {:?})", self, name);
+        vm_trace!("type.__getattribute__({:?}, {:?})", self, name);
         let mcl = self.class();
 
         if let Some(attr) = class_get_attr(&mcl, &name) {
@@ -241,7 +241,7 @@ pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
 }
 
 pub fn type_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    debug!("type.__new__ {:?}", args);
+    vm_trace!("type.__new__ {:?}", args);
     if args.args.len() == 2 {
         Ok(args.args[1].class().into_object())
     } else if args.args.len() == 4 {
@@ -265,7 +265,7 @@ pub fn type_new_class(
 }
 
 pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult {
-    debug!("type_call: {:?}", class);
+    vm_trace!("type_call: {:?}", class);
     let new = class_get_attr(&class, "__new__").expect("All types should have a __new__.");
     let new_wrapped = vm.call_get_descriptor(new, class.into_object())?;
     let obj = vm.invoke(new_wrapped, (&args, &kwargs))?;
@@ -353,7 +353,7 @@ fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> Option<(PyClassRef, Vec<Ve
 }
 
 fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Option<Vec<PyClassRef>> {
-    debug!("Linearising MRO: {:?}", bases);
+    vm_trace!("Linearising MRO: {:?}", bases);
     let mut result = vec![];
     loop {
         if (&bases).iter().all(Vec::is_empty) {

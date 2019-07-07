@@ -170,7 +170,7 @@ impl VirtualMachine {
 
     fn new_exception_obj(&self, exc_type: PyClassRef, args: Vec<PyObjectRef>) -> PyResult {
         // TODO: add repr of args into logging?
-        info!("New exception created: {}", exc_type.name);
+        vm_trace!("New exception created: {}", exc_type.name);
         self.invoke(exc_type.into_object(), args)
     }
 
@@ -377,7 +377,7 @@ impl VirtualMachine {
         let cls = obj.class();
         match objtype::class_get_attr(&cls, method_name) {
             Some(func) => {
-                trace!(
+                vm_trace!(
                     "vm.call_method {:?} {:?} {:?} -> {:?}",
                     obj,
                     cls,
@@ -392,7 +392,8 @@ impl VirtualMachine {
     }
 
     fn _invoke(&self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
-        trace!("Invoke: {:?} {:?}", func_ref, args);
+        vm_trace!("Invoke: {:?} {:?}", func_ref, args);
+
         if let Some(PyFunction {
             ref code,
             ref scope,
@@ -411,7 +412,7 @@ impl VirtualMachine {
             value(self, args)
         } else {
             // TODO: is it safe to just invoke __call__ otherwise?
-            trace!("invoke __call__ for: {:?}", &func_ref.payload);
+            vm_trace!("invoke __call__ for: {:?}", &func_ref.payload);
             self.call_method(&func_ref, "__call__", args)
         }
     }
@@ -630,7 +631,7 @@ impl VirtualMachine {
         T: TryIntoRef<PyString>,
     {
         let attr_name = attr_name.try_into_ref(self)?;
-        trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
+        vm_trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
         self.call_method(&obj, "__getattribute__", vec![attr_name.into_object()])
     }
 

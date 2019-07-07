@@ -295,7 +295,7 @@ impl Frame {
                     let traceback = vm
                         .get_attribute(exception.clone(), "__traceback__")
                         .unwrap();
-                    trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
+                    vm_trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
                     let raise_location = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
                         vm.ctx.new_int(lineno.row()),
@@ -335,6 +335,8 @@ impl Frame {
     /// Execute a single instruction.
     fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
         let instruction = self.fetch_instruction();
+
+        #[cfg(feature = "vm-tracing-logging")]
         {
             trace!("=======");
             /* TODO:
@@ -1142,6 +1144,7 @@ impl Frame {
 
     fn jump(&self, label: bytecode::Label) {
         let target_pc = self.code.label_map[&label];
+        #[cfg(feature = "vm-tracing-logging")]
         trace!("jump from {:?} to {:?}", self.lasti, target_pc);
         *self.lasti.borrow_mut() = target_pc;
     }

@@ -9,6 +9,7 @@ edition = "2018"
 
 [features]
 default = ["rustpython-parser", "rustpython-compiler"]
+vm-tracing-logging = []
 
 [dependencies]
 # Crypto:
