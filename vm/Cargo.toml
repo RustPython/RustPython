@@ -6,6 +6,7 @@ authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 edition = "2018"
+include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
 default = ["rustpython-parser", "rustpython-compiler"]
