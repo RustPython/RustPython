@@ -68,6 +68,6 @@ assert json.dumps({'a': 'b'}) == json.dumps(Dict({'a': 'b'}))
 # big ints should not crash VM
 # TODO: test for correct output when actual serialization implemented and doesn’t throw
 try:
-  json.dumps(7*500)
+  json.dumps(7**500)
 except:
   pass
