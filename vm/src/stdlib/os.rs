@@ -120,7 +120,7 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let fname = &make_path(vm, name, &dir_fd).value;
 
     let flags = FileCreationFlags::from_bits(objint::get_value(flags).to_u32().unwrap())
-        .ok_or(vm.new_value_error("Unsupported flag".to_string()))?;
+        .ok_or_else(|| vm.new_value_error("Unsupported flag".to_string()))?;
 
     let mut options = &mut OpenOptions::new();
 
@@ -460,7 +460,7 @@ impl StatResultRef {
 
 // Copied code from Duration::as_secs_f64 as it's still unstable
 fn duration_as_secs_f64(duration: Duration) -> f64 {
-    (duration.as_secs() as f64) + (duration.subsec_nanos() as f64) / (1_000_000_000 as f64)
+    (duration.as_secs() as f64) + f64::from(duration.subsec_nanos()) / 1_000_000_000_f64
 }
 
 fn to_seconds_from_unix_epoch(sys_time: SystemTime) -> f64 {

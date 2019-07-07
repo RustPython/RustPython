@@ -124,7 +124,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
                     .map(|path| {
                         path.into_os_string()
                             .into_string()
-                            .expect(&format!("{} isn't valid unicode", env_variable_name))
+                            .unwrap_or_else(|_| panic!("{} isn't valid unicode", env_variable_name))
                     })
                     .collect(),
                 None => vec![],

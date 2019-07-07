@@ -36,7 +36,7 @@ struct BufferedIO {
 
 impl BufferedIO {
     fn new(cursor: Cursor<Vec<u8>>) -> BufferedIO {
-        BufferedIO { cursor: cursor }
+        BufferedIO { cursor }
     }
 
     fn write(&mut self, data: Vec<u8>) -> Option<u64> {
@@ -55,7 +55,7 @@ impl BufferedIO {
 
     //skip to the jth position
     fn seek(&mut self, offset: u64) -> Option<u64> {
-        match self.cursor.seek(SeekFrom::Start(offset.clone())) {
+        match self.cursor.seek(SeekFrom::Start(offset)) {
             Ok(_) => Some(offset),
             Err(_) => None,
         }
@@ -69,7 +69,8 @@ impl BufferedIO {
         if bytes > 0 {
             let mut handle = self.cursor.clone().take(bytes as u64);
             //read handle into buffer
-            if let Err(_) = handle.read_to_end(&mut buffer) {
+
+            if handle.read_to_end(&mut buffer).is_err() {
                 return None;
             }
             //the take above consumes the struct value
@@ -77,7 +78,7 @@ impl BufferedIO {
             self.cursor = handle.into_inner();
         } else {
             //read handle into buffer
-            if let Err(_) = self.cursor.read_to_end(&mut buffer) {
+            if self.cursor.read_to_end(&mut buffer).is_err() {
                 return None;
             }
         };

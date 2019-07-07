@@ -78,7 +78,7 @@ impl PyRange {
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
 
-        let index = if index < &BigInt::zero() {
+        let index = if *index < BigInt::zero() {
             let index = stop + index;
             if index < BigInt::zero() {
                 return None;
@@ -90,8 +90,8 @@ impl PyRange {
 
         let result = start + step * &index;
 
-        if (self.forward() && !self.is_empty() && &result < stop)
-            || (!self.forward() && !self.is_empty() && &result > stop)
+        if (self.forward() && !self.is_empty() && result < *stop)
+            || (!self.forward() && !self.is_empty() && result > *stop)
         {
             Some(result)
         } else {

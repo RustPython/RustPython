@@ -54,7 +54,7 @@ impl TryFromObject for JsProperty {
 }
 
 impl JsProperty {
-    fn to_jsvalue(self) -> JsValue {
+    fn into_jsvalue(self) -> JsValue {
         match self {
             JsProperty::Str(s) => s.as_str().into(),
             JsProperty::Js(value) => value.value.clone(),
@@ -99,7 +99,7 @@ impl PyJsValue {
             } else if proto.value.is_null() {
                 Object::create(proto.value.unchecked_ref())
             } else {
-                return Err(vm.new_value_error(format!("prototype must be an Object or null")));
+                return Err(vm.new_value_error("prototype must be an Object or null".to_string()));
             }
         } else {
             Object::new()
@@ -109,12 +109,12 @@ impl PyJsValue {
 
     #[pymethod]
     fn has_prop(&self, name: JsProperty, vm: &VirtualMachine) -> PyResult<bool> {
-        has_prop(&self.value, &name.to_jsvalue()).map_err(|err| new_js_error(vm, err))
+        has_prop(&self.value, &name.into_jsvalue()).map_err(|err| new_js_error(vm, err))
     }
 
     #[pymethod]
     fn get_prop(&self, name: JsProperty, vm: &VirtualMachine) -> PyResult<PyJsValue> {
-        let name = &name.to_jsvalue();
+        let name = &name.into_jsvalue();
         if has_prop(&self.value, name).map_err(|err| new_js_error(vm, err))? {
             get_prop(&self.value, name)
                 .map(PyJsValue::new)
@@ -126,7 +126,8 @@ impl PyJsValue {
 
     #[pymethod]
     fn set_prop(&self, name: JsProperty, value: PyJsValueRef, vm: &VirtualMachine) -> PyResult<()> {
-        set_prop(&self.value, &name.to_jsvalue(), &value.value).map_err(|err| new_js_error(vm, err))
+        set_prop(&self.value, &name.into_jsvalue(), &value.value)
+            .map_err(|err| new_js_error(vm, err))
     }
 
     #[pymethod]
@@ -167,7 +168,7 @@ impl PyJsValue {
         let proto = opts
             .prototype
             .as_ref()
-            .and_then(|proto| proto.value.dyn_ref::<js_sys::Function>().clone());
+            .and_then(|proto| proto.value.dyn_ref::<js_sys::Function>());
         let js_args = Array::new();
         for arg in args {
             js_args.push(&arg.value);

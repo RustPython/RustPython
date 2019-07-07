@@ -102,17 +102,13 @@ pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyObjectRef) -> PyObje
                         if run_obj_name == "_call_with_frames_removed" {
                             in_importlib = true;
                         }
-                        if always_trim || in_importlib {
-                            false
-                        } else {
-                            true
-                        }
+                        !always_trim && !in_importlib
                     } else {
                         in_importlib = false;
                         true
                     }
                 })
-                .map(|x| x.clone())
+                .cloned()
                 .collect();
             vm.set_attr(exc, "__traceback__", vm.ctx.new_list(new_tb))
                 .unwrap();

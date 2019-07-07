@@ -928,7 +928,7 @@ impl PyString {
                                 ));
                             }
                         }
-                    } else if let Some(_) = value.payload::<PyNone>() {
+                    } else if value.payload::<PyNone>().is_some() {
                         // Do Nothing
                     } else {
                         return Err(vm.new_type_error(
@@ -1279,19 +1279,16 @@ fn do_cformat(
     }
 
     // check that all arguments were converted
-    if !mapping_required {
-        if objtuple::get_value(&values_obj)
+    if !mapping_required
+        && objtuple::get_value(&values_obj)
             .into_iter()
-            .skip(tuple_index)
-            .next()
+            .nth(tuple_index)
             .is_some()
-        {
-            return Err(vm.new_type_error(
-                "not all arguments converted during string formatting".to_string(),
-            ));
-        }
+    {
+        return Err(
+            vm.new_type_error("not all arguments converted during string formatting".to_string())
+        );
     }
-
     Ok(vm.ctx.new_str(final_string))
 }
 

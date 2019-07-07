@@ -40,12 +40,10 @@ fn imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 
     if let Ok(module) = sys_modules.get_item(name, vm) {
         Ok(module)
+    } else if let Some(make_module_func) = vm.stdlib_inits.borrow().get(name) {
+        Ok(make_module_func(vm))
     } else {
-        if let Some(make_module_func) = vm.stdlib_inits.borrow().get(name) {
-            Ok(make_module_func(vm))
-        } else {
-            Ok(vm.get_none())
-        }
+        Ok(vm.get_none())
     }
 }
 
