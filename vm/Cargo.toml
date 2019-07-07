@@ -49,16 +49,11 @@ crc = "^1.0.0"
 bincode = "1.1.4"
 unicode_categories = "0.1.1"
 unicode_names2 = "0.2.2"
+unicode-casing = "0.1.0"
 unic = "0.9.0"
 maplit = "1.0"
 proc-macro-hack = "0.5"
 bitflags = "1.1"
-
-
-# TODO: release and publish to crates.io
-[dependencies.unicode-casing]
-git = "https://github.com/OddCoincidence/unicode-casing"
-rev = "90d6d1f02b9cc04ffb55a5f1c3fa1455a84231fb"
 
 [target.'cfg(all(unix, not(target_os = "android")))'.dependencies]
 pwd = "1"
