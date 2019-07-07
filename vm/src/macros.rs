@@ -256,3 +256,13 @@ macro_rules! match_class {
         }
     };
 }
+
+/// Super detailed logging. Might soon overflow your logbuffers
+/// Default, this logging is discarded, except when a the `vm-tracing-logging`
+/// build feature is enabled.
+macro_rules! vm_trace {
+    ($($arg:tt)+) => {
+        #[cfg(feature = "vm-tracing-logging")]
+        trace!($($arg)+);
+    }
+}
