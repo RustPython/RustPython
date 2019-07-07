@@ -4,14 +4,14 @@ use crate::pyobject::{IdProtocol, PyClassImpl, PyIterable, PyObjectRef, PyRef, P
 use crate::vm::ReprGuard;
 use crate::VirtualMachine;
 use itertools::Itertools;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 
 #[pyclass(name = "deque")]
 #[derive(Debug, Clone)]
 struct PyDeque {
     deque: RefCell<VecDeque<PyObjectRef>>,
-    maxlen: Option<usize>,
+    maxlen: Cell<Option<usize>>,
 }
 
 impl PyValue for PyDeque {
@@ -19,7 +19,6 @@ impl PyValue for PyDeque {
         vm.class("_collections", "deque")
     }
 }
-
 
 #[pyimpl]
 impl PyDeque {
@@ -37,7 +36,7 @@ impl PyDeque {
         };
         PyDeque {
             deque: RefCell::new(deque),
-            maxlen: maxlen.into_option().and_then(|x| x),
+            maxlen: maxlen.into_option().and_then(|x| x).into(),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -45,22 +44,18 @@ impl PyDeque {
     #[pymethod]
     fn append(&self, obj: PyObjectRef, _vm: &VirtualMachine) {
         let mut deque = self.deque.borrow_mut();
-        if let Some(maxlen) = self.maxlen {
-            if deque.len() == maxlen {
+        if self.maxlen.get() == Some(deque.len()) {
                 deque.pop_front();
             }
-        }
         deque.push_back(obj);
     }
 
     #[pymethod]
     fn appendleft(&self, obj: PyObjectRef, _vm: &VirtualMachine) {
         let mut deque = self.deque.borrow_mut();
-        if let Some(maxlen) = self.maxlen {
-            if deque.len() == maxlen {
+        if self.maxlen.get() == Some(deque.len()) {
                 deque.pop_back();
             }
-        }
         deque.push_front(obj);
     }
 
@@ -129,11 +124,9 @@ impl PyDeque {
     fn insert(&self, idx: i32, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut deque = self.deque.borrow_mut();
 
-        if let Some(maxlen) = self.maxlen {
-            if deque.len() == maxlen {
+        if self.maxlen.get() == Some(deque.len()) {
                 return Err(vm.new_index_error("deque already at its maximum size".to_string()));
             }
-        }
 
         let idx = if idx < 0 {
             if -idx as usize > deque.len() {
@@ -210,7 +203,12 @@ impl PyDeque {
 
     #[pyproperty]
     fn maxlen(&self, _vm: &VirtualMachine) -> Option<usize> {
-        self.maxlen
+        self.maxlen.get()
+    }
+    #[pyproperty(setter)]
+    fn set_maxlen(&self, maxlen: Option<usize>, vm: &VirtualMachine) -> PyResult {
+        self.maxlen.set(maxlen);
+        Ok(vm.get_none())
     }
 
     #[pymethod(name = "__repr__")]
@@ -224,6 +222,7 @@ impl PyDeque {
                 .collect::<Result<Vec<_>, _>>()?;
             let maxlen = zelf
                 .maxlen
+                .get()
                 .map(|maxlen| format!(", maxlen={}", maxlen))
                 .unwrap_or_default();
             format!("deque([{}]{})", elements.into_iter().format(", "), maxlen)
