@@ -189,19 +189,10 @@ impl PyDeque {
     fn rotate(&self, mid: OptionalArg<isize>, _vm: &VirtualMachine) {
         let mut deque = self.deque.borrow_mut();
         let mid = mid.unwrap_or(1);
-        // TODO: once `vecdeque_rotate` lands, use that instead
         if mid < 0 {
-            for _ in 0..-mid {
-                if let Some(popped_front) = deque.pop_front() {
-                    deque.push_back(popped_front);
-                }
-            }
+            deque.rotate_left(-mid as usize);
         } else {
-            for _ in 0..mid {
-                if let Some(popped_back) = deque.pop_back() {
-                    deque.push_front(popped_back);
-                }
-            }
+            deque.rotate_right(mid as usize);
         }
     }
 
