@@ -362,31 +362,30 @@ pub fn seq_le(
 pub struct SeqMul<'a> {
     seq: &'a dyn SimpleSeq,
     repetitions: usize,
-    iter: DynPyIter<'a>,
-}
-impl SeqMul<'_> {
-    fn next_iter(&mut self) {
-        self.repetitions -= 1;
-        self.iter = self.seq.iter();
-    }
+    iter: Option<DynPyIter<'a>>,
 }
 impl<'a> Iterator for SeqMul<'a> {
     type Item = &'a PyObjectRef;
     fn next(&mut self) -> Option<Self::Item> {
-        match self.iter.next() {
+        if self.seq.len() == 0 {
+            return None;
+        }
+        match self.iter.as_mut().and_then(Iterator::next) {
             Some(item) => Some(item),
             None => {
                 if self.repetitions == 0 {
                     None
                 } else {
-                    self.next_iter();
+                    self.repetitions -= 1;
+                    self.iter = Some(self.seq.iter());
                     self.next()
                 }
             }
         }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let size = self.iter.len() + (self.repetitions * self.seq.len());
+        let size = self.iter.as_ref().map_or(0, ExactSizeIterator::len)
+            + (self.repetitions * self.seq.len());
         (size, Some(size))
     }
 }
@@ -395,8 +394,8 @@ impl ExactSizeIterator for SeqMul<'_> {}
 pub fn seq_mul(seq: &dyn SimpleSeq, repetitions: isize) -> SeqMul {
     SeqMul {
         seq,
-        repetitions: repetitions.max(0) as usize - 1,
-        iter: seq.iter(),
+        repetitions: repetitions.max(0) as usize,
+        iter: None,
     }
 }
 
