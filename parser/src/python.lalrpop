@@ -19,7 +19,7 @@ grammar;
 pub Top: ast::Top = {
     StartProgram <p:Program> => ast::Top::Program(p),
     StartStatement <s:Statement> => ast::Top::Statement(s),
-    StartExpression <e:Expression> => ast::Top::Expression(e),
+    StartExpression <e:Test> => ast::Top::Expression(e),
 };
 
 Program: ast::Program = {

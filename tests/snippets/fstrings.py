@@ -39,3 +39,9 @@ v = Value()
 assert f'{v}' == 'foo'
 assert f'{v!r}' == 'bar'
 assert f'{v!s}' == 'baz'
+
+# advanced expressions:
+
+assert f'{True or True}' == 'True'
+assert f'{1 == 1}' == 'True'
+assert f'{"0" if True else "1"}' == '0'
