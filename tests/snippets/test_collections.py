@@ -31,3 +31,7 @@ assert d == deque([], 4)
 assert deque([1, 2, 3]) * 2 == deque([1, 2, 3, 1, 2, 3])
 
 assert deque([1, 2, 3], 4) * 2 == deque([3, 1, 2, 3])
+
+assert deque(maxlen=3) == deque()
+
+assert deque([1, 2, 3, 4], maxlen=2) == deque([3, 4])

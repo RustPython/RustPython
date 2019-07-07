@@ -20,25 +20,29 @@ impl PyValue for PyDeque {
     }
 }
 
+#[derive(FromArgs)]
+struct PyDequeOptions {
+    #[pyarg(positional_or_keyword, default = "None")]
+    maxlen: Option<usize>,
+}
+
 #[pyimpl]
 impl PyDeque {
     #[pymethod(name = "__new__")]
     fn new(
         cls: PyClassRef,
         iter: OptionalArg<PyIterable>,
-        maxlen: OptionalArg<Option<usize>>,
+        PyDequeOptions { maxlen }: PyDequeOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let deque = if let OptionalArg::Present(iter) = iter {
-            iter.iter(vm)?.collect::<Result<_, _>>()?
-        } else {
-            VecDeque::new()
+        let py_deque = PyDeque {
+            deque: RefCell::default(),
+            maxlen: maxlen.into(),
         };
-        PyDeque {
-            deque: RefCell::new(deque),
-            maxlen: maxlen.into_option().and_then(|x| x).into(),
+        if let OptionalArg::Present(iter) = iter {
+            py_deque.extend(iter, vm)?;
         }
-        .into_ref_with_type(vm, cls)
+        py_deque.into_ref_with_type(vm, cls)
     }
 
     #[pymethod]
