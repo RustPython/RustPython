@@ -1,7 +1,10 @@
 [package]
 name = "rustpython-vm"
 version = "0.1.0"
+description = "Rust Python virtual machine."
 authors = ["RustPython Team"]
+repository = "https://github.com/RustPython/RustPython"
+license = "MIT"
 edition = "2018"
 
 [features]
@@ -23,10 +26,10 @@ num-integer = "0.1.39"
 num-rational = "0.2.1"
 rand = "0.5"
 log = "0.3"
-rustpython-derive = {path = "../derive"}
-rustpython-parser = {path = "../parser", optional = true}
-rustpython-compiler = {path = "../compiler", optional = true}
-rustpython-bytecode = { path = "../bytecode" }
+rustpython-derive = {path = "../derive", version = "0.1.0"}
+rustpython-parser = {path = "../parser", optional = true, version = "0.1.0"}
+rustpython-compiler = {path = "../compiler", optional = true, version = "0.1.0"}
+rustpython-bytecode = { path = "../bytecode", version = "0.1.0"}
 serde = { version = "1.0.66", features = ["derive"] }
 serde_json = "1.0.26"
 byteorder = "1.2.6"

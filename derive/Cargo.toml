@@ -1,7 +1,10 @@
 [package]
 name = "rustpython-derive"
 version = "0.1.0"
+description = "Rust language extensions and macros specific to rustpython."
 authors = ["RustPython Team"]
+repository = "https://github.com/RustPython/RustPython"
+license = "MIT"
 edition = "2018"
 
 [lib]
@@ -11,7 +14,7 @@ proc-macro = true
 syn = { version = "0.15.29", features = ["full"] }
 quote = "0.6.11"
 proc-macro2 = "0.4.27"
-rustpython-compiler = { path = "../compiler" }
-rustpython-bytecode = { path = "../bytecode" }
+rustpython-compiler = { path = "../compiler", version = "0.1.0" }
+rustpython-bytecode = { path = "../bytecode", version = "0.1.0" }
 bincode =  "1.1"
 proc-macro-hack = "0.5"
