@@ -104,7 +104,7 @@ impl Diagnostic {
     }
 
     pub fn from_vec(diagnostics: Vec<Diagnostic>) -> Result<(), Diagnostic> {
-        if diagnostics.len() == 0 {
+        if diagnostics.is_empty() {
             Ok(())
         } else {
             Err(Diagnostic {

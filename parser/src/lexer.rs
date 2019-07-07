@@ -488,15 +488,15 @@ where
         for i in 1..=literal_number {
             match self.next_char() {
                 Some(c) => match c.to_digit(16) {
-                    Some(d) => p += d << (literal_number - i) * 4,
+                    Some(d) => p += d << ((literal_number - i) * 4),
                     None => return unicode_error,
                 },
                 None => return unicode_error,
             }
         }
         match wtf8::CodePoint::from_u32(p) {
-            Some(cp) => return Ok(cp.to_char_lossy()),
-            None => return unicode_error,
+            Some(cp) => Ok(cp.to_char_lossy()),
+            None => unicode_error,
         }
     }
 
@@ -755,12 +755,14 @@ where
         Ok(IndentationLevel { spaces, tabs })
     }
 
+    #[allow(clippy::cognitive_complexity)]
     fn inner_next(&mut self) -> LexResult {
         if !self.pending.is_empty() {
             return self.pending.remove(0);
         }
 
-        'top_loop: loop {
+        // top loop
+        loop {
             // Detect indentation levels
             if self.at_begin_of_line {
                 self.at_begin_of_line = false;

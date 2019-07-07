@@ -418,6 +418,7 @@ macro_rules! dict_iterator {
             }
 
             #[pymethod(name = "__next__")]
+            #[allow(clippy::redundant_closure_call)]
             fn next(&self, vm: &VirtualMachine) -> PyResult {
                 let mut position = self.position.get();
                 let dict = self.dict.entries.borrow();

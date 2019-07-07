@@ -24,7 +24,7 @@ pub struct PyFloat {
 }
 
 impl PyFloat {
-    pub fn to_f64(&self) -> f64 {
+    pub fn to_f64(self) -> f64 {
         self.value
     }
 }
@@ -138,6 +138,7 @@ fn inner_gt_int(value: f64, other_int: &BigInt) -> bool {
 }
 
 #[pyimpl]
+#[allow(clippy::trivially_copy_pass_by_ref)]
 impl PyFloat {
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {

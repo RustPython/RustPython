@@ -77,7 +77,7 @@ impl PyCompileInput {
         fn assert_source_empty(source: &Option<CompilationSource>) -> Result<(), Diagnostic> {
             if let Some(source) = source {
                 Err(Diagnostic::spans_error(
-                    source.span.clone(),
+                    source.span,
                     "Cannot have more than one source",
                 ))
             } else {
@@ -86,53 +86,50 @@ impl PyCompileInput {
         }
 
         for meta in &self.metas {
-            match meta {
-                Meta::NameValue(name_value) => {
-                    if name_value.ident == "mode" {
-                        mode = Some(match &name_value.lit {
-                            Lit::Str(s) => match s.value().as_str() {
-                                "exec" => compile::Mode::Exec,
-                                "eval" => compile::Mode::Eval,
-                                "single" => compile::Mode::Single,
-                                _ => bail_span!(s, "mode must be exec, eval, or single"),
-                            },
-                            _ => bail_span!(name_value.lit, "mode must be a string"),
-                        })
-                    } else if name_value.ident == "module_name" {
-                        module_name = Some(match &name_value.lit {
-                            Lit::Str(s) => s.value(),
-                            _ => bail_span!(name_value.lit, "module_name must be string"),
-                        })
-                    } else if name_value.ident == "source" {
-                        assert_source_empty(&source)?;
-                        let code = match &name_value.lit {
-                            Lit::Str(s) => s.value(),
-                            _ => bail_span!(name_value.lit, "source must be a string"),
-                        };
-                        source = Some(CompilationSource {
-                            kind: CompilationSourceKind::SourceCode(code),
-                            span: extract_spans(&name_value).unwrap(),
-                        });
-                    } else if name_value.ident == "file" {
-                        assert_source_empty(&source)?;
-                        let path = match &name_value.lit {
-                            Lit::Str(s) => PathBuf::from(s.value()),
-                            _ => bail_span!(name_value.lit, "source must be a string"),
-                        };
-                        source = Some(CompilationSource {
-                            kind: CompilationSourceKind::File(path),
-                            span: extract_spans(&name_value).unwrap(),
-                        });
-                    }
+            if let Meta::NameValue(name_value) = meta {
+                if name_value.ident == "mode" {
+                    mode = Some(match &name_value.lit {
+                        Lit::Str(s) => match s.value().as_str() {
+                            "exec" => compile::Mode::Exec,
+                            "eval" => compile::Mode::Eval,
+                            "single" => compile::Mode::Single,
+                            _ => bail_span!(s, "mode must be exec, eval, or single"),
+                        },
+                        _ => bail_span!(name_value.lit, "mode must be a string"),
+                    })
+                } else if name_value.ident == "module_name" {
+                    module_name = Some(match &name_value.lit {
+                        Lit::Str(s) => s.value(),
+                        _ => bail_span!(name_value.lit, "module_name must be string"),
+                    })
+                } else if name_value.ident == "source" {
+                    assert_source_empty(&source)?;
+                    let code = match &name_value.lit {
+                        Lit::Str(s) => s.value(),
+                        _ => bail_span!(name_value.lit, "source must be a string"),
+                    };
+                    source = Some(CompilationSource {
+                        kind: CompilationSourceKind::SourceCode(code),
+                        span: extract_spans(&name_value).unwrap(),
+                    });
+                } else if name_value.ident == "file" {
+                    assert_source_empty(&source)?;
+                    let path = match &name_value.lit {
+                        Lit::Str(s) => PathBuf::from(s.value()),
+                        _ => bail_span!(name_value.lit, "source must be a string"),
+                    };
+                    source = Some(CompilationSource {
+                        kind: CompilationSourceKind::File(path),
+                        span: extract_spans(&name_value).unwrap(),
+                    });
                 }
-                _ => {}
             }
         }
 
         source
             .ok_or_else(|| {
                 Diagnostic::span_error(
-                    self.span.clone(),
+                    self.span,
                     "Must have either file or source in py_compile_bytecode!()",
                 )
             })?

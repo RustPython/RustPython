@@ -713,7 +713,7 @@ fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm.invoke(reversed_method?, PyFuncArgs::default())
     } else {
         vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
-            format!("argument to reversed() must be a sequence")
+            "argument to reversed() must be a sequence".to_string()
         })?;
         let len = vm.call_method(&obj.clone(), "__len__", PyFuncArgs::default())?;
         let obj_iterator = objiter::PySequenceIterator {
