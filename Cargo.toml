@@ -6,6 +6,7 @@ edition = "2018"
 description = "A python interpreter written in rust."
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
+exclude = ["wasm/**/*"]
 
 [workspace]
 members = [".", "derive", "vm", "wasm/lib", "parser", "compiler", "bytecode"]

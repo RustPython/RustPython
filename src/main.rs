@@ -51,7 +51,16 @@ fn main() {
     // Construct vm:
     let vm = VirtualMachine::new();
 
-    let res = import::init_importlib(&vm, true);
+    let res = (|| -> PyResult<()> {
+        import::init_importlib(&vm, true)?;
+        let sys_path = vm.get_attribute(vm.sys_module.clone(), "path")?;
+        vm.call_method(
+            &sys_path,
+            "append",
+            vec![vm.new_str(env!("RUSTPYTHON_LIB_DIR").to_string())],
+        )?;
+        Ok(())
+    })();
     handle_exception(&vm, res);
 
     // Figure out if a -c option was given:
@@ -81,7 +90,7 @@ fn _run_string(vm: &VirtualMachine, source: &str, source_path: String) -> PyResu
     vm.run_code_obj(code_obj, Scope::with_builtins(None, attrs, vm))
 }
 
-fn handle_exception(vm: &VirtualMachine, result: PyResult) {
+fn handle_exception<T>(vm: &VirtualMachine, result: PyResult<T>) {
     if let Err(err) = result {
         print_exception(vm, &err);
         std::process::exit(1);
