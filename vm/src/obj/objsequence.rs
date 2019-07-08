@@ -218,6 +218,7 @@ pub fn get_item(
 
 type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef> + 'a>;
 
+#[allow(clippy::len_without_is_empty)]
 pub trait SimpleSeq {
     fn len(&self) -> usize;
     fn iter(&self) -> DynPyIter;
