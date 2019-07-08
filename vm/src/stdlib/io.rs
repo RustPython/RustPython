@@ -17,7 +17,7 @@ use crate::obj::objbytes::PyBytes;
 use crate::obj::objint;
 use crate::obj::objstr;
 use crate::obj::objtype;
-use crate::obj::objtype::{PyClass, PyClassRef};
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::TypeProtocol;
 use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -442,32 +442,27 @@ fn text_io_wrapper_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn text_io_base_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(text_io_base, None)]);
 
-    let io_module = vm.import("_io", &vm.ctx.new_tuple(vec![]), 0)?;
-    let buffered_reader_class = vm
-        .get_attribute(io_module.clone(), "BufferedReader")
-        .unwrap()
-        .downcast::<PyClass>()
-        .unwrap();
+    let buffered_reader_class = vm.try_class("_io", "BufferedReader")?;
     let raw = vm.get_attribute(text_io_base.clone(), "buffer").unwrap();
 
-    if objtype::isinstance(&raw, &buffered_reader_class) {
-        if let Ok(bytes) = vm.call_method(&raw, "read", PyFuncArgs::default()) {
-            let value = objbytes::get_value(&bytes).to_vec();
-
-            //format bytes into string
-            let rust_string = String::from_utf8(value).map_err(|e| {
-                vm.new_unicode_decode_error(format!(
-                    "cannot decode byte at index: {}",
-                    e.utf8_error().valid_up_to()
-                ))
-            })?;
-            Ok(vm.ctx.new_str(rust_string))
-        } else {
-            Err(vm.new_value_error("Error unpacking Bytes".to_string()))
-        }
-    } else {
+    if !objtype::isinstance(&raw, &buffered_reader_class) {
         // TODO: this should be io.UnsupportedOperation error which derives both from ValueError *and* OSError
-        Err(vm.new_value_error("not readable".to_string()))
+        return Err(vm.new_value_error("not readable".to_string()));
+    }
+
+    if let Ok(bytes) = vm.call_method(&raw, "read", PyFuncArgs::default()) {
+        let value = objbytes::get_value(&bytes).to_vec();
+
+        //format bytes into string
+        let rust_string = String::from_utf8(value).map_err(|e| {
+            vm.new_unicode_decode_error(format!(
+                "cannot decode byte at index: {}",
+                e.utf8_error().valid_up_to()
+            ))
+        })?;
+        Ok(vm.ctx.new_str(rust_string))
+    } else {
+        Err(vm.new_value_error("Error unpacking Bytes".to_string()))
     }
 }
 
@@ -478,36 +473,32 @@ fn text_io_base_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(text_io_base, None), (obj, Some(vm.ctx.str_type()))]
     );
 
-    let io_module = vm.import("_io", &vm.ctx.new_tuple(vec![]), 0)?;
-    let buffered_writer_class = vm
-        .get_attribute(io_module.clone(), "BufferedWriter")
-        .unwrap()
-        .downcast::<PyClass>()
-        .unwrap();
+    let buffered_writer_class = vm.try_class("_io", "BufferedWriter")?;
     let raw = vm.get_attribute(text_io_base.clone(), "buffer").unwrap();
-    if objtype::isinstance(&raw, &buffered_writer_class) {
-        let write = vm
-            .get_method(raw.clone(), "write")
-            .ok_or_else(|| vm.new_attribute_error("BufferedWriter has no write method".to_owned()))
-            .and_then(|it| it)?;
-        let bytes = objstr::get_value(obj).into_bytes();
 
-        let len = vm.invoke(
-            write,
-            PyFuncArgs::new(vec![vm.ctx.new_bytes(bytes.clone())], vec![]),
-        )?;
-        let len = objint::get_value(&len).to_usize().ok_or_else(|| {
-            vm.new_overflow_error("int to large to convert to Rust usize".to_string())
-        })?;
-
-        // returns the count of unicode code points written
-        Ok(vm
-            .ctx
-            .new_int(String::from_utf8_lossy(&bytes[0..len]).chars().count()))
-    } else {
+    if !objtype::isinstance(&raw, &buffered_writer_class) {
         // TODO: this should be io.UnsupportedOperation error which derives from ValueError and OSError
-        Err(vm.new_value_error("not writable".to_string()))
+        return Err(vm.new_value_error("not writable".to_string()));
     }
+
+    let write = vm
+        .get_method(raw.clone(), "write")
+        .ok_or_else(|| vm.new_attribute_error("BufferedWriter has no write method".to_owned()))
+        .and_then(|it| it)?;
+    let bytes = objstr::get_value(obj).into_bytes();
+
+    let len = vm.invoke(
+        write,
+        PyFuncArgs::new(vec![vm.ctx.new_bytes(bytes.clone())], vec![]),
+    )?;
+    let len = objint::get_value(&len).to_usize().ok_or_else(|| {
+        vm.new_overflow_error("int to large to convert to Rust usize".to_string())
+    })?;
+
+    // returns the count of unicode code points written
+    Ok(vm
+        .ctx
+        .new_int(String::from_utf8_lossy(&bytes[0..len]).chars().count()))
 }
 
 fn split_mode_string(mode_string: String) -> Result<(String, String), String> {
