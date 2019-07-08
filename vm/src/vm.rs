@@ -218,6 +218,11 @@ impl VirtualMachine {
         self.new_exception(os_error, msg)
     }
 
+    pub fn new_unicode_decode_error(&self, msg: String) -> PyObjectRef {
+        let unicode_decode_error = self.ctx.exceptions.unicode_decode_error.clone();
+        self.new_exception(unicode_decode_error, msg)
+    }
+
     /// Create a new python ValueError object. Useful for raising errors from
     /// python functions implemented in rust.
     pub fn new_value_error(&self, msg: String) -> PyObjectRef {
