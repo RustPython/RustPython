@@ -10,3 +10,4 @@ __pycache__
 wasm-pack.log
 .idea/
 tests/snippets/resources
+flame-graph.html

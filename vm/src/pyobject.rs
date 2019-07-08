@@ -250,6 +250,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
 // Basic objects:
 impl PyContext {
     pub fn new() -> Self {
+        flame_guard!("init PyContext");
         let (type_type, object_type) = init_type_hierarchy();
 
         let dict_type = create_type("dict", &type_type, &object_type);

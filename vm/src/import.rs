@@ -11,6 +11,7 @@ use crate::vm::VirtualMachine;
 use rustpython_compiler::compile;
 
 pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
+    flame_guard!("init importlib");
     let importlib = import_frozen(vm, "_frozen_importlib")?;
     let impmod = import_builtin(vm, "_imp")?;
     let install = vm.get_attribute(importlib.clone(), "_install")?;
@@ -18,6 +19,7 @@ pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
     vm.import_func
         .replace(vm.get_attribute(importlib.clone(), "__import__")?);
     if external && cfg!(feature = "rustpython-compiler") {
+        flame_guard!("install_external");
         let install_external =
             vm.get_attribute(importlib.clone(), "_install_external_importers")?;
         vm.invoke(install_external, vec![])?;

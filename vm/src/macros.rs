@@ -266,3 +266,10 @@ macro_rules! vm_trace {
         trace!($($arg)+);
     }
 }
+
+macro_rules! flame_guard {
+    ($name:expr) => {
+        #[cfg(feature = "flame-it")]
+        let _guard = ::flame::start_guard($name);
+    };
+}

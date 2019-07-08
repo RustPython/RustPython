@@ -12,6 +12,10 @@
     clippy::implicit_hasher
 )]
 
+#[cfg(feature = "flame-it")]
+#[macro_use]
+extern crate flamer;
+
 #[macro_use]
 extern crate bitflags;
 #[macro_use]
@@ -30,8 +34,7 @@ extern crate self as rustpython_vm;
 
 pub use rustpython_derive::*;
 
-use proc_macro_hack::proc_macro_hack;
-#[proc_macro_hack]
+#[proc_macro_hack::proc_macro_hack]
 pub use rustpython_derive::py_compile_bytecode;
 
 //extern crate eval; use eval::eval::*;

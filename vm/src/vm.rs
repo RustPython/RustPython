@@ -61,6 +61,7 @@ pub struct VirtualMachine {
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
     pub fn new() -> VirtualMachine {
+        flame_guard!("init VirtualMachine");
         let ctx = PyContext::new();
 
         // Hard-core modules:

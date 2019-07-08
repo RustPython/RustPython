@@ -14,6 +14,9 @@ members = [".", "derive", "vm", "wasm/lib", "parser", "compiler", "bytecode"]
 name = "bench"
 path = "./benchmarks/bench.rs"
 
+[features]
+default = []
+flame-it = ["rustpython-vm/flame-it", "flame"]
 
 [dependencies]
 log="0.4.1"
@@ -24,6 +27,8 @@ rustpython-parser = {path = "parser", version = "0.1.0"}
 rustpython-vm = {path = "vm", version = "0.1.0"}
 rustyline = "4.1.0"
 xdg = "2.2.0"
+
+flame = { version = "0.2", optional = true }
 
 [dev-dependencies.cpython]
 version = "0.2"

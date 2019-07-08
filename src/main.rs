@@ -19,10 +19,18 @@ use rustpython_vm::{
 
 use rustyline::{error::ReadlineError, Editor};
 use std::path::PathBuf;
+use std::process;
 
 fn main() {
+    if let Err(err) = run() {
+        error!("Error: {}", err);
+        process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<std::error::Error>> {
     env_logger::init();
-    let matches = App::new("RustPython")
+    let app = App::new("RustPython")
         .version(crate_version!())
         .author(crate_authors!())
         .about("Rust implementation of the Python language")
@@ -45,8 +53,18 @@ fn main() {
                 .takes_value(true)
                 .help("run library module as script"),
         )
-        .arg(Arg::from_usage("[pyargs] 'args for python'").multiple(true))
-        .get_matches();
+        .arg(Arg::from_usage("[pyargs] 'args for python'").multiple(true));
+    #[cfg(feature = "flame-it")]
+    let app = app.arg(
+        Arg::with_name("profile_output")
+            .long("profile-output")
+            .takes_value(true)
+            .help(
+                "the file to output the profile graph to. present due to being \
+                 built with feature 'flame-it'",
+            ),
+    );
+    let matches = app.get_matches();
 
     // Construct vm:
     let vm = VirtualMachine::new();
@@ -69,6 +87,22 @@ fn main() {
 
     // See if any exception leaked out:
     handle_exception(&vm, result);
+
+    #[cfg(feature = "flame-it")]
+    {
+        use std::fs::File;
+
+        let profile_output = matches
+            .value_of_os("profile_output")
+            .unwrap_or_else(|| "flame-graph.html".as_ref());
+        if profile_output == "-" {
+            flame::dump_stdout();
+        } else {
+            flame::dump_html(&mut File::create(profile_output)?)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn _run_string(vm: &VirtualMachine, source: &str, source_path: String) -> PyResult {
@@ -84,7 +118,7 @@ fn _run_string(vm: &VirtualMachine, source: &str, source_path: String) -> PyResu
 fn handle_exception(vm: &VirtualMachine, result: PyResult) {
     if let Err(err) = result {
         print_exception(vm, &err);
-        std::process::exit(1);
+        process::exit(1);
     }
 }
 
@@ -116,14 +150,14 @@ fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
                 "can't find '__main__' module in '{}'",
                 file_path.to_str().unwrap()
             );
-            std::process::exit(1);
+            process::exit(1);
         }
     } else {
         error!(
             "can't open file '{}': No such file or directory",
             file_path.to_str().unwrap()
         );
-        std::process::exit(1);
+        process::exit(1);
     };
 
     let dir = file_path.parent().unwrap().to_str().unwrap().to_string();
@@ -138,7 +172,7 @@ fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
                 file_path.to_str().unwrap(),
                 err.kind()
             );
-            std::process::exit(1);
+            process::exit(1);
         }
     }
 }
