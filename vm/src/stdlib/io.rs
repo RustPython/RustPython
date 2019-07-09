@@ -467,6 +467,8 @@ fn text_io_base_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn text_io_base_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    use std::str::from_utf8;
+
     arg_check!(
         vm,
         args,
@@ -481,24 +483,19 @@ fn text_io_base_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_value_error("not writable".to_string()));
     }
 
-    let write = vm
-        .get_method(raw.clone(), "write")
-        .ok_or_else(|| vm.new_attribute_error("BufferedWriter has no write method".to_owned()))
-        .and_then(|it| it)?;
     let bytes = objstr::get_value(obj).into_bytes();
 
-    let len = vm.invoke(
-        write,
-        PyFuncArgs::new(vec![vm.ctx.new_bytes(bytes.clone())], vec![]),
-    )?;
+    let len = vm.call_method(&raw, "write", vec![vm.ctx.new_bytes(bytes.clone())])?;
     let len = objint::get_value(&len).to_usize().ok_or_else(|| {
         vm.new_overflow_error("int to large to convert to Rust usize".to_string())
     })?;
 
     // returns the count of unicode code points written
-    Ok(vm
-        .ctx
-        .new_int(String::from_utf8_lossy(&bytes[0..len]).chars().count()))
+    let len = from_utf8(&bytes[..len])
+        .unwrap_or_else(|e| from_utf8(&bytes[..e.valid_up_to()]).unwrap())
+        .chars()
+        .count();
+    Ok(vm.ctx.new_int(len))
 }
 
 fn split_mode_string(mode_string: String) -> Result<(String, String), String> {
