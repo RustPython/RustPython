@@ -1016,7 +1016,7 @@ impl VirtualMachine {
     }
 
     pub fn current_exception(&self) -> Option<PyObjectRef> {
-        self.exceptions.borrow().last().map(|x| x.clone())
+        self.exceptions.borrow().last().cloned()
     }
 }
 
