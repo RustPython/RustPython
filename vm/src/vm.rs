@@ -1014,6 +1014,10 @@ impl VirtualMachine {
     pub fn pop_exception(&self) -> Option<PyObjectRef> {
         self.exceptions.borrow_mut().pop()
     }
+
+    pub fn current_exception(&self) -> Option<PyObjectRef> {
+        self.exceptions.borrow().last().map(|x| x.clone())
+    }
 }
 
 impl Default for VirtualMachine {

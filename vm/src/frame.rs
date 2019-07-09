@@ -752,7 +752,7 @@ impl Frame {
                     _ => vm.get_none(),
                 };
                 let exception = match argc {
-                    0 => match vm.pop_exception() {
+                    0 => match vm.current_exception() {
                         Some(exc) => exc,
                         None => {
                             return Err(vm.new_exception(
@@ -767,7 +767,7 @@ impl Frame {
                 };
                 let context = match argc {
                     0 => vm.get_none(), // We have already got the exception,
-                    _ => match vm.pop_exception() {
+                    _ => match vm.current_exception() {
                         Some(exc) => exc,
                         None => vm.get_none(),
                     },
@@ -891,7 +891,7 @@ impl Frame {
             bytecode::Instruction::PopException {} => {
                 let block = self.pop_block().unwrap(); // this asserts that the block is_some.
                 if let BlockType::ExceptHandler = block.typ {
-                    assert!(vm.pop_exception().is_some());
+                    vm.pop_exception().expect("Should have exception in stack");
                     Ok(None)
                 } else {
                     panic!("Block type must be ExceptHandler here.")
@@ -983,7 +983,7 @@ impl Frame {
                     }
                 }
                 BlockType::ExceptHandler => {
-                    vm.pop_exception();
+                    vm.pop_exception().expect("Should have exception in stack");
                 }
             }
         }
@@ -1009,7 +1009,7 @@ impl Frame {
                     }
                 },
                 BlockType::ExceptHandler => {
-                    vm.pop_exception();
+                    vm.pop_exception().expect("Should have exception in stack");
                 }
             }
 
@@ -1057,8 +1057,9 @@ impl Frame {
                     }
                 }
                 BlockType::Loop { .. } => {}
-                // Exception was already popped on Raised.
-                BlockType::ExceptHandler => {}
+                BlockType::ExceptHandler => {
+                    vm.pop_exception().expect("Should have exception in stack");
+                }
             }
         }
         Some(exc)
