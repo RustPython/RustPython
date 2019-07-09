@@ -268,7 +268,15 @@ impl Frame {
         }
     }
 
+    // #[cfg_attr(feature = "flame-it", flame("Frame"))]
     pub fn run(&self, vm: &VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
+        flame_guard!(format!("Frame::run({})", self.code.obj_name));
+        // flame doesn't include notes in the html graph :(
+        flame_note!(
+            flame::StrCow::from("CodeObj name"),
+            self.code.obj_name.clone().into()
+        );
+
         let filename = &self.code.source_path.to_string();
 
         // This is the name of the object being run:
@@ -334,6 +342,7 @@ impl Frame {
 
     /// Execute a single instruction.
     #[allow(clippy::cognitive_complexity)]
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
         let instruction = self.fetch_instruction();
 
@@ -891,6 +900,7 @@ impl Frame {
         }
     }
 
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn get_elements(
         &self,
         vm: &VirtualMachine,
@@ -912,6 +922,7 @@ impl Frame {
         }
     }
 
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn import(
         &self,
         vm: &VirtualMachine,
@@ -938,6 +949,7 @@ impl Frame {
         Ok(None)
     }
 
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn import_star(&self, vm: &VirtualMachine, module: &str, level: usize) -> FrameResult {
         let module = vm.import(module, &vm.ctx.new_tuple(vec![]), level)?;
 
@@ -951,6 +963,7 @@ impl Frame {
     }
 
     // Unwind all blocks:
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn unwind_blocks(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
         while let Some(block) = self.pop_block() {
             match block.typ {
@@ -978,6 +991,7 @@ impl Frame {
         None
     }
 
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn unwind_loop(&self, vm: &VirtualMachine) -> Block {
         loop {
             let block = self.current_block().expect("not in a loop");
@@ -1003,6 +1017,7 @@ impl Frame {
         }
     }
 
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn unwind_exception(&self, vm: &VirtualMachine, exc: PyObjectRef) -> Option<PyObjectRef> {
         // unwind block stack on exception and find any handlers:
         while let Some(block) = self.pop_block() {
@@ -1105,6 +1120,7 @@ impl Frame {
         }
     }
 
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn load_name(
         &self,
         vm: &VirtualMachine,
@@ -1150,6 +1166,7 @@ impl Frame {
         *self.lasti.borrow_mut() = target_pc;
     }
 
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_binop(
         &self,
         vm: &VirtualMachine,
@@ -1194,6 +1211,7 @@ impl Frame {
         Ok(None)
     }
 
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_unop(&self, vm: &VirtualMachine, op: &bytecode::UnaryOperator) -> FrameResult {
         let a = self.pop_value();
         let value = match *op {
@@ -1234,6 +1252,7 @@ impl Frame {
         Ok(result)
     }
 
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_compare(
         &self,
         vm: &VirtualMachine,
@@ -1326,6 +1345,7 @@ impl Frame {
         stack[stack.len() - depth - 1].clone()
     }
 
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn get_exception(&self, vm: &VirtualMachine, none_allowed: bool) -> PyResult {
         let exception = self.pop_value();
         if none_allowed && vm.get_none().is(&exception)

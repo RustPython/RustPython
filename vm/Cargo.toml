@@ -11,6 +11,7 @@ include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 [features]
 default = ["rustpython-parser", "rustpython-compiler"]
 vm-tracing-logging = []
+flame-it = ["flame", "flamer"]
 
 [dependencies]
 # Crypto:
@@ -56,6 +57,9 @@ unic = "0.9.0"
 maplit = "1.0"
 proc-macro-hack = "0.5"
 bitflags = "1.1"
+
+flame = { version = "0.2", optional = true }
+flamer = { version = "0.3", optional = true }
 
 [target.'cfg(all(unix, not(target_os = "android")))'.dependencies]
 pwd = "1"
