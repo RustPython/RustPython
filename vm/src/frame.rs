@@ -268,8 +268,15 @@ impl Frame {
         }
     }
 
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
+    // #[cfg_attr(feature = "flame-it", flame("Frame"))]
     pub fn run(&self, vm: &VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
+        flame_guard!(format!("Frame::run({})", self.code.obj_name));
+        // flame doesn't include notes in the html graph :(
+        flame_note!(
+            flame::StrCow::from("CodeObj name"),
+            self.code.obj_name.clone().into()
+        );
+
         let filename = &self.code.source_path.to_string();
 
         // This is the name of the object being run:

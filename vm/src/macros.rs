@@ -273,3 +273,14 @@ macro_rules! flame_guard {
         let _guard = ::flame::start_guard($name);
     };
 }
+
+macro_rules! flame_note {
+    ($name:expr, $desc:expr$(,)?) => {
+        #[cfg(feature = "flame-it")]
+        ::flame::note($name, ::std::option::Option::Some($desc));
+    };
+    ($name:expr$(,)?) => {
+        #[cfg(feature = "flame-it")]
+        ::flame::note($name, ::std::option::Option::None);
+    };
+}
