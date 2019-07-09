@@ -215,6 +215,10 @@ pub struct ExceptionZoo {
     pub syntax_error: PyClassRef,
     pub type_error: PyClassRef,
     pub value_error: PyClassRef,
+    pub unicode_error: PyClassRef,
+    pub unicode_decode_error: PyClassRef,
+    pub unicode_encode_error: PyClassRef,
+    pub unicode_translate_error: PyClassRef,
     pub zero_division_error: PyClassRef,
     pub eof_error: PyClassRef,
 
@@ -258,6 +262,11 @@ impl ExceptionZoo {
         let permission_error = create_type("PermissionError", &type_type, &os_error);
         let file_exists_error = create_type("FileExistsError", &type_type, &os_error);
         let eof_error = create_type("EOFError", &type_type, &exception_type);
+        let unicode_error = create_type("UnicodeError", &type_type, &value_error);
+        let unicode_decode_error = create_type("UnicodeDecodeError", &type_type, &unicode_error);
+        let unicode_encode_error = create_type("UnicodeEncodeError", &type_type, &unicode_error);
+        let unicode_translate_error =
+            create_type("UnicodeTranslateError", &type_type, &unicode_error);
 
         let warning = create_type("Warning", &type_type, &exception_type);
         let bytes_warning = create_type("BytesWarning", &type_type, &warning);
@@ -294,6 +303,10 @@ impl ExceptionZoo {
             syntax_error,
             type_error,
             value_error,
+            unicode_error,
+            unicode_decode_error,
+            unicode_encode_error,
+            unicode_translate_error,
             zero_division_error,
             eof_error,
             warning,
