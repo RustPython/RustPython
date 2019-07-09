@@ -220,3 +220,21 @@ try:
     raise NameError
 except NameError as ex:
     assert ex.__context__ == None
+
+
+try:
+    {}[1]
+except KeyError:
+    try:
+        raise RuntimeError()
+    except RuntimeError:
+        pass
+
+
+try:
+    try:
+        raise ZeroDivisionError
+    except ZeroDivisionError as ex:
+        raise NameError from ex
+except NameError as ex2:
+    pass
