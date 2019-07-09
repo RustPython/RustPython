@@ -20,3 +20,4 @@ assert isinstance(sys.flags, tuple)
 assert type(sys.flags).__name__ == "flags"
 assert type(sys.flags.optimize) is int
 assert sys.flags[3] == sys.flags.optimize
+assert sys.maxunicode == 1114111
