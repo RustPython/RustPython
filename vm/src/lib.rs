@@ -11,6 +11,8 @@
     clippy::let_and_return,
     clippy::implicit_hasher
 )]
+#![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
+#![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
 
 #[cfg(feature = "flame-it")]
 #[macro_use]
