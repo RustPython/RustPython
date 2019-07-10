@@ -198,7 +198,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
 /// Generic wrapper patching around the hashing libraries.
 struct HashWrapper {
-    inner: Box<DynDigest>,
+    inner: Box<dyn DynDigest>,
 }
 
 impl HashWrapper {

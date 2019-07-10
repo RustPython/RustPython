@@ -307,7 +307,7 @@ impl DirEntryRef {
     fn perform_on_metadata(
         self,
         follow_symlinks: FollowSymlinks,
-        action: &Fn(fs::Metadata) -> bool,
+        action: fn(fs::Metadata) -> bool,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         let metadata = match follow_symlinks.follow_symlinks {
@@ -321,7 +321,7 @@ impl DirEntryRef {
     fn is_dir(self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
         self.perform_on_metadata(
             follow_symlinks,
-            &|meta: fs::Metadata| -> bool { meta.is_dir() },
+            |meta: fs::Metadata| -> bool { meta.is_dir() },
             vm,
         )
     }
@@ -329,7 +329,7 @@ impl DirEntryRef {
     fn is_file(self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
         self.perform_on_metadata(
             follow_symlinks,
-            &|meta: fs::Metadata| -> bool { meta.is_file() },
+            |meta: fs::Metadata| -> bool { meta.is_file() },
             vm,
         )
     }

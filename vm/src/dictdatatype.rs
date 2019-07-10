@@ -188,7 +188,7 @@ impl<T: Clone> Dict<T> {
         position.size != self.size || self.entries.len() != position.entries_size
     }
 
-    pub fn keys<'a>(&'a self) -> Box<Iterator<Item = PyObjectRef> + 'a> {
+    pub fn keys<'a>(&'a self) -> Box<dyn Iterator<Item = PyObjectRef> + 'a> {
         Box::new(
             self.entries
                 .iter()

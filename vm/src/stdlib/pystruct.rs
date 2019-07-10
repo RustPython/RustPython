@@ -108,19 +108,19 @@ fn get_int(vm: &VirtualMachine, arg: &PyObjectRef) -> PyResult<BigInt> {
     objint::to_int(vm, arg, 10)
 }
 
-fn pack_i8(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut Write) -> PyResult<()> {
+fn pack_i8(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
     let v = get_int(vm, arg)?.to_i8().unwrap();
     data.write_i8(v).unwrap();
     Ok(())
 }
 
-fn pack_u8(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut Write) -> PyResult<()> {
+fn pack_u8(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
     let v = get_int(vm, arg)?.to_u8().unwrap();
     data.write_u8(v).unwrap();
     Ok(())
 }
 
-fn pack_bool(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut Write) -> PyResult<()> {
+fn pack_bool(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
     if objtype::isinstance(&arg, &vm.ctx.bool_type()) {
         let v = if objbool::get_value(arg) { 1 } else { 0 };
         data.write_u8(v).unwrap();
@@ -130,7 +130,11 @@ fn pack_bool(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut Write) -> PyResu
     }
 }
 
-fn pack_i16<Endianness>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut Write) -> PyResult<()>
+fn pack_i16<Endianness>(
+    vm: &VirtualMachine,
+    arg: &PyObjectRef,
+    data: &mut dyn Write,
+) -> PyResult<()>
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -139,7 +143,11 @@ where
     Ok(())
 }
 
-fn pack_u16<Endianness>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut Write) -> PyResult<()>
+fn pack_u16<Endianness>(
+    vm: &VirtualMachine,
+    arg: &PyObjectRef,
+    data: &mut dyn Write,
+) -> PyResult<()>
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -148,7 +156,11 @@ where
     Ok(())
 }
 
-fn pack_i32<Endianness>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut Write) -> PyResult<()>
+fn pack_i32<Endianness>(
+    vm: &VirtualMachine,
+    arg: &PyObjectRef,
+    data: &mut dyn Write,
+) -> PyResult<()>
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -157,7 +169,11 @@ where
     Ok(())
 }
 
-fn pack_u32<Endianness>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut Write) -> PyResult<()>
+fn pack_u32<Endianness>(
+    vm: &VirtualMachine,
+    arg: &PyObjectRef,
+    data: &mut dyn Write,
+) -> PyResult<()>
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -166,7 +182,11 @@ where
     Ok(())
 }
 
-fn pack_i64<Endianness>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut Write) -> PyResult<()>
+fn pack_i64<Endianness>(
+    vm: &VirtualMachine,
+    arg: &PyObjectRef,
+    data: &mut dyn Write,
+) -> PyResult<()>
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -175,7 +195,11 @@ where
     Ok(())
 }
 
-fn pack_u64<Endianness>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut Write) -> PyResult<()>
+fn pack_u64<Endianness>(
+    vm: &VirtualMachine,
+    arg: &PyObjectRef,
+    data: &mut dyn Write,
+) -> PyResult<()>
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -184,7 +208,11 @@ where
     Ok(())
 }
 
-fn pack_f32<Endianness>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut Write) -> PyResult<()>
+fn pack_f32<Endianness>(
+    vm: &VirtualMachine,
+    arg: &PyObjectRef,
+    data: &mut dyn Write,
+) -> PyResult<()>
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -193,7 +221,11 @@ where
     Ok(())
 }
 
-fn pack_f64<Endianness>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut Write) -> PyResult<()>
+fn pack_f64<Endianness>(
+    vm: &VirtualMachine,
+    arg: &PyObjectRef,
+    data: &mut dyn Write,
+) -> PyResult<()>
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -214,7 +246,7 @@ fn pack_item<Endianness>(
     vm: &VirtualMachine,
     code: &FormatCode,
     arg: &PyObjectRef,
-    data: &mut Write,
+    data: &mut dyn Write,
 ) -> PyResult<()>
 where
     Endianness: byteorder::ByteOrder,
@@ -287,28 +319,28 @@ fn struct_pack(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn unpack_i8(vm: &VirtualMachine, rdr: &mut Read) -> PyResult {
+fn unpack_i8(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult {
     match rdr.read_i8() {
         Err(err) => panic!("Error in reading {:?}", err),
         Ok(v) => Ok(vm.ctx.new_int(v)),
     }
 }
 
-fn unpack_u8(vm: &VirtualMachine, rdr: &mut Read) -> PyResult {
+fn unpack_u8(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult {
     match rdr.read_u8() {
         Err(err) => panic!("Error in reading {:?}", err),
         Ok(v) => Ok(vm.ctx.new_int(v)),
     }
 }
 
-fn unpack_bool(vm: &VirtualMachine, rdr: &mut Read) -> PyResult {
+fn unpack_bool(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult {
     match rdr.read_u8() {
         Err(err) => panic!("Error in reading {:?}", err),
         Ok(v) => Ok(vm.ctx.new_bool(v > 0)),
     }
 }
 
-fn unpack_i16<Endianness>(vm: &VirtualMachine, rdr: &mut Read) -> PyResult
+fn unpack_i16<Endianness>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -318,7 +350,7 @@ where
     }
 }
 
-fn unpack_u16<Endianness>(vm: &VirtualMachine, rdr: &mut Read) -> PyResult
+fn unpack_u16<Endianness>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -328,7 +360,7 @@ where
     }
 }
 
-fn unpack_i32<Endianness>(vm: &VirtualMachine, rdr: &mut Read) -> PyResult
+fn unpack_i32<Endianness>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -338,7 +370,7 @@ where
     }
 }
 
-fn unpack_u32<Endianness>(vm: &VirtualMachine, rdr: &mut Read) -> PyResult
+fn unpack_u32<Endianness>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -348,7 +380,7 @@ where
     }
 }
 
-fn unpack_i64<Endianness>(vm: &VirtualMachine, rdr: &mut Read) -> PyResult
+fn unpack_i64<Endianness>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -358,7 +390,7 @@ where
     }
 }
 
-fn unpack_u64<Endianness>(vm: &VirtualMachine, rdr: &mut Read) -> PyResult
+fn unpack_u64<Endianness>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -368,7 +400,7 @@ where
     }
 }
 
-fn unpack_f32<Endianness>(vm: &VirtualMachine, rdr: &mut Read) -> PyResult
+fn unpack_f32<Endianness>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -378,7 +410,7 @@ where
     }
 }
 
-fn unpack_f64<Endianness>(vm: &VirtualMachine, rdr: &mut Read) -> PyResult
+fn unpack_f64<Endianness>(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult
 where
     Endianness: byteorder::ByteOrder,
 {
@@ -419,7 +451,7 @@ fn struct_unpack(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_tuple(items))
 }
 
-fn unpack_code<Endianness>(vm: &VirtualMachine, code: &FormatCode, rdr: &mut Read) -> PyResult
+fn unpack_code<Endianness>(vm: &VirtualMachine, code: &FormatCode, rdr: &mut dyn Read) -> PyResult
 where
     Endianness: byteorder::ByteOrder,
 {
