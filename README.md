@@ -59,19 +59,6 @@ Documentation HTML files can then be found in the `target/doc` directory.
 
 If you wish to update the online documentation, push directly to the `release` branch (or ask a maintainer to do so). This will trigger a Travis build that updates the documentation and WebAssembly demo page.
 
-# Code organization
-
-- `parser/src`: python lexing, parsing and ast
-- `vm/src`: python virtual machine
-  - `builtins.rs`: Builtin functions
-  - `compile.rs`: the python compiler from ast to bytecode
-  - `obj`: python builtin types
-- `src`: using the other subcrates to bring rustpython to life.
-- `docs`: documentation (work in progress)
-- `py_code_object`: CPython bytecode to rustpython bytecode converter (work in progress)
-- `wasm`: Binary crate and resources for WebAssembly build
-- `tests`: integration test snippets
-
 # Contributing
 
 Contributions are more than welcome, and in many cases we are happy to guide contributors through PRs or on gitter.
@@ -87,23 +74,6 @@ and easiest way to contribute.
 You can also simply run
 `./whats_left.sh` to assist in finding any
 unimplemented method.
-
-# Testing
-
-To test rustpython, there is a collection of python snippets located in the
-`tests/snippets` directory. To run those tests do the following:
-
-```shell
-$ cd tests
-$ pipenv install
-$ pipenv run pytest -v
-```
-
-There also are some unit tests, you can run those with cargo:
-
-```shell
-$ cargo test --all
-```
 
 # Using a standard library
 
@@ -125,11 +95,6 @@ the [ouroboros library](https://github.com/pybee/ouroboros).
 # Compiling to WebAssembly
 
 [See this doc](wasm/README.md)
-
-# Code style
-
-The code style used is the default [rustfmt](https://github.com/rust-lang/rustfmt) codestyle. Please format your code accordingly.
-We also use [clippy](https://github.com/rust-lang/rust-clippy) to detect rust code issues.
 
 # Community
 

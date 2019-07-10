@@ -16,7 +16,7 @@ path = "./benchmarks/bench.rs"
 
 [features]
 default = []
-flame-it = ["rustpython-vm/flame-it", "flame"]
+flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 
 [dependencies]
 log="0.4.1"
@@ -29,6 +29,7 @@ rustyline = "4.1.0"
 xdg = "2.2.0"
 
 flame = { version = "0.2", optional = true }
+flamescope = { version = "0.1", optional = true }
 
 [dev-dependencies.cpython]
 version = "0.2"
