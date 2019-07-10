@@ -22,13 +22,6 @@ use std::path::PathBuf;
 use std::process;
 
 fn main() {
-    if let Err(err) = run() {
-        error!("Error: {}", err);
-        process::exit(1);
-    }
-}
-
-fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
     env_logger::init();
@@ -62,19 +55,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Arg::with_name("profile_output")
                 .long("profile-output")
                 .takes_value(true)
-                .help(
-                    "the file to output the profiling information to. present due to being \
-                     built with feature 'flame-it'",
-                ),
+                .help("the file to output the profiling information to"),
         )
         .arg(
             Arg::with_name("profile_format")
                 .long("profile-format")
                 .takes_value(true)
-                .help(
-                    "the profile format to output the profiling information in. present due to \
-                     being built with feature 'flame-it'",
-                ),
+                .help("the profile format to output the profiling information in"),
         );
     let matches = app.get_matches();
 
@@ -102,46 +89,53 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "flame-it")]
     {
-        use std::fs::File;
-
         main_guard.end();
-
-        enum ProfileFormat {
-            Html,
-            Text,
-            Speedscope,
+        if let Err(e) = write_profile(matches) {
+            error!("Error writing profile information: {}", e);
+            process::exit(1);
         }
+    }
+}
 
-        let profile_output = matches.value_of_os("profile_output");
+#[cfg(feature = "flame-it")]
+fn write_profile(matches: clap::ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
+    use std::fs::File;
 
-        let profile_format = match matches.value_of("profile_format") {
-            Some("html") => ProfileFormat::Html,
-            Some("text") => ProfileFormat::Text,
-            None if profile_output == Some("-".as_ref()) => ProfileFormat::Text,
-            Some("speedscope") | None => ProfileFormat::Speedscope,
-            Some(other) => {
-                error!("Unknown profile format {}", other);
-                process::exit(1);
-            }
-        };
+    enum ProfileFormat {
+        Html,
+        Text,
+        Speedscope,
+    }
 
-        let profile_output = profile_output.unwrap_or_else(|| match profile_format {
-            ProfileFormat::Html => "flame-graph.html".as_ref(),
-            ProfileFormat::Text => "flame.txt".as_ref(),
-            ProfileFormat::Speedscope => "flamescope.json".as_ref(),
-        });
+    let profile_output = matches.value_of_os("profile_output");
 
-        let profile_output: Box<dyn std::io::Write> = if profile_output == "-" {
-            Box::new(std::io::stdout())
-        } else {
-            Box::new(File::create(profile_output)?)
-        };
-
-        match profile_format {
-            ProfileFormat::Html => flame::dump_html(profile_output)?,
-            ProfileFormat::Text => flame::dump_text_to_writer(profile_output)?,
-            ProfileFormat::Speedscope => flamescope::dump(profile_output)?,
+    let profile_format = match matches.value_of("profile_format") {
+        Some("html") => ProfileFormat::Html,
+        Some("text") => ProfileFormat::Text,
+        None if profile_output == Some("-".as_ref()) => ProfileFormat::Text,
+        Some("speedscope") | None => ProfileFormat::Speedscope,
+        Some(other) => {
+            error!("Unknown profile format {}", other);
+            process::exit(1);
         }
+    };
+
+    let profile_output = profile_output.unwrap_or_else(|| match profile_format {
+        ProfileFormat::Html => "flame-graph.html".as_ref(),
+        ProfileFormat::Text => "flame.txt".as_ref(),
+        ProfileFormat::Speedscope => "flamescope.json".as_ref(),
+    });
+
+    let profile_output: Box<dyn std::io::Write> = if profile_output == "-" {
+        Box::new(std::io::stdout())
+    } else {
+        Box::new(File::create(profile_output)?)
+    };
+
+    match profile_format {
+        ProfileFormat::Html => flame::dump_html(profile_output)?,
+        ProfileFormat::Text => flame::dump_text_to_writer(profile_output)?,
+        ProfileFormat::Speedscope => flamescope::dump(profile_output)?,
     }
 
     Ok(())
