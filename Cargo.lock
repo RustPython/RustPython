@@ -381,7 +381,7 @@ dependencies = [
 
 [[package]]
 name = "flamescope"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "flame 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1006,7 +1006,7 @@ dependencies = [
  "cpython 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.5.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "flame 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "flamescope 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "flamescope 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustpython-compiler 0.1.0",
  "rustpython-parser 0.1.0",
@@ -1980,7 +1980,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum fixedbitset 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "86d4de0081402f5e88cdac65c8dcdcc73118c1a7a465e2a05f0da05843a8ea33"
 "checksum flame 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "1fc2706461e1ee94f55cab2ed2e3d34ae9536cfa830358ef80acff1a3dacab30"
 "checksum flamer 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f2add1a5e84b1ed7b5d00cdc21789a28e0a8f4e427b677313c773880ba3c4dac"
-"checksum flamescope 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "917f99871e49c0d61d7352737811207113fb34741a440a76087669c05d422857"
+"checksum flamescope 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "6e3e6aee625a28b97be4308bccc2eb5f81d9ec606b3f29e13c0f459ce20dd136"
 "checksum fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)" = "2fad85553e09a6f881f739c29f0b00b0f01357c743266d478b68951ce23285f3"
 "checksum fuchsia-cprng 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "a06f77d526c1a601b7c4cdd98f54b5eaabffc14d5f2f0296febdc7f357c6d3ba"
 "checksum futures 0.1.27 (registry+https://github.com/rust-lang/crates.io-index)" = "a2037ec1c6c1c4f79557762eab1f7eae1f64f6cb418ace90fae88f0942b60139"
