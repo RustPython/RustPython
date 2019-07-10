@@ -257,8 +257,19 @@ impl PyDictRef {
         PyDictRef::merge(&self.entries, dict_obj, kwargs, vm)
     }
 
-    fn pop(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.entries.borrow_mut().pop(vm, &key)
+    fn pop(
+        self,
+        key: PyObjectRef,
+        default: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match self.entries.borrow_mut().pop(vm, &key)? {
+            Some(value) => Ok(value),
+            None => match default {
+                OptionalArg::Present(default) => Ok(default),
+                OptionalArg::Missing => Err(vm.new_key_error(key.clone())),
+            },
+        }
     }
 
     fn popitem(self, vm: &VirtualMachine) -> PyResult {

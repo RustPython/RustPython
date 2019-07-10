@@ -240,13 +240,13 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Retrieve and delete a key
-    pub fn pop(&mut self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<T> {
+    pub fn pop(&mut self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<Option<T>> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             let value = self.unchecked_get(index);
             self.unchecked_delete(index);
-            Ok(value)
+            Ok(Some(value))
         } else {
-            Err(vm.new_key_error(key.clone()))
+            Ok(None)
         }
     }
 
