@@ -6,9 +6,10 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::function::{OptionalArg, PyFuncArgs};
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objfloat, objint, objtype};
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use num_traits::cast::ToPrimitive;
@@ -87,19 +88,77 @@ fn time_gmtime(secs: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<
 }
 
 fn time_localtime(secs: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyStructTime> {
+    let instant = optional_or_localtime(secs, vm)?;
+    let value = PyStructTime::new(instant);
+    Ok(value)
+}
+
+/// Construct a localtime from the optional seconds, or get the current local time.
+fn optional_or_localtime(
+    secs: OptionalArg<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<NaiveDateTime> {
     let default = chrono::offset::Local::now().naive_local();
     let instant = match secs {
         OptionalArg::Present(secs) => pyobj_to_naive_date_time(&secs, vm)?.unwrap_or(default),
         OptionalArg::Missing => default,
     };
-    let value = PyStructTime::new(instant);
-    Ok(value)
+    Ok(instant)
+}
+
+const CFMT: &str = "%a %b %e %H:%M:%S %Y";
+
+fn time_asctime(t: OptionalArg<PyStructTimeRef>, vm: &VirtualMachine) -> PyResult {
+    let default = chrono::offset::Local::now().naive_local();
+    let instant = match t {
+        OptionalArg::Present(t) => t.get_date_time(),
+        OptionalArg::Missing => default,
+    };
+    let formatted_time = instant.format(&CFMT).to_string();
+    Ok(vm.ctx.new_str(formatted_time))
+}
+
+fn time_ctime(secs: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<String> {
+    let instant = optional_or_localtime(secs, vm)?;
+    let formatted_time = instant.format(&CFMT).to_string();
+    Ok(formatted_time)
+}
+
+fn time_strftime(
+    format: PyStringRef,
+    t: OptionalArg<PyStructTimeRef>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let default = chrono::offset::Local::now().naive_local();
+    let instant = match t {
+        OptionalArg::Present(t) => t.get_date_time(),
+        OptionalArg::Missing => default,
+    };
+    let formatted_time = instant.format(&format.value).to_string();
+    Ok(vm.ctx.new_str(formatted_time))
+}
+
+fn time_strptime(
+    string: PyStringRef,
+    format: OptionalArg<PyStringRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyStructTime> {
+    let format: String = match format {
+        OptionalArg::Present(format) => format.value.clone(),
+        OptionalArg::Missing => "%a %b %H:%M:%S %Y".to_string(),
+    };
+    let instant = NaiveDateTime::parse_from_str(&string.value, &format)
+        .map_err(|e| vm.new_value_error(format!("Parse error: {:?}", e)))?;
+    let struct_time = PyStructTime::new(instant);
+    Ok(struct_time)
 }
 
 #[pyclass(name = "struct_time")]
 struct PyStructTime {
     tm: NaiveDateTime,
 }
+
+type PyStructTimeRef = PyRef<PyStructTime>;
 
 impl fmt::Debug for PyStructTime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -128,6 +187,10 @@ impl PyStructTime {
             self.tm.time().hour(), self.tm.time().minute(), self.tm.time().second(),
             self.tm.date().weekday().num_days_from_monday()
             )
+    }
+
+    fn get_date_time(&self) -> NaiveDateTime {
+        self.tm
     }
 
     #[pyproperty(name = "tm_year")]
@@ -172,9 +235,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let struct_time_type = PyStructTime::make_class(ctx);
 
     py_module!(vm, "time", {
+        "asctime" => ctx.new_rustfunc(time_asctime),
+        "ctime" => ctx.new_rustfunc(time_ctime),
         "gmtime" => ctx.new_rustfunc(time_gmtime),
         "localtime" => ctx.new_rustfunc(time_localtime),
         "monotonic" => ctx.new_rustfunc(time_monotonic),
+        "strftime" => ctx.new_rustfunc(time_strftime),
+        "strptime" => ctx.new_rustfunc(time_strptime),
         "sleep" => ctx.new_rustfunc(time_sleep),
         "struct_time" => struct_time_type,
         "time" => ctx.new_rustfunc(time_time)
