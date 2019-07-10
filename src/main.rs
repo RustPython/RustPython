@@ -28,7 +28,7 @@ fn main() {
     }
 }
 
-fn run() -> Result<(), Box<std::error::Error>> {
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let app = App::new("RustPython")
         .version(crate_version!())

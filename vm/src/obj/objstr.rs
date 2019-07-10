@@ -1159,7 +1159,7 @@ fn do_cformat_specifier(
 
 fn try_update_quantity_from_tuple(
     vm: &VirtualMachine,
-    elements: &mut Iterator<Item = PyObjectRef>,
+    elements: &mut dyn Iterator<Item = PyObjectRef>,
     q: &mut Option<CFormatQuantity>,
     mut tuple_index: usize,
 ) -> PyResult<usize> {

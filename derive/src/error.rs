@@ -94,7 +94,7 @@ impl Diagnostic {
         }
     }
 
-    pub fn spanned_error<T: Into<String>>(node: &ToTokens, text: T) -> Diagnostic {
+    pub fn spanned_error<T: Into<String>>(node: &dyn ToTokens, text: T) -> Diagnostic {
         Diagnostic {
             inner: Repr::Single {
                 text: text.into(),
