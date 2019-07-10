@@ -271,11 +271,6 @@ impl Frame {
     // #[cfg_attr(feature = "flame-it", flame("Frame"))]
     pub fn run(&self, vm: &VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
-        // flame doesn't include notes in the html graph :(
-        flame_note!(
-            flame::StrCow::from("CodeObj name"),
-            self.code.obj_name.clone().into()
-        );
 
         let filename = &self.code.source_path.to_string();
 
@@ -342,9 +337,10 @@ impl Frame {
 
     /// Execute a single instruction.
     #[allow(clippy::cognitive_complexity)]
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
         let instruction = self.fetch_instruction();
+
+        flame_guard!(format!("Frame::execute_instruction({:?})", instruction));
 
         #[cfg(feature = "vm-tracing-logging")]
         {

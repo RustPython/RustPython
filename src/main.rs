@@ -29,6 +29,8 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "flame-it")]
+    let main_guard = flame::start_guard("RustPython main");
     env_logger::init();
     let app = App::new("RustPython")
         .version(crate_version!())
@@ -55,15 +57,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         )
         .arg(Arg::from_usage("[pyargs] 'args for python'").multiple(true));
     #[cfg(feature = "flame-it")]
-    let app = app.arg(
-        Arg::with_name("profile_output")
-            .long("profile-output")
-            .takes_value(true)
-            .help(
-                "the file to output the profile graph to. present due to being \
-                 built with feature 'flame-it'",
-            ),
-    );
+    let app = app
+        .arg(
+            Arg::with_name("profile_output")
+                .long("profile-output")
+                .takes_value(true)
+                .help(
+                    "the file to output the profiling information to. present due to being \
+                     built with feature 'flame-it'",
+                ),
+        )
+        .arg(
+            Arg::with_name("profile_format")
+                .long("profile-format")
+                .takes_value(true)
+                .help(
+                    "the profile format to output the profiling information in. present due to \
+                     being built with feature 'flame-it'",
+                ),
+        );
     let matches = app.get_matches();
 
     // Construct vm:
@@ -92,13 +104,43 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     {
         use std::fs::File;
 
-        let profile_output = matches
-            .value_of_os("profile_output")
-            .unwrap_or_else(|| "flame-graph.html".as_ref());
-        if profile_output == "-" {
-            flame::dump_stdout();
+        main_guard.end();
+
+        enum ProfileFormat {
+            Html,
+            Text,
+            Speedscope,
+        }
+
+        let profile_output = matches.value_of_os("profile_output");
+
+        let profile_format = match matches.value_of("profile_format") {
+            Some("html") => ProfileFormat::Html,
+            Some("text") => ProfileFormat::Text,
+            None if profile_output == Some("-".as_ref()) => ProfileFormat::Text,
+            Some("speedscope") | None => ProfileFormat::Speedscope,
+            Some(other) => {
+                error!("Unknown profile format {}", other);
+                process::exit(1);
+            }
+        };
+
+        let profile_output = profile_output.unwrap_or_else(|| match profile_format {
+            ProfileFormat::Html => "flame-graph.html".as_ref(),
+            ProfileFormat::Text => "flame.txt".as_ref(),
+            ProfileFormat::Speedscope => "flamescope.json".as_ref(),
+        });
+
+        let profile_output: Box<dyn std::io::Write> = if profile_output == "-" {
+            Box::new(std::io::stdout())
         } else {
-            flame::dump_html(&mut File::create(profile_output)?)?;
+            Box::new(File::create(profile_output)?)
+        };
+
+        match profile_format {
+            ProfileFormat::Html => flame::dump_html(profile_output)?,
+            ProfileFormat::Text => flame::dump_text_to_writer(profile_output)?,
+            ProfileFormat::Speedscope => flamescope::dump(profile_output)?,
         }
     }
 
