@@ -11,3 +11,15 @@ assert string.punctuation == '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'
 # FIXME
 #assert string.whitespace == ' \t\n\r\x0b\x0c', string.whitespace
 #assert string.printable == '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~ \t\n\r\x0b\x0c'
+
+assert string.capwords('bla bla', ' ') == 'Bla Bla'
+
+from string import Template
+s = Template('$who likes $what')
+# TODO:
+# r = s.substitute(who='tim', what='kung pow')
+# print(r)
+
+from string import Formatter
+
+f = Formatter()
