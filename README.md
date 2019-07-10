@@ -105,6 +105,23 @@ There also are some unit tests, you can run those with cargo:
 $ cargo test --all
 ```
 
+# Profiling
+
+To profile rustpython, simply build in release mode with the `flame-it` feature.
+This will generate a file `flamescope.json`, which you can then view at
+https://speedscope.app.
+
+```sh
+$ cargo run --release --features flame-it script.py
+$ cat flamescope.json
+{<json>}
+```
+
+You can also pass the `--output-file` option to choose which file to output to
+(or stdout if you specify `-`), and the `--output-format` option to choose if
+you want to output in the speedscope json format (default), text, or a raw html
+viewer (currently broken).
+
 # Using a standard library
 
 As of now the standard library is under construction. You can
