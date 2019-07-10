@@ -26,8 +26,3 @@ print(mo)
 # TODO:
 # assert mo.group(0) == '_boe0'
 
-from string import Template
-s = Template('$who likes $what')
-# TODO:
-# r = s.substitute(who='tim', what='kung pow')
-# print(r)
