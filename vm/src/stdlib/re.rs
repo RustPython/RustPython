@@ -30,16 +30,26 @@ impl fmt::Debug for PyPattern {
 }
 
 const IGNORECASE: usize = 2;
+const LOCALE: usize = 4;
 const MULTILINE: usize = 8;
 const DOTALL: usize = 16;
+const UNICODE: usize = 32;
 const VERBOSE: usize = 64;
+const DEBUG: usize = 128;
+const ASCII: usize = 256;
 
 #[derive(Default)]
 struct PyRegexFlags {
     ignorecase: bool,
+    #[allow(unused)]
+    locale: bool,
     multiline: bool,
     dotall: bool,
+    unicode: bool,
     verbose: bool,
+    #[allow(unused)]
+    debug: bool,
+    ascii: bool,
 }
 
 impl PyRegexFlags {
@@ -47,9 +57,13 @@ impl PyRegexFlags {
         // TODO: detect unknown flag bits.
         PyRegexFlags {
             ignorecase: (bits & IGNORECASE) != 0,
+            locale: (bits & LOCALE) != 0,
             multiline: (bits & MULTILINE) != 0,
             dotall: (bits & DOTALL) != 0,
+            unicode: (bits & UNICODE) != 0,
             verbose: (bits & VERBOSE) != 0,
+            debug: (bits & DEBUG) != 0,
+            ascii: (bits & ASCII) != 0,
         }
     }
 }
@@ -118,11 +132,17 @@ fn do_search(vm: &VirtualMachine, regex: &PyPattern, search_text: &str) -> PyRes
 }
 
 fn make_regex(vm: &VirtualMachine, pattern: &str, flags: PyRegexFlags) -> PyResult<PyPattern> {
+    let unicode = if flags.unicode && flags.ascii {
+        return Err(vm.new_value_error("ASCII and UNICODE flags are incompatible".to_string()));
+    } else {
+        !flags.ascii
+    };
     let r = RegexBuilder::new(pattern)
         .case_insensitive(flags.ignorecase)
         .multi_line(flags.multiline)
         .dot_matches_new_line(flags.dotall)
         .ignore_whitespace(flags.verbose)
+        .unicode(unicode)
         .build()
         .map_err(|err| vm.new_value_error(format!("Error in regex: {:?}", err)))?;
     Ok(PyPattern {
@@ -244,11 +264,15 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "search" => ctx.new_rustfunc(re_search),
         "IGNORECASE" => ctx.new_int(IGNORECASE),
         "I" => ctx.new_int(IGNORECASE),
+        "LOCALE" => ctx.new_int(LOCALE),
         "MULTILINE" => ctx.new_int(MULTILINE),
         "M" => ctx.new_int(MULTILINE),
-        "VERBOSE" => ctx.new_int(VERBOSE),
-        "X" => ctx.new_int(VERBOSE),
         "DOTALL" => ctx.new_int(DOTALL),
         "S" => ctx.new_int(DOTALL),
+        "UNICODE" => ctx.new_int(UNICODE),
+        "VERBOSE" => ctx.new_int(VERBOSE),
+        "X" => ctx.new_int(VERBOSE),
+        "DEBUG" => ctx.new_int(DEBUG),
+        "ASCII" => ctx.new_int(ASCII),
     })
 }
