@@ -10,5 +10,9 @@ import logging
 logging.error('WOOT')
 logging.warning('WARN')
 
-print(f.getvalue())
+res = f.getvalue()
+
+assert  'WOOT' in res
+assert  'WARN' in res
+print(res)
 
