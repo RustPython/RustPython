@@ -17,4 +17,3 @@ proc-macro2 = "0.4.27"
 rustpython-compiler = { path = "../compiler", version = "0.1.0" }
 rustpython-bytecode = { path = "../bytecode", version = "0.1.0" }
 bincode =  "1.1"
-proc-macro-hack = "0.5"

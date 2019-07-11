@@ -56,7 +56,6 @@ unicode_names2 = "0.2.2"
 unicode-casing = "0.1.0"
 unic = "0.9.0"
 maplit = "1.0"
-proc-macro-hack = "0.5"
 bitflags = "1.1"
 
 flame = { version = "0.2", optional = true }
