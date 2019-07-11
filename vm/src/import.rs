@@ -169,7 +169,7 @@ fn resolve_name(
         Err(vm.new_key_error(vm.new_str("'__name__' not in globals".to_string())))
     }?;
 
-    let base = package.rsplitn(level, ".").last().unwrap();
+    let base = package.rsplitn(level, '.').last().unwrap();
 
     Ok(format!("{}.{}", base, name))
 }
@@ -186,7 +186,7 @@ pub fn import(
     let abs_name = if level > 0 {
         resolve_name(name, globals, level, vm)?
     } else {
-        if name.len() == 0 {
+        if name.is_empty() {
             return Err(vm.new_value_error("Empty module name".to_string()));
         }
         name.to_string()
@@ -232,23 +232,21 @@ pub fn import(
         } else {
             Ok(module)
         }
-    } else {
-        if level == 0 || name.len() > 0 {
-            if !name.contains(".") {
-                Ok(module)
-            } else {
-                if level == 0 {
-                    import(name.splitn(1, ".").next().unwrap(), None, None, None, 0, vm)
-                } else {
-                    let cut = abs_name.len() - (name.len() - name.find(".").unwrap());
-                    let to_return = &abs_name[0..cut];
-                    get_module(to_return, vm)?.ok_or(vm.new_key_error(
-                        vm.new_str(format!("{} not in sys.modules as expected", to_return)),
-                    ))
-                }
-            }
-        } else {
+    } else if level == 0 || !name.is_empty() {
+        if !name.contains('.') {
             Ok(module)
+        } else if level == 0 {
+            import(name.splitn(1, '.').next().unwrap(), None, None, None, 0, vm)
+        } else {
+            let cut = abs_name.len() - (name.len() - name.find('.').unwrap());
+            let to_return = &abs_name[0..cut];
+            get_module(to_return, vm)?.ok_or_else(|| {
+                vm.new_key_error(
+                    vm.new_str(format!("{} not in sys.modules as expected", to_return)),
+                )
+            })
         }
+    } else {
+        Ok(module)
     }
 }
