@@ -11,7 +11,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use hexf;
+use hexf_parse;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
 use num_traits::{float::Float, sign::Signed, ToPrimitive, Zero};
@@ -532,7 +532,7 @@ impl PyFloat {
 
     #[pymethod]
     fn fromhex(repr: PyStringRef, vm: &VirtualMachine) -> PyResult<f64> {
-        hexf::parse_hexf64(&repr.value, false).or_else(|_| match repr.value.as_ref() {
+        hexf_parse::parse_hexf64(&repr.value, false).or_else(|_| match repr.value.as_ref() {
             "nan" => Ok(std::f64::NAN),
             "inf" => Ok(std::f64::INFINITY),
             "-inf" => Ok(std::f64::NEG_INFINITY),
@@ -578,7 +578,7 @@ fn test_to_hex() {
         }
         let hex = to_hex(f);
         // println!("{} -> {}", f, hex);
-        let roundtrip = hexf::parse_hexf64(&hex, false).unwrap();
+        let roundtrip = hexf_parse::parse_hexf64(&hex, false).unwrap();
         // println!("  -> {}", roundtrip);
         assert!(f == roundtrip, "{} {} {}", f, hex, roundtrip);
     }
