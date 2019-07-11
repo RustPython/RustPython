@@ -56,6 +56,7 @@ pub struct VirtualMachine {
     pub exceptions: RefCell<Vec<PyObjectRef>>,
     pub frozen: RefCell<HashMap<String, bytecode::CodeObject>>,
     pub import_func: RefCell<PyObjectRef>,
+    pub importlib: RefCell<PyObjectRef>,
 }
 
 impl VirtualMachine {
@@ -71,6 +72,7 @@ impl VirtualMachine {
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
         let frozen = RefCell::new(frozen::get_module_inits());
         let import_func = RefCell::new(ctx.none());
+        let importlib = RefCell::new(ctx.none());
         let vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
@@ -81,6 +83,7 @@ impl VirtualMachine {
             exceptions: RefCell::new(vec![]),
             frozen,
             import_func,
+            importlib,
         };
 
         builtins::make_module(&vm, builtins.clone());
@@ -311,34 +314,30 @@ impl VirtualMachine {
     }
 
     pub fn import(&self, module: &str, from_list: &PyObjectRef, level: usize) -> PyResult {
-        let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
-        sys_modules
-            .get_item(module.to_string(), self)
-            .or_else(|_| {
-                let import_func = self
-                    .get_attribute(self.builtins.clone(), "__import__")
-                    .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
+        let import_func = self
+            .get_attribute(self.builtins.clone(), "__import__")
+            .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
 
-                let (locals, globals) = if let Some(frame) = self.current_frame() {
-                    (
-                        frame.scope.get_locals().into_object(),
-                        frame.scope.globals.clone().into_object(),
-                    )
-                } else {
-                    (self.get_none(), self.get_none())
-                };
-                self.invoke(
-                    import_func,
-                    vec![
-                        self.ctx.new_str(module.to_string()),
-                        globals,
-                        locals,
-                        from_list.clone(),
-                        self.ctx.new_int(level),
-                    ],
-                )
-            })
-            .map_err(|exc| import::remove_importlib_frames(self, &exc))
+        let (locals, globals) = if let Some(frame) = self.current_frame() {
+            (
+                frame.scope.get_locals().into_object(),
+                frame.scope.globals.clone().into_object(),
+            )
+        } else {
+            (self.get_none(), self.get_none())
+        };
+
+        self.invoke(
+            import_func,
+            vec![
+                self.ctx.new_str(module.to_string()),
+                globals,
+                locals,
+                from_list.clone(),
+                self.ctx.new_int(level),
+            ],
+        )
+        .map_err(|exc| import::remove_importlib_frames(self, &exc))
     }
 
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via

@@ -23,6 +23,7 @@ use rustpython_compiler::compile;
 
 use crate::frame::Scope;
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
+use crate::import;
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
@@ -774,9 +775,30 @@ fn builtin_sum(iterable: PyIterable, start: OptionalArg, vm: &VirtualMachine) ->
     Ok(sum)
 }
 
+#[derive(Debug, FromArgs)]
+pub struct ImportArgs {
+    #[pyarg(positional_only, optional = false)]
+    name: PyStringRef,
+    #[pyarg(positional_or_keyword, optional = true)]
+    globals: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    locals: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    from_list: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    level: OptionalArg<usize>,
+}
+
 // Should be renamed to builtin___import__?
-fn builtin_import(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    vm.invoke(vm.import_func.borrow().clone(), args)
+fn builtin_import(args: ImportArgs, vm: &VirtualMachine) -> PyResult {
+    import::import(
+        args.name.as_str(),
+        args.globals.into_option(),
+        args.locals.into_option(),
+        args.from_list.into_option(),
+        args.level.unwrap_or(0),
+        vm,
+    )
 }
 
 // builtin_vars

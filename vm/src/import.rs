@@ -4,8 +4,9 @@
 
 use crate::bytecode::CodeObject;
 use crate::frame::Scope;
+use crate::obj::objstr::PyStringRef;
 use crate::obj::{objcode, objsequence, objstr, objtype};
-use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject};
 use crate::vm::VirtualMachine;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
@@ -13,6 +14,7 @@ use rustpython_compiler::compile;
 pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
     flame_guard!("init importlib");
     let importlib = import_frozen(vm, "_frozen_importlib")?;
+    vm.importlib.replace(importlib.clone());
     let impmod = import_builtin(vm, "_imp")?;
     let install = vm.get_attribute(importlib.clone(), "_install")?;
     vm.invoke(install, vec![vm.sys_module.clone(), impmod])?;
@@ -117,4 +119,134 @@ pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyObjectRef) -> PyObje
         }
     }
     exc.clone()
+}
+
+fn get_module(name: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
+    sys_modules.get_item_option(name.to_string(), vm)
+}
+
+fn resolve_name(
+    name: &str,
+    globals: Option<PyObjectRef>,
+    level: usize,
+    vm: &VirtualMachine,
+) -> PyResult<String> {
+    let package = if let Some(globals) = globals {
+        if vm.isinstance(&globals, &vm.ctx.dict_type())? {
+            // TODO: Add checks
+            match globals.get_item_option("__package__".to_string(), vm)? {
+                Some(package) => Ok(PyStringRef::try_from_object(vm, package)?
+                    .as_str()
+                    .to_string()),
+                None => match globals.get_item_option("__spec__".to_string(), vm)? {
+                    Some(spec) => Ok(PyStringRef::try_from_object(
+                        vm,
+                        spec.get_item("parent", vm)?,
+                    )?
+                    .as_str()
+                    .to_string()),
+                    None => {
+                        // TODO: Add warning
+                        let package = PyStringRef::try_from_object(
+                            vm,
+                            globals.get_item("__name__".to_string(), vm)?,
+                        )?
+                        .as_str()
+                        .to_string();
+                        if globals.get_item_option("__path__", vm)?.is_some() {
+                            Ok(package.rsplitn(2, '.').last().unwrap().to_string())
+                        } else {
+                            Ok(package)
+                        }
+                    }
+                },
+            }
+        } else {
+            Err(vm.new_type_error("globals must be a dict".to_string()))
+        }
+    } else {
+        Err(vm.new_key_error(vm.new_str("'__name__' not in globals".to_string())))
+    }?;
+
+    let base = package.rsplitn(level, ".").last().unwrap();
+
+    Ok(format!("{}.{}", base, name))
+}
+
+// Rusr implementation of importlib __import__ for optimization.
+pub fn import(
+    name: &str,
+    globals: Option<PyObjectRef>,
+    _locals: Option<PyObjectRef>,
+    from_list: Option<PyObjectRef>,
+    level: usize,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let abs_name = if level > 0 {
+        resolve_name(name, globals, level, vm)?
+    } else {
+        if name.len() == 0 {
+            return Err(vm.new_value_error("Empty module name".to_string()));
+        }
+        name.to_string()
+    };
+
+    // TODO: call _lock_unlock_module
+    let module = match get_module(&abs_name, vm)? {
+        Some(module) => module,
+        None => {
+            let find_and_load =
+                vm.get_attribute(vm.importlib.borrow().clone(), "_find_and_load")?;
+            vm.invoke(
+                find_and_load,
+                vec![
+                    vm.new_str(abs_name.clone()),
+                    vm.import_func.borrow().clone(),
+                ],
+            )?
+        }
+    };
+
+    let has_from = if let Some(ref from_list) = from_list {
+        if vm.isinstance(from_list, &vm.ctx.tuple_type())? {
+            !objsequence::get_elements_tuple(&from_list).is_empty()
+        } else {
+            return Err(vm.new_type_error("from_list must be a tuple".to_string()));
+        }
+    } else {
+        false
+    };
+
+    if has_from {
+        // TODO: Check if error
+        if vm.get_attribute(module.clone(), "__path__").is_ok() {
+            let handle_fromlist =
+                vm.get_attribute(vm.importlib.borrow().clone(), "_handle_fromlist")?;
+            vm.invoke(
+                handle_fromlist,
+                vec![module, from_list.unwrap(), vm.import_func.borrow().clone()],
+            )
+        } else {
+            Ok(module)
+        }
+    } else {
+        if level == 0 || name.len() > 0 {
+            if !name.contains(".") {
+                Ok(module)
+            } else {
+                if level == 0 {
+                    import(name.splitn(1, ".").next().unwrap(), None, None, None, 0, vm)
+                } else {
+                    let cut = abs_name.len() - (name.len() - name.find(".").unwrap());
+                    let to_return = &abs_name[0..cut];
+                    get_module(to_return, vm)?.ok_or(vm.new_key_error(
+                        vm.new_str(format!("{} not in sys.modules as expected", to_return)),
+                    ))
+                }
+            }
+        } else {
+            Ok(module)
+        }
+    }
 }
