@@ -15,7 +15,6 @@ use crate::bytecode;
 use crate::frame::{ExecutionResult, Frame, FrameRef, Scope};
 use crate::frozen;
 use crate::function::PyFuncArgs;
-use crate::import;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::{PyCode, PyCodeRef};
@@ -337,7 +336,6 @@ impl VirtualMachine {
                 self.ctx.new_int(level),
             ],
         )
-        .map_err(|exc| import::remove_importlib_frames(self, &exc))
     }
 
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via

@@ -88,7 +88,7 @@ pub fn import_codeobj(
 }
 
 // TODO: This function should do nothing on verbose mode.
-pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyObjectRef) -> PyObjectRef {
+fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyObjectRef) -> PyObjectRef {
     let always_trim = objtype::isinstance(exc, &vm.ctx.exceptions.import_error);
 
     if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
@@ -204,7 +204,8 @@ pub fn import(
                     vm.new_str(abs_name.clone()),
                     vm.import_func.borrow().clone(),
                 ],
-            )?
+            )
+            .map_err(|exc| remove_importlib_frames(vm, &exc))?
         }
     };
 
@@ -227,6 +228,7 @@ pub fn import(
                 handle_fromlist,
                 vec![module, from_list.unwrap(), vm.import_func.borrow().clone()],
             )
+            .map_err(|exc| remove_importlib_frames(vm, &exc))
         } else {
             Ok(module)
         }
