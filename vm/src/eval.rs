@@ -21,9 +21,9 @@ mod tests {
     #[test]
     fn test_print_42() {
         let source = String::from("print('Hello world')\n");
-        let mut vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
         let vars = vm.new_scope_with_builtins();
-        let _result = eval(&mut vm, &source, vars, "<unittest>");
+        let _result = eval(&vm, &source, vars, "<unittest>");
 
         // TODO: check result?
         //assert_eq!(

@@ -56,11 +56,12 @@ pub struct VirtualMachine {
     pub exceptions: RefCell<Vec<PyObjectRef>>,
     pub frozen: RefCell<HashMap<String, bytecode::CodeObject>>,
     pub import_func: RefCell<PyObjectRef>,
+    pub optimize: bool,
 }
 
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
-    pub fn new() -> VirtualMachine {
+    pub fn new(optimize: bool) -> VirtualMachine {
         flame_guard!("init VirtualMachine");
         let ctx = PyContext::new();
 
@@ -81,6 +82,7 @@ impl VirtualMachine {
             exceptions: RefCell::new(vec![]),
             frozen,
             import_func,
+            optimize,
         };
 
         builtins::make_module(&vm, builtins.clone());
@@ -749,7 +751,7 @@ impl VirtualMachine {
         mode: &compile::Mode,
         source_path: String,
     ) -> Result<PyCodeRef, CompileError> {
-        compile::compile(source, mode, source_path)
+        compile::compile(source, mode, source_path, self.optimize)
             .map(|codeobj| PyCode::new(codeobj).into_ref(self))
     }
 
@@ -1022,7 +1024,7 @@ impl VirtualMachine {
 
 impl Default for VirtualMachine {
     fn default() -> Self {
-        VirtualMachine::new()
+        VirtualMachine::new(false)
     }
 }
 
@@ -1070,7 +1072,7 @@ mod tests {
 
     #[test]
     fn test_add_py_integers() {
-        let vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
         let a = vm.ctx.new_int(33_i32);
         let b = vm.ctx.new_int(12_i32);
         let res = vm._add(a, b).unwrap();
@@ -1080,7 +1082,7 @@ mod tests {
 
     #[test]
     fn test_multiply_str() {
-        let vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
         let a = vm.ctx.new_str(String::from("Hello "));
         let b = vm.ctx.new_int(4_i32);
         let res = vm._mul(a, b).unwrap();

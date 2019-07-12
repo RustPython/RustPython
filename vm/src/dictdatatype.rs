@@ -290,29 +290,29 @@ mod tests {
 
     #[test]
     fn test_insert() {
-        let mut vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
         let mut dict = Dict::default();
         assert_eq!(0, dict.len());
 
         let key1 = vm.new_bool(true);
         let value1 = vm.new_str("abc".to_string());
-        dict.insert(&mut vm, &key1, value1.clone()).unwrap();
+        dict.insert(&vm, &key1, value1.clone()).unwrap();
         assert_eq!(1, dict.len());
 
         let key2 = vm.new_str("x".to_string());
         let value2 = vm.new_str("def".to_string());
-        dict.insert(&mut vm, &key2, value2.clone()).unwrap();
+        dict.insert(&vm, &key2, value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
-        dict.insert(&mut vm, &key1, value2.clone()).unwrap();
+        dict.insert(&vm, &key1, value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
-        dict.delete(&mut vm, &key1).unwrap();
+        dict.delete(&vm, &key1).unwrap();
         assert_eq!(1, dict.len());
 
-        dict.insert(&mut vm, &key1, value2).unwrap();
+        dict.insert(&vm, &key1, value2).unwrap();
         assert_eq!(2, dict.len());
 
-        assert_eq!(true, dict.contains(&mut vm, &key1).unwrap());
+        assert_eq!(true, dict.contains(&vm, &key1).unwrap());
     }
 }

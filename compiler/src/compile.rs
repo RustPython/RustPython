@@ -20,22 +20,28 @@ struct Compiler {
     current_qualified_path: Option<String>,
     in_loop: bool,
     in_function_def: bool,
+    optimize: bool,
 }
 
 /// Compile a given sourcecode into a bytecode object.
-pub fn compile(source: &str, mode: &Mode, source_path: String) -> Result<CodeObject, CompileError> {
+pub fn compile(
+    source: &str,
+    mode: &Mode,
+    source_path: String,
+    optimize: bool,
+) -> Result<CodeObject, CompileError> {
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source)?;
-            compile_program(ast, source_path)
+            compile_program(ast, source_path, optimize)
         }
         Mode::Eval => {
             let statement = parser::parse_statement(source)?;
-            compile_statement_eval(statement, source_path)
+            compile_statement_eval(statement, source_path, optimize)
         }
         Mode::Single => {
             let ast = parser::parse_program(source)?;
-            compile_program_single(ast, source_path)
+            compile_program_single(ast, source_path, optimize)
         }
     }
 }
@@ -43,9 +49,10 @@ pub fn compile(source: &str, mode: &Mode, source_path: String) -> Result<CodeObj
 /// A helper function for the shared code of the different compile functions
 fn with_compiler(
     source_path: String,
+    optimize: bool,
     f: impl FnOnce(&mut Compiler) -> Result<(), CompileError>,
 ) -> Result<CodeObject, CompileError> {
-    let mut compiler = Compiler::new();
+    let mut compiler = Compiler::new(optimize);
     compiler.source_path = Some(source_path);
     compiler.push_new_code_object("<module>".to_string());
     f(&mut compiler)?;
@@ -55,8 +62,12 @@ fn with_compiler(
 }
 
 /// Compile a standard Python program to bytecode
-pub fn compile_program(ast: ast::Program, source_path: String) -> Result<CodeObject, CompileError> {
-    with_compiler(source_path, |compiler| {
+pub fn compile_program(
+    ast: ast::Program,
+    source_path: String,
+    optimize: bool,
+) -> Result<CodeObject, CompileError> {
+    with_compiler(source_path, optimize, |compiler| {
         let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program(&ast, symbol_table)
     })
@@ -66,8 +77,9 @@ pub fn compile_program(ast: ast::Program, source_path: String) -> Result<CodeObj
 pub fn compile_statement_eval(
     statement: Vec<ast::LocatedStatement>,
     source_path: String,
+    optimize: bool,
 ) -> Result<CodeObject, CompileError> {
-    with_compiler(source_path, |compiler| {
+    with_compiler(source_path, optimize, |compiler| {
         let symbol_table = statements_to_symbol_table(&statement)?;
         compiler.compile_statement_eval(&statement, symbol_table)
     })
@@ -77,8 +89,9 @@ pub fn compile_statement_eval(
 pub fn compile_program_single(
     ast: ast::Program,
     source_path: String,
+    optimize: bool,
 ) -> Result<CodeObject, CompileError> {
-    with_compiler(source_path, |compiler| {
+    with_compiler(source_path, optimize, |compiler| {
         let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program_single(&ast, symbol_table)
     })
@@ -98,8 +111,14 @@ enum EvalContext {
 
 type Label = usize;
 
+impl Default for Compiler {
+    fn default() -> Self {
+        Compiler::new(false)
+    }
+}
+
 impl Compiler {
-    fn new() -> Self {
+    fn new(optimize: bool) -> Self {
         Compiler {
             code_object_stack: Vec::new(),
             scope_stack: Vec::new(),
@@ -109,6 +128,7 @@ impl Compiler {
             current_qualified_path: None,
             in_loop: false,
             in_function_def: false,
+            optimize,
         }
     }
 
@@ -434,29 +454,30 @@ impl Compiler {
                 decorator_list,
             } => self.compile_class_def(name, body, bases, keywords, decorator_list)?,
             ast::Statement::Assert { test, msg } => {
-                // TODO: if some flag, ignore all assert statements!
-
-                let end_label = self.new_label();
-                self.compile_test(test, Some(end_label), None, EvalContext::Statement)?;
-                self.emit(Instruction::LoadName {
-                    name: String::from("AssertionError"),
-                    scope: bytecode::NameScope::Local,
-                });
-                match msg {
-                    Some(e) => {
-                        self.compile_expression(e)?;
-                        self.emit(Instruction::CallFunction {
-                            typ: CallType::Positional(1),
-                        });
+                // if some flag, ignore all assert statements!
+                if !self.optimize {
+                    let end_label = self.new_label();
+                    self.compile_test(test, Some(end_label), None, EvalContext::Statement)?;
+                    self.emit(Instruction::LoadName {
+                        name: String::from("AssertionError"),
+                        scope: bytecode::NameScope::Local,
+                    });
+                    match msg {
+                        Some(e) => {
+                            self.compile_expression(e)?;
+                            self.emit(Instruction::CallFunction {
+                                typ: CallType::Positional(1),
+                            });
+                        }
+                        None => {
+                            self.emit(Instruction::CallFunction {
+                                typ: CallType::Positional(0),
+                            });
+                        }
                     }
-                    None => {
-                        self.emit(Instruction::CallFunction {
-                            typ: CallType::Positional(0),
-                        });
-                    }
+                    self.emit(Instruction::Raise { argc: 1 });
+                    self.set_label(end_label);
                 }
-                self.emit(Instruction::Raise { argc: 1 });
-                self.set_label(end_label);
             }
             ast::Statement::Break => {
                 if !self.in_loop {
@@ -1868,7 +1889,7 @@ mod tests {
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {
-        let mut compiler = Compiler::new();
+        let mut compiler: Compiler = Default::default();
         compiler.source_path = Some("source_path".to_string());
         compiler.push_new_code_object("<module>".to_string());
         let ast = parser::parse_program(&source.to_string()).unwrap();

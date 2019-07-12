@@ -31,6 +31,12 @@ fn main() {
         .about("Rust implementation of the Python language")
         .arg(Arg::with_name("script").required(false).index(1))
         .arg(
+            Arg::with_name("optimize")
+                .short("O")
+                .multiple(true)
+                .help("Optimize. Set __debug__ to false. Remove debug statements."),
+        )
+        .arg(
             Arg::with_name("v")
                 .short("v")
                 .multiple(true)
@@ -65,8 +71,11 @@ fn main() {
         );
     let matches = app.get_matches();
 
+    let opt_level = matches.occurrences_of("optimize");
+    let optimize = opt_level > 0;
+    debug!("Optimize: {}", optimize);
     // Construct vm:
-    let vm = VirtualMachine::new();
+    let vm = VirtualMachine::new(optimize);
 
     let res = import::init_importlib(&vm, true);
     handle_exception(&vm, res);
@@ -215,7 +224,7 @@ fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
 
 #[test]
 fn test_run_script() {
-    let vm = VirtualMachine::new();
+    let vm: VirtualMachine = Default::default();
 
     // test file run
     let r = run_script(&vm, "tests/snippets/dir_main/__main__.py");

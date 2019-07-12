@@ -1467,7 +1467,7 @@ mod tests {
 
     #[test]
     fn str_title() {
-        let vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
 
         let tests = vec![
             (" Hello ", " hello "),
@@ -1486,7 +1486,7 @@ mod tests {
 
     #[test]
     fn str_istitle() {
-        let vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
 
         let pos = vec![
             "A",
@@ -1517,7 +1517,7 @@ mod tests {
 
     #[test]
     fn str_maketrans_and_translate() {
-        let vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
 
         let table = vm.context().new_dict();
         table
