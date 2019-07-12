@@ -541,6 +541,18 @@ fn os_stat(
     os_unix_stat_inner!(path, follow_symlinks, vm)
 }
 
+#[cfg(target_os = "redox")]
+fn os_stat(
+    path: PyStringRef,
+    dir_fd: DirFd,
+    follow_symlinks: FollowSymlinks,
+    vm: &VirtualMachine,
+) -> PyResult<StatResult> {
+    use std::os::redox::fs::MetadataExt;
+    let path = make_path(vm, path, &dir_fd);
+    os_unix_stat_inner!(path, follow_symlinks, vm)
+}
+
 // Copied from CPython fileutils.c
 #[cfg(windows)]
 fn attributes_to_mode(attr: u32) -> u32 {
@@ -594,6 +606,7 @@ fn os_stat(
     get_stats(&path.value, follow_symlinks.follow_symlinks)
         .map_err(|s| vm.new_os_error(s.to_string()))
 }
+
 
 #[cfg(not(any(
     target_os = "linux",
