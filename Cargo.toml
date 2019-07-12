@@ -25,7 +25,7 @@ clap = "2.31.2"
 rustpython-compiler = {path = "compiler", version = "0.1.0"}
 rustpython-parser = {path = "parser", version = "0.1.0"}
 rustpython-vm = {path = "vm", version = "0.1.0"}
-rustyline = "4.1.0"
+#rustyline = "4.1.0"
 xdg = "2.2.0"
 
 flame = { version = "0.2", optional = true }
