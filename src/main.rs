@@ -68,24 +68,37 @@ fn main() {
     // Construct vm:
     let vm = VirtualMachine::new();
 
-    let res = import::init_importlib(&vm, true);
-    handle_exception(&vm, res);
+    let res = (|| {
+        import::init_importlib(&vm, true)?;
 
-    // Figure out if a -c option was given:
-    let result = if let Some(command) = matches.value_of("c") {
-        run_command(&vm, command.to_string())
-    } else if let Some(module) = matches.value_of("m") {
-        run_module(&vm, module)
-    } else {
-        // Figure out if a script was passed:
-        match matches.value_of("script") {
-            None => run_shell(&vm),
-            Some(filename) => run_script(&vm, filename),
+        if cfg!(target_os = "redox") {
+            let sys_path = vm.get_attribute(vm.sys_module.clone(), "path")?;
+            vm.call_method(
+                &sys_path,
+                "insert",
+                vec![
+                    vm.ctx.new_int(0),
+                    vm.ctx.new_str("/lib/rustpython/".to_string()),
+                ],
+            )?;
         }
-    };
 
+        // Figure out if a -c option was given:
+        if let Some(command) = matches.value_of("c") {
+            run_command(&vm, command.to_string())?;
+        } else if let Some(module) = matches.value_of("m") {
+            run_module(&vm, module)?;
+        } else {
+            // Figure out if a script was passed:
+            match matches.value_of("script") {
+                None => run_shell(&vm)?,
+                Some(filename) => run_script(&vm, filename)?,
+            };
+        }
+        Ok(())
+    })();
     // See if any exception leaked out:
-    handle_exception(&vm, result);
+    handle_exception(&vm, res);
 
     #[cfg(feature = "flame-it")]
     {
@@ -151,7 +164,7 @@ fn _run_string(vm: &VirtualMachine, source: &str, source_path: String) -> PyResu
     vm.run_code_obj(code_obj, Scope::with_builtins(None, attrs, vm))
 }
 
-fn handle_exception(vm: &VirtualMachine, result: PyResult) {
+fn handle_exception<T>(vm: &VirtualMachine, result: PyResult<T>) {
     if let Err(err) = result {
         print_exception(vm, &err);
         process::exit(1);
