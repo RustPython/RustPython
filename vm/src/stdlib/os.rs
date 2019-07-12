@@ -599,9 +599,10 @@ fn os_stat(
     target_os = "linux",
     target_os = "macos",
     target_os = "android",
+    target_os = "redox",
     windows
 )))]
-fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult<StatResult> {
     unimplemented!();
 }
 
