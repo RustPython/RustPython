@@ -3,7 +3,6 @@ extern crate clap;
 extern crate env_logger;
 #[macro_use]
 extern crate log;
-extern crate rustyline;
 
 use clap::{App, Arg};
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
