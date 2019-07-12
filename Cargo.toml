@@ -33,3 +33,7 @@ flamescope = { version = "0.1", optional = true }
 
 [dev-dependencies.cpython]
 version = "0.2"
+
+[[bin]]
+name = "rustpython"
+path = "src/main.rs"
