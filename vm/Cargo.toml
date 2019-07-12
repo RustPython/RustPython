@@ -61,5 +61,5 @@ bitflags = "1.1"
 flame = { version = "0.2", optional = true }
 flamer = { version = "0.3", optional = true }
 
-[target.'cfg(all(unix, not(target_os = "android")))'.dependencies]
+[target.'cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))'.dependencies]
 pwd = "1"
