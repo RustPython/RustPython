@@ -4,8 +4,7 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 
-use std::convert::TryInto;
-use clap::{App, Arg};
+use clap::{App, Arg, ArgMatches};
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
@@ -16,6 +15,7 @@ use rustpython_vm::{
     pyobject::{ItemProtocol, PyResult},
     util, PySettings, VirtualMachine,
 };
+use std::convert::TryInto;
 
 use std::path::PathBuf;
 use std::process;
@@ -105,41 +105,7 @@ fn main() {
     settings.quiet = matches.is_present("quiet");
     let vm = VirtualMachine::new(settings);
 
-    let res = (|| {
-        import::init_importlib(&vm, true)?;
-
-        if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
-            let sys_path = vm.get_attribute(vm.sys_module.clone(), "path")?;
-            for (i, path) in std::env::split_paths(paths).enumerate() {
-                vm.call_method(
-                    &sys_path,
-                    "insert",
-                    vec![
-                        vm.ctx.new_int(i),
-                        vm.ctx.new_str(
-                            path.into_os_string()
-                                .into_string()
-                                .expect("Invalid UTF8 in BUILDTIME_RUSTPYTHONPATH"),
-                        ),
-                    ],
-                )?;
-            }
-        }
-
-        // Figure out if a -c option was given:
-        if let Some(command) = matches.value_of("c") {
-            run_command(&vm, command.to_string())?;
-        } else if let Some(module) = matches.value_of("m") {
-            run_module(&vm, module)?;
-        } else {
-            // Figure out if a script was passed:
-            match matches.value_of("script") {
-                None => run_shell(&vm)?,
-                Some(filename) => run_script(&vm, filename)?,
-            };
-        }
-        Ok(())
-    })();
+    let res = run_rustpython(&vm, matches);
     // See if any exception leaked out:
     handle_exception(&vm, res);
 
@@ -154,7 +120,7 @@ fn main() {
 }
 
 #[cfg(feature = "flame-it")]
-fn write_profile(matches: clap::ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
+fn write_profile(matches: ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
     use std::fs::File;
 
     enum ProfileFormat {
@@ -197,6 +163,43 @@ fn write_profile(matches: clap::ArgMatches) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
+fn run_rustpython(vm: &VirtualMachine, matches: ArgMatches) -> PyResult<()> {
+    import::init_importlib(&vm, true)?;
+
+    if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
+        let sys_path = vm.get_attribute(vm.sys_module.clone(), "path")?;
+        for (i, path) in std::env::split_paths(paths).enumerate() {
+            vm.call_method(
+                &sys_path,
+                "insert",
+                vec![
+                    vm.ctx.new_int(i),
+                    vm.ctx.new_str(
+                        path.into_os_string()
+                            .into_string()
+                            .expect("Invalid UTF8 in BUILDTIME_RUSTPYTHONPATH"),
+                    ),
+                ],
+            )?;
+        }
+    }
+
+    // Figure out if a -c option was given:
+    if let Some(command) = matches.value_of("c") {
+        run_command(&vm, command.to_string())?;
+    } else if let Some(module) = matches.value_of("m") {
+        run_module(&vm, module)?;
+    } else {
+        // Figure out if a script was passed:
+        match matches.value_of("script") {
+            None => run_shell(&vm)?,
+            Some(filename) => run_script(&vm, filename)?,
+        }
+    }
+
+    Ok(())
+}
+
 fn _run_string(vm: &VirtualMachine, source: &str, source_path: String) -> PyResult {
     let code_obj = vm
         .compile(source, &compile::Mode::Exec, source_path.clone())
@@ -214,20 +217,22 @@ fn handle_exception<T>(vm: &VirtualMachine, result: PyResult<T>) {
     }
 }
 
-fn run_command(vm: &VirtualMachine, mut source: String) -> PyResult {
+fn run_command(vm: &VirtualMachine, mut source: String) -> PyResult<()> {
     debug!("Running command {}", source);
 
     // This works around https://github.com/RustPython/RustPython/issues/17
     source.push('\n');
-    _run_string(vm, &source, "<stdin>".to_string())
+    _run_string(vm, &source, "<stdin>".to_string())?;
+    Ok(())
 }
 
-fn run_module(vm: &VirtualMachine, module: &str) -> PyResult {
+fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
-    vm.import(module, &vm.ctx.new_tuple(vec![]), 0)
+    vm.import(module, &vm.ctx.new_tuple(vec![]), 0)?;
+    Ok(())
 }
 
-fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
+fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult<()> {
     debug!("Running file {}", script_file);
     // Parse an ast from it:
     let file_path = PathBuf::from(script_file);
@@ -257,7 +262,9 @@ fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
     vm.call_method(&sys_path, "insert", vec![vm.new_int(0), vm.new_str(dir)])?;
 
     match util::read_file(&file_path) {
-        Ok(source) => _run_string(vm, &source, file_path.to_str().unwrap().to_string()),
+        Ok(source) => {
+            _run_string(vm, &source, file_path.to_str().unwrap().to_string())?;
+        }
         Err(err) => {
             error!(
                 "Failed reading file '{}': {:?}",
@@ -267,6 +274,7 @@ fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
             process::exit(1);
         }
     }
+    Ok(())
 }
 
 #[test]
@@ -343,7 +351,7 @@ fn get_prompt(vm: &VirtualMachine, prompt_name: &str) -> String {
 }
 
 #[cfg(not(target_os = "redox"))]
-fn run_shell(vm: &VirtualMachine) -> PyResult {
+fn run_shell(vm: &VirtualMachine) -> PyResult<()> {
     use rustyline::{error::ReadlineError, Editor};
 
     println!(
@@ -415,11 +423,11 @@ fn run_shell(vm: &VirtualMachine) -> PyResult {
     }
     repl.save_history(repl_history_path_str).unwrap();
 
-    Ok(vm.get_none())
+    Ok(())
 }
 
 #[cfg(target_os = "redox")]
-fn run_shell(vm: &VirtualMachine) -> PyResult {
+fn run_shell(vm: &VirtualMachine) -> PyResult<()> {
     use std::io::{self, BufRead, Write};
 
     println!(
@@ -442,5 +450,5 @@ fn run_shell(vm: &VirtualMachine) -> PyResult {
         stdout.flush().expect("flush failed");
     }
 
-    Ok(vm.get_none())
+    Ok(())
 }
