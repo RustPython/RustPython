@@ -4,6 +4,7 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 extern crate rustyline;
+use std::convert::TryInto;
 
 use clap::{App, Arg};
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
@@ -14,7 +15,7 @@ use rustpython_vm::{
     obj::objstr,
     print_exception,
     pyobject::{ItemProtocol, PyResult},
-    util, VirtualMachine,
+    util, PySettings, VirtualMachine,
 };
 
 use rustyline::{error::ReadlineError, Editor};
@@ -37,10 +38,31 @@ fn main() {
                 .help("Optimize. Set __debug__ to false. Remove debug statements."),
         )
         .arg(
-            Arg::with_name("v")
+            Arg::with_name("verbose")
                 .short("v")
                 .multiple(true)
-                .help("Give the verbosity"),
+                .help("Give the verbosity (can be applied multiple times)"),
+        )
+        .arg(Arg::with_name("debug").short("d").help("Debug the parser."))
+        .arg(
+            Arg::with_name("quiet")
+                .short("q")
+                .help("Be quiet at startup."),
+        )
+        .arg(
+            Arg::with_name("inspect")
+                .short("i")
+                .help("Inspect interactively after running the script."),
+        )
+        .arg(
+            Arg::with_name("no-user-site")
+                .short("s")
+                .help("don't add user site directory to sys.path."),
+        )
+        .arg(
+            Arg::with_name("no-site")
+                .short("S")
+                .help("don't imply 'import site' on initialization"),
         )
         .arg(
             Arg::with_name("c")
@@ -71,11 +93,19 @@ fn main() {
         );
     let matches = app.get_matches();
 
-    let opt_level = matches.occurrences_of("optimize");
-    let optimize = opt_level > 0;
-    debug!("Optimize: {}", optimize);
+    let opt_level: u8 = matches.occurrences_of("optimize").try_into().unwrap();
+    let verbosity_level: u8 = matches.occurrences_of("verbose").try_into().unwrap();
+
     // Construct vm:
-    let vm = VirtualMachine::new(optimize);
+    let mut settings: PySettings = Default::default();
+    settings.debug = matches.is_present("debug");
+    settings.inspect = matches.is_present("inspect");
+    settings.optimize = opt_level;
+    settings.no_site = matches.is_present("no-site");
+    settings.no_user_site = matches.is_present("no-user-site");
+    settings.verbose = verbosity_level;
+    settings.quiet = matches.is_present("quiet");
+    let vm = VirtualMachine::new(settings);
 
     let res = import::init_importlib(&vm, true);
     handle_exception(&vm, res);

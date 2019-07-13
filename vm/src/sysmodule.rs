@@ -6,7 +6,7 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
 use crate::version;
-use crate::vm::VirtualMachine;
+use crate::vm::{PySettings, VirtualMachine};
 
 /*
  * The magic sys module.
@@ -51,7 +51,7 @@ struct SysFlags {
     /// -E
     ignore_environment: bool,
     /// -v
-    verbose: bool,
+    verbose: u8,
     /// -b
     bytes_warning: bool,
     /// -q
@@ -64,6 +64,22 @@ struct SysFlags {
     dev_mode: bool,
     /// -X utf8
     utf8_mode: bool,
+}
+
+impl SysFlags {
+    fn from_settings(settings: &PySettings) -> Self {
+        // Start with sensible defaults:
+        let mut flags: SysFlags = Default::default();
+        flags.debug = settings.debug;
+        flags.inspect = settings.inspect;
+        flags.optimize = settings.optimize;
+        flags.no_user_site = settings.no_user_site;
+        flags.no_site = settings.no_site;
+        flags.ignore_environment = settings.ignore_environment;
+        flags.verbose = settings.verbose;
+        flags.quiet = settings.quiet;
+        flags
+    }
 }
 
 fn sys_getrefcount(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -103,8 +119,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
     let ctx = &vm.ctx;
 
     let flags_type = SysFlags::make_class(ctx);
-    // TODO parse command line arguments and environment variables to populate SysFlags
-    let flags = SysFlags::default()
+    let flags = SysFlags::from_settings(&vm.settings)
         .into_struct_sequence(vm, flags_type)
         .unwrap();
 

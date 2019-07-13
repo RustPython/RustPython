@@ -56,12 +56,55 @@ pub struct VirtualMachine {
     pub exceptions: RefCell<Vec<PyObjectRef>>,
     pub frozen: RefCell<HashMap<String, bytecode::CodeObject>>,
     pub import_func: RefCell<PyObjectRef>,
-    pub optimize: bool,
+    pub settings: PySettings,
+}
+
+/// Struct containing all kind of settings for the python vm.
+pub struct PySettings {
+    /// -d command line switch
+    pub debug: bool,
+
+    /// -i
+    pub inspect: bool,
+
+    /// -O optimization switch counter
+    pub optimize: u8,
+
+    /// -s
+    pub no_user_site: bool,
+
+    /// -S
+    pub no_site: bool,
+
+    /// -E
+    pub ignore_environment: bool,
+
+    /// verbosity level (-v switch)
+    pub verbose: u8,
+
+    /// -q
+    pub quiet: bool,
+}
+
+/// Sensible default settings.
+impl Default for PySettings {
+    fn default() -> Self {
+        PySettings {
+            debug: false,
+            inspect: false,
+            optimize: 0,
+            no_user_site: false,
+            no_site: false,
+            ignore_environment: false,
+            verbose: 0,
+            quiet: false,
+        }
+    }
 }
 
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
-    pub fn new(optimize: bool) -> VirtualMachine {
+    pub fn new(settings: PySettings) -> VirtualMachine {
         flame_guard!("init VirtualMachine");
         let ctx = PyContext::new();
 
@@ -82,7 +125,7 @@ impl VirtualMachine {
             exceptions: RefCell::new(vec![]),
             frozen,
             import_func,
-            optimize,
+            settings,
         };
 
         builtins::make_module(&vm, builtins.clone());
@@ -751,7 +794,7 @@ impl VirtualMachine {
         mode: &compile::Mode,
         source_path: String,
     ) -> Result<PyCodeRef, CompileError> {
-        compile::compile(source, mode, source_path, self.optimize)
+        compile::compile(source, mode, source_path, self.settings.optimize)
             .map(|codeobj| PyCode::new(codeobj).into_ref(self))
     }
 
@@ -1024,7 +1067,7 @@ impl VirtualMachine {
 
 impl Default for VirtualMachine {
     fn default() -> Self {
-        VirtualMachine::new(false)
+        VirtualMachine::new(Default::default())
     }
 }
 

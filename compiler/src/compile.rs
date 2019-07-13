@@ -20,7 +20,7 @@ struct Compiler {
     current_qualified_path: Option<String>,
     in_loop: bool,
     in_function_def: bool,
-    optimize: bool,
+    optimize: u8,
 }
 
 /// Compile a given sourcecode into a bytecode object.
@@ -28,7 +28,7 @@ pub fn compile(
     source: &str,
     mode: &Mode,
     source_path: String,
-    optimize: bool,
+    optimize: u8,
 ) -> Result<CodeObject, CompileError> {
     match mode {
         Mode::Exec => {
@@ -49,7 +49,7 @@ pub fn compile(
 /// A helper function for the shared code of the different compile functions
 fn with_compiler(
     source_path: String,
-    optimize: bool,
+    optimize: u8,
     f: impl FnOnce(&mut Compiler) -> Result<(), CompileError>,
 ) -> Result<CodeObject, CompileError> {
     let mut compiler = Compiler::new(optimize);
@@ -65,7 +65,7 @@ fn with_compiler(
 pub fn compile_program(
     ast: ast::Program,
     source_path: String,
-    optimize: bool,
+    optimize: u8,
 ) -> Result<CodeObject, CompileError> {
     with_compiler(source_path, optimize, |compiler| {
         let symbol_table = make_symbol_table(&ast)?;
@@ -77,7 +77,7 @@ pub fn compile_program(
 pub fn compile_statement_eval(
     statement: Vec<ast::LocatedStatement>,
     source_path: String,
-    optimize: bool,
+    optimize: u8,
 ) -> Result<CodeObject, CompileError> {
     with_compiler(source_path, optimize, |compiler| {
         let symbol_table = statements_to_symbol_table(&statement)?;
@@ -89,7 +89,7 @@ pub fn compile_statement_eval(
 pub fn compile_program_single(
     ast: ast::Program,
     source_path: String,
-    optimize: bool,
+    optimize: u8,
 ) -> Result<CodeObject, CompileError> {
     with_compiler(source_path, optimize, |compiler| {
         let symbol_table = make_symbol_table(&ast)?;
@@ -113,12 +113,12 @@ type Label = usize;
 
 impl Default for Compiler {
     fn default() -> Self {
-        Compiler::new(false)
+        Compiler::new(0)
     }
 }
 
 impl Compiler {
-    fn new(optimize: bool) -> Self {
+    fn new(optimize: u8) -> Self {
         Compiler {
             code_object_stack: Vec::new(),
             scope_stack: Vec::new(),
@@ -455,7 +455,7 @@ impl Compiler {
             } => self.compile_class_def(name, body, bases, keywords, decorator_list)?,
             ast::Statement::Assert { test, msg } => {
                 // if some flag, ignore all assert statements!
-                if !self.optimize {
+                if self.optimize == 0 {
                     let end_label = self.new_label();
                     self.compile_test(test, Some(end_label), None, EvalContext::Statement)?;
                     self.emit(Instruction::LoadName {
