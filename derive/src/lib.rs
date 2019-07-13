@@ -50,7 +50,8 @@ pub fn pystruct_sequence(attr: TokenStream, item: TokenStream) -> TokenStream {
     result_to_tokens(pyclass::impl_pystruct_sequence(attr, item))
 }
 
-#[proc_macro]
+#[cfg_attr(feature = "proc-macro-hack", proc_macro_hack::proc_macro_hack)]
+#[cfg_attr(not(feature = "proc-macro-hack"), proc_macro)]
 pub fn py_compile_bytecode(input: TokenStream) -> TokenStream {
     result_to_tokens(compile_bytecode::impl_py_compile_bytecode(input.into()))
 }

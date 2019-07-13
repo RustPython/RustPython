@@ -16,7 +16,6 @@ use rustpython_vm::{
     util, VirtualMachine,
 };
 
-use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::process;
 
@@ -301,7 +300,7 @@ fn get_prompt(vm: &VirtualMachine, prompt_name: &str) -> String {
 #[cfg(not(target_os = "redox"))]
 fn run_shell(vm: &VirtualMachine) -> PyResult {
     use rustyline::{error::ReadlineError, Editor};
-    
+
     println!(
         "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
         crate_version!()
@@ -376,12 +375,14 @@ fn run_shell(vm: &VirtualMachine) -> PyResult {
 
 #[cfg(target_os = "redox")]
 fn run_shell(vm: &VirtualMachine) -> PyResult {
-     println!(
+    use std::io::{self, BufRead, Write};
+
+    println!(
         "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
         crate_version!()
     );
     let vars = vm.new_scope_with_builtins();
-    
+
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut stdout = stdout.lock();

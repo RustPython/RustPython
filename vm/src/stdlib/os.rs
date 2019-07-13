@@ -607,7 +607,6 @@ fn os_stat(
         .map_err(|s| vm.new_os_error(s.to_string()))
 }
 
-
 #[cfg(not(any(
     target_os = "linux",
     target_os = "macos",
