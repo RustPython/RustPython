@@ -25,11 +25,13 @@ clap = "2.31.2"
 rustpython-compiler = {path = "compiler", version = "0.1.0"}
 rustpython-parser = {path = "parser", version = "0.1.0"}
 rustpython-vm = {path = "vm", version = "0.1.0"}
-#rustyline = "4.1.0"
 xdg = "2.2.0"
 
 flame = { version = "0.2", optional = true }
 flamescope = { version = "0.1", optional = true }
+
+[target.'cfg(not(target_os = "redox"))'.dependencies]
+rustyline = "4.1.0"
 
 [dev-dependencies.cpython]
 version = "0.2"

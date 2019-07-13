@@ -612,6 +612,7 @@ fn os_stat(
     target_os = "linux",
     target_os = "macos",
     target_os = "android",
+    target_os = "redox",
     windows
 )))]
 fn os_stat(

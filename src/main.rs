@@ -16,7 +16,6 @@ use rustpython_vm::{
     util, VirtualMachine,
 };
 
-//use rustyline::{error::ReadlineError, Editor};
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::process;
@@ -299,76 +298,90 @@ fn get_prompt(vm: &VirtualMachine, prompt_name: &str) -> String {
         .unwrap_or_else(String::new)
 }
 
+#[cfg(not(target_os = "redox"))]
 fn run_shell(vm: &VirtualMachine) -> PyResult {
+    use rustyline::{error::ReadlineError, Editor};
+    
     println!(
         "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
         crate_version!()
     );
     let vars = vm.new_scope_with_builtins();
 
-    // // Read a single line:
-    // let mut input = String::new();
-    // let mut repl = Editor::<()>::new();
+    // Read a single line:
+    let mut input = String::new();
+    let mut repl = Editor::<()>::new();
 
-    // // Retrieve a `history_path_str` dependent on the OS
-    // let repl_history_path_str = &get_history_path();
-    // if repl.load_history(repl_history_path_str).is_err() {
-    //     println!("No previous history.");
-    // }
+    // Retrieve a `history_path_str` dependent on the OS
+    let repl_history_path_str = &get_history_path();
+    if repl.load_history(repl_history_path_str).is_err() {
+        println!("No previous history.");
+    }
 
-    // let mut continuing = false;
+    let mut continuing = false;
 
-    // loop {
-    //     let prompt = if continuing {
-    //         get_prompt(vm, "ps2")
-    //     } else {
-    //         get_prompt(vm, "ps1")
-    //     };
-    //     match repl.readline(&prompt) {
-    //         Ok(line) => {
-    //             debug!("You entered {:?}", line);
-    //             input.push_str(&line);
-    //             input.push('\n');
-    //             repl.add_history_entry(line.trim_end());
+    loop {
+        let prompt = if continuing {
+            get_prompt(vm, "ps2")
+        } else {
+            get_prompt(vm, "ps1")
+        };
+        match repl.readline(&prompt) {
+            Ok(line) => {
+                debug!("You entered {:?}", line);
+                input.push_str(&line);
+                input.push('\n');
+                repl.add_history_entry(line.trim_end());
 
-    //             if continuing {
-    //                 if line.is_empty() {
-    //                     continuing = false;
-    //                 } else {
-    //                     continue;
-    //                 }
-    //             }
+                if continuing {
+                    if line.is_empty() {
+                        continuing = false;
+                    } else {
+                        continue;
+                    }
+                }
 
-    //             match shell_exec(vm, &input, vars.clone()) {
-    //                 Err(CompileError {
-    //                     error: CompileErrorType::Parse(ParseErrorType::EOF),
-    //                     ..
-    //                 }) => {
-    //                     continuing = true;
-    //                     continue;
-    //                 }
-    //                 _ => {
-    //                     input = String::new();
-    //                 }
-    //             }
-    //         }
-    //         Err(ReadlineError::Interrupted) => {
-    //             // TODO: Raise a real KeyboardInterrupt exception
-    //             println!("^C");
-    //             continuing = false;
-    //             continue;
-    //         }
-    //         Err(ReadlineError::Eof) => {
-    //             break;
-    //         }
-    //         Err(err) => {
-    //             println!("Error: {:?}", err);
-    //             break;
-    //         }
-    //     };
-    // }
-    // repl.save_history(repl_history_path_str).unwrap();
+                match shell_exec(vm, &input, vars.clone()) {
+                    Err(CompileError {
+                        error: CompileErrorType::Parse(ParseErrorType::EOF),
+                        ..
+                    }) => {
+                        continuing = true;
+                        continue;
+                    }
+                    _ => {
+                        input = String::new();
+                    }
+                }
+            }
+            Err(ReadlineError::Interrupted) => {
+                // TODO: Raise a real KeyboardInterrupt exception
+                println!("^C");
+                continuing = false;
+                continue;
+            }
+            Err(ReadlineError::Eof) => {
+                break;
+            }
+            Err(err) => {
+                println!("Error: {:?}", err);
+                break;
+            }
+        };
+    }
+    repl.save_history(repl_history_path_str).unwrap();
 
+    Ok(vm.get_none())
+}
+
+#[cfg(target_os = "redox")]
+fn run_shell(vm: &VirtualMachine) -> PyResult {
+     println!(
+        "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
+        crate_version!()
+    );
+    let vars = vm.new_scope_with_builtins();
+    
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut stdout = stdout.lock();
