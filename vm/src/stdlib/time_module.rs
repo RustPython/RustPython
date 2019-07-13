@@ -6,6 +6,8 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::function::{OptionalArg, PyFuncArgs};
+use crate::obj::objint::PyIntRef;
+use crate::obj::objsequence::get_sequence_index;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objfloat, objint, objtype};
@@ -91,6 +93,12 @@ fn time_localtime(secs: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResu
     let instant = optional_or_localtime(secs, vm)?;
     let value = PyStructTime::new(instant);
     Ok(value)
+}
+
+fn time_mktime(t: PyStructTimeRef, vm: &VirtualMachine) -> PyResult {
+    let datetime = t.get_date_time();
+    let seconds_since_epoch = datetime.timestamp() as f64;
+    Ok(vm.ctx.new_float(seconds_since_epoch))
 }
 
 /// Construct a localtime from the optional seconds, or get the current local time.
@@ -182,15 +190,39 @@ impl PyStructTime {
     fn repr(&self, _vm: &VirtualMachine) -> String {
         // TODO: extract year day and isdst somehow..
         format!(
-            "time.struct_time(tm_year={}, tm_mon={}, tm_mday={}, tm_hour={}, tm_min={}, tm_sec={}, tm_wday={})",
+            "time.struct_time(tm_year={}, tm_mon={}, tm_mday={}, tm_hour={}, tm_min={}, tm_sec={}, tm_wday={}, tm_yday={})",
             self.tm.date().year(), self.tm.date().month(), self.tm.date().day(),
             self.tm.time().hour(), self.tm.time().minute(), self.tm.time().second(),
-            self.tm.date().weekday().num_days_from_monday()
+            self.tm.date().weekday().num_days_from_monday(),
+            self.tm.date().ordinal()
             )
     }
 
     fn get_date_time(&self) -> NaiveDateTime {
         self.tm
+    }
+
+    #[pymethod(name = "__len__")]
+    fn len(&self, _vm: &VirtualMachine) -> usize {
+        8
+    }
+
+    #[pymethod(name = "__getitem__")]
+    fn getitem(&self, needle: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        let index = get_sequence_index(vm, &needle, 8)?;
+        match index {
+            0 => Ok(vm.ctx.new_int(self.tm.date().year())),
+            1 => Ok(vm.ctx.new_int(self.tm.date().month())),
+            2 => Ok(vm.ctx.new_int(self.tm.date().day())),
+            3 => Ok(vm.ctx.new_int(self.tm.time().hour())),
+            4 => Ok(vm.ctx.new_int(self.tm.time().minute())),
+            5 => Ok(vm.ctx.new_int(self.tm.time().second())),
+            6 => Ok(vm
+                .ctx
+                .new_int(self.tm.date().weekday().num_days_from_monday())),
+            7 => Ok(vm.ctx.new_int(self.tm.date().ordinal())),
+            _ => unreachable!(),
+        }
     }
 
     #[pyproperty(name = "tm_year")]
@@ -227,6 +259,11 @@ impl PyStructTime {
     fn tm_wday(&self, _vm: &VirtualMachine) -> u32 {
         self.tm.date().weekday().num_days_from_monday()
     }
+
+    #[pyproperty(name = "tm_yday")]
+    fn tm_yday(&self, _vm: &VirtualMachine) -> u32 {
+        self.tm.date().ordinal()
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -238,6 +275,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "asctime" => ctx.new_rustfunc(time_asctime),
         "ctime" => ctx.new_rustfunc(time_ctime),
         "gmtime" => ctx.new_rustfunc(time_gmtime),
+        "mktime" => ctx.new_rustfunc(time_mktime),
         "localtime" => ctx.new_rustfunc(time_localtime),
         "monotonic" => ctx.new_rustfunc(time_monotonic),
         "strftime" => ctx.new_rustfunc(time_strftime),

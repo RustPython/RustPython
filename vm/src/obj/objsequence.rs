@@ -11,7 +11,7 @@ use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::objbool;
-use super::objint::PyInt;
+use super::objint::{PyInt, PyIntRef};
 use super::objlist::PyList;
 use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
@@ -167,6 +167,31 @@ impl TryFromObject for SequenceIndex {
                 obj.class(),
             )))
         )
+    }
+}
+
+/// Get the index into a sequence like type. Get it from a python integer
+/// object, accounting for negative index, and out of bounds issues.
+pub fn get_sequence_index(vm: &VirtualMachine, index: &PyIntRef, length: usize) -> PyResult<usize> {
+    if let Some(value) = index.as_bigint().to_i64() {
+        if value < 0 {
+            let from_end: usize = -value as usize;
+            if from_end > length {
+                Err(vm.new_index_error("Index out of bounds!".to_string()))
+            } else {
+                let index = length - from_end;
+                Ok(index)
+            }
+        } else {
+            let index = value as usize;
+            if index >= length {
+                Err(vm.new_index_error("Index out of bounds!".to_string()))
+            } else {
+                Ok(index)
+            }
+        }
+    } else {
+        Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
     }
 }
 
