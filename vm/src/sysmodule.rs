@@ -4,7 +4,9 @@ use std::{env, mem};
 use crate::frame::FrameRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
+use crate::pyobject::{
+    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, TypeProtocol,
+};
 use crate::version;
 use crate::vm::{PySettings, VirtualMachine};
 
@@ -147,6 +149,17 @@ fn update_use_tracing(vm: &VirtualMachine) {
 // TODO implement string interning, this will be key for performance
 fn sys_intern(value: PyStringRef, _vm: &VirtualMachine) -> PyStringRef {
     value
+}
+
+fn sys_exc_info(vm: &VirtualMachine) -> PyResult {
+    Ok(vm.ctx.new_tuple(match vm.current_exception() {
+        Some(exception) => vec![
+            exception.class().into_object(),
+            exception.clone(),
+            vm.get_none(),
+        ],
+        None => vec![vm.get_none(), vm.get_none(), vm.get_none()],
+    }))
 }
 
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
@@ -309,6 +322,7 @@ settrace() -- set the global debug tracing function
       "setprofile" => ctx.new_rustfunc(sys_setprofile),
       "settrace" => ctx.new_rustfunc(sys_settrace),
       "version" => vm.new_str(version::get_version()),
+      "exc_info" => ctx.new_rustfunc(sys_exc_info),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();
