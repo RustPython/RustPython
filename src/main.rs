@@ -69,16 +69,22 @@ fn main() {
     let res = (|| {
         import::init_importlib(&vm, true)?;
 
-        if cfg!(target_os = "redox") {
+        if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
             let sys_path = vm.get_attribute(vm.sys_module.clone(), "path")?;
-            vm.call_method(
-                &sys_path,
-                "insert",
-                vec![
-                    vm.ctx.new_int(0),
-                    vm.ctx.new_str("/lib/rustpython/".to_string()),
-                ],
-            )?;
+            for (i, path) in std::env::split_paths(paths).enumerate() {
+                vm.call_method(
+                    &sys_path,
+                    "insert",
+                    vec![
+                        vm.ctx.new_int(i),
+                        vm.ctx.new_str(
+                            path.into_os_string()
+                                .into_string()
+                                .expect("Invalid UTF8 in BUILDTIME_RUSTPYTHONPATH"),
+                        ),
+                    ],
+                )?;
+            }
         }
 
         // Figure out if a -c option was given:
