@@ -38,7 +38,7 @@ struct CompilationSource {
 impl CompilationSource {
     fn compile(self, mode: &compile::Mode, module_name: String) -> Result<CodeObject, Diagnostic> {
         let compile = |source| {
-            compile::compile(source, mode, module_name).map_err(|err| {
+            compile::compile(source, mode, module_name, 0).map_err(|err| {
                 Diagnostic::spans_error(self.span, format!("Compile error: {}", err))
             })
         };
