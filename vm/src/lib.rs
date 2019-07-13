@@ -13,6 +13,8 @@
 )]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
+#![cfg_attr(not(feature = "use-proc-macro-hack"), feature(proc_macro_hygiene))]
+#![cfg_attr(target_os = "redox", feature(vecdeque_rotate))]
 
 #[cfg(feature = "flame-it")]
 #[macro_use]
@@ -36,6 +38,7 @@ extern crate self as rustpython_vm;
 
 pub use rustpython_derive::*;
 
+#[cfg(feature = "use-proc-macro-hack")]
 #[proc_macro_hack::proc_macro_hack]
 pub use rustpython_derive::py_compile_bytecode;
 
