@@ -37,6 +37,20 @@ Or use the interactive shell:
 
   Contribution is also more than welcome! See our contribution section for more information on this. 
 
+# Conference videos
+
+Checkout those talks on conferences:
+
+- [FOSDEM 2019](https://www.youtube.com/watch?v=nJDY9ASuiLc)
+- [EuroPython 2018](https://www.youtube.com/watch?v=YMmio0JHy_Y)
+
+# Use cases
+
+Allthough rustpython is a very young project, it is already used in the wild:
+
+- [pyckitup](https://github.com/pickitup247/pyckitup): a game engine written in rust.
+- [codingworkshops.org](https://github.com/chicode/codingworkshops): a site where you can learn how to code.
+
 # Goals
 
 - Full Python-3 environment entirely in Rust (not CPython bindings)
