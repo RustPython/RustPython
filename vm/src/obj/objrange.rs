@@ -245,6 +245,26 @@ impl PyRange {
         }
     }
 
+    #[pymethod(name = "__lt__")]
+    fn lt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
+    }
+
+    #[pymethod(name = "__gt__")]
+    fn gt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
+    }
+
+    #[pymethod(name = "__ge__")]
+    fn ge(&self, _rhs: PyObjectRef, vm:&VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
+    }
+
+    #[pymethod(name = "__le__")]
+    fn le(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
+    }
+
     #[pymethod(name = "index")]
     fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyInt> {
         if let Ok(int) = needle.downcast::<PyInt>() {
