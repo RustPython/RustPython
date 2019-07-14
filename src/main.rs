@@ -31,14 +31,14 @@ fn main() {
     let settings = create_settings(&matches);
     let vm = VirtualMachine::new(settings);
 
-    let res = run_rustpython(&vm, matches);
+    let res = run_rustpython(&vm, &matches);
     // See if any exception leaked out:
     handle_exception(&vm, res);
 
     #[cfg(feature = "flame-it")]
     {
         main_guard.end();
-        if let Err(e) = write_profile(matches) {
+        if let Err(e) = write_profile(&matches) {
             error!("Error writing profile information: {}", e);
             process::exit(1);
         }
@@ -146,7 +146,7 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
     if matches.is_present("optimize") {
         settings.optimize = matches.occurrences_of("optimize").try_into().unwrap();
     } else if !ignore_environment {
-        if let Some(value) = get_env_var_value("PYTHONOPTIMIZE") {
+        if let Ok(value) = get_env_var_value("PYTHONOPTIMIZE") {
             settings.optimize = value;
         }
     }
@@ -154,7 +154,7 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
     if matches.is_present("verbose") {
         settings.verbose = matches.occurrences_of("verbose").try_into().unwrap();
     } else if !ignore_environment {
-        if let Some(value) = get_env_var_value("PYTHONVERBOSE") {
+        if let Ok(value) = get_env_var_value("PYTHONVERBOSE") {
             settings.verbose = value;
         }
     }
@@ -175,9 +175,9 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
 }
 
 /// Get environment variable and turn it into integer.
-fn get_env_var_value(name: &str) -> Option<u8> {
-    env::var_os(name).map(|value| {
-        if let Ok(value) = u8::from_str(&value.into_string().unwrap()) {
+fn get_env_var_value(name: &str) -> Result<u8, std::env::VarError> {
+    env::var(name).map(|value| {
+        if let Ok(value) = u8::from_str(&value) {
             value
         } else {
             1
@@ -201,7 +201,7 @@ fn get_paths(env_variable_name: &str) -> Vec<String> {
 }
 
 #[cfg(feature = "flame-it")]
-fn write_profile(matches: ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
+fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
     use std::fs::File;
 
     enum ProfileFormat {
@@ -244,7 +244,7 @@ fn write_profile(matches: ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
-fn run_rustpython(vm: &VirtualMachine, matches: ArgMatches) -> PyResult<()> {
+fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     import::init_importlib(&vm, true)?;
 
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
