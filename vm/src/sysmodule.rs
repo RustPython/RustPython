@@ -129,30 +129,13 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         "cache_tag" => ctx.new_str("rustpython-01".to_string()),
     });
 
-    let path_list = if cfg!(target_arch = "wasm32") {
-        vec![]
-    } else {
-        fn get_paths(env_variable_name: &str) -> Vec<String> {
-            let paths = env::var_os(env_variable_name);
-            match paths {
-                Some(paths) => env::split_paths(&paths)
-                    .map(|path| {
-                        path.into_os_string()
-                            .into_string()
-                            .unwrap_or_else(|_| panic!("{} isn't valid unicode", env_variable_name))
-                    })
-                    .collect(),
-                None => vec![],
-            }
-        }
-
-        get_paths("RUSTPYTHONPATH")
-            .into_iter()
-            .chain(get_paths("PYTHONPATH").into_iter())
-            .map(|path| ctx.new_str(path))
-            .collect()
-    };
-    let path = ctx.new_list(path_list);
+    let path = ctx.new_list(
+        vm.settings
+            .path_list
+            .iter()
+            .map(|path| ctx.new_str(path.clone()))
+            .collect(),
+    );
 
     let platform = if cfg!(target_os = "linux") {
         "linux".to_string()

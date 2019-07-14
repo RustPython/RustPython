@@ -84,6 +84,9 @@ pub struct PySettings {
 
     /// -q
     pub quiet: bool,
+
+    /// Environment PYTHONPATH and RUSTPYTHONPATH:
+    pub path_list: Vec<String>,
 }
 
 /// Sensible default settings.
@@ -98,6 +101,7 @@ impl Default for PySettings {
             ignore_environment: false,
             verbose: 0,
             quiet: false,
+            path_list: vec![],
         }
     }
 }

@@ -17,14 +17,36 @@ use rustpython_vm::{
 };
 use std::convert::TryInto;
 
+use std::env;
 use std::path::PathBuf;
 use std::process;
+use std::str::FromStr;
 
 fn main() {
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
     env_logger::init();
-    let app = App::new("RustPython")
+    let app = App::new("RustPython");
+    let matches = parse_arguments(app);
+    let settings = create_settings(&matches);
+    let vm = VirtualMachine::new(settings);
+
+    let res = run_rustpython(&vm, matches);
+    // See if any exception leaked out:
+    handle_exception(&vm, res);
+
+    #[cfg(feature = "flame-it")]
+    {
+        main_guard.end();
+        if let Err(e) = write_profile(matches) {
+            error!("Error writing profile information: {}", e);
+            process::exit(1);
+        }
+    }
+}
+
+fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
+    let app = app
         .version(crate_version!())
         .author(crate_authors!())
         .about("Rust implementation of the Python language")
@@ -63,6 +85,11 @@ fn main() {
                 .help("don't imply 'import site' on initialization"),
         )
         .arg(
+            Arg::with_name("ignore-environment")
+                .short("E")
+                .help("Ignore environment variables PYTHON* such as PYTHONPATH"),
+        )
+        .arg(
             Arg::with_name("c")
                 .short("c")
                 .takes_value(true)
@@ -90,32 +117,88 @@ fn main() {
                 .help("the profile format to output the profiling information in"),
         );
     let matches = app.get_matches();
+    matches
+}
 
-    let opt_level: u8 = matches.occurrences_of("optimize").try_into().unwrap();
-    let verbosity_level: u8 = matches.occurrences_of("verbose").try_into().unwrap();
-
-    // Construct vm:
+/// Create settings by examining command line arguments and environment
+/// variables.
+fn create_settings(matches: &ArgMatches) -> PySettings {
+    let ignore_environment = matches.is_present("ignore-environment");
     let mut settings: PySettings = Default::default();
-    settings.debug = matches.is_present("debug");
-    settings.inspect = matches.is_present("inspect");
-    settings.optimize = opt_level;
-    settings.no_site = matches.is_present("no-site");
-    settings.no_user_site = matches.is_present("no-user-site");
-    settings.verbose = verbosity_level;
-    settings.quiet = matches.is_present("quiet");
-    let vm = VirtualMachine::new(settings);
+    settings.ignore_environment = ignore_environment;
 
-    let res = run_rustpython(&vm, matches);
-    // See if any exception leaked out:
-    handle_exception(&vm, res);
+    if !ignore_environment {
+        settings.path_list.append(&mut get_paths("RUSTPYTHONPATH"));
+        settings.path_list.append(&mut get_paths("PYTHONPATH"));
+    }
 
-    #[cfg(feature = "flame-it")]
-    {
-        main_guard.end();
-        if let Err(e) = write_profile(matches) {
-            error!("Error writing profile information: {}", e);
-            process::exit(1);
+    // Now process command line flags:
+    if matches.is_present("debug") {
+        settings.debug = true;
+    } else if !ignore_environment && env::var_os("PYTHONDEBUG").is_some() {
+        settings.debug = true;
+    }
+
+    if matches.is_present("inspect") {
+        settings.inspect = true;
+    } else if !ignore_environment && env::var_os("PYTHONINSPECT").is_some() {
+        settings.inspect = true;
+    }
+
+    if matches.is_present("optimize") {
+        settings.optimize = matches.occurrences_of("optimize").try_into().unwrap();
+    } else if !ignore_environment {
+        if let Some(value) = get_env_var_value("PYTHONOPTIMIZE") {
+            settings.optimize = value;
         }
+    }
+
+    if matches.is_present("verbose") {
+        settings.verbose = matches.occurrences_of("verbose").try_into().unwrap();
+    } else if !ignore_environment {
+        if let Some(value) = get_env_var_value("PYTHONVERBOSE") {
+            settings.verbose = value;
+        }
+    }
+
+    settings.no_site = matches.is_present("no-site");
+
+    if matches.is_present("no-user-site") {
+        settings.no_user_site = true;
+    } else if !ignore_environment && env::var_os("PYTHONNOUSERSITE").is_some() {
+        settings.no_user_site = true;
+    }
+
+    if matches.is_present("quiet") {
+        settings.quiet = true;
+    }
+
+    settings
+}
+
+/// Get environment variable and turn it into integer.
+fn get_env_var_value(name: &str) -> Option<u8> {
+    env::var_os(name).map(|value| {
+        if let Ok(value) = u8::from_str(&value.into_string().unwrap()) {
+            value
+        } else {
+            1
+        }
+    })
+}
+
+/// Helper function to retrieve a sequence of paths from an environment variable.
+fn get_paths(env_variable_name: &str) -> Vec<String> {
+    let paths = env::var_os(env_variable_name);
+    match paths {
+        Some(paths) => env::split_paths(&paths)
+            .map(|path| {
+                path.into_os_string()
+                    .into_string()
+                    .unwrap_or_else(|_| panic!("{} isn't valid unicode", env_variable_name))
+            })
+            .collect(),
+        None => vec![],
     }
 }
 
