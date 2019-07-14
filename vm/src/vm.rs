@@ -7,6 +7,7 @@
 use std::cell::{Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
+use std::fmt;
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
 
@@ -56,6 +57,9 @@ pub struct VirtualMachine {
     pub exceptions: RefCell<Vec<PyObjectRef>>,
     pub frozen: RefCell<HashMap<String, bytecode::CodeObject>>,
     pub import_func: RefCell<PyObjectRef>,
+    pub profile_func: RefCell<PyObjectRef>,
+    pub trace_func: RefCell<PyObjectRef>,
+    pub use_tracing: RefCell<bool>,
     pub settings: PySettings,
 }
 
@@ -84,6 +88,22 @@ pub struct PySettings {
 
     /// -q
     pub quiet: bool,
+}
+
+/// Trace events for sys.settrace and sys.setprofile.
+enum TraceEvent {
+    Call,
+    Return,
+}
+
+impl fmt::Display for TraceEvent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use TraceEvent::*;
+        match self {
+            Call => write!(f, "call"),
+            Return => write!(f, "return"),
+        }
+    }
 }
 
 /// Sensible default settings.
@@ -115,6 +135,8 @@ impl VirtualMachine {
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
         let frozen = RefCell::new(frozen::get_module_inits());
         let import_func = RefCell::new(ctx.none());
+        let profile_func = RefCell::new(ctx.none());
+        let trace_func = RefCell::new(ctx.none());
         let vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
@@ -125,6 +147,9 @@ impl VirtualMachine {
             exceptions: RefCell::new(vec![]),
             frozen,
             import_func,
+            profile_func,
+            trace_func,
+            use_tracing: RefCell::new(false),
             settings,
         };
 
@@ -323,6 +348,11 @@ impl VirtualMachine {
         self.ctx.none()
     }
 
+    /// Test whether a python object is `None`.
+    pub fn is_none(&self, obj: &PyObjectRef) -> bool {
+        obj.is(&self.get_none())
+    }
+
     pub fn get_type(&self) -> PyClassRef {
         self.ctx.type_type()
     }
@@ -452,7 +482,10 @@ impl VirtualMachine {
             ref kw_only_defaults,
         }) = func_ref.payload()
         {
-            self.invoke_python_function(code, scope, defaults, kw_only_defaults, args)
+            self.trace_event(TraceEvent::Call)?;
+            let res = self.invoke_python_function(code, scope, defaults, kw_only_defaults, args);
+            self.trace_event(TraceEvent::Return)?;
+            res
         } else if let Some(PyMethod {
             ref function,
             ref object,
@@ -474,7 +507,37 @@ impl VirtualMachine {
     where
         T: Into<PyFuncArgs>,
     {
-        self._invoke(func_ref, args.into())
+        let res = self._invoke(func_ref, args.into());
+        res
+    }
+
+    /// Call registered trace function.
+    fn trace_event(&self, event: TraceEvent) -> PyResult<()> {
+        if *self.use_tracing.borrow() {
+            let frame = self.get_none();
+            let event = self.new_str(event.to_string());
+            let arg = self.get_none();
+            let args = vec![frame, event, arg];
+
+            // temporarily disable tracing, during the call to the
+            // tracing function itself.
+            let trace_func = self.trace_func.borrow().clone();
+            if !self.is_none(&trace_func) {
+                self.use_tracing.replace(false);
+                let res = self.invoke(trace_func, args.clone());
+                self.use_tracing.replace(true);
+                res?;
+            }
+
+            let profile_func = self.profile_func.borrow().clone();
+            if !self.is_none(&profile_func) {
+                self.use_tracing.replace(false);
+                let res = self.invoke(profile_func, args);
+                self.use_tracing.replace(true);
+                res?;
+            }
+        }
+        Ok(())
     }
 
     fn invoke_python_function(

@@ -18,6 +18,14 @@ fn argv(ctx: &PyContext) -> PyObjectRef {
     ctx.new_list(argv)
 }
 
+fn executable(ctx: &PyContext) -> PyObjectRef {
+    if let Some(arg) = env::args().next() {
+        ctx.new_str(arg)
+    } else {
+        ctx.none()
+    }
+}
+
 fn getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
     let offset = offset.into_option().unwrap_or(0);
     if offset > vm.frames.borrow().len() - 1 {
@@ -108,6 +116,32 @@ fn sys_getfilesystemencodeerrors(_vm: &VirtualMachine) -> String {
 #[cfg(windows)]
 fn sys_getfilesystemencodeerrors(_vm: &VirtualMachine) -> String {
     "surrogatepass".to_string()
+}
+
+fn sys_getprofile(vm: &VirtualMachine) -> PyObjectRef {
+    vm.profile_func.borrow().clone()
+}
+
+fn sys_setprofile(profilefunc: PyObjectRef, vm: &VirtualMachine) {
+    vm.profile_func.replace(profilefunc);
+    update_use_tracing(vm);
+}
+
+fn sys_gettrace(vm: &VirtualMachine) -> PyObjectRef {
+    vm.trace_func.borrow().clone()
+}
+
+fn sys_settrace(tracefunc: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    vm.trace_func.replace(tracefunc);
+    update_use_tracing(vm);
+    vm.ctx.none()
+}
+
+fn update_use_tracing(vm: &VirtualMachine) {
+    let trace_is_none = vm.is_none(&vm.trace_func.borrow());
+    let profile_is_none = vm.is_none(&vm.profile_func.borrow());
+    let tracing = !(trace_is_none && profile_is_none);
+    vm.use_tracing.replace(tracing);
 }
 
 // TODO implement string interning, this will be key for performance
@@ -264,12 +298,15 @@ settrace() -- set the global debug tracing function
       "builtin_module_names" => builtin_module_names,
       "byteorder" => ctx.new_str(bytorder),
       "copyright" => ctx.new_str(copyright.to_string()),
+      "executable" => executable(ctx),
       "flags" => flags,
       "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
       "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
       "implementation" => implementation,
       "getfilesystemencoding" => ctx.new_rustfunc(sys_getfilesystemencoding),
       "getfilesystemencodeerrors" => ctx.new_rustfunc(sys_getfilesystemencodeerrors),
+      "getprofile" => ctx.new_rustfunc(sys_getprofile),
+      "gettrace" => ctx.new_rustfunc(sys_gettrace),
       "intern" => ctx.new_rustfunc(sys_intern),
       "maxunicode" => ctx.new_int(0x0010_FFFF),
       "maxsize" => ctx.new_int(std::isize::MAX),
@@ -286,6 +323,8 @@ settrace() -- set the global debug tracing function
       "path_importer_cache" => ctx.new_dict(),
       "pycache_prefix" => vm.get_none(),
       "dont_write_bytecode" => vm.new_bool(true),
+      "setprofile" => ctx.new_rustfunc(sys_setprofile),
+      "settrace" => ctx.new_rustfunc(sys_settrace),
       "version" => vm.new_str(version::get_version()),
     });
 
