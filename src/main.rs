@@ -116,8 +116,7 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
                 .takes_value(true)
                 .help("the profile format to output the profiling information in"),
         );
-    let matches = app.get_matches();
-    matches
+    app.get_matches()
 }
 
 /// Create settings by examining command line arguments and environment
@@ -133,15 +132,14 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
     }
 
     // Now process command line flags:
-    if matches.is_present("debug") {
-        settings.debug = true;
-    } else if !ignore_environment && env::var_os("PYTHONDEBUG").is_some() {
+    if matches.is_present("debug") || (!ignore_environment && env::var_os("PYTHONDEBUG").is_some())
+    {
         settings.debug = true;
     }
 
-    if matches.is_present("inspect") {
-        settings.inspect = true;
-    } else if !ignore_environment && env::var_os("PYTHONINSPECT").is_some() {
+    if matches.is_present("inspect")
+        || (!ignore_environment && env::var_os("PYTHONINSPECT").is_some())
+    {
         settings.inspect = true;
     }
 
@@ -163,9 +161,9 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
 
     settings.no_site = matches.is_present("no-site");
 
-    if matches.is_present("no-user-site") {
-        settings.no_user_site = true;
-    } else if !ignore_environment && env::var_os("PYTHONNOUSERSITE").is_some() {
+    if matches.is_present("no-user-site")
+        || (!ignore_environment && env::var_os("PYTHONNOUSERSITE").is_some())
+    {
         settings.no_user_site = true;
     }
 
