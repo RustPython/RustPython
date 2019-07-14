@@ -88,6 +88,9 @@ pub struct PySettings {
 
     /// -q
     pub quiet: bool,
+
+    /// Environment PYTHONPATH and RUSTPYTHONPATH:
+    pub path_list: Vec<String>,
 }
 
 /// Trace events for sys.settrace and sys.setprofile.
@@ -118,6 +121,7 @@ impl Default for PySettings {
             ignore_environment: false,
             verbose: 0,
             quiet: false,
+            path_list: vec![],
         }
     }
 }
