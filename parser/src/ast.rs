@@ -55,7 +55,7 @@ pub enum Statement {
     Break,
     Continue,
     Return {
-        value: Option<Box<Expression>>,
+        value: Option<Expression>,
     },
     Import {
         import_parts: Vec<SingleImport>,
