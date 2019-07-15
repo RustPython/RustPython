@@ -168,10 +168,10 @@ FlowStatement: ast::LocatedStatement = {
             node: ast::Statement::Continue,
         }
     },
-    <loc:@L> "return" <t:TestList?> => {
+    <loc:@L> "return" <value:TestList?> => {
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::Return { value: t.map(Box::new) },
+            node: ast::Statement::Return { value },
         }
     },
     <loc:@L> <y:YieldExpr> => {
