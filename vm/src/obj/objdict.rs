@@ -293,15 +293,13 @@ impl PyDictRef {
     }
 
     pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
-        let dict = DictContentType::default();
-        let entries = RefCell::new(dict);
+        let mut dict = DictContentType::default();
 
         for (key, value) in attrs {
-            entries
-                .borrow_mut()
-                .insert(vm, &vm.ctx.new_str(key), value)?;
+            dict.insert(vm, &vm.ctx.new_str(key), value)?;
         }
 
+        let entries = RefCell::new(dict);
         Ok(PyDict { entries }.into_ref(vm))
     }
 

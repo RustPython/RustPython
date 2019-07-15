@@ -827,7 +827,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "O_NONBLOCK" => ctx.new_int(FileCreationFlags::O_NONBLOCK.bits()),
         "O_APPEND" => ctx.new_int(FileCreationFlags::O_APPEND.bits()),
         "O_EXCL" => ctx.new_int(FileCreationFlags::O_EXCL.bits()),
-        "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits())
+        "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits()),
+        "F_OK" => ctx.new_int(0),
+        "R_OK" => ctx.new_int(4),
+        "W_OK" => ctx.new_int(2),
+        "X_OK" => ctx.new_int(1),
     });
 
     for support in support_funcs {

@@ -1,8 +1,10 @@
 #[cfg(feature = "rustpython-parser")]
 mod ast;
 mod binascii;
+mod codecs;
 mod collections;
 mod dis;
+mod errno;
 mod hashlib;
 mod imp;
 mod itertools;
@@ -44,7 +46,9 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     let mut modules = hashmap! {
         "binascii".to_string() => Box::new(binascii::make_module) as StdlibInitFunc,
         "dis".to_string() => Box::new(dis::make_module),
+        "_codecs".to_string() => Box::new(codecs::make_module),
         "_collections".to_string() => Box::new(collections::make_module),
+        "errno".to_string() => Box::new(errno::make_module),
         "hashlib".to_string() => Box::new(hashlib::make_module),
         "itertools".to_string() => Box::new(itertools::make_module),
         "json".to_string() => Box::new(json::make_module),
