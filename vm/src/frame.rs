@@ -370,6 +370,7 @@ impl Frame {
                 ref name,
                 ref level,
             } => self.import_star(vm, name, *level),
+            bytecode::Instruction::ImportFrom { ref name } => self.import_from(vm, name),
             bytecode::Instruction::LoadName {
                 ref name,
                 ref scope,
@@ -932,16 +933,18 @@ impl Frame {
             .collect();
         let module = vm.import(module, &vm.ctx.new_tuple(from_list), level)?;
 
-        if symbols.is_empty() {
-            self.push_value(module);
-        } else {
-            for symbol in symbols {
-                let obj = vm
-                    .get_attribute(module.clone(), symbol.as_str())
-                    .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", symbol)));
-                self.push_value(obj?);
-            }
-        }
+        self.push_value(module);
+        Ok(None)
+    }
+
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
+    fn import_from(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
+        let module = self.last_value();
+        // Load attribute, and transform any error into import error.
+        let obj = vm
+            .get_attribute(module, name)
+            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name)));
+        self.push_value(obj?);
         Ok(None)
     }
 

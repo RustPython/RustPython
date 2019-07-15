@@ -199,67 +199,46 @@ RaiseStatement: ast::LocatedStatement = {
 };
 
 ImportStatement: ast::LocatedStatement = {
-  <loc:@L> "import" <i: Comma<ImportPart<<DottedName>>>> => {
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::Import {
-        import_parts: i
-            .iter()
-            .map(|(n, a)|
-                ast::SingleImport {
-                    module: n.to_string(),
-                    symbols: vec![],
-                    alias: a.clone(),
-                    level: 0,
-                })
-            .collect()
-      },
-    }
-  },
-  <loc:@L> "from" <n:ImportFromLocation> "import" <i: ImportAsNames> => {
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::Import {
-        import_parts: vec![
-            ast::SingleImport {
-                module: n.0.to_string(),
-                symbols: i.iter()
-                    .map(|(i, a)|
-                        ast::ImportSymbol {
-                            symbol: i.to_string(),
-                            alias: a.clone(),
-                        })
-                    .collect(),
-                alias: None,
-                level: n.1
-        }]
-      },
-    }
-  },
+    <loc:@L> "import" <names: Comma<ImportPart<<DottedName>>>> => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Import { names },
+        }
+    },
+    <loc:@L> "from" <n:ImportFromLocation> "import" <names: ImportAsNames> => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::ImportFrom {
+                level: n.0,
+                module: n.1,
+                names
+            },
+        }
+    },
 };
 
-ImportFromLocation: (String, usize) = {
+ImportFromLocation: (usize, Option<String>) = {
     <dots: "."*> <name:DottedName> => {
-       (name, dots.len())
+        (dots.len(), Some(name))
     },
     <dots: "."+> => {
-       ("".to_string(), dots.len())
+        (dots.len(), None)
     },
 };
 
-ImportAsNames: Vec<(String, Option<String>)> = {
+ImportAsNames: Vec<ast::ImportSymbol> = {
     <i:Comma<ImportPart<Identifier>>> => i,
     "(" <i:Comma<ImportPart<Identifier>>> ")" => i,
     "*" => {
         // Star import all
-        vec![("*".to_string(), None)]
+        vec![ast::ImportSymbol { symbol: "*".to_string(), alias: None }]
     },
 };
 
 
 #[inline]
-ImportPart<I>: (String, Option<String>) = {
-    <i:I> <a: ("as" Identifier)?> => (i, a.map(|a| a.1)),
+ImportPart<I>: ast::ImportSymbol = {
+    <symbol:I> <a: ("as" Identifier)?> => ast::ImportSymbol { symbol, alias: a.map(|a| a.1) },
 };
 
 // A name like abc or abc.def.ghi

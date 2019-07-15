@@ -88,6 +88,9 @@ pub enum Instruction {
         name: String,
         level: usize,
     },
+    ImportFrom {
+        name: String,
+    },
     LoadName {
         name: String,
         scope: NameScope,
@@ -379,6 +382,7 @@ impl Instruction {
                 level,
             } => w!(Import, name, format!("{:?}", symbols), level),
             ImportStar { name, level } => w!(ImportStar, name, level),
+            ImportFrom { name } => w!(ImportFrom, name),
             LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
             StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
             DeleteName { name } => w!(DeleteName, name),
