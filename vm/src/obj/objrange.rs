@@ -256,7 +256,7 @@ impl PyRange {
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(&self, _rhs: PyObjectRef, vm:&VirtualMachine) -> PyResult {
+    fn ge(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.not_implemented())
     }
 
