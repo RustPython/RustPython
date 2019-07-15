@@ -38,3 +38,11 @@ sys.settrace(trc)
 demo(5)
 sys.settrace(None)
 
+assert sys.exc_info() == (None, None, None)
+
+try:
+	1/0
+except ZeroDivisionError as exc:
+	exc_info = sys.exc_info()
+	assert exc_info[0] == type(exc) == ZeroDivisionError
+	assert exc_info[1] == exc
