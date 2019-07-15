@@ -4,7 +4,7 @@
  * This module fits the python re interface onto the rust regular expression
  * system.
  */
-use regex::{Match, Regex, RegexBuilder};
+use regex::bytes::{Match, Regex, RegexBuilder};
 
 use std::fmt;
 
@@ -125,7 +125,7 @@ fn do_match(vm: &VirtualMachine, regex: &PyPattern, search_text: &str) -> PyResu
 }
 
 fn do_search(vm: &VirtualMachine, regex: &PyPattern, search_text: &str) -> PyResult {
-    match regex.regex.find(search_text) {
+    match regex.regex.find(search_text.as_bytes()) {
         None => Ok(vm.get_none()),
         Some(result) => create_match(vm, &result),
     }
@@ -202,12 +202,13 @@ impl PyPattern {
 
     #[pymethod(name = "sub")]
     fn sub(&self, repl: PyStringRef, text: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        // let replacer: &Replacer = ;
-
-        let replaced_text: String = self
+        let replaced_text = self
             .regex
-            .replace_all(&text.value, { repl.value.as_str() })
+            .replace_all(text.value.as_bytes(), repl.as_str().as_bytes())
             .into_owned();
+        // safe because both the search and replace arguments ^ are unicode strings temporarily
+        // converted to bytes
+        let replaced_text = unsafe { String::from_utf8_unchecked(replaced_text) };
         Ok(vm.ctx.new_str(replaced_text))
     }
 
