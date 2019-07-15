@@ -33,6 +33,26 @@ assert range(1, 2, 3) == range(1, 2, 3)
 assert range(1, 2, 1) == range(1, 2)
 assert range(2) == range(0, 2)
 
+#__lt__
+assert range(1, 2, 3).__lt__(range(1, 2, 3)) == NotImplemented
+assert range(1, 2, 1).__lt__(range(1, 2)) == NotImplemented
+assert range(2).__lt__(range(0, 2)) == NotImplemented
+
+#__gt__
+assert range(1, 2, 3).__gt__(range(1, 2, 3)) == NotImplemented
+assert range(1, 2, 1).__gt__(range(1, 2)) == NotImplemented
+assert range(2).__gt__(range(0, 2)) == NotImplemented
+
+#__le__
+assert range(1, 2, 3).__le__(range(1, 2, 3)) == NotImplemented
+assert range(1, 2, 1).__le__(range(1, 2)) == NotImplemented
+assert range(2).__le__(range(0, 2)) == NotImplemented
+
+#__ge__
+assert range(1, 2, 3).__ge__(range(1, 2, 3)) == NotImplemented
+assert range(1, 2, 1).__ge__(range(1, 2)) == NotImplemented
+assert range(2).__ge__(range(0, 2)) == NotImplemented
+
 # __bool__
 assert bool(range(1))
 assert bool(range(1, 2))
