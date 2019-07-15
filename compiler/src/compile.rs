@@ -267,61 +267,63 @@ impl Compiler {
         self.set_source_location(&statement.location);
 
         match &statement.node {
-            ast::Statement::Import { import_parts } => {
-                for ast::SingleImport {
-                    module,
-                    symbols,
-                    alias,
-                    level,
-                } in import_parts
-                {
-                    let level = *level;
-                    if let Some(alias) = alias {
-                        // import module as alias
-                        self.emit(Instruction::Import {
-                            name: module.clone(),
-                            symbols: vec![],
-                            level,
-                        });
-                        self.store_name(&alias);
-                    } else if symbols.is_empty() {
-                        // import module
-                        self.emit(Instruction::Import {
-                            name: module.clone(),
-                            symbols: vec![],
-                            level,
-                        });
-                        self.store_name(&module.clone());
+            ast::Statement::Import { names } => {
+                // import a, b, c as d
+                for name in names {
+                    self.emit(Instruction::Import {
+                        name: name.symbol.clone(),
+                        symbols: vec![],
+                        level: 0,
+                    });
+
+                    if let Some(alias) = &name.alias {
+                        self.store_name(alias);
                     } else {
-                        let import_star = symbols
-                            .iter()
-                            .any(|import_symbol| import_symbol.symbol == "*");
-                        if import_star {
-                            // from module import *
-                            self.emit(Instruction::ImportStar {
-                                name: module.clone(),
-                                level,
-                            });
+                        self.store_name(&name.symbol);
+                    }
+                }
+            }
+            ast::Statement::ImportFrom {
+                level,
+                module,
+                names,
+            } => {
+                let import_star = names.iter().any(|n| n.symbol == "*");
+
+                if import_star {
+                    // from .... import *
+                    self.emit(Instruction::ImportStar {
+                        name: module.clone().unwrap(),
+                        level: *level,
+                    });
+                } else {
+                    // from mod import a, b as c
+                    // First, determine the fromlist (for import lib):
+                    let from_list = names.iter().map(|n| n.symbol.clone()).collect();
+
+                    // Load module once:
+                    self.emit(Instruction::Import {
+                        name: module.clone().unwrap(),
+                        symbols: from_list,
+                        level: *level,
+                    });
+
+                    for name in names {
+                        // import symbol from module:
+                        self.emit(Instruction::ImportFrom {
+                            name: name.symbol.to_string(),
+                        });
+
+                        // Store module under proper name:
+                        if let Some(alias) = &name.alias {
+                            self.store_name(alias);
                         } else {
-                            // from module import symbol
-                            // from module import symbol as alias
-                            let (names, symbols_strings): (Vec<String>, Vec<String>) = symbols
-                                .iter()
-                                .map(|ast::ImportSymbol { symbol, alias }| {
-                                    (
-                                        alias.clone().unwrap_or_else(|| symbol.to_string()),
-                                        symbol.to_string(),
-                                    )
-                                })
-                                .unzip();
-                            self.emit(Instruction::Import {
-                                name: module.clone(),
-                                symbols: symbols_strings,
-                                level,
-                            });
-                            names.iter().rev().for_each(|name| self.store_name(&name));
+                            self.store_name(&name.symbol);
                         }
                     }
+
+                    // Pop module from stack:
+                    self.emit(Instruction::Pop);
                 }
             }
             ast::Statement::Expression { expression } => {

@@ -33,14 +33,6 @@ pub struct ImportSymbol {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct SingleImport {
-    pub module: String,
-    pub alias: Option<String>,
-    pub symbols: Vec<ImportSymbol>,
-    pub level: usize,
-}
-
-#[derive(Debug, PartialEq)]
 pub struct Located<T> {
     pub location: Location,
     pub node: T,
@@ -58,7 +50,12 @@ pub enum Statement {
         value: Option<Expression>,
     },
     Import {
-        import_parts: Vec<SingleImport>,
+        names: Vec<ImportSymbol>,
+    },
+    ImportFrom {
+        level: usize,
+        module: Option<String>,
+        names: Vec<ImportSymbol>,
     },
     Pass,
     Assert {

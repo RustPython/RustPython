@@ -180,7 +180,18 @@ fn statement_to_ast(
         ast::Statement::Expression { expression } => node!(vm, Expr, {
             value => expression_to_ast(vm, expression)?
         }),
-        ast::Statement::Import { .. } => node!(vm, Import),
+        ast::Statement::Import { names } => node!(vm, Import, {
+            names => map_ast(alias_to_ast, vm, names)?
+        }),
+        ast::Statement::ImportFrom {
+            level,
+            module,
+            names,
+        } => node!(vm, ImportFrom, {
+            level => vm.ctx.new_int(*level),
+            module => optional_string_to_py_obj(vm, module),
+            names => map_ast(alias_to_ast, vm, names)?
+        }),
         ast::Statement::Nonlocal { names } => node!(vm, Nonlocal, {
             names => make_string_list(vm, names)
         }),
@@ -207,6 +218,13 @@ fn statement_to_ast(
     vm.set_attr(node.as_object(), "lineno", lineno).unwrap();
 
     Ok(node)
+}
+
+fn alias_to_ast(vm: &VirtualMachine, alias: &ast::ImportSymbol) -> PyResult<AstNodeRef> {
+    Ok(node!(vm, alias, {
+        symbol => vm.ctx.new_str(alias.symbol.to_string()),
+        alias => optional_string_to_py_obj(vm, &alias.alias)
+    }))
 }
 
 fn optional_statements_to_ast(
@@ -610,6 +628,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "If" => py_class!(ctx, "_ast.If", ast_base.clone(), {}),
         "IfExp" => py_class!(ctx, "_ast.IfExp", ast_base.clone(), {}),
         "Import" => py_class!(ctx, "_ast.Import", ast_base.clone(), {}),
+        "ImportFrom" => py_class!(ctx, "_ast.ImportFrom", ast_base.clone(), {}),
         "JoinedStr" => py_class!(ctx, "_ast.JoinedStr", ast_base.clone(), {}),
         "keyword" => py_class!(ctx, "_ast.keyword", ast_base.clone(), {}),
         "Lambda" => py_class!(ctx, "_ast.Lambda", ast_base.clone(), {}),

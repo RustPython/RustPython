@@ -296,24 +296,14 @@ impl SymbolTableBuilder {
             ast::Statement::Break | ast::Statement::Continue | ast::Statement::Pass => {
                 // No symbols here.
             }
-            ast::Statement::Import { import_parts } => {
-                for part in import_parts {
-                    if let Some(alias) = &part.alias {
+            ast::Statement::Import { names } | ast::Statement::ImportFrom { names, .. } => {
+                for name in names {
+                    if let Some(alias) = &name.alias {
                         // `import mymodule as myalias`
                         self.register_name(alias, SymbolRole::Assigned)?;
-                    } else if part.symbols.is_empty() {
-                        // `import module`
-                        self.register_name(&part.module, SymbolRole::Assigned)?;
                     } else {
-                        // `from mymodule import myimport`
-                        for symbol in &part.symbols {
-                            if let Some(alias) = &symbol.alias {
-                                // `from mymodule import myimportname as myalias`
-                                self.register_name(alias, SymbolRole::Assigned)?;
-                            } else {
-                                self.register_name(&symbol.symbol, SymbolRole::Assigned)?;
-                            }
-                        }
+                        // `import module`
+                        self.register_name(&name.symbol, SymbolRole::Assigned)?;
                     }
                 }
             }
