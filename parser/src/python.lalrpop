@@ -218,12 +218,17 @@ ImportStatement: ast::LocatedStatement = {
 };
 
 ImportFromLocation: (usize, Option<String>) = {
-    <dots: "."*> <name:DottedName> => {
-        (dots.len(), Some(name))
+    <dots: ImportDots*> <name:DottedName> => {
+        (dots.iter().sum(), Some(name))
     },
-    <dots: "."+> => {
-        (dots.len(), None)
+    <dots: ImportDots+> => {
+        (dots.iter().sum(), None)
     },
+};
+
+ImportDots: usize = {
+    "..." => 3,
+    "." => 1,
 };
 
 ImportAsNames: Vec<ast::ImportSymbol> = {

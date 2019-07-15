@@ -222,8 +222,8 @@ fn statement_to_ast(
 
 fn alias_to_ast(vm: &VirtualMachine, alias: &ast::ImportSymbol) -> PyResult<AstNodeRef> {
     Ok(node!(vm, alias, {
-        symbol => vm.ctx.new_str(alias.symbol.to_string()),
-        alias => optional_string_to_py_obj(vm, &alias.alias)
+        name => vm.ctx.new_str(alias.symbol.to_string()),
+        asname => optional_string_to_py_obj(vm, &alias.alias)
     }))
 }
 
