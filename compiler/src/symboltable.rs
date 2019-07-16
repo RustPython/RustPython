@@ -36,7 +36,7 @@ pub fn statements_to_symbol_table(
     Ok(symbol_table)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SymbolRole {
     Global,
     Nonlocal,
@@ -45,6 +45,7 @@ pub enum SymbolRole {
 }
 
 /// Captures all symbols in the current scope, and has a list of subscopes in this scope.
+#[derive(Clone)]
 pub struct SymbolScope {
     /// A set of symbols present on this scope level.
     pub symbols: HashMap<String, SymbolRole>,

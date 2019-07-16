@@ -21,6 +21,7 @@ use crate::obj::objtype::{self, PyClassRef};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
+use crate::eval::get_compile_mode;
 use crate::frame::Scope;
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
@@ -110,20 +111,7 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef
     // TODO: fix this newline bug:
     let source = format!("{}\n", source);
 
-    let mode = {
-        let mode = &args.mode.value;
-        if mode == "exec" {
-            compile::Mode::Exec
-        } else if mode == "eval" {
-            compile::Mode::Eval
-        } else if mode == "single" {
-            compile::Mode::Single
-        } else {
-            return Err(
-                vm.new_value_error("compile() mode must be 'exec', 'eval' or single'".to_string())
-            );
-        }
-    };
+    let mode = get_compile_mode(vm, &args.mode.value)?;
 
     vm.compile(&source, &mode, args.filename.value.to_string())
         .map_err(|err| vm.new_syntax_error(&err))

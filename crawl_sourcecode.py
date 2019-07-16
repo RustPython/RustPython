@@ -1,6 +1,7 @@
 
 import ast
 import sys
+import symtable
 
 filename = sys.argv[1]
 print('Crawling file:', filename)
@@ -31,3 +32,14 @@ print_node(t)
 
 # print(ast.dump(t))
 
+def print_table(table, indent=0):
+    print(' '*indent, 'table:', table.get_name())
+    print(' '*indent, ' ', 'Syms:')
+    for sym in table.get_symbols():
+        print(' '*indent, '  ', sym)
+    print(' '*indent, ' ', 'Child tables:')
+    for child in table.get_children():
+        print_table(child, indent=indent+shift)
+
+table = symtable.symtable(source, 'a', 'exec')
+print_table(table)

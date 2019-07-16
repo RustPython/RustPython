@@ -19,6 +19,8 @@ mod random;
 mod re;
 pub mod socket;
 mod string;
+#[cfg(feature = "rustpython-compiler")]
+mod symtable;
 mod thread;
 mod time_module;
 #[cfg(feature = "rustpython-parser")]
@@ -59,6 +61,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "random".to_string() => Box::new(random::make_module),
         "_string".to_string() => Box::new(string::make_module),
         "struct".to_string() => Box::new(pystruct::make_module),
+        "symtable".to_string() => Box::new(symtable::make_module),
         "_thread".to_string() => Box::new(thread::make_module),
         "time".to_string() => Box::new(time_module::make_module),
         "_weakref".to_string() => Box::new(weakref::make_module),
