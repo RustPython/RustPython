@@ -28,3 +28,13 @@ assert 'Lt' in str(n.body[0].value.ops[0])
 assert 'Gt' in str(n.body[0].value.ops[1])
 assert n.body[0].value.comparators[0].n == 4
 assert n.body[0].value.comparators[1].n == 5
+
+
+n = ast.parse('from ... import a\n')
+print(n)
+i = n.body[0]
+assert i.level == 3
+assert i.module is None
+assert i.names[0].name == 'a'
+assert i.names[0].asname is None
+
