@@ -13,7 +13,7 @@ use rustpython_parser::location::Location;
 use std::collections::HashMap;
 
 pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolScope, SymbolTableError> {
-    let mut builder = SymbolTableBuilder::new();
+    let mut builder: SymbolTableBuilder = Default::default();
     builder.enter_scope();
     builder.scan_program(program)?;
     assert_eq!(builder.scopes.len(), 1);
@@ -26,7 +26,7 @@ pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolScope, SymbolTa
 pub fn statements_to_symbol_table(
     statements: &[ast::LocatedStatement],
 ) -> Result<SymbolScope, SymbolTableError> {
-    let mut builder = SymbolTableBuilder::new();
+    let mut builder: SymbolTableBuilder = Default::default();
     builder.enter_scope();
     builder.scan_statements(statements)?;
     assert_eq!(builder.scopes.len(), 1);
@@ -73,15 +73,17 @@ impl From<SymbolTableError> for CompileError {
 type SymbolTableResult = Result<(), SymbolTableError>;
 
 impl SymbolScope {
-    pub fn new() -> Self {
+    pub fn lookup(&self, name: &str) -> Option<&SymbolRole> {
+        self.symbols.get(name)
+    }
+}
+
+impl Default for SymbolScope {
+    fn default() -> Self {
         SymbolScope {
             symbols: HashMap::new(),
             sub_scopes: vec![],
         }
-    }
-
-    pub fn lookup(&self, name: &str) -> Option<&SymbolRole> {
-        self.symbols.get(name)
     }
 }
 
@@ -153,13 +155,15 @@ pub struct SymbolTableBuilder {
     pub scopes: Vec<SymbolScope>,
 }
 
-impl SymbolTableBuilder {
-    pub fn new() -> Self {
+impl Default for SymbolTableBuilder {
+    fn default() -> Self {
         SymbolTableBuilder { scopes: vec![] }
     }
+}
 
+impl SymbolTableBuilder {
     pub fn enter_scope(&mut self) {
-        let scope = SymbolScope::new();
+        let scope = Default::default();
         self.scopes.push(scope);
     }
 
