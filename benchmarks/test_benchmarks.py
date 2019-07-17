@@ -5,8 +5,6 @@ import sys
 import pytest
 import subprocess
 
-from benchmarks import nbody
-
 # Interpreters:
 rustpython_exe = '../target/release/rustpython'
 cpython_exe = sys.executable
