@@ -5,8 +5,9 @@ extern crate rustpython_parser;
 extern crate rustpython_vm;
 extern crate test;
 
+use rustpython_compiler::compile;
 use rustpython_vm::pyobject::PyResult;
-use rustpython_vm::{compile, VirtualMachine};
+use rustpython_vm::VirtualMachine;
 
 #[bench]
 fn bench_tokenization(b: &mut test::Bencher) {
@@ -91,7 +92,7 @@ fn bench_rustpy_nbody(b: &mut test::Bencher) {
     // NOTE: Take long time.
     let source = include_str!("./benchmarks/nbody.py");
 
-    let vm = VirtualMachine::new();
+    let vm = VirtualMachine::default();
 
     let code = match vm.compile(source, &compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => code,
@@ -110,7 +111,7 @@ fn bench_rustpy_mandelbrot(b: &mut test::Bencher) {
     // NOTE: Take long time.
     let source = include_str!("./benchmarks/mandelbrot.py");
 
-    let vm = VirtualMachine::new();
+    let vm = VirtualMachine::default();
 
     let code = match vm.compile(source, &compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => code,
