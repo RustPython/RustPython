@@ -14,14 +14,13 @@ pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) 
 }
 
 pub fn get_compile_mode(vm: &VirtualMachine, mode: &str) -> PyResult<compile::Mode> {
-    if mode == "exec" {
-        Ok(compile::Mode::Exec)
-    } else if mode == "eval" {
-        Ok(compile::Mode::Eval)
-    } else if mode == "single" {
-        Ok(compile::Mode::Single)
-    } else {
-        Err(vm.new_value_error("compile() mode must be 'exec', 'eval' or single'".to_string()))
+    match mode {
+        "exec" => Ok(compile::Mode::Exec),
+        "eval" => Ok(compile::Mode::Eval),
+        "single" => Ok(compile::Mode::Single),
+        _ => {
+            Err(vm.new_value_error("compile() mode must be 'exec', 'eval' or 'single'".to_string()))
+        }
     }
 }
 

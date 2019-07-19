@@ -107,7 +107,14 @@ impl PySymbolTable {
             .symtable
             .symbols
             .iter()
-            .map(|s| vm.ctx.new_str(s.0.clone()))
+            .map(|s| {
+                (PySymbol {
+                    name: s.0.clone(),
+                    role: s.1.clone(),
+                })
+                .into_ref(vm)
+                .into_object()
+            })
             .collect();
         Ok(vm.ctx.new_list(symbols))
     }

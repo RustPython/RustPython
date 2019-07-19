@@ -8,9 +8,9 @@ Inspirational file: https://github.com/python/cpython/blob/master/Python/symtabl
 */
 
 use crate::error::{CompileError, CompileErrorType};
+use indexmap::map::IndexMap;
 use rustpython_parser::ast;
 use rustpython_parser::location::Location;
-use std::collections::HashMap;
 
 pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolScope, SymbolTableError> {
     let mut builder: SymbolTableBuilder = Default::default();
@@ -48,7 +48,7 @@ pub enum SymbolRole {
 #[derive(Clone)]
 pub struct SymbolScope {
     /// A set of symbols present on this scope level.
-    pub symbols: HashMap<String, SymbolRole>,
+    pub symbols: IndexMap<String, SymbolRole>,
 
     /// A list of subscopes in the order as found in the
     /// AST nodes.
@@ -81,8 +81,8 @@ impl SymbolScope {
 impl Default for SymbolScope {
     fn default() -> Self {
         SymbolScope {
-            symbols: HashMap::new(),
-            sub_scopes: vec![],
+            symbols: Default::default(),
+            sub_scopes: Default::default(),
         }
     }
 }

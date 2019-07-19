@@ -1,3 +1,13 @@
+""" This script can be used to test the equivalence in parsing between
+rustpython and cpython.
+
+Usage example:
+
+$ python crawl_sourcecode.py crawl_sourcecode.py > cpython.txt
+$ cargo run crawl_sourcecode.py crawl_sourcecode.py > rustpython.txt
+$ diff cpython.txt rustpython.txt
+"""
+
 
 import ast
 import sys
@@ -36,7 +46,7 @@ def print_table(table, indent=0):
     print(' '*indent, 'table:', table.get_name())
     print(' '*indent, ' ', 'Syms:')
     for sym in table.get_symbols():
-        print(' '*indent, '  ', sym)
+        print(' '*indent, '  ', sym.get_name(), 'is_referenced=', sym.is_referenced(), 'is_assigned=', sym.is_assigned())
     print(' '*indent, ' ', 'Child tables:')
     for child in table.get_children():
         print_table(child, indent=indent+shift)
