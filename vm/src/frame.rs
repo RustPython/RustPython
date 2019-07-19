@@ -923,15 +923,16 @@ impl Frame {
     fn import(
         &self,
         vm: &VirtualMachine,
-        module: &str,
+        module: &Option<String>,
         symbols: &[String],
         level: usize,
     ) -> FrameResult {
+        let module = module.clone().unwrap_or_default();
         let from_list = symbols
             .iter()
             .map(|symbol| vm.ctx.new_str(symbol.to_string()))
             .collect();
-        let module = vm.import(module, &vm.ctx.new_tuple(from_list), level)?;
+        let module = vm.import(&module, &vm.ctx.new_tuple(from_list), level)?;
 
         self.push_value(module);
         Ok(None)
@@ -949,8 +950,14 @@ impl Frame {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn import_star(&self, vm: &VirtualMachine, module: &str, level: usize) -> FrameResult {
-        let module = vm.import(module, &vm.ctx.new_tuple(vec![]), level)?;
+    fn import_star(
+        &self,
+        vm: &VirtualMachine,
+        module: &Option<String>,
+        level: usize,
+    ) -> FrameResult {
+        let module = module.clone().unwrap_or_default();
+        let module = vm.import(&module, &vm.ctx.new_tuple(vec![]), level)?;
 
         // Grab all the names from the module and put them in the context
         if let Some(dict) = &module.dict {

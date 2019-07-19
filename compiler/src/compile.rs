@@ -271,7 +271,7 @@ impl Compiler {
                 // import a, b, c as d
                 for name in names {
                     self.emit(Instruction::Import {
-                        name: name.symbol.clone(),
+                        name: Some(name.symbol.clone()),
                         symbols: vec![],
                         level: 0,
                     });
@@ -293,7 +293,7 @@ impl Compiler {
                 if import_star {
                     // from .... import *
                     self.emit(Instruction::ImportStar {
-                        name: module.clone().unwrap(),
+                        name: module.clone(),
                         level: *level,
                     });
                 } else {
@@ -303,7 +303,7 @@ impl Compiler {
 
                     // Load module once:
                     self.emit(Instruction::Import {
-                        name: module.clone().unwrap(),
+                        name: module.clone(),
                         symbols: from_list,
                         level: *level,
                     });
