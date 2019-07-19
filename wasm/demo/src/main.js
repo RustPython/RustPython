@@ -1,4 +1,4 @@
-import * as rp from '../../lib/pkg';
+import * as rp from 'rustpython';
 import CodeMirror from 'codemirror';
 import 'codemirror/mode/python/python';
 import 'codemirror/addon/comment/comment';

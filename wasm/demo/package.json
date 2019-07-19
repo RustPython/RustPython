@@ -5,7 +5,6 @@
     "main": "index.js",
     "dependencies": {
         "codemirror": "^5.42.0",
-        "serve": "^11.0.2",
         "xterm": "^3.8.0"
     },
     "devDependencies": {
@@ -18,7 +17,8 @@
         "webpack": "^4.16.3",
         "webpack-cli": "^3.1.0",
         "webpack-dev-server": "^3.1.5",
-        "start-server-and-test": "^1.7.11"
+        "start-server-and-test": "^1.7.11",
+        "serve": "^11.0.2"
     },
     "scripts": {
         "dev": "webpack-dev-server -d",
