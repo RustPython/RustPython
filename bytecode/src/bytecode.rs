@@ -80,12 +80,12 @@ pub enum ConversionFlag {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Instruction {
     Import {
-        name: String,
+        name: Option<String>,
         symbols: Vec<String>,
         level: usize,
     },
     ImportStar {
-        name: String,
+        name: Option<String>,
         level: usize,
     },
     ImportFrom {
@@ -380,8 +380,13 @@ impl Instruction {
                 name,
                 symbols,
                 level,
-            } => w!(Import, name, format!("{:?}", symbols), level),
-            ImportStar { name, level } => w!(ImportStar, name, level),
+            } => w!(
+                Import,
+                format!("{:?}", name),
+                format!("{:?}", symbols),
+                level
+            ),
+            ImportStar { name, level } => w!(ImportStar, format!("{:?}", name), level),
             ImportFrom { name } => w!(ImportFrom, name),
             LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
             StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
