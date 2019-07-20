@@ -16,5 +16,10 @@ pub fn get_module_inits() -> HashMap<String, CodeObject> {
         module_name = "_frozen_importlib_external",
     ));
 
+    #[cfg(feature = "freeze-stdlib")]
+    {
+        modules.extend(py_compile_bytecode!(dir = "../Lib/",));
+    }
+
     modules
 }
