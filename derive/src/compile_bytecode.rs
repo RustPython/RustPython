@@ -23,7 +23,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use syn::parse::{Parse, ParseStream, Result as ParseResult};
-use syn::{self, parse2, Lit, LitByteStr, Meta, Token};
+use syn::{self, parse2, Lit, LitByteStr, LitStr, Meta, Token};
 
 enum CompilationSourceKind {
     File(PathBuf),
@@ -156,14 +156,16 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
 
     let code_obj = input.compile()?;
 
+    let module_name = LitStr::new(&code_obj.source_path, Span::call_site());
+
     let bytes = bincode::serialize(&code_obj).expect("Failed to serialize");
     let bytes = LitByteStr::new(&bytes, Span::call_site());
 
     let output = quote! {
         ({
             use ::rustpython_vm::__exports::bincode;
-            bincode::deserialize::<::rustpython_vm::bytecode::CodeObject>(#bytes)
-                .expect("Deserializing CodeObject failed")
+            hashmap! { #module_name.into() => bincode::deserialize::<::rustpython_vm::bytecode::CodeObject>(#bytes)
+                .expect("Deserializing CodeObject failed")}
         })
     };
 
