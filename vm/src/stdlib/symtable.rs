@@ -89,11 +89,9 @@ impl PySymbolTable {
     #[pymethod(name = "lookup")]
     fn lookup(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
         let name = &name.value;
-        if self.symtable.symbols.contains_key(name) {
-            let role = self.symtable.symbols.get(name).unwrap().clone();
+        if let Some(symbol) = self.symtable.symbols.get(name) {
             Ok(PySymbol {
-                name: name.to_string(),
-                role,
+                symbol: symbol.clone(),
             }
             .into_ref(vm))
         } else {
@@ -106,15 +104,8 @@ impl PySymbolTable {
         let symbols = self
             .symtable
             .symbols
-            .iter()
-            .map(|s| {
-                (PySymbol {
-                    name: s.0.clone(),
-                    role: s.1.clone(),
-                })
-                .into_ref(vm)
-                .into_object()
-            })
+            .values()
+            .map(|s| (PySymbol { symbol: s.clone() }).into_ref(vm).into_object())
             .collect();
         Ok(vm.ctx.new_list(symbols))
     }
@@ -137,8 +128,7 @@ impl PySymbolTable {
 
 #[pyclass(name = "Symbol")]
 struct PySymbol {
-    name: String,
-    role: symboltable::SymbolRole,
+    symbol: symboltable::Symbol,
 }
 
 impl fmt::Debug for PySymbol {
@@ -157,55 +147,37 @@ impl PyValue for PySymbol {
 impl PySymbol {
     #[pymethod(name = "get_name")]
     fn get_name(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.name.clone()))
+        Ok(vm.ctx.new_str(self.symbol.name.clone()))
     }
 
     #[pymethod(name = "is_global")]
     fn is_global(&self, vm: &VirtualMachine) -> PyResult {
-        // TODO: figure out how this is determined.
-        let is_local = if let symboltable::SymbolRole::Used = self.role {
-            true
-        } else {
-            false
-        };
-        Ok(vm.ctx.new_bool(is_local))
+        Ok(vm.ctx.new_bool(self.symbol.is_global))
     }
 
     #[pymethod(name = "is_local")]
     fn is_local(&self, vm: &VirtualMachine) -> PyResult {
-        // TODO: figure out how this is determined.
-        let is_local = if let symboltable::SymbolRole::Used = self.role {
-            true
-        } else {
-            false
-        };
-        Ok(vm.ctx.new_bool(is_local))
+        Ok(vm.ctx.new_bool(self.symbol.is_local))
     }
 
     #[pymethod(name = "is_referenced")]
     fn is_referenced(&self, vm: &VirtualMachine) -> PyResult {
-        let is_local = if let symboltable::SymbolRole::Used = self.role {
-            true
-        } else {
-            false
-        };
-        Ok(vm.ctx.new_bool(is_local))
+        Ok(vm.ctx.new_bool(self.symbol.is_referenced))
     }
 
     #[pymethod(name = "is_assigned")]
     fn is_assigned(&self, vm: &VirtualMachine) -> PyResult {
-        let is_local = if let symboltable::SymbolRole::Assigned = self.role {
-            true
-        } else {
-            false
-        };
-        Ok(vm.ctx.new_bool(is_local))
+        Ok(vm.ctx.new_bool(self.symbol.is_assigned))
     }
 
     #[pymethod(name = "is_parameter")]
     fn is_parameter(&self, vm: &VirtualMachine) -> PyResult {
-        // TODO
-        Ok(vm.ctx.new_bool(false))
+        Ok(vm.ctx.new_bool(self.symbol.is_parameter))
+    }
+
+    #[pymethod(name = "is_free")]
+    fn is_free(&self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bool(self.symbol.is_free))
     }
 
     #[pymethod(name = "is_namespace")]

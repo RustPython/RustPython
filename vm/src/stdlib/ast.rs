@@ -58,10 +58,7 @@ fn create_node(vm: &VirtualMachine, name: &str) -> PyResult<AstNodeRef> {
     AstNode.into_ref_with_type(vm, vm.class("ast", name))
 }
 
-fn statements_to_ast(
-    vm: &VirtualMachine,
-    statements: &[ast::LocatedStatement],
-) -> PyResult<PyListRef> {
+fn statements_to_ast(vm: &VirtualMachine, statements: &[ast::Statement]) -> PyResult<PyListRef> {
     let body: PyResult<Vec<_>> = statements
         .iter()
         .map(|statement| Ok(statement_to_ast(&vm, statement)?.into_object()))
@@ -69,12 +66,10 @@ fn statements_to_ast(
     Ok(vm.ctx.new_list(body?).downcast().unwrap())
 }
 
-fn statement_to_ast(
-    vm: &VirtualMachine,
-    statement: &ast::LocatedStatement,
-) -> PyResult<AstNodeRef> {
+fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult<AstNodeRef> {
+    use ast::StatementType::*;
     let node = match &statement.node {
-        ast::Statement::ClassDef {
+        ClassDef {
             name,
             body,
             keywords,
@@ -86,7 +81,7 @@ fn statement_to_ast(
             body => statements_to_ast(vm, body)?,
             decorator_list => expressions_to_ast(vm, decorator_list)?,
         }),
-        ast::Statement::FunctionDef {
+        FunctionDef {
             name,
             args,
             body,
@@ -99,7 +94,7 @@ fn statement_to_ast(
             decorator_list => expressions_to_ast(vm, decorator_list)?,
             returns => optional_expression_to_ast(vm, returns)?
         }),
-        ast::Statement::AsyncFunctionDef {
+        AsyncFunctionDef {
             name,
             args,
             body,
@@ -112,14 +107,14 @@ fn statement_to_ast(
             decorator_list => expressions_to_ast(vm, decorator_list)?,
             returns => optional_expression_to_ast(vm, returns)?
         }),
-        ast::Statement::Continue => node!(vm, Continue),
-        ast::Statement::Break => node!(vm, Break),
-        ast::Statement::Pass => node!(vm, Pass),
-        ast::Statement::Assert { test, msg } => node!(vm, Assert, {
+        Continue => node!(vm, Continue),
+        Break => node!(vm, Break),
+        Pass => node!(vm, Pass),
+        Assert { test, msg } => node!(vm, Assert, {
             test => expression_to_ast(vm, test)?,
             msg => optional_expression_to_ast(vm, msg)?
         }),
-        ast::Statement::Delete { targets } => {
+        Delete { targets } => {
             let targets: PyResult<_> = targets
                 .iter()
                 .map(|v| Ok(expression_to_ast(vm, v)?.into_object()))
@@ -127,15 +122,15 @@ fn statement_to_ast(
             let py_targets = vm.ctx.new_tuple(targets?);
             node!(vm, Delete, { targets => py_targets })
         }
-        ast::Statement::Return { value } => node!(vm, Return, {
+        Return { value } => node!(vm, Return, {
             value => optional_expression_to_ast(vm, value)?
         }),
-        ast::Statement::If { test, body, orelse } => node!(vm, If, {
+        If { test, body, orelse } => node!(vm, If, {
             test => expression_to_ast(vm, test)?,
             body => statements_to_ast(vm, body)?,
             orelse => optional_statements_to_ast(vm, orelse)?
         }),
-        ast::Statement::For {
+        For {
             target,
             iter,
             body,
@@ -146,7 +141,7 @@ fn statement_to_ast(
             body => statements_to_ast(vm, body)?,
             orelse => optional_statements_to_ast(vm, orelse)?
         }),
-        ast::Statement::AsyncFor {
+        AsyncFor {
             target,
             iter,
             body,
@@ -157,16 +152,16 @@ fn statement_to_ast(
             body => statements_to_ast(vm, body)?,
             orelse => optional_statements_to_ast(vm, orelse)?
         }),
-        ast::Statement::While { test, body, orelse } => node!(vm, While, {
+        While { test, body, orelse } => node!(vm, While, {
             test => expression_to_ast(vm, test)?,
             body => statements_to_ast(vm, body)?,
             orelse => optional_statements_to_ast(vm, orelse)?
         }),
-        ast::Statement::With { items, body } => node!(vm, With, {
+        With { items, body } => node!(vm, With, {
             items => map_ast(with_item_to_ast, vm, items)?,
             body => statements_to_ast(vm, body)?
         }),
-        ast::Statement::Try {
+        Try {
             body,
             handlers,
             orelse,
@@ -177,13 +172,13 @@ fn statement_to_ast(
             orelse => optional_statements_to_ast(vm, orelse)?,
             finalbody => optional_statements_to_ast(vm, finalbody)?
         }),
-        ast::Statement::Expression { expression } => node!(vm, Expr, {
+        Expression { expression } => node!(vm, Expr, {
             value => expression_to_ast(vm, expression)?
         }),
-        ast::Statement::Import { names } => node!(vm, Import, {
+        Import { names } => node!(vm, Import, {
             names => map_ast(alias_to_ast, vm, names)?
         }),
-        ast::Statement::ImportFrom {
+        ImportFrom {
             level,
             module,
             names,
@@ -192,22 +187,22 @@ fn statement_to_ast(
             module => optional_string_to_py_obj(vm, module),
             names => map_ast(alias_to_ast, vm, names)?
         }),
-        ast::Statement::Nonlocal { names } => node!(vm, Nonlocal, {
+        Nonlocal { names } => node!(vm, Nonlocal, {
             names => make_string_list(vm, names)
         }),
-        ast::Statement::Global { names } => node!(vm, Global, {
+        Global { names } => node!(vm, Global, {
             names => make_string_list(vm, names)
         }),
-        ast::Statement::Assign { targets, value } => node!(vm, Assign, {
+        Assign { targets, value } => node!(vm, Assign, {
             targets => expressions_to_ast(vm, targets)?,
             value => expression_to_ast(vm, value)?,
         }),
-        ast::Statement::AugAssign { target, op, value } => node!(vm, AugAssign, {
+        AugAssign { target, op, value } => node!(vm, AugAssign, {
             target => expression_to_ast(vm, target)?,
             op => vm.ctx.new_str(operator_string(op)),
             value => expression_to_ast(vm, value)?,
         }),
-        ast::Statement::Raise { exception, cause } => node!(vm, Raise, {
+        Raise { exception, cause } => node!(vm, Raise, {
             exc => optional_expression_to_ast(vm, exception)?,
             cause => optional_expression_to_ast(vm, cause)?,
         }),
@@ -229,7 +224,7 @@ fn alias_to_ast(vm: &VirtualMachine, alias: &ast::ImportSymbol) -> PyResult<AstN
 
 fn optional_statements_to_ast(
     vm: &VirtualMachine,
-    statements: &Option<Vec<ast::LocatedStatement>>,
+    statements: &Option<Vec<ast::Statement>>,
 ) -> PyResult {
     let statements = if let Some(statements) = statements {
         statements_to_ast(vm, statements)?.into_object()
@@ -283,8 +278,9 @@ fn expressions_to_ast(vm: &VirtualMachine, expressions: &[ast::Expression]) -> P
 }
 
 fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyResult<AstNodeRef> {
-    let node = match &expression {
-        ast::Expression::Call {
+    use ast::ExpressionType::*;
+    let node = match &expression.node {
+        Call {
             function,
             args,
             keywords,
@@ -293,7 +289,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             args => expressions_to_ast(vm, args)?,
             keywords => map_ast(keyword_to_ast, vm, keywords)?,
         }),
-        ast::Expression::Binop { a, op, b } => {
+        Binop { a, op, b } => {
             // Operator:
             node!(vm, BinOp, {
                 left => expression_to_ast(vm, a)?,
@@ -301,7 +297,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 right => expression_to_ast(vm, b)?,
             })
         }
-        ast::Expression::Unop { op, a } => {
+        Unop { op, a } => {
             let op = match op {
                 ast::UnaryOperator::Not => "Not",
                 ast::UnaryOperator::Inv => "Invert",
@@ -313,7 +309,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 operand => expression_to_ast(vm, a)?,
             })
         }
-        ast::Expression::BoolOp { a, op, b } => {
+        BoolOp { a, op, b } => {
             // Attach values:
             let py_a = expression_to_ast(vm, a)?.into_object();
             let py_b = expression_to_ast(vm, b)?.into_object();
@@ -330,7 +326,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 values => py_values,
             })
         }
-        ast::Expression::Compare { vals, ops } => {
+        Compare { vals, ops } => {
             let left = expression_to_ast(vm, &vals[0])?;
 
             // Operator:
@@ -364,20 +360,20 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 comparators => comparators,
             })
         }
-        ast::Expression::Identifier { name } => node!(vm, Name, {
+        Identifier { name } => node!(vm, Name, {
             id => vm.ctx.new_str(name.clone()),
             ctx => vm.ctx.none()   // TODO: add context.
         }),
-        ast::Expression::Lambda { args, body } => node!(vm, Lambda, {
+        Lambda { args, body } => node!(vm, Lambda, {
             args => parameters_to_ast(vm, args)?,
             body => expression_to_ast(vm, body)?,
         }),
-        ast::Expression::IfExpression { test, body, orelse } => node!(vm, IfExp, {
+        IfExpression { test, body, orelse } => node!(vm, IfExp, {
             text => expression_to_ast(vm, test)?,
             body => expression_to_ast(vm, body)?,
             or_else => expression_to_ast(vm, orelse)?,
         }),
-        ast::Expression::Number { value } => {
+        Number { value } => {
             let py_n = match value {
                 ast::Number::Integer { value } => vm.ctx.new_int(value.clone()),
                 ast::Number::Float { value } => vm.ctx.new_float(*value),
@@ -389,26 +385,26 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 n => py_n
             })
         }
-        ast::Expression::True => node!(vm, NameConstant, {
+        True => node!(vm, NameConstant, {
             value => vm.ctx.new_bool(true)
         }),
-        ast::Expression::False => node!(vm, NameConstant, {
+        False => node!(vm, NameConstant, {
             value => vm.ctx.new_bool(false)
         }),
-        ast::Expression::None => node!(vm, NameConstant, {
+        None => node!(vm, NameConstant, {
             value => vm.ctx.none()
         }),
-        ast::Expression::Ellipsis => node!(vm, Ellipsis),
-        ast::Expression::List { elements } => node!(vm, List, {
+        Ellipsis => node!(vm, Ellipsis),
+        List { elements } => node!(vm, List, {
             elts => expressions_to_ast(vm, &elements)?
         }),
-        ast::Expression::Tuple { elements } => node!(vm, Tuple, {
+        Tuple { elements } => node!(vm, Tuple, {
             elts => expressions_to_ast(vm, &elements)?
         }),
-        ast::Expression::Set { elements } => node!(vm, Set, {
+        Set { elements } => node!(vm, Set, {
             elts => expressions_to_ast(vm, &elements)?
         }),
-        ast::Expression::Dict { elements } => {
+        Dict { elements } => {
             let mut keys = Vec::new();
             let mut values = Vec::new();
             for (k, v) in elements {
@@ -425,7 +421,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 values => vm.ctx.new_list(values),
             })
         }
-        ast::Expression::Comprehension { kind, generators } => {
+        Comprehension { kind, generators } => {
             let py_generators = map_ast(comprehension_to_ast, vm, generators)?;
 
             match kind.deref() {
@@ -443,50 +439,48 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 }
             }
         }
-        ast::Expression::Await { value } => {
+        Await { value } => {
             let py_value = expression_to_ast(vm, value)?;
             node!(vm, Await, {
                 value => py_value
             })
         }
-        ast::Expression::Yield { value } => {
-            let py_value = match value {
-                Some(value) => expression_to_ast(vm, value)?.into_object(),
-                None => vm.ctx.none(),
+        Yield { value } => {
+            let py_value = if let Some(value) = value {
+                expression_to_ast(vm, value)?.into_object()
+            } else {
+                vm.ctx.none()
             };
             node!(vm, Yield, {
                 value => py_value
             })
         }
-        ast::Expression::YieldFrom { value } => {
+        YieldFrom { value } => {
             let py_value = expression_to_ast(vm, value)?;
             node!(vm, YieldFrom, {
                 value => py_value
             })
         }
-        ast::Expression::Subscript { a, b } => node!(vm, Subscript, {
+        Subscript { a, b } => node!(vm, Subscript, {
             value => expression_to_ast(vm, a)?,
             slice => expression_to_ast(vm, b)?,
         }),
-        ast::Expression::Attribute { value, name } => node!(vm, Attribute, {
+        Attribute { value, name } => node!(vm, Attribute, {
             value => expression_to_ast(vm, value)?,
             attr => vm.ctx.new_str(name.to_string()),
             ctx => vm.ctx.none()
         }),
-        ast::Expression::Starred { value } => node!(vm, Starred, {
+        Starred { value } => node!(vm, Starred, {
             value => expression_to_ast(vm, value)?
         }),
-        ast::Expression::Slice { elements } => node!(vm, Slice, {
+        Slice { elements } => node!(vm, Slice, {
             bounds => expressions_to_ast(vm, elements)?
         }),
-        ast::Expression::String { value } => string_to_ast(vm, value)?,
-        ast::Expression::Bytes { value } => {
-            node!(vm, Bytes, { s => vm.ctx.new_bytes(value.clone()) })
-        }
+        String { value } => string_to_ast(vm, value)?,
+        Bytes { value } => node!(vm, Bytes, { s => vm.ctx.new_bytes(value.clone()) }),
     };
 
-    // TODO: retrieve correct lineno:
-    let lineno = vm.ctx.new_int(1);
+    let lineno = vm.ctx.new_int(expression.location.row());
     vm.set_attr(node.as_object(), "lineno", lineno).unwrap();
     Ok(node)
 }
