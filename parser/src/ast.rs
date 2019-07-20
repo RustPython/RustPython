@@ -307,6 +307,7 @@ pub struct Parameter {
     pub annotation: Option<Box<Expression>>,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
 pub enum ComprehensionKind {
     GeneratorExpression { element: Expression },
