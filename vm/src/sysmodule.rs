@@ -288,6 +288,10 @@ settrace() -- set the global debug tracing function
             .collect(),
     );
     let modules = ctx.new_dict();
+
+    let prefix = option_env!("RUSTPYTHON_PREFIX").unwrap_or("/usr/local");
+    let base_prefix = option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or(prefix);
+
     extend_module!(vm, module, {
       "__name__" => ctx.new_str(String::from("sys")),
       "argv" => argv(ctx),
@@ -323,6 +327,8 @@ settrace() -- set the global debug tracing function
       "settrace" => ctx.new_rustfunc(sys_settrace),
       "version" => vm.new_str(version::get_version()),
       "exc_info" => ctx.new_rustfunc(sys_exc_info),
+      "prefix" => ctx.new_str(prefix.to_string()),
+      "base_prefix" => ctx.new_str(base_prefix.to_string()),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();
