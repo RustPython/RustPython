@@ -13,6 +13,7 @@ default = ["rustpython-parser", "rustpython-compiler", "use-proc-macro-hack"]
 vm-tracing-logging = []
 flame-it = ["flame", "flamer"]
 use-proc-macro-hack = ["proc-macro-hack", "rustpython-derive/proc-macro-hack"]
+freeze-stdlib = []
 
 [dependencies]
 # Crypto:
