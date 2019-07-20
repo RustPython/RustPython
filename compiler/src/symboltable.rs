@@ -8,12 +8,12 @@ Inspirational file: https://github.com/python/cpython/blob/master/Python/symtabl
 */
 
 use crate::error::{CompileError, CompileErrorType};
+use indexmap::map::IndexMap;
 use rustpython_parser::ast;
 use rustpython_parser::location::Location;
-use std::collections::HashMap;
 
 pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolScope, SymbolTableError> {
-    let mut builder = SymbolTableBuilder::new();
+    let mut builder: SymbolTableBuilder = Default::default();
     builder.enter_scope();
     builder.scan_program(program)?;
     assert_eq!(builder.scopes.len(), 1);
@@ -26,7 +26,7 @@ pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolScope, SymbolTa
 pub fn statements_to_symbol_table(
     statements: &[ast::LocatedStatement],
 ) -> Result<SymbolScope, SymbolTableError> {
-    let mut builder = SymbolTableBuilder::new();
+    let mut builder: SymbolTableBuilder = Default::default();
     builder.enter_scope();
     builder.scan_statements(statements)?;
     assert_eq!(builder.scopes.len(), 1);
@@ -36,7 +36,7 @@ pub fn statements_to_symbol_table(
     Ok(symbol_table)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SymbolRole {
     Global,
     Nonlocal,
@@ -45,9 +45,10 @@ pub enum SymbolRole {
 }
 
 /// Captures all symbols in the current scope, and has a list of subscopes in this scope.
+#[derive(Clone)]
 pub struct SymbolScope {
     /// A set of symbols present on this scope level.
-    pub symbols: HashMap<String, SymbolRole>,
+    pub symbols: IndexMap<String, SymbolRole>,
 
     /// A list of subscopes in the order as found in the
     /// AST nodes.
@@ -72,15 +73,17 @@ impl From<SymbolTableError> for CompileError {
 type SymbolTableResult = Result<(), SymbolTableError>;
 
 impl SymbolScope {
-    pub fn new() -> Self {
-        SymbolScope {
-            symbols: HashMap::new(),
-            sub_scopes: vec![],
-        }
-    }
-
     pub fn lookup(&self, name: &str) -> Option<&SymbolRole> {
         self.symbols.get(name)
+    }
+}
+
+impl Default for SymbolScope {
+    fn default() -> Self {
+        SymbolScope {
+            symbols: Default::default(),
+            sub_scopes: Default::default(),
+        }
     }
 }
 
@@ -152,13 +155,15 @@ pub struct SymbolTableBuilder {
     pub scopes: Vec<SymbolScope>,
 }
 
-impl SymbolTableBuilder {
-    pub fn new() -> Self {
+impl Default for SymbolTableBuilder {
+    fn default() -> Self {
         SymbolTableBuilder { scopes: vec![] }
     }
+}
 
+impl SymbolTableBuilder {
     pub fn enter_scope(&mut self) {
-        let scope = SymbolScope::new();
+        let scope = Default::default();
         self.scopes.push(scope);
     }
 

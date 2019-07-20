@@ -8,4 +8,4 @@ extern crate log;
 
 pub mod compile;
 pub mod error;
-mod symboltable;
+pub mod symboltable;

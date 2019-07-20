@@ -13,6 +13,17 @@ pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) 
     }
 }
 
+pub fn get_compile_mode(vm: &VirtualMachine, mode: &str) -> PyResult<compile::Mode> {
+    match mode {
+        "exec" => Ok(compile::Mode::Exec),
+        "eval" => Ok(compile::Mode::Eval),
+        "single" => Ok(compile::Mode::Single),
+        _ => {
+            Err(vm.new_value_error("compile() mode must be 'exec', 'eval' or 'single'".to_string()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::eval;
