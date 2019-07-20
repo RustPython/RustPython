@@ -79,4 +79,5 @@ pub use rustpython_bytecode::*;
 #[doc(hidden)]
 pub mod __exports {
     pub use bincode;
+    pub use maplit::hashmap;
 }
