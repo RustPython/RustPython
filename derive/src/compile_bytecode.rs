@@ -75,7 +75,7 @@ impl CompilationSource {
                     env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"),
                 );
                 path.push(rel_path);
-                self.compile_dir(&path, "".to_string(), mode)?
+                self.compile_dir(&path, String::new(), mode)?
             }
         })
     }
@@ -102,21 +102,19 @@ impl CompilationSource {
                     format!("{}{}.", parent, file_name),
                     mode,
                 )?);
-            } else {
-                if file_name.ends_with(".py") {
-                    let source = fs::read_to_string(&path).map_err(|err| {
-                        Diagnostic::spans_error(
-                            self.span,
-                            format!("Error reading file {:?}: {}", path, err),
-                        )
-                    })?;
-                    let file_name_splitte: Vec<&str> = file_name.splitn(2, ".").collect();
-                    let module_name = format!("{}{}", parent, file_name_splitte[0]);
-                    code_map.insert(
-                        module_name.clone(),
-                        self.compile_string(&source, mode, module_name)?,
-                    );
-                }
+            } else if file_name.ends_with(".py") {
+                let source = fs::read_to_string(&path).map_err(|err| {
+                    Diagnostic::spans_error(
+                        self.span,
+                        format!("Error reading file {:?}: {}", path, err),
+                    )
+                })?;
+                let file_name_splitte: Vec<&str> = file_name.splitn(2, ".").collect();
+                let module_name = format!("{}{}", parent, file_name_splitte[0]);
+                code_map.insert(
+                    module_name.clone(),
+                    self.compile_string(&source, mode, module_name)?,
+                );
             }
         }
         Ok(code_map)
