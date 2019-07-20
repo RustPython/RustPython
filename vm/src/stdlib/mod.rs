@@ -61,7 +61,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "random".to_string() => Box::new(random::make_module),
         "_string".to_string() => Box::new(string::make_module),
         "struct".to_string() => Box::new(pystruct::make_module),
-        "symtable".to_string() => Box::new(symtable::make_module),
         "_thread".to_string() => Box::new(thread::make_module),
         "time".to_string() => Box::new(time_module::make_module),
         "_weakref".to_string() => Box::new(weakref::make_module),
@@ -79,6 +78,12 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         );
         modules.insert("keyword".to_string(), Box::new(keyword::make_module));
         modules.insert("tokenize".to_string(), Box::new(tokenize::make_module));
+    }
+
+    // Insert compiler related modules:
+    #[cfg(feature = "rustpython-compiler")]
+    {
+        modules.insert("symtable".to_string(), Box::new(symtable::make_module));
     }
 
     // disable some modules on WASM

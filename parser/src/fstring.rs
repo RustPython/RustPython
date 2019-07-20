@@ -173,9 +173,12 @@ mod tests {
 
     use super::*;
 
-    fn mk_ident(name: &str) -> ast::Expression {
-        ast::Expression::Identifier {
-            name: name.to_owned(),
+    fn mk_ident(name: &str, row: usize, col: usize) -> ast::Expression {
+        ast::Expression {
+            location: ast::Location::new(row, col),
+            node: ast::ExpressionType::Identifier {
+                name: name.to_owned(),
+            },
         }
     }
 
@@ -189,12 +192,12 @@ mod tests {
             Joined {
                 values: vec![
                     FormattedValue {
-                        value: Box::new(mk_ident("a")),
+                        value: Box::new(mk_ident("a", 1, 1)),
                         conversion: None,
                         spec: String::new(),
                     },
                     FormattedValue {
-                        value: Box::new(mk_ident("b")),
+                        value: Box::new(mk_ident("b", 1, 1)),
                         conversion: None,
                         spec: String::new(),
                     },

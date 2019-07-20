@@ -17,13 +17,13 @@ pub struct Node {
 #[derive(Debug, PartialEq)]
 pub enum Top {
     Program(Program),
-    Statement(Vec<LocatedStatement>),
+    Statement(Vec<Statement>),
     Expression(Expression),
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Program {
-    pub statements: Vec<LocatedStatement>,
+    pub statements: Vec<Statement>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -38,12 +38,12 @@ pub struct Located<T> {
     pub node: T,
 }
 
-pub type LocatedStatement = Located<Statement>;
+pub type Statement = Located<StatementType>;
 
 /// Abstract syntax tree nodes for python statements.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
-pub enum Statement {
+pub enum StatementType {
     Break,
     Continue,
     Return {
@@ -85,43 +85,43 @@ pub enum Statement {
     },
     If {
         test: Expression,
-        body: Vec<LocatedStatement>,
-        orelse: Option<Vec<LocatedStatement>>,
+        body: Vec<Statement>,
+        orelse: Option<Vec<Statement>>,
     },
     While {
         test: Expression,
-        body: Vec<LocatedStatement>,
-        orelse: Option<Vec<LocatedStatement>>,
+        body: Vec<Statement>,
+        orelse: Option<Vec<Statement>>,
     },
     With {
         items: Vec<WithItem>,
-        body: Vec<LocatedStatement>,
+        body: Vec<Statement>,
     },
     For {
         target: Expression,
         iter: Expression,
-        body: Vec<LocatedStatement>,
-        orelse: Option<Vec<LocatedStatement>>,
+        body: Vec<Statement>,
+        orelse: Option<Vec<Statement>>,
     },
     AsyncFor {
         target: Expression,
         iter: Expression,
-        body: Vec<LocatedStatement>,
-        orelse: Option<Vec<LocatedStatement>>,
+        body: Vec<Statement>,
+        orelse: Option<Vec<Statement>>,
     },
     Raise {
         exception: Option<Expression>,
         cause: Option<Expression>,
     },
     Try {
-        body: Vec<LocatedStatement>,
+        body: Vec<Statement>,
         handlers: Vec<ExceptHandler>,
-        orelse: Option<Vec<LocatedStatement>>,
-        finalbody: Option<Vec<LocatedStatement>>,
+        orelse: Option<Vec<Statement>>,
+        finalbody: Option<Vec<Statement>>,
     },
     ClassDef {
         name: String,
-        body: Vec<LocatedStatement>,
+        body: Vec<Statement>,
         bases: Vec<Expression>,
         keywords: Vec<Keyword>,
         decorator_list: Vec<Expression>,
@@ -129,14 +129,14 @@ pub enum Statement {
     FunctionDef {
         name: String,
         args: Parameters,
-        body: Vec<LocatedStatement>,
+        body: Vec<Statement>,
         decorator_list: Vec<Expression>,
         returns: Option<Expression>,
     },
     AsyncFunctionDef {
         name: String,
         args: Parameters,
-        body: Vec<LocatedStatement>,
+        body: Vec<Statement>,
         decorator_list: Vec<Expression>,
         returns: Option<Expression>,
     },
@@ -148,8 +148,10 @@ pub struct WithItem {
     pub optional_vars: Option<Expression>,
 }
 
+pub type Expression = Located<ExpressionType>;
+
 #[derive(Debug, PartialEq)]
-pub enum Expression {
+pub enum ExpressionType {
     BoolOp {
         a: Box<Expression>,
         op: BooleanOperator,
@@ -242,10 +244,10 @@ pub enum Expression {
 impl Expression {
     /// Returns a short name for the node suitable for use in error messages.
     pub fn name(&self) -> &'static str {
-        use self::Expression::*;
+        use self::ExpressionType::*;
         use self::StringGroup::*;
 
-        match self {
+        match &self.node {
             BoolOp { .. } | Binop { .. } | Unop { .. } => "operator",
             Subscript { .. } => "subscript",
             Await { .. } => "await expression",
@@ -330,7 +332,7 @@ pub struct Keyword {
 pub struct ExceptHandler {
     pub typ: Option<Expression>,
     pub name: Option<String>,
-    pub body: Vec<LocatedStatement>,
+    pub body: Vec<Statement>,
 }
 
 #[derive(Debug, PartialEq)]
