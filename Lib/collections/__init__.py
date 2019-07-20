@@ -1282,4 +1282,4 @@ class UserString(_collections_abc.Sequence):
 # I (coolreader18) couldn't figure out some class stuff with __new__ and
 # __init__ and __missing__ and subclassing built-in types from Rust, so I went
 # with this instead.
-from ._defaultdict import *
+from ._defaultdict import defaultdict
