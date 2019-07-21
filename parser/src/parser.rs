@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_parse_print_hello() {
-        let source = String::from("print('Hello world')\n");
+        let source = String::from("print('Hello world')");
         let parse_ast = parse_program(&source).unwrap();
         assert_eq!(
             parse_ast,
@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn test_parse_print_2() {
-        let source = String::from("print('Hello world', 2)\n");
+        let source = String::from("print('Hello world', 2)");
         let parse_ast = parse_program(&source).unwrap();
         assert_eq!(
             parse_ast,
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_parse_kwargs() {
-        let source = String::from("my_func('positional', keyword=2)\n");
+        let source = String::from("my_func('positional', keyword=2)");
         let parse_ast = parse_program(&source).unwrap();
         assert_eq!(
             parse_ast,
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn test_parse_if_elif_else() {
-        let source = String::from("if 1: 10\nelif 2: 20\nelse: 30\n");
+        let source = String::from("if 1: 10\nelif 2: 20\nelse: 30");
         let parse_ast = parse_statement(&source).unwrap();
         assert_eq!(
             parse_ast,
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn test_parse_lambda() {
-        let source = String::from("lambda x, y: x * y\n"); // lambda(x, y): x * y");
+        let source = String::from("lambda x, y: x * y"); // lambda(x, y): x * y");
         let parse_ast = parse_statement(&source);
         assert_eq!(
             parse_ast,
@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_parse_tuples() {
-        let source = String::from("a, b = 4, 5\n");
+        let source = String::from("a, b = 4, 5");
 
         assert_eq!(
             parse_statement(&source),
@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn test_parse_class() {
         let source = String::from(
-            "class Foo(A, B):\n def __init__(self):\n  pass\n def method_with_default(self, arg='default'):\n  pass\n",
+            "class Foo(A, B):\n def __init__(self):\n  pass\n def method_with_default(self, arg='default'):\n  pass",
         );
         assert_eq!(
             parse_statement(&source),

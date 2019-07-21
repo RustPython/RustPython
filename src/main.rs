@@ -298,11 +298,9 @@ fn handle_exception<T>(vm: &VirtualMachine, result: PyResult<T>) {
     }
 }
 
-fn run_command(vm: &VirtualMachine, mut source: String) -> PyResult<()> {
+fn run_command(vm: &VirtualMachine, source: String) -> PyResult<()> {
     debug!("Running command {}", source);
 
-    // This works around https://github.com/RustPython/RustPython/issues/17
-    source.push('\n');
     _run_string(vm, &source, "<stdin>".to_string())?;
     Ok(())
 }

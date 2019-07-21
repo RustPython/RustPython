@@ -16,34 +16,45 @@ use unic_emoji_char::is_emoji_presentation;
 use unicode_xid::UnicodeXID;
 use wtf8;
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 struct IndentationLevel {
     tabs: usize,
     spaces: usize,
 }
 
 impl IndentationLevel {
-    fn new() -> IndentationLevel {
-        IndentationLevel { tabs: 0, spaces: 0 }
-    }
-    fn compare_strict(&self, other: &IndentationLevel) -> Option<Ordering> {
+    fn compare_strict(
+        &self,
+        other: &IndentationLevel,
+        location: Location,
+    ) -> Result<Ordering, LexicalError> {
         // We only know for sure that we're smaller or bigger if tabs
         // and spaces both differ in the same direction. Otherwise we're
         // dependent on the size of tabs.
         if self.tabs < other.tabs {
             if self.spaces <= other.spaces {
-                Some(Ordering::Less)
+                Ok(Ordering::Less)
             } else {
-                None
+                Err(LexicalError {
+                    location,
+                    error: LexicalErrorType::OtherError(
+                        "inconsistent use of tabs and spaces in indentation".to_string(),
+                    ),
+                })
             }
         } else if self.tabs > other.tabs {
             if self.spaces >= other.spaces {
-                Some(Ordering::Greater)
+                Ok(Ordering::Greater)
             } else {
-                None
+                Err(LexicalError {
+                    location,
+                    error: LexicalErrorType::OtherError(
+                        "inconsistent use of tabs and spaces in indentation".to_string(),
+                    ),
+                })
             }
         } else {
-            Some(self.spaces.cmp(&other.spaces))
+            Ok(self.spaces.cmp(&other.spaces))
         }
     }
 }
@@ -234,7 +245,7 @@ where
             chars: input,
             at_begin_of_line: true,
             nesting: 0,
-            indentation_stack: vec![IndentationLevel::new()],
+            indentation_stack: vec![Default::default()],
             pending: Vec::new(),
             chr0: None,
             location: Location::new(0, 0),
@@ -704,65 +715,49 @@ where
 
         if self.nesting == 0 {
             // Determine indent or dedent:
-            let current_indentation = *self.indentation_stack.last().unwrap();
-            let ordering = indentation_level.compare_strict(&current_indentation);
+            let current_indentation = self.indentation_stack.last().unwrap();
+            let ordering = indentation_level.compare_strict(current_indentation, self.get_pos())?;
             match ordering {
-                Some(Ordering::Equal) => {
+                Ordering::Equal => {
                     // Same same
                 }
-                Some(Ordering::Greater) => {
+                Ordering::Greater => {
                     // New indentation level:
                     self.indentation_stack.push(indentation_level);
                     let tok_start = self.get_pos();
                     let tok_end = tok_start.clone();
                     self.emit((tok_start, Tok::Indent, tok_end));
                 }
-                Some(Ordering::Less) => {
+                Ordering::Less => {
                     // One or more dedentations
                     // Pop off other levels until col is found:
 
                     loop {
+                        let current_indentation = self.indentation_stack.last().unwrap();
                         let ordering = indentation_level
-                            .compare_strict(self.indentation_stack.last().unwrap());
+                            .compare_strict(current_indentation, self.get_pos())?;
                         match ordering {
-                            Some(Ordering::Less) => {
+                            Ordering::Less => {
                                 self.indentation_stack.pop();
                                 let tok_start = self.get_pos();
                                 let tok_end = tok_start.clone();
                                 self.emit((tok_start, Tok::Dedent, tok_end));
                             }
-                            None => {
+                            Ordering::Equal => {
+                                // We arrived at proper level of indentation.
+                                break;
+                            }
+                            Ordering::Greater => {
+                                // TODO: handle wrong indentations
                                 return Err(LexicalError {
                                     error: LexicalErrorType::OtherError(
-                                        "inconsistent use of tabs and spaces in indentation"
-                                            .to_string(),
+                                        "Non matching indentation levels!".to_string(),
                                     ),
                                     location: self.get_pos(),
                                 });
                             }
-                            _ => {
-                                break;
-                            }
                         };
                     }
-
-                    if indentation_level != *self.indentation_stack.last().unwrap() {
-                        // TODO: handle wrong indentations
-                        return Err(LexicalError {
-                            error: LexicalErrorType::OtherError(
-                                "Non matching indentation levels!".to_string(),
-                            ),
-                            location: self.get_pos(),
-                        });
-                    }
-                }
-                None => {
-                    return Err(LexicalError {
-                        error: LexicalErrorType::OtherError(
-                            "inconsistent use of tabs and spaces in indentation".to_string(),
-                        ),
-                        location: self.get_pos(),
-                    });
                 }
             }
         }
@@ -804,18 +799,18 @@ where
                 });
             }
 
-            /*
-                        // Next, insert a trailing newline, if required.
-                        if !self.at_begin_of_line {
-                            self.emit((tok_pos.clone(), Tok::Newline, tok_pos.clone()));
-                        }
+            // Next, insert a trailing newline, if required.
+            if !self.at_begin_of_line {
+                self.at_begin_of_line = true;
+                self.emit((tok_pos.clone(), Tok::Newline, tok_pos.clone()));
+            }
 
-                        // Next, flush the indentation stack to zero.
-                        while !self.indentation_stack.is_empty() {
-                            self.indentation_stack.pop();
-                            self.emit((tok_pos.clone(), Tok::Dedent, tok_pos.clone()));
-                        }
-            */
+            // Next, flush the indentation stack to zero.
+            while self.indentation_stack.len() > 1 {
+                self.indentation_stack.pop();
+                self.emit((tok_pos.clone(), Tok::Dedent, tok_pos.clone()));
+            }
+
             self.emit((tok_pos.clone(), Tok::EndOfFile, tok_pos));
         }
 
@@ -1325,7 +1320,8 @@ mod tests {
                 Tok::String {
                     value: "\\".to_string(),
                     is_fstring: false,
-                }
+                },
+                Tok::Newline,
             ]
         );
     }
@@ -1358,6 +1354,7 @@ mod tests {
                     real: 0.0,
                     imag: 2.2,
                 },
+                Tok::Newline,
             ]
         );
     }
@@ -1369,7 +1366,7 @@ mod tests {
             fn $name() {
                 let source = String::from(format!(r"99232  # {}", $eol));
                 let tokens = lex_source(&source);
-                assert_eq!(tokens, vec![Tok::Int { value: BigInt::from(99232) }]);
+                assert_eq!(tokens, vec![Tok::Int { value: BigInt::from(99232) }, Tok::Newline]);
             }
             )*
         }
@@ -1395,6 +1392,7 @@ mod tests {
                         Tok::Int { value: BigInt::from(123) },
                         Tok::Newline,
                         Tok::Int { value: BigInt::from(456) },
+                        Tok::Newline,
                     ]
                 )
             }
@@ -1430,6 +1428,7 @@ mod tests {
                 Tok::Int {
                     value: BigInt::from(0)
                 },
+                Tok::Newline,
             ]
         );
     }
@@ -1457,6 +1456,7 @@ mod tests {
                         Tok::Int { value: BigInt::from(99) },
                         Tok::Newline,
                         Tok::Dedent,
+                        Tok::Newline,
                     ]
                 );
             }
@@ -1501,6 +1501,7 @@ mod tests {
                         Tok::Newline,
                         Tok::Dedent,
                         Tok::Dedent,
+                        Tok::Newline,
                     ]
                 );
             }
@@ -1539,6 +1540,7 @@ mod tests {
                         Tok::Newline,
                         Tok::Dedent,
                         Tok::Dedent,
+                        Tok::Newline,
                     ]
                 );
             }
@@ -1578,6 +1580,7 @@ mod tests {
                         Tok::Int { value: BigInt::from(2) },
                         Tok::Rsqb,
                         Tok::Newline,
+                        Tok::Newline,
                     ]
                 );
             }
@@ -1603,6 +1606,7 @@ mod tests {
                 Tok::DoubleSlashEqual,
                 Tok::Slash,
                 Tok::Slash,
+                Tok::Newline,
             ]
         );
     }
@@ -1642,6 +1646,7 @@ mod tests {
                     value: String::from("raw\'"),
                     is_fstring: false,
                 },
+                Tok::Newline,
             ]
         );
     }
@@ -1660,6 +1665,7 @@ mod tests {
                             value: String::from("abcdef"),
                             is_fstring: false,
                         },
+                        Tok::Newline,
                     ]
                 )
             }
@@ -1674,26 +1680,32 @@ mod tests {
     }
 
     #[test]
-    fn test_byte() {
+    fn test_single_quoted_byte() {
         // single quote
         let all = r##"b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff'"##;
         let source = String::from(all);
         let tokens = lex_source(&source);
         let res = (0..=255).collect::<Vec<u8>>();
-        assert_eq!(tokens, vec![Tok::Bytes { value: res }]);
+        assert_eq!(tokens, vec![Tok::Bytes { value: res }, Tok::Newline]);
+    }
 
+    #[test]
+    fn test_double_quoted_byte() {
         // double quote
         let all = r##"b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff""##;
         let source = String::from(all);
         let tokens = lex_source(&source);
         let res = (0..=255).collect::<Vec<u8>>();
-        assert_eq!(tokens, vec![Tok::Bytes { value: res }]);
+        assert_eq!(tokens, vec![Tok::Bytes { value: res }, Tok::Newline]);
+    }
 
+    #[test]
+    fn test_escape_char_in_byte_literal() {
         // backslash doesnt escape
         let all = r##"b"omkmok\Xaa""##;
         let source = String::from(all);
         let tokens = lex_source(&source);
         let res = vec![111, 109, 107, 109, 111, 107, 92, 88, 97, 97];
-        assert_eq!(tokens, vec![Tok::Bytes { value: res }]);
+        assert_eq!(tokens, vec![Tok::Bytes { value: res }, Tok::Newline]);
     }
 }
