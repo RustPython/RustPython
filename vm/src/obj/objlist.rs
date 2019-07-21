@@ -167,7 +167,6 @@ impl PyListRef {
     fn reverse(self, _vm: &VirtualMachine) {
         self.elements.borrow_mut().reverse();
     }
-
     fn reversed(self, _vm: &VirtualMachine) -> PyListReverseIterator {
         let final_position = self.elements.borrow().len();
         PyListReverseIterator {
@@ -404,6 +403,10 @@ impl PyListRef {
             .cloned()
             .collect();
         vm.ctx.new_list(new_elements)
+    }
+
+    fn rmul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+        self.mul(counter, &vm)
     }
 
     fn imul(self, counter: isize, _vm: &VirtualMachine) -> Self {
@@ -878,6 +881,7 @@ pub fn init(context: &PyContext) {
         "__setitem__" => context.new_rustfunc(PyListRef::setitem),
         "__reversed__" => context.new_rustfunc(PyListRef::reversed),
         "__mul__" => context.new_rustfunc(PyListRef::mul),
+        "__rmul__" => context.new_rustfunc(PyListRef::rmul),
         "__imul__" => context.new_rustfunc(PyListRef::imul),
         "__len__" => context.new_rustfunc(PyListRef::len),
         "__new__" => context.new_rustfunc(list_new),
