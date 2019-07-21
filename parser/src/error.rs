@@ -1,6 +1,5 @@
 //! Define internal parse error types
 //! The goal is to provide a matching and a safe error API, maksing errors from LALR
-use lalrpop_util::ParseError as InnerError;
 use lalrpop_util::ParseError as LalrpopError;
 
 use crate::location::Location;
@@ -106,23 +105,23 @@ pub enum ParseErrorType {
 }
 
 /// Convert `lalrpop_util::ParseError` to our internal type
-impl From<InnerError<Location, Tok, LexicalError>> for ParseError {
-    fn from(err: InnerError<Location, Tok, LexicalError>) -> Self {
+impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
+    fn from(err: LalrpopError<Location, Tok, LexicalError>) -> Self {
         match err {
             // TODO: Are there cases where this isn't an EOF?
-            InnerError::InvalidToken { location } => ParseError {
+            LalrpopError::InvalidToken { location } => ParseError {
                 error: ParseErrorType::EOF,
                 location,
             },
-            InnerError::ExtraToken { token } => ParseError {
+            LalrpopError::ExtraToken { token } => ParseError {
                 error: ParseErrorType::ExtraToken(token.1),
                 location: token.0,
             },
-            InnerError::User { error } => ParseError {
+            LalrpopError::User { error } => ParseError {
                 error: ParseErrorType::Lexical(error.error),
                 location: error.location,
             },
-            InnerError::UnrecognizedToken { token, expected } => {
+            LalrpopError::UnrecognizedToken { token, expected } => {
                 match token {
                     Some(tok) => ParseError {
                         error: ParseErrorType::UnrecognizedToken(tok.1, expected),

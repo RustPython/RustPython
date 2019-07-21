@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_parse_empty() {
-        let parse_ast = parse_program(&String::from("\n"));
+        let parse_ast = parse_program(&String::from(""));
         assert_eq!(parse_ast, Ok(ast::Program { statements: vec![] }))
     }
 
