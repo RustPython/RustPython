@@ -271,13 +271,12 @@ impl WASMVirtualMachine {
         })?
     }
 
-    fn run(&self, mut source: String, mode: compile::Mode) -> Result<JsValue, JsValue> {
+    fn run(&self, source: String, mode: compile::Mode) -> Result<JsValue, JsValue> {
         self.assert_valid()?;
         self.with_unchecked(
             |StoredVirtualMachine {
                  ref vm, ref scope, ..
              }| {
-                source.push('\n');
                 let code = vm.compile(&source, &mode, "<wasm>".to_string());
                 let code = code.map_err(|err| {
                     let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
