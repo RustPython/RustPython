@@ -1,6 +1,7 @@
 /*
  * Import mechanics
  */
+use rand::Rng;
 
 use crate::bytecode::CodeObject;
 use crate::obj::{objcode, objsequence, objstr, objtype};
@@ -29,6 +30,9 @@ pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
         let importlib_external = sys_modules.get_item("_frozen_importlib_external", vm)?;
         let mut magic = get_git_revision().into_bytes();
         magic.truncate(4);
+        if magic.len() != 4 {
+            magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
+        }
         vm.set_attr(&importlib_external, "MAGIC_NUMBER", vm.ctx.new_bytes(magic))?;
     }
     Ok(vm.get_none())
