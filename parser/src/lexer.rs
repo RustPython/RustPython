@@ -636,6 +636,22 @@ where
         }
     }
 
+    /// This is the main entry point. Call this function to retrieve the next token.
+    /// This function is used by the iterator implementation.
+    fn inner_next(&mut self) -> LexResult {
+        // top loop, keep on processing, until we have something pending.
+        while self.pending.is_empty() {
+            // Detect indentation levels
+            if self.at_begin_of_line {
+                self.handle_indentations()?;
+            }
+
+            self.consume_normal()?;
+        }
+
+        Ok(self.pending.remove(0))
+    }
+
     /// Given we are at the start of a line, count the number of spaces and/or tabs until the first character.
     fn eat_indentation(&mut self) -> Result<IndentationLevel, LexicalError> {
         // Determine indentation:
@@ -684,30 +700,17 @@ where
                     spaces = 0;
                     tabs = 0;
                 }
+                None => {
+                    break;
+                }
                 _ => {
+                    self.at_begin_of_line = false;
                     break;
                 }
             }
         }
 
         Ok(IndentationLevel { spaces, tabs })
-    }
-
-    /// This is the main entry point. Call this function to retrieve the next token.
-    /// This function is used by the iterator implementation.
-    fn inner_next(&mut self) -> LexResult {
-        // top loop, keep on processing, until we have something pending.
-        while self.pending.is_empty() {
-            // Detect indentation levels
-            if self.at_begin_of_line {
-                self.at_begin_of_line = false;
-                self.handle_indentations()?;
-            }
-
-            self.consume_normal()?;
-        }
-
-        Ok(self.pending.remove(0))
     }
 
     fn handle_indentations(&mut self) -> Result<(), LexicalError> {
@@ -756,7 +759,7 @@ where
                                     location: self.get_pos(),
                                 });
                             }
-                        };
+                        }
                     }
                 }
             }
@@ -1456,7 +1459,6 @@ mod tests {
                         Tok::Int { value: BigInt::from(99) },
                         Tok::Newline,
                         Tok::Dedent,
-                        Tok::Newline,
                     ]
                 );
             }
@@ -1501,7 +1503,6 @@ mod tests {
                         Tok::Newline,
                         Tok::Dedent,
                         Tok::Dedent,
-                        Tok::Newline,
                     ]
                 );
             }
@@ -1540,7 +1541,6 @@ mod tests {
                         Tok::Newline,
                         Tok::Dedent,
                         Tok::Dedent,
-                        Tok::Newline,
                     ]
                 );
             }
@@ -1579,7 +1579,6 @@ mod tests {
                         Tok::Comma,
                         Tok::Int { value: BigInt::from(2) },
                         Tok::Rsqb,
-                        Tok::Newline,
                         Tok::Newline,
                     ]
                 );
