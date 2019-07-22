@@ -109,7 +109,7 @@ impl CompilationSource {
                         format!("Error reading file {:?}: {}", path, err),
                     )
                 })?;
-                let file_name_splitte: Vec<&str> = file_name.splitn(2, ".").collect();
+                let file_name_splitte: Vec<&str> = file_name.splitn(2, '.').collect();
                 let module_name = format!("{}{}", parent, file_name_splitte[0]);
                 code_map.insert(
                     module_name.clone(),
