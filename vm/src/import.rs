@@ -6,6 +6,7 @@ use crate::bytecode::CodeObject;
 use crate::obj::{objcode, objsequence, objstr, objtype};
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
 use crate::scope::Scope;
+use crate::version::get_git_revision;
 use crate::vm::VirtualMachine;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
@@ -23,6 +24,12 @@ pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
         let install_external =
             vm.get_attribute(importlib.clone(), "_install_external_importers")?;
         vm.invoke(install_external, vec![])?;
+        // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
+        let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
+        let importlib_external = sys_modules.get_item("_frozen_importlib_external", vm)?;
+        let mut magic = get_git_revision().into_bytes();
+        magic.truncate(4);
+        vm.set_attr(&importlib_external, "MAGIC_NUMBER", vm.ctx.new_bytes(magic))?;
     }
     Ok(vm.get_none())
 }
