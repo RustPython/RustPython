@@ -88,6 +88,7 @@ impl SysFlags {
         flags.ignore_environment = settings.ignore_environment;
         flags.verbose = settings.verbose;
         flags.quiet = settings.quiet;
+        flags.dont_write_bytecode = settings.dont_write_bytecode;
         flags
     }
 }
@@ -322,7 +323,7 @@ settrace() -- set the global debug tracing function
       "path_hooks" => ctx.new_list(vec![]),
       "path_importer_cache" => ctx.new_dict(),
       "pycache_prefix" => vm.get_none(),
-      "dont_write_bytecode" => vm.new_bool(true),
+      "dont_write_bytecode" => vm.new_bool(vm.settings.dont_write_bytecode),
       "setprofile" => ctx.new_rustfunc(sys_setprofile),
       "settrace" => ctx.new_rustfunc(sys_settrace),
       "version" => vm.new_str(version::get_version()),

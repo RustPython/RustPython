@@ -90,6 +90,9 @@ pub struct PySettings {
     /// -q
     pub quiet: bool,
 
+    /// -B
+    pub dont_write_bytecode: bool,
+
     /// Environment PYTHONPATH and RUSTPYTHONPATH:
     pub path_list: Vec<String>,
 }
@@ -122,6 +125,7 @@ impl Default for PySettings {
             ignore_environment: false,
             verbose: 0,
             quiet: false,
+            dont_write_bytecode: false,
             path_list: vec![],
         }
     }
