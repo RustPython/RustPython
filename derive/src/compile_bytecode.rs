@@ -22,7 +22,7 @@ use rustpython_compiler::compile;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use syn::parse::{Parse, ParseStream, Result as ParseResult};
 use syn::{self, parse2, Lit, LitByteStr, LitStr, Meta, Token};
 
@@ -82,7 +82,7 @@ impl CompilationSource {
 
     fn compile_dir(
         &self,
-        path: &PathBuf,
+        path: &Path,
         parent: String,
         mode: &compile::Mode,
     ) -> Result<HashMap<String, CodeObject>, Diagnostic> {
