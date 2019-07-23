@@ -623,6 +623,16 @@ impl PyInt {
     fn imag(&self, _vm: &VirtualMachine) -> usize {
         0
     }
+
+    #[pyproperty]
+    fn numerator(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+        zelf
+    }
+
+    #[pyproperty]
+    fn denominator(&self, _vm: &VirtualMachine) -> usize {
+        1
+    }
 }
 
 #[derive(FromArgs)]
