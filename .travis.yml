@@ -2,7 +2,7 @@
 matrix:
   fast_finish: true
   include:
-    - name: Run rust tests
+    - name: Run Rust tests
       language: rust
       rust: stable
       cache: cargo
@@ -16,7 +16,7 @@ matrix:
 
     # To test the snippets, we use Travis' Python environment (because
     # installing rust ourselves is a lot easier than installing Python)
-    - name: python test snippets
+    - name: Python test snippets
       language: python
       python: 3.6
       cache:
@@ -28,7 +28,7 @@ matrix:
         - CODE_COVERAGE=false
       script: tests/.travis-runner.sh
 
-    - name: Check rust code style with rustfmt
+    - name: Check Rust code style with rustfmt
       language: rust
       rust: stable
       cache: cargo
@@ -39,7 +39,7 @@ matrix:
       env:
         - JOBCACHE=3
 
-    - name: Lint code with clippy
+    - name: Lint Rust code with clippy
       language: rust
       rust: stable
       cache: cargo
@@ -50,7 +50,15 @@ matrix:
       env:
         - JOBCACHE=8
 
-    - name: publish documentation
+    - name: Lint Python code with flake8
+      language: python
+      python: 3.6
+      cache:
+        - pip
+      install: pip install flake8
+      script: flake8 . --count --exclude=./.*,./Lib,./vm/Lib  --select=E9,F63,F7,F82 --show-source --statistics
+
+    - name: Publish documentation
       language: rust
       rust: stable
       cache: cargo
@@ -109,7 +117,7 @@ matrix:
         - TRAVIS_RUST_VERSION=nightly
         - CODE_COVERAGE=true
 
-    - name: test WASM
+    - name: Test WASM
       language: python
       python: 3.6
       cache:
