@@ -243,6 +243,7 @@ impl VirtualMachine {
         self.ctx.new_bool(b)
     }
 
+    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     fn new_exception_obj(&self, exc_type: PyClassRef, args: Vec<PyObjectRef>) -> PyResult {
         // TODO: add repr of args into logging?
         vm_trace!("New exception created: {}", exc_type.name);
@@ -476,6 +477,7 @@ impl VirtualMachine {
         }
     }
 
+    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     fn _invoke(&self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", func_ref, args);
 
@@ -744,6 +746,7 @@ impl VirtualMachine {
     }
 
     // get_attribute should be used for full attribute access (usually from user code).
+    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     pub fn get_attribute<T>(&self, obj: PyObjectRef, attr_name: T) -> PyResult
     where
         T: TryIntoRef<PyString>,

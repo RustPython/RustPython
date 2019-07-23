@@ -57,6 +57,7 @@ impl<T> RcList<T> {
         }
     }
 
+    #[cfg_attr(feature = "flame-it", flame("RcList"))]
     pub fn iter(&self) -> Iter<T> {
         Iter {
             next: self.head.as_ref().map(|node| &**node),
@@ -67,6 +68,7 @@ impl<T> RcList<T> {
 impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
 
+    #[cfg_attr(feature = "flame-it", flame("Iter"))]
     fn next(&mut self) -> Option<Self::Item> {
         self.next.map(|node| {
             self.next = node.next.as_ref().map(|node| &**node);
@@ -145,6 +147,7 @@ pub trait NameProtocol {
 }
 
 impl NameProtocol for Scope {
+    #[cfg_attr(feature = "flame-it", flame("Scope"))]
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter() {
             if let Some(value) = dict.get_item_option(name, vm).unwrap() {
@@ -159,6 +162,7 @@ impl NameProtocol for Scope {
         vm.get_attribute(vm.builtins.clone(), name).ok()
     }
 
+    #[cfg_attr(feature = "flame-it", flame("Scope"))]
     fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter().skip(1) {
             if let Some(value) = dict.get_item_option(name, vm).unwrap() {
@@ -185,6 +189,7 @@ impl NameProtocol for Scope {
         self.get_locals().del_item(key, vm)
     }
 
+    #[cfg_attr(feature = "flame-it", flame("Scope"))]
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         self.globals.get_item_option(name, vm).unwrap()
     }

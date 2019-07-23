@@ -1021,6 +1021,8 @@ pub trait ItemProtocol {
         vm: &VirtualMachine,
     ) -> PyResult;
     fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
+
+    #[cfg_attr(feature = "flame-it", flame("ItemProtocol"))]
     fn get_item_option<T: IntoPyObject>(
         &self,
         key: T,
