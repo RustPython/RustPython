@@ -135,6 +135,8 @@ pub struct PyContext {
     pub list_type: PyClassRef,
     pub listiterator_type: PyClassRef,
     pub listreverseiterator_type: PyClassRef,
+    pub striterator_type: PyClassRef,
+    pub strreverseiterator_type: PyClassRef,
     pub dictkeyiterator_type: PyClassRef,
     pub dictvalueiterator_type: PyClassRef,
     pub dictitemiterator_type: PyClassRef,
@@ -274,6 +276,8 @@ impl PyContext {
         let listiterator_type = create_type("list_iterator", &type_type, &object_type);
         let listreverseiterator_type =
             create_type("list_reverseiterator", &type_type, &object_type);
+        let striterator_type = create_type("str_iterator", &type_type, &object_type);
+        let strreverseiterator_type = create_type("str_reverseiterator", &type_type, &object_type);
         let dictkeys_type = create_type("dict_keys", &type_type, &object_type);
         let dictvalues_type = create_type("dict_values", &type_type, &object_type);
         let dictitems_type = create_type("dict_items", &type_type, &object_type);
@@ -341,6 +345,8 @@ impl PyContext {
             list_type,
             listiterator_type,
             listreverseiterator_type,
+            striterator_type,
+            strreverseiterator_type,
             dictkeys_type,
             dictvalues_type,
             dictitems_type,
@@ -474,6 +480,14 @@ impl PyContext {
 
     pub fn listreverseiterator_type(&self) -> PyClassRef {
         self.listreverseiterator_type.clone()
+    }
+
+    pub fn striterator_type(&self) -> PyClassRef {
+        self.striterator_type.clone()
+    }
+
+    pub fn strreverseiterator_type(&self) -> PyClassRef {
+        self.strreverseiterator_type.clone()
     }
 
     pub fn module_type(&self) -> PyClassRef {

@@ -1,6 +1,7 @@
 extern crate unicode_categories;
 extern crate unicode_xid;
 
+use std::cell::Cell;
 use std::char;
 use std::fmt;
 use std::ops::Range;
@@ -28,6 +29,7 @@ use crate::vm::VirtualMachine;
 use super::objbytes::PyBytes;
 use super::objdict::PyDict;
 use super::objint::{self, PyInt};
+use super::objiter;
 use super::objnone::PyNone;
 use super::objsequence::PySliceableSequence;
 use super::objslice::PySlice;
@@ -87,6 +89,73 @@ impl TryIntoRef<PyString> for &str {
             value: self.to_string(),
         }
         .into_ref(vm))
+    }
+}
+
+#[pyclass]
+#[derive(Debug)]
+pub struct PyStringIterator {
+    pub string: PyStringRef,
+    position: Cell<usize>,
+}
+
+impl PyValue for PyStringIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.striterator_type()
+    }
+}
+
+#[pyimpl]
+impl PyStringIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let pos = self.position.get();
+
+        if pos < self.string.value.chars().count() {
+            let value = self.string.value.do_slice(pos..pos + 1);
+            self.position.set(self.position.get() + 1);
+            value.into_pyobject(vm)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
+#[pyclass]
+#[derive(Debug)]
+pub struct PyStringReverseIterator {
+    pub position: Cell<usize>,
+    pub string: PyStringRef,
+}
+
+impl PyValue for PyStringReverseIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.strreverseiterator_type()
+    }
+}
+
+#[pyimpl]
+impl PyStringReverseIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        if self.position.get() > 0 {
+            let position: usize = self.position.get() - 1;
+            let value = self.string.value.do_slice(position..position + 1);
+            self.position.set(position);
+            value.into_pyobject(vm)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
@@ -1025,6 +1094,14 @@ impl PyString {
         let encoded = PyBytes::from_string(&self.value, &encoding, vm)?;
         Ok(encoded.into_pyobject(vm)?)
     }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyStringIterator {
+        PyStringIterator {
+            position: Cell::new(0),
+            string: zelf,
+        }
+    }
 }
 
 impl PyValue for PyString {
@@ -1053,6 +1130,9 @@ impl IntoPyObject for &String {
 
 pub fn init(ctx: &PyContext) {
     PyString::extend_class(ctx, &ctx.str_type);
+
+    PyStringIterator::extend_class(ctx, &ctx.striterator_type);
+    PyStringReverseIterator::extend_class(ctx, &ctx.strreverseiterator_type);
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
