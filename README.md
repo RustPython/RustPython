@@ -81,7 +81,8 @@ Documentation HTML files can then be found in the `target/doc` directory.
 ## Contributing
 
 Contributions are more than welcome, and in many cases we are happy to guide
-contributors through PRs or on gitter.
+contributors through PRs or on gitter. Please refer to the
+[development guide](DEVELOPMENT.md) as well for tips on developments.
 
 With that in mind, please note this project is maintained by volunteers, some of
 the best ways to get started are below:

@@ -8,11 +8,11 @@ use clap::{App, Arg, ArgMatches};
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
-    frame::Scope,
     import,
     obj::objstr,
     print_exception,
     pyobject::{ItemProtocol, PyResult},
+    scope::Scope,
     util, PySettings, VirtualMachine,
 };
 use std::convert::TryInto;

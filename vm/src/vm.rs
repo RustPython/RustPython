@@ -13,7 +13,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
 use crate::bytecode;
-use crate::frame::{ExecutionResult, Frame, FrameRef, Scope};
+use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
 use crate::function::PyFuncArgs;
 use crate::import;
@@ -35,6 +35,7 @@ use crate::pyobject::{
     IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TryIntoRef,
     TypeProtocol,
 };
+use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
 use num_bigint::BigInt;

@@ -1,5 +1,5 @@
-use crate::frame::Scope;
 use crate::pyobject::PyResult;
+use crate::scope::Scope;
 use crate::vm::VirtualMachine;
 use rustpython_compiler::compile;
 

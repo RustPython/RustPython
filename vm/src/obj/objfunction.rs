@@ -1,10 +1,10 @@
-use crate::frame::Scope;
 use crate::function::{Args, KwArgs};
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::scope::Scope;
 use crate::vm::VirtualMachine;
 
 pub type PyFunctionRef = PyRef<PyFunction>;

@@ -15,7 +15,6 @@ use num_traits::{One, Zero};
 
 use crate::bytecode;
 use crate::exceptions;
-use crate::frame::Scope;
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
@@ -56,6 +55,7 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
+use crate::scope::Scope;
 use crate::vm::VirtualMachine;
 use indexmap::IndexMap;
 
