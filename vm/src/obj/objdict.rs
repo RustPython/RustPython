@@ -12,6 +12,7 @@ use super::objbool;
 use super::objiter;
 use super::objstr;
 use crate::dictdatatype;
+use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::PyClassImpl;
 
@@ -212,6 +213,24 @@ impl PyDictRef {
             return vm.invoke(method, vec![key]);
         }
         Err(vm.new_key_error(key.clone()))
+    }
+
+    #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
+    pub fn get_item_option<T: IntoPyObject>(
+        &self,
+        key: T,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        match self.clone().inner_getitem(key.into_pyobject(vm)?, vm) {
+            Ok(value) => Ok(Some(value)),
+            Err(exc) => {
+                if objtype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
+                    Ok(None)
+                } else {
+                    Err(exc)
+                }
+            }
+        }
     }
 
     fn get(
