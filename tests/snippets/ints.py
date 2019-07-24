@@ -56,7 +56,9 @@ assert (1).imag == 0
 assert (1).numerator == 1
 assert (1).denominator == 1
 assert (10).numerator == 10
-assert (1).denominator == 1
+assert (10).denominator == 1
+assert (-10).numerator == -10
+assert (-10).denominator == 1
 
 assert_raises(OverflowError, lambda: 1 << 10 ** 100000)
 
