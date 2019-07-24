@@ -128,6 +128,10 @@ impl PyStringIORef {
         }
     }
 
+    fn seekable(self, _vm: &VirtualMachine) -> bool {
+        true
+    }
+
     //Read k bytes from the object and return.
     //If k is undefined || k == -1, then we read all bytes until the end of the file.
     //This also increments the stream position by the value of k
@@ -205,6 +209,10 @@ impl PyBytesIORef {
             None => Err(vm.new_value_error("Error Performing Operation".to_string())),
         }
     }
+
+    fn seekable(self, _vm: &VirtualMachine) -> bool {
+        true
+    }
 }
 
 fn bytes_io_new(
@@ -244,7 +252,11 @@ fn io_base_cm_exit(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // TODO Check if closed, then if so raise ValueError
-fn io_base_flush(_zelf: PyObjectRef, _vm: &VirtualMachine) {}
+fn io_base_flush(_self: PyObjectRef, _vm: &VirtualMachine) {}
+
+fn io_base_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    Ok(vm.ctx.new_bool(false))
+}
 
 fn buffered_io_base_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(buffered, None), (raw, None)]);
@@ -280,6 +292,10 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 
     Ok(vm.ctx.new_bytes(result))
+}
+
+fn buffered_reader_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    Ok(vm.ctx.new_bool(true))
 }
 
 fn compute_c_flag(mode: &str) -> u32 {
@@ -415,6 +431,10 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn file_io_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    Ok(vm.ctx.new_bool(true))
+}
+
 fn buffered_writer_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -428,6 +448,10 @@ fn buffered_writer_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.call_method(&raw, "write", vec![obj.clone()])
 }
 
+fn buffered_writer_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    Ok(vm.ctx.new_bool(true))
+}
+
 fn text_io_wrapper_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -437,6 +461,10 @@ fn text_io_wrapper_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     vm.set_attr(text_io_wrapper, "buffer", buffer.clone())?;
     Ok(vm.get_none())
+}
+
+fn text_io_wrapper_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    Ok(vm.new_bool(true))
 }
 
 fn text_io_base_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -627,6 +655,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let io_base = py_class!(ctx, "IOBase", ctx.object(), {
         "__enter__" => ctx.new_rustfunc(io_base_cm_enter),
         "__exit__" => ctx.new_rustfunc(io_base_cm_exit),
+        "seekable" => ctx.new_rustfunc(io_base_seekable),
         "flush" => ctx.new_rustfunc(io_base_flush)
     });
 
@@ -648,7 +677,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "name" => ctx.str_type(),
         "read" => ctx.new_rustfunc(file_io_read),
         "readinto" => ctx.new_rustfunc(file_io_readinto),
-        "write" => ctx.new_rustfunc(file_io_write)
+        "write" => ctx.new_rustfunc(file_io_write),
+        "seekable" => ctx.new_rustfunc(file_io_seekable)
     });
 
     // BufferedIOBase Subclasses
@@ -657,7 +687,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         //consistent with the python model
         //For more info see: https://github.com/RustPython/RustPython/issues/547
         "__init__" => ctx.new_rustfunc(buffered_io_base_init),
-        "read" => ctx.new_rustfunc(buffered_reader_read)
+        "read" => ctx.new_rustfunc(buffered_reader_read),
+        "seekable" => ctx.new_rustfunc(buffered_reader_seekable)
     });
 
     let buffered_writer = py_class!(ctx, "BufferedWriter", buffered_io_base.clone(), {
@@ -665,18 +696,21 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         //consistent with the python model
         //For more info see: https://github.com/RustPython/RustPython/issues/547
         "__init__" => ctx.new_rustfunc(buffered_io_base_init),
-        "write" => ctx.new_rustfunc(buffered_writer_write)
+        "write" => ctx.new_rustfunc(buffered_writer_write),
+        "seekable" => ctx.new_rustfunc(buffered_writer_seekable)
     });
 
     //TextIOBase Subclass
     let text_io_wrapper = py_class!(ctx, "TextIOWrapper", text_io_base.clone(), {
-        "__init__" => ctx.new_rustfunc(text_io_wrapper_init)
+        "__init__" => ctx.new_rustfunc(text_io_wrapper_init),
+        "seekable" => ctx.new_rustfunc(text_io_wrapper_seekable)
     });
 
     //StringIO: in-memory text
     let string_io = py_class!(ctx, "StringIO", text_io_base.clone(), {
         "__new__" => ctx.new_rustfunc(string_io_new),
         "seek" => ctx.new_rustfunc(PyStringIORef::seek),
+        "seekable" => ctx.new_rustfunc(PyStringIORef::seekable),
         "read" => ctx.new_rustfunc(PyStringIORef::read),
         "write" => ctx.new_rustfunc(PyStringIORef::write),
         "getvalue" => ctx.new_rustfunc(PyStringIORef::getvalue)
@@ -688,6 +722,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "read" => ctx.new_rustfunc(PyBytesIORef::read),
         "read1" => ctx.new_rustfunc(PyBytesIORef::read),
         "seek" => ctx.new_rustfunc(PyBytesIORef::seek),
+        "seekable" => ctx.new_rustfunc(PyBytesIORef::seekable),
         "write" => ctx.new_rustfunc(PyBytesIORef::write),
         "getvalue" => ctx.new_rustfunc(PyBytesIORef::getvalue)
     });
