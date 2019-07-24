@@ -3,9 +3,9 @@
  */
 
 use crate::bytecode::CodeObject;
-use crate::frame::Scope;
 use crate::obj::{objcode, objsequence, objstr, objtype};
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
+use crate::scope::Scope;
 use crate::vm::VirtualMachine;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;

@@ -2,11 +2,16 @@
 
 ## Code organization
 
+- `bytecode/src`: python bytecode representation in rust structures
+- `compiler/src`: python compilation to bytecode
 - `parser/src`: python lexing, parsing and ast
+- `Lib`: Carefully selected / copied files from CPython sourcecode. This is
+   the python side of the standard library.
 - `vm/src`: python virtual machine
   - `builtins.rs`: Builtin functions
   - `compile.rs`: the python compiler from ast to bytecode
   - `obj`: python builtin types
+  - `stdlib`: Standard library parts implemented in rust.
 - `src`: using the other subcrates to bring rustpython to life.
 - `docs`: documentation (work in progress)
 - `py_code_object`: CPython bytecode to rustpython bytecode converter (work in
@@ -28,8 +33,7 @@ To test rustpython, there is a collection of python snippets located in the
 
 ```shell
 $ cd tests
-$ pipenv install
-$ pipenv run pytest -v
+$ pytest -v
 ```
 
 There also are some unit tests, you can run those with cargo:

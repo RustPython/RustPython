@@ -6,10 +6,10 @@ use js_sys::{Object, Reflect, SyntaxError, TypeError};
 use wasm_bindgen::prelude::*;
 
 use rustpython_compiler::compile;
-use rustpython_vm::frame::{NameProtocol, Scope};
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::import;
 use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue};
+use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::VirtualMachine;
 
 use crate::browser_module::setup_browser_module;

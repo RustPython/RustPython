@@ -22,12 +22,12 @@ use crate::obj::objtype::{self, PyClassRef};
 use rustpython_compiler::compile;
 
 use crate::eval::get_compile_mode;
-use crate::frame::Scope;
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
+use crate::scope::Scope;
 use crate::vm::VirtualMachine;
 
 use crate::obj::objbyteinner::PyByteInner;

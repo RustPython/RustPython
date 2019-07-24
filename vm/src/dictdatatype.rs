@@ -110,6 +110,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Retrieve a key
+    #[cfg_attr(feature = "flame-it", flame("Dict"))]
     pub fn get(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<Option<T>> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             Ok(Some(self.unchecked_get(index)))
@@ -197,6 +198,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Lookup the index for the given key.
+    #[cfg_attr(feature = "flame-it", flame("Dict"))]
     fn lookup(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<LookupResult> {
         let hash_value = collection_hash(vm, key)?;
         let perturb = hash_value;
@@ -271,6 +273,7 @@ enum LookupResult {
     Existing(EntryIndex), // Existing record, index into entries
 }
 
+#[cfg_attr(feature = "flame-it", flame())]
 fn collection_hash(vm: &VirtualMachine, object: &PyObjectRef) -> PyResult<HashValue> {
     let raw_hash = vm._hash(object)?;
     let mut hasher = DefaultHasher::new();

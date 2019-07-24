@@ -202,6 +202,7 @@ impl PyDictRef {
         self.entries.borrow_mut().insert(vm, &key, value)
     }
 
+    #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
     fn inner_getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(value) = self.entries.borrow().get(vm, &key)? {
             return Ok(value);

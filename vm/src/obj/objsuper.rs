@@ -6,7 +6,6 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 */
 
-use crate::frame::NameProtocol;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objfunction::PyMethod;
 use crate::obj::objstr;
@@ -14,6 +13,7 @@ use crate::obj::objtype::{PyClass, PyClassRef};
 use crate::pyobject::{
     ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
+use crate::scope::NameProtocol;
 use crate::vm::VirtualMachine;
 
 use super::objtype;

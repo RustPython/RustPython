@@ -15,7 +15,6 @@ use num_traits::{One, Zero};
 
 use crate::bytecode;
 use crate::exceptions;
-use crate::frame::Scope;
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
@@ -56,6 +55,7 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
+use crate::scope::Scope;
 use crate::vm::VirtualMachine;
 use indexmap::IndexMap;
 
@@ -1021,6 +1021,8 @@ pub trait ItemProtocol {
         vm: &VirtualMachine,
     ) -> PyResult;
     fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
+
+    #[cfg_attr(feature = "flame-it", flame("ItemProtocol"))]
     fn get_item_option<T: IntoPyObject>(
         &self,
         key: T,

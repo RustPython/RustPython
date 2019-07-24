@@ -13,7 +13,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
 use crate::bytecode;
-use crate::frame::{ExecutionResult, Frame, FrameRef, Scope};
+use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
 use crate::function::PyFuncArgs;
 use crate::import;
@@ -35,6 +35,7 @@ use crate::pyobject::{
     IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TryIntoRef,
     TypeProtocol,
 };
+use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
 use num_bigint::BigInt;
@@ -243,6 +244,7 @@ impl VirtualMachine {
         self.ctx.new_bool(b)
     }
 
+    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     fn new_exception_obj(&self, exc_type: PyClassRef, args: Vec<PyObjectRef>) -> PyResult {
         // TODO: add repr of args into logging?
         vm_trace!("New exception created: {}", exc_type.name);
@@ -476,6 +478,7 @@ impl VirtualMachine {
         }
     }
 
+    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     fn _invoke(&self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", func_ref, args);
 
@@ -744,6 +747,7 @@ impl VirtualMachine {
     }
 
     // get_attribute should be used for full attribute access (usually from user code).
+    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     pub fn get_attribute<T>(&self, obj: PyObjectRef, attr_name: T) -> PyResult
     where
         T: TryIntoRef<PyString>,
