@@ -499,6 +499,21 @@ impl PyInt {
         !self.value.is_zero()
     }
 
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+        // We would like to get self.value.data.data.capacity(), however, this is private so we
+        // need to use a hack instead
+        let capacity = unsafe {
+            // Grab a reference to the underlying vector. This relies on the compiler always placing
+            // the BigUInt and its data vector directly at the start of their containing structs.
+            let data = & *(&self.value as *const BigInt as *const Vec<u8>);
+            data.capacity()
+        };
+
+        // We would like to do std::mem::size_of::<BigDigit>(), but of course BigDigit is private.
+        std::mem::size_of::<Self>() + capacity * std::mem::size_of::<u32>()
+    }
+
     #[pymethod]
     fn bit_length(&self, _vm: &VirtualMachine) -> usize {
         self.value.bits()
