@@ -273,7 +273,7 @@ enum LookupResult {
     Existing(EntryIndex), // Existing record, index into entries
 }
 
-#[cfg_attr(feature = "flame-it", flame("collection_hash"))]
+#[cfg_attr(feature = "flame-it", flame())]
 fn collection_hash(vm: &VirtualMachine, object: &PyObjectRef) -> PyResult<HashValue> {
     let raw_hash = vm._hash(object)?;
     let mut hasher = DefaultHasher::new();
