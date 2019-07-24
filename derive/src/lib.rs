@@ -5,6 +5,9 @@
 extern crate proc_macro;
 
 #[macro_use]
+extern crate maplit;
+
+#[macro_use]
 mod error;
 mod compile_bytecode;
 mod from_args;

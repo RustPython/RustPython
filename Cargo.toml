@@ -17,6 +17,7 @@ path = "./benchmarks/bench.rs"
 [features]
 default = ["rustpython-vm/use-proc-macro-hack"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
+freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 
 [dependencies]
 log="0.4.1"
