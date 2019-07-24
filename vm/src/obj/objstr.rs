@@ -1102,6 +1102,16 @@ impl PyString {
             string: zelf,
         }
     }
+
+    #[pymethod(name = "__reversed__")]
+    fn reversed(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyStringReverseIterator {
+        let begin = zelf.value.chars().count();
+
+        PyStringReverseIterator {
+            position: Cell::new(begin),
+            string: zelf,
+        }
+    }
 }
 
 impl PyValue for PyString {
