@@ -112,8 +112,11 @@ impl PyStringIterator {
         let pos = self.position.get();
 
         if pos < self.string.value.chars().count() {
-            let value = self.string.value.do_slice(pos..pos + 1);
             self.position.set(self.position.get() + 1);
+
+            #[allow(clippy::range_plus_one)]
+            let value = self.string.value.do_slice(pos..pos + 1);
+
             value.into_pyobject(vm)
         } else {
             Err(objiter::new_stop_iteration(vm))
@@ -145,7 +148,10 @@ impl PyStringReverseIterator {
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         if self.position.get() > 0 {
             let position: usize = self.position.get() - 1;
+
+            #[allow(clippy::range_plus_one)]
             let value = self.string.value.do_slice(position..position + 1);
+
             self.position.set(position);
             value.into_pyobject(vm)
         } else {
