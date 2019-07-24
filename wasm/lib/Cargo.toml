@@ -10,6 +10,9 @@ edition = "2018"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
+
 [dependencies]
 rustpython-compiler = { path = "../../compiler" }
 rustpython-parser = { path = "../../parser" }
