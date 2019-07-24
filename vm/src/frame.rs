@@ -71,7 +71,7 @@ pub enum ExecutionResult {
 }
 
 /// A valid execution result, or an exception
-pub type FrameResult = Result<Option<ExecutionResult>, PyObjectRef>;
+pub type FrameResult = PyResult<Option<ExecutionResult>>;
 
 impl Frame {
     pub fn new(code: PyCodeRef, scope: Scope) -> Frame {
@@ -98,7 +98,7 @@ impl Frame {
     }
 
     // #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    pub fn run(&self, vm: &VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
+    pub fn run(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
 
         let filename = &self.code.source_path.to_string();
@@ -147,11 +147,7 @@ impl Frame {
         }
     }
 
-    pub fn throw(
-        &self,
-        vm: &VirtualMachine,
-        exception: PyObjectRef,
-    ) -> Result<ExecutionResult, PyObjectRef> {
+    pub fn throw(&self, vm: &VirtualMachine, exception: PyObjectRef) -> PyResult<ExecutionResult> {
         match self.unwind_exception(vm, exception) {
             None => self.run(vm),
             Some(exception) => Err(exception),
@@ -449,64 +445,7 @@ impl Frame {
                     }
                 }
             }
-            bytecode::Instruction::MakeFunction { flags } => {
-                let qualified_name = self
-                    .pop_value()
-                    .downcast::<PyString>()
-                    .expect("qualified name to be a string");
-                let code_obj = self
-                    .pop_value()
-                    .downcast()
-                    .expect("Second to top value on the stack must be a code object");
-
-                let annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
-                    self.pop_value()
-                } else {
-                    vm.ctx.new_dict().into_object()
-                };
-
-                let kw_only_defaults =
-                    if flags.contains(bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS) {
-                        Some(
-                            self.pop_value().downcast::<PyDict>().expect(
-                                "Stack value for keyword only defaults expected to be a dict",
-                            ),
-                        )
-                    } else {
-                        None
-                    };
-
-                let defaults = if flags.contains(bytecode::FunctionOpArg::HAS_DEFAULTS) {
-                    Some(
-                        self.pop_value()
-                            .downcast::<PyTuple>()
-                            .expect("Stack value for defaults expected to be a tuple"),
-                    )
-                } else {
-                    None
-                };
-
-                // pop argc arguments
-                // argument: name, args, globals
-                let scope = self.scope.clone();
-                let func_obj = vm
-                    .ctx
-                    .new_function(code_obj, scope, defaults, kw_only_defaults);
-
-                let name = qualified_name.value.split('.').next_back().unwrap();
-                vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_string()))?;
-                vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
-                let module = self
-                    .scope
-                    .globals
-                    .get_item_option("__name__", vm)?
-                    .unwrap_or_else(|| vm.get_none());
-                vm.set_attr(&func_obj, "__module__", module)?;
-                vm.set_attr(&func_obj, "__annotations__", annotations)?;
-
-                self.push_value(func_obj);
-                Ok(None)
-            }
+            bytecode::Instruction::MakeFunction { flags } => self.execute_make_function(vm, *flags),
             bytecode::Instruction::CallFunction { typ } => {
                 let args = match typ {
                     bytecode::CallType::Positional(count) => {
@@ -732,7 +671,7 @@ impl Frame {
         vm: &VirtualMachine,
         size: usize,
         unpack: bool,
-    ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
+    ) -> PyResult<Vec<PyObjectRef>> {
         let elements = self.pop_multiple(size);
         if unpack {
             let mut result: Vec<PyObjectRef> = vec![];
@@ -1002,6 +941,68 @@ impl Frame {
         *self.lasti.borrow_mut() = target_pc;
     }
 
+    fn execute_make_function(
+        &self,
+        vm: &VirtualMachine,
+        flags: bytecode::FunctionOpArg,
+    ) -> FrameResult {
+        let qualified_name = self
+            .pop_value()
+            .downcast::<PyString>()
+            .expect("qualified name to be a string");
+        let code_obj = self
+            .pop_value()
+            .downcast()
+            .expect("Second to top value on the stack must be a code object");
+
+        let annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
+            self.pop_value()
+        } else {
+            vm.ctx.new_dict().into_object()
+        };
+
+        let kw_only_defaults = if flags.contains(bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS) {
+            Some(
+                self.pop_value()
+                    .downcast::<PyDict>()
+                    .expect("Stack value for keyword only defaults expected to be a dict"),
+            )
+        } else {
+            None
+        };
+
+        let defaults = if flags.contains(bytecode::FunctionOpArg::HAS_DEFAULTS) {
+            Some(
+                self.pop_value()
+                    .downcast::<PyTuple>()
+                    .expect("Stack value for defaults expected to be a tuple"),
+            )
+        } else {
+            None
+        };
+
+        // pop argc arguments
+        // argument: name, args, globals
+        let scope = self.scope.clone();
+        let func_obj = vm
+            .ctx
+            .new_function(code_obj, scope, defaults, kw_only_defaults);
+
+        let name = qualified_name.value.split('.').next_back().unwrap();
+        vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_string()))?;
+        vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
+        let module = self
+            .scope
+            .globals
+            .get_item_option("__name__", vm)?
+            .unwrap_or_else(|| vm.get_none());
+        vm.set_attr(&func_obj, "__module__", module)?;
+        vm.set_attr(&func_obj, "__annotations__", annotations)?;
+
+        self.push_value(func_obj);
+        Ok(None)
+    }
+
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_binop(
         &self,
@@ -1011,37 +1012,42 @@ impl Frame {
     ) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
-        let value = match *op {
-            bytecode::BinaryOperator::Subtract if inplace => vm._isub(a_ref, b_ref),
-            bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
-            bytecode::BinaryOperator::Add if inplace => vm._iadd(a_ref, b_ref),
-            bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
-            bytecode::BinaryOperator::Multiply if inplace => vm._imul(a_ref, b_ref),
-            bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
-            bytecode::BinaryOperator::MatrixMultiply if inplace => vm._imatmul(a_ref, b_ref),
-            bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
-            bytecode::BinaryOperator::Power if inplace => vm._ipow(a_ref, b_ref),
-            bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
-            bytecode::BinaryOperator::Divide if inplace => vm._itruediv(a_ref, b_ref),
-            bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
-            bytecode::BinaryOperator::FloorDivide if inplace => vm._ifloordiv(a_ref, b_ref),
-            bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
-            // TODO: Subscript should probably have its own op
-            bytecode::BinaryOperator::Subscript if inplace => unreachable!(),
-            bytecode::BinaryOperator::Subscript => a_ref.get_item(b_ref, vm),
-            bytecode::BinaryOperator::Modulo if inplace => vm._imod(a_ref, b_ref),
-            bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
-            bytecode::BinaryOperator::Lshift if inplace => vm._ilshift(a_ref, b_ref),
-            bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
-            bytecode::BinaryOperator::Rshift if inplace => vm._irshift(a_ref, b_ref),
-            bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
-            bytecode::BinaryOperator::Xor if inplace => vm._ixor(a_ref, b_ref),
-            bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
-            bytecode::BinaryOperator::Or if inplace => vm._ior(a_ref, b_ref),
-            bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
-            bytecode::BinaryOperator::And if inplace => vm._iand(a_ref, b_ref),
-            bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
-        }?;
+        let value = if inplace {
+            match *op {
+                bytecode::BinaryOperator::Subtract => vm._isub(a_ref, b_ref),
+                bytecode::BinaryOperator::Add => vm._iadd(a_ref, b_ref),
+                bytecode::BinaryOperator::Multiply => vm._imul(a_ref, b_ref),
+                bytecode::BinaryOperator::MatrixMultiply => vm._imatmul(a_ref, b_ref),
+                bytecode::BinaryOperator::Power => vm._ipow(a_ref, b_ref),
+                bytecode::BinaryOperator::Divide => vm._itruediv(a_ref, b_ref),
+                bytecode::BinaryOperator::FloorDivide => vm._ifloordiv(a_ref, b_ref),
+                bytecode::BinaryOperator::Subscript => unreachable!(),
+                bytecode::BinaryOperator::Modulo => vm._imod(a_ref, b_ref),
+                bytecode::BinaryOperator::Lshift => vm._ilshift(a_ref, b_ref),
+                bytecode::BinaryOperator::Rshift => vm._irshift(a_ref, b_ref),
+                bytecode::BinaryOperator::Xor => vm._ixor(a_ref, b_ref),
+                bytecode::BinaryOperator::Or => vm._ior(a_ref, b_ref),
+                bytecode::BinaryOperator::And => vm._iand(a_ref, b_ref),
+            }?
+        } else {
+            match *op {
+                bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
+                bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
+                bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
+                bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
+                bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
+                bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
+                bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
+                // TODO: Subscript should probably have its own op
+                bytecode::BinaryOperator::Subscript => a_ref.get_item(b_ref, vm),
+                bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
+                bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
+                bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
+                bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
+                bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
+                bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
+            }?
+        };
 
         self.push_value(value);
         Ok(None)
@@ -1177,7 +1183,7 @@ impl Frame {
     }
 
     fn nth_value(&self, depth: usize) -> PyObjectRef {
-        let stack = self.stack.borrow_mut();
+        let stack = self.stack.borrow();
         stack[stack.len() - depth - 1].clone()
     }
 
