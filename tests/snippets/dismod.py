@@ -10,7 +10,7 @@ dis.dis(compile("f(x=1, y=2)", "", "eval"))
 print("\n")
 
 def f():
-    with g():
+    with g():  # noqa: F821
         try:
             for a in {1: 4, 2: 5}:
                 yield [True and False or True, []]
@@ -21,7 +21,7 @@ dis.dis(f)
 
 class A(object):
     def f():
-        x += 1
+        x += 1  # noqa: F821
         pass
     def g():
         for i in range(5):

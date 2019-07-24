@@ -15,7 +15,7 @@ except ZeroDivisionError as ex:
 
 class E(Exception):
     def __init__(self):
-        asdf
+        asdf  # noqa: F821
 
 try:
     raise E

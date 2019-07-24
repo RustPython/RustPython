@@ -6,7 +6,7 @@ with assertRaises(AttributeError):
     __builtins__.__builtins__
 
 __builtins__.x = 'new'
-assert x == 'new'
+assert x == 'new'  # noqa: F821
 
 exec('assert "__builtins__" in globals()', dict())
 exec('assert __builtins__ == 7', {'__builtins__': 7})
@@ -23,6 +23,6 @@ assert namespace['__builtins__'] == __builtins__.__dict__
 # __builtins__ is deletable but names are alive
 del __builtins__
 with assertRaises(NameError):
-    __builtins__
+    __builtins__  # noqa: F821
 
 assert print
