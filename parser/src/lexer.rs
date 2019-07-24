@@ -1157,9 +1157,12 @@ where
                     self.emit((tok_start, Tok::Newline, tok_end));
                 }
             }
-            ' ' => {
+            ' ' | '\t' => {
                 // Skip whitespaces
                 self.next_char();
+                while self.chr0 == Some(' ') || self.chr0 == Some('\t') {
+                    self.next_char();
+                }
             }
             _ => {
                 let c = self.next_char();
