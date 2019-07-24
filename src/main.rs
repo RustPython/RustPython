@@ -85,6 +85,11 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
                 .help("don't imply 'import site' on initialization"),
         )
         .arg(
+            Arg::with_name("dont-write-bytecode")
+                .short("B")
+                .help("don't write .pyc files on import"),
+        )
+        .arg(
             Arg::with_name("ignore-environment")
                 .short("E")
                 .help("Ignore environment variables PYTHON* such as PYTHONPATH"),
@@ -169,6 +174,12 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
 
     if matches.is_present("quiet") {
         settings.quiet = true;
+    }
+
+    if matches.is_present("dont-write-bytecode")
+        || (!ignore_environment && env::var_os("PYTHONDONTWRITEBYTECODE").is_some())
+    {
+        settings.dont_write_bytecode = true;
     }
 
     settings
