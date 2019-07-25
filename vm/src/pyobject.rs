@@ -146,6 +146,7 @@ pub struct PyContext {
     pub none: PyNoneRef,
     pub ellipsis: PyEllipsisRef,
     pub not_implemented: PyNotImplementedRef,
+    pub empty_tuple: PyTupleRef,
     pub tuple_type: PyClassRef,
     pub tupleiterator_type: PyClassRef,
     pub set_type: PyClassRef,
@@ -324,6 +325,9 @@ impl PyContext {
 
         let true_value = create_object(PyInt::new(BigInt::one()), &bool_type);
         let false_value = create_object(PyInt::new(BigInt::zero()), &bool_type);
+
+        let empty_tuple = create_object(PyTuple::from(vec![]), &tuple_type);
+
         let context = PyContext {
             bool_type,
             memoryview_type,
@@ -382,6 +386,7 @@ impl PyContext {
             weakproxy_type,
             type_type,
             exceptions,
+            empty_tuple,
         };
         objtype::init(&context);
         objlist::init(&context);
@@ -645,7 +650,11 @@ impl PyContext {
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(PyTuple::from(elements), self.tuple_type(), None)
+        if elements.is_empty() {
+            self.empty_tuple.clone().into_object()
+        } else {
+            PyObject::new(PyTuple::from(elements), self.tuple_type(), None)
+        }
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
