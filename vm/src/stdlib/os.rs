@@ -6,6 +6,8 @@ use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
 use bitflags::bitflags;
+use nix::errno::Errno;
+use nix::unistd::{self, Gid, Pid, Uid};
 use num_traits::cast::ToPrimitive;
 
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
@@ -172,6 +174,41 @@ fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
             .unwrap();
     }
     os_error
+}
+
+fn convert_nix_error(vm: &VirtualMachine, err: nix::Error) -> PyObjectRef {
+    let nix_error = match err {
+        nix::Error::InvalidPath => {
+            let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
+            vm.new_exception(exc_type, err.to_string())
+        }
+        nix::Error::InvalidUtf8 => {
+            let exc_type = vm.ctx.exceptions.unicode_error.clone();
+            vm.new_exception(exc_type, err.to_string())
+        }
+        nix::Error::UnsupportedOperation => {
+            let exc_type = vm.ctx.exceptions.runtime_error.clone();
+            vm.new_exception(exc_type, err.to_string())
+        }
+        nix::Error::Sys(errno) => {
+            let exc_type = convert_nix_errno(vm, errno);
+            vm.new_exception(exc_type, err.to_string())
+        }
+    };
+
+    if let nix::Error::Sys(errno) = err {
+        vm.set_attr(&nix_error, "errno", vm.ctx.new_int(errno as i32))
+            .unwrap();
+    }
+
+    nix_error
+}
+
+fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
+    match errno {
+        Errno::EPERM => vm.ctx.exceptions.permission_error.clone(),
+        _ => vm.ctx.exceptions.os_error.clone(),
+    }
 }
 
 fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -709,6 +746,105 @@ fn os_rename(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResul
     fs::rename(&src.value, &dst.value).map_err(|err| convert_io_error(vm, err))
 }
 
+fn os_getpid(vm: &VirtualMachine) -> PyObjectRef {
+    let pid = std::process::id();
+    vm.new_int(pid)
+}
+
+#[cfg(unix)]
+fn os_getppid(vm: &VirtualMachine) -> PyObjectRef {
+    let ppid = unistd::getppid().as_raw();
+    vm.new_int(ppid)
+}
+
+#[cfg(unix)]
+fn os_getgid(vm: &VirtualMachine) -> PyObjectRef {
+    let gid = unistd::getgid().as_raw();
+    vm.new_int(gid)
+}
+
+#[cfg(unix)]
+fn os_getegid(vm: &VirtualMachine) -> PyObjectRef {
+    let egid = unistd::getegid().as_raw();
+    vm.new_int(egid)
+}
+
+#[cfg(unix)]
+fn os_getpgid(pid: PyIntRef, vm: &VirtualMachine) -> PyObjectRef {
+    let pid = pid.as_bigint().to_u32().unwrap();
+
+    match unistd::getpgid(Some(Pid::from_raw(pid as i32))) {
+        Ok(pgid) => vm.new_int(pgid.as_raw()),
+        Err(err) => convert_nix_error(vm, err),
+    }
+}
+
+#[cfg(unix)]
+fn os_getsid(pid: PyIntRef, vm: &VirtualMachine) -> PyObjectRef {
+    let pid = pid.as_bigint().to_u32().unwrap();
+
+    match unistd::getsid(Some(Pid::from_raw(pid as i32))) {
+        Ok(sid) => vm.new_int(sid.as_raw()),
+        Err(err) => convert_nix_error(vm, err),
+    }
+}
+
+#[cfg(unix)]
+fn os_getuid(vm: &VirtualMachine) -> PyObjectRef {
+    let uid = unistd::getuid().as_raw();
+    vm.new_int(uid)
+}
+
+#[cfg(unix)]
+fn os_geteuid(vm: &VirtualMachine) -> PyObjectRef {
+    let euid = unistd::geteuid().as_raw();
+    vm.new_int(euid)
+}
+
+#[cfg(unix)]
+fn os_setgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    let gid = gid.as_bigint().to_u32().unwrap();
+
+    unistd::setgid(Gid::from_raw(gid)).map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(unix)]
+fn os_setegid(egid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    let egid = egid.as_bigint().to_u32().unwrap();
+
+    unistd::setegid(Gid::from_raw(egid)).map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(unix)]
+fn os_setpgid(pid: PyIntRef, pgid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    let pid = pid.as_bigint().to_u32().unwrap();
+    let pgid = pgid.as_bigint().to_u32().unwrap();
+
+    unistd::setpgid(Pid::from_raw(pid as i32), Pid::from_raw(pgid as i32))
+        .map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(unix)]
+fn os_setsid(vm: &VirtualMachine) -> PyResult<()> {
+    unistd::setsid()
+        .map(|_ok| ())
+        .map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(unix)]
+fn os_setuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    let uid = uid.as_bigint().to_u32().unwrap();
+
+    unistd::setuid(Uid::from_raw(uid)).map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(unix)]
+fn os_seteuid(euid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    let euid = euid.as_bigint().to_u32().unwrap();
+
+    unistd::seteuid(Uid::from_raw(euid)).map_err(|err| convert_nix_error(vm, err))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -832,6 +968,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "R_OK" => ctx.new_int(4),
         "W_OK" => ctx.new_int(2),
         "X_OK" => ctx.new_int(1),
+        "getpid" => ctx.new_rustfunc(os_getpid)
     });
 
     for support in support_funcs {
@@ -862,6 +999,24 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "supports_dir_fd" => supports_dir_fd.into_object(),
         "supports_follow_symlinks" => supports_follow_symlinks.into_object(),
     });
+
+    if cfg!(unix) {
+        extend_module!(vm, module, {
+            "getppid" => ctx.new_rustfunc(os_getppid),
+            "getgid" => ctx.new_rustfunc(os_getgid),
+            "getegid" => ctx.new_rustfunc(os_getegid),
+            "getpgid" => ctx.new_rustfunc(os_getpgid),
+            "getsid" => ctx.new_rustfunc(os_getsid),
+            "getuid" => ctx.new_rustfunc(os_getuid),
+            "geteuid" => ctx.new_rustfunc(os_geteuid),
+            "setgid" => ctx.new_rustfunc(os_setgid),
+            "setegid" => ctx.new_rustfunc(os_setegid),
+            "setpgid" => ctx.new_rustfunc(os_setpgid),
+            "setsid" => ctx.new_rustfunc(os_setsid),
+            "setuid" => ctx.new_rustfunc(os_setuid),
+            "seteuid" => ctx.new_rustfunc(os_seteuid),
+        });
+    }
 
     module
 }

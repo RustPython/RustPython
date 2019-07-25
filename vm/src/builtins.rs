@@ -887,6 +887,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "FileExistsError" => ctx.exceptions.file_exists_error.clone(),
         "StopIteration" => ctx.exceptions.stop_iteration.clone(),
         "SystemError" => ctx.exceptions.system_error.clone(),
+        "PermissionError" => ctx.exceptions.permission_error.clone(),
         "UnicodeError" => ctx.exceptions.unicode_error.clone(),
         "UnicodeDecodeError" => ctx.exceptions.unicode_decode_error.clone(),
         "UnicodeEncodeError" => ctx.exceptions.unicode_encode_error.clone(),
