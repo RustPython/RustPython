@@ -38,3 +38,9 @@ assert (foo,) == (foo,)
 a = (1, 2, 3)
 a += 1,
 assert a == (1, 2, 3, 1)
+
+assert () is ()
+
+a = ()
+b = ()
+assert a is b
