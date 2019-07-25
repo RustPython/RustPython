@@ -82,31 +82,31 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
             decorator_list => expressions_to_ast(vm, decorator_list)?,
         }),
         FunctionDef {
+            is_async,
             name,
             args,
             body,
             decorator_list,
             returns,
-        } => node!(vm, FunctionDef, {
-            name => vm.ctx.new_str(name.to_string()),
-            args => parameters_to_ast(vm, args)?,
-            body => statements_to_ast(vm, body)?,
-            decorator_list => expressions_to_ast(vm, decorator_list)?,
-            returns => optional_expression_to_ast(vm, returns)?
-        }),
-        AsyncFunctionDef {
-            name,
-            args,
-            body,
-            decorator_list,
-            returns,
-        } => node!(vm, AsyncFunctionDef, {
-            name => vm.ctx.new_str(name.to_string()),
-            args => parameters_to_ast(vm, args)?,
-            body => statements_to_ast(vm, body)?,
-            decorator_list => expressions_to_ast(vm, decorator_list)?,
-            returns => optional_expression_to_ast(vm, returns)?
-        }),
+        } => {
+            if *is_async {
+                node!(vm, AsyncFunctionDef, {
+                    name => vm.ctx.new_str(name.to_string()),
+                    args => parameters_to_ast(vm, args)?,
+                    body => statements_to_ast(vm, body)?,
+                    decorator_list => expressions_to_ast(vm, decorator_list)?,
+                    returns => optional_expression_to_ast(vm, returns)?
+                })
+            } else {
+                node!(vm, FunctionDef, {
+                    name => vm.ctx.new_str(name.to_string()),
+                    args => parameters_to_ast(vm, args)?,
+                    body => statements_to_ast(vm, body)?,
+                    decorator_list => expressions_to_ast(vm, decorator_list)?,
+                    returns => optional_expression_to_ast(vm, returns)?
+                })
+            }
+        }
         Continue => node!(vm, Continue),
         Break => node!(vm, Break),
         Pass => node!(vm, Pass),
@@ -131,36 +131,50 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
             orelse => optional_statements_to_ast(vm, orelse)?
         }),
         For {
+            is_async,
             target,
             iter,
             body,
             orelse,
-        } => node!(vm, For, {
-            target => expression_to_ast(vm, target)?,
-            iter => expression_to_ast(vm, iter)?,
-            body => statements_to_ast(vm, body)?,
-            orelse => optional_statements_to_ast(vm, orelse)?
-        }),
-        AsyncFor {
-            target,
-            iter,
-            body,
-            orelse,
-        } => node!(vm, AsyncFor, {
-            target => expression_to_ast(vm, target)?,
-            iter => expression_to_ast(vm, iter)?,
-            body => statements_to_ast(vm, body)?,
-            orelse => optional_statements_to_ast(vm, orelse)?
-        }),
+        } => {
+            if *is_async {
+                node!(vm, AsyncFor, {
+                    target => expression_to_ast(vm, target)?,
+                    iter => expression_to_ast(vm, iter)?,
+                    body => statements_to_ast(vm, body)?,
+                    orelse => optional_statements_to_ast(vm, orelse)?
+                })
+            } else {
+                node!(vm, For, {
+                    target => expression_to_ast(vm, target)?,
+                    iter => expression_to_ast(vm, iter)?,
+                    body => statements_to_ast(vm, body)?,
+                    orelse => optional_statements_to_ast(vm, orelse)?
+                })
+            }
+        }
         While { test, body, orelse } => node!(vm, While, {
             test => expression_to_ast(vm, test)?,
             body => statements_to_ast(vm, body)?,
             orelse => optional_statements_to_ast(vm, orelse)?
         }),
-        With { items, body } => node!(vm, With, {
-            items => map_ast(with_item_to_ast, vm, items)?,
-            body => statements_to_ast(vm, body)?
-        }),
+        With {
+            is_async,
+            items,
+            body,
+        } => {
+            if *is_async {
+                node!(vm, AsyncWith, {
+                    items => map_ast(with_item_to_ast, vm, items)?,
+                    body => statements_to_ast(vm, body)?
+                })
+            } else {
+                node!(vm, With, {
+                    items => map_ast(with_item_to_ast, vm, items)?,
+                    body => statements_to_ast(vm, body)?
+                })
+            }
+        }
         Try {
             body,
             handlers,
@@ -597,6 +611,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "AugAssign" => py_class!(ctx, "AugAssign", ast_base.clone(), {}),
         "AsyncFor" => py_class!(ctx, "AsyncFor", ast_base.clone(), {}),
         "AsyncFunctionDef" => py_class!(ctx, "AsyncFunctionDef", ast_base.clone(), {}),
+        "AsyncWith" => py_class!(ctx, "AsyncWith", ast_base.clone(), {}),
         "Assert" => py_class!(ctx, "Assert", ast_base.clone(), {}),
         "Attribute" => py_class!(ctx, "Attribute", ast_base.clone(), {}),
         "Await" => py_class!(ctx, "Await", ast_base.clone(), {}),

@@ -18,7 +18,7 @@ use std::path::Path;
 
 fn main() {
     env_logger::init();
-    let app = App::new("RustPython")
+    let app = App::new("parse_folders")
         .version(crate_version!())
         .author(crate_authors!())
         .about("Walks over all .py files in a folder, and parses them.")
@@ -53,7 +53,7 @@ fn parse_folder(path: &Path) -> std::io::Result<Vec<ast::Program>> {
             res.extend(x);
         }
 
-        if metadata.is_file() && path.extension().map(|s| s.to_str().unwrap()) == Some("py") {
+        if metadata.is_file() && path.extension().and_then(|s| s.to_str()) == Some("py") {
             match parse_python_file(&path) {
                 Ok(x) => res.push(x),
                 Err(y) => error!("Erreur in file {:?} {:?}", path, y),

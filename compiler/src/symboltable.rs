@@ -240,13 +240,7 @@ impl SymbolTableBuilder {
                 args,
                 decorator_list,
                 returns,
-            }
-            | AsyncFunctionDef {
-                name,
-                body,
-                args,
-                decorator_list,
-                returns,
+                ..
             } => {
                 self.scan_expressions(decorator_list)?;
                 self.register_name(name, SymbolRole::Assigned)?;
@@ -289,12 +283,7 @@ impl SymbolTableBuilder {
                 iter,
                 body,
                 orelse,
-            }
-            | AsyncFor {
-                target,
-                iter,
-                body,
-                orelse,
+                ..
             } => {
                 self.scan_expression(target)?;
                 self.scan_expression(iter)?;
@@ -346,7 +335,7 @@ impl SymbolTableBuilder {
                 self.scan_expression(target)?;
                 self.scan_expression(value)?;
             }
-            With { items, body } => {
+            With { items, body, .. } => {
                 for item in items {
                     self.scan_expression(&item.context_expr)?;
                     if let Some(expression) = &item.optional_vars {
