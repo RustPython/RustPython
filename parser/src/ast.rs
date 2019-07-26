@@ -94,16 +94,12 @@ pub enum StatementType {
         orelse: Option<Vec<Statement>>,
     },
     With {
+        is_async: bool,
         items: Vec<WithItem>,
         body: Vec<Statement>,
     },
     For {
-        target: Expression,
-        iter: Expression,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
-    },
-    AsyncFor {
+        is_async: bool,
         target: Expression,
         iter: Expression,
         body: Vec<Statement>,
@@ -127,13 +123,7 @@ pub enum StatementType {
         decorator_list: Vec<Expression>,
     },
     FunctionDef {
-        name: String,
-        args: Parameters,
-        body: Vec<Statement>,
-        decorator_list: Vec<Expression>,
-        returns: Option<Expression>,
-    },
-    AsyncFunctionDef {
+        is_async: bool,
         name: String,
         args: Parameters,
         body: Vec<Statement>,

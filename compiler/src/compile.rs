@@ -385,35 +385,47 @@ impl Compiler {
                 }
                 self.set_label(end_label);
             }
-            With { items, body } => {
-                let end_label = self.new_label();
-                for item in items {
-                    self.compile_expression(&item.context_expr)?;
-                    self.emit(Instruction::SetupWith { end: end_label });
-                    match &item.optional_vars {
-                        Some(var) => {
-                            self.compile_store(var)?;
-                        }
-                        None => {
-                            self.emit(Instruction::Pop);
+            With {
+                is_async,
+                items,
+                body,
+            } => {
+                if *is_async {
+                    unimplemented!("async with");
+                } else {
+                    let end_label = self.new_label();
+                    for item in items {
+                        self.compile_expression(&item.context_expr)?;
+                        self.emit(Instruction::SetupWith { end: end_label });
+                        match &item.optional_vars {
+                            Some(var) => {
+                                self.compile_store(var)?;
+                            }
+                            None => {
+                                self.emit(Instruction::Pop);
+                            }
                         }
                     }
-                }
 
-                self.compile_statements(body)?;
-                for _ in 0..items.len() {
-                    self.emit(Instruction::CleanupWith { end: end_label });
+                    self.compile_statements(body)?;
+                    for _ in 0..items.len() {
+                        self.emit(Instruction::CleanupWith { end: end_label });
+                    }
+                    self.set_label(end_label);
                 }
-                self.set_label(end_label);
             }
             For {
+                is_async,
                 target,
                 iter,
                 body,
                 orelse,
-            } => self.compile_for(target, iter, body, orelse)?,
-            AsyncFor { .. } => {
-                unimplemented!("async for");
+            } => {
+                if *is_async {
+                    unimplemented!("async for");
+                } else {
+                    self.compile_for(target, iter, body, orelse)?
+                }
             }
             Raise { exception, cause } => match exception {
                 Some(value) => {
@@ -439,14 +451,18 @@ impl Compiler {
                 finalbody,
             } => self.compile_try_statement(body, handlers, orelse, finalbody)?,
             FunctionDef {
+                is_async,
                 name,
                 args,
                 body,
                 decorator_list,
                 returns,
-            } => self.compile_function_def(name, args, body, decorator_list, returns)?,
-            AsyncFunctionDef { .. } => {
-                unimplemented!("async def");
+            } => {
+                if *is_async {
+                    unimplemented!("async def");
+                } else {
+                    self.compile_function_def(name, args, body, decorator_list, returns)?
+                }
             }
             ClassDef {
                 name,

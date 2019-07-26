@@ -694,6 +694,13 @@ where
                     spaces = 0;
                     tabs = 0;
                 }
+                Some('\x0C') => {
+                    // Form feed character!
+                    // Reset indentation for the Emacs user.
+                    self.next_char();
+                    spaces = 0;
+                    tabs = 0;
+                }
                 Some('\n') => {
                     // Empty line!
                     self.next_char();
@@ -1157,9 +1164,13 @@ where
                     self.emit((tok_start, Tok::Newline, tok_end));
                 }
             }
-            ' ' => {
+            ' ' | '\t' | '\x0C' => {
                 // Skip whitespaces
                 self.next_char();
+                while self.chr0 == Some(' ') || self.chr0 == Some('\t') || self.chr0 == Some('\x0C')
+                {
+                    self.next_char();
+                }
             }
             _ => {
                 let c = self.next_char();

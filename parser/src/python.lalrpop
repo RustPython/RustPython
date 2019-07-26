@@ -334,14 +334,11 @@ WhileStatement: ast::Statement = {
 
 ForStatement: ast::Statement = {
     <location:@L> <is_async:"async"?> "for" <target:ExpressionList> "in" <iter:TestList> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
+        let is_async = is_async.is_some();
         let orelse = s2.map(|s| s.2);
         ast::Statement {
             location,
-            node: if is_async.is_some() {
-                ast::StatementType::AsyncFor { target, iter, body, orelse }
-            } else {
-                ast::StatementType::For { target, iter, body, orelse }
-            },
+            node: ast::StatementType::For { is_async, target, iter, body, orelse },
         }
     },
 };
@@ -380,10 +377,11 @@ ExceptClause: ast::ExceptHandler = {
 };
 
 WithStatement: ast::Statement = {
-    <location:@L> "with" <items:OneOrMore<WithItem>> ":" <s:Suite> => {
+    <location:@L> <is_async:"async"?> "with" <items:OneOrMore<WithItem>> ":" <body:Suite> => {
+        let is_async = is_async.is_some();
         ast::Statement {
             location,
-            node: ast::StatementType::With { items: items, body: s },
+            node: ast::StatementType::With { is_async, items, body },
         }
     },
 };
@@ -396,26 +394,18 @@ WithItem: ast::WithItem = {
 };
 
 FuncDef: ast::Statement = {
-    <d:Decorator*> <location:@L> <is_async:"async"?> "def" <i:Identifier> <a:Parameters> <r:("->" Test)?> ":" <s:Suite> => {
+    <d:Decorator*> <location:@L> <is_async:"async"?> "def" <name:Identifier> <a:Parameters> <r:("->" Test)?> ":" <body:Suite> => {
+        let is_async = is_async.is_some();
         ast::Statement {
             location,
-            node: if is_async.is_some() {
-                    ast::StatementType::AsyncFunctionDef {
-                        name: i,
-                        args: a,
-                        body: s,
-                        decorator_list: d,
-                        returns: r.map(|x| x.1),
-                    }
-                } else {
-                    ast::StatementType::FunctionDef {
-                        name: i,
-                        args: a,
-                        body: s,
-                        decorator_list: d,
-                        returns: r.map(|x| x.1),
-                    }
-                }
+            node: ast::StatementType::FunctionDef {
+                is_async,
+                name,
+                args: a,
+                body,
+                decorator_list: d,
+                returns: r.map(|x| x.1),
+            }
         }
     },
 };

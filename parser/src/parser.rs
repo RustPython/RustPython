@@ -306,6 +306,7 @@ mod tests {
                         ast::Statement {
                             location: ast::Location::new(2, 2),
                             node: ast::StatementType::FunctionDef {
+                                is_async: false,
                                 name: String::from("__init__"),
                                 args: ast::Parameters {
                                     args: vec![ast::Parameter {
@@ -329,6 +330,7 @@ mod tests {
                         ast::Statement {
                             location: ast::Location::new(4, 2),
                             node: ast::StatementType::FunctionDef {
+                                is_async: false,
                                 name: String::from("method_with_default"),
                                 args: ast::Parameters {
                                     args: vec![
