@@ -1,3 +1,9 @@
+before_cache: |
+  if command -v cargo; then
+    ! command -v cargo-sweep && cargo install cargo-sweep
+    cargo sweep -i
+    cargo sweep -t 15
+  fi
 
 matrix:
   fast_finish: true
@@ -56,7 +62,9 @@ matrix:
       cache: pip
       env: JOBCACHE=9
       install: pip install flake8
-      script: flake8 . --count --exclude=./.*,./Lib,./vm/Lib  --select=E9,F63,F7,F82 --show-source --statistics
+      script:
+        flake8 . --count --exclude=./.*,./Lib,./vm/Lib  --select=E9,F63,F7,F82
+        --show-source --statistics
 
     - name: Publish documentation
       language: rust
