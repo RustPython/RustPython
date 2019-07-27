@@ -476,3 +476,8 @@ impl fmt::Debug for CodeObject {
         )
     }
 }
+
+pub struct FrozenModule {
+    pub code: CodeObject,
+    pub package: bool,
+}

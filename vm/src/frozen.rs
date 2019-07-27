@@ -1,7 +1,7 @@
-use crate::bytecode::CodeObject;
+use crate::bytecode::FrozenModule;
 use std::collections::HashMap;
 
-pub fn get_module_inits() -> HashMap<String, CodeObject> {
+pub fn get_module_inits() -> HashMap<String, FrozenModule> {
     let mut modules = HashMap::new();
     modules.extend(py_compile_bytecode!(
         source = "initialized = True; print(\"Hello world!\")\n",
