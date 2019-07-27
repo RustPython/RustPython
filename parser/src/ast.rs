@@ -14,6 +14,7 @@ pub struct Node {
 }
 */
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
 pub enum Top {
     Program(Program),
@@ -41,7 +42,6 @@ pub struct Located<T> {
 pub type Statement = Located<StatementType>;
 
 /// Abstract syntax tree nodes for python statements.
-#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
 pub enum StatementType {
     Break,
@@ -100,8 +100,8 @@ pub enum StatementType {
     },
     For {
         is_async: bool,
-        target: Expression,
-        iter: Expression,
+        target: Box<Expression>,
+        iter: Box<Expression>,
         body: Vec<Statement>,
         orelse: Option<Vec<Statement>>,
     },
@@ -125,7 +125,7 @@ pub enum StatementType {
     FunctionDef {
         is_async: bool,
         name: String,
-        args: Parameters,
+        args: Box<Parameters>,
         body: Vec<Statement>,
         decorator_list: Vec<Expression>,
         returns: Option<Expression>,
@@ -217,7 +217,7 @@ pub enum ExpressionType {
         name: String,
     },
     Lambda {
-        args: Parameters,
+        args: Box<Parameters>,
         body: Box<Expression>,
     },
     IfExpression {
@@ -293,6 +293,7 @@ pub struct Parameters {
 
 #[derive(Debug, PartialEq, Default)]
 pub struct Parameter {
+    pub location: Location,
     pub arg: String,
     pub annotation: Option<Box<Expression>>,
 }
@@ -308,6 +309,7 @@ pub enum ComprehensionKind {
 
 #[derive(Debug, PartialEq)]
 pub struct Comprehension {
+    pub location: Location,
     pub target: Expression,
     pub iter: Expression,
     pub ifs: Vec<Expression>,
@@ -321,6 +323,7 @@ pub struct Keyword {
 
 #[derive(Debug, PartialEq)]
 pub struct ExceptHandler {
+    pub location: Location,
     pub typ: Option<Expression>,
     pub name: Option<String>,
     pub body: Vec<Statement>,

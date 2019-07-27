@@ -233,13 +233,15 @@ mod tests {
             Ok(vec![as_statement(ast::Expression {
                 location: ast::Location::new(1, 1),
                 node: ast::ExpressionType::Lambda {
-                    args: ast::Parameters {
+                    args: Box::new(ast::Parameters {
                         args: vec![
                             ast::Parameter {
+                                location: ast::Location::new(1, 8),
                                 arg: String::from("x"),
                                 annotation: None,
                             },
                             ast::Parameter {
+                                location: ast::Location::new(1, 11),
                                 arg: String::from("y"),
                                 annotation: None,
                             }
@@ -249,7 +251,7 @@ mod tests {
                         kwarg: ast::Varargs::None,
                         defaults: vec![],
                         kw_defaults: vec![],
-                    },
+                    }),
                     body: Box::new(ast::Expression {
                         location: ast::Location::new(1, 16),
                         node: ast::ExpressionType::Binop {
@@ -308,8 +310,9 @@ mod tests {
                             node: ast::StatementType::FunctionDef {
                                 is_async: false,
                                 name: String::from("__init__"),
-                                args: ast::Parameters {
+                                args: Box::new(ast::Parameters {
                                     args: vec![ast::Parameter {
+                                        location: ast::Location::new(2, 15),
                                         arg: String::from("self"),
                                         annotation: None,
                                     }],
@@ -318,7 +321,7 @@ mod tests {
                                     kwarg: ast::Varargs::None,
                                     defaults: vec![],
                                     kw_defaults: vec![],
-                                },
+                                }),
                                 body: vec![ast::Statement {
                                     location: ast::Location::new(3, 3),
                                     node: ast::StatementType::Pass,
@@ -332,13 +335,15 @@ mod tests {
                             node: ast::StatementType::FunctionDef {
                                 is_async: false,
                                 name: String::from("method_with_default"),
-                                args: ast::Parameters {
+                                args: Box::new(ast::Parameters {
                                     args: vec![
                                         ast::Parameter {
+                                            location: ast::Location::new(4, 26),
                                             arg: String::from("self"),
                                             annotation: None,
                                         },
                                         ast::Parameter {
+                                            location: ast::Location::new(4, 32),
                                             arg: String::from("arg"),
                                             annotation: None,
                                         }
@@ -348,7 +353,7 @@ mod tests {
                                     kwarg: ast::Varargs::None,
                                     defaults: vec![make_string("default", 4, 37)],
                                     kw_defaults: vec![],
-                                },
+                                }),
                                 body: vec![ast::Statement {
                                     location: ast::Location::new(5, 3),
                                     node: ast::StatementType::Pass,
@@ -377,6 +382,7 @@ mod tests {
                         element: mk_ident("x", 1, 2),
                     }),
                     generators: vec![ast::Comprehension {
+                        location: ast::Location::new(1, 4),
                         target: mk_ident("y", 1, 8),
                         iter: mk_ident("z", 1, 13),
                         ifs: vec![],
@@ -400,6 +406,7 @@ mod tests {
                     }),
                     generators: vec![
                         ast::Comprehension {
+                            location: ast::Location::new(1, 4),
                             target: ast::Expression {
                                 location: ast::Location::new(1, 8),
                                 node: ast::ExpressionType::Tuple {
@@ -410,6 +417,7 @@ mod tests {
                             ifs: vec![],
                         },
                         ast::Comprehension {
+                            location: ast::Location::new(1, 19),
                             target: mk_ident("a", 1, 23),
                             iter: mk_ident("b", 1, 28),
                             ifs: vec![
