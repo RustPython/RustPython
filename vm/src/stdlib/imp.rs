@@ -57,7 +57,7 @@ fn imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyC
         .borrow()
         .get(name.as_str())
         .map(|frozen| {
-            let mut frozen = frozen.clone();
+            let mut frozen = frozen.code.clone();
             frozen.source_path = format!("frozen {}", name.as_str());
             PyCode::new(frozen)
         })
@@ -70,9 +70,14 @@ fn imp_init_frozen(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
     import::import_frozen(vm, name.as_str())
 }
 
-fn imp_is_frozen_package(_name: PyStringRef, _vm: &VirtualMachine) -> bool {
-    // TODO: Support frozen package.
-    false
+fn imp_is_frozen_package(name: PyStringRef, vm: &VirtualMachine) -> PyResult<bool> {
+    vm.frozen
+        .borrow()
+        .get(name.as_str())
+        .map(|frozen| frozen.package)
+        .ok_or_else(|| {
+            vm.new_import_error(format!("No such frozen object named {}", name.as_str()))
+        })
 }
 
 fn imp_fix_co_filename(_code: PyObjectRef, _path: PyStringRef, _vm: &VirtualMachine) {

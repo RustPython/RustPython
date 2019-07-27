@@ -17,7 +17,7 @@ use crate::{extract_spans, Diagnostic};
 use bincode;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
-use rustpython_bytecode::bytecode::CodeObject;
+use rustpython_bytecode::bytecode::{CodeObject, FrozenModule};
 use rustpython_compiler::compile;
 use std::collections::HashMap;
 use std::env;
@@ -52,7 +52,7 @@ impl CompilationSource {
         &self,
         mode: &compile::Mode,
         module_name: String,
-    ) -> Result<HashMap<String, CodeObject>, Diagnostic> {
+    ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         Ok(match &self.kind {
             CompilationSourceKind::File(rel_path) => {
                 let mut path = PathBuf::from(
@@ -65,10 +65,20 @@ impl CompilationSource {
                         format!("Error reading file {:?}: {}", path, err),
                     )
                 })?;
-                hashmap! {module_name.clone() => self.compile_string(&source, mode, module_name.clone())?}
+                hashmap! {
+                    module_name.clone() => FrozenModule {
+                        code: self.compile_string(&source, mode, module_name.clone())?,
+                        package: false,
+                    },
+                }
             }
             CompilationSourceKind::SourceCode(code) => {
-                hashmap! {module_name.clone() => self.compile_string(code, mode, module_name.clone())?}
+                hashmap! {
+                    module_name.clone() => FrozenModule {
+                        code: self.compile_string(code, mode, module_name.clone())?,
+                        package: false,
+                    },
+                }
             }
             CompilationSourceKind::Dir(rel_path) => {
                 let mut path = PathBuf::from(
@@ -85,7 +95,7 @@ impl CompilationSource {
         path: &Path,
         parent: String,
         mode: &compile::Mode,
-    ) -> Result<HashMap<String, CodeObject>, Diagnostic> {
+    ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         let mut code_map = HashMap::new();
         let paths = fs::read_dir(&path).map_err(|err| {
             Diagnostic::spans_error(self.span, format!("Error listing dir {:?}: {}", path, err))
@@ -95,11 +105,13 @@ impl CompilationSource {
                 Diagnostic::spans_error(self.span, format!("Failed to list file: {}", err))
             })?;
             let path = path.path();
-            let file_name = path.file_name().unwrap().to_str().unwrap();
+            let file_name = path.file_name().unwrap().to_str().ok_or_else(|| {
+                Diagnostic::spans_error(self.span, format!("Invalid UTF-8 in file name {:?}", path))
+            })?;
             if path.is_dir() {
                 code_map.extend(self.compile_dir(
                     &path,
-                    format!("{}{}.", parent, file_name),
+                    format!("{}{}", parent, file_name),
                     mode,
                 )?);
             } else if file_name.ends_with(".py") {
@@ -109,11 +121,21 @@ impl CompilationSource {
                         format!("Error reading file {:?}: {}", path, err),
                     )
                 })?;
-                let file_name_splitte: Vec<&str> = file_name.splitn(2, '.').collect();
-                let module_name = format!("{}{}", parent, file_name_splitte[0]);
+                let stem = path.file_stem().unwrap().to_str().unwrap();
+                let is_init = stem == "__init__";
+                let module_name = if is_init {
+                    parent.clone()
+                } else if parent.is_empty() {
+                    stem.to_string()
+                } else {
+                    format!("{}.{}", parent, stem)
+                };
                 code_map.insert(
                     module_name.clone(),
-                    self.compile_string(&source, mode, module_name)?,
+                    FrozenModule {
+                        code: self.compile_string(&source, mode, module_name)?,
+                        package: is_init,
+                    },
                 );
             }
         }
@@ -128,7 +150,7 @@ struct PyCompileInput {
 }
 
 impl PyCompileInput {
-    fn compile(&self) -> Result<HashMap<String, CodeObject>, Diagnostic> {
+    fn compile(&self) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         let mut module_name = None;
         let mut mode = None;
         let mut source: Option<CompilationSource> = None;
@@ -225,13 +247,21 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
 
     let code_map = input.compile()?;
 
-    let modules = code_map.iter().map(|(module_name, code_obj)| {
-        let module_name = LitStr::new(&module_name, Span::call_site());
-        let bytes = bincode::serialize(&code_obj).expect("Failed to serialize");
-        let bytes = LitByteStr::new(&bytes, Span::call_site());
-        quote! {  #module_name.into() => bincode::deserialize::<::rustpython_vm::bytecode::CodeObject>(#bytes)
-                .expect("Deserializing CodeObject failed") }
-    });
+    let modules = code_map
+        .into_iter()
+        .map(|(module_name, FrozenModule { code, package })| {
+            let module_name = LitStr::new(&module_name, Span::call_site());
+            let bytes = bincode::serialize(&code).expect("Failed to serialize");
+            let bytes = LitByteStr::new(&bytes, Span::call_site());
+            quote! {
+                #module_name.into() => ::rustpython_vm::bytecode::FrozenModule {
+                    code: bincode::deserialize::<::rustpython_vm::bytecode::CodeObject>(
+                        #bytes
+                    ).expect("Deserializing CodeObject failed"),
+                    package: #package,
+                }
+            }
+        });
 
     let output = quote! {
         ({

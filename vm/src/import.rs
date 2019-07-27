@@ -43,7 +43,7 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
         .borrow()
         .get(module_name)
         .ok_or_else(|| vm.new_import_error(format!("Cannot import frozen module {}", module_name)))
-        .and_then(|frozen| import_codeobj(vm, module_name, frozen.clone(), false))
+        .and_then(|frozen| import_codeobj(vm, module_name, frozen.code.clone(), false))
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
