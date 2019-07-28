@@ -66,7 +66,7 @@ fn object_setattr(
     value: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
+    vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
     let cls = obj.class();
 
     if let Some(attr) = objtype::class_get_attr(&cls, &attr_name.value) {
@@ -220,7 +220,7 @@ fn object_dict_setter(
 
 fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMachine) -> PyResult {
     let name = &name_str.value;
-    trace!("object.__getattribute__({:?}, {:?})", obj, name);
+    vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
     let cls = obj.class();
 
     if let Some(attr) = objtype::class_get_attr(&cls, &name) {

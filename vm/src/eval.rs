@@ -1,5 +1,5 @@
-use crate::frame::Scope;
 use crate::pyobject::PyResult;
+use crate::scope::Scope;
 use crate::vm::VirtualMachine;
 use rustpython_compiler::compile;
 
@@ -13,6 +13,17 @@ pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) 
     }
 }
 
+pub fn get_compile_mode(vm: &VirtualMachine, mode: &str) -> PyResult<compile::Mode> {
+    match mode {
+        "exec" => Ok(compile::Mode::Exec),
+        "eval" => Ok(compile::Mode::Eval),
+        "single" => Ok(compile::Mode::Single),
+        _ => {
+            Err(vm.new_value_error("compile() mode must be 'exec', 'eval' or 'single'".to_string()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::eval;
@@ -20,10 +31,10 @@ mod tests {
 
     #[test]
     fn test_print_42() {
-        let source = String::from("print('Hello world')\n");
-        let mut vm = VirtualMachine::new();
+        let source = String::from("print('Hello world')");
+        let vm: VirtualMachine = Default::default();
         let vars = vm.new_scope_with_builtins();
-        let _result = eval(&mut vm, &source, vars, "<unittest>");
+        let _result = eval(&vm, &source, vars, "<unittest>");
 
         // TODO: check result?
         //assert_eq!(

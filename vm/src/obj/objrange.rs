@@ -78,7 +78,7 @@ impl PyRange {
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
 
-        let index = if index < &BigInt::zero() {
+        let index = if *index < BigInt::zero() {
             let index = stop + index;
             if index < BigInt::zero() {
                 return None;
@@ -90,8 +90,8 @@ impl PyRange {
 
         let result = start + step * &index;
 
-        if (self.forward() && !self.is_empty() && &result < stop)
-            || (!self.forward() && !self.is_empty() && &result > stop)
+        if (self.forward() && !self.is_empty() && result < *stop)
+            || (!self.forward() && !self.is_empty() && result > *stop)
         {
             Some(result)
         } else {
@@ -243,6 +243,26 @@ impl PyRange {
         } else {
             false
         }
+    }
+
+    #[pymethod(name = "__lt__")]
+    fn lt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
+    }
+
+    #[pymethod(name = "__gt__")]
+    fn gt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
+    }
+
+    #[pymethod(name = "__ge__")]
+    fn ge(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
+    }
+
+    #[pymethod(name = "__le__")]
+    fn le(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
     }
 
     #[pymethod(name = "index")]

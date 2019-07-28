@@ -1,8 +1,10 @@
-from io import BufferedReader, FileIO
+from io import BufferedReader, FileIO, StringIO, BytesIO
 import os
 
 fi = FileIO('README.md')
+assert fi.seekable()
 bb = BufferedReader(fi)
+assert bb.seekable()
 
 result = bb.read()
 

@@ -63,20 +63,14 @@ impl ClassItem {
                         NestedMeta::Meta(meta) => meta,
                         NestedMeta::Literal(_) => continue,
                     };
-                    match meta {
-                        Meta::NameValue(name_value) => {
-                            if name_value.ident == "name" {
-                                if let Lit::Str(s) = &name_value.lit {
-                                    py_name = Some(s.value());
-                                } else {
-                                    bail_span!(
-                                        &sig.ident,
-                                        "#[pymethod(name = ...)] must be a string"
-                                    );
-                                }
+                    if let Meta::NameValue(name_value) = meta {
+                        if name_value.ident == "name" {
+                            if let Lit::Str(s) = &name_value.lit {
+                                py_name = Some(s.value());
+                            } else {
+                                bail_span!(&sig.ident, "#[pymethod(name = ...)] must be a string");
                             }
                         }
-                        _ => {}
                     }
                 }
                 item = Some(ClassItem::Method {
@@ -104,20 +98,17 @@ impl ClassItem {
                         NestedMeta::Meta(meta) => meta,
                         NestedMeta::Literal(_) => continue,
                     };
-                    match meta {
-                        Meta::NameValue(name_value) => {
-                            if name_value.ident == "name" {
-                                if let Lit::Str(s) = &name_value.lit {
-                                    py_name = Some(s.value());
-                                } else {
-                                    bail_span!(
-                                        &sig.ident,
-                                        "#[pyclassmethod(name = ...)] must be a string"
-                                    );
-                                }
+                    if let Meta::NameValue(name_value) = meta {
+                        if name_value.ident == "name" {
+                            if let Lit::Str(s) = &name_value.lit {
+                                py_name = Some(s.value());
+                            } else {
+                                bail_span!(
+                                    &sig.ident,
+                                    "#[pyclassmethod(name = ...)] must be a string"
+                                );
                             }
                         }
-                        _ => {}
                     }
                 }
                 item = Some(ClassItem::ClassMethod {
@@ -235,24 +226,22 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
     let ty = &imp.self_ty;
     let mut properties: HashMap<&str, (Option<&Ident>, Option<&Ident>)> = HashMap::new();
     for item in items.iter() {
-        match item {
-            ClassItem::Property {
-                ref item_ident,
-                ref py_name,
-                setter,
-            } => {
-                let entry = properties.entry(py_name).or_default();
-                let func = if *setter { &mut entry.1 } else { &mut entry.0 };
-                if func.is_some() {
-                    bail_span!(
-                        item_ident,
-                        "Multiple property accessors with name {:?}",
-                        py_name
-                    )
-                }
-                *func = Some(item_ident);
+        if let ClassItem::Property {
+            ref item_ident,
+            ref py_name,
+            setter,
+        } = item
+        {
+            let entry = properties.entry(py_name).or_default();
+            let func = if *setter { &mut entry.1 } else { &mut entry.0 };
+            if func.is_some() {
+                bail_span!(
+                    item_ident,
+                    "Multiple property accessors with name {:?}",
+                    py_name
+                )
             }
-            _ => {}
+            *func = Some(item_ident);
         }
     }
     let methods = items.iter().filter_map(|item| match item {
@@ -319,7 +308,7 @@ fn generate_class_def(
     ident: &Ident,
     attr_name: &'static str,
     attr: AttributeArgs,
-    attrs: &Vec<Attribute>,
+    attrs: &[Attribute],
 ) -> Result<TokenStream2, Diagnostic> {
     let mut class_name = None;
     for attr in attr {

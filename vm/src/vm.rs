@@ -7,12 +7,13 @@
 use std::cell::{Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
+use std::fmt;
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
 use crate::bytecode;
-use crate::frame::{ExecutionResult, Frame, FrameRef, Scope};
+use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
 use crate::function::PyFuncArgs;
 use crate::import;
@@ -34,6 +35,7 @@ use crate::pyobject::{
     IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TryIntoRef,
     TypeProtocol,
 };
+use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
 use num_bigint::BigInt;
@@ -54,13 +56,85 @@ pub struct VirtualMachine {
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
     pub exceptions: RefCell<Vec<PyObjectRef>>,
-    pub frozen: RefCell<HashMap<String, bytecode::CodeObject>>,
+    pub frozen: RefCell<HashMap<String, bytecode::FrozenModule>>,
     pub import_func: RefCell<PyObjectRef>,
+    pub profile_func: RefCell<PyObjectRef>,
+    pub trace_func: RefCell<PyObjectRef>,
+    pub use_tracing: RefCell<bool>,
+    pub settings: PySettings,
+}
+
+/// Struct containing all kind of settings for the python vm.
+pub struct PySettings {
+    /// -d command line switch
+    pub debug: bool,
+
+    /// -i
+    pub inspect: bool,
+
+    /// -O optimization switch counter
+    pub optimize: u8,
+
+    /// -s
+    pub no_user_site: bool,
+
+    /// -S
+    pub no_site: bool,
+
+    /// -E
+    pub ignore_environment: bool,
+
+    /// verbosity level (-v switch)
+    pub verbose: u8,
+
+    /// -q
+    pub quiet: bool,
+
+    /// -B
+    pub dont_write_bytecode: bool,
+
+    /// Environment PYTHONPATH and RUSTPYTHONPATH:
+    pub path_list: Vec<String>,
+}
+
+/// Trace events for sys.settrace and sys.setprofile.
+enum TraceEvent {
+    Call,
+    Return,
+}
+
+impl fmt::Display for TraceEvent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use TraceEvent::*;
+        match self {
+            Call => write!(f, "call"),
+            Return => write!(f, "return"),
+        }
+    }
+}
+
+/// Sensible default settings.
+impl Default for PySettings {
+    fn default() -> Self {
+        PySettings {
+            debug: false,
+            inspect: false,
+            optimize: 0,
+            no_user_site: false,
+            no_site: false,
+            ignore_environment: false,
+            verbose: 0,
+            quiet: false,
+            dont_write_bytecode: false,
+            path_list: vec![],
+        }
+    }
 }
 
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
-    pub fn new() -> VirtualMachine {
+    pub fn new(settings: PySettings) -> VirtualMachine {
+        flame_guard!("init VirtualMachine");
         let ctx = PyContext::new();
 
         // Hard-core modules:
@@ -70,6 +144,8 @@ impl VirtualMachine {
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
         let frozen = RefCell::new(frozen::get_module_inits());
         let import_func = RefCell::new(ctx.none());
+        let profile_func = RefCell::new(ctx.none());
+        let trace_func = RefCell::new(ctx.none());
         let vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
@@ -80,6 +156,10 @@ impl VirtualMachine {
             exceptions: RefCell::new(vec![]),
             frozen,
             import_func,
+            profile_func,
+            trace_func,
+            use_tracing: RefCell::new(false),
+            settings,
         };
 
         builtins::make_module(&vm, builtins.clone());
@@ -168,9 +248,10 @@ impl VirtualMachine {
         self.ctx.new_bool(b)
     }
 
+    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     fn new_exception_obj(&self, exc_type: PyClassRef, args: Vec<PyObjectRef>) -> PyResult {
         // TODO: add repr of args into logging?
-        info!("New exception created: {}", exc_type.name);
+        vm_trace!("New exception created: {}", exc_type.name);
         self.invoke(exc_type.into_object(), args)
     }
 
@@ -216,6 +297,11 @@ impl VirtualMachine {
     pub fn new_os_error(&self, msg: String) -> PyObjectRef {
         let os_error = self.ctx.exceptions.os_error.clone();
         self.new_exception(os_error, msg)
+    }
+
+    pub fn new_unicode_decode_error(&self, msg: String) -> PyObjectRef {
+        let unicode_decode_error = self.ctx.exceptions.unicode_decode_error.clone();
+        self.new_exception(unicode_decode_error, msg)
     }
 
     /// Create a new python ValueError object. Useful for raising errors from
@@ -270,6 +356,11 @@ impl VirtualMachine {
 
     pub fn get_none(&self) -> PyObjectRef {
         self.ctx.none()
+    }
+
+    /// Test whether a python object is `None`.
+    pub fn is_none(&self, obj: &PyObjectRef) -> bool {
+        obj.is(&self.get_none())
     }
 
     pub fn get_type(&self) -> PyClassRef {
@@ -377,7 +468,7 @@ impl VirtualMachine {
         let cls = obj.class();
         match objtype::class_get_attr(&cls, method_name) {
             Some(func) => {
-                trace!(
+                vm_trace!(
                     "vm.call_method {:?} {:?} {:?} -> {:?}",
                     obj,
                     cls,
@@ -391,8 +482,10 @@ impl VirtualMachine {
         }
     }
 
+    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     fn _invoke(&self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
-        trace!("Invoke: {:?} {:?}", func_ref, args);
+        vm_trace!("Invoke: {:?} {:?}", func_ref, args);
+
         if let Some(PyFunction {
             ref code,
             ref scope,
@@ -400,7 +493,10 @@ impl VirtualMachine {
             ref kw_only_defaults,
         }) = func_ref.payload()
         {
-            self.invoke_python_function(code, scope, defaults, kw_only_defaults, args)
+            self.trace_event(TraceEvent::Call)?;
+            let res = self.invoke_python_function(code, scope, defaults, kw_only_defaults, args);
+            self.trace_event(TraceEvent::Return)?;
+            res
         } else if let Some(PyMethod {
             ref function,
             ref object,
@@ -411,7 +507,7 @@ impl VirtualMachine {
             value(self, args)
         } else {
             // TODO: is it safe to just invoke __call__ otherwise?
-            trace!("invoke __call__ for: {:?}", &func_ref.payload);
+            vm_trace!("invoke __call__ for: {:?}", &func_ref.payload);
             self.call_method(&func_ref, "__call__", args)
         }
     }
@@ -422,7 +518,37 @@ impl VirtualMachine {
     where
         T: Into<PyFuncArgs>,
     {
-        self._invoke(func_ref, args.into())
+        let res = self._invoke(func_ref, args.into());
+        res
+    }
+
+    /// Call registered trace function.
+    fn trace_event(&self, event: TraceEvent) -> PyResult<()> {
+        if *self.use_tracing.borrow() {
+            let frame = self.get_none();
+            let event = self.new_str(event.to_string());
+            let arg = self.get_none();
+            let args = vec![frame, event, arg];
+
+            // temporarily disable tracing, during the call to the
+            // tracing function itself.
+            let trace_func = self.trace_func.borrow().clone();
+            if !self.is_none(&trace_func) {
+                self.use_tracing.replace(false);
+                let res = self.invoke(trace_func, args.clone());
+                self.use_tracing.replace(true);
+                res?;
+            }
+
+            let profile_func = self.profile_func.borrow().clone();
+            if !self.is_none(&profile_func) {
+                self.use_tracing.replace(false);
+                let res = self.invoke(profile_func, args);
+                self.use_tracing.replace(true);
+                res?;
+            }
+        }
+        Ok(())
     }
 
     fn invoke_python_function(
@@ -625,12 +751,13 @@ impl VirtualMachine {
     }
 
     // get_attribute should be used for full attribute access (usually from user code).
+    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     pub fn get_attribute<T>(&self, obj: PyObjectRef, attr_name: T) -> PyResult
     where
         T: TryIntoRef<PyString>,
     {
         let attr_name = attr_name.try_into_ref(self)?;
-        trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
+        vm_trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
         self.call_method(&obj, "__getattribute__", vec![attr_name.into_object()])
     }
 
@@ -742,7 +869,7 @@ impl VirtualMachine {
         mode: &compile::Mode,
         source_path: String,
     ) -> Result<PyCodeRef, CompileError> {
-        compile::compile(source, mode, source_path)
+        compile::compile(source, mode, source_path, self.settings.optimize)
             .map(|codeobj| PyCode::new(codeobj).into_ref(self))
     }
 
@@ -1007,11 +1134,15 @@ impl VirtualMachine {
     pub fn pop_exception(&self) -> Option<PyObjectRef> {
         self.exceptions.borrow_mut().pop()
     }
+
+    pub fn current_exception(&self) -> Option<PyObjectRef> {
+        self.exceptions.borrow().last().cloned()
+    }
 }
 
 impl Default for VirtualMachine {
     fn default() -> Self {
-        VirtualMachine::new()
+        VirtualMachine::new(Default::default())
     }
 }
 
@@ -1059,7 +1190,7 @@ mod tests {
 
     #[test]
     fn test_add_py_integers() {
-        let vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
         let a = vm.ctx.new_int(33_i32);
         let b = vm.ctx.new_int(12_i32);
         let res = vm._add(a, b).unwrap();
@@ -1069,7 +1200,7 @@ mod tests {
 
     #[test]
     fn test_multiply_str() {
-        let vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
         let a = vm.ctx.new_str(String::from("Hello "));
         let b = vm.ctx.new_int(4_i32);
         let res = vm._mul(a, b).unwrap();

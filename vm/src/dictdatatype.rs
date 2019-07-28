@@ -110,6 +110,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Retrieve a key
+    #[cfg_attr(feature = "flame-it", flame("Dict"))]
     pub fn get(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<Option<T>> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             Ok(Some(self.unchecked_get(index)))
@@ -188,7 +189,7 @@ impl<T: Clone> Dict<T> {
         position.size != self.size || self.entries.len() != position.entries_size
     }
 
-    pub fn keys<'a>(&'a self) -> Box<Iterator<Item = PyObjectRef> + 'a> {
+    pub fn keys<'a>(&'a self) -> Box<dyn Iterator<Item = PyObjectRef> + 'a> {
         Box::new(
             self.entries
                 .iter()
@@ -197,6 +198,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Lookup the index for the given key.
+    #[cfg_attr(feature = "flame-it", flame("Dict"))]
     fn lookup(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<LookupResult> {
         let hash_value = collection_hash(vm, key)?;
         let perturb = hash_value;
@@ -240,13 +242,13 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Retrieve and delete a key
-    pub fn pop(&mut self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<T> {
+    pub fn pop(&mut self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<Option<T>> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             let value = self.unchecked_get(index);
             self.unchecked_delete(index);
-            Ok(value)
+            Ok(Some(value))
         } else {
-            Err(vm.new_key_error(key.clone()))
+            Ok(None)
         }
     }
 
@@ -271,6 +273,7 @@ enum LookupResult {
     Existing(EntryIndex), // Existing record, index into entries
 }
 
+#[cfg_attr(feature = "flame-it", flame())]
 fn collection_hash(vm: &VirtualMachine, object: &PyObjectRef) -> PyResult<HashValue> {
     let raw_hash = vm._hash(object)?;
     let mut hasher = DefaultHasher::new();
@@ -290,29 +293,29 @@ mod tests {
 
     #[test]
     fn test_insert() {
-        let mut vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
         let mut dict = Dict::default();
         assert_eq!(0, dict.len());
 
         let key1 = vm.new_bool(true);
         let value1 = vm.new_str("abc".to_string());
-        dict.insert(&mut vm, &key1, value1.clone()).unwrap();
+        dict.insert(&vm, &key1, value1.clone()).unwrap();
         assert_eq!(1, dict.len());
 
         let key2 = vm.new_str("x".to_string());
         let value2 = vm.new_str("def".to_string());
-        dict.insert(&mut vm, &key2, value2.clone()).unwrap();
+        dict.insert(&vm, &key2, value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
-        dict.insert(&mut vm, &key1, value2.clone()).unwrap();
+        dict.insert(&vm, &key1, value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
-        dict.delete(&mut vm, &key1).unwrap();
+        dict.delete(&vm, &key1).unwrap();
         assert_eq!(1, dict.len());
 
-        dict.insert(&mut vm, &key1, value2).unwrap();
+        dict.insert(&vm, &key1, value2).unwrap();
         assert_eq!(2, dict.len());
 
-        assert_eq!(true, dict.contains(&mut vm, &key1).unwrap());
+        assert_eq!(true, dict.contains(&vm, &key1).unwrap());
     }
 }

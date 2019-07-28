@@ -8,8 +8,8 @@ jobs:
     vmImage: 'vs2017-win2016'
   strategy:
     matrix:
-      Python37:
-        python.version: '3.7'
+      Python36:
+        python.version: '3.6'
     maxParallel: 10
 
   steps:
@@ -22,6 +22,7 @@ jobs:
       "C:\Program Files\Git\mingw64\bin\curl.exe" -sSf -o rustup-init.exe https://win.rustup.rs/
       .\rustup-init.exe -y
       set PATH=%PATH%;%USERPROFILE%\.cargo\bin
+      rustup update
       rustc -V
       cargo -V
     displayName: 'Installing Rust'

@@ -1277,3 +1277,9 @@ class UserString(_collections_abc.Sequence):
         return self.__class__(self.data.translate(*args))
     def upper(self): return self.__class__(self.data.upper())
     def zfill(self, width): return self.__class__(self.data.zfill(width))
+
+# FIXME: try to implement defaultdict in collections.rs rather than in Python
+# I (coolreader18) couldn't figure out some class stuff with __new__ and
+# __init__ and __missing__ and subclassing built-in types from Rust, so I went
+# with this instead.
+from ._defaultdict import defaultdict

@@ -35,7 +35,7 @@ pub fn parse_program(source: &str) -> Result<ast::Program, ParseError> {
     do_lalr_parsing!(source, Program, StartProgram)
 }
 
-pub fn parse_statement(source: &str) -> Result<Vec<ast::LocatedStatement>, ParseError> {
+pub fn parse_statement(source: &str) -> Result<Vec<ast::Statement>, ParseError> {
     do_lalr_parsing!(source, Statement, StartStatement)
 }
 
@@ -46,16 +46,25 @@ pub fn parse_statement(source: &str) -> Result<Vec<ast::LocatedStatement>, Parse
 /// extern crate num_bigint;
 /// use num_bigint::BigInt;
 /// use rustpython_parser::{parser, ast};
-/// let expr = parser::parse_expression("1+2").unwrap();
+/// let expr = parser::parse_expression("1 + 2").unwrap();
 ///
-/// assert_eq!(ast::Expression::Binop {
-///         a: Box::new(ast::Expression::Number {
-///             value: ast::Number::Integer { value: BigInt::from(1) }
-///         }),
-///         op: ast::Operator::Add,
-///         b: Box::new(ast::Expression::Number {
-///             value: ast::Number::Integer { value: BigInt::from(2) }
-///         })
+/// assert_eq!(ast::Expression {
+///         location: ast::Location::new(1, 3),
+///         node: ast::ExpressionType::Binop {
+///             a: Box::new(ast::Expression {
+///                 location: ast::Location::new(1, 1),
+///                 node: ast::ExpressionType::Number {
+///                     value: ast::Number::Integer { value: BigInt::from(1) }
+///                 }
+///             }),
+///             op: ast::Operator::Add,
+///             b: Box::new(ast::Expression {
+///                 location: ast::Location::new(1, 5),
+///                 node: ast::ExpressionType::Number {
+///                     value: ast::Number::Integer { value: BigInt::from(2) }
+///                 }
+///             })
+///         }
 ///     },
 ///     expr);
 ///
@@ -72,32 +81,67 @@ mod tests {
     use super::parse_statement;
     use num_bigint::BigInt;
 
+    fn mk_ident(name: &str, row: usize, col: usize) -> ast::Expression {
+        ast::Expression {
+            location: ast::Location::new(row, col),
+            node: ast::ExpressionType::Identifier {
+                name: name.to_owned(),
+            },
+        }
+    }
+
+    fn make_int(value: i32, row: usize, col: usize) -> ast::Expression {
+        ast::Expression {
+            location: ast::Location::new(row, col),
+            node: ast::ExpressionType::Number {
+                value: ast::Number::Integer {
+                    value: BigInt::from(value),
+                },
+            },
+        }
+    }
+
+    fn make_string(value: &str, row: usize, col: usize) -> ast::Expression {
+        ast::Expression {
+            location: ast::Location::new(row, col),
+            node: ast::ExpressionType::String {
+                value: ast::StringGroup::Constant {
+                    value: String::from(value),
+                },
+            },
+        }
+    }
+
+    fn as_statement(expr: ast::Expression) -> ast::Statement {
+        ast::Statement {
+            location: expr.location.clone(),
+            node: ast::StatementType::Expression { expression: expr },
+        }
+    }
+
     #[test]
     fn test_parse_empty() {
-        let parse_ast = parse_program(&String::from("\n"));
+        let parse_ast = parse_program(&String::from(""));
         assert_eq!(parse_ast, Ok(ast::Program { statements: vec![] }))
     }
 
     #[test]
     fn test_parse_print_hello() {
-        let source = String::from("print('Hello world')\n");
+        let source = String::from("print('Hello world')");
         let parse_ast = parse_program(&source).unwrap();
         assert_eq!(
             parse_ast,
             ast::Program {
-                statements: vec![ast::LocatedStatement {
+                statements: vec![ast::Statement {
                     location: ast::Location::new(1, 1),
-                    node: ast::Statement::Expression {
-                        expression: ast::Expression::Call {
-                            function: Box::new(ast::Expression::Identifier {
-                                name: String::from("print"),
-                            }),
-                            args: vec![ast::Expression::String {
-                                value: ast::StringGroup::Constant {
-                                    value: String::from("Hello world")
-                                }
-                            }],
-                            keywords: vec![],
+                    node: ast::StatementType::Expression {
+                        expression: ast::Expression {
+                            location: ast::Location::new(1, 6),
+                            node: ast::ExpressionType::Call {
+                                function: Box::new(mk_ident("print", 1, 1)),
+                                args: vec![make_string("Hello world", 1, 8)],
+                                keywords: vec![],
+                            }
                         },
                     },
                 },],
@@ -107,31 +151,21 @@ mod tests {
 
     #[test]
     fn test_parse_print_2() {
-        let source = String::from("print('Hello world', 2)\n");
+        let source = String::from("print('Hello world', 2)");
         let parse_ast = parse_program(&source).unwrap();
         assert_eq!(
             parse_ast,
             ast::Program {
-                statements: vec![ast::LocatedStatement {
+                statements: vec![ast::Statement {
                     location: ast::Location::new(1, 1),
-                    node: ast::Statement::Expression {
-                        expression: ast::Expression::Call {
-                            function: Box::new(ast::Expression::Identifier {
-                                name: String::from("print"),
-                            }),
-                            args: vec![
-                                ast::Expression::String {
-                                    value: ast::StringGroup::Constant {
-                                        value: String::from("Hello world"),
-                                    }
-                                },
-                                ast::Expression::Number {
-                                    value: ast::Number::Integer {
-                                        value: BigInt::from(2)
-                                    },
-                                }
-                            ],
-                            keywords: vec![],
+                    node: ast::StatementType::Expression {
+                        expression: ast::Expression {
+                            location: ast::Location::new(1, 6),
+                            node: ast::ExpressionType::Call {
+                                function: Box::new(mk_ident("print", 1, 1)),
+                                args: vec![make_string("Hello world", 1, 8), make_int(2, 1, 22),],
+                                keywords: vec![],
+                            },
                         },
                     },
                 },],
@@ -141,31 +175,24 @@ mod tests {
 
     #[test]
     fn test_parse_kwargs() {
-        let source = String::from("my_func('positional', keyword=2)\n");
+        let source = String::from("my_func('positional', keyword=2)");
         let parse_ast = parse_program(&source).unwrap();
         assert_eq!(
             parse_ast,
             ast::Program {
-                statements: vec![ast::LocatedStatement {
+                statements: vec![ast::Statement {
                     location: ast::Location::new(1, 1),
-                    node: ast::Statement::Expression {
-                        expression: ast::Expression::Call {
-                            function: Box::new(ast::Expression::Identifier {
-                                name: String::from("my_func"),
-                            }),
-                            args: vec![ast::Expression::String {
-                                value: ast::StringGroup::Constant {
-                                    value: String::from("positional"),
-                                }
-                            }],
-                            keywords: vec![ast::Keyword {
-                                name: Some("keyword".to_string()),
-                                value: ast::Expression::Number {
-                                    value: ast::Number::Integer {
-                                        value: BigInt::from(2)
-                                    },
-                                }
-                            }],
+                    node: ast::StatementType::Expression {
+                        expression: ast::Expression {
+                            location: ast::Location::new(1, 8),
+                            node: ast::ExpressionType::Call {
+                                function: Box::new(mk_ident("my_func", 1, 1)),
+                                args: vec![make_string("positional", 1, 10)],
+                                keywords: vec![ast::Keyword {
+                                    name: Some("keyword".to_string()),
+                                    value: make_int(2, 1, 31),
+                                }],
+                            }
                         },
                     },
                 },],
@@ -175,56 +202,21 @@ mod tests {
 
     #[test]
     fn test_parse_if_elif_else() {
-        let source = String::from("if 1: 10\nelif 2: 20\nelse: 30\n");
+        let source = String::from("if 1: 10\nelif 2: 20\nelse: 30");
         let parse_ast = parse_statement(&source).unwrap();
         assert_eq!(
             parse_ast,
-            vec![ast::LocatedStatement {
+            vec![ast::Statement {
                 location: ast::Location::new(1, 1),
-                node: ast::Statement::If {
-                    test: ast::Expression::Number {
-                        value: ast::Number::Integer {
-                            value: BigInt::from(1)
-                        },
-                    },
-                    body: vec![ast::LocatedStatement {
-                        location: ast::Location::new(1, 7),
-                        node: ast::Statement::Expression {
-                            expression: ast::Expression::Number {
-                                value: ast::Number::Integer {
-                                    value: BigInt::from(10)
-                                },
-                            }
-                        },
-                    },],
-                    orelse: Some(vec![ast::LocatedStatement {
+                node: ast::StatementType::If {
+                    test: make_int(1, 1, 4),
+                    body: vec![as_statement(make_int(10, 1, 7))],
+                    orelse: Some(vec![ast::Statement {
                         location: ast::Location::new(2, 1),
-                        node: ast::Statement::If {
-                            test: ast::Expression::Number {
-                                value: ast::Number::Integer {
-                                    value: BigInt::from(2)
-                                },
-                            },
-                            body: vec![ast::LocatedStatement {
-                                location: ast::Location::new(2, 9),
-                                node: ast::Statement::Expression {
-                                    expression: ast::Expression::Number {
-                                        value: ast::Number::Integer {
-                                            value: BigInt::from(20)
-                                        },
-                                    },
-                                },
-                            },],
-                            orelse: Some(vec![ast::LocatedStatement {
-                                location: ast::Location::new(3, 7),
-                                node: ast::Statement::Expression {
-                                    expression: ast::Expression::Number {
-                                        value: ast::Number::Integer {
-                                            value: BigInt::from(30)
-                                        },
-                                    },
-                                },
-                            },]),
+                        node: ast::StatementType::If {
+                            test: make_int(2, 2, 6),
+                            body: vec![as_statement(make_int(20, 2, 9))],
+                            orelse: Some(vec![as_statement(make_int(30, 3, 7))]),
                         }
                     },]),
                 }
@@ -234,78 +226,63 @@ mod tests {
 
     #[test]
     fn test_parse_lambda() {
-        let source = String::from("lambda x, y: x * y\n"); // lambda(x, y): x * y");
+        let source = String::from("lambda x, y: x * y"); // lambda(x, y): x * y");
         let parse_ast = parse_statement(&source);
         assert_eq!(
             parse_ast,
-            Ok(vec![ast::LocatedStatement {
+            Ok(vec![as_statement(ast::Expression {
                 location: ast::Location::new(1, 1),
-                node: ast::Statement::Expression {
-                    expression: ast::Expression::Lambda {
-                        args: ast::Parameters {
-                            args: vec![
-                                ast::Parameter {
-                                    arg: String::from("x"),
-                                    annotation: None,
-                                },
-                                ast::Parameter {
-                                    arg: String::from("y"),
-                                    annotation: None,
-                                }
-                            ],
-                            kwonlyargs: vec![],
-                            vararg: ast::Varargs::None,
-                            kwarg: ast::Varargs::None,
-                            defaults: vec![],
-                            kw_defaults: vec![],
-                        },
-                        body: Box::new(ast::Expression::Binop {
-                            a: Box::new(ast::Expression::Identifier {
-                                name: String::from("x"),
-                            }),
+                node: ast::ExpressionType::Lambda {
+                    args: ast::Parameters {
+                        args: vec![
+                            ast::Parameter {
+                                arg: String::from("x"),
+                                annotation: None,
+                            },
+                            ast::Parameter {
+                                arg: String::from("y"),
+                                annotation: None,
+                            }
+                        ],
+                        kwonlyargs: vec![],
+                        vararg: ast::Varargs::None,
+                        kwarg: ast::Varargs::None,
+                        defaults: vec![],
+                        kw_defaults: vec![],
+                    },
+                    body: Box::new(ast::Expression {
+                        location: ast::Location::new(1, 16),
+                        node: ast::ExpressionType::Binop {
+                            a: Box::new(mk_ident("x", 1, 14)),
                             op: ast::Operator::Mult,
-                            b: Box::new(ast::Expression::Identifier {
-                                name: String::from("y"),
-                            })
-                        })
-                    }
+                            b: Box::new(mk_ident("y", 1, 18))
+                        }
+                    })
                 }
-            }])
+            })])
         )
     }
 
     #[test]
     fn test_parse_tuples() {
-        let source = String::from("a, b = 4, 5\n");
+        let source = String::from("a, b = 4, 5");
 
         assert_eq!(
             parse_statement(&source),
-            Ok(vec![ast::LocatedStatement {
+            Ok(vec![ast::Statement {
                 location: ast::Location::new(1, 1),
-                node: ast::Statement::Assign {
-                    targets: vec![ast::Expression::Tuple {
-                        elements: vec![
-                            ast::Expression::Identifier {
-                                name: "a".to_string()
-                            },
-                            ast::Expression::Identifier {
-                                name: "b".to_string()
-                            }
-                        ]
+                node: ast::StatementType::Assign {
+                    targets: vec![ast::Expression {
+                        location: ast::Location::new(1, 1),
+                        node: ast::ExpressionType::Tuple {
+                            elements: vec![mk_ident("a", 1, 1), mk_ident("b", 1, 4),]
+                        }
                     }],
-                    value: ast::Expression::Tuple {
-                        elements: vec![
-                            ast::Expression::Number {
-                                value: ast::Number::Integer {
-                                    value: BigInt::from(4)
-                                }
-                            },
-                            ast::Expression::Number {
-                                value: ast::Number::Integer {
-                                    value: BigInt::from(5)
-                                }
-                            }
-                        ]
+                    value: ast::Expression {
+                        location: ast::Location::new(1, 8),
+                        node: ast::ExpressionType::Tuple {
+                            elements: vec![make_int(4, 1, 8), make_int(5, 1, 11),]
+                        }
                     }
                 }
             }])
@@ -315,27 +292,21 @@ mod tests {
     #[test]
     fn test_parse_class() {
         let source = String::from(
-            "class Foo(A, B):\n def __init__(self):\n  pass\n def method_with_default(self, arg='default'):\n  pass\n",
+            "class Foo(A, B):\n def __init__(self):\n  pass\n def method_with_default(self, arg='default'):\n  pass",
         );
         assert_eq!(
             parse_statement(&source),
-            Ok(vec![ast::LocatedStatement {
+            Ok(vec![ast::Statement {
                 location: ast::Location::new(1, 1),
-                node: ast::Statement::ClassDef {
+                node: ast::StatementType::ClassDef {
                     name: String::from("Foo"),
-                    bases: vec![
-                        ast::Expression::Identifier {
-                            name: String::from("A")
-                        },
-                        ast::Expression::Identifier {
-                            name: String::from("B")
-                        }
-                    ],
+                    bases: vec![mk_ident("A", 1, 11), mk_ident("B", 1, 14)],
                     keywords: vec![],
                     body: vec![
-                        ast::LocatedStatement {
+                        ast::Statement {
                             location: ast::Location::new(2, 2),
-                            node: ast::Statement::FunctionDef {
+                            node: ast::StatementType::FunctionDef {
+                                is_async: false,
                                 name: String::from("__init__"),
                                 args: ast::Parameters {
                                     args: vec![ast::Parameter {
@@ -348,17 +319,18 @@ mod tests {
                                     defaults: vec![],
                                     kw_defaults: vec![],
                                 },
-                                body: vec![ast::LocatedStatement {
+                                body: vec![ast::Statement {
                                     location: ast::Location::new(3, 3),
-                                    node: ast::Statement::Pass,
+                                    node: ast::StatementType::Pass,
                                 }],
                                 decorator_list: vec![],
                                 returns: None,
                             }
                         },
-                        ast::LocatedStatement {
+                        ast::Statement {
                             location: ast::Location::new(4, 2),
-                            node: ast::Statement::FunctionDef {
+                            node: ast::StatementType::FunctionDef {
+                                is_async: false,
                                 name: String::from("method_with_default"),
                                 args: ast::Parameters {
                                     args: vec![
@@ -374,16 +346,12 @@ mod tests {
                                     kwonlyargs: vec![],
                                     vararg: ast::Varargs::None,
                                     kwarg: ast::Varargs::None,
-                                    defaults: vec![ast::Expression::String {
-                                        value: ast::StringGroup::Constant {
-                                            value: "default".to_string()
-                                        }
-                                    }],
+                                    defaults: vec![make_string("default", 4, 37)],
                                     kw_defaults: vec![],
                                 },
-                                body: vec![ast::LocatedStatement {
+                                body: vec![ast::Statement {
                                     location: ast::Location::new(5, 3),
-                                    node: ast::Statement::Pass,
+                                    node: ast::StatementType::Pass,
                                 }],
                                 decorator_list: vec![],
                                 returns: None,
@@ -402,21 +370,18 @@ mod tests {
         let parse_ast = parse_expression(&source).unwrap();
         assert_eq!(
             parse_ast,
-            ast::Expression::Comprehension {
-                kind: Box::new(ast::ComprehensionKind::List {
-                    element: ast::Expression::Identifier {
-                        name: "x".to_string()
-                    }
-                }),
-                generators: vec![ast::Comprehension {
-                    target: ast::Expression::Identifier {
-                        name: "y".to_string()
-                    },
-                    iter: ast::Expression::Identifier {
-                        name: "z".to_string()
-                    },
-                    ifs: vec![],
-                }],
+            ast::Expression {
+                location: ast::Location::new(1, 2),
+                node: ast::ExpressionType::Comprehension {
+                    kind: Box::new(ast::ComprehensionKind::List {
+                        element: mk_ident("x", 1, 2),
+                    }),
+                    generators: vec![ast::Comprehension {
+                        target: mk_ident("y", 1, 8),
+                        iter: mk_ident("z", 1, 13),
+                        ifs: vec![],
+                    }],
+                }
             }
         );
     }
@@ -427,66 +392,45 @@ mod tests {
         let parse_ast = parse_expression(&source).unwrap();
         assert_eq!(
             parse_ast,
-            ast::Expression::Comprehension {
-                kind: Box::new(ast::ComprehensionKind::List {
-                    element: ast::Expression::Identifier {
-                        name: "x".to_string()
-                    }
-                }),
-                generators: vec![
-                    ast::Comprehension {
-                        target: ast::Expression::Tuple {
-                            elements: vec![
-                                ast::Expression::Identifier {
-                                    name: "y".to_string()
+            ast::Expression {
+                location: ast::Location::new(1, 2),
+                node: ast::ExpressionType::Comprehension {
+                    kind: Box::new(ast::ComprehensionKind::List {
+                        element: mk_ident("x", 1, 2)
+                    }),
+                    generators: vec![
+                        ast::Comprehension {
+                            target: ast::Expression {
+                                location: ast::Location::new(1, 8),
+                                node: ast::ExpressionType::Tuple {
+                                    elements: vec![mk_ident("y", 1, 8), mk_ident("y2", 1, 11),],
+                                }
+                            },
+                            iter: mk_ident("z", 1, 17),
+                            ifs: vec![],
+                        },
+                        ast::Comprehension {
+                            target: mk_ident("a", 1, 23),
+                            iter: mk_ident("b", 1, 28),
+                            ifs: vec![
+                                ast::Expression {
+                                    location: ast::Location::new(1, 35),
+                                    node: ast::ExpressionType::Compare {
+                                        vals: vec![mk_ident("a", 1, 33), make_int(5, 1, 37),],
+                                        ops: vec![ast::Comparison::Less],
+                                    }
                                 },
-                                ast::Expression::Identifier {
-                                    name: "y2".to_string()
+                                ast::Expression {
+                                    location: ast::Location::new(1, 44),
+                                    node: ast::ExpressionType::Compare {
+                                        vals: vec![mk_ident("a", 1, 42), make_int(10, 1, 46),],
+                                        ops: vec![ast::Comparison::Greater],
+                                    },
                                 },
                             ],
-                        },
-                        iter: ast::Expression::Identifier {
-                            name: "z".to_string()
-                        },
-                        ifs: vec![],
-                    },
-                    ast::Comprehension {
-                        target: ast::Expression::Identifier {
-                            name: "a".to_string()
-                        },
-                        iter: ast::Expression::Identifier {
-                            name: "b".to_string()
-                        },
-                        ifs: vec![
-                            ast::Expression::Compare {
-                                vals: vec![
-                                    ast::Expression::Identifier {
-                                        name: "a".to_string()
-                                    },
-                                    ast::Expression::Number {
-                                        value: ast::Number::Integer {
-                                            value: BigInt::from(5)
-                                        }
-                                    }
-                                ],
-                                ops: vec![ast::Comparison::Less],
-                            },
-                            ast::Expression::Compare {
-                                vals: vec![
-                                    ast::Expression::Identifier {
-                                        name: "a".to_string()
-                                    },
-                                    ast::Expression::Number {
-                                        value: ast::Number::Integer {
-                                            value: BigInt::from(10)
-                                        }
-                                    }
-                                ],
-                                ops: vec![ast::Comparison::Greater],
-                            },
-                        ],
-                    }
-                ],
+                        }
+                    ],
+                }
             }
         );
     }

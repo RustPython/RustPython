@@ -1,5 +1,5 @@
 exec("def square(x):\n return x * x\n")
-assert 16 == square(4)
+assert 16 == square(4)  # noqa: F821
 
 d = {}
 exec("def square(x):\n return x * x\n", {}, d)
@@ -39,8 +39,8 @@ else:
 g = globals()
 g['x'] = 2
 exec('x += 2')
-assert x == 4
-assert g['x'] == x
+assert x == 4  # noqa: F821
+assert g['x'] == x  # noqa: F821
 
 exec("del x")
 assert 'x' not in g

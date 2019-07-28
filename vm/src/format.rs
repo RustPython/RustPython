@@ -20,7 +20,7 @@ impl FormatPreconversor {
         }
     }
 
-    pub fn from_str(text: &str) -> Option<FormatPreconversor> {
+    pub fn from_string(text: &str) -> Option<FormatPreconversor> {
         let mut chars = text.chars();
         if chars.next() != Some('!') {
             return None;
@@ -33,7 +33,7 @@ impl FormatPreconversor {
     }
 
     pub fn parse_and_consume(text: &str) -> (Option<FormatPreconversor>, &str) {
-        let preconversor = FormatPreconversor::from_str(text);
+        let preconversor = FormatPreconversor::from_string(text);
         match preconversor {
             None => (None, text),
             Some(_) => {

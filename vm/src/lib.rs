@@ -11,6 +11,14 @@
     clippy::let_and_return,
     clippy::implicit_hasher
 )]
+#![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
+#![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
+#![cfg_attr(not(feature = "use-proc-macro-hack"), feature(proc_macro_hygiene))]
+#![cfg_attr(target_os = "redox", feature(vecdeque_rotate))]
+
+#[cfg(feature = "flame-it")]
+#[macro_use]
+extern crate flamer;
 
 #[macro_use]
 extern crate bitflags;
@@ -30,8 +38,8 @@ extern crate self as rustpython_vm;
 
 pub use rustpython_derive::*;
 
-use proc_macro_hack::proc_macro_hack;
-#[proc_macro_hack]
+#[cfg(feature = "use-proc-macro-hack")]
+#[proc_macro_hack::proc_macro_hack]
 pub use rustpython_derive::py_compile_bytecode;
 
 //extern crate eval; use eval::eval::*;
@@ -48,7 +56,7 @@ mod dictdatatype;
 pub mod eval;
 mod exceptions;
 pub mod format;
-pub mod frame;
+mod frame;
 mod frozen;
 pub mod function;
 pub mod import;
@@ -56,18 +64,21 @@ pub mod obj;
 pub mod py_serde;
 mod pyhash;
 pub mod pyobject;
+pub mod scope;
 pub mod stdlib;
 mod sysmodule;
 mod traceback;
 pub mod util;
+mod version;
 mod vm;
 
 // pub use self::pyobject::Executor;
 pub use self::exceptions::print_exception;
-pub use self::vm::VirtualMachine;
+pub use self::vm::{PySettings, VirtualMachine};
 pub use rustpython_bytecode::*;
 
 #[doc(hidden)]
 pub mod __exports {
     pub use bincode;
+    pub use maplit::hashmap;
 }

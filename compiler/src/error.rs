@@ -1,5 +1,5 @@
-use rustpython_parser::error::ParseError;
-use rustpython_parser::lexer::Location;
+use rustpython_parser::error::{ParseError, ParseErrorType};
+use rustpython_parser::location::Location;
 
 use std::error::Error;
 use std::fmt;
@@ -13,8 +13,8 @@ pub struct CompileError {
 impl From<ParseError> for CompileError {
     fn from(error: ParseError) -> Self {
         CompileError {
-            error: CompileErrorType::Parse(error),
-            location: Default::default(), // TODO: extract location from parse error!
+            error: CompileErrorType::Parse(error.error),
+            location: error.location,
         }
     }
 }
@@ -28,7 +28,7 @@ pub enum CompileErrorType {
     /// Expected an expression got a statement
     ExpectExpr,
     /// Parser error
-    Parse(ParseError),
+    Parse(ParseErrorType),
     SyntaxError(String),
     /// Multiple `*` detected
     StarArgs,
@@ -56,7 +56,7 @@ impl fmt::Display for CompileError {
         }?;
 
         // Print line number:
-        write!(f, " at line {:?}", self.location.row())
+        write!(f, " at {}", self.location)
     }
 }
 

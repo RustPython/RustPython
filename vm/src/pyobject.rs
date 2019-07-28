@@ -15,7 +15,6 @@ use num_traits::{One, Zero};
 
 use crate::bytecode;
 use crate::exceptions;
-use crate::frame::Scope;
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
@@ -56,6 +55,7 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
+use crate::scope::Scope;
 use crate::vm::VirtualMachine;
 use indexmap::IndexMap;
 
@@ -134,6 +134,9 @@ pub struct PyContext {
     pub false_value: PyIntRef,
     pub list_type: PyClassRef,
     pub listiterator_type: PyClassRef,
+    pub listreverseiterator_type: PyClassRef,
+    pub striterator_type: PyClassRef,
+    pub strreverseiterator_type: PyClassRef,
     pub dictkeyiterator_type: PyClassRef,
     pub dictvalueiterator_type: PyClassRef,
     pub dictitemiterator_type: PyClassRef,
@@ -145,6 +148,7 @@ pub struct PyContext {
     pub none: PyNoneRef,
     pub ellipsis: PyEllipsisRef,
     pub not_implemented: PyNotImplementedRef,
+    pub empty_tuple: PyTupleRef,
     pub tuple_type: PyClassRef,
     pub tupleiterator_type: PyClassRef,
     pub set_type: PyClassRef,
@@ -250,6 +254,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
 // Basic objects:
 impl PyContext {
     pub fn new() -> Self {
+        flame_guard!("init PyContext");
         let (type_type, object_type) = init_type_hierarchy();
 
         let dict_type = create_type("dict", &type_type, &object_type);
@@ -270,6 +275,10 @@ impl PyContext {
         let str_type = create_type("str", &type_type, &object_type);
         let list_type = create_type("list", &type_type, &object_type);
         let listiterator_type = create_type("list_iterator", &type_type, &object_type);
+        let listreverseiterator_type =
+            create_type("list_reverseiterator", &type_type, &object_type);
+        let striterator_type = create_type("str_iterator", &type_type, &object_type);
+        let strreverseiterator_type = create_type("str_reverseiterator", &type_type, &object_type);
         let dictkeys_type = create_type("dict_keys", &type_type, &object_type);
         let dictvalues_type = create_type("dict_values", &type_type, &object_type);
         let dictitems_type = create_type("dict_items", &type_type, &object_type);
@@ -320,6 +329,9 @@ impl PyContext {
 
         let true_value = create_object(PyInt::new(BigInt::one()), &bool_type);
         let false_value = create_object(PyInt::new(BigInt::zero()), &bool_type);
+
+        let empty_tuple = create_object(PyTuple::from(vec![]), &tuple_type);
+
         let context = PyContext {
             bool_type,
             memoryview_type,
@@ -336,6 +348,9 @@ impl PyContext {
             staticmethod_type,
             list_type,
             listiterator_type,
+            listreverseiterator_type,
+            striterator_type,
+            strreverseiterator_type,
             dictkeys_type,
             dictvalues_type,
             dictitems_type,
@@ -377,6 +392,7 @@ impl PyContext {
             weakproxy_type,
             type_type,
             exceptions,
+            empty_tuple,
         };
         objtype::init(&context);
         objlist::init(&context);
@@ -465,6 +481,18 @@ impl PyContext {
 
     pub fn listiterator_type(&self) -> PyClassRef {
         self.listiterator_type.clone()
+    }
+
+    pub fn listreverseiterator_type(&self) -> PyClassRef {
+        self.listreverseiterator_type.clone()
+    }
+
+    pub fn striterator_type(&self) -> PyClassRef {
+        self.striterator_type.clone()
+    }
+
+    pub fn strreverseiterator_type(&self) -> PyClassRef {
+        self.strreverseiterator_type.clone()
     }
 
     pub fn module_type(&self) -> PyClassRef {
@@ -636,7 +664,11 @@ impl PyContext {
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(PyTuple::from(elements), self.tuple_type(), None)
+        if elements.is_empty() {
+            self.empty_tuple.clone().into_object()
+        } else {
+            PyObject::new(PyTuple::from(elements), self.tuple_type(), None)
+        }
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
@@ -1012,6 +1044,8 @@ pub trait ItemProtocol {
         vm: &VirtualMachine,
     ) -> PyResult;
     fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
+
+    #[cfg_attr(feature = "flame-it", flame("ItemProtocol"))]
     fn get_item_option<T: IntoPyObject>(
         &self,
         key: T,

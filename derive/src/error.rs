@@ -94,7 +94,7 @@ impl Diagnostic {
         }
     }
 
-    pub fn spanned_error<T: Into<String>>(node: &ToTokens, text: T) -> Diagnostic {
+    pub fn spanned_error<T: Into<String>>(node: &dyn ToTokens, text: T) -> Diagnostic {
         Diagnostic {
             inner: Repr::Single {
                 text: text.into(),
@@ -104,7 +104,7 @@ impl Diagnostic {
     }
 
     pub fn from_vec(diagnostics: Vec<Diagnostic>) -> Result<(), Diagnostic> {
-        if diagnostics.len() == 0 {
+        if diagnostics.is_empty() {
             Ok(())
         } else {
             Err(Diagnostic {

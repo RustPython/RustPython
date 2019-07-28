@@ -43,7 +43,7 @@ impl PyNoneRef {
     }
 
     fn get_attribute(self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        trace!("None.__getattribute__({:?}, {:?})", self, name);
+        vm_trace!("None.__getattribute__({:?}, {:?})", self, name);
         let cls = self.class();
 
         // Properties use a comparision with None to determine if they are either invoked by am

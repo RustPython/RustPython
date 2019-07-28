@@ -1,11 +1,19 @@
 [package]
 name = "rustpython-vm"
 version = "0.1.0"
+description = "Rust Python virtual machine."
 authors = ["RustPython Team"]
+repository = "https://github.com/RustPython/RustPython"
+license = "MIT"
 edition = "2018"
+include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
-default = ["rustpython-parser", "rustpython-compiler"]
+default = ["rustpython-parser", "rustpython-compiler", "use-proc-macro-hack"]
+vm-tracing-logging = []
+flame-it = ["flame", "flamer"]
+use-proc-macro-hack = ["proc-macro-hack", "rustpython-derive/proc-macro-hack"]
+freeze-stdlib = []
 
 [dependencies]
 # Crypto:
@@ -17,16 +25,16 @@ sha3 = "0.8"
 blake2 = "0.8"
 
 num-complex = { version = "0.2", features = ["serde"] }
-num-bigint = { version = "0.2.1", features = ["serde"] }
-num-traits = "0.2"
-num-integer = "0.1.39"
+num-bigint = { version = "0.2", features = ["serde"] }
+num-traits = "=0.2.6"
+num-integer = "=0.1.39"
 num-rational = "0.2.1"
 rand = "0.5"
 log = "0.3"
-rustpython-derive = {path = "../derive"}
-rustpython-parser = {path = "../parser", optional = true}
-rustpython-compiler = {path = "../compiler", optional = true}
-rustpython-bytecode = { path = "../bytecode" }
+rustpython-derive = {path = "../derive", version = "0.1.0"}
+rustpython-parser = {path = "../parser", optional = true, version = "0.1.0"}
+rustpython-compiler = {path = "../compiler", optional = true, version = "0.1.0"}
+rustpython-bytecode = { path = "../bytecode", version = "0.1.0"}
 serde = { version = "1.0.66", features = ["derive"] }
 serde_json = "1.0.26"
 byteorder = "1.2.6"
@@ -34,28 +42,28 @@ regex = "1"
 rustc_version_runtime = "0.1.*"
 statrs = "0.10.0"
 caseless = "0.2.1"
+chrono = "=0.4.6"
 unicode-segmentation = "1.2.1"
 unicode-xid = "0.1.0"
 lazy_static = "^1.0.1"
 lexical = "2.0.0"
 itertools = "^0.8.0"
 hex = "0.3.2"
-hexf = "0.1.0"
+hexf-parse = "0.1.0"
 indexmap = "1.0.2"
 crc = "^1.0.0"
 bincode = "1.1.4"
 unicode_categories = "0.1.1"
 unicode_names2 = "0.2.2"
+unicode-casing = "0.1.0"
 unic = "0.9.0"
 maplit = "1.0"
-proc-macro-hack = "0.5"
+proc-macro-hack = { version = "0.5", optional = true }
 bitflags = "1.1"
+libc = "0.2"
 
+flame = { version = "0.2", optional = true }
+flamer = { version = "0.3", optional = true }
 
-# TODO: release and publish to crates.io
-[dependencies.unicode-casing]
-git = "https://github.com/OddCoincidence/unicode-casing"
-rev = "90d6d1f02b9cc04ffb55a5f1c3fa1455a84231fb"
-
-[target.'cfg(all(unix, not(target_os = "android")))'.dependencies]
+[target.'cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))'.dependencies]
 pwd = "1"

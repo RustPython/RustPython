@@ -2,36 +2,13 @@ use std::iter;
 use std::mem;
 use std::str;
 
-use lalrpop_util::ParseError as LalrpopError;
-
 use crate::ast::{ConversionFlag, StringGroup};
-use crate::lexer::{LexicalError, LexicalErrorType, Location, Tok};
+use crate::error::{FStringError, FStringErrorType};
+use crate::location::Location;
 use crate::parser::parse_expression;
 
-use self::FStringError::*;
+use self::FStringErrorType::*;
 use self::StringGroup::*;
-
-// TODO: consolidate these with ParseError
-#[derive(Debug, PartialEq)]
-pub enum FStringError {
-    UnclosedLbrace,
-    UnopenedRbrace,
-    InvalidExpression,
-    InvalidConversionFlag,
-    EmptyExpression,
-    MismatchedDelimiter,
-}
-
-impl From<FStringError> for LalrpopError<Location, Tok, LexicalError> {
-    fn from(_err: FStringError) -> Self {
-        lalrpop_util::ParseError::User {
-            error: LexicalError {
-                error: LexicalErrorType::StringError,
-                location: Default::default(),
-            },
-        }
-    }
-}
 
 struct FStringParser<'a> {
     chars: iter::Peekable<str::Chars<'a>>,
@@ -44,7 +21,7 @@ impl<'a> FStringParser<'a> {
         }
     }
 
-    fn parse_formatted_value(&mut self) -> Result<StringGroup, FStringError> {
+    fn parse_formatted_value(&mut self) -> Result<StringGroup, FStringErrorType> {
         let mut expression = String::new();
         let mut spec = String::new();
         let mut delims = Vec::new();
@@ -103,7 +80,8 @@ impl<'a> FStringParser<'a> {
                     }
                     return Ok(FormattedValue {
                         value: Box::new(
-                            parse_expression(expression.trim()).map_err(|_| InvalidExpression)?,
+                            parse_expression(expression.trim())
+                                .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                         ),
                         conversion,
                         spec,
@@ -127,7 +105,7 @@ impl<'a> FStringParser<'a> {
         Err(UnclosedLbrace)
     }
 
-    fn parse(mut self) -> Result<StringGroup, FStringError> {
+    fn parse(mut self) -> Result<StringGroup, FStringErrorType> {
         let mut content = String::new();
         let mut values = vec![];
 
@@ -175,8 +153,18 @@ impl<'a> FStringParser<'a> {
     }
 }
 
-pub fn parse_fstring(source: &str) -> Result<StringGroup, FStringError> {
+/// Parse an f-string into a string group.
+fn parse_fstring(source: &str) -> Result<StringGroup, FStringErrorType> {
     FStringParser::new(source).parse()
+}
+
+/// Parse an fstring from a string, located at a certain position in the sourcecode.
+/// In case of errors, we will get the location and the error returned.
+pub fn parse_located_fstring(
+    source: &str,
+    location: Location,
+) -> Result<StringGroup, FStringError> {
+    parse_fstring(source).map_err(|error| FStringError { error, location })
 }
 
 #[cfg(test)]
@@ -185,9 +173,12 @@ mod tests {
 
     use super::*;
 
-    fn mk_ident(name: &str) -> ast::Expression {
-        ast::Expression::Identifier {
-            name: name.to_owned(),
+    fn mk_ident(name: &str, row: usize, col: usize) -> ast::Expression {
+        ast::Expression {
+            location: ast::Location::new(row, col),
+            node: ast::ExpressionType::Identifier {
+                name: name.to_owned(),
+            },
         }
     }
 
@@ -201,12 +192,12 @@ mod tests {
             Joined {
                 values: vec![
                     FormattedValue {
-                        value: Box::new(mk_ident("a")),
+                        value: Box::new(mk_ident("a", 1, 1)),
                         conversion: None,
                         spec: String::new(),
                     },
                     FormattedValue {
-                        value: Box::new(mk_ident("b")),
+                        value: Box::new(mk_ident("b", 1, 1)),
                         conversion: None,
                         spec: String::new(),
                     },
@@ -232,6 +223,8 @@ mod tests {
     fn test_parse_invalid_fstring() {
         assert_eq!(parse_fstring("{"), Err(UnclosedLbrace));
         assert_eq!(parse_fstring("}"), Err(UnopenedRbrace));
-        assert_eq!(parse_fstring("{class}"), Err(InvalidExpression));
+
+        // TODO: check for InvalidExpression enum?
+        assert!(parse_fstring("{class}").is_err());
     }
 }

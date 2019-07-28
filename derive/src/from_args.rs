@@ -62,7 +62,7 @@ impl ArgAttribute {
                     optional: false,
                 };
 
-                while let Some(arg) = iter.next() {
+                for arg in iter {
                     attribute.parse_argument(arg)?;
                 }
 

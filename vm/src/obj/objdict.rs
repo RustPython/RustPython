@@ -202,6 +202,7 @@ impl PyDictRef {
         self.entries.borrow_mut().insert(vm, &key, value)
     }
 
+    #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
     fn inner_getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(value) = self.entries.borrow().get(vm, &key)? {
             return Ok(value);
@@ -257,8 +258,19 @@ impl PyDictRef {
         PyDictRef::merge(&self.entries, dict_obj, kwargs, vm)
     }
 
-    fn pop(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.entries.borrow_mut().pop(vm, &key)
+    fn pop(
+        self,
+        key: PyObjectRef,
+        default: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match self.entries.borrow_mut().pop(vm, &key)? {
+            Some(value) => Ok(value),
+            None => match default {
+                OptionalArg::Present(default) => Ok(default),
+                OptionalArg::Missing => Err(vm.new_key_error(key.clone())),
+            },
+        }
     }
 
     fn popitem(self, vm: &VirtualMachine) -> PyResult {
@@ -282,15 +294,13 @@ impl PyDictRef {
     }
 
     pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
-        let dict = DictContentType::default();
-        let entries = RefCell::new(dict);
+        let mut dict = DictContentType::default();
 
         for (key, value) in attrs {
-            entries
-                .borrow_mut()
-                .insert(vm, &vm.ctx.new_str(key), value)?;
+            dict.insert(vm, &vm.ctx.new_str(key), value)?;
         }
 
+        let entries = RefCell::new(dict);
         Ok(PyDict { entries }.into_ref(vm))
     }
 
@@ -418,6 +428,7 @@ macro_rules! dict_iterator {
             }
 
             #[pymethod(name = "__next__")]
+            #[allow(clippy::redundant_closure_call)]
             fn next(&self, vm: &VirtualMachine) -> PyResult {
                 let mut position = self.position.get();
                 let dict = self.dict.entries.borrow();

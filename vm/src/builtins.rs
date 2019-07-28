@@ -21,12 +21,13 @@ use crate::obj::objtype::{self, PyClassRef};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
-use crate::frame::Scope;
+use crate::eval::get_compile_mode;
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
+use crate::scope::Scope;
 use crate::vm::VirtualMachine;
 
 use crate::obj::objbyteinner::PyByteInner;
@@ -107,23 +108,7 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef
         Either::B(bytes) => str::from_utf8(&bytes).unwrap().to_string(),
     };
 
-    // TODO: fix this newline bug:
-    let source = format!("{}\n", source);
-
-    let mode = {
-        let mode = &args.mode.value;
-        if mode == "exec" {
-            compile::Mode::Exec
-        } else if mode == "eval" {
-            compile::Mode::Eval
-        } else if mode == "single" {
-            compile::Mode::Single
-        } else {
-            return Err(
-                vm.new_value_error("compile() mode must be 'exec', 'eval' or single'".to_string())
-            );
-        }
-    };
+    let mode = get_compile_mode(vm, &args.mode.value)?;
 
     vm.compile(&source, &mode, args.filename.value.to_string())
         .map_err(|err| vm.new_syntax_error(&err))
@@ -173,8 +158,6 @@ fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if objtype::isinstance(source, &vm.ctx.str_type()) {
         let mode = compile::Mode::Eval;
         let source = objstr::get_value(source);
-        // TODO: fix this newline bug:
-        let source = format!("{}\n", source);
         vm.compile(&source, &mode, "<string>".to_string())
             .map_err(|err| vm.new_syntax_error(&err))?
     } else {
@@ -202,8 +185,6 @@ fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let code_obj = if objtype::isinstance(source, &vm.ctx.str_type()) {
         let mode = compile::Mode::Exec;
         let source = objstr::get_value(source);
-        // TODO: fix this newline bug:
-        let source = format!("{}\n", source);
         vm.compile(&source, &mode, "<string>".to_string())
             .map_err(|err| vm.new_syntax_error(&err))?
     } else if let Ok(code_obj) = PyCodeRef::try_from_object(vm, source.clone()) {
@@ -713,7 +694,7 @@ fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm.invoke(reversed_method?, PyFuncArgs::default())
     } else {
         vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
-            format!("argument to reversed() must be a sequence")
+            "argument to reversed() must be a sequence".to_string()
         })?;
         let len = vm.call_method(&obj.clone(), "__len__", PyFuncArgs::default())?;
         let obj_iterator = objiter::PySequenceIterator {
@@ -798,7 +779,9 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         });
     }
 
+    let debug_mode: bool = vm.settings.optimize == 0;
     extend_module!(vm, module, {
+        "__debug__" => ctx.new_bool(debug_mode),
         //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
         "__name__" => ctx.new_str(String::from("__main__")),
 
@@ -886,9 +869,15 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "ValueError" => ctx.exceptions.value_error.clone(),
         "IndexError" => ctx.exceptions.index_error.clone(),
         "ImportError" => ctx.exceptions.import_error.clone(),
+        "LookupError" => ctx.exceptions.lookup_error.clone(),
         "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone(),
         "FileExistsError" => ctx.exceptions.file_exists_error.clone(),
         "StopIteration" => ctx.exceptions.stop_iteration.clone(),
+        "SystemError" => ctx.exceptions.system_error.clone(),
+        "UnicodeError" => ctx.exceptions.unicode_error.clone(),
+        "UnicodeDecodeError" => ctx.exceptions.unicode_decode_error.clone(),
+        "UnicodeEncodeError" => ctx.exceptions.unicode_encode_error.clone(),
+        "UnicodeTranslateError" => ctx.exceptions.unicode_translate_error.clone(),
         "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
         "KeyError" => ctx.exceptions.key_error.clone(),
         "OSError" => ctx.exceptions.os_error.clone(),

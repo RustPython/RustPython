@@ -120,7 +120,7 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let fname = &make_path(vm, name, &dir_fd).value;
 
     let flags = FileCreationFlags::from_bits(objint::get_value(flags).to_u32().unwrap())
-        .ok_or(vm.new_value_error("Unsupported flag".to_string()))?;
+        .ok_or_else(|| vm.new_value_error("Unsupported flag".to_string()))?;
 
     let mut options = &mut OpenOptions::new();
 
@@ -307,7 +307,7 @@ impl DirEntryRef {
     fn perform_on_metadata(
         self,
         follow_symlinks: FollowSymlinks,
-        action: &Fn(fs::Metadata) -> bool,
+        action: fn(fs::Metadata) -> bool,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         let metadata = match follow_symlinks.follow_symlinks {
@@ -321,7 +321,7 @@ impl DirEntryRef {
     fn is_dir(self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
         self.perform_on_metadata(
             follow_symlinks,
-            &|meta: fs::Metadata| -> bool { meta.is_dir() },
+            |meta: fs::Metadata| -> bool { meta.is_dir() },
             vm,
         )
     }
@@ -329,7 +329,7 @@ impl DirEntryRef {
     fn is_file(self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
         self.perform_on_metadata(
             follow_symlinks,
-            &|meta: fs::Metadata| -> bool { meta.is_file() },
+            |meta: fs::Metadata| -> bool { meta.is_file() },
             vm,
         )
     }
@@ -460,7 +460,7 @@ impl StatResultRef {
 
 // Copied code from Duration::as_secs_f64 as it's still unstable
 fn duration_as_secs_f64(duration: Duration) -> f64 {
-    (duration.as_secs() as f64) + (duration.subsec_nanos() as f64) / (1_000_000_000 as f64)
+    (duration.as_secs() as f64) + f64::from(duration.subsec_nanos()) / 1_000_000_000_f64
 }
 
 fn to_seconds_from_unix_epoch(sys_time: SystemTime) -> f64 {
@@ -541,6 +541,18 @@ fn os_stat(
     os_unix_stat_inner!(path, follow_symlinks, vm)
 }
 
+#[cfg(target_os = "redox")]
+fn os_stat(
+    path: PyStringRef,
+    dir_fd: DirFd,
+    follow_symlinks: FollowSymlinks,
+    vm: &VirtualMachine,
+) -> PyResult<StatResult> {
+    use std::os::redox::fs::MetadataExt;
+    let path = make_path(vm, path, &dir_fd);
+    os_unix_stat_inner!(path, follow_symlinks, vm)
+}
+
 // Copied from CPython fileutils.c
 #[cfg(windows)]
 fn attributes_to_mode(attr: u32) -> u32 {
@@ -599,9 +611,15 @@ fn os_stat(
     target_os = "linux",
     target_os = "macos",
     target_os = "android",
+    target_os = "redox",
     windows
 )))]
-fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn os_stat(
+    _path: PyStringRef,
+    _dir_fd: DirFd,
+    _follow_symlinks: FollowSymlinks,
+    _vm: &VirtualMachine,
+) -> PyResult<StatResult> {
     unimplemented!();
 }
 
@@ -809,7 +827,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "O_NONBLOCK" => ctx.new_int(FileCreationFlags::O_NONBLOCK.bits()),
         "O_APPEND" => ctx.new_int(FileCreationFlags::O_APPEND.bits()),
         "O_EXCL" => ctx.new_int(FileCreationFlags::O_EXCL.bits()),
-        "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits())
+        "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits()),
+        "F_OK" => ctx.new_int(0),
+        "R_OK" => ctx.new_int(4),
+        "W_OK" => ctx.new_int(2),
+        "X_OK" => ctx.new_int(1),
     });
 
     for support in support_funcs {

@@ -14,8 +14,8 @@ assert not hasattr(foo, 'bar')
 x = 1
 y = 2
 del (x, y)
-assert_raises(NameError, lambda: x)
-assert_raises(NameError, lambda: y)
+assert_raises(NameError, lambda: x)  # noqa: F821
+assert_raises(NameError, lambda: y)  # noqa: F821
 
 with assertRaises(NameError):
-    del y
+    del y  # noqa: F821

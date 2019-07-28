@@ -5,11 +5,11 @@ use std::rc::{Rc, Weak};
 use js_sys::{Object, Reflect, SyntaxError, TypeError};
 use wasm_bindgen::prelude::*;
 
-use rustpython_compiler::{compile, error::CompileErrorType};
-use rustpython_vm::frame::{NameProtocol, Scope};
+use rustpython_compiler::compile;
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::import;
 use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue};
+use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::VirtualMachine;
 
 use crate::browser_module::setup_browser_module;
@@ -27,7 +27,7 @@ pub(crate) struct StoredVirtualMachine {
 
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
-        let mut vm = VirtualMachine::new();
+        let mut vm: VirtualMachine = Default::default();
         vm.wasm_id = Some(id);
         let scope = vm.new_scope_with_builtins();
 
@@ -44,7 +44,7 @@ impl StoredVirtualMachine {
             setup_browser_module(&vm);
         }
 
-        import::init_importlib(&vm, false);
+        import::init_importlib(&vm, false).unwrap();
 
         StoredVirtualMachine {
             vm,
@@ -271,40 +271,22 @@ impl WASMVirtualMachine {
         })?
     }
 
-    fn run(&self, mut source: String, mode: compile::Mode) -> Result<JsValue, JsValue> {
+    fn run(&self, source: String, mode: compile::Mode) -> Result<JsValue, JsValue> {
         self.assert_valid()?;
         self.with_unchecked(
             |StoredVirtualMachine {
                  ref vm, ref scope, ..
              }| {
-                source.push('\n');
                 let code = vm.compile(&source, &mode, "<wasm>".to_string());
                 let code = code.map_err(|err| {
                     let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
-                    if let CompileErrorType::Parse(ref parse_error) = err.error {
-                        use rustpython_parser::error::ParseError;
-                        if let ParseError::EOF(Some(ref loc))
-                        | ParseError::ExtraToken((ref loc, ..))
-                        | ParseError::InvalidToken(ref loc)
-                        | ParseError::UnrecognizedToken((ref loc, ..), _) = parse_error
-                        {
-                            let _ =
-                                Reflect::set(&js_err, &"row".into(), &(loc.row() as u32).into());
-                            let _ =
-                                Reflect::set(&js_err, &"col".into(), &(loc.column() as u32).into());
-                        }
-                        if let ParseError::ExtraToken((_, _, ref loc))
-                        | ParseError::UnrecognizedToken((_, _, ref loc), _) = parse_error
-                        {
-                            let _ =
-                                Reflect::set(&js_err, &"endrow".into(), &(loc.row() as u32).into());
-                            let _ = Reflect::set(
-                                &js_err,
-                                &"endcol".into(),
-                                &(loc.column() as u32).into(),
-                            );
-                        }
-                    }
+                    let _ =
+                        Reflect::set(&js_err, &"row".into(), &(err.location.row() as u32).into());
+                    let _ = Reflect::set(
+                        &js_err,
+                        &"col".into(),
+                        &(err.location.column() as u32).into(),
+                    );
                     js_err
                 })?;
                 let result = vm.run_code_obj(code, scope.borrow().clone());

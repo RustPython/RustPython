@@ -203,6 +203,7 @@ pub struct ExceptionZoo {
     pub import_error: PyClassRef,
     pub index_error: PyClassRef,
     pub key_error: PyClassRef,
+    pub lookup_error: PyClassRef,
     pub module_not_found_error: PyClassRef,
     pub name_error: PyClassRef,
     pub not_implemented_error: PyClassRef,
@@ -213,8 +214,13 @@ pub struct ExceptionZoo {
     pub runtime_error: PyClassRef,
     pub stop_iteration: PyClassRef,
     pub syntax_error: PyClassRef,
+    pub system_error: PyClassRef,
     pub type_error: PyClassRef,
     pub value_error: PyClassRef,
+    pub unicode_error: PyClassRef,
+    pub unicode_decode_error: PyClassRef,
+    pub unicode_encode_error: PyClassRef,
+    pub unicode_translate_error: PyClassRef,
     pub zero_division_error: PyClassRef,
     pub eof_error: PyClassRef,
 
@@ -242,12 +248,14 @@ impl ExceptionZoo {
         let import_error = create_type("ImportError", &type_type, &exception_type);
         let index_error = create_type("IndexError", &type_type, &exception_type);
         let key_error = create_type("KeyError", &type_type, &exception_type);
+        let lookup_error = create_type("LookupError", &type_type, &exception_type);
         let name_error = create_type("NameError", &type_type, &exception_type);
         let os_error = create_type("OSError", &type_type, &exception_type);
         let runtime_error = create_type("RuntimeError", &type_type, &exception_type);
         let reference_error = create_type("ReferenceError", &type_type, &exception_type);
         let stop_iteration = create_type("StopIteration", &type_type, &exception_type);
         let syntax_error = create_type("SyntaxError", &type_type, &exception_type);
+        let system_error = create_type("SystemError", &type_type, &exception_type);
         let type_error = create_type("TypeError", &type_type, &exception_type);
         let value_error = create_type("ValueError", &type_type, &exception_type);
         let overflow_error = create_type("OverflowError", &type_type, &arithmetic_error);
@@ -258,6 +266,11 @@ impl ExceptionZoo {
         let permission_error = create_type("PermissionError", &type_type, &os_error);
         let file_exists_error = create_type("FileExistsError", &type_type, &os_error);
         let eof_error = create_type("EOFError", &type_type, &exception_type);
+        let unicode_error = create_type("UnicodeError", &type_type, &value_error);
+        let unicode_decode_error = create_type("UnicodeDecodeError", &type_type, &unicode_error);
+        let unicode_encode_error = create_type("UnicodeEncodeError", &type_type, &unicode_error);
+        let unicode_translate_error =
+            create_type("UnicodeTranslateError", &type_type, &unicode_error);
 
         let warning = create_type("Warning", &type_type, &exception_type);
         let bytes_warning = create_type("BytesWarning", &type_type, &warning);
@@ -283,6 +296,7 @@ impl ExceptionZoo {
             import_error,
             index_error,
             key_error,
+            lookup_error,
             module_not_found_error,
             name_error,
             not_implemented_error,
@@ -292,8 +306,13 @@ impl ExceptionZoo {
             runtime_error,
             stop_iteration,
             syntax_error,
+            system_error,
             type_error,
             value_error,
+            unicode_error,
+            unicode_decode_error,
+            unicode_encode_error,
+            unicode_translate_error,
             zero_division_error,
             eof_error,
             warning,

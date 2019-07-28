@@ -119,7 +119,7 @@ impl CFormatSpec {
     ) -> String {
         let mut num_chars = string.chars().count();
         if let Some(num_prefix_chars) = num_prefix_chars {
-            num_chars = num_chars + num_prefix_chars;
+            num_chars += num_prefix_chars;
         }
         let num_chars = num_chars;
 
@@ -250,7 +250,7 @@ impl FromStr for CFormatString {
                 .or_else(|_| parse_specifier(cur_text))
                 .map(|(format_part, new_text, consumed)| {
                     parts.push((index, format_part));
-                    index = index + consumed;
+                    index += consumed;
                     new_text
                 })
                 .map_err(|(e, consumed)| CFormatError {
@@ -320,7 +320,7 @@ fn parse_literal(text: &str) -> Result<(CFormatPart, &str, usize), ParsingError>
         match parse_literal_single(cur_text) {
             Ok((next_char, remaining)) => {
                 result_string.push(next_char);
-                consumed = consumed + 1;
+                consumed += 1;
                 cur_text = remaining;
             }
             Err(err) => {
@@ -537,12 +537,12 @@ impl FromStr for CFormatSpec {
         };
 
         Ok(CFormatSpec {
-            mapping_key: mapping_key,
-            flags: flags,
+            mapping_key,
+            flags,
             min_field_width: width,
-            precision: precision,
-            format_type: format_type,
-            format_char: format_char,
+            precision,
+            format_type,
+            format_char,
             chars_consumed: calc_consumed(text, remaining_text),
         })
     }

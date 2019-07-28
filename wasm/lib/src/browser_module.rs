@@ -381,8 +381,8 @@ pub fn setup_browser_module(vm: &VirtualMachine) {
     vm.stdlib_inits
         .borrow_mut()
         .insert("_browser".to_string(), Box::new(make_module));
-    vm.frozen.borrow_mut().insert(
-        "browser".to_string(),
-        py_compile_bytecode!(file = "src/browser.py"),
-    );
+    vm.frozen.borrow_mut().extend(py_compile_bytecode!(
+        file = "src/browser.py",
+        module_name = "browser",
+    ));
 }

@@ -5,6 +5,7 @@ use crate::pyobject::{IntoPyObject, PyContext, PyObjectRef, PyResult, TryFromObj
 use crate::vm::VirtualMachine;
 
 use super::objint::PyInt;
+use super::objstr::PyStringRef;
 use super::objtype;
 
 impl IntoPyObject for bool {
@@ -47,6 +48,7 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
     extend_class!(context, bool_type, {
         "__new__" => context.new_rustfunc(bool_new),
         "__repr__" => context.new_rustfunc(bool_repr),
+        "__format__" => context.new_rustfunc(bool_format),
         "__or__" => context.new_rustfunc(bool_or),
         "__ror__" => context.new_rustfunc(bool_ror),
         "__and__" => context.new_rustfunc(bool_and),
@@ -80,6 +82,18 @@ fn bool_repr(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObj
         "False".to_string()
     };
     Ok(vm.new_str(s))
+}
+
+fn bool_format(
+    obj: PyObjectRef,
+    format_spec: PyStringRef,
+    vm: &VirtualMachine,
+) -> PyResult<PyStringRef> {
+    if format_spec.value.is_empty() {
+        vm.to_str(&obj)
+    } else {
+        Err(vm.new_type_error("unsupported format string passed to bool.__format__".to_string()))
+    }
 }
 
 fn do_bool_or(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyResult {

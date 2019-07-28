@@ -1,5 +1,6 @@
 use num_complex::Complex64;
 use num_traits::Zero;
+use std::num::Wrapping;
 
 use crate::function::OptionalArg;
 use crate::pyhash;
@@ -254,7 +255,7 @@ impl PyComplex {
     fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
         let re_hash = pyhash::hash_float(self.value.re);
         let im_hash = pyhash::hash_float(self.value.im);
-
-        re_hash + im_hash * pyhash::IMAG
+        let ret = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(pyhash::IMAG);
+        ret.0
     }
 }
