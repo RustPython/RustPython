@@ -9,6 +9,7 @@ use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
 use std::fmt;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
@@ -42,6 +43,23 @@ use num_bigint::BigInt;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::{compile, error::CompileError};
 
+// Signal triggers
+// TODO: 64
+pub const NSIG: usize = 10;
+
+pub static mut TRIGGERS: [AtomicBool; NSIG] = [
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+];
+
 // use objects::objects;
 
 // Objects are live when they are on stack, or referenced by a name (for now)
@@ -62,6 +80,7 @@ pub struct VirtualMachine {
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: RefCell<bool>,
     pub settings: PySettings,
+    pub signal_handlers: RefCell<HashMap<i32, PyObjectRef>>,
 }
 
 /// Struct containing all kind of settings for the python vm.
@@ -160,6 +179,7 @@ impl VirtualMachine {
             trace_func,
             use_tracing: RefCell::new(false),
             settings,
+            signal_handlers: RefCell::new(HashMap::new()),
         };
 
         builtins::make_module(&vm, builtins.clone());
@@ -1142,6 +1162,21 @@ impl VirtualMachine {
 
     pub fn current_exception(&self) -> Option<PyObjectRef> {
         self.exceptions.borrow().last().cloned()
+    }
+
+    pub fn check_signals(&self) {
+        for (signum, handler) in self.signal_handlers.borrow().iter() {
+            if *signum as usize >= NSIG {
+                panic!("Signum bigger then NSIG");
+            }
+            let triggerd;
+            unsafe {
+                triggerd = TRIGGERS[*signum as usize].swap(false, Ordering::Relaxed);
+            }
+            if triggerd {
+                self.invoke(handler.clone(), vec![]).expect("Test");
+            }
+        }
     }
 }
 

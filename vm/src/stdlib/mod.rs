@@ -38,6 +38,8 @@ pub mod io;
 mod os;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
+#[cfg(not(target_arch = "wasm32"))]
+mod signal;
 
 use crate::pyobject::PyObjectRef;
 
@@ -92,6 +94,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("_io".to_string(), Box::new(io::make_module));
         modules.insert("_os".to_string(), Box::new(os::make_module));
         modules.insert("socket".to_string(), Box::new(socket::make_module));
+        modules.insert("_signal".to_string(), Box::new(signal::make_module));
     }
 
     // Unix-only

@@ -163,6 +163,7 @@ impl Frame {
     /// Execute a single instruction.
     #[allow(clippy::cognitive_complexity)]
     fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
+        vm.check_signals();
         let instruction = self.fetch_instruction();
 
         flame_guard!(format!("Frame::execute_instruction({:?})", instruction));
