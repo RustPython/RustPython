@@ -418,10 +418,7 @@ impl PyInt {
 
     #[pymethod(name = "__hash__")]
     pub fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
-        match self.value.to_i64() {
-            Some(value) => (value % pyhash::MODULUS as i64),
-            None => (&self.value % pyhash::MODULUS).to_i64().unwrap(),
-        }
+        pyhash::hash_bigint(&self.value)
     }
 
     #[pymethod(name = "__abs__")]
