@@ -506,7 +506,7 @@ impl PyInt {
         let capacity = unsafe {
             // Grab a reference to the underlying vector. This relies on the compiler always placing
             // the BigUInt and its data vector directly at the start of their containing structs.
-            let data = & *(&self.value as *const BigInt as *const Vec<u8>);
+            let data = &*(&self.value as *const BigInt as *const Vec<u32>);
             data.capacity()
         };
 
