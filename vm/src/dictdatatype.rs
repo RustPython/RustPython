@@ -1,4 +1,5 @@
 use crate::obj::objbool;
+use crate::obj::objstr::PyString;
 use crate::pyhash;
 use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
@@ -308,6 +309,7 @@ impl DictKey for PyObjectRef {
 /// to index dictionaries.
 impl DictKey for String {
     fn do_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
+        // follow a similar route as the hashing of PyStringRef
         let raw_hash = pyhash::hash_value(self).to_bigint().unwrap();
         let raw_hash = pyhash::hash_bigint(&raw_hash);
         let mut hasher = DefaultHasher::new();
@@ -322,9 +324,13 @@ impl DictKey for String {
     }
 
     fn do_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
-        // Fall back to PyString implementation.
-        let s = vm.new_str(self.to_string());
-        s.do_eq(vm, other_key)
+        if let Some(py_str_value) = other_key.payload::<PyString>() {
+            Ok(&py_str_value.value == self)
+        } else {
+            // Fall back to PyString implementation.
+            let s = vm.new_str(self.to_string());
+            s.do_eq(vm, other_key)
+        }
     }
 }
 
