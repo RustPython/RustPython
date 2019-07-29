@@ -79,7 +79,7 @@ pub fn check_signals(vm: &VirtualMachine) {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    py_module!(vm, "_signal", {
+    py_module!(vm, "signal", {
         "signal" => ctx.new_rustfunc(signal),
         "getsignal" => ctx.new_rustfunc(getsignal)
     })

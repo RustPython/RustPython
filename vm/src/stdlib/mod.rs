@@ -94,7 +94,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("_io".to_string(), Box::new(io::make_module));
         modules.insert("_os".to_string(), Box::new(os::make_module));
         modules.insert("socket".to_string(), Box::new(socket::make_module));
-        modules.insert("_signal".to_string(), Box::new(signal::make_module));
+        modules.insert("signal".to_string(), Box::new(signal::make_module));
     }
 
     // Unix-only
