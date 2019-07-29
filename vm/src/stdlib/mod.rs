@@ -39,7 +39,7 @@ mod os;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
 #[cfg(not(target_arch = "wasm32"))]
-mod signal;
+pub mod signal;
 
 use crate::pyobject::PyObjectRef;
 

@@ -19,6 +19,8 @@ use crate::pyobject::{
     IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::scope::{NameProtocol, Scope};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::stdlib::signal::check_signals;
 use crate::vm::VirtualMachine;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -163,7 +165,7 @@ impl Frame {
     /// Execute a single instruction.
     #[allow(clippy::cognitive_complexity)]
     fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
-        vm.check_signals();
+        check_signals(vm);
         let instruction = self.fetch_instruction();
 
         flame_guard!(format!("Frame::execute_instruction({:?})", instruction));

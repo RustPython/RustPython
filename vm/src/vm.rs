@@ -9,7 +9,6 @@ use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
 use std::fmt;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
@@ -42,23 +41,6 @@ use crate::sysmodule;
 use num_bigint::BigInt;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::{compile, error::CompileError};
-
-// Signal triggers
-// TODO: 64
-pub const NSIG: usize = 10;
-
-pub static mut TRIGGERS: [AtomicBool; NSIG] = [
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-];
 
 // use objects::objects;
 
@@ -1162,18 +1144,6 @@ impl VirtualMachine {
 
     pub fn current_exception(&self) -> Option<PyObjectRef> {
         self.exceptions.borrow().last().cloned()
-    }
-
-    pub fn check_signals(&self) {
-        for (signum, handler) in self.signal_handlers.borrow().iter() {
-            if *signum as usize >= NSIG {
-                panic!("Signum bigger then NSIG");
-            }
-            let triggerd = unsafe { TRIGGERS[*signum as usize].swap(false, Ordering::Relaxed) };
-            if triggerd {
-                self.invoke(handler.clone(), vec![]).expect("Test");
-            }
-        }
     }
 }
 
