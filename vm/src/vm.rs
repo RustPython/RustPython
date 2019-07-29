@@ -179,7 +179,7 @@ impl VirtualMachine {
             trace_func,
             use_tracing: RefCell::new(false),
             settings,
-            signal_handlers: RefCell::new(HashMap::new()),
+            signal_handlers: Default::default(),
         };
 
         builtins::make_module(&vm, builtins.clone());
@@ -1169,10 +1169,7 @@ impl VirtualMachine {
             if *signum as usize >= NSIG {
                 panic!("Signum bigger then NSIG");
             }
-            let triggerd;
-            unsafe {
-                triggerd = TRIGGERS[*signum as usize].swap(false, Ordering::Relaxed);
-            }
+            let triggerd = unsafe { TRIGGERS[*signum as usize].swap(false, Ordering::Relaxed) };
             if triggerd {
                 self.invoke(handler.clone(), vec![]).expect("Test");
             }
