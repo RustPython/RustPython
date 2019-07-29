@@ -46,12 +46,22 @@ fn signal(
         signal::SaFlags::empty(),
         signal::SigSet::empty(),
     );
+    check_signals(vm);
     unsafe { signal::sigaction(signal_enum, &sig_action) }.unwrap();
     let old_handler = vm
         .signal_handlers
         .borrow_mut()
         .insert(signalnum, handler.into_object());
     Ok(old_handler)
+}
+
+fn getsignal(signalnum: PyIntRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+    let signalnum = signalnum.as_bigint().to_i32().unwrap();
+    Ok(vm
+        .signal_handlers
+        .borrow_mut()
+        .get(&signalnum)
+        .map(|x| x.clone()))
 }
 
 pub fn check_signals(vm: &VirtualMachine) {
@@ -71,5 +81,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     py_module!(vm, "_signal", {
         "signal" => ctx.new_rustfunc(signal),
+        "getsignal" => ctx.new_rustfunc(getsignal)
     })
 }
