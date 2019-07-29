@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use num_traits::cast::ToPrimitive;
 
 use nix::sys::signal;
+use nix::unistd::alarm as sig_alarm;
 
 // Signal triggers
 // TODO: 64
@@ -64,6 +65,16 @@ fn getsignal(signalnum: PyIntRef, vm: &VirtualMachine) -> PyResult<Option<PyObje
         .map(|x| x.clone()))
 }
 
+fn alarm(time: PyIntRef, _vm: &VirtualMachine) -> u32 {
+    let time = time.as_bigint().to_u32().unwrap();
+    let prev_time = if time == 0 {
+        sig_alarm::cancel()
+    } else {
+        sig_alarm::set(time)
+    };
+    prev_time.unwrap_or(0)
+}
+
 pub fn check_signals(vm: &VirtualMachine) {
     for (signum, handler) in vm.signal_handlers.borrow().iter() {
         if *signum as usize >= NSIG {
@@ -81,6 +92,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     py_module!(vm, "signal", {
         "signal" => ctx.new_rustfunc(signal),
-        "getsignal" => ctx.new_rustfunc(getsignal)
+        "getsignal" => ctx.new_rustfunc(getsignal),
+        "alarm" => ctx.new_rustfunc(alarm),
     })
 }
