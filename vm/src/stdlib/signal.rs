@@ -33,16 +33,25 @@ extern "C" fn run_signal(signum: i32) {
     }
 }
 
-fn signal(signalnum: PyIntRef, handler: PyFunctionRef, vm: &VirtualMachine) -> PyResult<()> {
-    vm.signal_handlers.borrow_mut().insert(
-        signalnum.as_bigint().to_i32().unwrap(),
-        handler.into_object(),
+fn signal(
+    signalnum: PyIntRef,
+    handler: PyFunctionRef,
+    vm: &VirtualMachine,
+) -> PyResult<Option<PyObjectRef>> {
+    let signalnum = signalnum.as_bigint().to_i32().unwrap();
+    let signal_enum = signal::Signal::from_c_int(signalnum).unwrap();
+    let sig_handler = nix::sys::signal::SigHandler::Handler(run_signal);
+    let sig_action = signal::SigAction::new(
+        sig_handler,
+        signal::SaFlags::empty(),
+        signal::SigSet::empty(),
     );
-    let handler = nix::sys::signal::SigHandler::Handler(run_signal);
-    let sig_action =
-        signal::SigAction::new(handler, signal::SaFlags::empty(), signal::SigSet::empty());
-    unsafe { signal::sigaction(signal::SIGINT, &sig_action) }.unwrap();
-    Ok(())
+    unsafe { signal::sigaction(signal_enum, &sig_action) }.unwrap();
+    let old_handler = vm
+        .signal_handlers
+        .borrow_mut()
+        .insert(signalnum, handler.into_object());
+    Ok(old_handler)
 }
 
 pub fn check_signals(vm: &VirtualMachine) {
