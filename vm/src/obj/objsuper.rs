@@ -11,7 +11,7 @@ use crate::obj::objfunction::PyMethod;
 use crate::obj::objstr;
 use crate::obj::objtype::{PyClass, PyClassRef};
 use crate::pyobject::{
-    ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::scope::NameProtocol;
 use crate::vm::VirtualMachine;
