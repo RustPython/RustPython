@@ -13,9 +13,14 @@ use nix::unistd::alarm as sig_alarm;
 
 // Signal triggers
 // TODO: 64
-const NSIG: usize = 10;
+const NSIG: usize = 15;
 
 static mut TRIGGERS: [AtomicBool; NSIG] = [
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
     AtomicBool::new(false),
     AtomicBool::new(false),
     AtomicBool::new(false),
@@ -82,7 +87,8 @@ pub fn check_signals(vm: &VirtualMachine) {
         }
         let triggerd = unsafe { TRIGGERS[*signum as usize].swap(false, Ordering::Relaxed) };
         if triggerd {
-            vm.invoke(handler.clone(), vec![]).expect("Test");
+            vm.invoke(handler.clone(), vec![vm.new_int(*signum), vm.get_none()])
+                .expect("Test");
         }
     }
 }
