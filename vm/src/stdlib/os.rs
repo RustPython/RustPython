@@ -6,7 +6,9 @@ use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
 use bitflags::bitflags;
+#[cfg(unix)]
 use nix::errno::Errno;
+#[cfg(unix)]
 use nix::unistd::{self, Gid, Pid, Uid};
 use num_traits::cast::ToPrimitive;
 
@@ -176,6 +178,7 @@ fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
     os_error
 }
 
+#[cfg(unix)]
 fn convert_nix_error(vm: &VirtualMachine, err: nix::Error) -> PyObjectRef {
     let nix_error = match err {
         nix::Error::InvalidPath => {
@@ -204,6 +207,7 @@ fn convert_nix_error(vm: &VirtualMachine, err: nix::Error) -> PyObjectRef {
     nix_error
 }
 
+#[cfg(unix)]
 fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
     match errno {
         Errno::EPERM => vm.ctx.exceptions.permission_error.clone(),
@@ -1000,23 +1004,33 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "supports_follow_symlinks" => supports_follow_symlinks.into_object(),
     });
 
-    if cfg!(unix) {
-        extend_module!(vm, module, {
-            "getppid" => ctx.new_rustfunc(os_getppid),
-            "getgid" => ctx.new_rustfunc(os_getgid),
-            "getegid" => ctx.new_rustfunc(os_getegid),
-            "getpgid" => ctx.new_rustfunc(os_getpgid),
-            "getsid" => ctx.new_rustfunc(os_getsid),
-            "getuid" => ctx.new_rustfunc(os_getuid),
-            "geteuid" => ctx.new_rustfunc(os_geteuid),
-            "setgid" => ctx.new_rustfunc(os_setgid),
-            "setegid" => ctx.new_rustfunc(os_setegid),
-            "setpgid" => ctx.new_rustfunc(os_setpgid),
-            "setsid" => ctx.new_rustfunc(os_setsid),
-            "setuid" => ctx.new_rustfunc(os_setuid),
-            "seteuid" => ctx.new_rustfunc(os_seteuid),
-        });
-    }
+    extend_module_platform_specific(&vm, module)
+}
 
+#[cfg(unix)]
+fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    extend_module!(vm, module, {
+        "getppid" => ctx.new_rustfunc(os_getppid),
+        "getgid" => ctx.new_rustfunc(os_getgid),
+        "getegid" => ctx.new_rustfunc(os_getegid),
+        "getpgid" => ctx.new_rustfunc(os_getpgid),
+        "getsid" => ctx.new_rustfunc(os_getsid),
+        "getuid" => ctx.new_rustfunc(os_getuid),
+        "geteuid" => ctx.new_rustfunc(os_geteuid),
+        "setgid" => ctx.new_rustfunc(os_setgid),
+        "setegid" => ctx.new_rustfunc(os_setegid),
+        "setpgid" => ctx.new_rustfunc(os_setpgid),
+        "setsid" => ctx.new_rustfunc(os_setsid),
+        "setuid" => ctx.new_rustfunc(os_setuid),
+        "seteuid" => ctx.new_rustfunc(os_seteuid),
+    });
+
+    module
+}
+
+#[cfg(not(unix))]
+fn extend_module_platform_specific(_vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
     module
 }
