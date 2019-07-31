@@ -91,13 +91,16 @@ fn alarm(time: PyIntRef, _vm: &VirtualMachine) -> u32 {
 }
 
 pub fn check_signals(vm: &VirtualMachine) {
-    for (signum, handler) in vm.signal_handlers.borrow().iter() {
-        if *signum as usize >= NSIG {
-            panic!("Signum bigger then NSIG");
-        }
-        let triggerd = unsafe { TRIGGERS[*signum as usize].swap(false, Ordering::Relaxed) };
+    for signum in 1..NSIG {
+        let triggerd = unsafe { TRIGGERS[signum].swap(false, Ordering::Relaxed) };
         if triggerd {
-            vm.invoke(handler.clone(), vec![vm.new_int(*signum), vm.get_none()])
+            let handler = vm
+                .signal_handlers
+                .borrow()
+                .get(&(signum as i32))
+                .expect("Handler should be set")
+                .clone();
+            vm.invoke(handler, vec![vm.new_int(signum), vm.get_none()])
                 .expect("Test");
         }
     }
