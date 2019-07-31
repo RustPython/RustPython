@@ -6,30 +6,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use num_traits::cast::ToPrimitive;
 
+use arr_macro::arr;
 use nix::sys::signal;
 use nix::unistd::alarm as sig_alarm;
 
-// Signal triggers
-// TODO: 64
-const NSIG: usize = 15;
+const NSIG: usize = 64;
 
-static mut TRIGGERS: [AtomicBool; NSIG] = [
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-    AtomicBool::new(false),
-];
+// We cannot use the NSIG const in the arr macro. This will fail compilation if NSIG is different.
+static mut TRIGGERS: [AtomicBool; NSIG] = arr![AtomicBool::new(false); 64];
 
 extern "C" fn run_signal(signum: i32) {
     unsafe {
