@@ -7,7 +7,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use num_traits::cast::ToPrimitive;
 
 use arr_macro::arr;
+
+#[cfg(unix)]
 use nix::sys::signal;
+#[cfg(unix)]
 use nix::unistd::alarm as sig_alarm;
 
 const NSIG: usize = 64;
@@ -19,6 +22,34 @@ extern "C" fn run_signal(signum: i32) {
     unsafe {
         TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
     }
+}
+
+#[derive(Debug)]
+enum SigMode {
+    SigIgn,
+    SigDfl,
+    SigHandler,
+}
+
+#[cfg(unix)]
+fn os_set_signal(signalnum: i32, mode: SigMode, _vm: &VirtualMachine) {
+    let signal_enum = signal::Signal::from_c_int(signalnum).unwrap();
+    let sig_handler = match mode {
+        SigMode::SigDfl => signal::SigHandler::SigDfl,
+        SigMode::SigIgn => signal::SigHandler::SigIgn,
+        SigMode::SigHandler => signal::SigHandler::Handler(run_signal),
+    };
+    let sig_action = signal::SigAction::new(
+        sig_handler,
+        signal::SaFlags::empty(),
+        signal::SigSet::empty(),
+    );
+    unsafe { signal::sigaction(signal_enum, &sig_action) }.unwrap();
+}
+
+#[cfg(not(unix))]
+fn os_set_signal(_signalnum: i32, _mode: SigMode, _vm: &VirtualMachine) {
+    panic!("Not implemented");
 }
 
 fn signal(
@@ -36,21 +67,15 @@ fn signal(
     let sig_dfl = vm.get_attribute(signal.clone(), "SIG_DFL")?;
     let sig_ign = vm.get_attribute(signal, "SIG_DFL")?;
     let signalnum = signalnum.as_bigint().to_i32().unwrap();
-    let signal_enum = signal::Signal::from_c_int(signalnum).unwrap();
-    let sig_handler = if handler.is(&sig_dfl) {
-        signal::SigHandler::SigDfl
-    } else if handler.is(&sig_ign) {
-        signal::SigHandler::SigIgn
-    } else {
-        signal::SigHandler::Handler(run_signal)
-    };
-    let sig_action = signal::SigAction::new(
-        sig_handler,
-        signal::SaFlags::empty(),
-        signal::SigSet::empty(),
-    );
     check_signals(vm);
-    unsafe { signal::sigaction(signal_enum, &sig_action) }.unwrap();
+    let mode = if handler.is(&sig_dfl) {
+        SigMode::SigDfl
+    } else if handler.is(&sig_ign) {
+        SigMode::SigIgn
+    } else {
+        SigMode::SigHandler
+    };
+    os_set_signal(signalnum, mode, vm);
     let old_handler = vm.signal_handlers.borrow_mut().insert(signalnum, handler);
     Ok(old_handler)
 }
@@ -64,6 +89,7 @@ fn getsignal(signalnum: PyIntRef, vm: &VirtualMachine) -> PyResult<Option<PyObje
         .map(|x| x.clone()))
 }
 
+#[cfg(unix)]
 fn alarm(time: PyIntRef, _vm: &VirtualMachine) -> u32 {
     let time = time.as_bigint().to_u32().unwrap();
     let prev_time = if time == 0 {
@@ -100,12 +126,21 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let sig_dfl = ctx.new_rustfunc(stub_func);
     let sig_ign = ctx.new_rustfunc(stub_func);
 
-    py_module!(vm, "signal", {
+    let module = py_module!(vm, "signal", {
         "signal" => ctx.new_rustfunc(signal),
         "getsignal" => ctx.new_rustfunc(getsignal),
-        "alarm" => ctx.new_rustfunc(alarm),
         "SIG_DFL" => sig_dfl,
         "SIG_IGN" => sig_ign,
+    });
+    extend_module_platform_specific(vm, module)
+}
+
+#[cfg(unix)]
+fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    extend_module!(vm, module, {
+        "alarm" => ctx.new_rustfunc(alarm),
         "SIGHUP" => ctx.new_int(signal::Signal::SIGHUP as u8),
         "SIGINT" => ctx.new_int(signal::Signal::SIGINT as u8),
         "SIGQUIT" => ctx.new_int(signal::Signal::SIGQUIT as u8),
@@ -137,5 +172,12 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SIGIO" => ctx.new_int(signal::Signal::SIGIO as u8),
         "SIGPWR" => ctx.new_int(signal::Signal::SIGPWR as u8),
         "SIGSYS" => ctx.new_int(signal::Signal::SIGSYS as u8),
-    })
+    });
+
+    module
+}
+
+#[cfg(not(unix))]
+fn extend_module_platform_specific(_vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+    module
 }
