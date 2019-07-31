@@ -1,7 +1,5 @@
-use crate::obj::objfunction::PyFunctionRef;
 use crate::obj::objint::PyIntRef;
-use crate::pyobject::PyObjectRef;
-use crate::pyobject::PyResult;
+use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -41,12 +39,27 @@ extern "C" fn run_signal(signum: i32) {
 
 fn signal(
     signalnum: PyIntRef,
-    handler: PyFunctionRef,
+    handler: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<Option<PyObjectRef>> {
+    if !vm.isinstance(&handler, &vm.ctx.function_type())?
+        && !vm.isinstance(&handler, &vm.ctx.bound_method_type())?
+        && !vm.isinstance(&handler, &vm.ctx.builtin_function_or_method_type())?
+    {
+        return Err(vm.new_type_error("Hanlder must be callable".to_string()));
+    }
+    let signal = vm.import("signal", &vm.ctx.new_tuple(vec![]), 0)?;
+    let sig_dfl = vm.get_attribute(signal.clone(), "SIG_DFL")?;
+    let sig_ign = vm.get_attribute(signal, "SIG_DFL")?;
     let signalnum = signalnum.as_bigint().to_i32().unwrap();
     let signal_enum = signal::Signal::from_c_int(signalnum).unwrap();
-    let sig_handler = nix::sys::signal::SigHandler::Handler(run_signal);
+    let sig_handler = if handler.is(&sig_dfl) {
+        signal::SigHandler::SigDfl
+    } else if handler.is(&sig_ign) {
+        signal::SigHandler::SigIgn
+    } else {
+        signal::SigHandler::Handler(run_signal)
+    };
     let sig_action = signal::SigAction::new(
         sig_handler,
         signal::SaFlags::empty(),
@@ -54,10 +67,7 @@ fn signal(
     );
     check_signals(vm);
     unsafe { signal::sigaction(signal_enum, &sig_action) }.unwrap();
-    let old_handler = vm
-        .signal_handlers
-        .borrow_mut()
-        .insert(signalnum, handler.into_object());
+    let old_handler = vm.signal_handlers.borrow_mut().insert(signalnum, handler);
     Ok(old_handler)
 }
 
@@ -93,12 +103,21 @@ pub fn check_signals(vm: &VirtualMachine) {
     }
 }
 
+fn stub_func(_vm: &VirtualMachine) -> PyResult {
+    panic!("Do not use directly");
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
+
+    let sig_dfl = ctx.new_rustfunc(stub_func);
+    let sig_ign = ctx.new_rustfunc(stub_func);
 
     py_module!(vm, "signal", {
         "signal" => ctx.new_rustfunc(signal),
         "getsignal" => ctx.new_rustfunc(getsignal),
         "alarm" => ctx.new_rustfunc(alarm),
+        "SIG_DFL" => sig_dfl,
+        "SIG_IGN" => sig_ign,
     })
 }
