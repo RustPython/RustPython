@@ -66,7 +66,12 @@ fn builtin_ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         if c.is_ascii() {
             ascii.push(c)
         } else {
-            let hex = format!("\\u{:x}", c as i64);
+            let c = c as i64;
+            let hex = if c < 0x10000 {
+                format!("\\u{:04x}", c)
+            } else {
+                format!("\\U{:08x}", c)
+            };
             ascii.push_str(&hex)
         }
     }
