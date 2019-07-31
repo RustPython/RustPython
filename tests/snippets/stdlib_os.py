@@ -1,6 +1,7 @@
 import os
 import time
 import stat
+import sys
 
 from testutils import assert_raises
 
@@ -251,3 +252,25 @@ with TestWithTempDir() as tmpdir:
 assert isinstance(os.supports_fd, set)
 assert isinstance(os.supports_dir_fd, set)
 assert isinstance(os.supports_follow_symlinks, set)
+
+# get pid
+assert isinstance(os.getpid(), int)
+
+# unix
+if "win" not in sys.platform:
+    assert isinstance(os.getegid(), int)
+    assert isinstance(os.getgid(), int)
+    assert isinstance(os.getsid(os.getpid()), int)
+    assert isinstance(os.getuid(), int)
+    assert isinstance(os.geteuid(), int)
+    assert isinstance(os.getppid(), int)
+    assert isinstance(os.getpgid(os.getpid()), int)
+
+    assert os.getppid() < os.getpid()
+
+    if os.getuid() != 0:
+        assert_raises(PermissionError, lambda: os.setgid(42))
+        assert_raises(PermissionError, lambda: os.setegid(42))
+        assert_raises(PermissionError, lambda: os.setpgid(os.getpid(), 42))
+        assert_raises(PermissionError, lambda: os.setuid(42))
+        assert_raises(PermissionError, lambda: os.seteuid(42))

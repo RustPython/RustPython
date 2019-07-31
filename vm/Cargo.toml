@@ -61,6 +61,7 @@ maplit = "1.0"
 proc-macro-hack = { version = "0.5", optional = true }
 bitflags = "1.1"
 libc = "0.2"
+nix = "0.14.1"
 
 flame = { version = "0.2", optional = true }
 flamer = { version = "0.3", optional = true }
