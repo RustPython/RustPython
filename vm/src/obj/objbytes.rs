@@ -23,6 +23,8 @@ use super::objiter;
 
 use super::objtype::PyClassRef;
 
+use wtf8;
+
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
 /// bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
@@ -419,6 +421,113 @@ impl PyBytesRef {
     #[pymethod(name = "__rmul__")]
     fn rmul(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
         self.repeat(n, vm)
+    }
+
+    /// Return a string decoded from the given bytes.
+    /// Default encoding is 'utf-8'.
+    /// Default errors is 'strict', meaning that encoding errors raise a UnicodeError.
+    /// Other possible values are 'ignore', 'replace'
+    /// For a list of possible encodings,
+    /// see https://docs.python.org/3/library/codecs.html#standard-encodings
+    /// currently, only 'utf-8' and 'ascii' emplemented
+    #[pymethod(name = "decode")]
+    fn decode(
+        self,
+        encoding: OptionalArg<PyStringRef>,
+        errors: OptionalArg<PyStringRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        let mut strict_mod = true;
+        let replacing_char = match errors {
+            OptionalArg::Present(ref input) => match input.as_str() {
+                "replace" => {
+                    strict_mod = false;
+                    Some('\u{FFFD}')
+                }
+                "ignore" => {
+                    strict_mod = false;
+                    None
+                }
+                _ => None,
+            },
+            OptionalArg::Missing => None,
+        };
+        let encoding_type = match encoding {
+            OptionalArg::Present(ref input) => input.as_str(),
+            OptionalArg::Missing => "utf-8",
+        };
+
+        let decode_error = Err(vm.new_value_error("DecodeError".to_string()));
+
+        let mut decode_content = String::new();
+        match encoding_type {
+            "ascii" => {
+                for &b in self.get_value() {
+                    if b.is_ascii() {
+                        decode_content.push(b as char)
+                    } else if !strict_mod && replacing_char.is_some() {
+                        decode_content.push(replacing_char.unwrap())
+                    }
+                }
+            }
+            "utf-8" | "utf8" | "" => {
+                let mut p: u32 = 0u32;
+                let mut remaining_bytes = 0;
+                for &b in self.get_value() {
+                    if (b as u8) & 128 == 0 {
+                        if b.is_ascii() {
+                            decode_content.push(b as char)
+                        } else if !strict_mod && replacing_char.is_some() {
+                            decode_content.push(replacing_char.unwrap())
+                        }
+                    } else if (b as u8) & 192 == 128 {
+                        remaining_bytes -= 1;
+
+                        p += u32::from(b as u8 & 63) << (6 * remaining_bytes);
+
+                        if remaining_bytes == 0 {
+                            match wtf8::CodePoint::from_u32(p) {
+                                Some(cp) => {
+                                    if !strict_mod && replacing_char.is_some() {
+                                        decode_content.push(cp.to_char_lossy());
+                                    } else {
+                                        match cp.to_char() {
+                                            Some(c) => decode_content.push(c),
+                                            None => {
+                                                if strict_mod {
+                                                    return decode_error;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                None => {
+                                    if replacing_char.is_none() {
+                                        decode_content.push(replacing_char.unwrap())
+                                    }
+                                }
+                            }
+                            p = 0u32;
+                        }
+                    } else if (b as u8) & 224 == 192 {
+                        remaining_bytes = 1;
+                        p = u32::from(b as u8 & 31) << 6;
+                    } else if (b as u8) & 240 == 224 {
+                        remaining_bytes = 2;
+                        p = u32::from(b as u8 & 15) << 12;
+                    } else if (b as u8) & 248 == 240 {
+                        remaining_bytes = 3;
+                        p = u32::from(b as u8 & 7) << 18;
+                    } else if !strict_mod && replacing_char.is_some() {
+                        decode_content.push(replacing_char.unwrap())
+                    }
+                }
+            }
+            _ => {
+                return Err(vm.new_lookup_error(format!("unknown encoding: {}", encoding_type)));
+            }
+        }
+        Ok(decode_content)
     }
 }
 
