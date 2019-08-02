@@ -27,7 +27,7 @@ use itertools::Itertools;
 use crate::stdlib::signal::check_signals;
 
 #[cfg(target_arch = "wasm32")]
-fn check_signals() {}
+fn check_signals(vm: &VirtualMachine) {}
 
 #[derive(Clone, Debug)]
 struct Block {
