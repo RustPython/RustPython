@@ -19,11 +19,15 @@ use crate::pyobject::{
     IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::scope::{NameProtocol, Scope};
-#[cfg(not(target_arch = "wasm32"))]
-use crate::stdlib::signal::check_signals;
 use crate::vm::VirtualMachine;
 use indexmap::IndexMap;
 use itertools::Itertools;
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::stdlib::signal::check_signals;
+
+#[cfg(target_arch = "wasm32")]
+fn check_signals() {}
 
 #[derive(Clone, Debug)]
 struct Block {
