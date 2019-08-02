@@ -890,11 +890,11 @@ Atom: ast::Expression = {
              node: ast::ExpressionType::Tuple { elements: Vec::new() }
         })
     },
-    <location:@L> "(" <e:Test> <c:CompFor> ")" => {
+    <location:@L> "(" <element:Test> <c:CompFor> ")" => {
         ast::Expression {
             location,
             node: ast::ExpressionType::Comprehension {
-                kind: Box::new(ast::ComprehensionKind::GeneratorExpression { element: e }),
+                kind: Box::new(ast::ComprehensionKind::GeneratorExpression { element }),
                 generators: c,
             }
         }
@@ -904,9 +904,9 @@ Atom: ast::Expression = {
         node: ast::ExpressionType::Dict { elements: e.unwrap_or_default() }
     },
     "{" <e:TestDictComp> "}" => e,
-    <location:@L> "{" <e:TestSet> "}" => ast::Expression {
+    <location:@L> "{" <elements:TestSet> "}" => ast::Expression {
         location,
-        node: ast::ExpressionType::Set { elements: e }
+        node: ast::ExpressionType::Set { elements }
     },
     "{" <e:TestSetComp> "}" => e,
     <location:@L> "True" => ast::Expression { location, node: ast::ExpressionType::True },
@@ -957,7 +957,7 @@ DictElement: (Option<ast::Expression>, ast::Expression) = {
 };
 
 TestSet: Vec<ast::Expression> = {
-    <e1:OneOrMore<Test>> ","? => e1
+    <e1:OneOrMore<TestOrStarExpr>> ","? => e1
 };
 
 TestSetComp: ast::Expression = {
