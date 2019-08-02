@@ -82,11 +82,7 @@ fn signal(
 
 fn getsignal(signalnum: PyIntRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
     let signalnum = signalnum.as_bigint().to_i32().unwrap();
-    Ok(vm
-        .signal_handlers
-        .borrow_mut()
-        .get(&signalnum)
-        .map(|x| x.clone()))
+    Ok(vm.signal_handlers.borrow_mut().get(&signalnum).cloned())
 }
 
 #[cfg(unix)]
@@ -100,6 +96,7 @@ fn alarm(time: PyIntRef, _vm: &VirtualMachine) -> u32 {
     prev_time.unwrap_or(0)
 }
 
+#[allow(clippy::needless_range_loop)]
 pub fn check_signals(vm: &VirtualMachine) {
     for signum in 1..NSIG {
         let triggerd = unsafe { TRIGGERS[signum].swap(false, Ordering::Relaxed) };
