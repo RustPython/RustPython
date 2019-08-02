@@ -67,6 +67,7 @@ pub struct Lexer<T: Iterator<Item = char>> {
     pending: Vec<Spanned>,
     chr0: Option<char>,
     chr1: Option<char>,
+    chr2: Option<char>,
     location: Location,
     keywords: HashMap<String, Tok>,
 }
@@ -250,8 +251,10 @@ where
             chr0: None,
             location: Location::new(0, 0),
             chr1: None,
+            chr2: None,
             keywords: get_keywords(),
         };
+        lxr.next_char();
         lxr.next_char();
         lxr.next_char();
         // Start at top row (=1) left column (=1)
@@ -368,7 +371,7 @@ where
         }
 
         // If float:
-        if self.chr0 == Some('.') || self.chr0 == Some('e') {
+        if self.chr0 == Some('.') || self.at_exponent() {
             // Take '.':
             if self.chr0 == Some('.') {
                 value_text.push(self.next_char().unwrap());
@@ -378,8 +381,8 @@ where
             }
 
             // 1e6 for example:
-            if self.chr0 == Some('e') {
-                value_text.push(self.next_char().unwrap());
+            if self.chr0 == Some('e') || self.chr0 == Some('E') {
+                value_text.push(self.next_char().unwrap().to_ascii_lowercase());
 
                 // Optional +/-
                 if self.chr0 == Some('-') || self.chr0 == Some('+') {
@@ -420,6 +423,21 @@ where
                 let value = value_text.parse::<BigInt>().unwrap();
                 Ok((start_pos, Tok::Int { value }, end_pos))
             }
+        }
+    }
+
+    /// Test if we face '[eE][-+]?[0-9]+'
+    fn at_exponent(&self) -> bool {
+        match self.chr0 {
+            Some('e') | Some('E') => match self.chr1 {
+                Some('+') | Some('-') => match self.chr2 {
+                    Some('0'..='9') => true,
+                    _ => false,
+                },
+                Some('0'..='9') => true,
+                _ => false,
+            },
+            _ => false,
         }
     }
 
@@ -1196,7 +1214,8 @@ where
         let c = self.chr0;
         let nxt = self.chars.next();
         self.chr0 = self.chr1;
-        self.chr1 = nxt;
+        self.chr1 = self.chr2;
+        self.chr2 = nxt;
         if c == Some('\n') {
             self.location.newline();
         } else {
