@@ -65,7 +65,7 @@ fn signal(
     }
     let signal = vm.import("signal", &vm.ctx.new_tuple(vec![]), 0)?;
     let sig_dfl = vm.get_attribute(signal.clone(), "SIG_DFL")?;
-    let sig_ign = vm.get_attribute(signal, "SIG_DFL")?;
+    let sig_ign = vm.get_attribute(signal, "SIG_IGN")?;
     let signalnum = signalnum.as_bigint().to_i32().unwrap();
     check_signals(vm);
     let mode = if handler.is(&sig_dfl) {
