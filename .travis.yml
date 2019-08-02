@@ -84,6 +84,8 @@ matrix:
           # Set in the settings page of your repository, as a secure variable
           github-token: $WEBSITE_GITHUB_TOKEN
           keep-history: true
+          on:
+            branch: release
 
     - name: WASM online demo
       language: rust
@@ -109,6 +111,8 @@ matrix:
           # Set in the settings page of your repository, as a secure variable
           github-token: $WEBSITE_GITHUB_TOKEN
           keep-history: true
+          on:
+            branch: release
 
     - name: Code Coverage
       language: python
