@@ -11,6 +11,7 @@ use crate::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objiter;
 use super::objstr;
+use super::objtype;
 use crate::dictdatatype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::PyClassImpl;
@@ -315,6 +316,23 @@ impl PyDictRef {
 
     pub fn size(&self) -> dictdatatype::DictSize {
         self.entries.borrow().size()
+    }
+
+    pub fn get_item_option<T: IntoPyObject>(
+        &self,
+        key: T,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        match self.get_item(key, vm) {
+            Ok(value) => Ok(Some(value)),
+            Err(exc) => {
+                if objtype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
+                    Ok(None)
+                } else {
+                    Err(exc)
+                }
+            }
+        }
     }
 }
 

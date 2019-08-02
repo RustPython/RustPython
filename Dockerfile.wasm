@@ -17,6 +17,7 @@ COPY parser parser
 COPY bytecode bytecode
 COPY compiler compiler
 COPY wasm/lib wasm/lib
+COPY Lib Lib
 
 RUN cd wasm/lib/ && wasm-pack build --release
 

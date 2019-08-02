@@ -265,6 +265,11 @@ impl VirtualMachine {
         self.new_exception_obj(exc_type, vec![pystr_msg]).unwrap()
     }
 
+    pub fn new_lookup_error(&self, msg: String) -> PyObjectRef {
+        let lookup_error = self.ctx.exceptions.lookup_error.clone();
+        self.new_exception(lookup_error, msg)
+    }
+
     pub fn new_attribute_error(&self, msg: String) -> PyObjectRef {
         let attribute_error = self.ctx.exceptions.attribute_error.clone();
         self.new_exception(attribute_error, msg)

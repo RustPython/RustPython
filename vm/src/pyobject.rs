@@ -1044,24 +1044,6 @@ pub trait ItemProtocol {
         vm: &VirtualMachine,
     ) -> PyResult;
     fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
-
-    #[cfg_attr(feature = "flame-it", flame("ItemProtocol"))]
-    fn get_item_option<T: IntoPyObject>(
-        &self,
-        key: T,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<PyObjectRef>> {
-        match self.get_item(key, vm) {
-            Ok(value) => Ok(Some(value)),
-            Err(exc) => {
-                if objtype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
-                    Ok(None)
-                } else {
-                    Err(exc)
-                }
-            }
-        }
-    }
 }
 
 impl ItemProtocol for PyObjectRef {

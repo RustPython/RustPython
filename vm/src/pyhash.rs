@@ -1,3 +1,5 @@
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 use std::hash::{Hash, Hasher};
 
 use crate::obj::objfloat;
@@ -80,4 +82,11 @@ pub fn hash_iter<'a, I: std::iter::Iterator<Item = &'a PyObjectRef>>(
         item_hash.hash(&mut hasher);
     }
     Ok(hasher.finish() as PyHash)
+}
+
+pub fn hash_bigint(value: &BigInt) -> PyHash {
+    match value.to_i64() {
+        Some(i64_value) => (i64_value % MODULUS as i64),
+        None => (value % MODULUS).to_i64().unwrap(),
+    }
 }

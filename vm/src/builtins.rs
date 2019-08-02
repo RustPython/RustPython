@@ -59,7 +59,24 @@ fn builtin_any(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool
     Ok(false)
 }
 
-// builtin_ascii
+fn builtin_ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    let repr = vm.to_repr(&obj)?;
+    let mut ascii = String::new();
+    for c in repr.value.chars() {
+        if c.is_ascii() {
+            ascii.push(c)
+        } else {
+            let c = c as i64;
+            let hex = if c < 0x10000 {
+                format!("\\u{:04x}", c)
+            } else {
+                format!("\\U{:08x}", c)
+            };
+            ascii.push_str(&hex)
+        }
+    }
+    Ok(ascii)
+}
 
 fn builtin_bin(x: PyIntRef, _vm: &VirtualMachine) -> String {
     let x = x.as_bigint();
@@ -788,6 +805,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "abs" => ctx.new_rustfunc(builtin_abs),
         "all" => ctx.new_rustfunc(builtin_all),
         "any" => ctx.new_rustfunc(builtin_any),
+        "ascii" => ctx.new_rustfunc(builtin_ascii),
         "bin" => ctx.new_rustfunc(builtin_bin),
         "bool" => ctx.bool_type(),
         "bytearray" => ctx.bytearray_type(),
@@ -874,6 +892,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "FileExistsError" => ctx.exceptions.file_exists_error.clone(),
         "StopIteration" => ctx.exceptions.stop_iteration.clone(),
         "SystemError" => ctx.exceptions.system_error.clone(),
+        "PermissionError" => ctx.exceptions.permission_error.clone(),
         "UnicodeError" => ctx.exceptions.unicode_error.clone(),
         "UnicodeDecodeError" => ctx.exceptions.unicode_decode_error.clone(),
         "UnicodeEncodeError" => ctx.exceptions.unicode_encode_error.clone(),
