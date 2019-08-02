@@ -3,8 +3,6 @@ import time
 import sys
 from testutils import assert_raises
 
-assert_raises(TypeError, lambda: signal.signal(signal.SIGINT, 2))
-
 signals = []
 
 def handler(signum, frame):
@@ -13,6 +11,8 @@ def handler(signum, frame):
 
 # unix
 if "win" not in sys.platform:
+	assert_raises(TypeError, lambda: signal.signal(signal.SIGINT, 2))
+
 	signal.signal(signal.SIGALRM, handler)
 	assert signal.getsignal(signal.SIGALRM) is handler
 
