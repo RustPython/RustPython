@@ -26,18 +26,18 @@ extern "C" fn run_signal(signum: i32) {
 
 #[derive(Debug)]
 enum SigMode {
-    SigIgn,
-    SigDfl,
-    SigHandler,
+    Ign,
+    Dfl,
+    Handler,
 }
 
 #[cfg(unix)]
 fn os_set_signal(signalnum: i32, mode: SigMode, _vm: &VirtualMachine) {
     let signal_enum = signal::Signal::from_c_int(signalnum).unwrap();
     let sig_handler = match mode {
-        SigMode::SigDfl => signal::SigHandler::SigDfl,
-        SigMode::SigIgn => signal::SigHandler::SigIgn,
-        SigMode::SigHandler => signal::SigHandler::Handler(run_signal),
+        SigMode::Dfl => signal::SigHandler::SigDfl,
+        SigMode::Ign => signal::SigHandler::SigIgn,
+        SigMode::Handler => signal::SigHandler::Handler(run_signal),
     };
     let sig_action = signal::SigAction::new(
         sig_handler,
@@ -69,11 +69,11 @@ fn signal(
     let signalnum = signalnum.as_bigint().to_i32().unwrap();
     check_signals(vm);
     let mode = if handler.is(&sig_dfl) {
-        SigMode::SigDfl
+        SigMode::Dfl
     } else if handler.is(&sig_ign) {
-        SigMode::SigIgn
+        SigMode::Ign
     } else {
-        SigMode::SigHandler
+        SigMode::Handler
     };
     os_set_signal(signalnum, mode, vm);
     let old_handler = vm.signal_handlers.borrow_mut().insert(signalnum, handler);
