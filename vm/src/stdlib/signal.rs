@@ -34,27 +34,6 @@ extern "C" fn run_signal(signum: i32) {
     }
 }
 
-#[derive(Debug)]
-enum SigMode {
-    Ign,
-    Dfl,
-    Handler,
-}
-
-fn os_set_signal(signalnum: i32, mode: SigMode, vm: &VirtualMachine) -> PyResult<()> {
-    let sig_handler = match mode {
-        SigMode::Dfl => SIG_DFL,
-        SigMode::Ign => SIG_IGN,
-        SigMode::Handler => run_signal as libc::sighandler_t,
-    };
-    let old = unsafe { libc::signal(signalnum, sig_handler) };
-    if old == SIG_ERR {
-        Err(vm.new_os_error("Failed to set signal".to_string()))
-    } else {
-        Ok(())
-    }
-}
-
 fn signal(
     signalnum: PyIntRef,
     handler: PyObjectRef,
@@ -66,19 +45,22 @@ fn signal(
     {
         return Err(vm.new_type_error("Hanlder must be callable".to_string()));
     }
-    let signal = vm.import("signal", &vm.ctx.new_tuple(vec![]), 0)?;
-    let sig_dfl = vm.get_attribute(signal.clone(), "SIG_DFL")?;
-    let sig_ign = vm.get_attribute(signal, "SIG_IGN")?;
+    let signal_module = vm.import("signal", &vm.ctx.new_tuple(vec![]), 0)?;
+    let sig_dfl = vm.get_attribute(signal_module.clone(), "SIG_DFL")?;
+    let sig_ign = vm.get_attribute(signal_module, "SIG_IGN")?;
     let signalnum = signalnum.as_bigint().to_i32().unwrap();
     check_signals(vm);
-    let mode = if handler.is(&sig_dfl) {
-        SigMode::Dfl
+    let sig_handler = if handler.is(&sig_dfl) {
+        SIG_DFL
     } else if handler.is(&sig_ign) {
-        SigMode::Ign
+        SIG_IGN
     } else {
-        SigMode::Handler
+        run_signal as libc::sighandler_t
     };
-    os_set_signal(signalnum, mode, vm)?;
+    let old = unsafe { libc::signal(signalnum, sig_handler) };
+    if old == SIG_ERR {
+        return Err(vm.new_os_error("Failed to set signal".to_string()));
+    }
     let old_handler = vm.signal_handlers.borrow_mut().insert(signalnum, handler);
     Ok(old_handler)
 }
