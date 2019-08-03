@@ -3,12 +3,14 @@ use std::time::Duration;
 
 use subprocess;
 
-use crate::function::OptionalArg;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objlist::PyListRef;
 use crate::obj::objsequence;
 use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::stdlib::io::io_open;
+use crate::stdlib::os::{raw_file_number, rust_file};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
@@ -28,6 +30,12 @@ type PopenRef = PyRef<Popen>;
 struct PopenArgs {
     #[pyarg(positional_only)]
     args: Either<PyStringRef, PyListRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    stdin: Option<i64>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    stdout: Option<i64>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    stderr: Option<i64>,
 }
 
 impl IntoPyObject for subprocess::ExitStatus {
@@ -42,8 +50,29 @@ impl IntoPyObject for subprocess::ExitStatus {
     }
 }
 
+fn convert_redirection(arg: Option<i64>, vm: &VirtualMachine) -> PyResult<subprocess::Redirection> {
+    match arg {
+        Some(fd) => match fd {
+            -1 => Ok(subprocess::Redirection::Pipe),
+            -2 => panic!("TODO"),
+            -3 => panic!("TODO"),
+            fd => {
+                if fd < 0 {
+                    Err(vm.new_value_error(format!("Invalid fd: {}", fd)))
+                } else {
+                    Ok(subprocess::Redirection::File(rust_file(fd)))
+                }
+            }
+        },
+        None => Ok(subprocess::Redirection::None),
+    }
+}
+
 impl PopenRef {
     fn new(cls: PyClassRef, args: PopenArgs, vm: &VirtualMachine) -> PyResult<PopenRef> {
+        let stdin = convert_redirection(args.stdin, vm)?;
+        let stdout = convert_redirection(args.stdout, vm)?;
+        let stderr = convert_redirection(args.stderr, vm)?;
         let command_list = match args.args {
             Either::A(command) => vec![command.as_str().to_string()],
             Either::B(command_list) => objsequence::get_elements_list(command_list.as_object())
@@ -52,8 +81,16 @@ impl PopenRef {
                 .collect(),
         };
 
-        let process = subprocess::Popen::create(&command_list, subprocess::PopenConfig::default())
-            .map_err(|s| vm.new_os_error(format!("Could not start program: {}", s)))?;
+        let process = subprocess::Popen::create(
+            &command_list,
+            subprocess::PopenConfig {
+                stdin,
+                stdout,
+                stderr,
+                ..Default::default()
+            },
+        )
+        .map_err(|s| vm.new_os_error(format!("Could not start program: {}", s)))?;
 
         Popen {
             process: RefCell::new(process),
@@ -85,6 +122,54 @@ impl PopenRef {
             Ok(())
         }
     }
+
+    fn stdin(self, vm: &VirtualMachine) -> PyResult {
+        match self.process.borrow().stdin {
+            Some(ref stdin) => io_open(
+                vm,
+                PyFuncArgs::new(
+                    vec![
+                        vm.new_int(raw_file_number(stdin.try_clone().unwrap())),
+                        vm.new_str("wb".to_string()),
+                    ],
+                    vec![],
+                ),
+            ),
+            None => Ok(vm.get_none()),
+        }
+    }
+
+    fn stdout(self, vm: &VirtualMachine) -> PyResult {
+        match self.process.borrow().stdout {
+            Some(ref stdout) => io_open(
+                vm,
+                PyFuncArgs::new(
+                    vec![
+                        vm.new_int(raw_file_number(stdout.try_clone().unwrap())),
+                        vm.new_str("rb".to_string()),
+                    ],
+                    vec![],
+                ),
+            ),
+            None => Ok(vm.get_none()),
+        }
+    }
+
+    fn stderr(self, vm: &VirtualMachine) -> PyResult {
+        match self.process.borrow().stderr {
+            Some(ref stderr) => io_open(
+                vm,
+                PyFuncArgs::new(
+                    vec![
+                        vm.new_int(raw_file_number(stderr.try_clone().unwrap())),
+                        vm.new_str("rb".to_string()),
+                    ],
+                    vec![],
+                ),
+            ),
+            None => Ok(vm.get_none()),
+        }
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -97,13 +182,19 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "__new__" => ctx.new_rustfunc(PopenRef::new),
         "poll" => ctx.new_rustfunc(PopenRef::poll),
         "returncode" => ctx.new_property(PopenRef::return_code),
-        "wait" => ctx.new_rustfunc(PopenRef::wait)
+        "wait" => ctx.new_rustfunc(PopenRef::wait),
+        "stdin" => ctx.new_property(PopenRef::stdin),
+        "stdout" => ctx.new_property(PopenRef::stdout),
+        "stderr" => ctx.new_property(PopenRef::stderr),
     });
 
     let module = py_module!(vm, "subprocess", {
         "Popen" => popen,
         "SubprocessError" => subprocess_error,
         "TimeoutExpired" => timeout_expired,
+        "PIPE" => ctx.new_int(-1),
+        "STDOUT" => ctx.new_int(-2),
+        "DEVNULL" => ctx.new_int(-3),
     });
 
     module

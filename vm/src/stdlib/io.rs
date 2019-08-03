@@ -587,7 +587,7 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(file, Some(vm.ctx.str_type()))],
+        required = [(file, None)],
         optional = [(mode, Some(vm.ctx.str_type()))]
     );
 
