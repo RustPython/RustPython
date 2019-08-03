@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::fs::File;
 use std::time::Duration;
 
 use subprocess;
@@ -68,6 +69,22 @@ fn convert_redirection(arg: Option<i64>, vm: &VirtualMachine) -> PyResult<subpro
     }
 }
 
+fn convert_to_file_io(file: &Option<File>, mode: String, vm: &VirtualMachine) -> PyResult {
+    match file {
+        Some(ref stdin) => io_open(
+            vm,
+            PyFuncArgs::new(
+                vec![
+                    vm.new_int(raw_file_number(stdin.try_clone().unwrap())),
+                    vm.new_str(mode),
+                ],
+                vec![],
+            ),
+        ),
+        None => Ok(vm.get_none()),
+    }
+}
+
 impl PopenRef {
     fn new(cls: PyClassRef, args: PopenArgs, vm: &VirtualMachine) -> PyResult<PopenRef> {
         let stdin = convert_redirection(args.stdin, vm)?;
@@ -124,51 +141,15 @@ impl PopenRef {
     }
 
     fn stdin(self, vm: &VirtualMachine) -> PyResult {
-        match self.process.borrow().stdin {
-            Some(ref stdin) => io_open(
-                vm,
-                PyFuncArgs::new(
-                    vec![
-                        vm.new_int(raw_file_number(stdin.try_clone().unwrap())),
-                        vm.new_str("wb".to_string()),
-                    ],
-                    vec![],
-                ),
-            ),
-            None => Ok(vm.get_none()),
-        }
+        convert_to_file_io(&self.process.borrow().stdin, "wb".to_string(), vm)
     }
 
     fn stdout(self, vm: &VirtualMachine) -> PyResult {
-        match self.process.borrow().stdout {
-            Some(ref stdout) => io_open(
-                vm,
-                PyFuncArgs::new(
-                    vec![
-                        vm.new_int(raw_file_number(stdout.try_clone().unwrap())),
-                        vm.new_str("rb".to_string()),
-                    ],
-                    vec![],
-                ),
-            ),
-            None => Ok(vm.get_none()),
-        }
+        convert_to_file_io(&self.process.borrow().stdout, "rb".to_string(), vm)
     }
 
     fn stderr(self, vm: &VirtualMachine) -> PyResult {
-        match self.process.borrow().stderr {
-            Some(ref stderr) => io_open(
-                vm,
-                PyFuncArgs::new(
-                    vec![
-                        vm.new_int(raw_file_number(stderr.try_clone().unwrap())),
-                        vm.new_str("rb".to_string()),
-                    ],
-                    vec![],
-                ),
-            ),
-            None => Ok(vm.get_none()),
-        }
+        convert_to_file_io(&self.process.borrow().stderr, "rb".to_string(), vm)
     }
 }
 
