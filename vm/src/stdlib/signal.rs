@@ -13,6 +13,16 @@ use nix::unistd::alarm as sig_alarm;
 
 use libc;
 
+#[cfg(not(windows))]
+use libc::{SIG_DFL, SIG_ERR, SIG_IGN};
+
+#[cfg(windows)]
+const SIG_DFL: libc::sighandler_t = 0;
+#[cfg(windows)]
+const SIG_IGN: libc::sighandler_t = 1;
+#[cfg(windows)]
+const SIG_ERR: libc::sighandler_t = !0;
+
 const NSIG: usize = 64;
 
 // We cannot use the NSIG const in the arr macro. This will fail compilation if NSIG is different.
@@ -33,12 +43,12 @@ enum SigMode {
 
 fn os_set_signal(signalnum: i32, mode: SigMode, vm: &VirtualMachine) -> PyResult<()> {
     let sig_handler = match mode {
-        SigMode::Dfl => libc::SIG_DFL,
-        SigMode::Ign => libc::SIG_IGN,
+        SigMode::Dfl => SIG_DFL,
+        SigMode::Ign => SIG_IGN,
         SigMode::Handler => run_signal as libc::sighandler_t,
     };
     let old = unsafe { libc::signal(signalnum, sig_handler) };
-    if old == libc::SIG_ERR {
+    if old == SIG_ERR {
         Err(vm.new_os_error("Failed to set signal".to_string()))
     } else {
         Ok(())
