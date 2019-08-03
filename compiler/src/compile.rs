@@ -1481,6 +1481,7 @@ impl Compiler {
                 self.set_label(end_label);
             }
         }
+        self.optimize_instruction();
         Ok(())
     }
 
@@ -1798,6 +1799,61 @@ impl Compiler {
         Ok(())
     }
 
+    fn optimize_instruction(&mut self) {
+        let instructions = self.current_instructions();
+        match instructions.pop().unwrap() {
+            Instruction::BinaryOperation { op, inplace } => {
+                macro_rules! lc {
+                    ($name:ident {$($field:tt)*}) => {
+                        Instruction::LoadConst {
+                            value: bytecode::Constant::$name {$($field)*},
+                        }
+                    };
+                    ($name:ident, $($value:tt)*) => {
+                        lc!($name { value: $($value)* })
+                    };
+                }
+                macro_rules! emitconst {
+                    ($($arg:tt)*) => {
+                        self.emit(lc!($($arg)*))
+                    };
+                }
+                macro_rules! op {
+                    ($op:ident) => {
+                        bytecode::BinaryOperator::$op
+                    };
+                }
+                let rhs = instructions.pop().unwrap();
+                let lhs = instructions.pop().unwrap();
+                match (op, lhs, rhs) {
+                    (op!(Add), lc!(Integer, lhs), lc!(Integer, rhs)) => {
+                        emitconst!(Integer, lhs + rhs)
+                    }
+                    (op!(Subtract), lc!(Integer, lhs), lc!(Integer, rhs)) => {
+                        emitconst!(Integer, lhs - rhs)
+                    }
+                    (op!(Add), lc!(Float, lhs), lc!(Float, rhs)) => emitconst!(Float, lhs + rhs),
+                    (op!(Subtract), lc!(Float, lhs), lc!(Float, rhs)) => {
+                        emitconst!(Float, lhs - rhs)
+                    }
+                    (op!(Power), lc!(Float, lhs), lc!(Float, rhs)) => {
+                        emitconst!(Float, lhs.powf(rhs))
+                    }
+                    (op!(Add), lc!(String, mut lhs), lc!(String, rhs)) => {
+                        lhs.push_str(&rhs);
+                        emitconst!(String, lhs);
+                    }
+                    (op, lhs, rhs) => {
+                        self.emit(lhs);
+                        self.emit(rhs);
+                        self.emit(Instruction::BinaryOperation { op, inplace });
+                    }
+                }
+            }
+            other => self.emit(other),
+        }
+    }
+
     // Scope helpers:
     fn enter_scope(&mut self) {
         // println!("Enter scope {:?}", self.scope_stack);
@@ -1829,6 +1885,10 @@ impl Compiler {
 
     fn current_code_object(&mut self) -> &mut CodeObject {
         self.code_object_stack.last_mut().unwrap()
+    }
+
+    fn current_instructions(&mut self) -> &mut Vec<Instruction> {
+        &mut self.current_code_object().instructions
     }
 
     // Generate a new label
