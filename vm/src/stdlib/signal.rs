@@ -13,6 +13,8 @@ use nix::sys::signal;
 #[cfg(unix)]
 use nix::unistd::alarm as sig_alarm;
 
+use libc;
+
 const NSIG: usize = 64;
 
 // We cannot use the NSIG const in the arr macro. This will fail compilation if NSIG is different.
@@ -31,25 +33,18 @@ enum SigMode {
     Handler,
 }
 
-#[cfg(unix)]
-fn os_set_signal(signalnum: i32, mode: SigMode, _vm: &VirtualMachine) {
-    let signal_enum = signal::Signal::from_c_int(signalnum).unwrap();
+fn os_set_signal(signalnum: i32, mode: SigMode, vm: &VirtualMachine) -> PyResult<()> {
     let sig_handler = match mode {
-        SigMode::Dfl => signal::SigHandler::SigDfl,
-        SigMode::Ign => signal::SigHandler::SigIgn,
-        SigMode::Handler => signal::SigHandler::Handler(run_signal),
+        SigMode::Dfl => libc::SIG_DFL,
+        SigMode::Ign => libc::SIG_IGN,
+        SigMode::Handler => run_signal as libc::sighandler_t,
     };
-    let sig_action = signal::SigAction::new(
-        sig_handler,
-        signal::SaFlags::empty(),
-        signal::SigSet::empty(),
-    );
-    unsafe { signal::sigaction(signal_enum, &sig_action) }.unwrap();
-}
-
-#[cfg(not(unix))]
-fn os_set_signal(_signalnum: i32, _mode: SigMode, _vm: &VirtualMachine) {
-    panic!("Not implemented");
+    let old = unsafe { libc::signal(signalnum, sig_handler) };
+    if old == libc::SIG_ERR {
+        Err(vm.new_os_error("Failed to set signal".to_string()))
+    } else {
+        Ok(())
+    }
 }
 
 fn signal(
@@ -75,7 +70,7 @@ fn signal(
     } else {
         SigMode::Handler
     };
-    os_set_signal(signalnum, mode, vm);
+    os_set_signal(signalnum, mode, vm)?;
     let old_handler = vm.signal_handlers.borrow_mut().insert(signalnum, handler);
     Ok(old_handler)
 }
