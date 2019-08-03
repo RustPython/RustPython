@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use subprocess;
 
+use crate::function::OptionalArg;
 use crate::obj::objlist::PyListRef;
 use crate::obj::objsequence;
 use crate::obj::objstr::{self, PyStringRef};
@@ -68,8 +69,8 @@ impl PopenRef {
         self.process.borrow().exit_status()
     }
 
-    fn wait(self, timeout: Option<u64>, vm: &VirtualMachine) -> PyResult<()> {
-        let timeout = match timeout {
+    fn wait(self, timeout: OptionalArg<u64>, vm: &VirtualMachine) -> PyResult<()> {
+        let timeout = match timeout.into_option() {
             Some(timeout) => self
                 .process
                 .borrow_mut()
@@ -78,7 +79,8 @@ impl PopenRef {
         }
         .map_err(|s| vm.new_os_error(format!("Could not start program: {}", s)))?;
         if timeout.is_none() {
-            Err(vm.new_os_error("Timeout".to_string()))
+            let timeout_expired = vm.class("subprocess", "TimeoutExpired");
+            Err(vm.new_exception(timeout_expired, "Timeout".to_string()))
         } else {
             Ok(())
         }
@@ -87,6 +89,9 @@ impl PopenRef {
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
+
+    let subprocess_error = ctx.new_class("SubprocessError", ctx.exceptions.exception_type.clone());
+    let timeout_expired = ctx.new_class("TimeoutExpired", subprocess_error.clone());
 
     let popen = py_class!(ctx, "Popen", ctx.object(), {
         "__new__" => ctx.new_rustfunc(PopenRef::new),
@@ -97,6 +102,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let module = py_module!(vm, "subprocess", {
         "Popen" => popen,
+        "SubprocessError" => subprocess_error,
+        "TimeoutExpired" => timeout_expired,
     });
 
     module
