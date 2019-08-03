@@ -9,8 +9,6 @@ use num_traits::cast::ToPrimitive;
 use arr_macro::arr;
 
 #[cfg(unix)]
-use nix::sys::signal;
-#[cfg(unix)]
 use nix::unistd::alarm as sig_alarm;
 
 use libc;
@@ -123,6 +121,12 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getsignal" => ctx.new_rustfunc(getsignal),
         "SIG_DFL" => sig_dfl,
         "SIG_IGN" => sig_ign,
+        "SIGABRT" => ctx.new_int(libc::SIGABRT as u8),
+        "SIGFPE" => ctx.new_int(libc::SIGFPE as u8),
+        "SIGILL" => ctx.new_int(libc::SIGILL as u8),
+        "SIGINT" => ctx.new_int(libc::SIGINT as u8),
+        "SIGSEGV" => ctx.new_int(libc::SIGSEGV as u8),
+        "SIGTERM" => ctx.new_int(libc::SIGTERM as u8),
     });
     extend_module_platform_specific(vm, module)
 }
@@ -133,37 +137,31 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
 
     extend_module!(vm, module, {
         "alarm" => ctx.new_rustfunc(alarm),
-        "SIGHUP" => ctx.new_int(signal::Signal::SIGHUP as u8),
-        "SIGINT" => ctx.new_int(signal::Signal::SIGINT as u8),
-        "SIGQUIT" => ctx.new_int(signal::Signal::SIGQUIT as u8),
-        "SIGILL" => ctx.new_int(signal::Signal::SIGILL as u8),
-        "SIGTRAP" => ctx.new_int(signal::Signal::SIGTRAP as u8),
-        "SIGABRT" => ctx.new_int(signal::Signal::SIGABRT as u8),
-        "SIGBUS" => ctx.new_int(signal::Signal::SIGBUS as u8),
-        "SIGFPE" => ctx.new_int(signal::Signal::SIGFPE as u8),
-        "SIGKILL" => ctx.new_int(signal::Signal::SIGKILL as u8),
-        "SIGUSR1" => ctx.new_int(signal::Signal::SIGUSR1 as u8),
-        "SIGSEGV" => ctx.new_int(signal::Signal::SIGSEGV as u8),
-        "SIGUSR2" => ctx.new_int(signal::Signal::SIGUSR2 as u8),
-        "SIGPIPE" => ctx.new_int(signal::Signal::SIGPIPE as u8),
-        "SIGALRM" => ctx.new_int(signal::Signal::SIGALRM as u8),
-        "SIGTERM" => ctx.new_int(signal::Signal::SIGTERM as u8),
-        "SIGSTKFLT" => ctx.new_int(signal::Signal::SIGSTKFLT as u8),
-        "SIGCHLD" => ctx.new_int(signal::Signal::SIGCHLD as u8),
-        "SIGCONT" => ctx.new_int(signal::Signal::SIGCONT as u8),
-        "SIGSTOP" => ctx.new_int(signal::Signal::SIGSTOP as u8),
-        "SIGTSTP" => ctx.new_int(signal::Signal::SIGTSTP as u8),
-        "SIGTTIN" => ctx.new_int(signal::Signal::SIGTTIN as u8),
-        "SIGTTOU" => ctx.new_int(signal::Signal::SIGTTOU as u8),
-        "SIGURG" => ctx.new_int(signal::Signal::SIGURG as u8),
-        "SIGXCPU" => ctx.new_int(signal::Signal::SIGXCPU as u8),
-        "SIGXFSZ" => ctx.new_int(signal::Signal::SIGXFSZ as u8),
-        "SIGVTALRM" => ctx.new_int(signal::Signal::SIGVTALRM as u8),
-        "SIGPROF" => ctx.new_int(signal::Signal::SIGPROF as u8),
-        "SIGWINCH" => ctx.new_int(signal::Signal::SIGWINCH as u8),
-        "SIGIO" => ctx.new_int(signal::Signal::SIGIO as u8),
-        "SIGPWR" => ctx.new_int(signal::Signal::SIGPWR as u8),
-        "SIGSYS" => ctx.new_int(signal::Signal::SIGSYS as u8),
+        "SIGHUP" => ctx.new_int(libc::SIGHUP as u8),
+        "SIGQUIT" => ctx.new_int(libc::SIGQUIT as u8),
+        "SIGTRAP" => ctx.new_int(libc::SIGTRAP as u8),
+        "SIGBUS" => ctx.new_int(libc::SIGBUS as u8),
+        "SIGKILL" => ctx.new_int(libc::SIGKILL as u8),
+        "SIGUSR1" => ctx.new_int(libc::SIGUSR1 as u8),
+        "SIGUSR2" => ctx.new_int(libc::SIGUSR2 as u8),
+        "SIGPIPE" => ctx.new_int(libc::SIGPIPE as u8),
+        "SIGALRM" => ctx.new_int(libc::SIGALRM as u8),
+        "SIGSTKFLT" => ctx.new_int(libc::SIGSTKFLT as u8),
+        "SIGCHLD" => ctx.new_int(libc::SIGCHLD as u8),
+        "SIGCONT" => ctx.new_int(libc::SIGCONT as u8),
+        "SIGSTOP" => ctx.new_int(libc::SIGSTOP as u8),
+        "SIGTSTP" => ctx.new_int(libc::SIGTSTP as u8),
+        "SIGTTIN" => ctx.new_int(libc::SIGTTIN as u8),
+        "SIGTTOU" => ctx.new_int(libc::SIGTTOU as u8),
+        "SIGURG" => ctx.new_int(libc::SIGURG as u8),
+        "SIGXCPU" => ctx.new_int(libc::SIGXCPU as u8),
+        "SIGXFSZ" => ctx.new_int(libc::SIGXFSZ as u8),
+        "SIGVTALRM" => ctx.new_int(libc::SIGVTALRM as u8),
+        "SIGPROF" => ctx.new_int(libc::SIGPROF as u8),
+        "SIGWINCH" => ctx.new_int(libc::SIGWINCH as u8),
+        "SIGIO" => ctx.new_int(libc::SIGIO as u8),
+        "SIGPWR" => ctx.new_int(libc::SIGPWR as u8),
+        "SIGSYS" => ctx.new_int(libc::SIGSYS as u8),
     });
 
     module
