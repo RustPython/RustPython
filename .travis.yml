@@ -145,3 +145,20 @@ matrix:
       env:
         - JOBCACHE=7
         - TRAVIS_RUST_VERSION=stable
+
+    - name: Ensure compilation on Redox OS with Redoxer
+      language: rust
+      rust: stable
+      cache:
+        cargo: true
+        directories:
+          - $HOME/.redoxer
+      install:
+        - cargo install redoxfs redoxer
+        - redoxer install
+      script:
+        - bash redox/uncomment-cargo.sh
+        - redoxer build --verbose
+        - bash redox/comment-cargo.sh
+      env:
+        - JOBCACHE=10
