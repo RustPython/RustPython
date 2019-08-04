@@ -62,6 +62,7 @@ pub struct VirtualMachine {
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: RefCell<bool>,
     pub settings: PySettings,
+    pub signal_handlers: RefCell<HashMap<i32, PyObjectRef>>,
 }
 
 /// Struct containing all kind of settings for the python vm.
@@ -160,6 +161,7 @@ impl VirtualMachine {
             trace_func,
             use_tracing: RefCell::new(false),
             settings,
+            signal_handlers: Default::default(),
         };
 
         builtins::make_module(&vm, builtins.clone());

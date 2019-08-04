@@ -23,6 +23,9 @@ use crate::vm::VirtualMachine;
 use indexmap::IndexMap;
 use itertools::Itertools;
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::stdlib::signal::check_signals;
+
 #[derive(Clone, Debug)]
 struct Block {
     /// The type of block.
@@ -163,6 +166,10 @@ impl Frame {
     /// Execute a single instruction.
     #[allow(clippy::cognitive_complexity)]
     fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            check_signals(vm);
+        }
         let instruction = self.fetch_instruction();
 
         flame_guard!(format!("Frame::execute_instruction({:?})", instruction));
