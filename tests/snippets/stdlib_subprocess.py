@@ -1,5 +1,6 @@
 import subprocess
 import time
+import sys
 
 from testutils import assertRaises
 
@@ -26,4 +27,9 @@ assert p.returncode == 0
 p = subprocess.Popen(["echo", "test"], stdout=subprocess.PIPE)
 p.wait()
 
-assert p.stdout.read() == b"test\n"
+if "win" not in sys.platform:
+	# unix
+	assert p.stdout.read() == b"test\n"
+else:
+	# windows
+	assert p.stdout.read() == b"test\r\n"
