@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::mem::transmute;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 
 #[cfg(unix)]
@@ -379,11 +378,11 @@ fn get_addr_tuple(vm: &VirtualMachine, addr: SocketAddr) -> PyResult {
 }
 
 #[cfg(unix)]
-fn socket_gethostname(vm: &VirtualMachine) -> PyObjectRef {
+fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
     let mut buf = [0u8; 1024];
     match gethostname(&mut buf) {
-        Ok(cstr) => vm.new_str(String::from(cstr.to_str().unwrap())),
-        Err(e) => convert_nix_error(vm, e),
+        Ok(cstr) => Ok(vm.new_str(String::from(cstr.to_str().unwrap()))),
+        Err(e) => Err(convert_nix_error(vm, e)),
     }
 }
 
@@ -393,13 +392,11 @@ fn socket_sethostname(hostname: PyStringRef, vm: &VirtualMachine) -> PyResult<()
 }
 
 fn socket_inet_aton(ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match ip_string.as_str().parse::<Ipv4Addr>() {
-        Ok(ip_addr) => {
-            let out_bytes: [u8; 4] = unsafe { transmute(u32::from(ip_addr).to_be()) };
-            Ok(vm.ctx.new_bytes(out_bytes.to_vec()))
-        }
-        Err(_) => Err(vm.new_os_error("illegal IP address string passed to inet_aton".to_string())),
-    }
+    ip_string
+        .as_str()
+        .parse::<Ipv4Addr>()
+        .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
+        .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_string()))
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

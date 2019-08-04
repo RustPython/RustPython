@@ -120,4 +120,4 @@ with assertRaises(OSError)	:
 	socket.inet_aton("test")
 
 assert socket.inet_aton("127.0.0.1")==b"\x7f\x00\x00\x01"
-assert socket.inet_aton("127.0.0.1")==b"\xff\xff\xff\xff"
+assert socket.inet_aton("255.255.255.255")==b"\xff\xff\xff\xff"
