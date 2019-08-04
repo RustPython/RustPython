@@ -43,7 +43,7 @@ impl IntoPyObject for subprocess::ExitStatus {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         let status: i32 = match self {
             subprocess::ExitStatus::Exited(status) => status as i32,
-            subprocess::ExitStatus::Signaled(status) => -(status as i32),
+            subprocess::ExitStatus::Signaled(status) => -i32::from(status),
             subprocess::ExitStatus::Other(status) => status as i32,
             _ => return Err(vm.new_os_error("Unknown exist status".to_string())),
         };
@@ -129,7 +129,7 @@ impl PopenRef {
                 .process
                 .borrow_mut()
                 .wait_timeout(Duration::new(timeout, 0)),
-            None => self.process.borrow_mut().wait().map(|x| Some(x)),
+            None => self.process.borrow_mut().wait().map(Some),
         }
         .map_err(|s| vm.new_os_error(format!("Could not start program: {}", s)))?;
         if timeout.is_none() {
