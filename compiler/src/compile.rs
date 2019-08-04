@@ -117,7 +117,7 @@ pub(crate) type Label = usize;
 
 impl<O> Default for Compiler<O>
 where
-    O: OutputStream + Default,
+    O: OutputStream,
 {
     fn default() -> Self {
         Compiler::new(0)
@@ -1916,7 +1916,7 @@ mod tests {
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {
-        let mut compiler = Compiler::default();
+        let mut compiler: Compiler = Default::default();
         compiler.source_path = Some("source_path".to_string());
         compiler.push_new_code_object("<module>".to_string());
         let ast = parser::parse_program(&source.to_string()).unwrap();
@@ -2001,6 +2001,26 @@ mod tests {
                 ReturnValue
             ],
             code.instructions
+        );
+    }
+
+    #[test]
+    fn test_constant_optimization() {
+        let code = compile_exec("1 + 2 + 3 + 4\n1.5 * 2.5");
+        assert_eq!(
+            code.instructions,
+            vec![
+                LoadConst {
+                    value: Integer { value: 10.into() }
+                },
+                Pop,
+                LoadConst {
+                    value: Float { value: 3.75 }
+                },
+                Pop,
+                LoadConst { value: None },
+                ReturnValue,
+            ]
         );
     }
 }

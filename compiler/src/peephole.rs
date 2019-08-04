@@ -79,6 +79,10 @@ impl<O: OutputStream> PeepholeOptimizer<O> {
                     (op!(Subtract), lc!(Float, lhs), lc!(Float, rhs)) => {
                         emitconst!(Float, lhs - rhs)
                     }
+                    (op!(Multiply), lc!(Float, lhs), lc!(Float, rhs)) => {
+                        emitconst!(Float, lhs * rhs)
+                    }
+                    (op!(Divide), lc!(Float, lhs), lc!(Float, rhs)) => emitconst!(Float, lhs / rhs),
                     (op!(Power), lc!(Float, lhs), lc!(Float, rhs)) => {
                         emitconst!(Float, lhs.powf(rhs))
                     }
