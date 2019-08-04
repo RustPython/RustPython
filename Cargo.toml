@@ -41,3 +41,9 @@ version = "0.2"
 [[bin]]
 name = "rustpython"
 path = "src/main.rs"
+
+# Uncommment when you want to compile/check with redoxer
+# [patch.crates-io]
+# time = { git = "https://gitlab.redox-os.org/redox-os/time.git", branch = "redox-unix" }
+# libc = { git = "https://github.com/AdminXVII/libc",	branch = "extra-traits-redox" }
+# nix = { git = "https://github.com/AdminXVII/nix",	branch = "add-redox-support" }

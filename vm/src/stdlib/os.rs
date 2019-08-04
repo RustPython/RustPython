@@ -786,7 +786,7 @@ fn os_getpgid(pid: PyIntRef, vm: &VirtualMachine) -> PyObjectRef {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "redox")))]
 fn os_getsid(pid: PyIntRef, vm: &VirtualMachine) -> PyObjectRef {
     let pid = pid.as_bigint().to_u32().unwrap();
 
@@ -815,7 +815,7 @@ fn os_setgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
     unistd::setgid(Gid::from_raw(gid)).map_err(|err| convert_nix_error(vm, err))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "redox")))]
 fn os_setegid(egid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
     let egid = egid.as_bigint().to_u32().unwrap();
 
@@ -831,7 +831,7 @@ fn os_setpgid(pid: PyIntRef, pgid: PyIntRef, vm: &VirtualMachine) -> PyResult<()
         .map_err(|err| convert_nix_error(vm, err))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "redox")))]
 fn os_setsid(vm: &VirtualMachine) -> PyResult<()> {
     unistd::setsid()
         .map(|_ok| ())
@@ -845,7 +845,7 @@ fn os_setuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
     unistd::setuid(Uid::from_raw(uid)).map_err(|err| convert_nix_error(vm, err))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "redox")))]
 fn os_seteuid(euid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
     let euid = euid.as_bigint().to_u32().unwrap();
 
@@ -1029,14 +1029,18 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "getgid" => ctx.new_rustfunc(os_getgid),
         "getegid" => ctx.new_rustfunc(os_getegid),
         "getpgid" => ctx.new_rustfunc(os_getpgid),
-        "getsid" => ctx.new_rustfunc(os_getsid),
         "getuid" => ctx.new_rustfunc(os_getuid),
         "geteuid" => ctx.new_rustfunc(os_geteuid),
         "setgid" => ctx.new_rustfunc(os_setgid),
-        "setegid" => ctx.new_rustfunc(os_setegid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
-        "setsid" => ctx.new_rustfunc(os_setsid),
         "setuid" => ctx.new_rustfunc(os_setuid),
+    });
+
+    #[cfg(not(target_os = "redox"))]
+    extend_module!(vm, module, {
+        "getsid" => ctx.new_rustfunc(os_getsid),
+        "setsid" => ctx.new_rustfunc(os_setsid),
+        "setegid" => ctx.new_rustfunc(os_setegid),
         "seteuid" => ctx.new_rustfunc(os_seteuid),
         "openpty" => ctx.new_rustfunc(os_openpty),
     });
