@@ -662,6 +662,12 @@ impl Frame {
                     panic!("Block type must be ExceptHandler here.")
                 }
             }
+            bytecode::Instruction::Reverse { amount } => {
+                let mut stack = self.stack.borrow_mut();
+                let stack_len = stack.len();
+                stack[stack_len - amount..stack_len].reverse();
+                Ok(None)
+            }
         }
     }
 
@@ -676,10 +682,7 @@ impl Frame {
         if unpack {
             let mut result: Vec<PyObjectRef> = vec![];
             for element in elements {
-                let expanded = vm.extract_elements(&element)?;
-                for inner in expanded {
-                    result.push(inner);
-                }
+                result.extend(vm.extract_elements(&element)?);
             }
             Ok(result)
         } else {
@@ -1170,12 +1173,9 @@ impl Frame {
     }
 
     fn pop_multiple(&self, count: usize) -> Vec<PyObjectRef> {
-        let mut objs: Vec<PyObjectRef> = Vec::new();
-        for _x in 0..count {
-            objs.push(self.pop_value());
-        }
-        objs.reverse();
-        objs
+        let mut stack = self.stack.borrow_mut();
+        let stack_len = stack.len();
+        stack.drain(stack_len - count..stack_len).collect()
     }
 
     fn last_value(&self) -> PyObjectRef {

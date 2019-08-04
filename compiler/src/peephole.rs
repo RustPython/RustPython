@@ -10,8 +10,8 @@ struct InstructionMetadata {
     labels: Vec<Label>,
 }
 
-impl InstructionMetadata {
-    fn from_multiple(metas: Vec<Self>) -> Self {
+impl From<Vec<InstructionMetadata>> for InstructionMetadata {
+    fn from(metas: Vec<Self>) -> Self {
         debug_assert!(!metas.is_empty(), "`metas` must not be empty");
         InstructionMetadata {
             loc: metas[0].loc.clone(),
@@ -69,28 +69,28 @@ impl<O: OutputStream> PeepholeOptimizer<O> {
     }
 
     fn optimize(&mut self, instruction: Instruction, meta: InstructionMetadata) {
+        macro_rules! lc {
+            ($name:ident {$($field:tt)*}) => {
+                Instruction::LoadConst {
+                    value: bytecode::Constant::$name {$($field)*},
+                }
+            };
+            ($name:ident, $($value:tt)*) => {
+                lc!($name { value: $($value)* })
+            };
+        }
+        macro_rules! emitconst {
+            ([$($metas:expr),*], $($arg:tt)*) => {
+                self.emit(
+                    lc!($($arg)*),
+                    InstructionMetadata::from(vec![$($metas),*]),
+                )
+            };
+        }
         match instruction {
             Instruction::BinaryOperation { op, inplace } => {
                 let (rhs, rhs_meta) = self.pop();
                 let (lhs, lhs_meta) = self.pop();
-                macro_rules! lc {
-                    ($name:ident {$($field:tt)*}) => {
-                        Instruction::LoadConst {
-                            value: bytecode::Constant::$name {$($field)*},
-                        }
-                    };
-                    ($name:ident, $($value:tt)*) => {
-                        lc!($name { value: $($value)* })
-                    };
-                }
-                macro_rules! emitconst {
-                    ([$($metas:expr),*], $($arg:tt)*) => {
-                        self.emit(
-                            lc!($($arg)*),
-                            InstructionMetadata::from_multiple(vec![$($metas),*]),
-                        )
-                    };
-                }
                 macro_rules! op {
                     ($op:ident) => {
                         bytecode::BinaryOperator::$op
@@ -126,6 +126,24 @@ impl<O: OutputStream> PeepholeOptimizer<O> {
                         self.emit(lhs, lhs_meta);
                         self.emit(rhs, rhs_meta);
                         self.emit(Instruction::BinaryOperation { op, inplace }, meta);
+                    }
+                }
+            }
+            Instruction::UnpackSequence { size } => {
+                let (arg, arg_meta) = self.pop();
+                match arg {
+                    Instruction::BuildTuple {
+                        size: tup_size,
+                        unpack,
+                    } if !unpack && tup_size == size => {
+                        self.emit(
+                            Instruction::Reverse { amount: size },
+                            vec![arg_meta, meta].into(),
+                        );
+                    }
+                    arg => {
+                        self.emit(arg, arg_meta);
+                        self.emit(instruction, meta);
                     }
                 }
             }
