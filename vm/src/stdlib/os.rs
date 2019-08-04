@@ -5,12 +5,15 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
-use bitflags::bitflags;
 #[cfg(unix)]
 use nix::errno::Errno;
 #[cfg(unix)]
+use nix::pty::openpty;
+#[cfg(unix)]
 use nix::unistd::{self, Gid, Pid, Uid};
 use num_traits::cast::ToPrimitive;
+
+use bitflags::bitflags;
 
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
@@ -849,6 +852,16 @@ fn os_seteuid(euid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
     unistd::seteuid(Uid::from_raw(euid)).map_err(|err| convert_nix_error(vm, err))
 }
 
+#[cfg(unix)]
+pub fn os_openpty(vm: &VirtualMachine) -> PyResult {
+    match openpty(None, None) {
+        Ok(r) => Ok(vm
+            .ctx
+            .new_tuple(vec![vm.new_int(r.master), vm.new_int(r.slave)])),
+        Err(err) => Err(convert_nix_error(vm, err)),
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1025,6 +1038,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setsid" => ctx.new_rustfunc(os_setsid),
         "setuid" => ctx.new_rustfunc(os_setuid),
         "seteuid" => ctx.new_rustfunc(os_seteuid),
+        "openpty" => ctx.new_rustfunc(os_openpty),
     });
 
     module
