@@ -115,3 +115,9 @@ with assertRaises(OSError):
 
 with assertRaises(OSError):
 	socket.socket(socket.AF_INET, 1000)
+
+with assertRaises(OSError)	:
+	socket.inet_aton("test")
+
+assert socket.inet_aton("127.0.0.1")==b"\x7f\x00\x00\x01"
+assert socket.inet_aton("127.0.0.1")==b"\xff\xff\xff\xff"

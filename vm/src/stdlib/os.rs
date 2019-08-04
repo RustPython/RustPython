@@ -182,7 +182,7 @@ fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
 }
 
 #[cfg(unix)]
-fn convert_nix_error(vm: &VirtualMachine, err: nix::Error) -> PyObjectRef {
+pub fn convert_nix_error(vm: &VirtualMachine, err: nix::Error) -> PyObjectRef {
     let nix_error = match err {
         nix::Error::InvalidPath => {
             let exc_type = vm.ctx.exceptions.file_not_found_error.clone();

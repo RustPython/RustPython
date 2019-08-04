@@ -2,7 +2,11 @@ use std::cell::RefCell;
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::mem::transmute;
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+
+#[cfg(unix)]
+use nix::unistd::{gethostname, sethostname};
 
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint::PyIntRef;
@@ -12,6 +16,7 @@ use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::vm::VirtualMachine;
 
 use crate::obj::objtype::PyClassRef;
+use crate::stdlib::os::convert_nix_error;
 use num_traits::ToPrimitive;
 
 #[derive(Debug, Copy, Clone)]
@@ -372,6 +377,30 @@ fn get_addr_tuple(vm: &VirtualMachine, addr: SocketAddr) -> PyResult {
     Ok(vm.ctx.new_tuple(vec![ip, port]))
 }
 
+#[cfg(unix)]
+fn socket_gethostname(vm: &VirtualMachine) -> PyObjectRef {
+    let mut buf = [0u8; 1024];
+    match gethostname(&mut buf) {
+        Ok(cstr) => vm.new_str(String::from(cstr.to_str().unwrap())),
+        Err(e) => convert_nix_error(vm, e),
+    }
+}
+
+#[cfg(unix)]
+fn socket_sethostname(hostname: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    sethostname(hostname.value.as_str()).map_err(|err| convert_nix_error(vm, err))
+}
+
+fn socket_inet_aton(ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    match ip_string.as_str().parse::<Ipv4Addr>() {
+        Ok(ip_addr) => {
+            let out_bytes: [u8; 4] = unsafe { transmute(u32::from(ip_addr).to_be()) };
+            Ok(vm.ctx.new_bytes(out_bytes.to_vec()))
+        }
+        Err(_) => Err(vm.new_os_error("illegal IP address string passed to inet_aton".to_string())),
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -395,5 +424,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SOCK_STREAM" => ctx.new_int(SocketKind::Stream as i32),
          "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
          "socket" => socket,
+         "gethostname" => ctx.new_rustfunc(socket_gethostname),
+         "sethostname" => ctx.new_rustfunc(socket_sethostname),
+         "inet_aton" => ctx.new_rustfunc(socket_inet_aton),
     })
 }
