@@ -16,6 +16,7 @@ use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::vm::VirtualMachine;
 
 use crate::obj::objtype::PyClassRef;
+#[cfg(unix)]
 use crate::stdlib::os::convert_nix_error;
 use num_traits::ToPrimitive;
 
@@ -419,13 +420,30 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "fileno" => ctx.new_rustfunc(SocketRef::fileno),
     });
 
-    py_module!(vm, "socket", {
+    let module = py_module!(vm, "socket", {
         "AF_INET" => ctx.new_int(AddressFamily::Inet as i32),
         "SOCK_STREAM" => ctx.new_int(SocketKind::Stream as i32),
          "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
          "socket" => socket,
+         "inet_aton" => ctx.new_rustfunc(socket_inet_aton),
+    });
+
+    extend_module_platform_specific(vm, module)
+}
+
+#[cfg(not(unix))]
+fn extend_module_platform_specific(_vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+    module
+}
+
+#[cfg(unix)]
+fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    extend_module!(vm, module, {
          "gethostname" => ctx.new_rustfunc(socket_gethostname),
          "sethostname" => ctx.new_rustfunc(socket_sethostname),
-         "inet_aton" => ctx.new_rustfunc(socket_inet_aton),
-    })
+    });
+
+    module
 }
