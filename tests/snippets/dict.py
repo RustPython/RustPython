@@ -241,3 +241,13 @@ assert len(s) == 3
 assert s[1] == 0
 assert s[A()] == 1
 assert s[B()] == 2
+
+# Test dict usage in set with star expressions!
+a = {'bla': 2}
+b = {'c': 44, 'bla': 332, 'd': 6}
+x = ['bla', 'c', 'd', 'f']
+c = {*a, *b, *x}
+# print(c, type(c))
+assert isinstance(c, set)
+assert c == {'bla', 'c', 'd', 'f'}
+
