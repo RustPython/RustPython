@@ -9,3 +9,5 @@ extern crate log;
 pub mod compile;
 pub mod error;
 pub mod symboltable;
+pub mod output_stream;
+pub mod peephole;
