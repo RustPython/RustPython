@@ -23,7 +23,7 @@ p.wait()
 
 assert p.returncode == 0
 
-p = subprocess.Popen(["echo", "-n", "test"], stdout=subprocess.PIPE)
+p = subprocess.Popen(["echo", "test"], stdout=subprocess.PIPE)
 p.wait()
 
-assert p.stdout.read() == b"test"
+assert p.stdout.read() == b"test\n"
