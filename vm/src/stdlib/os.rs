@@ -1,9 +1,9 @@
-use std::{env, fs};
 use std::cell::RefCell;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind, Read, Write};
 use std::time::{Duration, SystemTime};
+use std::{env, fs};
 
 #[cfg(unix)]
 use nix::errno::Errno;
@@ -432,8 +432,8 @@ fn os_scandir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
         Ok(iter) => Ok(ScandirIterator {
             entries: RefCell::new(iter),
         }
-            .into_ref(vm)
-            .into_object()),
+        .into_ref(vm)
+        .into_object()),
         Err(s) => Err(convert_io_error(vm, s)),
     }
 }
@@ -652,11 +652,11 @@ fn os_stat(
 }
 
 #[cfg(not(any(
-target_os = "linux",
-target_os = "macos",
-target_os = "android",
-target_os = "redox",
-windows
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "android",
+    target_os = "redox",
+    windows
 )))]
 fn os_stat(
     _path: PyStringRef,
@@ -855,7 +855,9 @@ fn os_seteuid(euid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
 #[cfg(unix)]
 pub fn os_openpty(vm: &VirtualMachine) -> PyResult {
     match openpty(None, None) {
-        Ok(r) => Ok(vm.ctx.new_tuple(vec![vm.new_int(r.master), vm.new_int(r.slave)])),
+        Ok(r) => Ok(vm
+            .ctx
+            .new_tuple(vec![vm.new_int(r.master), vm.new_int(r.slave)])),
         Err(err) => Err(convert_nix_error(vm, err)),
     }
 }
@@ -912,8 +914,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
             dir_fd: Option<bool>,
             follow_symlinks: Option<bool>,
         ) -> Self
-            where
-                F: IntoPyNativeFunc<T, R>,
+        where
+            F: IntoPyNativeFunc<T, R>,
         {
             let func_obj = vm.ctx.new_rustfunc(func);
             Self {
