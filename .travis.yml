@@ -1,9 +1,11 @@
-before_cache: |
-  if command -v cargo; then
-    ! command -v cargo-sweep && cargo install cargo-sweep
-    cargo sweep -i
-    cargo sweep -t 15
-  fi
+before_cache:
+  - |
+    if command -v cargo; then
+      ! command -v cargo-sweep && cargo install cargo-sweep
+      cargo sweep -i
+      cargo sweep -t 15
+    fi
+  - rm -rf ~/.cargo/registry/src
 
 matrix:
   fast_finish: true
@@ -148,17 +150,30 @@ matrix:
 
     - name: Ensure compilation on Redox OS with Redoxer
       language: rust
-      rust: stable
+      rust: nightly
+      dist: bionic
       cache:
         cargo: true
         directories:
           - $HOME/.redoxer
+          - $HOME/.cargo/bin
+      before_install:
+        - sudo apt-get update -qq
+        - sudo apt-get install libfuse-dev
       install:
-        - cargo install redoxfs redoxer
+        - "! command -v redoxer && cargo install redoxfs redoxer"
         - redoxer install
       script:
         - bash redox/uncomment-cargo.sh
         - redoxer build --verbose
         - bash redox/comment-cargo.sh
+      before_cache:
+        - |
+          if ! command -v cargo-sweep; then
+            rustup install stable
+            cargo +stable install cargo-sweep
+          fi
+        - cargo sweep -t 15
+        - rm -rf ~/.cargo/registry/src
       env:
         - JOBCACHE=10

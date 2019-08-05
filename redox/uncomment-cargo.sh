@@ -2,7 +2,7 @@
 
 set -e
 
-cargo=$(realpath "${1:-Cargo.toml}")
+cargo=${1:-Cargo.toml}
 
 tmpfile=$(mktemp)
 
