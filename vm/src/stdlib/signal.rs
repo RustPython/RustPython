@@ -138,7 +138,6 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "SIGUSR2" => ctx.new_int(libc::SIGUSR2 as u8),
         "SIGPIPE" => ctx.new_int(libc::SIGPIPE as u8),
         "SIGALRM" => ctx.new_int(libc::SIGALRM as u8),
-        "SIGSTKFLT" => ctx.new_int(libc::SIGSTKFLT as u8),
         "SIGCHLD" => ctx.new_int(libc::SIGCHLD as u8),
         "SIGCONT" => ctx.new_int(libc::SIGCONT as u8),
         "SIGSTOP" => ctx.new_int(libc::SIGSTOP as u8),
@@ -152,9 +151,16 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "SIGPROF" => ctx.new_int(libc::SIGPROF as u8),
         "SIGWINCH" => ctx.new_int(libc::SIGWINCH as u8),
         "SIGIO" => ctx.new_int(libc::SIGIO as u8),
-        "SIGPWR" => ctx.new_int(libc::SIGPWR as u8),
         "SIGSYS" => ctx.new_int(libc::SIGSYS as u8),
     });
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        extend_module!(vm, module, {
+            "SIGPWR" => ctx.new_int(libc::SIGPWR as u8),
+            "SIGSTKFLT" => ctx.new_int(libc::SIGSTKFLT as u8),
+        });
+    }
 
     module
 }
