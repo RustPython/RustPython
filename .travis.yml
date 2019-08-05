@@ -1,7 +1,9 @@
 before_cache:
   - |
     if command -v cargo; then
-      ! command -v cargo-sweep && cargo install cargo-sweep
+      if ! command -v cargo-sweep; then
+        cargo install cargo-sweep
+      fi
       cargo sweep -i
       cargo sweep -t 15
     fi
@@ -170,7 +172,7 @@ matrix:
         - sudo apt-get update -qq
         - sudo apt-get install libfuse-dev
       install:
-        - "! command -v redoxer && cargo install redoxfs redoxer"
+        - if ! command -v redoxer; then cargo install redoxfs redoxer; fi
         - redoxer install
       script:
         - bash redox/uncomment-cargo.sh
