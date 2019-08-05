@@ -149,8 +149,9 @@ matrix:
         - TRAVIS_RUST_VERSION=stable
 
     - name: Ensure compilation on Redox OS with Redoxer
-      language: rust
-      rust: nightly
+      # language: minimal so that it actually uses bionic rather than xenial;
+      # rust isn't yet available on bionic
+      language: minimal
       dist: bionic
       cache:
         cargo: true
@@ -158,6 +159,14 @@ matrix:
           - $HOME/.redoxer
           - $HOME/.cargo/bin
       before_install:
+        # install rust as travis does for language: rust
+        - curl -sSf https://build.travis-ci.org/files/rustup-init.sh | sh -s --
+          --default-toolchain=$TRAVIS_RUST_VERSION -y
+        - export PATH=${TRAVIS_HOME}/.cargo/bin:$PATH
+        - rustc --version
+        - rustup --version
+        - cargo --version
+
         - sudo apt-get update -qq
         - sudo apt-get install libfuse-dev
       install:
@@ -177,3 +186,4 @@ matrix:
         - rm -rf ~/.cargo/registry/src
       env:
         - JOBCACHE=10
+        - TRAVIS_RUST_VERSION=nightly
