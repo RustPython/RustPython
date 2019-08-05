@@ -157,7 +157,7 @@ matrix:
         cargo: true
         directories:
           - $HOME/.redoxer
-          - $HOME/.cargo/bin
+          - $HOME/.cargo
       before_install:
         # install rust as travis does for language: rust
         - curl -sSf https://build.travis-ci.org/files/rustup-init.sh | sh -s --
