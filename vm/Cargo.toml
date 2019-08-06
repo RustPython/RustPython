@@ -24,6 +24,7 @@ sha2 = "0.8"
 sha3 = "0.8"
 blake2 = "0.8"
 
+gethostname = "0.2.0"
 num-complex = { version = "0.2", features = ["serde"] }
 num-bigint = { version = "0.2", features = ["serde"] }
 num-traits = "=0.2.6"

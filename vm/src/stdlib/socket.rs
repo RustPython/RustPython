@@ -7,6 +7,11 @@ use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpS
 #[cfg(unix)]
 use nix::unistd::{gethostname, sethostname};
 
+#[cfg(windows)]
+use gethostname::gethostname;
+
+use byteorder::{BigEndian, ByteOrder};
+
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objstr::PyStringRef;
@@ -386,6 +391,14 @@ fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
     }
 }
 
+#[cfg(windows)]
+fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
+    gethostname()
+        .into_string()
+        .map(|hostname| vm.new_str(hostname))
+        .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
+}
+
 #[cfg(unix)]
 fn socket_sethostname(hostname: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     sethostname(hostname.value.as_str()).map_err(|err| convert_nix_error(vm, err))
@@ -397,6 +410,14 @@ fn socket_inet_aton(ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
         .parse::<Ipv4Addr>()
         .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
         .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_string()))
+}
+
+fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    if packed_ip.len() != 4 {
+        return Err(vm.new_os_error("packed IP wrong length for inet_ntoa".to_string()));
+    }
+    let ip_num = BigEndian::read_u32(packed_ip.get_value());
+    Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -423,6 +444,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
          "socket" => socket,
          "inet_aton" => ctx.new_rustfunc(socket_inet_aton),
+         "inet_ntoa" => ctx.new_rustfunc(socket_inet_ntoa),
+         "gethostname" => ctx.new_rustfunc(socket_gethostname),
     });
 
     extend_module_platform_specific(vm, module)
@@ -438,7 +461,6 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
     let ctx = &vm.ctx;
 
     extend_module!(vm, module, {
-         "gethostname" => ctx.new_rustfunc(socket_gethostname),
          "sethostname" => ctx.new_rustfunc(socket_sethostname),
     });
 
