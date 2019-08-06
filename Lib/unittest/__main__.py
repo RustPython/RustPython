@@ -2,7 +2,8 @@
 
 import sys
 if sys.argv[0].endswith("__main__.py"):
-    import os.path
+    # FIXME change to `import os.path` as it was for cpython once `import os.path` works
+    import os
     # We change sys.argv[0] to make help message more useful
     # use executable without path, unquoted
     # (it's just a hint anyway)
