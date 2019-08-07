@@ -386,6 +386,7 @@ mod tests {
                         target: mk_ident("y", 1, 8),
                         iter: mk_ident("z", 1, 13),
                         ifs: vec![],
+                        is_async: false,
                     }],
                 }
             }
@@ -415,6 +416,7 @@ mod tests {
                             },
                             iter: mk_ident("z", 1, 17),
                             ifs: vec![],
+                            is_async: false,
                         },
                         ast::Comprehension {
                             location: ast::Location::new(1, 19),
@@ -436,6 +438,7 @@ mod tests {
                                     },
                                 },
                             ],
+                            is_async: false,
                         }
                     ],
                 }

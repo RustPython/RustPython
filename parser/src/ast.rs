@@ -318,6 +318,7 @@ pub struct Comprehension {
     pub target: Expression,
     pub iter: Expression,
     pub ifs: Vec<Expression>,
+    pub is_async: bool,
 }
 
 #[derive(Debug, PartialEq)]

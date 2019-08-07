@@ -579,6 +579,7 @@ fn comprehension_to_ast(
         target => expression_to_ast(vm, &comprehension.target)?,
         iter => expression_to_ast(vm, &comprehension.iter)?,
         ifs => expressions_to_ast(vm, &comprehension.ifs)?,
+        is_async => vm.new_bool(comprehension.is_async),
     }))
 }
 

@@ -908,6 +908,7 @@ Atom: ast::Expression = {
              node: ast::ExpressionType::Tuple { elements: Vec::new() }
         })
     },
+    "(" <e:YieldExpr> ")" => e,
     <location:@L> "(" <element:Test> <generators:CompFor> ")" => {
         ast::Expression {
             location,
@@ -1021,8 +1022,9 @@ StarExpr: ast::Expression = {
 CompFor: Vec<ast::Comprehension> = <c:SingleForComprehension+> => c;
 
 SingleForComprehension: ast::Comprehension = {
-    <location:@L> "for" <target:ExpressionList> "in" <iter:OrTest> <ifs:ComprehensionIf*> => {
-        ast::Comprehension { location, target, iter, ifs }
+    <location:@L> <is_async:"async"?> "for" <target:ExpressionList> "in" <iter:OrTest> <ifs:ComprehensionIf*> => {
+        let is_async = is_async.is_some();
+        ast::Comprehension { location, target, iter, ifs, is_async }
     }
 };
 

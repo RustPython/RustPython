@@ -1702,6 +1702,10 @@ impl Compiler {
 
         let mut loop_labels = vec![];
         for generator in generators {
+            if generator.is_async {
+                unimplemented!("async for comprehensions");
+            }
+
             if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
                 self.emit(Instruction::LoadName {
