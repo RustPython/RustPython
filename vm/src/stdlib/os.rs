@@ -1,7 +1,8 @@
 use std::cell::RefCell;
+use std::ffi::CStr;
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::{self, ErrorKind, Read, Write};
+use std::io::{self, Error, ErrorKind, Read, Write};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
@@ -862,6 +863,22 @@ pub fn os_openpty(vm: &VirtualMachine) -> PyResult {
     }
 }
 
+#[cfg(unix)]
+pub fn os_ttyname(fd: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    use libc::ttyname;
+    unsafe {
+        let fd = fd.as_bigint().to_i32().unwrap();
+        let name = ttyname(fd);
+        if !name.is_null() {
+            Ok(vm
+                .ctx
+                .new_str(CStr::from_ptr(name).to_str().unwrap().to_owned()))
+        } else {
+            Err(vm.new_os_error(Error::last_os_error().to_string()))
+        }
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1043,6 +1060,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setegid" => ctx.new_rustfunc(os_setegid),
         "seteuid" => ctx.new_rustfunc(os_seteuid),
         "openpty" => ctx.new_rustfunc(os_openpty),
+        "ttyname" => ctx.new_rustfunc(os_ttyname),
     });
 
     module
