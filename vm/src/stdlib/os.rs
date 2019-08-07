@@ -868,11 +868,11 @@ pub fn os_ttyname(fd: PyIntRef, vm: &VirtualMachine) -> PyResult {
     use libc::ttyname;
     if let Some(fd) = fd.as_bigint().to_i32() {
         let name = unsafe { ttyname(fd) };
-        if !name.is_null() {
+        if name.is_null() {
+            Err(vm.new_os_error(Error::last_os_error().to_string()))
+        } else {
             let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
             Ok(vm.ctx.new_str(name.to_owned()))
-        } else {
-            Err(vm.new_os_error(Error::last_os_error().to_string()))
         }
     } else {
         Err(vm.new_overflow_error("signed integer is greater than maximum".to_owned()))
