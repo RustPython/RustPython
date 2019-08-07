@@ -108,6 +108,23 @@ impl PyClassRef {
         format!("<class '{}'>", self.name)
     }
 
+    fn qualname(self, vm: &VirtualMachine) -> PyObjectRef {
+        self.attributes
+            .borrow()
+            .get("__qualname__")
+            .cloned()
+            .unwrap_or_else(|| vm.ctx.new_str(self.name.clone()))
+    }
+
+    fn module(self, vm: &VirtualMachine) -> PyObjectRef {
+        // TODO: Implement getting the actual module a builtin type is from
+        self.attributes
+            .borrow()
+            .get("__module__")
+            .cloned()
+            .unwrap_or_else(|| vm.ctx.new_str("builtins".to_owned()))
+    }
+
     fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
     }
@@ -210,6 +227,8 @@ pub fn init(ctx: &PyContext) {
                 .create(),
         "__name__" => ctx.new_property(PyClassRef::name),
         "__repr__" => ctx.new_rustfunc(PyClassRef::repr),
+        "__qualname__" => ctx.new_property(PyClassRef::qualname),
+        "__module__" => ctx.new_property(PyClassRef::module),
         "__prepare__" => ctx.new_rustfunc(PyClassRef::prepare),
         "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
         "__setattr__" => ctx.new_rustfunc(PyClassRef::set_attr),
