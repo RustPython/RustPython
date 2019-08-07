@@ -32,10 +32,11 @@ def g3():
     yield 23
     yield from make_numbers()
     yield 44
+    yield from make_numbers()
 
 r = list(g3())
 # print(r)
-assert r == [23, 1, 2, 3, 44]
+assert r == [23, 1, 2, 3, 44, 1, 2, 3]
 
 def g4():
     yield
