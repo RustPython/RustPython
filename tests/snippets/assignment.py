@@ -58,3 +58,5 @@ b: bool = False
 
 assert a == 1337
 assert b == False
+
+assert __annotations__['a'] == bool
