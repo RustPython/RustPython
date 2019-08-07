@@ -286,6 +286,12 @@ impl<T> IntoIterator for KwArgs<T> {
 #[derive(Clone)]
 pub struct Args<T = PyObjectRef>(Vec<T>);
 
+impl<T> Args<T> {
+    pub fn into_vec(self) -> Vec<T> {
+        self.0
+    }
+}
+
 impl<T: PyValue> Args<PyRef<T>> {
     pub fn into_tuple(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
