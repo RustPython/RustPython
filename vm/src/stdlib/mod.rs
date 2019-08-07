@@ -17,6 +17,7 @@ mod platform;
 mod pystruct;
 mod random;
 mod re;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod socket;
 mod string;
 #[cfg(feature = "rustpython-compiler")]

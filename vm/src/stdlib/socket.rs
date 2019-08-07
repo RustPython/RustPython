@@ -5,9 +5,8 @@ use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 
 #[cfg(unix)]
-use nix::unistd::{gethostname, sethostname};
+use nix::unistd::sethostname;
 
-#[cfg(windows)]
 use gethostname::gethostname;
 
 use byteorder::{BigEndian, ByteOrder};
@@ -382,16 +381,6 @@ fn get_addr_tuple(vm: &VirtualMachine, addr: SocketAddr) -> PyResult {
     Ok(vm.ctx.new_tuple(vec![ip, port]))
 }
 
-#[cfg(unix)]
-fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
-    let mut buf = [0u8; 1024];
-    match gethostname(&mut buf) {
-        Ok(cstr) => Ok(vm.new_str(String::from(cstr.to_str().unwrap()))),
-        Err(e) => Err(convert_nix_error(vm, e)),
-    }
-}
-
-#[cfg(windows)]
 fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
     gethostname()
         .into_string()

@@ -24,7 +24,6 @@ sha2 = "0.8"
 sha3 = "0.8"
 blake2 = "0.8"
 
-gethostname = "0.2.0"
 num-complex = { version = "0.2", features = ["serde"] }
 num-bigint = { version = "0.2", features = ["serde"] }
 num-traits = "=0.2.6"
@@ -70,3 +69,6 @@ flamer = { version = "0.3", optional = true }
 
 [target.'cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))'.dependencies]
 pwd = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+gethostname = "0.2.0"
