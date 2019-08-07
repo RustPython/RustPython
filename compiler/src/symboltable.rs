@@ -335,6 +335,17 @@ impl SymbolTableBuilder {
                 self.scan_expression(target)?;
                 self.scan_expression(value)?;
             }
+            AnnAssign {
+                target,
+                annotation,
+                value,
+            } => {
+                self.scan_expression(target)?;
+                self.scan_expression(annotation)?;
+                if let Some(value) = value {
+                    self.scan_expression(value)?;
+                }
+            }
             With { items, body, .. } => {
                 for item in items {
                     self.scan_expression(&item.context_expr)?;

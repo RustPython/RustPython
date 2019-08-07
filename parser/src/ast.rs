@@ -74,6 +74,11 @@ pub enum StatementType {
         op: Operator,
         value: Box<Expression>,
     },
+    AnnAssign {
+        target: Box<Expression>,
+        annotation: Box<Expression>,
+        value: Option<Expression>,
+    },
     Expression {
         expression: Expression,
     },

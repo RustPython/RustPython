@@ -107,13 +107,23 @@ ExpressionStatement: ast::Statement = {
             }
         }
     },
-    <location:@L> <expr:TestOrStarExprList> <op:AugAssign> <rhs:TestList> => {
+    <location:@L> <target:TestOrStarExprList> <op:AugAssign> <rhs:TestList> => {
         ast::Statement {
             location,
             node: ast::StatementType::AugAssign {
-                target: Box::new(expr),
+                target: Box::new(target),
                 op,
                 value: Box::new(rhs)
+            },
+        }
+    },
+    <location:@L> <target:Test> ":" <annotation:Test> <rhs:("=" Test)?> => {
+        ast::Statement {
+            location,
+            node: ast::StatementType::AnnAssign {
+                target: Box::new(target),
+                annotation: Box::new(annotation),
+                value: rhs.map(|e| e.1)
             },
         }
     },
@@ -876,75 +886,75 @@ Atom: ast::Expression = {
         location,
         node: ast::ExpressionType::Identifier { name }
     },
-    <location:@L> "[" <e:TestListComp?> "]" => {
+    <location:@L> "[" <e:ListLiteralValues?> "]" => {
         let elements = e.unwrap_or_default();
         ast::Expression {
             location,
             node: ast::ExpressionType::List { elements }
         }
     },
-    "[" <e:TestListComp2> "]" => e,
+    <location:@L> "[" <element:TestOrStarExpr> <generators:CompFor> "]" => {
+        ast::Expression {
+            location,
+            node: ast::ExpressionType::Comprehension {
+                kind: Box::new(ast::ComprehensionKind::List { element }),
+                generators,
+            }
+        }
+    },
     <location:@L> "(" <elements:TestOrStarExprList?> ")" => {
         elements.unwrap_or(ast::Expression {
              location,
              node: ast::ExpressionType::Tuple { elements: Vec::new() }
         })
     },
-    <location:@L> "(" <element:Test> <c:CompFor> ")" => {
+    <location:@L> "(" <element:Test> <generators:CompFor> ")" => {
         ast::Expression {
             location,
             node: ast::ExpressionType::Comprehension {
                 kind: Box::new(ast::ComprehensionKind::GeneratorExpression { element }),
-                generators: c,
+                generators,
             }
         }
     },
-    <location:@L> "{" <e:TestDict?> "}" => ast::Expression {
+    <location:@L> "{" <e:DictLiteralValues?> "}" => ast::Expression {
         location,
         node: ast::ExpressionType::Dict { elements: e.unwrap_or_default() }
     },
-    "{" <e:TestDictComp> "}" => e,
-    <location:@L> "{" <elements:TestSet> "}" => ast::Expression {
+    <location:@L> "{" <e1:DictEntry> <generators:CompFor> "}" => {
+        ast::Expression {
+            location,
+            node: ast::ExpressionType::Comprehension {
+                kind: Box::new(ast::ComprehensionKind::Dict { key: e1.0, value: e1.1 }),
+                generators,
+            }
+        }
+    },
+    <location:@L> "{" <elements:SetLiteralValues> "}" => ast::Expression {
         location,
         node: ast::ExpressionType::Set { elements }
     },
-    "{" <e:TestSetComp> "}" => e,
+    <location:@L> "{" <element:Test> <generators:CompFor> "}" => {
+        ast::Expression {
+            location,
+            node: ast::ExpressionType::Comprehension {
+                kind: Box::new(ast::ComprehensionKind::Set { element }),
+                generators,
+            }
+        }
+    },
     <location:@L> "True" => ast::Expression { location, node: ast::ExpressionType::True },
     <location:@L> "False" => ast::Expression { location, node: ast::ExpressionType::False },
     <location:@L> "None" => ast::Expression { location, node: ast::ExpressionType::None },
     <location:@L> "..." => ast::Expression { location, node: ast::ExpressionType::Ellipsis },
 };
 
-TestListComp: Vec<ast::Expression> = {
+ListLiteralValues: Vec<ast::Expression> = {
     <e:OneOrMore<TestOrStarExpr>> <_trailing_comma:","?> => e,
 };
 
-TestListComp2: ast::Expression = {
-    <location:@L> <e:TestOrStarExpr> <c:CompFor> => {
-        ast::Expression {
-            location,
-            node: ast::ExpressionType::Comprehension {
-                kind: Box::new(ast::ComprehensionKind::List { element: e }),
-                generators: c,
-            }
-        }
-    },
-};
-
-TestDict: Vec<(Option<ast::Expression>, ast::Expression)> = {
+DictLiteralValues: Vec<(Option<ast::Expression>, ast::Expression)> = {
     <elements:OneOrMore<DictElement>> <_trailing_comma:","?> => elements,
-};
-
-TestDictComp: ast::Expression = {
-    <location:@L> <e1:DictEntry> <c:CompFor> => {
-        ast::Expression {
-            location,
-            node: ast::ExpressionType::Comprehension {
-                kind: Box::new(ast::ComprehensionKind::Dict { key: e1.0, value: e1.1 }),
-                generators: c,
-            }
-        }
-    }
 };
 
 DictEntry: (ast::Expression, ast::Expression) = {
@@ -956,20 +966,8 @@ DictElement: (Option<ast::Expression>, ast::Expression) = {
     "**" <e:Expression> => (None, e),
 };
 
-TestSet: Vec<ast::Expression> = {
+SetLiteralValues: Vec<ast::Expression> = {
     <e1:OneOrMore<TestOrStarExpr>> ","? => e1
-};
-
-TestSetComp: ast::Expression = {
-    <location:@L> <e1:Test> <c:CompFor> => {
-        ast::Expression {
-            location,
-            node: ast::ExpressionType::Comprehension {
-                kind: Box::new(ast::ComprehensionKind::Set { element: e1 }),
-                generators: c,
-            }
-        }
-    }
 };
 
 ExpressionOrStarExpression = {

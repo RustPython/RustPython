@@ -376,7 +376,7 @@ mod tests {
         assert_eq!(
             parse_ast,
             ast::Expression {
-                location: ast::Location::new(1, 2),
+                location: ast::Location::new(1, 1),
                 node: ast::ExpressionType::Comprehension {
                     kind: Box::new(ast::ComprehensionKind::List {
                         element: mk_ident("x", 1, 2),
@@ -399,7 +399,7 @@ mod tests {
         assert_eq!(
             parse_ast,
             ast::Expression {
-                location: ast::Location::new(1, 2),
+                location: ast::Location::new(1, 1),
                 node: ast::ExpressionType::Comprehension {
                     kind: Box::new(ast::ComprehensionKind::List {
                         element: mk_ident("x", 1, 2)

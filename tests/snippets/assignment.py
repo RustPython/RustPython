@@ -51,3 +51,10 @@ def g():
 a, b = g()
 assert a == 1337
 assert b == 42
+
+# Variable annotations:
+a: bool
+b: bool = False
+
+assert a == 1337
+assert b == False

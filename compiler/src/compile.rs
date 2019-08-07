@@ -553,6 +553,20 @@ impl Compiler {
                 self.compile_op(op, true);
                 self.compile_store(target)?;
             }
+            AnnAssign {
+                target,
+                annotation,
+                value,
+            } => {
+                // Throw away annotation:
+                self.compile_expression(annotation)?;
+                self.emit(Instruction::Pop);
+
+                if let Some(value) = value {
+                    self.compile_expression(value)?;
+                    self.compile_store(target)?;
+                }
+            }
             Delete { targets } => {
                 for target in targets {
                     self.compile_delete(target)?;
