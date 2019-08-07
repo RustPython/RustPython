@@ -866,16 +866,16 @@ pub fn os_openpty(vm: &VirtualMachine) -> PyResult {
 #[cfg(unix)]
 pub fn os_ttyname(fd: PyIntRef, vm: &VirtualMachine) -> PyResult {
     use libc::ttyname;
-    unsafe {
-        let fd = fd.as_bigint().to_i32().unwrap();
-        let name = ttyname(fd);
+    if let Some(fd) = fd.as_bigint().to_i32() {
+        let name = unsafe { ttyname(fd) };
         if !name.is_null() {
-            Ok(vm
-                .ctx
-                .new_str(CStr::from_ptr(name).to_str().unwrap().to_owned()))
+            let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
+            Ok(vm.ctx.new_str(name.to_owned()))
         } else {
             Err(vm.new_os_error(Error::last_os_error().to_string()))
         }
+    } else {
+        Err(vm.new_overflow_error("signed integer is greater than maximum".to_owned()))
     }
 }
 
