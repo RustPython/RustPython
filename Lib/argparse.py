@@ -1630,11 +1630,18 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
                  add_help=True,
                  allow_abbrev=True):
 
-        superinit = super(ArgumentParser, self).__init__
-        superinit(description=description,
-                  prefix_chars=prefix_chars,
-                  argument_default=argument_default,
-                  conflict_handler=conflict_handler)
+        ArgumentParser.__init__(self,
+                                description=description,
+                                prefix_chars=prefix_chars,
+                                argument_default=argument_default,
+                                conflict_handler=conflict_handler)
+        # FIXME: get multiple inheritance method resolution right so we can use
+        # what's below instead of the modified version above
+        # superinit = super(ArgumentParser, self).__init__
+        # superinit(description=description,
+        #           prefix_chars=prefix_chars,
+        #           argument_default=argument_default,
+        #           conflict_handler=conflict_handler)
 
         # default setting for prog
         if prog is None:
