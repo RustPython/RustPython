@@ -280,7 +280,6 @@ if "win" not in sys.platform:
     assert isinstance(a, int)
     assert isinstance(b, int)
     assert isinstance(os.ttyname(b), str)
-    assert_raises(OSError, lambda: os.ttyname(a))
-    assert_raises(OSError, lambda: os.ttyname(999))
+    assert_raises(OSError, lambda: os.ttyname(9999))
     os.close(b)
     os.close(a)
