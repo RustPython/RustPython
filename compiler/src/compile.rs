@@ -1832,10 +1832,13 @@ impl<O: OutputStream> Compiler<O> {
     fn emit(&mut self, instruction: Instruction) {
         let location = compile_location(&self.current_source_location);
         // TODO: insert source filename
+        self.current_output().emit(instruction, location);
+    }
+
+    fn current_output(&mut self) -> &mut O {
         self.output_stack
             .last_mut()
-            .unwrap()
-            .emit(instruction, location);
+            .expect("No OutputStream on stack")
     }
 
     // Generate a new label
@@ -1847,7 +1850,7 @@ impl<O: OutputStream> Compiler<O> {
 
     // Assign current position the given label
     fn set_label(&mut self, label: Label) {
-        self.output_stack.last_mut().unwrap().set_label(label)
+        self.current_output().set_label(label)
     }
 
     fn set_source_location(&mut self, location: &ast::Location) {
@@ -1867,7 +1870,7 @@ impl<O: OutputStream> Compiler<O> {
     }
 
     fn mark_generator(&mut self) {
-        self.output_stack.last_mut().unwrap().mark_generator();
+        self.current_output().mark_generator();
     }
 }
 
