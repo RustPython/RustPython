@@ -1629,8 +1629,7 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
                  conflict_handler='error',
                  add_help=True,
                  allow_abbrev=True):
-
-        ArgumentParser.__init__(self,
+        _ActionsContainer.__init__(self,
                                 description=description,
                                 prefix_chars=prefix_chars,
                                 argument_default=argument_default,
