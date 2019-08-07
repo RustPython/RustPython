@@ -279,5 +279,7 @@ if "win" not in sys.platform:
     a, b = os.openpty()
     assert isinstance(a, int)
     assert isinstance(b, int)
+    assert isinstance(os.ttyname(b), str)
+    assert_raises(OSError, lambda: os.ttyname(9999))
     os.close(b)
     os.close(a)
