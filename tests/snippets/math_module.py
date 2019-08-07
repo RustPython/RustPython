@@ -87,3 +87,13 @@ assert math.frexp(1.5) == (0.75, 1)
 assert math.frexp(float('inf')) == (float('inf'), 0)
 assert str(math.frexp(float('nan'))) == str((float('nan'), 0))
 assert_raises(TypeError, lambda: math.frexp(None))
+
+assert math.gcd(0, 0) == 0
+assert math.gcd(1, 0) == 1
+assert math.gcd(0, 1) == 1
+assert math.gcd(1, 1) == 1
+assert math.gcd(-1, 1) == 1
+assert math.gcd(1, -1) == 1
+assert math.gcd(-1, -1) == 1
+assert math.gcd(125, -255) == 5
+assert_raises(TypeError, lambda: math.gcd(1.1, 2))

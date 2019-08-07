@@ -7,6 +7,7 @@ use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
 
 use crate::function::PyFuncArgs;
+use crate::obj::objint::PyIntRef;
 use crate::obj::{objfloat, objtype};
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
@@ -225,6 +226,11 @@ fn math_frexp(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     )
 }
 
+fn math_gcd(a: PyIntRef, b: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    use num_integer::Integer;
+    Ok(vm.new_int(a.as_bigint().gcd(b.as_bigint())))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -278,6 +284,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "trunc" => ctx.new_rustfunc(math_trunc),
         "ceil" => ctx.new_rustfunc(math_ceil),
         "floor" => ctx.new_rustfunc(math_floor),
+
+        // Gcd function
+        "gcd" => ctx.new_rustfunc(math_gcd),
 
         // Constants:
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...
