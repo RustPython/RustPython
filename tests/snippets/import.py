@@ -64,3 +64,9 @@ with OverrideImportContext():
 #    pass
 #else:
 #    raise AssertionError('X should not be imported')
+
+from testutils import assertRaises
+
+with assertRaises(SyntaxError):
+	exec('import')
+

@@ -202,18 +202,19 @@ RaiseStatement: ast::Statement = {
 };
 
 ImportStatement: ast::Statement = {
-    <location:@L> "import" <names: Comma<ImportPart<<DottedName>>>> => {
+    <location:@L> "import" <names: OneOrMore<ImportAsAlias<DottedName>>> => {
         ast::Statement {
             location,
             node: ast::StatementType::Import { names },
         }
     },
-    <location:@L> "from" <n:ImportFromLocation> "import" <names: ImportAsNames> => {
+    <location:@L> "from" <source:ImportFromLocation> "import" <names: ImportAsNames> => {
+        let (level, module) = source;
         ast::Statement {
             location,
             node: ast::StatementType::ImportFrom {
-                level: n.0,
-                module: n.1,
+                level,
+                module,
                 names
             },
         }
@@ -235,8 +236,8 @@ ImportDots: usize = {
 };
 
 ImportAsNames: Vec<ast::ImportSymbol> = {
-    <i:Comma<ImportPart<Identifier>>> => i,
-    "(" <i:Comma<ImportPart<Identifier>>> ")" => i,
+    <i:OneOrMore<ImportAsAlias<Identifier>>> => i,
+    "(" <i:OneOrMore<ImportAsAlias<Identifier>>> ")" => i,
     "*" => {
         // Star import all
         vec![ast::ImportSymbol { symbol: "*".to_string(), alias: None }]
@@ -245,7 +246,7 @@ ImportAsNames: Vec<ast::ImportSymbol> = {
 
 
 #[inline]
-ImportPart<I>: ast::ImportSymbol = {
+ImportAsAlias<I>: ast::ImportSymbol = {
     <symbol:I> <a: ("as" Identifier)?> => ast::ImportSymbol { symbol, alias: a.map(|a| a.1) },
 };
 
@@ -608,7 +609,7 @@ Decorator: ast::Expression = {
 };
 
 YieldExpr: ast::Expression = {
-    <location:@L> "yield" <value:TestList?> => ast::Expression {
+    <location:@L> "yield" <value:TestList?> => ast::Expression { 
         location,
         node: ast::ExpressionType::Yield { value: value.map(Box::new) }
     },
