@@ -73,3 +73,4 @@ pwd = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gethostname = "0.2.0"
+subprocess = "0.1.18"
