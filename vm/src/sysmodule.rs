@@ -167,6 +167,12 @@ fn sys_exc_info(vm: &VirtualMachine) -> PyResult {
     }))
 }
 
+// TODO: raise a SystemExit here
+fn sys_exit(code: OptionalArg<i32>, _vm: &VirtualMachine) -> PyResult<()> {
+    let code = code.unwrap_or(0);
+    std::process::exit(code)
+}
+
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
     let ctx = &vm.ctx;
 
@@ -334,6 +340,7 @@ settrace() -- set the global debug tracing function
       "exc_info" => ctx.new_rustfunc(sys_exc_info),
       "prefix" => ctx.new_str(prefix.to_string()),
       "base_prefix" => ctx.new_str(base_prefix.to_string()),
+      "exit" => ctx.new_rustfunc(sys_exit),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();
