@@ -5,9 +5,10 @@ extern crate unic_emoji_char;
 extern crate unicode_xid;
 
 pub use super::token::Tok;
+use crate::error::{LexicalError, LexicalErrorType};
+use crate::location::Location;
 use num_bigint::BigInt;
 use num_traits::Num;
-use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -15,34 +16,45 @@ use unic_emoji_char::is_emoji_presentation;
 use unicode_xid::UnicodeXID;
 use wtf8;
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 struct IndentationLevel {
     tabs: usize,
     spaces: usize,
 }
 
 impl IndentationLevel {
-    fn new() -> IndentationLevel {
-        IndentationLevel { tabs: 0, spaces: 0 }
-    }
-    fn compare_strict(&self, other: &IndentationLevel) -> Option<Ordering> {
+    fn compare_strict(
+        &self,
+        other: &IndentationLevel,
+        location: Location,
+    ) -> Result<Ordering, LexicalError> {
         // We only know for sure that we're smaller or bigger if tabs
         // and spaces both differ in the same direction. Otherwise we're
         // dependent on the size of tabs.
         if self.tabs < other.tabs {
             if self.spaces <= other.spaces {
-                Some(Ordering::Less)
+                Ok(Ordering::Less)
             } else {
-                None
+                Err(LexicalError {
+                    location,
+                    error: LexicalErrorType::OtherError(
+                        "inconsistent use of tabs and spaces in indentation".to_string(),
+                    ),
+                })
             }
         } else if self.tabs > other.tabs {
             if self.spaces >= other.spaces {
-                Some(Ordering::Greater)
+                Ok(Ordering::Greater)
             } else {
-                None
+                Err(LexicalError {
+                    location,
+                    error: LexicalErrorType::OtherError(
+                        "inconsistent use of tabs and spaces in indentation".to_string(),
+                    ),
+                })
             }
         } else {
-            Some(self.spaces.cmp(&other.spaces))
+            Ok(self.spaces.cmp(&other.spaces))
         }
     }
 }
@@ -52,46 +64,12 @@ pub struct Lexer<T: Iterator<Item = char>> {
     at_begin_of_line: bool,
     nesting: usize, // Amount of parenthesis
     indentation_stack: Vec<IndentationLevel>,
-    pending: Vec<LexResult>,
+    pending: Vec<Spanned>,
     chr0: Option<char>,
     chr1: Option<char>,
+    chr2: Option<char>,
     location: Location,
     keywords: HashMap<String, Tok>,
-}
-
-#[derive(Debug)]
-pub struct LexicalError {
-    pub error: LexicalErrorType,
-    pub location: Location,
-}
-
-#[derive(Debug)]
-pub enum LexicalErrorType {
-    StringError,
-    UnicodeError,
-    NestingError,
-    UnrecognizedToken { tok: char },
-    OtherError(String),
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Location {
-    row: usize,
-    column: usize,
-}
-
-impl Location {
-    pub fn new(row: usize, column: usize) -> Self {
-        Location { row, column }
-    }
-
-    pub fn row(&self) -> usize {
-        self.row
-    }
-
-    pub fn column(&self) -> usize {
-        self.column
-    }
 }
 
 pub fn get_keywords() -> HashMap<String, Tok> {
@@ -268,18 +246,19 @@ where
             chars: input,
             at_begin_of_line: true,
             nesting: 0,
-            indentation_stack: vec![IndentationLevel::new()],
+            indentation_stack: vec![Default::default()],
             pending: Vec::new(),
             chr0: None,
             location: Location::new(0, 0),
             chr1: None,
+            chr2: None,
             keywords: get_keywords(),
         };
         lxr.next_char();
         lxr.next_char();
+        lxr.next_char();
         // Start at top row (=1) left column (=1)
-        lxr.location.row = 1;
-        lxr.location.column = 1;
+        lxr.location.reset();
         lxr
     }
 
@@ -332,6 +311,7 @@ where
         }
     }
 
+    /// Numeric lexing. The feast can start!
     fn lex_number(&mut self) -> LexResult {
         let start_pos = self.get_pos();
         if self.chr0 == Some('0') {
@@ -358,6 +338,7 @@ where
         }
     }
 
+    /// Lex a hex/octal/decimal/binary number without a decimal point.
     fn lex_number_radix(&mut self, start_pos: Location, radix: u32) -> LexResult {
         let mut value_text = String::new();
 
@@ -390,7 +371,7 @@ where
         }
 
         // If float:
-        if self.chr0 == Some('.') || self.chr0 == Some('e') {
+        if self.chr0 == Some('.') || self.at_exponent() {
             // Take '.':
             if self.chr0 == Some('.') {
                 value_text.push(self.next_char().unwrap());
@@ -400,8 +381,8 @@ where
             }
 
             // 1e6 for example:
-            if self.chr0 == Some('e') {
-                value_text.push(self.next_char().unwrap());
+            if self.chr0 == Some('e') || self.chr0 == Some('E') {
+                value_text.push(self.next_char().unwrap().to_ascii_lowercase());
 
                 // Optional +/-
                 if self.chr0 == Some('-') || self.chr0 == Some('+') {
@@ -445,8 +426,23 @@ where
         }
     }
 
+    /// Test if we face '[eE][-+]?[0-9]+'
+    fn at_exponent(&self) -> bool {
+        match self.chr0 {
+            Some('e') | Some('E') => match self.chr1 {
+                Some('+') | Some('-') => match self.chr2 {
+                    Some('0'..='9') => true,
+                    _ => false,
+                },
+                Some('0'..='9') => true,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Skip everything until end of line
     fn lex_comment(&mut self) {
-        // Skip everything until end of line
         self.next_char();
         loop {
             match self.chr0 {
@@ -467,15 +463,15 @@ where
         for i in 1..=literal_number {
             match self.next_char() {
                 Some(c) => match c.to_digit(16) {
-                    Some(d) => p += d << (literal_number - i) * 4,
+                    Some(d) => p += d << ((literal_number - i) * 4),
                     None => return unicode_error,
                 },
                 None => return unicode_error,
             }
         }
         match wtf8::CodePoint::from_u32(p) {
-            Some(cp) => return Ok(cp.to_char_lossy()),
-            None => return unicode_error,
+            Some(cp) => Ok(cp.to_char_lossy()),
+            None => unicode_error,
         }
     }
 
@@ -569,14 +565,11 @@ where
                             break;
                         }
                     } else {
-                        if c == '\n' {
-                            if !triple_quoted {
-                                return Err(LexicalError {
-                                    error: LexicalErrorType::StringError,
-                                    location: self.get_pos(),
-                                });
-                            }
-                            self.new_line();
+                        if c == '\n' && !triple_quoted {
+                            return Err(LexicalError {
+                                error: LexicalErrorType::StringError,
+                                location: self.get_pos(),
+                            });
                         }
                         string_content.push(c);
                     }
@@ -594,7 +587,10 @@ where
         let tok = if is_bytes {
             if string_content.is_ascii() {
                 Tok::Bytes {
-                    value: lex_byte(string_content)?,
+                    value: lex_byte(string_content).map_err(|error| LexicalError {
+                        error,
+                        location: self.get_pos(),
+                    })?,
                 }
             } else {
                 return Err(LexicalError {
@@ -658,26 +654,24 @@ where
         }
     }
 
-    fn next_char(&mut self) -> Option<char> {
-        let c = self.chr0;
-        let nxt = self.chars.next();
-        self.chr0 = self.chr1;
-        self.chr1 = nxt;
-        self.location.column += 1;
-        c
-    }
+    /// This is the main entry point. Call this function to retrieve the next token.
+    /// This function is used by the iterator implementation.
+    fn inner_next(&mut self) -> LexResult {
+        // top loop, keep on processing, until we have something pending.
+        while self.pending.is_empty() {
+            // Detect indentation levels
+            if self.at_begin_of_line {
+                self.handle_indentations()?;
+            }
 
-    fn get_pos(&self) -> Location {
-        self.location.clone()
-    }
+            self.consume_normal()?;
+        }
 
-    fn new_line(&mut self) {
-        self.location.row += 1;
-        self.location.column = 1;
+        Ok(self.pending.remove(0))
     }
 
     /// Given we are at the start of a line, count the number of spaces and/or tabs until the first character.
-    fn determine_indentation(&mut self) -> Result<IndentationLevel, LexicalError> {
+    fn eat_indentation(&mut self) -> Result<IndentationLevel, LexicalError> {
         // Determine indentation:
         let mut spaces: usize = 0;
         let mut tabs: usize = 0;
@@ -718,14 +712,24 @@ where
                     spaces = 0;
                     tabs = 0;
                 }
-                Some('\n') => {
-                    // Empty line!
+                Some('\x0C') => {
+                    // Form feed character!
+                    // Reset indentation for the Emacs user.
                     self.next_char();
-                    self.new_line();
                     spaces = 0;
                     tabs = 0;
                 }
+                Some('\n') => {
+                    // Empty line!
+                    self.next_char();
+                    spaces = 0;
+                    tabs = 0;
+                }
+                None => {
+                    break;
+                }
                 _ => {
+                    self.at_begin_of_line = false;
                     break;
                 }
             }
@@ -734,60 +738,44 @@ where
         Ok(IndentationLevel { spaces, tabs })
     }
 
-    fn inner_next(&mut self) -> LexResult {
-        if !self.pending.is_empty() {
-            return self.pending.remove(0);
-        }
+    fn handle_indentations(&mut self) -> Result<(), LexicalError> {
+        let indentation_level = self.eat_indentation()?;
 
-        'top_loop: loop {
-            // Detect indentation levels
-            if self.at_begin_of_line {
-                self.at_begin_of_line = false;
+        if self.nesting == 0 {
+            // Determine indent or dedent:
+            let current_indentation = self.indentation_stack.last().unwrap();
+            let ordering = indentation_level.compare_strict(current_indentation, self.get_pos())?;
+            match ordering {
+                Ordering::Equal => {
+                    // Same same
+                }
+                Ordering::Greater => {
+                    // New indentation level:
+                    self.indentation_stack.push(indentation_level);
+                    let tok_start = self.get_pos();
+                    let tok_end = tok_start.clone();
+                    self.emit((tok_start, Tok::Indent, tok_end));
+                }
+                Ordering::Less => {
+                    // One or more dedentations
+                    // Pop off other levels until col is found:
 
-                let indentation_level = self.determine_indentation()?;
-
-                if self.nesting == 0 {
-                    // Determine indent or dedent:
-                    let current_indentation = *self.indentation_stack.last().unwrap();
-                    let ordering = indentation_level.compare_strict(&current_indentation);
-                    match ordering {
-                        Some(Ordering::Equal) => {
-                            // Same same
-                        }
-                        Some(Ordering::Greater) => {
-                            // New indentation level:
-                            self.indentation_stack.push(indentation_level);
-                            let tok_start = self.get_pos();
-                            let tok_end = tok_start.clone();
-                            return Ok((tok_start, Tok::Indent, tok_end));
-                        }
-                        Some(Ordering::Less) => {
-                            // One or more dedentations
-                            // Pop off other levels until col is found:
-
-                            loop {
-                                let ordering = indentation_level
-                                    .compare_strict(self.indentation_stack.last().unwrap());
-                                match ordering {
-                                    Some(Ordering::Less) => {
-                                        self.indentation_stack.pop();
-                                        let tok_start = self.get_pos();
-                                        let tok_end = tok_start.clone();
-                                        self.pending.push(Ok((tok_start, Tok::Dedent, tok_end)));
-                                    }
-                                    None => {
-                                        return Err(LexicalError {
-                                            error: LexicalErrorType::OtherError("inconsistent use of tabs and spaces in indentation".to_string()),
-                                            location: self.get_pos(),
-                                        });
-                                    }
-                                    _ => {
-                                        break;
-                                    }
-                                };
+                    loop {
+                        let current_indentation = self.indentation_stack.last().unwrap();
+                        let ordering = indentation_level
+                            .compare_strict(current_indentation, self.get_pos())?;
+                        match ordering {
+                            Ordering::Less => {
+                                self.indentation_stack.pop();
+                                let tok_start = self.get_pos();
+                                let tok_end = tok_start.clone();
+                                self.emit((tok_start, Tok::Dedent, tok_end));
                             }
-
-                            if indentation_level != *self.indentation_stack.last().unwrap() {
+                            Ordering::Equal => {
+                                // We arrived at proper level of indentation.
+                                break;
+                            }
+                            Ordering::Greater => {
                                 // TODO: handle wrong indentations
                                 return Err(LexicalError {
                                     error: LexicalErrorType::OtherError(
@@ -796,408 +784,454 @@ where
                                     location: self.get_pos(),
                                 });
                             }
-
-                            return self.pending.remove(0);
-                        }
-                        None => {
-                            return Err(LexicalError {
-                                error: LexicalErrorType::OtherError(
-                                    "inconsistent use of tabs and spaces in indentation"
-                                        .to_string(),
-                                ),
-                                location: self.get_pos(),
-                            });
                         }
                     }
                 }
-            }
-
-            // Check if we have some character:
-            if let Some(c) = self.chr0 {
-                // First check identifier:
-                if self.is_identifier_start(c) {
-                    return self.lex_identifier();
-                } else if is_emoji_presentation(c) {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    let tok_end = self.get_pos();
-                    return Ok((
-                        tok_start,
-                        Tok::Name {
-                            name: c.to_string(),
-                        },
-                        tok_end,
-                    ));
-                } else {
-                    match c {
-                        '0'..='9' => return self.lex_number(),
-                        '#' => {
-                            self.lex_comment();
-                            continue;
-                        }
-                        '"' => {
-                            return self.lex_string(false, false, false, false);
-                        }
-                        '\'' => {
-                            return self.lex_string(false, false, false, false);
-                        }
-                        '=' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            match self.chr0 {
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::EqEqual, tok_end));
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::Equal, tok_end));
-                                }
-                            }
-                        }
-                        '+' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            if let Some('=') = self.chr0 {
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::PlusEqual, tok_end));
-                            } else {
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::Plus, tok_end));
-                            }
-                        }
-                        '*' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            match self.chr0 {
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::StarEqual, tok_end));
-                                }
-                                Some('*') => {
-                                    self.next_char();
-                                    match self.chr0 {
-                                        Some('=') => {
-                                            self.next_char();
-                                            let tok_end = self.get_pos();
-                                            return Ok((tok_start, Tok::DoubleStarEqual, tok_end));
-                                        }
-                                        _ => {
-                                            let tok_end = self.get_pos();
-                                            return Ok((tok_start, Tok::DoubleStar, tok_end));
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::Star, tok_end));
-                                }
-                            }
-                        }
-                        '/' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            match self.chr0 {
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::SlashEqual, tok_end));
-                                }
-                                Some('/') => {
-                                    self.next_char();
-                                    match self.chr0 {
-                                        Some('=') => {
-                                            self.next_char();
-                                            let tok_end = self.get_pos();
-                                            return Ok((tok_start, Tok::DoubleSlashEqual, tok_end));
-                                        }
-                                        _ => {
-                                            let tok_end = self.get_pos();
-                                            return Ok((tok_start, Tok::DoubleSlash, tok_end));
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::Slash, tok_end));
-                                }
-                            }
-                        }
-                        '%' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            if let Some('=') = self.chr0 {
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::PercentEqual, tok_end));
-                            } else {
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::Percent, tok_end));
-                            }
-                        }
-                        '|' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            if let Some('=') = self.chr0 {
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::VbarEqual, tok_end));
-                            } else {
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::Vbar, tok_end));
-                            }
-                        }
-                        '^' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            if let Some('=') = self.chr0 {
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::CircumflexEqual, tok_end));
-                            } else {
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::CircumFlex, tok_end));
-                            }
-                        }
-                        '&' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            if let Some('=') = self.chr0 {
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::AmperEqual, tok_end));
-                            } else {
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::Amper, tok_end));
-                            }
-                        }
-                        '-' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            match self.chr0 {
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::MinusEqual, tok_end));
-                                }
-                                Some('>') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::Rarrow, tok_end));
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::Minus, tok_end));
-                                }
-                            }
-                        }
-                        '@' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            if let Some('=') = self.chr0 {
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::AtEqual, tok_end));
-                            } else {
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::At, tok_end));
-                            }
-                        }
-                        '!' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            if let Some('=') = self.chr0 {
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::NotEqual, tok_end));
-                            } else {
-                                return Err(LexicalError {
-                                    error: LexicalErrorType::UnrecognizedToken { tok: '!' },
-                                    location: tok_start,
-                                });
-                            }
-                        }
-                        '~' => {
-                            return self.eat_single_char(Tok::Tilde);
-                        }
-                        '(' => {
-                            let result = self.eat_single_char(Tok::Lpar);
-                            self.nesting += 1;
-                            return result;
-                        }
-                        ')' => {
-                            let result = self.eat_single_char(Tok::Rpar);
-                            if self.nesting == 0 {
-                                return Err(LexicalError {
-                                    error: LexicalErrorType::NestingError,
-                                    location: self.get_pos(),
-                                });
-                            }
-                            self.nesting -= 1;
-                            return result;
-                        }
-                        '[' => {
-                            let result = self.eat_single_char(Tok::Lsqb);
-                            self.nesting += 1;
-                            return result;
-                        }
-                        ']' => {
-                            let result = self.eat_single_char(Tok::Rsqb);
-                            if self.nesting == 0 {
-                                return Err(LexicalError {
-                                    error: LexicalErrorType::NestingError,
-                                    location: self.get_pos(),
-                                });
-                            }
-                            self.nesting -= 1;
-                            return result;
-                        }
-                        '{' => {
-                            let result = self.eat_single_char(Tok::Lbrace);
-                            self.nesting += 1;
-                            return result;
-                        }
-                        '}' => {
-                            let result = self.eat_single_char(Tok::Rbrace);
-                            if self.nesting == 0 {
-                                return Err(LexicalError {
-                                    error: LexicalErrorType::NestingError,
-                                    location: self.get_pos(),
-                                });
-                            }
-                            self.nesting -= 1;
-                            return result;
-                        }
-                        ':' => {
-                            return self.eat_single_char(Tok::Colon);
-                        }
-                        ';' => {
-                            return self.eat_single_char(Tok::Semi);
-                        }
-                        '<' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            match self.chr0 {
-                                Some('<') => {
-                                    self.next_char();
-                                    match self.chr0 {
-                                        Some('=') => {
-                                            self.next_char();
-                                            let tok_end = self.get_pos();
-                                            return Ok((tok_start, Tok::LeftShiftEqual, tok_end));
-                                        }
-                                        _ => {
-                                            let tok_end = self.get_pos();
-                                            return Ok((tok_start, Tok::LeftShift, tok_end));
-                                        }
-                                    }
-                                }
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::LessEqual, tok_end));
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::Less, tok_end));
-                                }
-                            }
-                        }
-                        '>' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            match self.chr0 {
-                                Some('>') => {
-                                    self.next_char();
-                                    match self.chr0 {
-                                        Some('=') => {
-                                            self.next_char();
-                                            let tok_end = self.get_pos();
-                                            return Ok((tok_start, Tok::RightShiftEqual, tok_end));
-                                        }
-                                        _ => {
-                                            let tok_end = self.get_pos();
-                                            return Ok((tok_start, Tok::RightShift, tok_end));
-                                        }
-                                    }
-                                }
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::GreaterEqual, tok_end));
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::Greater, tok_end));
-                                }
-                            }
-                        }
-                        ',' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Ok((tok_start, Tok::Comma, tok_end));
-                        }
-                        '.' => {
-                            if let Some('0'..='9') = self.chr1 {
-                                return self.lex_number();
-                            } else {
-                                let tok_start = self.get_pos();
-                                self.next_char();
-                                if let (Some('.'), Some('.')) = (&self.chr0, &self.chr1) {
-                                    self.next_char();
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::Ellipsis, tok_end));
-                                } else {
-                                    let tok_end = self.get_pos();
-                                    return Ok((tok_start, Tok::Dot, tok_end));
-                                }
-                            }
-                        }
-                        '\n' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            self.new_line();
-
-                            // Depending on the nesting level, we emit newline or not:
-                            if self.nesting == 0 {
-                                self.at_begin_of_line = true;
-                                return Ok((tok_start, Tok::Newline, tok_end));
-                            } else {
-                                continue;
-                            }
-                        }
-                        ' ' => {
-                            // Skip whitespaces
-                            self.next_char();
-                            continue;
-                        }
-                        _ => {
-                            let c = self.next_char();
-                            return Err(LexicalError {
-                                error: LexicalErrorType::UnrecognizedToken { tok: c.unwrap() },
-                                location: self.get_pos(),
-                            });
-                        } // Ignore all the rest..
-                    }
-                }
-            } else {
-                let tok_pos = self.get_pos();
-                return Ok((tok_pos.clone(), Tok::EndOfFile, tok_pos));
             }
         }
+
+        Ok(())
     }
 
-    fn eat_single_char(&mut self, ty: Tok) -> LexResult {
+    /// Take a look at the next character, if any, and decide upon the next steps.
+    fn consume_normal(&mut self) -> Result<(), LexicalError> {
+        // Check if we have some character:
+        if let Some(c) = self.chr0 {
+            // First check identifier:
+            if self.is_identifier_start(c) {
+                let identifier = self.lex_identifier()?;
+                self.emit(identifier);
+            } else if is_emoji_presentation(c) {
+                let tok_start = self.get_pos();
+                self.next_char();
+                let tok_end = self.get_pos();
+                self.emit((
+                    tok_start,
+                    Tok::Name {
+                        name: c.to_string(),
+                    },
+                    tok_end,
+                ));
+            } else {
+                self.consume_character(c)?;
+            }
+        } else {
+            // We reached end of file.
+            let tok_pos = self.get_pos();
+
+            // First of all, we need all nestings to be finished.
+            if self.nesting > 0 {
+                return Err(LexicalError {
+                    error: LexicalErrorType::NestingError,
+                    location: tok_pos,
+                });
+            }
+
+            // Next, insert a trailing newline, if required.
+            if !self.at_begin_of_line {
+                self.at_begin_of_line = true;
+                self.emit((tok_pos.clone(), Tok::Newline, tok_pos.clone()));
+            }
+
+            // Next, flush the indentation stack to zero.
+            while self.indentation_stack.len() > 1 {
+                self.indentation_stack.pop();
+                self.emit((tok_pos.clone(), Tok::Dedent, tok_pos.clone()));
+            }
+
+            self.emit((tok_pos.clone(), Tok::EndOfFile, tok_pos));
+        }
+
+        Ok(())
+    }
+
+    /// Okay, we are facing a weird character, what is it? Determine that.
+    fn consume_character(&mut self, c: char) -> Result<(), LexicalError> {
+        match c {
+            '0'..='9' => {
+                let number = self.lex_number()?;
+                self.emit(number);
+            }
+            '#' => {
+                self.lex_comment();
+            }
+            '"' | '\'' => {
+                let string = self.lex_string(false, false, false, false)?;
+                self.emit(string);
+            }
+            '=' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                match self.chr0 {
+                    Some('=') => {
+                        self.next_char();
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::EqEqual, tok_end));
+                    }
+                    _ => {
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::Equal, tok_end));
+                    }
+                }
+            }
+            '+' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                if let Some('=') = self.chr0 {
+                    self.next_char();
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::PlusEqual, tok_end));
+                } else {
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::Plus, tok_end));
+                }
+            }
+            '*' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                match self.chr0 {
+                    Some('=') => {
+                        self.next_char();
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::StarEqual, tok_end));
+                    }
+                    Some('*') => {
+                        self.next_char();
+                        match self.chr0 {
+                            Some('=') => {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                self.emit((tok_start, Tok::DoubleStarEqual, tok_end));
+                            }
+                            _ => {
+                                let tok_end = self.get_pos();
+                                self.emit((tok_start, Tok::DoubleStar, tok_end));
+                            }
+                        }
+                    }
+                    _ => {
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::Star, tok_end));
+                    }
+                }
+            }
+            '/' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                match self.chr0 {
+                    Some('=') => {
+                        self.next_char();
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::SlashEqual, tok_end));
+                    }
+                    Some('/') => {
+                        self.next_char();
+                        match self.chr0 {
+                            Some('=') => {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                self.emit((tok_start, Tok::DoubleSlashEqual, tok_end));
+                            }
+                            _ => {
+                                let tok_end = self.get_pos();
+                                self.emit((tok_start, Tok::DoubleSlash, tok_end));
+                            }
+                        }
+                    }
+                    _ => {
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::Slash, tok_end));
+                    }
+                }
+            }
+            '%' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                if let Some('=') = self.chr0 {
+                    self.next_char();
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::PercentEqual, tok_end));
+                } else {
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::Percent, tok_end));
+                }
+            }
+            '|' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                if let Some('=') = self.chr0 {
+                    self.next_char();
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::VbarEqual, tok_end));
+                } else {
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::Vbar, tok_end));
+                }
+            }
+            '^' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                if let Some('=') = self.chr0 {
+                    self.next_char();
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::CircumflexEqual, tok_end));
+                } else {
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::CircumFlex, tok_end));
+                }
+            }
+            '&' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                if let Some('=') = self.chr0 {
+                    self.next_char();
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::AmperEqual, tok_end));
+                } else {
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::Amper, tok_end));
+                }
+            }
+            '-' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                match self.chr0 {
+                    Some('=') => {
+                        self.next_char();
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::MinusEqual, tok_end));
+                    }
+                    Some('>') => {
+                        self.next_char();
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::Rarrow, tok_end));
+                    }
+                    _ => {
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::Minus, tok_end));
+                    }
+                }
+            }
+            '@' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                if let Some('=') = self.chr0 {
+                    self.next_char();
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::AtEqual, tok_end));
+                } else {
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::At, tok_end));
+                }
+            }
+            '!' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                if let Some('=') = self.chr0 {
+                    self.next_char();
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::NotEqual, tok_end));
+                } else {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::UnrecognizedToken { tok: '!' },
+                        location: tok_start,
+                    });
+                }
+            }
+            '~' => {
+                self.eat_single_char(Tok::Tilde);
+            }
+            '(' => {
+                self.eat_single_char(Tok::Lpar);
+                self.nesting += 1;
+            }
+            ')' => {
+                self.eat_single_char(Tok::Rpar);
+                if self.nesting == 0 {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::NestingError,
+                        location: self.get_pos(),
+                    });
+                }
+                self.nesting -= 1;
+            }
+            '[' => {
+                self.eat_single_char(Tok::Lsqb);
+                self.nesting += 1;
+            }
+            ']' => {
+                self.eat_single_char(Tok::Rsqb);
+                if self.nesting == 0 {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::NestingError,
+                        location: self.get_pos(),
+                    });
+                }
+                self.nesting -= 1;
+            }
+            '{' => {
+                self.eat_single_char(Tok::Lbrace);
+                self.nesting += 1;
+            }
+            '}' => {
+                self.eat_single_char(Tok::Rbrace);
+                if self.nesting == 0 {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::NestingError,
+                        location: self.get_pos(),
+                    });
+                }
+                self.nesting -= 1;
+            }
+            ':' => {
+                self.eat_single_char(Tok::Colon);
+            }
+            ';' => {
+                self.eat_single_char(Tok::Semi);
+            }
+            '<' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                match self.chr0 {
+                    Some('<') => {
+                        self.next_char();
+                        match self.chr0 {
+                            Some('=') => {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                self.emit((tok_start, Tok::LeftShiftEqual, tok_end));
+                            }
+                            _ => {
+                                let tok_end = self.get_pos();
+                                self.emit((tok_start, Tok::LeftShift, tok_end));
+                            }
+                        }
+                    }
+                    Some('=') => {
+                        self.next_char();
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::LessEqual, tok_end));
+                    }
+                    _ => {
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::Less, tok_end));
+                    }
+                }
+            }
+            '>' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                match self.chr0 {
+                    Some('>') => {
+                        self.next_char();
+                        match self.chr0 {
+                            Some('=') => {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                self.emit((tok_start, Tok::RightShiftEqual, tok_end));
+                            }
+                            _ => {
+                                let tok_end = self.get_pos();
+                                self.emit((tok_start, Tok::RightShift, tok_end));
+                            }
+                        }
+                    }
+                    Some('=') => {
+                        self.next_char();
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::GreaterEqual, tok_end));
+                    }
+                    _ => {
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::Greater, tok_end));
+                    }
+                }
+            }
+            ',' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                let tok_end = self.get_pos();
+                self.emit((tok_start, Tok::Comma, tok_end));
+            }
+            '.' => {
+                if let Some('0'..='9') = self.chr1 {
+                    let number = self.lex_number()?;
+                    self.emit(number);
+                } else {
+                    let tok_start = self.get_pos();
+                    self.next_char();
+                    if let (Some('.'), Some('.')) = (&self.chr0, &self.chr1) {
+                        self.next_char();
+                        self.next_char();
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::Ellipsis, tok_end));
+                    } else {
+                        let tok_end = self.get_pos();
+                        self.emit((tok_start, Tok::Dot, tok_end));
+                    }
+                }
+            }
+            '\n' => {
+                let tok_start = self.get_pos();
+                self.next_char();
+                let tok_end = self.get_pos();
+
+                // Depending on the nesting level, we emit newline or not:
+                if self.nesting == 0 {
+                    self.at_begin_of_line = true;
+                    self.emit((tok_start, Tok::Newline, tok_end));
+                }
+            }
+            ' ' | '\t' | '\x0C' => {
+                // Skip whitespaces
+                self.next_char();
+                while self.chr0 == Some(' ') || self.chr0 == Some('\t') || self.chr0 == Some('\x0C')
+                {
+                    self.next_char();
+                }
+            }
+            _ => {
+                let c = self.next_char();
+                return Err(LexicalError {
+                    error: LexicalErrorType::UnrecognizedToken { tok: c.unwrap() },
+                    location: self.get_pos(),
+                });
+            } // Ignore all the rest..
+        }
+
+        Ok(())
+    }
+
+    fn eat_single_char(&mut self, ty: Tok) {
         let tok_start = self.get_pos();
-        self.next_char();
+        self.next_char().unwrap();
         let tok_end = self.get_pos();
-        Ok((tok_start, ty, tok_end))
+        self.emit((tok_start, ty, tok_end));
+    }
+
+    /// Helper function to go to the next character coming up.
+    fn next_char(&mut self) -> Option<char> {
+        let c = self.chr0;
+        let nxt = self.chars.next();
+        self.chr0 = self.chr1;
+        self.chr1 = self.chr2;
+        self.chr2 = nxt;
+        if c == Some('\n') {
+            self.location.newline();
+        } else {
+            self.location.go_right();
+        }
+        c
+    }
+
+    /// Helper function to retrieve the current position.
+    fn get_pos(&self) -> Location {
+        self.location.clone()
+    }
+
+    /// Helper function to emit a lexed token to the queue of tokens.
+    fn emit(&mut self, spanned: Spanned) {
+        self.pending.push(spanned);
     }
 }
 
@@ -1231,7 +1265,7 @@ where
     }
 }
 
-fn lex_byte(s: String) -> Result<Vec<u8>, LexicalError> {
+fn lex_byte(s: String) -> Result<Vec<u8>, LexicalErrorType> {
     let mut res = vec![];
     let mut escape = false; //flag if previous was \
     let mut hex_on = false; // hex mode on or off
@@ -1250,10 +1284,7 @@ fn lex_byte(s: String) -> Result<Vec<u8>, LexicalError> {
                     hex_value.clear();
                 }
             } else {
-                return Err(LexicalError {
-                    error: LexicalErrorType::StringError,
-                    location: Default::default(),
-                });
+                return Err(LexicalErrorType::StringError);
             }
         } else {
             match (c, escape) {
@@ -1322,7 +1353,8 @@ mod tests {
                 Tok::String {
                     value: "\\".to_string(),
                     is_fstring: false,
-                }
+                },
+                Tok::Newline,
             ]
         );
     }
@@ -1355,6 +1387,7 @@ mod tests {
                     real: 0.0,
                     imag: 2.2,
                 },
+                Tok::Newline,
             ]
         );
     }
@@ -1366,7 +1399,7 @@ mod tests {
             fn $name() {
                 let source = String::from(format!(r"99232  # {}", $eol));
                 let tokens = lex_source(&source);
-                assert_eq!(tokens, vec![Tok::Int { value: BigInt::from(99232) }]);
+                assert_eq!(tokens, vec![Tok::Int { value: BigInt::from(99232) }, Tok::Newline]);
             }
             )*
         }
@@ -1392,6 +1425,7 @@ mod tests {
                         Tok::Int { value: BigInt::from(123) },
                         Tok::Newline,
                         Tok::Int { value: BigInt::from(456) },
+                        Tok::Newline,
                     ]
                 )
             }
@@ -1427,6 +1461,7 @@ mod tests {
                 Tok::Int {
                     value: BigInt::from(0)
                 },
+                Tok::Newline,
             ]
         );
     }
@@ -1600,6 +1635,7 @@ mod tests {
                 Tok::DoubleSlashEqual,
                 Tok::Slash,
                 Tok::Slash,
+                Tok::Newline,
             ]
         );
     }
@@ -1639,6 +1675,7 @@ mod tests {
                     value: String::from("raw\'"),
                     is_fstring: false,
                 },
+                Tok::Newline,
             ]
         );
     }
@@ -1657,6 +1694,7 @@ mod tests {
                             value: String::from("abcdef"),
                             is_fstring: false,
                         },
+                        Tok::Newline,
                     ]
                 )
             }
@@ -1671,26 +1709,32 @@ mod tests {
     }
 
     #[test]
-    fn test_byte() {
+    fn test_single_quoted_byte() {
         // single quote
         let all = r##"b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff'"##;
         let source = String::from(all);
         let tokens = lex_source(&source);
         let res = (0..=255).collect::<Vec<u8>>();
-        assert_eq!(tokens, vec![Tok::Bytes { value: res }]);
+        assert_eq!(tokens, vec![Tok::Bytes { value: res }, Tok::Newline]);
+    }
 
+    #[test]
+    fn test_double_quoted_byte() {
         // double quote
         let all = r##"b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff""##;
         let source = String::from(all);
         let tokens = lex_source(&source);
         let res = (0..=255).collect::<Vec<u8>>();
-        assert_eq!(tokens, vec![Tok::Bytes { value: res }]);
+        assert_eq!(tokens, vec![Tok::Bytes { value: res }, Tok::Newline]);
+    }
 
+    #[test]
+    fn test_escape_char_in_byte_literal() {
         // backslash doesnt escape
         let all = r##"b"omkmok\Xaa""##;
         let source = String::from(all);
         let tokens = lex_source(&source);
         let res = vec![111, 109, 107, 109, 111, 107, 92, 88, 97, 97];
-        assert_eq!(tokens, vec![Tok::Bytes { value: res }]);
+        assert_eq!(tokens, vec![Tok::Bytes { value: res }, Tok::Newline]);
     }
 }

@@ -1,12 +1,20 @@
 use std::cell::RefCell;
+use std::ffi::CStr;
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::{self, ErrorKind, Read, Write};
+use std::io::{self, Error, ErrorKind, Read, Write};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
-use bitflags::bitflags;
+#[cfg(unix)]
+use nix::errno::Errno;
+#[cfg(unix)]
+use nix::pty::openpty;
+#[cfg(unix)]
+use nix::unistd::{self, Gid, Pid, Uid};
 use num_traits::cast::ToPrimitive;
+
+use bitflags::bitflags;
 
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
@@ -120,7 +128,7 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let fname = &make_path(vm, name, &dir_fd).value;
 
     let flags = FileCreationFlags::from_bits(objint::get_value(flags).to_u32().unwrap())
-        .ok_or(vm.new_value_error("Unsupported flag".to_string()))?;
+        .ok_or_else(|| vm.new_value_error("Unsupported flag".to_string()))?;
 
     let mut options = &mut OpenOptions::new();
 
@@ -172,6 +180,43 @@ fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
             .unwrap();
     }
     os_error
+}
+
+#[cfg(unix)]
+fn convert_nix_error(vm: &VirtualMachine, err: nix::Error) -> PyObjectRef {
+    let nix_error = match err {
+        nix::Error::InvalidPath => {
+            let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
+            vm.new_exception(exc_type, err.to_string())
+        }
+        nix::Error::InvalidUtf8 => {
+            let exc_type = vm.ctx.exceptions.unicode_error.clone();
+            vm.new_exception(exc_type, err.to_string())
+        }
+        nix::Error::UnsupportedOperation => {
+            let exc_type = vm.ctx.exceptions.runtime_error.clone();
+            vm.new_exception(exc_type, err.to_string())
+        }
+        nix::Error::Sys(errno) => {
+            let exc_type = convert_nix_errno(vm, errno);
+            vm.new_exception(exc_type, err.to_string())
+        }
+    };
+
+    if let nix::Error::Sys(errno) = err {
+        vm.set_attr(&nix_error, "errno", vm.ctx.new_int(errno as i32))
+            .unwrap();
+    }
+
+    nix_error
+}
+
+#[cfg(unix)]
+fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
+    match errno {
+        Errno::EPERM => vm.ctx.exceptions.permission_error.clone(),
+        _ => vm.ctx.exceptions.os_error.clone(),
+    }
 }
 
 fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -307,7 +352,7 @@ impl DirEntryRef {
     fn perform_on_metadata(
         self,
         follow_symlinks: FollowSymlinks,
-        action: &Fn(fs::Metadata) -> bool,
+        action: fn(fs::Metadata) -> bool,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         let metadata = match follow_symlinks.follow_symlinks {
@@ -321,7 +366,7 @@ impl DirEntryRef {
     fn is_dir(self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
         self.perform_on_metadata(
             follow_symlinks,
-            &|meta: fs::Metadata| -> bool { meta.is_dir() },
+            |meta: fs::Metadata| -> bool { meta.is_dir() },
             vm,
         )
     }
@@ -329,7 +374,7 @@ impl DirEntryRef {
     fn is_file(self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
         self.perform_on_metadata(
             follow_symlinks,
-            &|meta: fs::Metadata| -> bool { meta.is_file() },
+            |meta: fs::Metadata| -> bool { meta.is_file() },
             vm,
         )
     }
@@ -460,7 +505,7 @@ impl StatResultRef {
 
 // Copied code from Duration::as_secs_f64 as it's still unstable
 fn duration_as_secs_f64(duration: Duration) -> f64 {
-    (duration.as_secs() as f64) + (duration.subsec_nanos() as f64) / (1_000_000_000 as f64)
+    (duration.as_secs() as f64) + f64::from(duration.subsec_nanos()) / 1_000_000_000_f64
 }
 
 fn to_seconds_from_unix_epoch(sys_time: SystemTime) -> f64 {
@@ -541,6 +586,18 @@ fn os_stat(
     os_unix_stat_inner!(path, follow_symlinks, vm)
 }
 
+#[cfg(target_os = "redox")]
+fn os_stat(
+    path: PyStringRef,
+    dir_fd: DirFd,
+    follow_symlinks: FollowSymlinks,
+    vm: &VirtualMachine,
+) -> PyResult<StatResult> {
+    use std::os::redox::fs::MetadataExt;
+    let path = make_path(vm, path, &dir_fd);
+    os_unix_stat_inner!(path, follow_symlinks, vm)
+}
+
 // Copied from CPython fileutils.c
 #[cfg(windows)]
 fn attributes_to_mode(attr: u32) -> u32 {
@@ -599,9 +656,15 @@ fn os_stat(
     target_os = "linux",
     target_os = "macos",
     target_os = "android",
+    target_os = "redox",
     windows
 )))]
-fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn os_stat(
+    _path: PyStringRef,
+    _dir_fd: DirFd,
+    _follow_symlinks: FollowSymlinks,
+    _vm: &VirtualMachine,
+) -> PyResult<StatResult> {
     unimplemented!();
 }
 
@@ -689,6 +752,131 @@ fn os_fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 
 fn os_rename(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     fs::rename(&src.value, &dst.value).map_err(|err| convert_io_error(vm, err))
+}
+
+fn os_getpid(vm: &VirtualMachine) -> PyObjectRef {
+    let pid = std::process::id();
+    vm.new_int(pid)
+}
+
+#[cfg(unix)]
+fn os_getppid(vm: &VirtualMachine) -> PyObjectRef {
+    let ppid = unistd::getppid().as_raw();
+    vm.new_int(ppid)
+}
+
+#[cfg(unix)]
+fn os_getgid(vm: &VirtualMachine) -> PyObjectRef {
+    let gid = unistd::getgid().as_raw();
+    vm.new_int(gid)
+}
+
+#[cfg(unix)]
+fn os_getegid(vm: &VirtualMachine) -> PyObjectRef {
+    let egid = unistd::getegid().as_raw();
+    vm.new_int(egid)
+}
+
+#[cfg(unix)]
+fn os_getpgid(pid: PyIntRef, vm: &VirtualMachine) -> PyObjectRef {
+    let pid = pid.as_bigint().to_u32().unwrap();
+
+    match unistd::getpgid(Some(Pid::from_raw(pid as i32))) {
+        Ok(pgid) => vm.new_int(pgid.as_raw()),
+        Err(err) => convert_nix_error(vm, err),
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+fn os_getsid(pid: PyIntRef, vm: &VirtualMachine) -> PyObjectRef {
+    let pid = pid.as_bigint().to_u32().unwrap();
+
+    match unistd::getsid(Some(Pid::from_raw(pid as i32))) {
+        Ok(sid) => vm.new_int(sid.as_raw()),
+        Err(err) => convert_nix_error(vm, err),
+    }
+}
+
+#[cfg(unix)]
+fn os_getuid(vm: &VirtualMachine) -> PyObjectRef {
+    let uid = unistd::getuid().as_raw();
+    vm.new_int(uid)
+}
+
+#[cfg(unix)]
+fn os_geteuid(vm: &VirtualMachine) -> PyObjectRef {
+    let euid = unistd::geteuid().as_raw();
+    vm.new_int(euid)
+}
+
+#[cfg(unix)]
+fn os_setgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    let gid = gid.as_bigint().to_u32().unwrap();
+
+    unistd::setgid(Gid::from_raw(gid)).map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+fn os_setegid(egid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    let egid = egid.as_bigint().to_u32().unwrap();
+
+    unistd::setegid(Gid::from_raw(egid)).map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(unix)]
+fn os_setpgid(pid: PyIntRef, pgid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    let pid = pid.as_bigint().to_u32().unwrap();
+    let pgid = pgid.as_bigint().to_u32().unwrap();
+
+    unistd::setpgid(Pid::from_raw(pid as i32), Pid::from_raw(pgid as i32))
+        .map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+fn os_setsid(vm: &VirtualMachine) -> PyResult<()> {
+    unistd::setsid()
+        .map(|_ok| ())
+        .map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(unix)]
+fn os_setuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    let uid = uid.as_bigint().to_u32().unwrap();
+
+    unistd::setuid(Uid::from_raw(uid)).map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+fn os_seteuid(euid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    let euid = euid.as_bigint().to_u32().unwrap();
+
+    unistd::seteuid(Uid::from_raw(euid)).map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(unix)]
+pub fn os_openpty(vm: &VirtualMachine) -> PyResult {
+    match openpty(None, None) {
+        Ok(r) => Ok(vm
+            .ctx
+            .new_tuple(vec![vm.new_int(r.master), vm.new_int(r.slave)])),
+        Err(err) => Err(convert_nix_error(vm, err)),
+    }
+}
+
+#[cfg(unix)]
+pub fn os_ttyname(fd: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    use libc::ttyname;
+    if let Some(fd) = fd.as_bigint().to_i32() {
+        let name = unsafe { ttyname(fd) };
+        if name.is_null() {
+            Err(vm.new_os_error(Error::last_os_error().to_string()))
+        } else {
+            let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
+            Ok(vm.ctx.new_str(name.to_owned()))
+        }
+    } else {
+        Err(vm.new_overflow_error("signed integer is greater than maximum".to_owned()))
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -809,7 +997,12 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "O_NONBLOCK" => ctx.new_int(FileCreationFlags::O_NONBLOCK.bits()),
         "O_APPEND" => ctx.new_int(FileCreationFlags::O_APPEND.bits()),
         "O_EXCL" => ctx.new_int(FileCreationFlags::O_EXCL.bits()),
-        "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits())
+        "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits()),
+        "F_OK" => ctx.new_int(0),
+        "R_OK" => ctx.new_int(4),
+        "W_OK" => ctx.new_int(2),
+        "X_OK" => ctx.new_int(1),
+        "getpid" => ctx.new_rustfunc(os_getpid)
     });
 
     for support in support_funcs {
@@ -841,5 +1034,39 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "supports_follow_symlinks" => supports_follow_symlinks.into_object(),
     });
 
+    extend_module_platform_specific(&vm, module)
+}
+
+#[cfg(unix)]
+fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    extend_module!(vm, module, {
+        "getppid" => ctx.new_rustfunc(os_getppid),
+        "getgid" => ctx.new_rustfunc(os_getgid),
+        "getegid" => ctx.new_rustfunc(os_getegid),
+        "getpgid" => ctx.new_rustfunc(os_getpgid),
+        "getuid" => ctx.new_rustfunc(os_getuid),
+        "geteuid" => ctx.new_rustfunc(os_geteuid),
+        "setgid" => ctx.new_rustfunc(os_setgid),
+        "setpgid" => ctx.new_rustfunc(os_setpgid),
+        "setuid" => ctx.new_rustfunc(os_setuid),
+    });
+
+    #[cfg(not(target_os = "redox"))]
+    extend_module!(vm, module, {
+        "getsid" => ctx.new_rustfunc(os_getsid),
+        "setsid" => ctx.new_rustfunc(os_setsid),
+        "setegid" => ctx.new_rustfunc(os_setegid),
+        "seteuid" => ctx.new_rustfunc(os_seteuid),
+        "openpty" => ctx.new_rustfunc(os_openpty),
+        "ttyname" => ctx.new_rustfunc(os_ttyname),
+    });
+
+    module
+}
+
+#[cfg(not(unix))]
+fn extend_module_platform_specific(_vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
     module
 }

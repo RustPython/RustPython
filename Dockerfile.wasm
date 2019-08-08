@@ -1,19 +1,46 @@
-FROM rust:1.31-slim
-
-RUN apt-get update && apt-get install curl gnupg -y && \
-    curl -o- https://deb.nodesource.com/setup_10.x | bash && \
-    apt-get install nodejs -y && \
-    curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh && \
-    npm i -g serve
+FROM rust:1.36-slim AS rust
 
 WORKDIR /rustpython
 
-COPY . .
+USER root
+ENV USER=root
 
-RUN cd ./wasm/lib/ && \
-    cargo build --release && \
-    cd ../demo && \
-    npm install && \
-    npm run dist
 
-CMD [ "serve", "/rustpython/wasm/demo/dist" ]
+RUN apt-get update && apt-get install curl libssl-dev pkg-config -y && \
+  curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+COPY Cargo.toml Cargo.lock ./
+COPY src src
+COPY vm vm
+COPY derive derive
+COPY parser parser
+COPY bytecode bytecode
+COPY compiler compiler
+COPY wasm/lib wasm/lib
+COPY Lib Lib
+
+RUN cd wasm/lib/ && wasm-pack build --release
+
+
+FROM node:alpine AS node
+
+WORKDIR /rustpython-demo
+
+COPY --from=rust /rustpython/wasm/lib/pkg rustpython_wasm
+
+COPY wasm/demo .
+
+RUN npm install && npm run dist -- --env.noWasmPack --env.rustpythonPkg=rustpython_wasm
+
+
+FROM node:slim
+
+WORKDIR /rustpython-demo
+
+RUN npm i -g serve
+
+COPY --from=node /rustpython-demo/dist .
+
+CMD [ "serve", "-l", "80", "/rustpython-demo" ]
+
+EXPOSE 80

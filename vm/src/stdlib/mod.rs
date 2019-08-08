@@ -1,12 +1,15 @@
-#[cfg(feature = "rustpython_parser")]
+#[cfg(feature = "rustpython-parser")]
 mod ast;
 mod binascii;
+mod codecs;
+mod collections;
 mod dis;
+mod errno;
 mod hashlib;
 mod imp;
 mod itertools;
 mod json;
-#[cfg(feature = "rustpython_parser")]
+#[cfg(feature = "rustpython-parser")]
 mod keyword;
 mod marshal;
 mod math;
@@ -16,9 +19,11 @@ mod random;
 mod re;
 pub mod socket;
 mod string;
+#[cfg(feature = "rustpython-compiler")]
+mod symtable;
 mod thread;
 mod time_module;
-#[cfg(feature = "rustpython_parser")]
+#[cfg(feature = "rustpython-parser")]
 mod tokenize;
 mod unicodedata;
 mod warnings;
@@ -31,8 +36,10 @@ use crate::vm::VirtualMachine;
 pub mod io;
 #[cfg(not(target_arch = "wasm32"))]
 mod os;
-#[cfg(all(unix, not(target_os = "android")))]
+#[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod signal;
 
 use crate::pyobject::PyObjectRef;
 
@@ -42,7 +49,10 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[allow(unused_mut)]
     let mut modules = hashmap! {
         "binascii".to_string() => Box::new(binascii::make_module) as StdlibInitFunc,
-        "dis".to_string() => Box::new(dis::make_module) as StdlibInitFunc,
+        "dis".to_string() => Box::new(dis::make_module),
+        "_codecs".to_string() => Box::new(codecs::make_module),
+        "_collections".to_string() => Box::new(collections::make_module),
+        "errno".to_string() => Box::new(errno::make_module),
         "hashlib".to_string() => Box::new(hashlib::make_module),
         "itertools".to_string() => Box::new(itertools::make_module),
         "json".to_string() => Box::new(json::make_module),
@@ -51,7 +61,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "platform".to_string() => Box::new(platform::make_module),
         "re".to_string() => Box::new(re::make_module),
         "random".to_string() => Box::new(random::make_module),
-        "string".to_string() => Box::new(string::make_module),
+        "_string".to_string() => Box::new(string::make_module),
         "struct".to_string() => Box::new(pystruct::make_module),
         "_thread".to_string() => Box::new(thread::make_module),
         "time".to_string() => Box::new(time_module::make_module),
@@ -62,7 +72,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     };
 
     // Insert parser related modules:
-    #[cfg(feature = "rustpython_parser")]
+    #[cfg(feature = "rustpython-parser")]
     {
         modules.insert(
             "ast".to_string(),
@@ -72,16 +82,23 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("tokenize".to_string(), Box::new(tokenize::make_module));
     }
 
+    // Insert compiler related modules:
+    #[cfg(feature = "rustpython-compiler")]
+    {
+        modules.insert("symtable".to_string(), Box::new(symtable::make_module));
+    }
+
     // disable some modules on WASM
     #[cfg(not(target_arch = "wasm32"))]
     {
         modules.insert("_io".to_string(), Box::new(io::make_module));
         modules.insert("_os".to_string(), Box::new(os::make_module));
         modules.insert("socket".to_string(), Box::new(socket::make_module));
+        modules.insert("signal".to_string(), Box::new(signal::make_module));
     }
 
     // Unix-only
-    #[cfg(all(unix, not(target_os = "android")))]
+    #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
     {
         modules.insert("pwd".to_string(), Box::new(pwd::make_module));
     }

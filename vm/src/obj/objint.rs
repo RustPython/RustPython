@@ -418,10 +418,7 @@ impl PyInt {
 
     #[pymethod(name = "__hash__")]
     pub fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
-        match self.value.to_i64() {
-            Some(value) => (value % pyhash::MODULUS as i64),
-            None => (&self.value % pyhash::MODULUS).to_i64().unwrap(),
-        }
+        pyhash::hash_bigint(&self.value)
     }
 
     #[pymethod(name = "__abs__")]
@@ -622,6 +619,16 @@ impl PyInt {
     #[pyproperty]
     fn imag(&self, _vm: &VirtualMachine) -> usize {
         0
+    }
+
+    #[pyproperty]
+    fn numerator(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+        zelf
+    }
+
+    #[pyproperty]
+    fn denominator(&self, _vm: &VirtualMachine) -> usize {
+        1
     }
 }
 

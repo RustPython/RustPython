@@ -11,7 +11,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use hexf;
+use hexf_parse;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
 use num_traits::{float::Float, sign::Signed, ToPrimitive, Zero};
@@ -24,7 +24,7 @@ pub struct PyFloat {
 }
 
 impl PyFloat {
-    pub fn to_f64(&self) -> f64 {
+    pub fn to_f64(self) -> f64 {
         self.value
     }
 }
@@ -138,6 +138,7 @@ fn inner_gt_int(value: f64, other_int: &BigInt) -> bool {
 }
 
 #[pyimpl]
+#[allow(clippy::trivially_copy_pass_by_ref)]
 impl PyFloat {
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
@@ -531,7 +532,7 @@ impl PyFloat {
 
     #[pymethod]
     fn fromhex(repr: PyStringRef, vm: &VirtualMachine) -> PyResult<f64> {
-        hexf::parse_hexf64(&repr.value, false).or_else(|_| match repr.value.as_ref() {
+        hexf_parse::parse_hexf64(&repr.value, false).or_else(|_| match repr.value.as_ref() {
             "nan" => Ok(std::f64::NAN),
             "inf" => Ok(std::f64::INFINITY),
             "-inf" => Ok(std::f64::NEG_INFINITY),
@@ -577,7 +578,7 @@ fn test_to_hex() {
         }
         let hex = to_hex(f);
         // println!("{} -> {}", f, hex);
-        let roundtrip = hexf::parse_hexf64(&hex, false).unwrap();
+        let roundtrip = hexf_parse::parse_hexf64(&hex, false).unwrap();
         // println!("  -> {}", roundtrip);
         assert!(f == roundtrip, "{} {} {}", f, hex, roundtrip);
     }

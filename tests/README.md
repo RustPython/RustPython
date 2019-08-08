@@ -1,20 +1,18 @@
 # Test snippets
 
-This directory contains two sets of test snippets which can be run in
-Python.  The `snippets/` directory contains functional tests, and the
-`benchmarks/` directory contains snippets for use in benchmarking
-RustPython's performance.
+This directory contains two sets of test snippets which can be run in Python.
+The `snippets/` directory contains functional tests, and the `benchmarks/`
+directory contains snippets for use in benchmarking RustPython's performance.
 
-## Generates the test for not implemented methods
+## Setup
 
-run using cpython not_impl_gen.py it automatically generate a
-test snippet to check not yet implemented methods
+Our testing depends on [pytest](https://pytest.org), which you can either
+install globally using pip or locally using our
+[pipenv](https://docs.pipenv.org).
 
-## Running with CPython + RustPython
+## Running
 
-One way to run these snippets is by using CPython to do the parsing and
-compilation to bytecode. When this is done, run the bytecode with rustpython.
-
-## Running with RustPython
-
-The other option is to run all snippets with RustPython.
+Simply run `pytest` in this directory, and the tests should run (and hopefully
+pass). If it hangs for a long time, that's because it's building RustPython in
+release mode, which should take less time than it would to run every test
+snippet with RustPython compiled in debug mode.

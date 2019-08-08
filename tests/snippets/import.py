@@ -25,6 +25,11 @@ try:
 except ImportError:
     pass
 
+try:
+    import mymodule
+except ModuleNotFoundError as exc:
+    assert exc.name == 'mymodule'
+
 
 test = __import__("import_target")
 assert test.X == import_target.X
@@ -59,3 +64,9 @@ with OverrideImportContext():
 #    pass
 #else:
 #    raise AssertionError('X should not be imported')
+
+from testutils import assertRaises
+
+with assertRaises(SyntaxError):
+	exec('import')
+

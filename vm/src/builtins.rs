@@ -18,15 +18,16 @@ use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
-#[cfg(feature = "rustpython_compiler")]
+#[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
-use crate::frame::Scope;
+use crate::eval::get_compile_mode;
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
+use crate::scope::Scope;
 use crate::vm::VirtualMachine;
 
 use crate::obj::objbyteinner::PyByteInner;
@@ -58,7 +59,24 @@ fn builtin_any(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool
     Ok(false)
 }
 
-// builtin_ascii
+fn builtin_ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    let repr = vm.to_repr(&obj)?;
+    let mut ascii = String::new();
+    for c in repr.value.chars() {
+        if c.is_ascii() {
+            ascii.push(c)
+        } else {
+            let c = c as i64;
+            let hex = if c < 0x10000 {
+                format!("\\u{:04x}", c)
+            } else {
+                format!("\\U{:08x}", c)
+            };
+            ascii.push_str(&hex)
+        }
+    }
+    Ok(ascii)
+}
 
 fn builtin_bin(x: PyIntRef, _vm: &VirtualMachine) -> String {
     let x = x.as_bigint();
@@ -99,7 +117,7 @@ struct CompileArgs {
     optimize: OptionalArg<PyIntRef>,
 }
 
-#[cfg(feature = "rustpython_compiler")]
+#[cfg(feature = "rustpython-compiler")]
 fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef> {
     // TODO: compile::compile should probably get bytes
     let source = match args.source {
@@ -107,23 +125,7 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef
         Either::B(bytes) => str::from_utf8(&bytes).unwrap().to_string(),
     };
 
-    // TODO: fix this newline bug:
-    let source = format!("{}\n", source);
-
-    let mode = {
-        let mode = &args.mode.value;
-        if mode == "exec" {
-            compile::Mode::Exec
-        } else if mode == "eval" {
-            compile::Mode::Eval
-        } else if mode == "single" {
-            compile::Mode::Single
-        } else {
-            return Err(
-                vm.new_value_error("compile() mode must be 'exec', 'eval' or single'".to_string())
-            );
-        }
-    };
+    let mode = get_compile_mode(vm, &args.mode.value)?;
 
     vm.compile(&source, &mode, args.filename.value.to_string())
         .map_err(|err| vm.new_syntax_error(&err))
@@ -155,7 +157,7 @@ fn builtin_divmod(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /// Implements `eval`.
 /// See also: https://docs.python.org/3/library/functions.html#eval
-#[cfg(feature = "rustpython_compiler")]
+#[cfg(feature = "rustpython-compiler")]
 fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: support any mapping for `locals`
     arg_check!(
@@ -173,8 +175,6 @@ fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if objtype::isinstance(source, &vm.ctx.str_type()) {
         let mode = compile::Mode::Eval;
         let source = objstr::get_value(source);
-        // TODO: fix this newline bug:
-        let source = format!("{}\n", source);
         vm.compile(&source, &mode, "<string>".to_string())
             .map_err(|err| vm.new_syntax_error(&err))?
     } else {
@@ -187,7 +187,7 @@ fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /// Implements `exec`
 /// https://docs.python.org/3/library/functions.html#exec
-#[cfg(feature = "rustpython_compiler")]
+#[cfg(feature = "rustpython-compiler")]
 fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -202,8 +202,6 @@ fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let code_obj = if objtype::isinstance(source, &vm.ctx.str_type()) {
         let mode = compile::Mode::Exec;
         let source = objstr::get_value(source);
-        // TODO: fix this newline bug:
-        let source = format!("{}\n", source);
         vm.compile(&source, &mode, "<string>".to_string())
             .map_err(|err| vm.new_syntax_error(&err))?
     } else if let Ok(code_obj) = PyCodeRef::try_from_object(vm, source.clone()) {
@@ -713,7 +711,7 @@ fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm.invoke(reversed_method?, PyFuncArgs::default())
     } else {
         vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
-            format!("argument to reversed() must be a sequence")
+            "argument to reversed() must be a sequence".to_string()
         })?;
         let len = vm.call_method(&obj.clone(), "__len__", PyFuncArgs::default())?;
         let obj_iterator = objiter::PySequenceIterator {
@@ -789,7 +787,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     #[cfg(not(target_arch = "wasm32"))]
     let open = vm.ctx.new_rustfunc(io_open);
 
-    #[cfg(feature = "rustpython_compiler")]
+    #[cfg(feature = "rustpython-compiler")]
     {
         extend_module!(vm, module, {
             "compile" => ctx.new_rustfunc(builtin_compile),
@@ -798,13 +796,16 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         });
     }
 
+    let debug_mode: bool = vm.settings.optimize == 0;
     extend_module!(vm, module, {
+        "__debug__" => ctx.new_bool(debug_mode),
         //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
         "__name__" => ctx.new_str(String::from("__main__")),
 
         "abs" => ctx.new_rustfunc(builtin_abs),
         "all" => ctx.new_rustfunc(builtin_all),
         "any" => ctx.new_rustfunc(builtin_any),
+        "ascii" => ctx.new_rustfunc(builtin_ascii),
         "bin" => ctx.new_rustfunc(builtin_bin),
         "bool" => ctx.bool_type(),
         "bytearray" => ctx.bytearray_type(),
@@ -886,9 +887,16 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "ValueError" => ctx.exceptions.value_error.clone(),
         "IndexError" => ctx.exceptions.index_error.clone(),
         "ImportError" => ctx.exceptions.import_error.clone(),
+        "LookupError" => ctx.exceptions.lookup_error.clone(),
         "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone(),
         "FileExistsError" => ctx.exceptions.file_exists_error.clone(),
         "StopIteration" => ctx.exceptions.stop_iteration.clone(),
+        "SystemError" => ctx.exceptions.system_error.clone(),
+        "PermissionError" => ctx.exceptions.permission_error.clone(),
+        "UnicodeError" => ctx.exceptions.unicode_error.clone(),
+        "UnicodeDecodeError" => ctx.exceptions.unicode_decode_error.clone(),
+        "UnicodeEncodeError" => ctx.exceptions.unicode_encode_error.clone(),
+        "UnicodeTranslateError" => ctx.exceptions.unicode_translate_error.clone(),
         "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
         "KeyError" => ctx.exceptions.key_error.clone(),
         "OSError" => ctx.exceptions.os_error.clone(),

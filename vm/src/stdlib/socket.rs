@@ -93,7 +93,7 @@ impl Connection {
             Connection::UdpSocket(con) => con.as_raw_fd(),
             Connection::TcpStream(con) => con.as_raw_fd(),
         };
-        raw_fd as i64
+        i64::from(raw_fd)
     }
 
     #[cfg(windows)]

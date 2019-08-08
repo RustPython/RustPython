@@ -5,7 +5,7 @@ def round_trip_test(obj):
     # serde_json and Python's json module produce slightly differently spaced
     # output; direct string comparison can't pass on both so we use this as a
     # proxy
-    assert obj == json.loads(json.dumps(obj))
+    return obj == json.loads(json.dumps(obj))
 
 assert '"string"' == json.dumps("string")
 assert "1" == json.dumps(1)
@@ -17,7 +17,7 @@ assert 'null' == json.dumps(None)
 assert '[]' == json.dumps([])
 assert '[1]' == json.dumps([1])
 assert '[[1]]' == json.dumps([[1]])
-round_trip_test([1, "string", 1.0, True])
+assert round_trip_test([1, "string", 1.0, True])
 
 assert '[]' == json.dumps(())
 assert '[1]' == json.dumps((1,))
@@ -26,7 +26,7 @@ assert '[[1]]' == json.dumps(((1,),))
 assert [1, "string", 1.0, True] == json.loads(json.dumps((1, "string", 1.0, True)))
 
 assert '{}' == json.dumps({})
-round_trip_test({'a': 'b'})
+assert round_trip_test({'a': 'b'})
 
 # should reject non-str keys in jsons
 assert_raises(json.JSONDecodeError, lambda: json.loads('{3: "abc"}'))
@@ -68,6 +68,6 @@ assert json.dumps({'a': 'b'}) == json.dumps(Dict({'a': 'b'}))
 # big ints should not crash VM
 # TODO: test for correct output when actual serialization implemented and doesn’t throw
 try:
-  json.dumps(7*500)
+  json.dumps(7**500)
 except:
   pass

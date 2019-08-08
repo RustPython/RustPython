@@ -80,13 +80,16 @@ pub enum ConversionFlag {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Instruction {
     Import {
-        name: String,
+        name: Option<String>,
         symbols: Vec<String>,
         level: usize,
     },
     ImportStar {
-        name: String,
+        name: Option<String>,
         level: usize,
+    },
+    ImportFrom {
+        name: String,
     },
     LoadName {
         name: String,
@@ -377,8 +380,14 @@ impl Instruction {
                 name,
                 symbols,
                 level,
-            } => w!(Import, name, format!("{:?}", symbols), level),
-            ImportStar { name, level } => w!(ImportStar, name, level),
+            } => w!(
+                Import,
+                format!("{:?}", name),
+                format!("{:?}", symbols),
+                level
+            ),
+            ImportStar { name, level } => w!(ImportStar, format!("{:?}", name), level),
+            ImportFrom { name } => w!(ImportFrom, name),
             LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
             StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
             DeleteName { name } => w!(DeleteName, name),
@@ -466,4 +475,9 @@ impl fmt::Debug for CodeObject {
             self.obj_name, self.source_path, self.first_line_number
         )
     }
+}
+
+pub struct FrozenModule {
+    pub code: CodeObject,
+    pub package: bool,
 }

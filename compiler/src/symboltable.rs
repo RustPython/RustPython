@@ -8,12 +8,12 @@ Inspirational file: https://github.com/python/cpython/blob/master/Python/symtabl
 */
 
 use crate::error::{CompileError, CompileErrorType};
+use indexmap::map::IndexMap;
 use rustpython_parser::ast;
-use rustpython_parser::lexer::Location;
-use std::collections::HashMap;
+use rustpython_parser::location::Location;
 
 pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolScope, SymbolTableError> {
-    let mut builder = SymbolTableBuilder::new();
+    let mut builder: SymbolTableBuilder = Default::default();
     builder.enter_scope();
     builder.scan_program(program)?;
     assert_eq!(builder.scopes.len(), 1);
@@ -24,9 +24,9 @@ pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolScope, SymbolTa
 }
 
 pub fn statements_to_symbol_table(
-    statements: &[ast::LocatedStatement],
+    statements: &[ast::Statement],
 ) -> Result<SymbolScope, SymbolTableError> {
-    let mut builder = SymbolTableBuilder::new();
+    let mut builder: SymbolTableBuilder = Default::default();
     builder.enter_scope();
     builder.scan_statements(statements)?;
     assert_eq!(builder.scopes.len(), 1);
@@ -36,22 +36,44 @@ pub fn statements_to_symbol_table(
     Ok(symbol_table)
 }
 
-#[derive(Debug)]
-pub enum SymbolRole {
-    Global,
-    Nonlocal,
-    Used,
-    Assigned,
-}
-
 /// Captures all symbols in the current scope, and has a list of subscopes in this scope.
+#[derive(Clone, Default)]
 pub struct SymbolScope {
     /// A set of symbols present on this scope level.
-    pub symbols: HashMap<String, SymbolRole>,
+    pub symbols: IndexMap<String, Symbol>,
 
     /// A list of subscopes in the order as found in the
     /// AST nodes.
     pub sub_scopes: Vec<SymbolScope>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Symbol {
+    pub name: String,
+    pub is_global: bool,
+    pub is_local: bool,
+    pub is_nonlocal: bool,
+    pub is_param: bool,
+    pub is_referenced: bool,
+    pub is_assigned: bool,
+    pub is_parameter: bool,
+    pub is_free: bool,
+}
+
+impl Symbol {
+    fn new(name: &str) -> Self {
+        Symbol {
+            name: name.to_string(),
+            is_global: false,
+            is_local: false,
+            is_nonlocal: false,
+            is_param: false,
+            is_referenced: false,
+            is_assigned: false,
+            is_parameter: false,
+            is_free: false,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -72,14 +94,7 @@ impl From<SymbolTableError> for CompileError {
 type SymbolTableResult = Result<(), SymbolTableError>;
 
 impl SymbolScope {
-    pub fn new() -> Self {
-        SymbolScope {
-            symbols: HashMap::new(),
-            sub_scopes: vec![],
-        }
-    }
-
-    pub fn lookup(&self, name: &str) -> Option<&SymbolRole> {
+    pub fn lookup(&self, name: &str) -> Option<&Symbol> {
         self.symbols.get(name)
     }
 }
@@ -108,72 +123,73 @@ fn analyze_symbol_table(
     }
 
     // Analyze symbols:
-    for (symbol_name, symbol_role) in &symbol_scope.symbols {
-        analyze_symbol(symbol_name, symbol_role, parent_symbol_scope)?;
+    for symbol in symbol_scope.symbols.values() {
+        analyze_symbol(symbol, parent_symbol_scope)?;
     }
 
     Ok(())
 }
 
-#[allow(clippy::single_match)]
-fn analyze_symbol(
-    symbol_name: &str,
-    symbol_role: &SymbolRole,
-    parent_symbol_scope: Option<&SymbolScope>,
-) -> SymbolTableResult {
-    match symbol_role {
-        SymbolRole::Nonlocal => {
-            // check if name is defined in parent scope!
-            if let Some(parent_symbol_scope) = parent_symbol_scope {
-                if !parent_symbol_scope.symbols.contains_key(symbol_name) {
-                    return Err(SymbolTableError {
-                        error: format!("no binding for nonlocal '{}' found", symbol_name),
-                        location: Default::default(),
-                    });
-                }
-            } else {
+fn analyze_symbol(symbol: &Symbol, parent_symbol_scope: Option<&SymbolScope>) -> SymbolTableResult {
+    if symbol.is_nonlocal {
+        // check if name is defined in parent scope!
+        if let Some(parent_symbol_scope) = parent_symbol_scope {
+            if !parent_symbol_scope.symbols.contains_key(&symbol.name) {
                 return Err(SymbolTableError {
-                    error: format!(
-                        "nonlocal {} defined at place without an enclosing scope",
-                        symbol_name
-                    ),
+                    error: format!("no binding for nonlocal '{}' found", symbol.name),
                     location: Default::default(),
                 });
             }
+        } else {
+            return Err(SymbolTableError {
+                error: format!(
+                    "nonlocal {} defined at place without an enclosing scope",
+                    symbol.name
+                ),
+                location: Default::default(),
+            });
         }
-        // TODO: add more checks for globals
-        _ => {}
     }
+
+    // TODO: add more checks for globals
+
     Ok(())
 }
 
-pub struct SymbolTableBuilder {
+#[derive(Debug, Clone)]
+enum SymbolRole {
+    Global,
+    Nonlocal,
+    Used,
+    Assigned,
+}
+
+#[derive(Default)]
+struct SymbolTableBuilder {
     // Scope stack.
-    pub scopes: Vec<SymbolScope>,
+    scopes: Vec<SymbolScope>,
 }
 
 impl SymbolTableBuilder {
-    pub fn new() -> Self {
-        SymbolTableBuilder { scopes: vec![] }
-    }
-
-    pub fn enter_scope(&mut self) {
-        let scope = SymbolScope::new();
+    fn enter_scope(&mut self) {
+        let scope = Default::default();
         self.scopes.push(scope);
+        // self.work_scopes.push(Default::default());
     }
 
     fn leave_scope(&mut self) {
         // Pop scope and add to subscopes of parent scope.
+        // let work_scope = self.work_scopes.pop().unwrap();
         let scope = self.scopes.pop().unwrap();
         self.scopes.last_mut().unwrap().sub_scopes.push(scope);
     }
 
-    pub fn scan_program(&mut self, program: &ast::Program) -> SymbolTableResult {
+    fn scan_program(&mut self, program: &ast::Program) -> SymbolTableResult {
         self.scan_statements(&program.statements)?;
         Ok(())
     }
 
-    pub fn scan_statements(&mut self, statements: &[ast::LocatedStatement]) -> SymbolTableResult {
+    fn scan_statements(&mut self, statements: &[ast::Statement]) -> SymbolTableResult {
         for statement in statements {
             self.scan_statement(statement)?;
         }
@@ -205,31 +221,26 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
-    fn scan_statement(&mut self, statement: &ast::LocatedStatement) -> SymbolTableResult {
+    fn scan_statement(&mut self, statement: &ast::Statement) -> SymbolTableResult {
+        use ast::StatementType::*;
         match &statement.node {
-            ast::Statement::Global { names } => {
+            Global { names } => {
                 for name in names {
                     self.register_name(name, SymbolRole::Global)?;
                 }
             }
-            ast::Statement::Nonlocal { names } => {
+            Nonlocal { names } => {
                 for name in names {
                     self.register_name(name, SymbolRole::Nonlocal)?;
                 }
             }
-            ast::Statement::FunctionDef {
+            FunctionDef {
                 name,
                 body,
                 args,
                 decorator_list,
                 returns,
-            }
-            | ast::Statement::AsyncFunctionDef {
-                name,
-                body,
-                args,
-                decorator_list,
-                returns,
+                ..
             } => {
                 self.scan_expressions(decorator_list)?;
                 self.register_name(name, SymbolRole::Assigned)?;
@@ -242,7 +253,7 @@ impl SymbolTableBuilder {
                 }
                 self.leave_scope();
             }
-            ast::Statement::ClassDef {
+            ClassDef {
                 name,
                 body,
                 bases,
@@ -259,25 +270,20 @@ impl SymbolTableBuilder {
                 }
                 self.scan_expressions(decorator_list)?;
             }
-            ast::Statement::Expression { expression } => self.scan_expression(expression)?,
-            ast::Statement::If { test, body, orelse } => {
+            Expression { expression } => self.scan_expression(expression)?,
+            If { test, body, orelse } => {
                 self.scan_expression(test)?;
                 self.scan_statements(body)?;
                 if let Some(code) = orelse {
                     self.scan_statements(code)?;
                 }
             }
-            ast::Statement::For {
+            For {
                 target,
                 iter,
                 body,
                 orelse,
-            }
-            | ast::Statement::AsyncFor {
-                target,
-                iter,
-                body,
-                orelse,
+                ..
             } => {
                 self.scan_expression(target)?;
                 self.scan_expression(iter)?;
@@ -286,62 +292,50 @@ impl SymbolTableBuilder {
                     self.scan_statements(code)?;
                 }
             }
-            ast::Statement::While { test, body, orelse } => {
+            While { test, body, orelse } => {
                 self.scan_expression(test)?;
                 self.scan_statements(body)?;
                 if let Some(code) = orelse {
                     self.scan_statements(code)?;
                 }
             }
-            ast::Statement::Break | ast::Statement::Continue | ast::Statement::Pass => {
+            Break | Continue | Pass => {
                 // No symbols here.
             }
-            ast::Statement::Import { import_parts } => {
-                for part in import_parts {
-                    if let Some(alias) = &part.alias {
+            Import { names } | ImportFrom { names, .. } => {
+                for name in names {
+                    if let Some(alias) = &name.alias {
                         // `import mymodule as myalias`
                         self.register_name(alias, SymbolRole::Assigned)?;
                     } else {
-                        if part.symbols.is_empty() {
-                            // `import module`
-                            self.register_name(&part.module, SymbolRole::Assigned)?;
-                        } else {
-                            // `from mymodule import myimport`
-                            for symbol in &part.symbols {
-                                if let Some(alias) = &symbol.alias {
-                                    // `from mymodule import myimportname as myalias`
-                                    self.register_name(alias, SymbolRole::Assigned)?;
-                                } else {
-                                    self.register_name(&symbol.symbol, SymbolRole::Assigned)?;
-                                }
-                            }
-                        }
+                        // `import module`
+                        self.register_name(&name.symbol, SymbolRole::Assigned)?;
                     }
                 }
             }
-            ast::Statement::Return { value } => {
+            Return { value } => {
                 if let Some(expression) = value {
                     self.scan_expression(expression)?;
                 }
             }
-            ast::Statement::Assert { test, msg } => {
+            Assert { test, msg } => {
                 self.scan_expression(test)?;
                 if let Some(expression) = msg {
                     self.scan_expression(expression)?;
                 }
             }
-            ast::Statement::Delete { targets } => {
+            Delete { targets } => {
                 self.scan_expressions(targets)?;
             }
-            ast::Statement::Assign { targets, value } => {
+            Assign { targets, value } => {
                 self.scan_expressions(targets)?;
                 self.scan_expression(value)?;
             }
-            ast::Statement::AugAssign { target, value, .. } => {
+            AugAssign { target, value, .. } => {
                 self.scan_expression(target)?;
                 self.scan_expression(value)?;
             }
-            ast::Statement::With { items, body } => {
+            With { items, body, .. } => {
                 for item in items {
                     self.scan_expression(&item.context_expr)?;
                     if let Some(expression) = &item.optional_vars {
@@ -350,7 +344,7 @@ impl SymbolTableBuilder {
                 }
                 self.scan_statements(body)?;
             }
-            ast::Statement::Try {
+            Try {
                 body,
                 handlers,
                 orelse,
@@ -373,7 +367,7 @@ impl SymbolTableBuilder {
                     self.scan_statements(code)?;
                 }
             }
-            ast::Statement::Raise { exception, cause } => {
+            Raise { exception, cause } => {
                 if let Some(expression) = exception {
                     self.scan_expression(expression)?;
                 }
@@ -393,26 +387,27 @@ impl SymbolTableBuilder {
     }
 
     fn scan_expression(&mut self, expression: &ast::Expression) -> SymbolTableResult {
-        match expression {
-            ast::Expression::Binop { a, b, .. } => {
+        use ast::ExpressionType::*;
+        match &expression.node {
+            Binop { a, b, .. } => {
                 self.scan_expression(a)?;
                 self.scan_expression(b)?;
             }
-            ast::Expression::BoolOp { a, b, .. } => {
+            BoolOp { a, b, .. } => {
                 self.scan_expression(a)?;
                 self.scan_expression(b)?;
             }
-            ast::Expression::Compare { vals, .. } => {
+            Compare { vals, .. } => {
                 self.scan_expressions(vals)?;
             }
-            ast::Expression::Subscript { a, b } => {
+            Subscript { a, b } => {
                 self.scan_expression(a)?;
                 self.scan_expression(b)?;
             }
-            ast::Expression::Attribute { value, .. } => {
+            Attribute { value, .. } => {
                 self.scan_expression(value)?;
             }
-            ast::Expression::Dict { elements } => {
+            Dict { elements } => {
                 for (key, value) in elements {
                     if let Some(key) = key {
                         self.scan_expression(key)?;
@@ -422,36 +417,30 @@ impl SymbolTableBuilder {
                     self.scan_expression(value)?;
                 }
             }
-            ast::Expression::Await { value } => {
+            Await { value } => {
                 self.scan_expression(value)?;
             }
-            ast::Expression::Yield { value } => {
+            Yield { value } => {
                 if let Some(expression) = value {
                     self.scan_expression(expression)?;
                 }
             }
-            ast::Expression::YieldFrom { value } => {
+            YieldFrom { value } => {
                 self.scan_expression(value)?;
             }
-            ast::Expression::Unop { a, .. } => {
+            Unop { a, .. } => {
                 self.scan_expression(a)?;
             }
-            ast::Expression::True
-            | ast::Expression::False
-            | ast::Expression::None
-            | ast::Expression::Ellipsis => {}
-            ast::Expression::Number { .. } => {}
-            ast::Expression::Starred { value } => {
+            True | False | None | Ellipsis => {}
+            Number { .. } => {}
+            Starred { value } => {
                 self.scan_expression(value)?;
             }
-            ast::Expression::Bytes { .. } => {}
-            ast::Expression::Tuple { elements }
-            | ast::Expression::Set { elements }
-            | ast::Expression::List { elements }
-            | ast::Expression::Slice { elements } => {
+            Bytes { .. } => {}
+            Tuple { elements } | Set { elements } | List { elements } | Slice { elements } => {
                 self.scan_expressions(elements)?;
             }
-            ast::Expression::Comprehension { kind, generators } => {
+            Comprehension { kind, generators } => {
                 match **kind {
                     ast::ComprehensionKind::GeneratorExpression { ref element }
                     | ast::ComprehensionKind::List { ref element }
@@ -472,7 +461,7 @@ impl SymbolTableBuilder {
                     }
                 }
             }
-            ast::Expression::Call {
+            Call {
                 function,
                 args,
                 keywords,
@@ -483,18 +472,18 @@ impl SymbolTableBuilder {
                     self.scan_expression(&keyword.value)?;
                 }
             }
-            ast::Expression::String { value } => {
+            String { value } => {
                 self.scan_string_group(value)?;
             }
-            ast::Expression::Identifier { name } => {
+            Identifier { name } => {
                 self.register_name(name, SymbolRole::Used)?;
             }
-            ast::Expression::Lambda { args, body } => {
+            Lambda { args, body } => {
                 self.enter_function(args)?;
                 self.scan_expression(body)?;
                 self.leave_scope();
             }
-            ast::Expression::IfExpression { test, body, orelse } => {
+            IfExpression { test, body, orelse } => {
                 self.scan_expression(test)?;
                 self.scan_expression(body)?;
                 self.scan_expression(orelse)?;
@@ -556,6 +545,8 @@ impl SymbolTableBuilder {
         let scope_depth = self.scopes.len();
         let current_scope = self.scopes.last_mut().unwrap();
         let location = Default::default();
+
+        // Some checks:
         if current_scope.symbols.contains_key(name) {
             // Role already set..
             match role {
@@ -575,22 +566,47 @@ impl SymbolTableBuilder {
                     // Ok?
                 }
             }
-        } else {
-            match role {
-                SymbolRole::Nonlocal => {
-                    if scope_depth < 2 {
-                        return Err(SymbolTableError {
-                            error: format!("cannot define nonlocal '{}' at top level.", name),
-                            location,
-                        });
-                    }
-                }
-                _ => {
-                    // Ok!
+        }
+
+        // Some more checks:
+        match role {
+            SymbolRole::Nonlocal => {
+                if scope_depth < 2 {
+                    return Err(SymbolTableError {
+                        error: format!("cannot define nonlocal '{}' at top level.", name),
+                        location,
+                    });
                 }
             }
-            current_scope.symbols.insert(name.to_string(), role);
+            _ => {
+                // Ok!
+            }
         }
+
+        // Insert symbol when required:
+        if !current_scope.symbols.contains_key(name) {
+            let symbol = Symbol::new(name);
+            current_scope.symbols.insert(name.to_string(), symbol);
+        }
+
+        // Set proper flags on symbol:
+        let symbol = current_scope.symbols.get_mut(name).unwrap();
+        match role {
+            SymbolRole::Nonlocal => {
+                symbol.is_nonlocal = true;
+            }
+            SymbolRole::Assigned => {
+                symbol.is_assigned = true;
+                // symbol.is_local = true;
+            }
+            SymbolRole::Global => {
+                symbol.is_global = true;
+            }
+            SymbolRole::Used => {
+                symbol.is_referenced = true;
+            }
+        }
+
         Ok(())
     }
 }

@@ -94,6 +94,10 @@ assert hash(complex(3.14)) == hash(float(3.14))
 assert hash(complex(-float('inf'))) == hash(-float('inf'))
 assert hash(1j) != hash(1)
 
+# TODO: Find a way to test platform dependent values
+assert hash(3.1 - 4.2j) == hash(3.1 - 4.2j)
+assert hash(3.1 + 4.2j) == hash(3.1 + 4.2j)
+
 # numbers.Complex
 
 a = complex(3, 4)

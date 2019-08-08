@@ -22,13 +22,9 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
             }
         };
     }
-    let msg = match vm
-        .get_attribute(py_err.clone(), "msg")
-        .ok()
-        .and_then(|msg| vm.to_pystr(&msg).ok())
-    {
-        Some(msg) => msg,
-        None => return js_sys::Error::new("error getting error").into(),
+    let msg = match vm.to_pystr(py_err) {
+        Ok(msg) => msg,
+        Err(_) => return js_sys::Error::new("error getting error").into(),
     };
     let js_err = map_exceptions!(py_err,& msg, {
         // TypeError is sort of a catch-all for "this value isn't what I thought it was like"

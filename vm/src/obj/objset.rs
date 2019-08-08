@@ -107,7 +107,7 @@ impl PySetInner {
     fn _compare_inner(
         &self,
         other: &PySetInner,
-        size_func: &Fn(usize, usize) -> bool,
+        size_func: fn(usize, usize) -> bool,
         swap: bool,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -127,7 +127,7 @@ impl PySetInner {
     fn eq(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult {
         self._compare_inner(
             other,
-            &|zelf: usize, other: usize| -> bool { zelf != other },
+            |zelf: usize, other: usize| -> bool { zelf != other },
             false,
             vm,
         )
@@ -136,7 +136,7 @@ impl PySetInner {
     fn ge(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult {
         self._compare_inner(
             other,
-            &|zelf: usize, other: usize| -> bool { zelf < other },
+            |zelf: usize, other: usize| -> bool { zelf < other },
             false,
             vm,
         )
@@ -145,7 +145,7 @@ impl PySetInner {
     fn gt(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult {
         self._compare_inner(
             other,
-            &|zelf: usize, other: usize| -> bool { zelf <= other },
+            |zelf: usize, other: usize| -> bool { zelf <= other },
             false,
             vm,
         )
@@ -154,7 +154,7 @@ impl PySetInner {
     fn le(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult {
         self._compare_inner(
             other,
-            &|zelf: usize, other: usize| -> bool { zelf < other },
+            |zelf: usize, other: usize| -> bool { zelf < other },
             true,
             vm,
         )
@@ -163,7 +163,7 @@ impl PySetInner {
     fn lt(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult {
         self._compare_inner(
             other,
-            &|zelf: usize, other: usize| -> bool { zelf <= other },
+            |zelf: usize, other: usize| -> bool { zelf <= other },
             true,
             vm,
         )

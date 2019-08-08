@@ -167,6 +167,13 @@ impl PyListRef {
     fn reverse(self, _vm: &VirtualMachine) {
         self.elements.borrow_mut().reverse();
     }
+    fn reversed(self, _vm: &VirtualMachine) -> PyListReverseIterator {
+        let final_position = self.elements.borrow().len();
+        PyListReverseIterator {
+            position: Cell::new(final_position),
+            list: self,
+        }
+    }
 
     fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         get_item(
@@ -392,12 +399,20 @@ impl PyListRef {
     }
 
     fn mul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = seq_mul(&self.elements.borrow(), counter);
+        let new_elements = seq_mul(&self.elements.borrow().as_slice(), counter)
+            .cloned()
+            .collect();
         vm.ctx.new_list(new_elements)
     }
 
+    fn rmul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+        self.mul(counter, &vm)
+    }
+
     fn imul(self, counter: isize, _vm: &VirtualMachine) -> Self {
-        let new_elements = seq_mul(&self.elements.borrow(), counter);
+        let new_elements = seq_mul(&self.elements.borrow().as_slice(), counter)
+            .cloned()
+            .collect();
         self.elements.replace(new_elements);
         self
     }
@@ -491,7 +506,7 @@ impl PyListRef {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements_list(&other);
-            let res = seq_equal(vm, &zelf, &other)?;
+            let res = seq_equal(vm, &zelf.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -502,7 +517,7 @@ impl PyListRef {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements_list(&other);
-            let res = seq_lt(vm, &zelf, &other)?;
+            let res = seq_lt(vm, &zelf.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -513,7 +528,7 @@ impl PyListRef {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements_list(&other);
-            let res = seq_gt(vm, &zelf, &other)?;
+            let res = seq_gt(vm, &zelf.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -524,7 +539,7 @@ impl PyListRef {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements_list(&other);
-            let res = seq_ge(vm, &zelf, &other)?;
+            let res = seq_ge(vm, &zelf.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -535,7 +550,7 @@ impl PyListRef {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements_list(&other);
-            let res = seq_le(vm, &zelf, &other)?;
+            let res = seq_le(vm, &zelf.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -809,6 +824,39 @@ impl PyListIterator {
     }
 }
 
+#[pyclass]
+#[derive(Debug)]
+pub struct PyListReverseIterator {
+    pub position: Cell<usize>,
+    pub list: PyListRef,
+}
+
+impl PyValue for PyListReverseIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.listreverseiterator_type()
+    }
+}
+
+#[pyimpl]
+impl PyListReverseIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        if self.position.get() > 0 {
+            let position: usize = self.position.get() - 1;
+            let ret = self.list.elements.borrow()[position].clone();
+            self.position.set(position);
+            Ok(ret)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
     let list_type = &context.list_type;
@@ -831,7 +879,9 @@ pub fn init(context: &PyContext) {
         "__getitem__" => context.new_rustfunc(PyListRef::getitem),
         "__iter__" => context.new_rustfunc(PyListRef::iter),
         "__setitem__" => context.new_rustfunc(PyListRef::setitem),
+        "__reversed__" => context.new_rustfunc(PyListRef::reversed),
         "__mul__" => context.new_rustfunc(PyListRef::mul),
+        "__rmul__" => context.new_rustfunc(PyListRef::rmul),
         "__imul__" => context.new_rustfunc(PyListRef::imul),
         "__len__" => context.new_rustfunc(PyListRef::len),
         "__new__" => context.new_rustfunc(list_new),
@@ -852,4 +902,5 @@ pub fn init(context: &PyContext) {
     });
 
     PyListIterator::extend_class(context, &context.listiterator_type);
+    PyListReverseIterator::extend_class(context, &context.listreverseiterator_type);
 }

@@ -214,3 +214,7 @@ assert float('nan').hex() == 'nan'
 #for _ in range(10000):
 #    f = random.random() * random.randint(0, 0x10000000000000000)
 #    assert f == float.fromhex(f.hex())
+
+# Test float exponent:
+assert 1 if 1else 0 == 1
+

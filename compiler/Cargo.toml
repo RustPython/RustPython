@@ -1,11 +1,15 @@
 [package]
-name = "rustpython_compiler"
+name = "rustpython-compiler"
 version = "0.1.0"
-authors = ["coolreader18 <33094578+coolreader18@users.noreply.github.com>", "Windel Bouwman <windel@windel.nl>"]
+description = "Compiler for python code into bytecode for the rustpython VM."
+authors = ["RustPython Team"]
+repository = "https://github.com/RustPython/RustPython"
+license = "MIT"
 edition = "2018"
 
 [dependencies]
-rustpython_bytecode = { path = "../bytecode" }
-rustpython_parser = { path = "../parser" }
+indexmap = "1.0"
+rustpython-bytecode = { path = "../bytecode", version = "0.1.0" }
+rustpython-parser = { path = "../parser", version = "0.1.0" }
 num-complex = { version = "0.2", features = ["serde"] }
 log = "0.3"

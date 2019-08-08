@@ -188,7 +188,7 @@ macro_rules! py_namespace {
 /// use rustpython_vm::obj::objint::PyInt;
 /// use rustpython_vm::pyobject::PyValue;
 ///
-/// let vm = VirtualMachine::new();
+/// let vm: VirtualMachine = Default::default();
 /// let obj = PyInt::new(0).into_ref(&vm).into_object();
 /// assert_eq!(
 ///     "int",
@@ -213,7 +213,7 @@ macro_rules! py_namespace {
 /// use rustpython_vm::obj::objint::PyInt;
 /// use rustpython_vm::pyobject::PyValue;
 ///
-/// let vm = VirtualMachine::new();
+/// let vm: VirtualMachine = Default::default();
 /// let obj = PyInt::new(0).into_ref(&vm).into_object();
 ///
 /// let int_value = match_class!(obj,
@@ -254,5 +254,22 @@ macro_rules! match_class {
         } else {
             $crate::match_class!($obj, $($rest)*)
         }
+    };
+}
+
+/// Super detailed logging. Might soon overflow your logbuffers
+/// Default, this logging is discarded, except when a the `vm-tracing-logging`
+/// build feature is enabled.
+macro_rules! vm_trace {
+    ($($arg:tt)+) => {
+        #[cfg(feature = "vm-tracing-logging")]
+        trace!($($arg)+);
+    }
+}
+
+macro_rules! flame_guard {
+    ($name:expr) => {
+        #[cfg(feature = "flame-it")]
+        let _guard = ::flame::start_guard($name);
     };
 }

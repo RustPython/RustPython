@@ -1,6 +1,7 @@
 extern crate unicode_categories;
 extern crate unicode_xid;
 
+use std::cell::Cell;
 use std::char;
 use std::fmt;
 use std::ops::Range;
@@ -28,6 +29,7 @@ use crate::vm::VirtualMachine;
 use super::objbytes::PyBytes;
 use super::objdict::PyDict;
 use super::objint::{self, PyInt};
+use super::objiter;
 use super::objnone::PyNone;
 use super::objsequence::PySliceableSequence;
 use super::objslice::PySlice;
@@ -87,6 +89,79 @@ impl TryIntoRef<PyString> for &str {
             value: self.to_string(),
         }
         .into_ref(vm))
+    }
+}
+
+#[pyclass]
+#[derive(Debug)]
+pub struct PyStringIterator {
+    pub string: PyStringRef,
+    position: Cell<usize>,
+}
+
+impl PyValue for PyStringIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.striterator_type()
+    }
+}
+
+#[pyimpl]
+impl PyStringIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let pos = self.position.get();
+
+        if pos < self.string.value.chars().count() {
+            self.position.set(self.position.get() + 1);
+
+            #[allow(clippy::range_plus_one)]
+            let value = self.string.value.do_slice(pos..pos + 1);
+
+            value.into_pyobject(vm)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
+#[pyclass]
+#[derive(Debug)]
+pub struct PyStringReverseIterator {
+    pub position: Cell<usize>,
+    pub string: PyStringRef,
+}
+
+impl PyValue for PyStringReverseIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.strreverseiterator_type()
+    }
+}
+
+#[pyimpl]
+impl PyStringReverseIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        if self.position.get() > 0 {
+            let position: usize = self.position.get() - 1;
+
+            #[allow(clippy::range_plus_one)]
+            let value = self.string.value.do_slice(position..position + 1);
+
+            self.position.set(position);
+            value.into_pyobject(vm)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
@@ -928,7 +1003,7 @@ impl PyString {
                                 ));
                             }
                         }
-                    } else if let Some(_) = value.payload::<PyNone>() {
+                    } else if value.payload::<PyNone>().is_some() {
                         // Do Nothing
                     } else {
                         return Err(vm.new_type_error(
@@ -1025,6 +1100,24 @@ impl PyString {
         let encoded = PyBytes::from_string(&self.value, &encoding, vm)?;
         Ok(encoded.into_pyobject(vm)?)
     }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyStringIterator {
+        PyStringIterator {
+            position: Cell::new(0),
+            string: zelf,
+        }
+    }
+
+    #[pymethod(name = "__reversed__")]
+    fn reversed(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyStringReverseIterator {
+        let begin = zelf.value.chars().count();
+
+        PyStringReverseIterator {
+            position: Cell::new(begin),
+            string: zelf,
+        }
+    }
 }
 
 impl PyValue for PyString {
@@ -1053,6 +1146,9 @@ impl IntoPyObject for &String {
 
 pub fn init(ctx: &PyContext) {
     PyString::extend_class(ctx, &ctx.str_type);
+
+    PyStringIterator::extend_class(ctx, &ctx.striterator_type);
+    PyStringReverseIterator::extend_class(ctx, &ctx.strreverseiterator_type);
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -1159,7 +1255,7 @@ fn do_cformat_specifier(
 
 fn try_update_quantity_from_tuple(
     vm: &VirtualMachine,
-    elements: &mut Iterator<Item = PyObjectRef>,
+    elements: &mut dyn Iterator<Item = PyObjectRef>,
     q: &mut Option<CFormatQuantity>,
     mut tuple_index: usize,
 ) -> PyResult<usize> {
@@ -1279,19 +1375,16 @@ fn do_cformat(
     }
 
     // check that all arguments were converted
-    if !mapping_required {
-        if objtuple::get_value(&values_obj)
+    if !mapping_required
+        && objtuple::get_value(&values_obj)
             .into_iter()
-            .skip(tuple_index)
-            .next()
+            .nth(tuple_index)
             .is_some()
-        {
-            return Err(vm.new_type_error(
-                "not all arguments converted during string formatting".to_string(),
-            ));
-        }
+    {
+        return Err(
+            vm.new_type_error("not all arguments converted during string formatting".to_string())
+        );
     }
-
     Ok(vm.ctx.new_str(final_string))
 }
 
@@ -1470,7 +1563,7 @@ mod tests {
 
     #[test]
     fn str_title() {
-        let vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
 
         let tests = vec![
             (" Hello ", " hello "),
@@ -1489,7 +1582,7 @@ mod tests {
 
     #[test]
     fn str_istitle() {
-        let vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
 
         let pos = vec![
             "A",
@@ -1520,7 +1613,7 @@ mod tests {
 
     #[test]
     fn str_maketrans_and_translate() {
-        let vm = VirtualMachine::new();
+        let vm: VirtualMachine = Default::default();
 
         let table = vm.context().new_dict();
         table
