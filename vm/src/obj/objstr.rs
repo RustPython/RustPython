@@ -1304,16 +1304,17 @@ fn do_cformat(
             .filter(|(_, part)| CFormatPart::is_specifier(part))
             .all(|(_, part)| CFormatPart::has_key(part));
 
-    let values_obj = if mapping_required {
+    let values = if mapping_required {
         if !objtype::isinstance(&values_obj, &vm.ctx.dict_type()) {
             return Err(vm.new_type_error("format requires a mapping".to_string()));
         }
         values_obj.clone()
     } else {
-        // check for only literal parts, in which case only empty tuple is allowed
-        if 0 == num_specifiers
-            && (!objtype::isinstance(&values_obj, &vm.ctx.tuple_type())
-                || !objtuple::get_value(&values_obj).is_empty())
+        // check for only literal parts, in which case only dict or empty tuple is allowed
+        if num_specifiers == 0
+            && !(objtype::isinstance(&values_obj, &vm.ctx.tuple_type)
+                && objtuple::get_value(&values_obj).is_empty())
+            && !objtype::isinstance(&values_obj, &vm.ctx.dict_type)
         {
             return Err(vm.new_type_error(
                 "not all arguments converted during string formatting".to_string(),
@@ -1336,12 +1337,11 @@ fn do_cformat(
                 let obj: PyObjectRef = match &format_spec.mapping_key {
                     Some(key) => {
                         // TODO: change the KeyError message to match the one in cpython
-                        call_getitem(vm, &values_obj, &vm.ctx.new_str(key.to_string()))?
+                        call_getitem(vm, &values, &vm.ctx.new_str(key.to_string()))?
                     }
                     None => {
-                        let mut elements = objtuple::get_value(&values_obj)
-                            .into_iter()
-                            .skip(tuple_index);
+                        let mut elements =
+                            objtuple::get_value(&values).into_iter().skip(tuple_index);
 
                         tuple_index = try_update_quantity_from_tuple(
                             vm,
@@ -1375,11 +1375,12 @@ fn do_cformat(
     }
 
     // check that all arguments were converted
-    if !mapping_required
-        && objtuple::get_value(&values_obj)
+    if (!mapping_required
+        && objtuple::get_value(&values)
             .into_iter()
             .nth(tuple_index)
-            .is_some()
+            .is_some())
+        && !objtype::isinstance(&values_obj, &vm.ctx.dict_type)
     {
         return Err(
             vm.new_type_error("not all arguments converted during string formatting".to_string())
