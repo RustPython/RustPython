@@ -328,14 +328,19 @@ class HelpFormatter(object):
 
                 # break usage into wrappable parts
                 part_regexp = (
-                    r'\(.*?\)+(?=\s|$)|'
-                    r'\[.*?\]+(?=\s|$)|'
-                    r'\S+'
+                    r'(\(.*?\)+|\[.*?\]+|\S+)(?:\s|$)'
                 )
+                # FIXME: use regex below once we're compatible with sre
+                # part_regexp = (
+                #     r'\(.*?\)+(?=\s|$)|'
+                #     r'\[.*?\]+(?=\s|$)|'
+                #     r'\S+'
+                # )
                 opt_usage = format(optionals, groups)
                 pos_usage = format(positionals, groups)
-                opt_parts = _re.findall(part_regexp, opt_usage)
-                pos_parts = _re.findall(part_regexp, pos_usage)
+                opt_parts = list(map(lambda t: t[0], _re.findall(part_regexp, opt_usage)))
+                pos_parts = list(map(lambda t: t[0], _re.findall(part_regexp, pos_usage)))
+                print(opt_parts)
                 assert ' '.join(opt_parts) == opt_usage
                 assert ' '.join(pos_parts) == pos_usage
 
