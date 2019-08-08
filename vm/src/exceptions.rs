@@ -238,6 +238,8 @@ pub struct ExceptionZoo {
     pub resource_warning: PyClassRef,
     pub runtime_warning: PyClassRef,
     pub user_warning: PyClassRef,
+
+    pub keyboard_interrupt: PyClassRef,
 }
 
 impl ExceptionZoo {
@@ -288,6 +290,8 @@ impl ExceptionZoo {
         let runtime_warning = create_type("RuntimeWarning", &type_type, &warning);
         let user_warning = create_type("UserWarning", &type_type, &warning);
 
+				let keyboard_interrupt = create_type("KeyboardInterrupt", &type_type, &base_exception_type);
+
         ExceptionZoo {
             arithmetic_error,
             assertion_error,
@@ -330,6 +334,7 @@ impl ExceptionZoo {
             runtime_warning,
             reference_error,
             user_warning,
+            keyboard_interrupt,
         }
     }
 }

@@ -915,6 +915,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "ResourceWarning" => ctx.exceptions.resource_warning.clone(),
         "RuntimeWarning" => ctx.exceptions.runtime_warning.clone(),
         "UserWarning" => ctx.exceptions.user_warning.clone(),
+
+        "KeyboardInterrupt" => ctx.exceptions.keyboard_interrupt.clone(),
     });
 }
 
