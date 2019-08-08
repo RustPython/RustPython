@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use subprocess;
 
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::OptionalArg;
 use crate::obj::objlist::PyListRef;
 use crate::obj::objsequence;
 use crate::obj::objstr::{self, PyStringRef};
@@ -73,13 +73,11 @@ fn convert_to_file_io(file: &Option<File>, mode: String, vm: &VirtualMachine) ->
     match file {
         Some(ref stdin) => io_open(
             vm,
-            PyFuncArgs::new(
-                vec![
-                    vm.new_int(raw_file_number(stdin.try_clone().unwrap())),
-                    vm.new_str(mode),
-                ],
-                vec![],
-            ),
+            vec![
+                vm.new_int(raw_file_number(stdin.try_clone().unwrap())),
+                vm.new_str(mode),
+            ]
+            .into(),
         ),
         None => Ok(vm.get_none()),
     }
