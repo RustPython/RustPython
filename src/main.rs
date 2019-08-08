@@ -50,7 +50,15 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
         .version(crate_version!())
         .author(crate_authors!())
         .about("Rust implementation of the Python language")
-        .arg(Arg::with_name("script").required(false).index(1))
+        .usage("rustpython [OPTIONS] [-c CMD | -m MODULE | FILE | -] [PYARGS]...")
+        .arg(
+            Arg::with_name("script")
+                .required(false)
+                .multiple(true)
+                .min_values(1)
+                .allow_hyphen_values(true)
+                .value_names(&["script", "args..."]),
+        )
         .arg(
             Arg::with_name("optimize")
                 .short("O")
@@ -104,9 +112,12 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
             Arg::with_name("m")
                 .short("m")
                 .takes_value(true)
+                .allow_hyphen_values(true)
+                .multiple(true)
+                // .value
+                .value_names(&["module", "args..."])
                 .help("run library module as script"),
-        )
-        .arg(Arg::from_usage("[pyargs] 'args for python'").multiple(true));
+        );
     #[cfg(feature = "flame-it")]
     let app = app
         .arg(
@@ -181,6 +192,34 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
     {
         settings.dont_write_bytecode = true;
     }
+
+    let mut argv = if let Some(script) = matches.values_of("script") {
+        script.map(ToOwned::to_owned).collect()
+    } else if let Some(mut module) = matches.values_of("m") {
+        let argv0 = if let Ok(module_path) = std::fs::canonicalize(module.next().unwrap()) {
+            module_path
+                .into_os_string()
+                .into_string()
+                .expect("invalid utf8 in module path")
+        } else {
+            // if it's not a real file/don't have permissions it'll probably fail anyway
+            String::new()
+        };
+        std::iter::once(argv0)
+            .chain(module.map(ToOwned::to_owned))
+            .collect()
+    } else {
+        vec![]
+    };
+
+    argv.extend(
+        matches
+            .values_of("pyargs")
+            .unwrap_or_default()
+            .map(ToOwned::to_owned),
+    );
+
+    settings.argv = argv;
 
     settings
 }
@@ -283,9 +322,9 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
         run_module(&vm, module)?;
     } else {
         // Figure out if a script was passed:
-        match matches.value_of("script") {
+        match matches.values_of("script") {
             None => run_shell(&vm)?,
-            Some(filename) => run_script(&vm, filename)?,
+            Some(mut filename) => run_script(&vm, filename.next().unwrap())?,
         }
     }
 

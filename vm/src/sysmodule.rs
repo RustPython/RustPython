@@ -14,10 +14,14 @@ use crate::vm::{PySettings, VirtualMachine};
  * The magic sys module.
  */
 
-fn argv(ctx: &PyContext) -> PyObjectRef {
-    let mut argv: Vec<PyObjectRef> = env::args().map(|x| ctx.new_str(x)).collect();
-    argv.remove(0);
-    ctx.new_list(argv)
+fn argv(vm: &VirtualMachine) -> PyObjectRef {
+    vm.ctx.new_list(
+        vm.settings
+            .argv
+            .iter()
+            .map(|arg| vm.new_str(arg.to_owned()))
+            .collect(),
+    )
 }
 
 fn executable(ctx: &PyContext) -> PyObjectRef {
@@ -295,7 +299,7 @@ settrace() -- set the global debug tracing function
 
     extend_module!(vm, module, {
       "__name__" => ctx.new_str(String::from("sys")),
-      "argv" => argv(ctx),
+      "argv" => argv(vm),
       "builtin_module_names" => builtin_module_names,
       "byteorder" => ctx.new_str(bytorder),
       "copyright" => ctx.new_str(copyright.to_string()),
