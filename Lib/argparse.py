@@ -340,7 +340,6 @@ class HelpFormatter(object):
                 pos_usage = format(positionals, groups)
                 opt_parts = list(map(lambda t: t[0], _re.findall(part_regexp, opt_usage)))
                 pos_parts = list(map(lambda t: t[0], _re.findall(part_regexp, pos_usage)))
-                print(opt_parts)
                 assert ' '.join(opt_parts) == opt_usage
                 assert ' '.join(pos_parts) == pos_usage
 
