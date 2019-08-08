@@ -301,6 +301,16 @@ impl PyPattern {
     fn pattern(&self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_str(self.pattern.clone()))
     }
+
+    #[pymethod]
+    fn split(&self, text: PyStringRef, vm: &VirtualMachine) -> PyObjectRef {
+        let split = self
+            .regex
+            .split(text.as_str().as_bytes())
+            .map(|v| vm.new_str(String::from_utf8_lossy(v).into_owned()))
+            .collect();
+        vm.ctx.new_list(split)
+    }
 }
 
 #[pyimpl]
