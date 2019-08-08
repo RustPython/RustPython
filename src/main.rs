@@ -4,7 +4,7 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 
-use clap::{App, Arg, ArgMatches};
+use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
@@ -47,6 +47,7 @@ fn main() {
 
 fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
     let app = app
+        .setting(AppSettings::TrailingVarArg)
         .version(crate_version!())
         .author(crate_authors!())
         .about("Rust implementation of the Python language")
@@ -54,10 +55,30 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
         .arg(
             Arg::with_name("script")
                 .required(false)
-                .multiple(true)
-                .min_values(1)
                 .allow_hyphen_values(true)
-                .value_names(&["script", "args..."]),
+                .multiple(true)
+                .value_name("script, args")
+                .min_values(1),
+        )
+        .arg(
+            Arg::with_name("c")
+                .short("c")
+                .takes_value(true)
+                .allow_hyphen_values(true)
+                .multiple(true)
+                .value_name("cmd, args")
+                .min_values(1)
+                .help("run the given string as a program"),
+        )
+        .arg(
+            Arg::with_name("m")
+                .short("m")
+                .takes_value(true)
+                .allow_hyphen_values(true)
+                .multiple(true)
+                .value_name("module, args")
+                .min_values(1)
+                .help("run library module as script"),
         )
         .arg(
             Arg::with_name("optimize")
@@ -101,22 +122,6 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
             Arg::with_name("ignore-environment")
                 .short("E")
                 .help("Ignore environment variables PYTHON* such as PYTHONPATH"),
-        )
-        .arg(
-            Arg::with_name("c")
-                .short("c")
-                .takes_value(true)
-                .help("run the given string as a program"),
-        )
-        .arg(
-            Arg::with_name("m")
-                .short("m")
-                .takes_value(true)
-                .allow_hyphen_values(true)
-                .multiple(true)
-                // .value
-                .value_names(&["module", "args..."])
-                .help("run library module as script"),
         );
     #[cfg(feature = "flame-it")]
     let app = app
@@ -141,6 +146,9 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
     let ignore_environment = matches.is_present("ignore-environment");
     let mut settings: PySettings = Default::default();
     settings.ignore_environment = ignore_environment;
+
+    // add the current directory to sys.path
+    settings.path_list.push("".to_owned());
 
     if !ignore_environment {
         settings.path_list.append(&mut get_paths("RUSTPYTHONPATH"));
@@ -193,31 +201,19 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
         settings.dont_write_bytecode = true;
     }
 
-    let mut argv = if let Some(script) = matches.values_of("script") {
+    let argv = if let Some(script) = matches.values_of("script") {
         script.map(ToOwned::to_owned).collect()
-    } else if let Some(mut module) = matches.values_of("m") {
-        let argv0 = if let Ok(module_path) = std::fs::canonicalize(module.next().unwrap()) {
-            module_path
-                .into_os_string()
-                .into_string()
-                .expect("invalid utf8 in module path")
-        } else {
-            // if it's not a real file/don't have permissions it'll probably fail anyway
-            String::new()
-        };
-        std::iter::once(argv0)
-            .chain(module.map(ToOwned::to_owned))
+    } else if let Some(module) = matches.values_of("m") {
+        std::iter::once("PLACEHOLEDER".to_owned())
+            .chain(module.skip(1).map(ToOwned::to_owned))
+            .collect()
+    } else if let Some(cmd) = matches.values_of("c") {
+        std::iter::once("-c".to_owned())
+            .chain(cmd.skip(1).map(ToOwned::to_owned))
             .collect()
     } else {
         vec![]
     };
-
-    argv.extend(
-        matches
-            .values_of("pyargs")
-            .unwrap_or_default()
-            .map(ToOwned::to_owned),
-    );
 
     settings.argv = argv;
 
@@ -357,6 +353,17 @@ fn run_command(vm: &VirtualMachine, source: String) -> PyResult<()> {
 
 fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
+    let importlib = vm.import("_frozen_importlib", &vm.ctx.new_tuple(vec![]), 0)?;
+    let find_spec = vm.get_attribute(importlib, "_find_spec")?;
+    let spec = vm.invoke(
+        find_spec,
+        vec![vm.ctx.new_str(module.to_owned()), vm.get_none()],
+    )?;
+    if !vm.is_none(&spec) {
+        let origin = vm.get_attribute(spec, "origin")?;
+        let sys_path = vm.get_attribute(vm.sys_module.clone(), "argv")?;
+        sys_path.set_item(0, origin, vm)?;
+    }
     vm.import(module, &vm.ctx.new_tuple(vec![]), 0)?;
     Ok(())
 }
