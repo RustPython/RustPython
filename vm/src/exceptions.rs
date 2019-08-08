@@ -119,7 +119,7 @@ pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
         .unwrap()
         .downcast::<PyTuple>()
         .expect("'args' must be a tuple");
-    let args_repr = exception_args_as_string(vm, varargs);
+    let args_repr = exception_args_as_string(vm, varargs, true);
 
     let exc_name = exc.class().name.clone();
     match args_repr.len() {
@@ -129,13 +129,22 @@ pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
     }
 }
 
-fn exception_args_as_string(vm: &VirtualMachine, varargs: PyTupleRef) -> Vec<String> {
+fn exception_args_as_string(
+    vm: &VirtualMachine,
+    varargs: PyTupleRef,
+    str_single: bool,
+) -> Vec<String> {
     match varargs.elements.len() {
         0 => vec![],
         1 => {
-            let args0_repr = vm
-                .to_pystr(&varargs.elements[0])
-                .unwrap_or_else(|_| "<element str() failed>".to_string());
+            let args0_repr = if str_single {
+                vm.to_pystr(&varargs.elements[0])
+                    .unwrap_or_else(|_| "<element str() failed>".to_string())
+            } else {
+                vm.to_repr(&varargs.elements[0])
+                    .map(|s| s.as_str().to_owned())
+                    .unwrap_or_else(|_| "<element repr() failed>".to_string())
+            };
             vec![args0_repr]
         }
         _ => {
@@ -163,11 +172,11 @@ fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         .unwrap()
         .downcast::<PyTuple>()
         .expect("'args' must be a tuple");
-    let args_str = exception_args_as_string(vm, args);
+    let args_str = exception_args_as_string(vm, args, false);
     let joined_str = match args_str.len() {
         0 => "".to_string(),
-        1 => args_str[0].to_string(),
-        _ => format!("({})", args_str.join(", ")),
+        1 => args_str.into_iter().next().unwrap(),
+        _ => format!("({})", args_str.into_iter().format(", ")),
     };
     Ok(vm.new_str(joined_str))
 }
@@ -183,7 +192,7 @@ fn exception_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         .unwrap()
         .downcast::<PyTuple>()
         .expect("'args' must be a tuple");
-    let args_repr = exception_args_as_string(vm, args);
+    let args_repr = exception_args_as_string(vm, args, false);
 
     let exc_name = exc.class().name.clone();
     let joined_str = match args_repr.len() {
