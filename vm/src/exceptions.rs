@@ -5,6 +5,7 @@ use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{create_type, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
+use itertools::Itertools;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -124,7 +125,7 @@ pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
     match args_repr.len() {
         0 => println!("{}", exc_name),
         1 => println!("{}: {}", exc_name, args_repr[0]),
-        _ => println!("{}: ({})", exc_name, args_repr.join(", ")),
+        _ => println!("{}: ({})", exc_name, args_repr.into_iter().format(", ")),
     }
 }
 
@@ -132,10 +133,9 @@ fn exception_args_as_string(vm: &VirtualMachine, varargs: PyTupleRef) -> Vec<Str
     match varargs.elements.len() {
         0 => vec![],
         1 => {
-            let args0_repr = match vm.to_repr(&varargs.elements[0]) {
-                Ok(args0_repr) => args0_repr.value.clone(),
-                Err(_) => "<element repr() failed>".to_string(),
-            };
+            let args0_repr = vm
+                .to_pystr(&varargs.elements[0])
+                .unwrap_or_else(|_| "<element str() failed>".to_string());
             vec![args0_repr]
         }
         _ => {
@@ -290,7 +290,7 @@ impl ExceptionZoo {
         let runtime_warning = create_type("RuntimeWarning", &type_type, &warning);
         let user_warning = create_type("UserWarning", &type_type, &warning);
 
-				let keyboard_interrupt = create_type("KeyboardInterrupt", &type_type, &base_exception_type);
+        let keyboard_interrupt = create_type("KeyboardInterrupt", &type_type, &base_exception_type);
 
         ExceptionZoo {
             arithmetic_error,
