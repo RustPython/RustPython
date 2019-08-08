@@ -122,17 +122,13 @@ fn re_sub(
     pattern: PyStringRef,
     repl: PyStringRef,
     string: PyStringRef,
-    count: OptionalArg<PyIntRef>,
+    count: OptionalArg<usize>,
     flags: OptionalArg<PyIntRef>,
     vm: &VirtualMachine,
 ) -> PyResult {
     let flags = extract_flags(flags);
     let regex = make_regex(vm, pattern.as_str(), flags)?;
-    let limit = count
-        .into_option()
-        .map(|i| usize::try_from_object(vm, i.into_object()))
-        .transpose()?
-        .unwrap_or(0);
+    let limit = count.unwrap_or(0);
     do_sub(vm, &regex, repl, string, limit)
 }
 
