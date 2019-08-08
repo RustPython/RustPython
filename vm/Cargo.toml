@@ -70,3 +70,6 @@ flamer = { version = "0.3", optional = true }
 
 [target.'cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))'.dependencies]
 pwd = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+gethostname = "0.2.0"

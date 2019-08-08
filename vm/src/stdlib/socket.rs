@@ -2,7 +2,14 @@ use std::cell::RefCell;
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+
+#[cfg(unix)]
+use nix::unistd::sethostname;
+
+use gethostname::gethostname;
+
+use byteorder::{BigEndian, ByteOrder};
 
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint::PyIntRef;
@@ -12,6 +19,8 @@ use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::vm::VirtualMachine;
 
 use crate::obj::objtype::PyClassRef;
+#[cfg(unix)]
+use crate::stdlib::os::convert_nix_error;
 use num_traits::ToPrimitive;
 
 #[derive(Debug, Copy, Clone)]
@@ -372,6 +381,34 @@ fn get_addr_tuple(vm: &VirtualMachine, addr: SocketAddr) -> PyResult {
     Ok(vm.ctx.new_tuple(vec![ip, port]))
 }
 
+fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
+    gethostname()
+        .into_string()
+        .map(|hostname| vm.new_str(hostname))
+        .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
+}
+
+#[cfg(unix)]
+fn socket_sethostname(hostname: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    sethostname(hostname.value.as_str()).map_err(|err| convert_nix_error(vm, err))
+}
+
+fn socket_inet_aton(ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    ip_string
+        .as_str()
+        .parse::<Ipv4Addr>()
+        .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
+        .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_string()))
+}
+
+fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    if packed_ip.len() != 4 {
+        return Err(vm.new_os_error("packed IP wrong length for inet_ntoa".to_string()));
+    }
+    let ip_num = BigEndian::read_u32(packed_ip.get_value());
+    Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -390,10 +427,31 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "fileno" => ctx.new_rustfunc(SocketRef::fileno),
     });
 
-    py_module!(vm, "socket", {
+    let module = py_module!(vm, "socket", {
         "AF_INET" => ctx.new_int(AddressFamily::Inet as i32),
         "SOCK_STREAM" => ctx.new_int(SocketKind::Stream as i32),
          "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
          "socket" => socket,
-    })
+         "inet_aton" => ctx.new_rustfunc(socket_inet_aton),
+         "inet_ntoa" => ctx.new_rustfunc(socket_inet_ntoa),
+         "gethostname" => ctx.new_rustfunc(socket_gethostname),
+    });
+
+    extend_module_platform_specific(vm, module)
+}
+
+#[cfg(not(unix))]
+fn extend_module_platform_specific(_vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+    module
+}
+
+#[cfg(unix)]
+fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    extend_module!(vm, module, {
+         "sethostname" => ctx.new_rustfunc(socket_sethostname),
+    });
+
+    module
 }
