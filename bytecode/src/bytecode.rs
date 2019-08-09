@@ -219,6 +219,9 @@ pub enum Instruction {
         spec: String,
     },
     PopException,
+    Reverse {
+        amount: usize,
+    },
 }
 
 use self::Instruction::*;
@@ -438,6 +441,7 @@ impl Instruction {
             Unpack => w!(Unpack),
             FormatValue { spec, .. } => w!(FormatValue, spec), // TODO: write conversion
             PopException => w!(PopException),
+            Reverse { amount } => w!(Reverse, amount),
         }
     }
 }

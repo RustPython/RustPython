@@ -6,13 +6,17 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use crate::error::{CompileError, CompileErrorType};
+use crate::output_stream::{CodeObjectStream, OutputStream};
+use crate::peephole::PeepholeOptimizer;
 use crate::symboltable::{make_symbol_table, statements_to_symbol_table, Symbol, SymbolScope};
 use num_complex::Complex64;
 use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use rustpython_parser::{ast, parser};
 
-struct Compiler {
-    code_object_stack: Vec<CodeObject>,
+type BasicOutputStream = PeepholeOptimizer<CodeObjectStream>;
+
+struct Compiler<O: OutputStream = BasicOutputStream> {
+    output_stack: Vec<O>,
     scope_stack: Vec<SymbolScope>,
     nxt_label: usize,
     source_path: Option<String>,
@@ -109,18 +113,21 @@ enum EvalContext {
     Expression,
 }
 
-type Label = usize;
+pub(crate) type Label = usize;
 
-impl Default for Compiler {
+impl<O> Default for Compiler<O>
+where
+    O: OutputStream,
+{
     fn default() -> Self {
         Compiler::new(0)
     }
 }
 
-impl Compiler {
+impl<O: OutputStream> Compiler<O> {
     fn new(optimize: u8) -> Self {
         Compiler {
-            code_object_stack: Vec::new(),
+            output_stack: Vec::new(),
             scope_stack: Vec::new(),
             nxt_label: 0,
             source_path: None,
@@ -132,9 +139,13 @@ impl Compiler {
         }
     }
 
+    fn push_output(&mut self, code: CodeObject) {
+        self.output_stack.push(code.into());
+    }
+
     fn push_new_code_object(&mut self, obj_name: String) {
         let line_number = self.get_source_line_number();
-        self.code_object_stack.push(CodeObject::new(
+        self.push_output(CodeObject::new(
             Vec::new(),
             Varargs::None,
             Vec::new(),
@@ -146,8 +157,7 @@ impl Compiler {
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
-        // self.scope_stack.pop().unwrap();
-        self.code_object_stack.pop().unwrap()
+        self.output_stack.pop().unwrap().into()
     }
 
     fn compile_program(
@@ -155,10 +165,10 @@ impl Compiler {
         program: &ast::Program,
         symbol_scope: SymbolScope,
     ) -> Result<(), CompileError> {
-        let size_before = self.code_object_stack.len();
+        let size_before = self.output_stack.len();
         self.scope_stack.push(symbol_scope);
         self.compile_statements(&program.statements)?;
-        assert!(self.code_object_stack.len() == size_before);
+        assert_eq!(self.output_stack.len(), size_before);
 
         // Emit None at end:
         self.emit(Instruction::LoadConst {
@@ -636,7 +646,7 @@ impl Compiler {
         }
 
         let line_number = self.get_source_line_number();
-        self.code_object_stack.push(CodeObject::new(
+        self.push_output(CodeObject::new(
             args.args.iter().map(|a| a.arg.clone()).collect(),
             compile_varargs(&args.vararg),
             args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
@@ -889,7 +899,7 @@ impl Compiler {
         self.prepare_decorators(decorator_list)?;
         self.emit(Instruction::LoadBuildClass);
         let line_number = self.get_source_line_number();
-        self.code_object_stack.push(CodeObject::new(
+        self.push_output(CodeObject::new(
             vec![],
             Varargs::None,
             vec![],
@@ -1619,7 +1629,7 @@ impl Compiler {
 
         let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
-        self.code_object_stack.push(CodeObject::new(
+        self.push_output(CodeObject::new(
             vec![".0".to_string()],
             Varargs::None,
             vec![],
@@ -1821,14 +1831,14 @@ impl Compiler {
     // Low level helper functions:
     fn emit(&mut self, instruction: Instruction) {
         let location = compile_location(&self.current_source_location);
-        let cur_code_obj = self.current_code_object();
-        cur_code_obj.instructions.push(instruction);
-        cur_code_obj.locations.push(location);
         // TODO: insert source filename
+        self.current_output().emit(instruction, location);
     }
 
-    fn current_code_object(&mut self) -> &mut CodeObject {
-        self.code_object_stack.last_mut().unwrap()
+    fn current_output(&mut self) -> &mut O {
+        self.output_stack
+            .last_mut()
+            .expect("No OutputStream on stack")
     }
 
     // Generate a new label
@@ -1840,9 +1850,7 @@ impl Compiler {
 
     // Assign current position the given label
     fn set_label(&mut self, label: Label) {
-        let position = self.current_code_object().instructions.len();
-        // assert!(label not in self.label_map)
-        self.current_code_object().label_map.insert(label, position);
+        self.current_output().set_label(label)
     }
 
     fn set_source_location(&mut self, location: &ast::Location) {
@@ -1862,7 +1870,7 @@ impl Compiler {
     }
 
     fn mark_generator(&mut self) {
-        self.current_code_object().is_generator = true;
+        self.current_output().mark_generator();
     }
 }
 
@@ -1996,6 +2004,26 @@ mod tests {
                 ReturnValue
             ],
             code.instructions
+        );
+    }
+
+    #[test]
+    fn test_constant_optimization() {
+        let code = compile_exec("1 + 2 + 3 + 4\n1.5 * 2.5");
+        assert_eq!(
+            code.instructions,
+            vec![
+                LoadConst {
+                    value: Integer { value: 10.into() }
+                },
+                Pop,
+                LoadConst {
+                    value: Float { value: 3.75 }
+                },
+                Pop,
+                LoadConst { value: None },
+                ReturnValue,
+            ]
         );
     }
 }
