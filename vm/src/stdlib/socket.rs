@@ -4,7 +4,7 @@ use std::io::Read;
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "redox")))]
 use nix::unistd::sethostname;
 
 use gethostname::gethostname;
@@ -388,7 +388,7 @@ fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
         .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "redox")))]
 fn socket_sethostname(hostname: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     sethostname(hostname.value.as_str()).map_err(|err| convert_nix_error(vm, err))
 }
@@ -449,6 +449,7 @@ fn extend_module_platform_specific(_vm: &VirtualMachine, module: PyObjectRef) ->
 fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
     let ctx = &vm.ctx;
 
+    #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
          "sethostname" => ctx.new_rustfunc(socket_sethostname),
     });
