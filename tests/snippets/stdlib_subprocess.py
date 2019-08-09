@@ -38,3 +38,7 @@ else:
 p = subprocess.Popen(["sleep", "2"])
 p.terminate()
 assert p.poll() == -signal.SIGTERM
+
+p = subprocess.Popen(["sleep", "2"])
+p.kill()
+assert p.poll() == -signal.SIGKILL

@@ -156,6 +156,13 @@ impl PopenRef {
             .terminate()
             .map_err(|err| convert_io_error(vm, err))
     }
+
+    fn kill(self, vm: &VirtualMachine) -> PyResult<()> {
+        self.process
+            .borrow_mut()
+            .kill()
+            .map_err(|err| convert_io_error(vm, err))
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -173,6 +180,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "stdout" => ctx.new_property(PopenRef::stdout),
         "stderr" => ctx.new_property(PopenRef::stderr),
         "terminate" => ctx.new_rustfunc(PopenRef::terminate),
+        "kill" => ctx.new_rustfunc(PopenRef::kill),
     });
 
     let module = py_module!(vm, "subprocess", {
