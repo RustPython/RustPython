@@ -204,7 +204,7 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
     let argv = if let Some(script) = matches.values_of("script") {
         script.map(ToOwned::to_owned).collect()
     } else if let Some(module) = matches.values_of("m") {
-        std::iter::once("PLACEHOLEDER".to_owned())
+        std::iter::once("PLACEHOLDER".to_owned())
             .chain(module.skip(1).map(ToOwned::to_owned))
             .collect()
     } else if let Some(cmd) = matches.values_of("c") {
@@ -353,18 +353,12 @@ fn run_command(vm: &VirtualMachine, source: String) -> PyResult<()> {
 
 fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
-    let importlib = vm.import("_frozen_importlib", &vm.ctx.new_tuple(vec![]), 0)?;
-    let find_spec = vm.get_attribute(importlib, "_find_spec")?;
-    let spec = vm.invoke(
-        find_spec,
-        vec![vm.ctx.new_str(module.to_owned()), vm.get_none()],
-    )?;
-    if !vm.is_none(&spec) {
-        let origin = vm.get_attribute(spec, "origin")?;
-        let sys_path = vm.get_attribute(vm.sys_module.clone(), "argv")?;
-        sys_path.set_item(0, origin, vm)?;
-    }
-    vm.import(module, &vm.ctx.new_tuple(vec![]), 0)?;
+    let main_module = vm.ctx.new_module("__main__", vm.ctx.new_dict());
+    vm.get_attribute(vm.sys_module.clone(), "modules")?
+        .set_item("__main__", main_module, vm)?;
+    let runpy = vm.import("runpy", &vm.ctx.new_tuple(vec![]), 0)?;
+    let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
+    vm.invoke(run_module_as_main, vec![vm.new_str(module.to_owned())])?;
     Ok(())
 }
 
