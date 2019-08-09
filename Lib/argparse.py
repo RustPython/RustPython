@@ -328,14 +328,18 @@ class HelpFormatter(object):
 
                 # break usage into wrappable parts
                 part_regexp = (
-                    r'\(.*?\)+(?=\s|$)|'
-                    r'\[.*?\]+(?=\s|$)|'
-                    r'\S+'
+                    r'(\(.*?\)+|\[.*?\]+|\S+)(?:\s|$)'
                 )
+                # FIXME: use regex below once we're compatible with sre
+                # part_regexp = (
+                #     r'\(.*?\)+(?=\s|$)|'
+                #     r'\[.*?\]+(?=\s|$)|'
+                #     r'\S+'
+                # )
                 opt_usage = format(optionals, groups)
                 pos_usage = format(positionals, groups)
-                opt_parts = _re.findall(part_regexp, opt_usage)
-                pos_parts = _re.findall(part_regexp, pos_usage)
+                opt_parts = list(map(lambda t: t[0], _re.findall(part_regexp, opt_usage)))
+                pos_parts = list(map(lambda t: t[0], _re.findall(part_regexp, pos_usage)))
                 assert ' '.join(opt_parts) == opt_usage
                 assert ' '.join(pos_parts) == pos_usage
 
@@ -1629,8 +1633,7 @@ class ArgumentParser(_AttributeHolder, _ActionsContainer):
                  conflict_handler='error',
                  add_help=True,
                  allow_abbrev=True):
-
-        ArgumentParser.__init__(self,
+        _ActionsContainer.__init__(self,
                                 description=description,
                                 prefix_chars=prefix_chars,
                                 argument_default=argument_default,

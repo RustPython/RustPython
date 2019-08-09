@@ -777,6 +777,14 @@ fn builtin_import(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.invoke(vm.import_func.borrow().clone(), args)
 }
 
+fn builtin_vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
+    if let OptionalArg::Present(obj) = obj {
+        vm.get_attribute(obj, "__dict__")
+    } else {
+        Ok(vm.get_locals().into_object())
+    }
+}
+
 // builtin_vars
 
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
@@ -862,6 +870,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "super" => ctx.super_type(),
         "tuple" => ctx.tuple_type(),
         "type" => ctx.type_type(),
+        "vars" => ctx.new_rustfunc(builtin_vars),
         "zip" => ctx.zip_type(),
         "exit" => ctx.new_rustfunc(builtin_exit),
         "quit" => ctx.new_rustfunc(builtin_exit),
@@ -915,6 +924,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "ResourceWarning" => ctx.exceptions.resource_warning.clone(),
         "RuntimeWarning" => ctx.exceptions.runtime_warning.clone(),
         "UserWarning" => ctx.exceptions.user_warning.clone(),
+
+        "KeyboardInterrupt" => ctx.exceptions.keyboard_interrupt.clone(),
     });
 }
 

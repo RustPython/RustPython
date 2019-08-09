@@ -372,11 +372,7 @@ impl Frame {
                         *self.lasti.borrow_mut() -= 1;
                         Ok(Some(ExecutionResult::Yield(value)))
                     }
-                    None => {
-                        // Pop iterator from stack:
-                        self.pop_value();
-                        Ok(None)
-                    }
+                    None => Ok(None),
                 }
             }
             bytecode::Instruction::SetupLoop { start, end } => {
@@ -1176,7 +1172,10 @@ impl Frame {
     }
 
     fn pop_value(&self) -> PyObjectRef {
-        self.stack.borrow_mut().pop().unwrap()
+        self.stack
+            .borrow_mut()
+            .pop()
+            .expect("Tried to pop value but there was nothing on the stack")
     }
 
     fn pop_multiple(&self, count: usize) -> Vec<PyObjectRef> {
