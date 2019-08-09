@@ -5,6 +5,7 @@ use std::time::Duration;
 use subprocess;
 
 use crate::function::OptionalArg;
+use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objlist::PyListRef;
 use crate::obj::objsequence;
 use crate::obj::objstr::{self, PyStringRef};
@@ -163,6 +164,17 @@ impl PopenRef {
             .kill()
             .map_err(|err| convert_io_error(vm, err))
     }
+
+    fn communicate(
+        self,
+        stdin: OptionalArg<PyBytesRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Option<Vec<u8>>, Option<Vec<u8>>)> {
+        self.process
+            .borrow_mut()
+            .communicate_bytes(stdin.into_option().as_ref().map(|bytes| bytes.get_value()))
+            .map_err(|err| convert_io_error(vm, err))
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -181,6 +193,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "stderr" => ctx.new_property(PopenRef::stderr),
         "terminate" => ctx.new_rustfunc(PopenRef::terminate),
         "kill" => ctx.new_rustfunc(PopenRef::kill),
+        "communicate" => ctx.new_rustfunc(PopenRef::communicate),
     });
 
     let module = py_module!(vm, "subprocess", {

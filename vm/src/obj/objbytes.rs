@@ -11,7 +11,8 @@ use std::ops::Deref;
 
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject,
 };
 
 use super::objbyteinner::{
@@ -56,6 +57,12 @@ impl PyBytes {
 
     pub fn get_value(&self) -> &[u8] {
         &self.inner.elements
+    }
+}
+
+impl IntoPyObject for Vec<u8> {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self))
     }
 }
 

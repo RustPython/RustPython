@@ -30,10 +30,12 @@ p.wait()
 
 if "win" not in sys.platform:
 	# unix
-	assert p.stdout.read() == b"test\n"
+	test_output = b"test\n"
 else:
 	# windows
-	assert p.stdout.read() == b"test\r\n"
+	test_output = b"test\r\n"
+
+assert p.stdout.read() == test_output
 
 p = subprocess.Popen(["sleep", "2"])
 p.terminate()
@@ -42,3 +44,7 @@ assert p.poll() == -signal.SIGTERM
 p = subprocess.Popen(["sleep", "2"])
 p.kill()
 assert p.poll() == -signal.SIGKILL
+
+p = subprocess.Popen(["echo", "test"], stdout=subprocess.PIPE)
+(stdout, stderr) = p.communicate()
+assert stdout == test_output
