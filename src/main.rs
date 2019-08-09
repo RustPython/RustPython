@@ -51,7 +51,7 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
         .version(crate_version!())
         .author(crate_authors!())
         .about("Rust implementation of the Python language")
-        .usage("rustpython [OPTIONS] [-c CMD | -m MODULE | FILE | -] [PYARGS]...")
+        .usage("rustpython [OPTIONS] [-c CMD | -m MODULE | FILE] [PYARGS]...")
         .arg(
             Arg::with_name("script")
                 .required(false)
