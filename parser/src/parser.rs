@@ -376,7 +376,7 @@ mod tests {
         assert_eq!(
             parse_ast,
             ast::Expression {
-                location: ast::Location::new(1, 2),
+                location: ast::Location::new(1, 1),
                 node: ast::ExpressionType::Comprehension {
                     kind: Box::new(ast::ComprehensionKind::List {
                         element: mk_ident("x", 1, 2),
@@ -386,6 +386,7 @@ mod tests {
                         target: mk_ident("y", 1, 8),
                         iter: mk_ident("z", 1, 13),
                         ifs: vec![],
+                        is_async: false,
                     }],
                 }
             }
@@ -399,7 +400,7 @@ mod tests {
         assert_eq!(
             parse_ast,
             ast::Expression {
-                location: ast::Location::new(1, 2),
+                location: ast::Location::new(1, 1),
                 node: ast::ExpressionType::Comprehension {
                     kind: Box::new(ast::ComprehensionKind::List {
                         element: mk_ident("x", 1, 2)
@@ -415,6 +416,7 @@ mod tests {
                             },
                             iter: mk_ident("z", 1, 17),
                             ifs: vec![],
+                            is_async: false,
                         },
                         ast::Comprehension {
                             location: ast::Location::new(1, 19),
@@ -436,6 +438,7 @@ mod tests {
                                     },
                                 },
                             ],
+                            is_async: false,
                         }
                     ],
                 }

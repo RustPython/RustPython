@@ -74,6 +74,11 @@ pub enum StatementType {
         op: Operator,
         value: Box<Expression>,
     },
+    AnnAssign {
+        target: Box<Expression>,
+        annotation: Box<Expression>,
+        value: Option<Expression>,
+    },
     Expression {
         expression: Expression,
     },
@@ -313,6 +318,7 @@ pub struct Comprehension {
     pub target: Expression,
     pub iter: Expression,
     pub ifs: Vec<Expression>,
+    pub is_async: bool,
 }
 
 #[derive(Debug, PartialEq)]

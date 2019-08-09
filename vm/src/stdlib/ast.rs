@@ -216,6 +216,15 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
             op => vm.ctx.new_str(operator_string(op)),
             value => expression_to_ast(vm, value)?,
         }),
+        AnnAssign {
+            target,
+            annotation,
+            value,
+        } => node!(vm, AnnAssign, {
+            target => expression_to_ast(vm, target)?,
+            annotation => expression_to_ast(vm, annotation)?,
+            value => optional_expression_to_ast(vm, value)?,
+        }),
         Raise { exception, cause } => node!(vm, Raise, {
             exc => optional_expression_to_ast(vm, exception)?,
             cause => optional_expression_to_ast(vm, cause)?,
@@ -570,6 +579,7 @@ fn comprehension_to_ast(
         target => expression_to_ast(vm, &comprehension.target)?,
         iter => expression_to_ast(vm, &comprehension.iter)?,
         ifs => expressions_to_ast(vm, &comprehension.ifs)?,
+        is_async => vm.new_bool(comprehension.is_async),
     }))
 }
 
@@ -607,6 +617,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "alias" => py_class!(ctx, "alias", ast_base.clone(), {}),
         "arg" => py_class!(ctx, "arg", ast_base.clone(), {}),
         "arguments" => py_class!(ctx, "arguments", ast_base.clone(), {}),
+        "AnnAssign" => py_class!(ctx, "AnnAssign", ast_base.clone(), {}),
         "Assign" => py_class!(ctx, "Assign", ast_base.clone(), {}),
         "AugAssign" => py_class!(ctx, "AugAssign", ast_base.clone(), {}),
         "AsyncFor" => py_class!(ctx, "AsyncFor", ast_base.clone(), {}),

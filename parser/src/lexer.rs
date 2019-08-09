@@ -396,7 +396,7 @@ where
 
             let value = f64::from_str(&value_text).unwrap();
             // Parse trailing 'j':
-            if self.chr0 == Some('j') {
+            if self.chr0 == Some('j') || self.chr0 == Some('J') {
                 self.next_char();
                 let end_pos = self.get_pos();
                 Ok((
@@ -413,7 +413,7 @@ where
             }
         } else {
             // Parse trailing 'j':
-            if self.chr0 == Some('j') {
+            if self.chr0 == Some('j') || self.chr0 == Some('J') {
                 self.next_char();
                 let end_pos = self.get_pos();
                 let imag = f64::from_str(&value_text).unwrap();

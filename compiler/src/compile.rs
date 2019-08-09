@@ -368,33 +368,7 @@ impl<O: OutputStream> Compiler<O> {
                 }
                 self.set_label(end_label);
             }
-            While { test, body, orelse } => {
-                let start_label = self.new_label();
-                let else_label = self.new_label();
-                let end_label = self.new_label();
-                self.emit(Instruction::SetupLoop {
-                    start: start_label,
-                    end: end_label,
-                });
-
-                self.set_label(start_label);
-
-                self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
-
-                let was_in_loop = self.in_loop;
-                self.in_loop = true;
-                self.compile_statements(body)?;
-                self.in_loop = was_in_loop;
-                self.emit(Instruction::Jump {
-                    target: start_label,
-                });
-                self.set_label(else_label);
-                self.emit(Instruction::PopBlock);
-                if let Some(orelse) = orelse {
-                    self.compile_statements(orelse)?;
-                }
-                self.set_label(end_label);
-            }
+            While { test, body, orelse } => self.compile_while(test, body, orelse)?,
             With {
                 is_async,
                 items,
@@ -563,6 +537,11 @@ impl<O: OutputStream> Compiler<O> {
                 self.compile_op(op, true);
                 self.compile_store(target)?;
             }
+            AnnAssign {
+                target,
+                annotation,
+                value,
+            } => self.compile_annotated_assign(target, annotation, value)?,
             Delete { targets } => {
                 for target in targets {
                     self.compile_delete(target)?;
@@ -1011,6 +990,40 @@ impl<O: OutputStream> Compiler<O> {
         }
     }
 
+    fn compile_while(
+        &mut self,
+        test: &ast::Expression,
+        body: &[ast::Statement],
+        orelse: &Option<Vec<ast::Statement>>,
+    ) -> Result<(), CompileError> {
+        let start_label = self.new_label();
+        let else_label = self.new_label();
+        let end_label = self.new_label();
+        self.emit(Instruction::SetupLoop {
+            start: start_label,
+            end: end_label,
+        });
+
+        self.set_label(start_label);
+
+        self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
+
+        let was_in_loop = self.in_loop;
+        self.in_loop = true;
+        self.compile_statements(body)?;
+        self.in_loop = was_in_loop;
+        self.emit(Instruction::Jump {
+            target: start_label,
+        });
+        self.set_label(else_label);
+        self.emit(Instruction::PopBlock);
+        if let Some(orelse) = orelse {
+            self.compile_statements(orelse)?;
+        }
+        self.set_label(end_label);
+        Ok(())
+    }
+
     fn compile_for(
         &mut self,
         target: &ast::Expression,
@@ -1126,6 +1139,39 @@ impl<O: OutputStream> Compiler<O> {
         self.emit(Instruction::Pop);
 
         self.set_label(last_label);
+        Ok(())
+    }
+
+    fn compile_annotated_assign(
+        &mut self,
+        target: &ast::Expression,
+        annotation: &ast::Expression,
+        value: &Option<ast::Expression>,
+    ) -> Result<(), CompileError> {
+        if let Some(value) = value {
+            self.compile_expression(value)?;
+            self.compile_store(target)?;
+        }
+
+        // Compile annotation:
+        self.compile_expression(annotation)?;
+
+        if let ast::ExpressionType::Identifier { name } = &target.node {
+            // Store as dict entry in __annotations__ dict:
+            self.emit(Instruction::LoadName {
+                name: String::from("__annotations__"),
+                scope: bytecode::NameScope::Local,
+            });
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String {
+                    value: name.to_string(),
+                },
+            });
+            self.emit(Instruction::StoreSubscript);
+        } else {
+            // Drop annotation if not assigned to simple identifier.
+            self.emit(Instruction::Pop);
+        }
         Ok(())
     }
 
@@ -1272,6 +1318,8 @@ impl<O: OutputStream> Compiler<O> {
 
     fn compile_expression(&mut self, expression: &ast::Expression) -> Result<(), CompileError> {
         trace!("Compiling {:?}", expression);
+        self.set_source_location(&expression.location);
+
         use ast::ExpressionType::*;
         match &expression.node {
             Call {
@@ -1664,6 +1712,10 @@ impl<O: OutputStream> Compiler<O> {
 
         let mut loop_labels = vec![];
         for generator in generators {
+            if generator.is_async {
+                unimplemented!("async for comprehensions");
+            }
+
             if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
                 self.emit(Instruction::LoadName {
