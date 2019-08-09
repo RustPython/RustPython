@@ -155,6 +155,7 @@ matrix:
       # rust isn't yet available on bionic
       language: minimal
       dist: bionic
+      if: branch = release OR type = cron
       cache:
         cargo: true
         directories:
