@@ -11,7 +11,7 @@ use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::stdlib::io::io_open;
-use crate::stdlib::os::{raw_file_number, rust_file};
+use crate::stdlib::os::{convert_io_error, raw_file_number, rust_file};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
@@ -149,6 +149,13 @@ impl PopenRef {
     fn stderr(self, vm: &VirtualMachine) -> PyResult {
         convert_to_file_io(&self.process.borrow().stderr, "rb".to_string(), vm)
     }
+
+    fn terminate(self, vm: &VirtualMachine) -> PyResult<()> {
+        self.process
+            .borrow_mut()
+            .terminate()
+            .map_err(|err| convert_io_error(vm, err))
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -165,6 +172,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "stdin" => ctx.new_property(PopenRef::stdin),
         "stdout" => ctx.new_property(PopenRef::stdout),
         "stderr" => ctx.new_property(PopenRef::stderr),
+        "terminate" => ctx.new_rustfunc(PopenRef::terminate),
     });
 
     let module = py_module!(vm, "subprocess", {

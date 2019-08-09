@@ -1,6 +1,7 @@
 import subprocess
 import time
 import sys
+import signal
 
 from testutils import assertRaises
 
@@ -33,3 +34,7 @@ if "win" not in sys.platform:
 else:
 	# windows
 	assert p.stdout.read() == b"test\r\n"
+
+p = subprocess.Popen(["sleep", "2"])
+p.terminate()
+assert p.poll() == -signal.SIGTERM
