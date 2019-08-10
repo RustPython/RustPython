@@ -12,6 +12,8 @@ use nix::errno::Errno;
 use nix::pty::openpty;
 #[cfg(unix)]
 use nix::unistd::{self, Gid, Pid, Uid};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use num_traits::cast::ToPrimitive;
 
 use bitflags::bitflags;
@@ -99,7 +101,12 @@ bitflags! {
         const O_CREAT = 0o0000_0100;
         const O_EXCL = 0o0000_0200;
         const O_APPEND = 0o0000_2000;
-        const O_NONBLOCK = 0o0000_4000;
+        const O_NONBLOCK = libc::O_NONBLOCK as u32;
+        const O_DSYNC = libc::O_DSYNC as u32;
+        const O_RSYNC = libc::O_RSYNC as u32;
+        const O_NDELAY = libc::O_NDELAY as u32;
+        const O_NOCTTY = libc::O_NOCTTY as u32;
+        const O_CLOEXEC = libc::O_CLOEXEC as u32;
     }
 }
 
@@ -130,25 +137,46 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let flags = FileCreationFlags::from_bits(objint::get_value(flags).to_u32().unwrap())
         .ok_or_else(|| vm.new_value_error("Unsupported flag".to_string()))?;
 
-    let mut options = &mut OpenOptions::new();
+
+    let mut options = OpenOptions::new();
+
+    if cfg!(unix) {
+        let mut flag = 0;
+        if flags.contains(FileCreationFlags::O_DSYNC) {
+            flag |= libc::O_DSYNC;
+        }
+
+        if flags.contains(FileCreationFlags::O_RSYNC) {
+            flag |= libc::O_RSYNC;
+        }
+
+        if flags.contains(FileCreationFlags::O_NDELAY) {
+            flag |= libc::O_NDELAY;
+        }
+
+        if flags.contains(FileCreationFlags::O_NONBLOCK) {
+            flag |= libc::O_NONBLOCK;
+        }
+        options.custom_flags(flag);
+    }
 
     if flags.contains(FileCreationFlags::O_WRONLY) {
-        options = options.write(true);
+        options.write(true);
     } else if flags.contains(FileCreationFlags::O_RDWR) {
-        options = options.read(true).write(true);
+        options.read(true).write(true);
     } else {
-        options = options.read(true);
+        options.read(true);
     }
 
     if flags.contains(FileCreationFlags::O_APPEND) {
-        options = options.append(true);
+        options.append(true);
     }
 
     if flags.contains(FileCreationFlags::O_CREAT) {
         if flags.contains(FileCreationFlags::O_EXCL) {
-            options = options.create_new(true);
+            options.create_new(true);
         } else {
-            options = options.create(true);
+            options.create(true);
         }
     }
 
@@ -1051,18 +1079,11 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setgid" => ctx.new_rustfunc(os_setgid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
-        "O_DSYNC" => ctx.new_int(4096),
-        "O_RSYNC" => ctx.new_int(1_052_672),
-        "O_NDELAY" => ctx.new_int(0o0_004_000),
-        "O_NONBLOCK" => ctx.new_int(0o0_004_000),
-        "O_NOCTTY" => ctx.new_int(0o0_000_400),
-        "O_CLOEXEC" => ctx.new_int(0o2_000_000),
-        "POSIX_FADV_NORMAL" => ctx.new_int(0),
-        "POSIX_FADV_RANDOM" => ctx.new_int(1),
-        "POSIX_FADV_SEQUENTIAL" => ctx.new_int(2),
-        "POSIX_FADV_WILLNEED" => ctx.new_int(3),
-        "POSIX_FADV_DONTNEED" => ctx.new_int(4),
-        "POSIX_FADV_NOREUSE" => ctx.new_int(5),
+        "O_DSYNC" => ctx.new_int(FileCreationFlags::O_DSYNC.bits()),
+        "O_RSYNC" => ctx.new_int(FileCreationFlags::O_RSYNC.bits()),
+        "O_NDELAY" => ctx.new_int(FileCreationFlags::O_NDELAY.bits()),
+        "O_NOCTTY" => ctx.new_int(FileCreationFlags::O_NOCTTY.bits()),
+        "O_CLOEXEC" => ctx.new_int(FileCreationFlags::O_CLOEXEC.bits()),
     });
 
     #[cfg(not(target_os = "redox"))]
