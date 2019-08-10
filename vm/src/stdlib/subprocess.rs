@@ -175,6 +175,10 @@ impl PopenRef {
             .communicate_bytes(stdin.into_option().as_ref().map(|bytes| bytes.get_value()))
             .map_err(|err| convert_io_error(vm, err))
     }
+
+    fn pid(self, _vm: &VirtualMachine) -> Option<u32> {
+        self.process.borrow().pid()
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -194,6 +198,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "terminate" => ctx.new_rustfunc(PopenRef::terminate),
         "kill" => ctx.new_rustfunc(PopenRef::kill),
         "communicate" => ctx.new_rustfunc(PopenRef::communicate),
+        "pid" => ctx.new_property(PopenRef::pid),
     });
 
     let module = py_module!(vm, "subprocess", {
