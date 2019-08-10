@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::ffi::OsString;
 use std::fs::File;
 use std::time::Duration;
 
@@ -38,6 +39,8 @@ struct PopenArgs {
     stdout: Option<i64>,
     #[pyarg(positional_or_keyword, default = "None")]
     stderr: Option<i64>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    cwd: Option<PyStringRef>,
 }
 
 impl IntoPyObject for subprocess::ExitStatus {
@@ -96,6 +99,7 @@ impl PopenRef {
                 .map(|x| objstr::get_value(x))
                 .collect(),
         };
+        let cwd = args.cwd.map(|x| OsString::from(x.as_str()));
 
         let process = subprocess::Popen::create(
             &command_list,
@@ -103,6 +107,7 @@ impl PopenRef {
                 stdin,
                 stdout,
                 stderr,
+                cwd,
                 ..Default::default()
             },
         )
