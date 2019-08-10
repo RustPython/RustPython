@@ -135,8 +135,6 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let fname = &make_path(vm, name, &dir_fd).value;
 
     let mut options = OpenOptions::new();
-    // need to handle err?
-
     if cfg!(unix) || cfg!(windows) {
         let flags = objint::get_value(flags).to_i32().unwrap();
         options.custom_flags(flags);
@@ -1003,13 +1001,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getcwd" => ctx.new_rustfunc(os_getcwd),
         "chdir" => ctx.new_rustfunc(os_chdir),
         "fspath" => ctx.new_rustfunc(os_fspath),
-        "O_RDONLY" => ctx.new_int(FileCreationFlags::O_RDONLY.bits()),
-        "O_WRONLY" => ctx.new_int(FileCreationFlags::O_WRONLY.bits()),
-        "O_RDWR" => ctx.new_int(FileCreationFlags::O_RDWR.bits()),
-        "O_NONBLOCK" => ctx.new_int(FileCreationFlags::O_NONBLOCK.bits()),
-        "O_APPEND" => ctx.new_int(FileCreationFlags::O_APPEND.bits()),
-        "O_EXCL" => ctx.new_int(FileCreationFlags::O_EXCL.bits()),
-        "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits()),
+        "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
+        "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
+        "O_RDWR" => ctx.new_int(libc::O_RDWR),
+        "O_NONBLOCK" => ctx.new_int(libc::O_NONBLOCK),
+        "O_APPEND" => ctx.new_int(libc::O_APPEND),
+        "O_EXCL" => ctx.new_int(libc::O_EXCL),
+        "O_CREAT" => ctx.new_int(libc::O_CREAT),
         "F_OK" => ctx.new_int(0),
         "R_OK" => ctx.new_int(4),
         "W_OK" => ctx.new_int(2),
@@ -1063,11 +1061,11 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setgid" => ctx.new_rustfunc(os_setgid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
-        "O_DSYNC" => ctx.new_int(FileCreationFlags::O_DSYNC.bits()),
-        "O_RSYNC" => ctx.new_int(FileCreationFlags::O_RSYNC.bits()),
-        "O_NDELAY" => ctx.new_int(FileCreationFlags::O_NDELAY.bits()),
-        "O_NOCTTY" => ctx.new_int(FileCreationFlags::O_NOCTTY.bits()),
-        "O_CLOEXEC" => ctx.new_int(FileCreationFlags::O_CLOEXEC.bits()),
+        "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
+        "O_RSYNC" => ctx.new_int(libc::O_RSYNC),
+        "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
+        "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
+        "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
     });
 
     #[cfg(not(target_os = "redox"))]
