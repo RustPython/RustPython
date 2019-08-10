@@ -1051,6 +1051,18 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setgid" => ctx.new_rustfunc(os_setgid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
+        "O_DSYNC" => ctx.new_int(4096),
+        "O_RSYNC" => ctx.new_int(1_052_672),
+        "O_NDELAY" => ctx.new_int(0o0_004_000),
+        "O_NONBLOCK" => ctx.new_int(0o0_004_000),
+        "O_NOCTTY" => ctx.new_int(0o0_000_400),
+        "O_CLOEXEC" => ctx.new_int(0o2_000_000),
+        "POSIX_FADV_NORMAL" => ctx.new_int(0),
+        "POSIX_FADV_RANDOM" => ctx.new_int(1),
+        "POSIX_FADV_SEQUENTIAL" => ctx.new_int(2),
+        "POSIX_FADV_WILLNEED" => ctx.new_int(3),
+        "POSIX_FADV_DONTNEED" => ctx.new_int(4),
+        "POSIX_FADV_NOREUSE" => ctx.new_int(5),
     });
 
     #[cfg(not(target_os = "redox"))]
