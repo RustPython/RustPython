@@ -39,11 +39,13 @@ assert p.stdout.read() == test_output
 
 p = subprocess.Popen(["sleep", "2"])
 p.terminate()
-assert p.poll() == -signal.SIGTERM
+p.wait()
+assert p.returncode == -signal.SIGTERM
 
 p = subprocess.Popen(["sleep", "2"])
 p.kill()
-assert p.poll() == -signal.SIGKILL
+p.wait()
+assert p.returncode == -signal.SIGKILL
 
 p = subprocess.Popen(["echo", "test"], stdout=subprocess.PIPE)
 (stdout, stderr) = p.communicate()
