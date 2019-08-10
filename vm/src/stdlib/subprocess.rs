@@ -170,6 +170,7 @@ impl PopenRef {
             .map_err(|err| convert_io_error(vm, err))
     }
 
+    #[allow(clippy::type_complexity)]
     fn communicate(
         self,
         stdin: OptionalArg<PyBytesRef>,
