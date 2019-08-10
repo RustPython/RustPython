@@ -1,10 +1,12 @@
+use std::{env, fs};
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Error, ErrorKind, Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::time::{Duration, SystemTime};
-use std::{env, fs};
 
 #[cfg(unix)]
 use nix::errno::Errno;
@@ -12,8 +14,6 @@ use nix::errno::Errno;
 use nix::pty::openpty;
 #[cfg(unix)]
 use nix::unistd::{self, Gid, Pid, Uid};
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
 use num_traits::cast::ToPrimitive;
 
 use bitflags::bitflags;
@@ -95,12 +95,12 @@ pub fn os_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 bitflags! {
      pub struct FileCreationFlags: u32 {
         // https://elixir.bootlin.com/linux/v4.8/source/include/uapi/asm-generic/fcntl.h
-        const O_RDONLY = 0o0000_0000;
-        const O_WRONLY = 0o0000_0001;
-        const O_RDWR = 0o0000_0002;
-        const O_CREAT = 0o0000_0100;
-        const O_EXCL = 0o0000_0200;
-        const O_APPEND = 0o0000_2000;
+        const O_RDONLY = libc::O_RDONLY as u32;
+        const O_WRONLY = libc::O_WRONLY as u32;
+        const O_RDWR = libc::O_RDWR as u32;
+        const O_CREAT = libc::O_CREAT as u32;
+        const O_EXCL = libc::O_EXCL as u32;
+        const O_APPEND = libc::O_APPEND as u32;
         const O_NONBLOCK = libc::O_NONBLOCK as u32;
         const O_DSYNC = libc::O_DSYNC as u32;
         const O_RSYNC = libc::O_RSYNC as u32;
@@ -134,49 +134,33 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
     let fname = &make_path(vm, name, &dir_fd).value;
 
-    let flags = FileCreationFlags::from_bits(objint::get_value(flags).to_u32().unwrap())
-        .ok_or_else(|| vm.new_value_error("Unsupported flag".to_string()))?;
-
-
     let mut options = OpenOptions::new();
+    // need to handle err?
 
-    if cfg!(unix) {
-        let mut flag = 0;
-        if flags.contains(FileCreationFlags::O_DSYNC) {
-            flag |= libc::O_DSYNC;
-        }
-
-        if flags.contains(FileCreationFlags::O_RSYNC) {
-            flag |= libc::O_RSYNC;
-        }
-
-        if flags.contains(FileCreationFlags::O_NDELAY) {
-            flag |= libc::O_NDELAY;
-        }
-
-        if flags.contains(FileCreationFlags::O_NONBLOCK) {
-            flag |= libc::O_NONBLOCK;
-        }
-        options.custom_flags(flag);
-    }
-
-    if flags.contains(FileCreationFlags::O_WRONLY) {
-        options.write(true);
-    } else if flags.contains(FileCreationFlags::O_RDWR) {
-        options.read(true).write(true);
+    if cfg!(unix) || cfg!(windows) {
+        let flags = objint::get_value(flags).to_i32().unwrap();
+        options.custom_flags(flags);
     } else {
-        options.read(true);
-    }
-
-    if flags.contains(FileCreationFlags::O_APPEND) {
-        options.append(true);
-    }
-
-    if flags.contains(FileCreationFlags::O_CREAT) {
-        if flags.contains(FileCreationFlags::O_EXCL) {
-            options.create_new(true);
+        let flags = FileCreationFlags::from_bits(objint::get_value(flags).to_u32().unwrap())
+            .ok_or_else(|| vm.new_value_error("Unsupported flag".to_string()))?;
+        if flags.contains(FileCreationFlags::O_WRONLY) {
+            options.write(true);
+        } else if flags.contains(FileCreationFlags::O_RDWR) {
+            options.read(true).write(true);
         } else {
-            options.create(true);
+            options.read(true);
+        }
+
+        if flags.contains(FileCreationFlags::O_APPEND) {
+            options.append(true);
+        }
+
+        if flags.contains(FileCreationFlags::O_CREAT) {
+            if flags.contains(FileCreationFlags::O_EXCL) {
+                options.create_new(true);
+            } else {
+                options.create(true);
+            }
         }
     }
 
