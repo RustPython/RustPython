@@ -1303,9 +1303,11 @@ impl<O: OutputStream> Compiler<O> {
                             self.emit(Instruction::Pop);
                         }
                         if let Some(false_label) = false_label {
+                            self.emit(Instruction::Duplicate);
                             self.emit(Instruction::JumpIfFalse {
                                 target: false_label,
                             });
+                            self.emit(Instruction::Pop);
                         }
                     }
                 }
