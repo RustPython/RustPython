@@ -404,9 +404,8 @@ impl SymbolTableBuilder {
                 self.scan_expression(a)?;
                 self.scan_expression(b)?;
             }
-            BoolOp { a, b, .. } => {
-                self.scan_expression(a)?;
-                self.scan_expression(b)?;
+            BoolOp { values, .. } => {
+                self.scan_expressions(values)?;
             }
             Compare { vals, .. } => {
                 self.scan_expressions(vals)?;

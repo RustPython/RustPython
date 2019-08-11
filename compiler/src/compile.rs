@@ -15,6 +15,7 @@ use rustpython_parser::{ast, parser};
 
 type BasicOutputStream = PeepholeOptimizer<CodeObjectStream>;
 
+/// Main structure holding the state of compilation.
 struct Compiler<O: OutputStream = BasicOutputStream> {
     output_stack: Vec<O>,
     scope_stack: Vec<SymbolScope>,
@@ -105,12 +106,6 @@ pub enum Mode {
     Exec,
     Eval,
     Single,
-}
-
-#[derive(Clone, Copy)]
-enum EvalContext {
-    Statement,
-    Expression,
 }
 
 pub(crate) type Label = usize;
@@ -350,14 +345,14 @@ impl<O: OutputStream> Compiler<O> {
                 match orelse {
                     None => {
                         // Only if:
-                        self.compile_test(test, None, Some(end_label), EvalContext::Statement)?;
+                        self.compile_jump_if(test, false, end_label)?;
                         self.compile_statements(body)?;
                         self.set_label(end_label);
                     }
                     Some(statements) => {
                         // if - else:
                         let else_label = self.new_label();
-                        self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
+                        self.compile_jump_if(test, false, else_label)?;
                         self.compile_statements(body)?;
                         self.emit(Instruction::Jump { target: end_label });
 
@@ -459,7 +454,7 @@ impl<O: OutputStream> Compiler<O> {
                 // if some flag, ignore all assert statements!
                 if self.optimize == 0 {
                     let end_label = self.new_label();
-                    self.compile_test(test, Some(end_label), None, EvalContext::Statement)?;
+                    self.compile_jump_if(test, true, end_label)?;
                     self.emit(Instruction::LoadName {
                         name: String::from("AssertionError"),
                         scope: bytecode::NameScope::Local,
@@ -1006,7 +1001,7 @@ impl<O: OutputStream> Compiler<O> {
 
         self.set_label(start_label);
 
-        self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
+        self.compile_jump_if(test, false, else_label)?;
 
         let was_in_loop = self.in_loop;
         self.in_loop = true;
@@ -1118,12 +1113,9 @@ impl<O: OutputStream> Compiler<O> {
             });
 
             // if comparison result is false, we break with this value; if true, try the next one.
-            // (CPython compresses these three opcodes into JUMP_IF_FALSE_OR_POP)
-            self.emit(Instruction::Duplicate);
-            self.emit(Instruction::JumpIfFalse {
+            self.emit(Instruction::JumpIfFalseOrPop {
                 target: break_label,
             });
-            self.emit(Instruction::Pop);
         }
 
         // handle the last comparison
@@ -1256,63 +1248,117 @@ impl<O: OutputStream> Compiler<O> {
         self.emit(Instruction::BinaryOperation { op: i, inplace });
     }
 
-    fn compile_test(
+    /// Implement boolean short circuit evaluation logic.
+    /// https://en.wikipedia.org/wiki/Short-circuit_evaluation
+    ///
+    /// This means, in a boolean statement 'x and y' the variable y will
+    /// not be evaluated when x is false.
+    ///
+    /// The idea is to jump to a label if the expression is either true or false
+    /// (indicated by the condition parameter).
+    fn compile_jump_if(
         &mut self,
         expression: &ast::Expression,
-        true_label: Option<Label>,
-        false_label: Option<Label>,
-        context: EvalContext,
+        condition: bool,
+        target_label: Label,
     ) -> Result<(), CompileError> {
         // Compile expression for test, and jump to label if false
         match &expression.node {
-            ast::ExpressionType::BoolOp { a, op, b } => match op {
-                ast::BooleanOperator::And => {
-                    let f = false_label.unwrap_or_else(|| self.new_label());
-                    self.compile_test(a, None, Some(f), context)?;
-                    self.compile_test(b, true_label, false_label, context)?;
-                    if false_label.is_none() {
-                        self.set_label(f);
-                    }
-                }
-                ast::BooleanOperator::Or => {
-                    let t = true_label.unwrap_or_else(|| self.new_label());
-                    self.compile_test(a, Some(t), None, context)?;
-                    self.compile_test(b, true_label, false_label, context)?;
-                    if true_label.is_none() {
-                        self.set_label(t);
-                    }
-                }
-            },
-            _ => {
-                self.compile_expression(expression)?;
-                match context {
-                    EvalContext::Statement => {
-                        if let Some(true_label) = true_label {
-                            self.emit(Instruction::JumpIf { target: true_label });
-                        }
-                        if let Some(false_label) = false_label {
-                            self.emit(Instruction::JumpIfFalse {
-                                target: false_label,
-                            });
+            ast::ExpressionType::BoolOp { op, values } => {
+                match op {
+                    ast::BooleanOperator::And => {
+                        if condition {
+                            // If all values are true.
+                            let end_label = self.new_label();
+                            let (last_value, values) = values.split_last().unwrap();
+
+                            // If any of the values is false, we can short-circuit.
+                            for value in values {
+                                self.compile_jump_if(value, false, end_label)?;
+                            }
+
+                            // It depends upon the last value now: will it be true?
+                            self.compile_jump_if(last_value, true, target_label)?;
+                            self.set_label(end_label);
+                        } else {
+                            // If any value is false, the whole condition is false.
+                            for value in values {
+                                self.compile_jump_if(value, false, target_label)?;
+                            }
                         }
                     }
-                    EvalContext::Expression => {
-                        if let Some(true_label) = true_label {
-                            self.emit(Instruction::Duplicate);
-                            self.emit(Instruction::JumpIf { target: true_label });
-                            self.emit(Instruction::Pop);
-                        }
-                        if let Some(false_label) = false_label {
-                            self.emit(Instruction::Duplicate);
-                            self.emit(Instruction::JumpIfFalse {
-                                target: false_label,
-                            });
-                            self.emit(Instruction::Pop);
+                    ast::BooleanOperator::Or => {
+                        if condition {
+                            // If any of the values is true.
+                            for value in values {
+                                self.compile_jump_if(value, true, target_label)?;
+                            }
+                        } else {
+                            // If all of the values are false.
+                            let end_label = self.new_label();
+                            let (last_value, values) = values.split_last().unwrap();
+
+                            // If any value is true, we can short-circuit:
+                            for value in values {
+                                self.compile_jump_if(value, true, end_label)?;
+                            }
+
+                            // It all depends upon the last value now!
+                            self.compile_jump_if(last_value, false, target_label)?;
+                            self.set_label(end_label);
                         }
                     }
                 }
             }
+            ast::ExpressionType::Unop {
+                op: ast::UnaryOperator::Not,
+                a,
+            } => {
+                self.compile_jump_if(a, !condition, target_label)?;
+            }
+            _ => {
+                // Fall back case which always will work!
+                self.compile_expression(expression)?;
+                if condition {
+                    self.emit(Instruction::JumpIfTrue {
+                        target: target_label,
+                    });
+                } else {
+                    self.emit(Instruction::JumpIfFalse {
+                        target: target_label,
+                    });
+                }
+            }
         }
+        Ok(())
+    }
+
+    /// Compile a boolean operation as an expression.
+    /// This means, that the last value remains on the stack.
+    fn compile_bool_op(
+        &mut self,
+        op: &ast::BooleanOperator,
+        values: &[ast::Expression],
+    ) -> Result<(), CompileError> {
+        let end_label = self.new_label();
+
+        let (last_value, values) = values.split_last().unwrap();
+        for value in values {
+            self.compile_expression(value)?;
+
+            match op {
+                ast::BooleanOperator::And => {
+                    self.emit(Instruction::JumpIfFalseOrPop { target: end_label });
+                }
+                ast::BooleanOperator::Or => {
+                    self.emit(Instruction::JumpIfTrueOrPop { target: end_label });
+                }
+            }
+        }
+
+        // If all values did not qualify, take the value of the last value:
+        self.compile_expression(last_value)?;
+        self.set_label(end_label);
         Ok(())
     }
 
@@ -1327,12 +1373,7 @@ impl<O: OutputStream> Compiler<O> {
                 args,
                 keywords,
             } => self.compile_call(function, args, keywords)?,
-            BoolOp { .. } => self.compile_test(
-                expression,
-                Option::None,
-                Option::None,
-                EvalContext::Expression,
-            )?,
+            BoolOp { op, values } => self.compile_bool_op(op, values)?,
             Binop { a, op, b } => {
                 self.compile_expression(a)?;
                 self.compile_expression(b)?;
@@ -1527,8 +1568,7 @@ impl<O: OutputStream> Compiler<O> {
             IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
                 let end_label = self.new_label();
-                self.compile_test(test, Option::None, Option::None, EvalContext::Expression)?;
-                self.emit(Instruction::JumpIfFalse { target: no_label });
+                self.compile_jump_if(test, false, no_label)?;
                 // True case
                 self.compile_expression(body)?;
                 self.emit(Instruction::Jump { target: end_label });
@@ -1745,12 +1785,7 @@ impl<O: OutputStream> Compiler<O> {
 
             // Now evaluate the ifs:
             for if_condition in &generator.ifs {
-                self.compile_test(
-                    if_condition,
-                    None,
-                    Some(start_label),
-                    EvalContext::Statement,
-                )?
+                self.compile_jump_if(if_condition, false, start_label)?
             }
         }
 
@@ -1988,11 +2023,11 @@ mod tests {
                 LoadConst {
                     value: Boolean { value: true }
                 },
-                JumpIf { target: 1 },
+                JumpIfTrue { target: 1 },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIf { target: 1 },
+                JumpIfTrue { target: 1 },
                 LoadConst {
                     value: Boolean { value: false }
                 },
@@ -2042,7 +2077,7 @@ mod tests {
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIf { target: 1 },
+                JumpIfTrue { target: 1 },
                 LoadConst {
                     value: Boolean { value: false }
                 },

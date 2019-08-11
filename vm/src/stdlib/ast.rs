@@ -332,11 +332,8 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 operand => expression_to_ast(vm, a)?,
             })
         }
-        BoolOp { a, op, b } => {
-            // Attach values:
-            let py_a = expression_to_ast(vm, a)?.into_object();
-            let py_b = expression_to_ast(vm, b)?.into_object();
-            let py_values = vm.ctx.new_tuple(vec![py_a, py_b]);
+        BoolOp { op, values } => {
+            let py_values = expressions_to_ast(vm, values)?;
 
             let str_op = match op {
                 ast::BooleanOperator::And => "And",
