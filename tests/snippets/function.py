@@ -1,4 +1,3 @@
-
 __name__ = "function"
 
 
@@ -72,3 +71,20 @@ def f6():
 
 
 f6()
+
+
+def f7():
+    try:
+        def t() -> void: # noqa: F821
+            pass
+    except NameError:
+        return True
+    return False
+
+assert f7()
+
+
+def f8() -> int:
+    return 10
+
+assert f8() == 10
