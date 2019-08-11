@@ -47,7 +47,7 @@ use crate::obj::objproperty::PropertyBuilder;
 use crate::obj::objrange;
 use crate::obj::objset::{self, PySet};
 use crate::obj::objslice;
-use crate::obj::objstaticmethod;
+use crate::obj::objstaticmethod::{self, PyStaticMethod};
 use crate::obj::objstr;
 use crate::obj::objsuper;
 use crate::obj::objtuple::{self, PyTuple, PyTupleRef};
@@ -712,6 +712,19 @@ impl PyContext {
         PyObject::new(
             PyBuiltinFunction::new(f.into_func()),
             self.builtin_function_or_method_type(),
+            None,
+        )
+    }
+
+    pub fn new_staticmethod<F, T, R>(&self, f: F) -> PyObjectRef
+    where
+        F: IntoPyNativeFunc<T, R>,
+    {
+        PyObject::new(
+            PyStaticMethod {
+                callable: self.new_rustfunc(f),
+            },
+            self.staticmethod_type(),
             None,
         )
     }

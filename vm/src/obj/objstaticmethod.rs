@@ -1,7 +1,8 @@
 use super::objtype::PyClassRef;
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
+#[pyclass]
 #[derive(Clone, Debug)]
 pub struct PyStaticMethod {
     pub callable: PyObjectRef,
@@ -14,7 +15,9 @@ impl PyValue for PyStaticMethod {
     }
 }
 
-impl PyStaticMethodRef {
+#[pyimpl]
+impl PyStaticMethod {
+    #[pymethod(name = "__new__")]
     fn new(
         cls: PyClassRef,
         callable: PyObjectRef,
@@ -26,15 +29,12 @@ impl PyStaticMethodRef {
         .into_ref_with_type(vm, cls)
     }
 
-    fn get(self, _inst: PyObjectRef, _owner: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__get__")]
+    fn get(&self, _inst: PyObjectRef, _owner: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
         Ok(self.callable.clone())
     }
 }
 
 pub fn init(context: &PyContext) {
-    let staticmethod_type = &context.staticmethod_type;
-    extend_class!(context, staticmethod_type, {
-        "__get__" => context.new_rustfunc(PyStaticMethodRef::get),
-        "__new__" => context.new_rustfunc(PyStaticMethodRef::new),
-    });
+    PyStaticMethod::extend_class(context, &context.staticmethod_type);
 }
