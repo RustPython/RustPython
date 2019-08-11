@@ -340,18 +340,7 @@ where
 
     /// Lex a hex/octal/decimal/binary number without a decimal point.
     fn lex_number_radix(&mut self, start_pos: Location, radix: u32) -> LexResult {
-        let mut value_text = String::new();
-
-        loop {
-            if let Some(c) = self.take_number(radix) {
-                value_text.push(c);
-            } else if self.chr0 == Some('_') {
-                self.next_char();
-            } else {
-                break;
-            }
-        }
-
+        let value_text = self.radix_run(radix);
         let end_pos = self.get_pos();
         let value = BigInt::from_str_radix(&value_text, radix).map_err(|e| LexicalError {
             error: LexicalErrorType::OtherError(format!("{:?}", e)),
@@ -360,24 +349,19 @@ where
         Ok((start_pos, Tok::Int { value }, end_pos))
     }
 
+    /// Lex a normal number, that is, no octal, hex or binary number.
     fn lex_normal_number(&mut self) -> LexResult {
         let start_pos = self.get_pos();
 
-        let mut value_text = String::new();
-
         // Normal number:
-        while let Some(c) = self.take_number(10) {
-            value_text.push(c);
-        }
+        let mut value_text = self.radix_run(10);
 
         // If float:
         if self.chr0 == Some('.') || self.at_exponent() {
             // Take '.':
             if self.chr0 == Some('.') {
                 value_text.push(self.next_char().unwrap());
-                while let Some(c) = self.take_number(10) {
-                    value_text.push(c);
-                }
+                value_text.push_str(&self.radix_run(10));
             }
 
             // 1e6 for example:
@@ -389,9 +373,7 @@ where
                     value_text.push(self.next_char().unwrap());
                 }
 
-                while let Some(c) = self.take_number(10) {
-                    value_text.push(c);
-                }
+                value_text.push_str(&self.radix_run(10));
             }
 
             let value = f64::from_str(&value_text).unwrap();
@@ -423,6 +405,57 @@ where
                 let value = value_text.parse::<BigInt>().unwrap();
                 Ok((start_pos, Tok::Int { value }, end_pos))
             }
+        }
+    }
+
+    /// Consume a sequence of numbers with the given radix,
+    /// the digits can be decorated with underscores
+    /// like this: '1_2_3_4' == '1234'
+    fn radix_run(&mut self, radix: u32) -> String {
+        let mut value_text = String::new();
+        loop {
+            if let Some(c) = self.take_number(radix) {
+                value_text.push(c);
+            } else if self.chr0 == Some('_') && Lexer::<T>::is_digit_of_radix(&self.chr1, radix) {
+                self.next_char();
+            } else {
+                break;
+            }
+        }
+        value_text
+    }
+
+    /// Consume a single character with the given radix.
+    fn take_number(&mut self, radix: u32) -> Option<char> {
+        let take_char = Lexer::<T>::is_digit_of_radix(&self.chr0, radix);
+
+        if take_char {
+            Some(self.next_char().unwrap())
+        } else {
+            None
+        }
+    }
+
+    /// Test if a digit is of a certain radix.
+    fn is_digit_of_radix(c: &Option<char>, radix: u32) -> bool {
+        match radix {
+            2 => match c {
+                Some('0'..='1') => true,
+                _ => false,
+            },
+            8 => match c {
+                Some('0'..='7') => true,
+                _ => false,
+            },
+            10 => match c {
+                Some('0'..='9') => true,
+                _ => false,
+            },
+            16 => match c {
+                Some('0'..='9') | Some('a'..='f') | Some('A'..='F') => true,
+                _ => false,
+            },
+            x => unimplemented!("Radix not implemented: {}", x),
         }
     }
 
@@ -623,34 +656,6 @@ where
             }
         } else {
             false
-        }
-    }
-
-    fn take_number(&mut self, radix: u32) -> Option<char> {
-        let take_char = match radix {
-            2 => match self.chr0 {
-                Some('0'..='1') => true,
-                _ => false,
-            },
-            8 => match self.chr0 {
-                Some('0'..='7') => true,
-                _ => false,
-            },
-            10 => match self.chr0 {
-                Some('0'..='9') => true,
-                _ => false,
-            },
-            16 => match self.chr0 {
-                Some('0'..='9') | Some('a'..='f') | Some('A'..='F') => true,
-                _ => false,
-            },
-            x => unimplemented!("Radix not implemented: {}", x),
-        };
-
-        if take_char {
-            Some(self.next_char().unwrap())
-        } else {
-            None
         }
     }
 
