@@ -146,6 +146,17 @@ fn inner_mod(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+fn inner_divmod(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
+    if int2.value.is_zero() {
+        Err(vm.new_zero_division_error("integer division or modulo by zero".to_string()))
+    } else {
+        let (div, modulo) = int1.value.div_mod_floor(&int2.value);
+        Ok(vm
+            .ctx
+            .new_tuple(vec![vm.ctx.new_int(div), vm.ctx.new_int(modulo)]))
+    }
+}
+
 #[pyimpl]
 impl PyInt {
     #[pymethod(name = "__eq__")]
@@ -397,15 +408,8 @@ impl PyInt {
     #[pymethod(name = "__divmod__")]
     fn divmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let v2 = get_value(&other);
-            if *v2 != BigInt::zero() {
-                let (r1, r2) = self.value.div_rem(v2);
-                Ok(vm
-                    .ctx
-                    .new_tuple(vec![vm.ctx.new_int(r1), vm.ctx.new_int(r2)]))
-            } else {
-                Err(vm.new_zero_division_error("integer divmod by zero".to_string()))
-            }
+            let other = other.payload::<PyInt>().unwrap();
+            inner_divmod(self, &other, vm)
         } else {
             Ok(vm.ctx.not_implemented())
         }
