@@ -14,7 +14,7 @@ extern crate log;
 use clap::{App, Arg};
 
 use rustpython_parser::{ast, parser};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 fn main() {
@@ -77,8 +77,8 @@ fn parse_python_file(filename: &Path) -> ParsedFile {
     info!("Parsing file {:?}", filename);
     match std::fs::read_to_string(filename) {
         Err(e) => ParsedFile {
-            filename: Box::new(filename.to_path_buf()),
-            code: "".to_string(),
+            // filename: Box::new(filename.to_path_buf()),
+            // code: "".to_string(),
             num_lines: 0,
             result: Err(e.to_string()),
         },
@@ -86,8 +86,8 @@ fn parse_python_file(filename: &Path) -> ParsedFile {
             let num_lines = source.to_string().lines().count();
             let result = parser::parse_program(&source).map_err(|e| e.to_string());
             ParsedFile {
-                filename: Box::new(filename.to_path_buf()),
-                code: source.to_string(),
+                // filename: Box::new(filename.to_path_buf()),
+                // code: source.to_string(),
                 num_lines,
                 result,
             }
@@ -140,8 +140,8 @@ struct ScanResult {
 }
 
 struct ParsedFile {
-    filename: Box<PathBuf>,
-    code: String,
+    // filename: Box<PathBuf>,
+    // code: String,
     num_lines: usize,
     result: ParseResult,
 }

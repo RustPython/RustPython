@@ -416,7 +416,7 @@ where
         loop {
             if let Some(c) = self.take_number(radix) {
                 value_text.push(c);
-            } else if self.chr0 == Some('_') && Lexer::<T>::is_digit_of_radix(&self.chr1, radix) {
+            } else if self.chr0 == Some('_') && Lexer::<T>::is_digit_of_radix(self.chr1, radix) {
                 self.next_char();
             } else {
                 break;
@@ -427,7 +427,7 @@ where
 
     /// Consume a single character with the given radix.
     fn take_number(&mut self, radix: u32) -> Option<char> {
-        let take_char = Lexer::<T>::is_digit_of_radix(&self.chr0, radix);
+        let take_char = Lexer::<T>::is_digit_of_radix(self.chr0, radix);
 
         if take_char {
             Some(self.next_char().unwrap())
@@ -437,7 +437,7 @@ where
     }
 
     /// Test if a digit is of a certain radix.
-    fn is_digit_of_radix(c: &Option<char>, radix: u32) -> bool {
+    fn is_digit_of_radix(c: Option<char>, radix: u32) -> bool {
         match radix {
             2 => match c {
                 Some('0'..='1') => true,
