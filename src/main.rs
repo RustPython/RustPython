@@ -333,7 +333,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
 
 fn _run_string(vm: &VirtualMachine, scope: Scope, source: &str, source_path: String) -> PyResult {
     let code_obj = vm
-        .compile(source, &compile::Mode::Exec, source_path.clone())
+        .compile(source, compile::Mode::Exec, source_path.clone())
         .map_err(|err| vm.new_syntax_error(&err))?;
     // trace!("Code object: {:?}", code_obj.borrow());
     scope
@@ -426,7 +426,7 @@ fn test_run_script() {
 }
 
 fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), CompileError> {
-    match vm.compile(source, &compile::Mode::Single, "<stdin>".to_string()) {
+    match vm.compile(source, compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => {
             match vm.run_code_obj(code, scope.clone()) {
                 Ok(value) => {

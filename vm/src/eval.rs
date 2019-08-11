@@ -4,7 +4,7 @@ use crate::vm::VirtualMachine;
 use rustpython_compiler::compile;
 
 pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) -> PyResult {
-    match vm.compile(source, &compile::Mode::Eval, source_path.to_string()) {
+    match vm.compile(source, compile::Mode::Eval, source_path.to_string()) {
         Ok(bytecode) => {
             debug!("Code object: {:?}", bytecode);
             vm.run_code_obj(bytecode, scope)

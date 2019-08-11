@@ -31,7 +31,7 @@ struct Compiler<O: OutputStream = BasicOutputStream> {
 /// Compile a given sourcecode into a bytecode object.
 pub fn compile(
     source: &str,
-    mode: &Mode,
+    mode: Mode,
     source_path: String,
     optimize: u8,
 ) -> Result<CodeObject, CompileError> {
@@ -102,6 +102,7 @@ pub fn compile_program_single(
     })
 }
 
+#[derive(Clone, Copy)]
 pub enum Mode {
     Exec,
     Eval,

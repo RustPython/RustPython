@@ -41,7 +41,7 @@ impl CompilationSource {
     fn compile_string(
         &self,
         source: &str,
-        mode: &compile::Mode,
+        mode: compile::Mode,
         module_name: String,
     ) -> Result<CodeObject, Diagnostic> {
         compile::compile(source, mode, module_name, 0)
@@ -50,7 +50,7 @@ impl CompilationSource {
 
     fn compile(
         &self,
-        mode: &compile::Mode,
+        mode: compile::Mode,
         module_name: String,
     ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         Ok(match &self.kind {
@@ -94,7 +94,7 @@ impl CompilationSource {
         &self,
         path: &Path,
         parent: String,
-        mode: &compile::Mode,
+        mode: compile::Mode,
     ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         let mut code_map = HashMap::new();
         let paths = fs::read_dir(&path).map_err(|err| {
@@ -225,7 +225,7 @@ impl PyCompileInput {
                 )
             })?
             .compile(
-                &mode.unwrap_or(compile::Mode::Exec),
+                mode.unwrap_or(compile::Mode::Exec),
                 module_name.unwrap_or_else(|| "frozen".to_string()),
             )
     }
