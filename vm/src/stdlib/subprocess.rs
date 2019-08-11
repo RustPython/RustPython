@@ -1,17 +1,19 @@
 use std::cell::RefCell;
+use std::ffi::OsString;
 use std::fs::File;
 use std::time::Duration;
 
 use subprocess;
 
 use crate::function::OptionalArg;
+use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objlist::PyListRef;
 use crate::obj::objsequence;
 use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::stdlib::io::io_open;
-use crate::stdlib::os::{raw_file_number, rust_file};
+use crate::stdlib::os::{convert_io_error, raw_file_number, rust_file};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
@@ -37,6 +39,8 @@ struct PopenArgs {
     stdout: Option<i64>,
     #[pyarg(positional_or_keyword, default = "None")]
     stderr: Option<i64>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    cwd: Option<PyStringRef>,
 }
 
 impl IntoPyObject for subprocess::ExitStatus {
@@ -95,6 +99,7 @@ impl PopenRef {
                 .map(|x| objstr::get_value(x))
                 .collect(),
         };
+        let cwd = args.cwd.map(|x| OsString::from(x.as_str()));
 
         let process = subprocess::Popen::create(
             &command_list,
@@ -102,6 +107,7 @@ impl PopenRef {
                 stdin,
                 stdout,
                 stderr,
+                cwd,
                 ..Default::default()
             },
         )
@@ -149,6 +155,36 @@ impl PopenRef {
     fn stderr(self, vm: &VirtualMachine) -> PyResult {
         convert_to_file_io(&self.process.borrow().stderr, "rb".to_string(), vm)
     }
+
+    fn terminate(self, vm: &VirtualMachine) -> PyResult<()> {
+        self.process
+            .borrow_mut()
+            .terminate()
+            .map_err(|err| convert_io_error(vm, err))
+    }
+
+    fn kill(self, vm: &VirtualMachine) -> PyResult<()> {
+        self.process
+            .borrow_mut()
+            .kill()
+            .map_err(|err| convert_io_error(vm, err))
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn communicate(
+        self,
+        stdin: OptionalArg<PyBytesRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Option<Vec<u8>>, Option<Vec<u8>>)> {
+        self.process
+            .borrow_mut()
+            .communicate_bytes(stdin.into_option().as_ref().map(|bytes| bytes.get_value()))
+            .map_err(|err| convert_io_error(vm, err))
+    }
+
+    fn pid(self, _vm: &VirtualMachine) -> Option<u32> {
+        self.process.borrow().pid()
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -165,6 +201,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "stdin" => ctx.new_property(PopenRef::stdin),
         "stdout" => ctx.new_property(PopenRef::stdout),
         "stderr" => ctx.new_property(PopenRef::stderr),
+        "terminate" => ctx.new_rustfunc(PopenRef::terminate),
+        "kill" => ctx.new_rustfunc(PopenRef::kill),
+        "communicate" => ctx.new_rustfunc(PopenRef::communicate),
+        "pid" => ctx.new_property(PopenRef::pid),
     });
 
     let module = py_module!(vm, "subprocess", {

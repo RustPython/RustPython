@@ -159,7 +159,7 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(raw_file_number(handle)))
 }
 
-fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
+pub fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
     let os_error = match err.kind() {
         ErrorKind::NotFound => {
             let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
