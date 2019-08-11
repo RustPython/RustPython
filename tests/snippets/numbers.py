@@ -1,3 +1,5 @@
+from testutils import assertRaises
+
 x = 5
 x.__init__(6)
 assert x == 5
@@ -42,3 +44,12 @@ assert int(0).__rxor__(1) == 1
 assert int(1).__rxor__(1) == 0
 assert int(3).__rxor__(-3) == -2
 assert int(3).__rxor__(4) == 7
+
+# Test underscores in numbers:
+assert 1_2 == 12
+assert 1_2_3 == 123
+assert 1_2.3_4 == 12.34
+assert 1_2.3_4e0_0 == 12.34
+
+with assertRaises(SyntaxError):
+    eval('1__2')
