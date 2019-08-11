@@ -415,6 +415,16 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__rdivmod__")]
+    fn rdivmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &vm.ctx.int_type()) {
+            let other = other.payload::<PyInt>().unwrap();
+            inner_divmod(&other, self, vm)
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
     #[pymethod(name = "__neg__")]
     fn neg(&self, _vm: &VirtualMachine) -> BigInt {
         -(&self.value)

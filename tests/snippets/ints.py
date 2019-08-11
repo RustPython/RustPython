@@ -40,6 +40,7 @@ assert (2).__rtruediv__(1) == 0.5
 assert (-2).__divmod__(3) == (-1, 1)
 with assertRaises(ZeroDivisionError):
     (2).__divmod__(0)
+assert (-3).__rdivmod__(2) == (-1, -1)
 assert (2).__pow__(3) == 8
 assert (10).__pow__(-1) == 0.1
 assert (2).__rpow__(3) == 9
