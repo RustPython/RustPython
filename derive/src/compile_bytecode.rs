@@ -169,15 +169,13 @@ impl PyCompileInput {
         for meta in &self.metas {
             if let Meta::NameValue(name_value) = meta {
                 if name_value.ident == "mode" {
-                    mode = Some(match &name_value.lit {
-                        Lit::Str(s) => match s.value().as_str() {
-                            "exec" => compile::Mode::Exec,
-                            "eval" => compile::Mode::Eval,
-                            "single" => compile::Mode::Single,
-                            _ => bail_span!(s, "mode must be exec, eval, or single"),
+                    match &name_value.lit {
+                        Lit::Str(s) => match s.value().parse() {
+                            Ok(mode_val) => mode = Some(mode_val),
+                            Err(e) => bail_span!(s, "{}", e),
                         },
                         _ => bail_span!(name_value.lit, "mode must be a string"),
-                    })
+                    }
                 } else if name_value.ident == "module_name" {
                     module_name = Some(match &name_value.lit {
                         Lit::Str(s) => s.value(),

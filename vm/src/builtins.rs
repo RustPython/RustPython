@@ -21,7 +21,6 @@ use crate::obj::objtype::{self, PyClassRef};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
-use crate::eval::get_compile_mode;
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
@@ -125,7 +124,9 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef
         Either::B(bytes) => str::from_utf8(&bytes).unwrap().to_string(),
     };
 
-    let mode = get_compile_mode(vm, &args.mode.value)?;
+    let mode = args.mode.as_str().parse().map_err(|_| {
+        vm.new_value_error("compile() mode must be 'exec', 'eval' or 'single'".to_owned())
+    })?;
 
     vm.compile(&source, mode, args.filename.value.to_string())
         .map_err(|err| vm.new_syntax_error(&err))

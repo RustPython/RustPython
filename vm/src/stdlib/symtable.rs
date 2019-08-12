@@ -1,4 +1,3 @@
-use crate::eval::get_compile_mode;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
@@ -28,7 +27,9 @@ fn symtable_symtable(
     mode: PyStringRef,
     vm: &VirtualMachine,
 ) -> PyResult<PySymbolTableRef> {
-    let mode = get_compile_mode(vm, &mode.value)?;
+    let mode = mode.as_str().parse().map_err(|_| {
+        vm.new_value_error("symtable() arg 3 must be 'exec' or 'eval' or 'single'".to_owned())
+    })?;
     let symtable =
         source_to_symtable(&source.value, mode).map_err(|err| vm.new_syntax_error(&err))?;
 
