@@ -35,46 +35,49 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     })
 }
 
-macro_rules! checksum_fn {
-    ($fn_name: ident, $h_new: expr, $h_update: expr, $h_compute: expr, $begin_state: expr) => {
-        fn $fn_name(
-            data: PyBytesRef,
-            begin_state: OptionalArg<PyIntRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyObjectRef> {
-            let data = data.get_value();
+/// Compute an Adler-32 checksum of data.
+fn zlib_adler32(
+    data: PyBytesRef,
+    begin_state: OptionalArg<PyIntRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyObjectRef> {
+    let data = data.get_value();
 
-            let begin_state = begin_state
-                .into_option()
-                .as_ref()
-                .map(|v| v.as_bigint().to_i32().unwrap())
-                .unwrap_or($begin_state);
+    let begin_state = begin_state
+        .into_option()
+        .as_ref()
+        .map(|v| v.as_bigint().to_i32().unwrap())
+        .unwrap_or(1);
 
-            let mut hasher = $h_new(begin_state as u32);
-            $h_update(&mut hasher, &data);
+    let mut hasher = Adler32::from_value(begin_state as u32);
+    hasher.update_buffer(data);
 
-            let checksum: u32 = $h_compute(hasher);
+    let checksum: u32 = hasher.hash();
 
-            Ok(vm.new_int(checksum))
-        }
-    };
+    Ok(vm.new_int(checksum))
 }
 
-checksum_fn!(
-    zlib_adler32,
-    |value| Adler32::from_value(value),
-    |hasher: &mut Adler32, buffer| hasher.update_buffer(buffer),
-    |hasher: Adler32| hasher.hash(),
-    1
-);
+/// Compute a CRC-32 checksum of data.
+fn zlib_crc32(
+    data: PyBytesRef,
+    begin_state: OptionalArg<PyIntRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyObjectRef> {
+    let data = data.get_value();
 
-checksum_fn!(
-    zlib_crc32,
-    |value| Crc32::new_with_initial(value),
-    |hasher: &mut Crc32, buffer| hasher.update(buffer),
-    |hasher: Crc32| hasher.finalize(),
-    0
-);
+    let begin_state = begin_state
+        .into_option()
+        .as_ref()
+        .map(|v| v.as_bigint().to_i32().unwrap())
+        .unwrap_or(0);
+
+    let mut hasher = Crc32::new_with_initial(begin_state as u32);
+    hasher.update(data);
+
+    let checksum: u32 = hasher.finalize();
+
+    Ok(vm.new_int(checksum))
+}
 
 /// Returns a bytes object containing compressed data.
 fn zlib_compress(
