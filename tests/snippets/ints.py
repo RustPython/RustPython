@@ -90,6 +90,10 @@ assert int() == 0
 assert int("101", 2) == 5
 assert int("101", base=2) == 5
 assert int(1) == 1
+assert int(' 1') == 1
+assert int('1 ') == 1
+assert int(' 1 ') == 1
+assert int('10', base=0) == 10
 
 assert int.from_bytes(b'\x00\x10', 'big') == 16
 assert int.from_bytes(b'\x00\x10', 'little') == 4096
@@ -102,6 +106,13 @@ assert (-1024).to_bytes(4, 'big', signed=True) == b'\xff\xff\xfc\x00'
 assert (-1024).to_bytes(4, 'little', signed=True) == b'\x00\xfc\xff\xff'
 assert (2147483647).to_bytes(8, 'big', signed=False) == b'\x00\x00\x00\x00\x7f\xff\xff\xff'
 assert (-2147483648).to_bytes(8, 'little', signed=True) == b'\x00\x00\x00\x80\xff\xff\xff\xff'
+
+with assertRaises(ValueError):
+    # check base first
+    int(' 1 ', base=1)
+
+with assertRaises(ValueError):
+    int(' 1 ', base=37)
 
 with assertRaises(TypeError):
     int(base=2)

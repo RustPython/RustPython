@@ -6,6 +6,7 @@ use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
+use crate::obj::objtype::PyClassRef;
 use crate::pyhash;
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -17,7 +18,6 @@ use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype;
-use crate::obj::objtype::PyClassRef;
 
 /// int(x=0) -> integer
 /// int(x, base=10) -> integer
@@ -667,10 +667,16 @@ fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResul
 }
 
 // Casting function:
-pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
+pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, mut base: u32) -> PyResult<BigInt> {
+    if base == 0 {
+        base = 10
+    } else if base < 2 || base > 36 {
+        return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()));
+    }
+
     match_class!(obj.clone(),
         s @ PyString => {
-            i32::from_str_radix(s.as_str(), base)
+            i32::from_str_radix(s.as_str().trim(), base)
                 .map(BigInt::from)
                 .map_err(|_|vm.new_value_error(format!(
                     "invalid literal for int() with base {}: '{}'",
