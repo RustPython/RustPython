@@ -496,7 +496,7 @@ impl Frame {
                 self.jump(*target);
                 Ok(None)
             }
-            bytecode::Instruction::JumpIf { target } => {
+            bytecode::Instruction::JumpIfTrue { target } => {
                 let obj = self.pop_value();
                 let value = objbool::boolval(vm, obj)?;
                 if value {
@@ -510,6 +510,28 @@ impl Frame {
                 let value = objbool::boolval(vm, obj)?;
                 if !value {
                     self.jump(*target);
+                }
+                Ok(None)
+            }
+
+            bytecode::Instruction::JumpIfTrueOrPop { target } => {
+                let obj = self.last_value();
+                let value = objbool::boolval(vm, obj)?;
+                if value {
+                    self.jump(*target);
+                } else {
+                    self.pop_value();
+                }
+                Ok(None)
+            }
+
+            bytecode::Instruction::JumpIfFalseOrPop { target } => {
+                let obj = self.last_value();
+                let value = objbool::boolval(vm, obj)?;
+                if !value {
+                    self.jump(*target);
+                } else {
+                    self.pop_value();
                 }
                 Ok(None)
             }
