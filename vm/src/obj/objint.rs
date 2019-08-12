@@ -671,7 +671,7 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, mut base: u32) -> PyResult
     if base == 0 {
         base = 10
     } else if base < 2 || base > 36 {
-        return Err(vm.new_value_error(format!("int() base must be >= 2 and <= 36, or 0")));
+        return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()));
     }
 
     match_class!(obj.clone(),
