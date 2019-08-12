@@ -1,5 +1,5 @@
 GIT=https://github.com/RustPython/RustPython
-BRANCH=release
+BRANCH=redox-release
 CARGOFLAGS=--no-default-features
 export BUILDTIME_RUSTPYTHONPATH=/lib/rustpython/
 
