@@ -29,6 +29,7 @@ mod tokenize;
 mod unicodedata;
 mod warnings;
 mod weakref;
+mod zlib;
 use std::collections::HashMap;
 
 use crate::vm::VirtualMachine;
@@ -72,6 +73,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "_imp".to_string() => Box::new(imp::make_module),
         "unicodedata".to_string() => Box::new(unicodedata::make_module),
         "_warnings".to_string() => Box::new(warnings::make_module),
+        "zlib".to_string() => Box::new(zlib::make_module),
     };
 
     // Insert parser related modules:
