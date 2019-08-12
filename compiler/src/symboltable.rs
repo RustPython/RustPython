@@ -244,13 +244,11 @@ impl SymbolTableBuilder {
             } => {
                 self.scan_expressions(decorator_list)?;
                 self.register_name(name, SymbolRole::Assigned)?;
-
-                self.enter_function(args)?;
-
-                self.scan_statements(body)?;
                 if let Some(expression) = returns {
                     self.scan_expression(expression)?;
                 }
+                self.enter_function(args)?;
+                self.scan_statements(body)?;
                 self.leave_scope();
             }
             ClassDef {

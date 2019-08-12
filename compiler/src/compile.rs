@@ -1912,7 +1912,9 @@ impl<O: OutputStream> Compiler<O> {
     fn lookup_name(&self, name: &str) -> &Symbol {
         // println!("Looking up {:?}", name);
         let scope = self.scope_stack.last().unwrap();
-        scope.lookup(name).unwrap()
+        scope.lookup(name).expect(
+            "The symbol must be present in the symbol table, even when it is undefined in python.",
+        )
     }
 
     // Low level helper functions:
