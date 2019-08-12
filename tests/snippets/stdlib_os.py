@@ -266,8 +266,6 @@ if "win" not in sys.platform:
     assert isinstance(os.getppid(), int)
     assert isinstance(os.getpgid(os.getpid()), int)
 
-    assert os.getppid() < os.getpid()
-
     if os.getuid() != 0:
         assert_raises(PermissionError, lambda: os.setgid(42))
         assert_raises(PermissionError, lambda: os.setegid(42))
