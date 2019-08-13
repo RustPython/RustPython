@@ -54,73 +54,75 @@ from time import monotonic as _time
 
 from _subprocess import *
 
+# TODO: use these classes instead of the _subprocess ones
+
 # Exception classes used by this module.
-class SubprocessError(Exception): pass
+# class SubprocessError(Exception): pass
 
 
-class CalledProcessError(SubprocessError):
-    """Raised when run() is called with check=True and the process
-    returns a non-zero exit status.
+# class CalledProcessError(SubprocessError):
+#     """Raised when run() is called with check=True and the process
+#     returns a non-zero exit status.
 
-    Attributes:
-      cmd, returncode, stdout, stderr, output
-    """
-    def __init__(self, returncode, cmd, output=None, stderr=None):
-        self.returncode = returncode
-        self.cmd = cmd
-        self.output = output
-        self.stderr = stderr
+#     Attributes:
+#       cmd, returncode, stdout, stderr, output
+#     """
+#     def __init__(self, returncode, cmd, output=None, stderr=None):
+#         self.returncode = returncode
+#         self.cmd = cmd
+#         self.output = output
+#         self.stderr = stderr
 
-    def __str__(self):
-        if self.returncode and self.returncode < 0:
-            try:
-                return "Command '%s' died with %r." % (
-                        self.cmd, signal.Signals(-self.returncode))
-            except ValueError:
-                return "Command '%s' died with unknown signal %d." % (
-                        self.cmd, -self.returncode)
-        else:
-            return "Command '%s' returned non-zero exit status %d." % (
-                    self.cmd, self.returncode)
+#     def __str__(self):
+#         if self.returncode and self.returncode < 0:
+#             try:
+#                 return "Command '%s' died with %r." % (
+#                         self.cmd, signal.Signals(-self.returncode))
+#             except ValueError:
+#                 return "Command '%s' died with unknown signal %d." % (
+#                         self.cmd, -self.returncode)
+#         else:
+#             return "Command '%s' returned non-zero exit status %d." % (
+#                     self.cmd, self.returncode)
 
-    @property
-    def stdout(self):
-        """Alias for output attribute, to match stderr"""
-        return self.output
+#     @property
+#     def stdout(self):
+#         """Alias for output attribute, to match stderr"""
+#         return self.output
 
-    @stdout.setter
-    def stdout(self, value):
-        # There's no obvious reason to set this, but allow it anyway so
-        # .stdout is a transparent alias for .output
-        self.output = value
+#     @stdout.setter
+#     def stdout(self, value):
+#         # There's no obvious reason to set this, but allow it anyway so
+#         # .stdout is a transparent alias for .output
+#         self.output = value
 
 
-class TimeoutExpired(SubprocessError):
-    """This exception is raised when the timeout expires while waiting for a
-    child process.
+# class TimeoutExpired(SubprocessError):
+#     """This exception is raised when the timeout expires while waiting for a
+#     child process.
 
-    Attributes:
-        cmd, output, stdout, stderr, timeout
-    """
-    def __init__(self, cmd, timeout, output=None, stderr=None):
-        self.cmd = cmd
-        self.timeout = timeout
-        self.output = output
-        self.stderr = stderr
+#     Attributes:
+#         cmd, output, stdout, stderr, timeout
+#     """
+#     def __init__(self, cmd, timeout, output=None, stderr=None):
+#         self.cmd = cmd
+#         self.timeout = timeout
+#         self.output = output
+#         self.stderr = stderr
 
-    def __str__(self):
-        return ("Command '%s' timed out after %s seconds" %
-                (self.cmd, self.timeout))
+#     def __str__(self):
+#         return ("Command '%s' timed out after %s seconds" %
+#                 (self.cmd, self.timeout))
 
-    @property
-    def stdout(self):
-        return self.output
+#     @property
+#     def stdout(self):
+#         return self.output
 
-    @stdout.setter
-    def stdout(self, value):
-        # There's no obvious reason to set this, but allow it anyway so
-        # .stdout is a transparent alias for .output
-        self.output = value
+#     @stdout.setter
+#     def stdout(self, value):
+#         # There's no obvious reason to set this, but allow it anyway so
+#         # .stdout is a transparent alias for .output
+#         self.output = value
 
 
 __all__ = ["Popen", "PIPE", "STDOUT", "call", "check_call", "getstatusoutput",
