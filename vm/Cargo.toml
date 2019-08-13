@@ -72,5 +72,9 @@ flamer = { version = "0.3", optional = true }
 pwd = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+crc32fast = "1.2.0"
+adler32 = "1.0.3"
+flate2 = { version = "1.0", features = ["zlib"], default-features = false }
+libz-sys = "1.0.25"
 gethostname = "0.2.0"
 subprocess = "0.1.18"

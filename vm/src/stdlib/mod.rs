@@ -43,6 +43,8 @@ mod pwd;
 pub mod signal;
 #[cfg(not(target_arch = "wasm32"))]
 mod subprocess;
+#[cfg(not(target_arch = "wasm32"))]
+mod zlib;
 
 use crate::pyobject::PyObjectRef;
 
@@ -99,6 +101,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("socket".to_string(), Box::new(socket::make_module));
         modules.insert("signal".to_string(), Box::new(signal::make_module));
         modules.insert("subprocess".to_string(), Box::new(subprocess::make_module));
+        modules.insert("zlib".to_string(), Box::new(zlib::make_module));
     }
 
     // Unix-only
