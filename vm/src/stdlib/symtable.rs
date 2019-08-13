@@ -39,7 +39,7 @@ fn symtable_symtable(
 fn source_to_symtable(
     source: &str,
     mode: compile::Mode,
-) -> Result<symboltable::SymbolScope, CompileError> {
+) -> Result<symboltable::SymbolTable, CompileError> {
     let symtable = match mode {
         compile::Mode::Exec | compile::Mode::Single => {
             let ast = parser::parse_program(source)?;
@@ -54,7 +54,7 @@ fn source_to_symtable(
     Ok(symtable)
 }
 
-fn to_py_symbol_table(name: String, symtable: symboltable::SymbolScope) -> PySymbolTable {
+fn to_py_symbol_table(name: String, symtable: symboltable::SymbolTable) -> PySymbolTable {
     PySymbolTable { name, symtable }
 }
 
@@ -64,7 +64,7 @@ type PySymbolRef = PyRef<PySymbol>;
 #[pyclass(name = "SymbolTable")]
 struct PySymbolTable {
     name: String,
-    symtable: symboltable::SymbolScope,
+    symtable: symboltable::SymbolTable,
 }
 
 impl fmt::Debug for PySymbolTable {
@@ -114,7 +114,7 @@ impl PySymbolTable {
     fn get_children(&self, vm: &VirtualMachine) -> PyResult {
         let children = self
             .symtable
-            .sub_scopes
+            .sub_tables
             .iter()
             .map(|s| {
                 to_py_symbol_table("bla".to_string(), s.clone())
@@ -152,12 +152,12 @@ impl PySymbol {
 
     #[pymethod(name = "is_global")]
     fn is_global(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_global))
+        Ok(vm.ctx.new_bool(self.symbol.is_global()))
     }
 
     #[pymethod(name = "is_local")]
     fn is_local(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_local))
+        Ok(vm.ctx.new_bool(self.symbol.is_local()))
     }
 
     #[pymethod(name = "is_referenced")]
