@@ -27,9 +27,10 @@ fn symtable_symtable(
     mode: PyStringRef,
     vm: &VirtualMachine,
 ) -> PyResult<PySymbolTableRef> {
-    let mode = mode.as_str().parse().map_err(|_| {
-        vm.new_value_error("symtable() arg 3 must be 'exec' or 'eval' or 'single'".to_owned())
-    })?;
+    let mode = mode
+        .as_str()
+        .parse()
+        .map_err(|err| vm.new_value_error(err.to_string()))?;
     let symtable =
         source_to_symtable(&source.value, mode).map_err(|err| vm.new_syntax_error(&err))?;
 

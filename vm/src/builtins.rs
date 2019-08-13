@@ -124,9 +124,11 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef
         Either::B(bytes) => str::from_utf8(&bytes).unwrap().to_string(),
     };
 
-    let mode = args.mode.as_str().parse().map_err(|_| {
-        vm.new_value_error("compile() mode must be 'exec', 'eval' or 'single'".to_owned())
-    })?;
+    let mode = args
+        .mode
+        .as_str()
+        .parse()
+        .map_err(|err| vm.new_value_error(err.to_string()))?;
 
     vm.compile(&source, mode, args.filename.value.to_string())
         .map_err(|err| vm.new_syntax_error(&err))
@@ -950,7 +952,11 @@ pub fn builtin_build_class_(
         if objtype::issubclass(&base.class(), &metaclass) {
             metaclass = base.class();
         } else if !objtype::issubclass(&metaclass, &base.class()) {
-            return Err(vm.new_type_error("metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases".to_string()));
+            return Err(vm.new_type_error(
+                "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
+                 subclass of the metaclasses of all its bases"
+                    .to_owned(),
+            ));
         }
     }
 
