@@ -739,6 +739,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "TextIOWrapper" => text_io_wrapper,
         "StringIO" => string_io,
         "BytesIO" => bytes_io,
+        "DEFAULT_BUFFER_SIZE" => ctx.new_int(8 * 1024),
     })
 }
 
