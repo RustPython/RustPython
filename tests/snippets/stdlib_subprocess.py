@@ -28,7 +28,9 @@ assert p.returncode == 0
 p = subprocess.Popen(["echo", "test"], stdout=subprocess.PIPE)
 p.wait()
 
-if "win" not in sys.platform:
+is_unix = "win" not in sys.platform or "darwin" in sys.platform
+
+if is_unix:
 	# unix
 	test_output = b"test\n"
 else:
@@ -40,7 +42,7 @@ assert p.stdout.read() == test_output
 p = subprocess.Popen(["sleep", "2"])
 p.terminate()
 p.wait()
-if "win" not in sys.platform:
+if is_unix:
 	assert p.returncode == -signal.SIGTERM
 else:
 	assert p.returncode == 1
@@ -48,7 +50,7 @@ else:
 p = subprocess.Popen(["sleep", "2"])
 p.kill()
 p.wait()
-if "win" not in sys.platform:
+if is_unix:
 	assert p.returncode == -signal.SIGKILL
 else:
 	assert p.returncode == 1
