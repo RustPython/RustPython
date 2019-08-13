@@ -4,7 +4,7 @@
 /// `dis.dis` format.
 ///
 /// example usage:
-/// $ cargo run --release --example dis demo.py
+/// $ cargo run --release --example dis demo*.py
 
 #[macro_use]
 extern crate clap;
@@ -21,10 +21,10 @@ use std::path::Path;
 
 fn main() {
     env_logger::init();
-    let app = App::new("parse_folders")
+    let app = App::new("dis")
         .version(crate_version!())
         .author(crate_authors!())
-        .about("Walks over all .py files in a folder, and parses them.")
+        .about("Compiles and disassembles python script files for viewing their bytecode.")
         .arg(
             Arg::with_name("scripts")
                 .help("Scripts to scan")
