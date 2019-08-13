@@ -190,9 +190,6 @@ impl PopenRef {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let subprocess_error = ctx.new_class("SubprocessError", ctx.exceptions.exception_type.clone());
-    let timeout_expired = ctx.new_class("TimeoutExpired", subprocess_error.clone());
-
     let popen = py_class!(ctx, "Popen", ctx.object(), {
         (slot new) => PopenRef::new,
         "poll" => ctx.new_rustfunc(PopenRef::poll),
@@ -207,13 +204,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "pid" => ctx.new_property(PopenRef::pid),
     });
 
-    let module = py_module!(vm, "subprocess", {
+    let module = py_module!(vm, "_subprocess", {
         "Popen" => popen,
-        "SubprocessError" => subprocess_error,
-        "TimeoutExpired" => timeout_expired,
-        "PIPE" => ctx.new_int(-1),
-        "STDOUT" => ctx.new_int(-2),
-        "DEVNULL" => ctx.new_int(-3),
     });
 
     module
