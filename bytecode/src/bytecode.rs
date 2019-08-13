@@ -138,10 +138,22 @@ pub enum Instruction {
     Jump {
         target: Label,
     },
-    JumpIf {
+    /// Pop the top of the stack, and jump if this value is true.
+    JumpIfTrue {
         target: Label,
     },
+    /// Pop the top of the stack, and jump if this value is false.
     JumpIfFalse {
+        target: Label,
+    },
+    /// Peek at the top of the stack, and jump if this value is true.
+    /// Otherwise, pop top of stack.
+    JumpIfTrueOrPop {
+        target: Label,
+    },
+    /// Peek at the top of the stack, and jump if this value is false.
+    /// Otherwise, pop top of stack.
+    JumpIfFalseOrPop {
         target: Label,
     },
     MakeFunction {
@@ -219,6 +231,9 @@ pub enum Instruction {
         spec: String,
     },
     PopException,
+    Reverse {
+        amount: usize,
+    },
 }
 
 use self::Instruction::*;
@@ -408,8 +423,10 @@ impl Instruction {
             Continue => w!(Continue),
             Break => w!(Break),
             Jump { target } => w!(Jump, label_map[target]),
-            JumpIf { target } => w!(JumpIf, label_map[target]),
+            JumpIfTrue { target } => w!(JumpIfTrue, label_map[target]),
             JumpIfFalse { target } => w!(JumpIfFalse, label_map[target]),
+            JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, label_map[target]),
+            JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, label_map[target]),
             MakeFunction { flags } => w!(MakeFunction, format!("{:?}", flags)),
             CallFunction { typ } => w!(CallFunction, format!("{:?}", typ)),
             ForIter { target } => w!(ForIter, label_map[target]),
@@ -438,6 +455,7 @@ impl Instruction {
             Unpack => w!(Unpack),
             FormatValue { spec, .. } => w!(FormatValue, spec), // TODO: write conversion
             PopException => w!(PopException),
+            Reverse { amount } => w!(Reverse, amount),
         }
     }
 }

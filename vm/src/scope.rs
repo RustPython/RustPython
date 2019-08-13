@@ -72,12 +72,14 @@ impl fmt::Debug for Scope {
 }
 
 impl Scope {
-    pub fn new(locals: Option<PyDictRef>, globals: PyDictRef) -> Scope {
+    pub fn new(locals: Option<PyDictRef>, globals: PyDictRef, vm: &VirtualMachine) -> Scope {
         let locals = match locals {
             Some(dict) => RcList::new().insert(dict),
             None => RcList::new(),
         };
-        Scope { locals, globals }
+        let scope = Scope { locals, globals };
+        scope.store_name(vm, "__annotations__", vm.ctx.new_dict().into_object());
+        scope
     }
 
     pub fn with_builtins(
@@ -91,7 +93,7 @@ impl Scope {
                 .set_item("__builtins__", vm.builtins.clone(), vm)
                 .unwrap();
         }
-        Scope::new(locals, globals)
+        Scope::new(locals, globals, vm)
     }
 
     pub fn get_locals(&self) -> PyDictRef {

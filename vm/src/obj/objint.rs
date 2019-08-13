@@ -6,6 +6,7 @@ use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
+use crate::obj::objtype::PyClassRef;
 use crate::pyhash;
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -17,7 +18,6 @@ use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype;
-use crate::obj::objtype::PyClassRef;
 
 /// int(x=0) -> integer
 /// int(x, base=10) -> integer
@@ -139,10 +139,29 @@ fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
 }
 
 fn inner_mod(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
-    if int2.value != BigInt::zero() {
-        Ok(vm.ctx.new_int(&int1.value % &int2.value))
-    } else {
+    if int2.value.is_zero() {
         Err(vm.new_zero_division_error("integer modulo by zero".to_string()))
+    } else {
+        Ok(vm.ctx.new_int(&int1.value % &int2.value))
+    }
+}
+
+fn inner_floordiv(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
+    if int2.value.is_zero() {
+        Err(vm.new_zero_division_error("integer division by zero".to_string()))
+    } else {
+        Ok(vm.ctx.new_int(int1.value.div_floor(&int2.value)))
+    }
+}
+
+fn inner_divmod(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
+    if int2.value.is_zero() {
+        Err(vm.new_zero_division_error("integer division or modulo by zero".to_string()))
+    } else {
+        let (div, modulo) = int1.value.div_mod_floor(&int2.value);
+        Ok(vm
+            .ctx
+            .new_tuple(vec![vm.ctx.new_int(div), vm.ctx.new_int(modulo)]))
     }
 }
 
@@ -269,13 +288,18 @@ impl PyInt {
     #[pymethod(name = "__floordiv__")]
     fn floordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let v2 = get_value(&other);
-            if *v2 != BigInt::zero() {
-                let modulo = (&self.value % v2 + v2) % v2;
-                Ok(vm.ctx.new_int((&self.value - modulo) / v2))
-            } else {
-                Err(vm.new_zero_division_error("integer floordiv by zero".to_string()))
-            }
+            let other = other.payload::<PyInt>().unwrap();
+            inner_floordiv(self, &other, &vm)
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    #[pymethod(name = "__rfloordiv__")]
+    fn rfloordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &vm.ctx.int_type()) {
+            let other = other.payload::<PyInt>().unwrap();
+            inner_floordiv(&other, self, &vm)
         } else {
             Ok(vm.ctx.not_implemented())
         }
@@ -397,15 +421,18 @@ impl PyInt {
     #[pymethod(name = "__divmod__")]
     fn divmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let v2 = get_value(&other);
-            if *v2 != BigInt::zero() {
-                let (r1, r2) = self.value.div_rem(v2);
-                Ok(vm
-                    .ctx
-                    .new_tuple(vec![vm.ctx.new_int(r1), vm.ctx.new_int(r2)]))
-            } else {
-                Err(vm.new_zero_division_error("integer divmod by zero".to_string()))
-            }
+            let other = other.payload::<PyInt>().unwrap();
+            inner_divmod(self, &other, vm)
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    #[pymethod(name = "__rdivmod__")]
+    fn rdivmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &vm.ctx.int_type()) {
+            let other = other.payload::<PyInt>().unwrap();
+            inner_divmod(&other, self, vm)
         } else {
             Ok(vm.ctx.not_implemented())
         }
@@ -667,10 +694,16 @@ fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResul
 }
 
 // Casting function:
-pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
+pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, mut base: u32) -> PyResult<BigInt> {
+    if base == 0 {
+        base = 10
+    } else if base < 2 || base > 36 {
+        return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()));
+    }
+
     match_class!(obj.clone(),
         s @ PyString => {
-            i32::from_str_radix(s.as_str(), base)
+            i32::from_str_radix(s.as_str().trim(), base)
                 .map(BigInt::from)
                 .map_err(|_|vm.new_value_error(format!(
                     "invalid literal for int() with base {}: '{}'",

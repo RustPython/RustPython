@@ -6,13 +6,18 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use crate::error::{CompileError, CompileErrorType};
+use crate::output_stream::{CodeObjectStream, OutputStream};
+use crate::peephole::PeepholeOptimizer;
 use crate::symboltable::{make_symbol_table, statements_to_symbol_table, Symbol, SymbolScope};
 use num_complex::Complex64;
 use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use rustpython_parser::{ast, parser};
 
-struct Compiler {
-    code_object_stack: Vec<CodeObject>,
+type BasicOutputStream = PeepholeOptimizer<CodeObjectStream>;
+
+/// Main structure holding the state of compilation.
+struct Compiler<O: OutputStream = BasicOutputStream> {
+    output_stack: Vec<O>,
     scope_stack: Vec<SymbolScope>,
     nxt_label: usize,
     source_path: Option<String>,
@@ -103,24 +108,21 @@ pub enum Mode {
     Single,
 }
 
-#[derive(Clone, Copy)]
-enum EvalContext {
-    Statement,
-    Expression,
-}
+pub(crate) type Label = usize;
 
-type Label = usize;
-
-impl Default for Compiler {
+impl<O> Default for Compiler<O>
+where
+    O: OutputStream,
+{
     fn default() -> Self {
         Compiler::new(0)
     }
 }
 
-impl Compiler {
+impl<O: OutputStream> Compiler<O> {
     fn new(optimize: u8) -> Self {
         Compiler {
-            code_object_stack: Vec::new(),
+            output_stack: Vec::new(),
             scope_stack: Vec::new(),
             nxt_label: 0,
             source_path: None,
@@ -132,9 +134,13 @@ impl Compiler {
         }
     }
 
+    fn push_output(&mut self, code: CodeObject) {
+        self.output_stack.push(code.into());
+    }
+
     fn push_new_code_object(&mut self, obj_name: String) {
         let line_number = self.get_source_line_number();
-        self.code_object_stack.push(CodeObject::new(
+        self.push_output(CodeObject::new(
             Vec::new(),
             Varargs::None,
             Vec::new(),
@@ -146,8 +152,7 @@ impl Compiler {
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
-        // self.scope_stack.pop().unwrap();
-        self.code_object_stack.pop().unwrap()
+        self.output_stack.pop().unwrap().into()
     }
 
     fn compile_program(
@@ -155,10 +160,10 @@ impl Compiler {
         program: &ast::Program,
         symbol_scope: SymbolScope,
     ) -> Result<(), CompileError> {
-        let size_before = self.code_object_stack.len();
+        let size_before = self.output_stack.len();
         self.scope_stack.push(symbol_scope);
         self.compile_statements(&program.statements)?;
-        assert!(self.code_object_stack.len() == size_before);
+        assert_eq!(self.output_stack.len(), size_before);
 
         // Emit None at end:
         self.emit(Instruction::LoadConst {
@@ -340,14 +345,14 @@ impl Compiler {
                 match orelse {
                     None => {
                         // Only if:
-                        self.compile_test(test, None, Some(end_label), EvalContext::Statement)?;
+                        self.compile_jump_if(test, false, end_label)?;
                         self.compile_statements(body)?;
                         self.set_label(end_label);
                     }
                     Some(statements) => {
                         // if - else:
                         let else_label = self.new_label();
-                        self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
+                        self.compile_jump_if(test, false, else_label)?;
                         self.compile_statements(body)?;
                         self.emit(Instruction::Jump { target: end_label });
 
@@ -358,33 +363,7 @@ impl Compiler {
                 }
                 self.set_label(end_label);
             }
-            While { test, body, orelse } => {
-                let start_label = self.new_label();
-                let else_label = self.new_label();
-                let end_label = self.new_label();
-                self.emit(Instruction::SetupLoop {
-                    start: start_label,
-                    end: end_label,
-                });
-
-                self.set_label(start_label);
-
-                self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
-
-                let was_in_loop = self.in_loop;
-                self.in_loop = true;
-                self.compile_statements(body)?;
-                self.in_loop = was_in_loop;
-                self.emit(Instruction::Jump {
-                    target: start_label,
-                });
-                self.set_label(else_label);
-                self.emit(Instruction::PopBlock);
-                if let Some(orelse) = orelse {
-                    self.compile_statements(orelse)?;
-                }
-                self.set_label(end_label);
-            }
+            While { test, body, orelse } => self.compile_while(test, body, orelse)?,
             With {
                 is_async,
                 items,
@@ -475,7 +454,7 @@ impl Compiler {
                 // if some flag, ignore all assert statements!
                 if self.optimize == 0 {
                     let end_label = self.new_label();
-                    self.compile_test(test, Some(end_label), None, EvalContext::Statement)?;
+                    self.compile_jump_if(test, true, end_label)?;
                     self.emit(Instruction::LoadName {
                         name: String::from("AssertionError"),
                         scope: bytecode::NameScope::Local,
@@ -553,6 +532,11 @@ impl Compiler {
                 self.compile_op(op, true);
                 self.compile_store(target)?;
             }
+            AnnAssign {
+                target,
+                annotation,
+                value,
+            } => self.compile_annotated_assign(target, annotation, value)?,
             Delete { targets } => {
                 for target in targets {
                     self.compile_delete(target)?;
@@ -636,7 +620,7 @@ impl Compiler {
         }
 
         let line_number = self.get_source_line_number();
-        self.code_object_stack.push(CodeObject::new(
+        self.push_output(CodeObject::new(
             args.args.iter().map(|a| a.arg.clone()).collect(),
             compile_varargs(&args.vararg),
             args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
@@ -889,7 +873,7 @@ impl Compiler {
         self.prepare_decorators(decorator_list)?;
         self.emit(Instruction::LoadBuildClass);
         let line_number = self.get_source_line_number();
-        self.code_object_stack.push(CodeObject::new(
+        self.push_output(CodeObject::new(
             vec![],
             Varargs::None,
             vec![],
@@ -1001,6 +985,40 @@ impl Compiler {
         }
     }
 
+    fn compile_while(
+        &mut self,
+        test: &ast::Expression,
+        body: &[ast::Statement],
+        orelse: &Option<Vec<ast::Statement>>,
+    ) -> Result<(), CompileError> {
+        let start_label = self.new_label();
+        let else_label = self.new_label();
+        let end_label = self.new_label();
+        self.emit(Instruction::SetupLoop {
+            start: start_label,
+            end: end_label,
+        });
+
+        self.set_label(start_label);
+
+        self.compile_jump_if(test, false, else_label)?;
+
+        let was_in_loop = self.in_loop;
+        self.in_loop = true;
+        self.compile_statements(body)?;
+        self.in_loop = was_in_loop;
+        self.emit(Instruction::Jump {
+            target: start_label,
+        });
+        self.set_label(else_label);
+        self.emit(Instruction::PopBlock);
+        if let Some(orelse) = orelse {
+            self.compile_statements(orelse)?;
+        }
+        self.set_label(end_label);
+        Ok(())
+    }
+
     fn compile_for(
         &mut self,
         target: &ast::Expression,
@@ -1095,12 +1113,9 @@ impl Compiler {
             });
 
             // if comparison result is false, we break with this value; if true, try the next one.
-            // (CPython compresses these three opcodes into JUMP_IF_FALSE_OR_POP)
-            self.emit(Instruction::Duplicate);
-            self.emit(Instruction::JumpIfFalse {
+            self.emit(Instruction::JumpIfFalseOrPop {
                 target: break_label,
             });
-            self.emit(Instruction::Pop);
         }
 
         // handle the last comparison
@@ -1116,6 +1131,39 @@ impl Compiler {
         self.emit(Instruction::Pop);
 
         self.set_label(last_label);
+        Ok(())
+    }
+
+    fn compile_annotated_assign(
+        &mut self,
+        target: &ast::Expression,
+        annotation: &ast::Expression,
+        value: &Option<ast::Expression>,
+    ) -> Result<(), CompileError> {
+        if let Some(value) = value {
+            self.compile_expression(value)?;
+            self.compile_store(target)?;
+        }
+
+        // Compile annotation:
+        self.compile_expression(annotation)?;
+
+        if let ast::ExpressionType::Identifier { name } = &target.node {
+            // Store as dict entry in __annotations__ dict:
+            self.emit(Instruction::LoadName {
+                name: String::from("__annotations__"),
+                scope: bytecode::NameScope::Local,
+            });
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String {
+                    value: name.to_string(),
+                },
+            });
+            self.emit(Instruction::StoreSubscript);
+        } else {
+            // Drop annotation if not assigned to simple identifier.
+            self.emit(Instruction::Pop);
+        }
         Ok(())
     }
 
@@ -1200,68 +1248,124 @@ impl Compiler {
         self.emit(Instruction::BinaryOperation { op: i, inplace });
     }
 
-    fn compile_test(
+    /// Implement boolean short circuit evaluation logic.
+    /// https://en.wikipedia.org/wiki/Short-circuit_evaluation
+    ///
+    /// This means, in a boolean statement 'x and y' the variable y will
+    /// not be evaluated when x is false.
+    ///
+    /// The idea is to jump to a label if the expression is either true or false
+    /// (indicated by the condition parameter).
+    fn compile_jump_if(
         &mut self,
         expression: &ast::Expression,
-        true_label: Option<Label>,
-        false_label: Option<Label>,
-        context: EvalContext,
+        condition: bool,
+        target_label: Label,
     ) -> Result<(), CompileError> {
         // Compile expression for test, and jump to label if false
         match &expression.node {
-            ast::ExpressionType::BoolOp { a, op, b } => match op {
-                ast::BooleanOperator::And => {
-                    let f = false_label.unwrap_or_else(|| self.new_label());
-                    self.compile_test(a, None, Some(f), context)?;
-                    self.compile_test(b, true_label, false_label, context)?;
-                    if false_label.is_none() {
-                        self.set_label(f);
+            ast::ExpressionType::BoolOp { op, values } => {
+                match op {
+                    ast::BooleanOperator::And => {
+                        if condition {
+                            // If all values are true.
+                            let end_label = self.new_label();
+                            let (last_value, values) = values.split_last().unwrap();
+
+                            // If any of the values is false, we can short-circuit.
+                            for value in values {
+                                self.compile_jump_if(value, false, end_label)?;
+                            }
+
+                            // It depends upon the last value now: will it be true?
+                            self.compile_jump_if(last_value, true, target_label)?;
+                            self.set_label(end_label);
+                        } else {
+                            // If any value is false, the whole condition is false.
+                            for value in values {
+                                self.compile_jump_if(value, false, target_label)?;
+                            }
+                        }
+                    }
+                    ast::BooleanOperator::Or => {
+                        if condition {
+                            // If any of the values is true.
+                            for value in values {
+                                self.compile_jump_if(value, true, target_label)?;
+                            }
+                        } else {
+                            // If all of the values are false.
+                            let end_label = self.new_label();
+                            let (last_value, values) = values.split_last().unwrap();
+
+                            // If any value is true, we can short-circuit:
+                            for value in values {
+                                self.compile_jump_if(value, true, end_label)?;
+                            }
+
+                            // It all depends upon the last value now!
+                            self.compile_jump_if(last_value, false, target_label)?;
+                            self.set_label(end_label);
+                        }
                     }
                 }
-                ast::BooleanOperator::Or => {
-                    let t = true_label.unwrap_or_else(|| self.new_label());
-                    self.compile_test(a, Some(t), None, context)?;
-                    self.compile_test(b, true_label, false_label, context)?;
-                    if true_label.is_none() {
-                        self.set_label(t);
-                    }
-                }
-            },
+            }
+            ast::ExpressionType::Unop {
+                op: ast::UnaryOperator::Not,
+                a,
+            } => {
+                self.compile_jump_if(a, !condition, target_label)?;
+            }
             _ => {
+                // Fall back case which always will work!
                 self.compile_expression(expression)?;
-                match context {
-                    EvalContext::Statement => {
-                        if let Some(true_label) = true_label {
-                            self.emit(Instruction::JumpIf { target: true_label });
-                        }
-                        if let Some(false_label) = false_label {
-                            self.emit(Instruction::JumpIfFalse {
-                                target: false_label,
-                            });
-                        }
-                    }
-                    EvalContext::Expression => {
-                        if let Some(true_label) = true_label {
-                            self.emit(Instruction::Duplicate);
-                            self.emit(Instruction::JumpIf { target: true_label });
-                            self.emit(Instruction::Pop);
-                        }
-                        if let Some(false_label) = false_label {
-                            self.emit(Instruction::Duplicate);
-                            self.emit(Instruction::JumpIfFalse {
-                                target: false_label,
-                            });
-                            self.emit(Instruction::Pop);
-                        }
-                    }
+                if condition {
+                    self.emit(Instruction::JumpIfTrue {
+                        target: target_label,
+                    });
+                } else {
+                    self.emit(Instruction::JumpIfFalse {
+                        target: target_label,
+                    });
                 }
             }
         }
         Ok(())
     }
 
+    /// Compile a boolean operation as an expression.
+    /// This means, that the last value remains on the stack.
+    fn compile_bool_op(
+        &mut self,
+        op: &ast::BooleanOperator,
+        values: &[ast::Expression],
+    ) -> Result<(), CompileError> {
+        let end_label = self.new_label();
+
+        let (last_value, values) = values.split_last().unwrap();
+        for value in values {
+            self.compile_expression(value)?;
+
+            match op {
+                ast::BooleanOperator::And => {
+                    self.emit(Instruction::JumpIfFalseOrPop { target: end_label });
+                }
+                ast::BooleanOperator::Or => {
+                    self.emit(Instruction::JumpIfTrueOrPop { target: end_label });
+                }
+            }
+        }
+
+        // If all values did not qualify, take the value of the last value:
+        self.compile_expression(last_value)?;
+        self.set_label(end_label);
+        Ok(())
+    }
+
     fn compile_expression(&mut self, expression: &ast::Expression) -> Result<(), CompileError> {
         trace!("Compiling {:?}", expression);
+        self.set_source_location(&expression.location);
+
         use ast::ExpressionType::*;
         match &expression.node {
             Call {
@@ -1269,12 +1373,7 @@ impl Compiler {
                 args,
                 keywords,
             } => self.compile_call(function, args, keywords)?,
-            BoolOp { .. } => self.compile_test(
-                expression,
-                Option::None,
-                Option::None,
-                EvalContext::Expression,
-            )?,
+            BoolOp { op, values } => self.compile_bool_op(op, values)?,
             Binop { a, op, b } => {
                 self.compile_expression(a)?;
                 self.compile_expression(b)?;
@@ -1469,8 +1568,7 @@ impl Compiler {
             IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
                 let end_label = self.new_label();
-                self.compile_test(test, Option::None, Option::None, EvalContext::Expression)?;
-                self.emit(Instruction::JumpIfFalse { target: no_label });
+                self.compile_jump_if(test, false, no_label)?;
                 // True case
                 self.compile_expression(body)?;
                 self.emit(Instruction::Jump { target: end_label });
@@ -1619,7 +1717,7 @@ impl Compiler {
 
         let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
-        self.code_object_stack.push(CodeObject::new(
+        self.push_output(CodeObject::new(
             vec![".0".to_string()],
             Varargs::None,
             vec![],
@@ -1654,6 +1752,10 @@ impl Compiler {
 
         let mut loop_labels = vec![];
         for generator in generators {
+            if generator.is_async {
+                unimplemented!("async for comprehensions");
+            }
+
             if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
                 self.emit(Instruction::LoadName {
@@ -1683,12 +1785,7 @@ impl Compiler {
 
             // Now evaluate the ifs:
             for if_condition in &generator.ifs {
-                self.compile_test(
-                    if_condition,
-                    None,
-                    Some(start_label),
-                    EvalContext::Statement,
-                )?
+                self.compile_jump_if(if_condition, false, start_label)?
             }
         }
 
@@ -1815,20 +1912,22 @@ impl Compiler {
     fn lookup_name(&self, name: &str) -> &Symbol {
         // println!("Looking up {:?}", name);
         let scope = self.scope_stack.last().unwrap();
-        scope.lookup(name).unwrap()
+        scope.lookup(name).expect(
+            "The symbol must be present in the symbol table, even when it is undefined in python.",
+        )
     }
 
     // Low level helper functions:
     fn emit(&mut self, instruction: Instruction) {
         let location = compile_location(&self.current_source_location);
-        let cur_code_obj = self.current_code_object();
-        cur_code_obj.instructions.push(instruction);
-        cur_code_obj.locations.push(location);
         // TODO: insert source filename
+        self.current_output().emit(instruction, location);
     }
 
-    fn current_code_object(&mut self) -> &mut CodeObject {
-        self.code_object_stack.last_mut().unwrap()
+    fn current_output(&mut self) -> &mut O {
+        self.output_stack
+            .last_mut()
+            .expect("No OutputStream on stack")
     }
 
     // Generate a new label
@@ -1840,9 +1939,7 @@ impl Compiler {
 
     // Assign current position the given label
     fn set_label(&mut self, label: Label) {
-        let position = self.current_code_object().instructions.len();
-        // assert!(label not in self.label_map)
-        self.current_code_object().label_map.insert(label, position);
+        self.current_output().set_label(label)
     }
 
     fn set_source_location(&mut self, location: &ast::Location) {
@@ -1862,7 +1959,7 @@ impl Compiler {
     }
 
     fn mark_generator(&mut self) {
-        self.current_code_object().is_generator = true;
+        self.current_output().mark_generator();
     }
 }
 
@@ -1928,11 +2025,11 @@ mod tests {
                 LoadConst {
                     value: Boolean { value: true }
                 },
-                JumpIf { target: 1 },
+                JumpIfTrue { target: 1 },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIf { target: 1 },
+                JumpIfTrue { target: 1 },
                 LoadConst {
                     value: Boolean { value: false }
                 },
@@ -1982,7 +2079,7 @@ mod tests {
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIf { target: 1 },
+                JumpIfTrue { target: 1 },
                 LoadConst {
                     value: Boolean { value: false }
                 },
@@ -1996,6 +2093,26 @@ mod tests {
                 ReturnValue
             ],
             code.instructions
+        );
+    }
+
+    #[test]
+    fn test_constant_optimization() {
+        let code = compile_exec("1 + 2 + 3 + 4\n1.5 * 2.5");
+        assert_eq!(
+            code.instructions,
+            vec![
+                LoadConst {
+                    value: Integer { value: 10.into() }
+                },
+                Pop,
+                LoadConst {
+                    value: Float { value: 3.75 }
+                },
+                Pop,
+                LoadConst { value: None },
+                ReturnValue,
+            ]
         );
     }
 }

@@ -8,7 +8,7 @@ use std::{env, fs};
 
 #[cfg(unix)]
 use nix::errno::Errno;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "redox")))]
 use nix::pty::openpty;
 #[cfg(unix)]
 use nix::unistd::{self, Gid, Pid, Uid};
@@ -159,7 +159,7 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(raw_file_number(handle)))
 }
 
-fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
+pub fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
     let os_error = match err.kind() {
         ErrorKind::NotFound => {
             let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
@@ -183,7 +183,7 @@ fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
 }
 
 #[cfg(unix)]
-fn convert_nix_error(vm: &VirtualMachine, err: nix::Error) -> PyObjectRef {
+pub fn convert_nix_error(vm: &VirtualMachine, err: nix::Error) -> PyObjectRef {
     let nix_error = match err {
         nix::Error::InvalidPath => {
             let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
@@ -853,7 +853,7 @@ fn os_seteuid(euid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
     unistd::seteuid(Uid::from_raw(euid)).map_err(|err| convert_nix_error(vm, err))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "redox")))]
 pub fn os_openpty(vm: &VirtualMachine) -> PyResult {
     match openpty(None, None) {
         Ok(r) => Ok(vm

@@ -372,11 +372,7 @@ impl Frame {
                         *self.lasti.borrow_mut() -= 1;
                         Ok(Some(ExecutionResult::Yield(value)))
                     }
-                    None => {
-                        // Pop iterator from stack:
-                        self.pop_value();
-                        Ok(None)
-                    }
+                    None => Ok(None),
                 }
             }
             bytecode::Instruction::SetupLoop { start, end } => {
@@ -500,7 +496,7 @@ impl Frame {
                 self.jump(*target);
                 Ok(None)
             }
-            bytecode::Instruction::JumpIf { target } => {
+            bytecode::Instruction::JumpIfTrue { target } => {
                 let obj = self.pop_value();
                 let value = objbool::boolval(vm, obj)?;
                 if value {
@@ -514,6 +510,28 @@ impl Frame {
                 let value = objbool::boolval(vm, obj)?;
                 if !value {
                     self.jump(*target);
+                }
+                Ok(None)
+            }
+
+            bytecode::Instruction::JumpIfTrueOrPop { target } => {
+                let obj = self.last_value();
+                let value = objbool::boolval(vm, obj)?;
+                if value {
+                    self.jump(*target);
+                } else {
+                    self.pop_value();
+                }
+                Ok(None)
+            }
+
+            bytecode::Instruction::JumpIfFalseOrPop { target } => {
+                let obj = self.last_value();
+                let value = objbool::boolval(vm, obj)?;
+                if !value {
+                    self.jump(*target);
+                } else {
+                    self.pop_value();
                 }
                 Ok(None)
             }
@@ -669,6 +687,12 @@ impl Frame {
                     panic!("Block type must be ExceptHandler here.")
                 }
             }
+            bytecode::Instruction::Reverse { amount } => {
+                let mut stack = self.stack.borrow_mut();
+                let stack_len = stack.len();
+                stack[stack_len - amount..stack_len].reverse();
+                Ok(None)
+            }
         }
     }
 
@@ -683,10 +707,7 @@ impl Frame {
         if unpack {
             let mut result: Vec<PyObjectRef> = vec![];
             for element in elements {
-                let expanded = vm.extract_elements(&element)?;
-                for inner in expanded {
-                    result.push(inner);
-                }
+                result.extend(vm.extract_elements(&element)?);
             }
             Ok(result)
         } else {
@@ -1173,16 +1194,16 @@ impl Frame {
     }
 
     fn pop_value(&self) -> PyObjectRef {
-        self.stack.borrow_mut().pop().unwrap()
+        self.stack
+            .borrow_mut()
+            .pop()
+            .expect("Tried to pop value but there was nothing on the stack")
     }
 
     fn pop_multiple(&self, count: usize) -> Vec<PyObjectRef> {
-        let mut objs: Vec<PyObjectRef> = Vec::new();
-        for _x in 0..count {
-            objs.push(self.pop_value());
-        }
-        objs.reverse();
-        objs
+        let mut stack = self.stack.borrow_mut();
+        let stack_len = stack.len();
+        stack.drain(stack_len - count..stack_len).collect()
     }
 
     fn last_value(&self) -> PyObjectRef {

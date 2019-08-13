@@ -244,13 +244,11 @@ impl SymbolTableBuilder {
             } => {
                 self.scan_expressions(decorator_list)?;
                 self.register_name(name, SymbolRole::Assigned)?;
-
-                self.enter_function(args)?;
-
-                self.scan_statements(body)?;
                 if let Some(expression) = returns {
                     self.scan_expression(expression)?;
                 }
+                self.enter_function(args)?;
+                self.scan_statements(body)?;
                 self.leave_scope();
             }
             ClassDef {
@@ -335,6 +333,17 @@ impl SymbolTableBuilder {
                 self.scan_expression(target)?;
                 self.scan_expression(value)?;
             }
+            AnnAssign {
+                target,
+                annotation,
+                value,
+            } => {
+                self.scan_expression(target)?;
+                self.scan_expression(annotation)?;
+                if let Some(value) = value {
+                    self.scan_expression(value)?;
+                }
+            }
             With { items, body, .. } => {
                 for item in items {
                     self.scan_expression(&item.context_expr)?;
@@ -393,9 +402,8 @@ impl SymbolTableBuilder {
                 self.scan_expression(a)?;
                 self.scan_expression(b)?;
             }
-            BoolOp { a, b, .. } => {
-                self.scan_expression(a)?;
-                self.scan_expression(b)?;
+            BoolOp { values, .. } => {
+                self.scan_expressions(values)?;
             }
             Compare { vals, .. } => {
                 self.scan_expressions(vals)?;

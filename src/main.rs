@@ -4,7 +4,7 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 
-use clap::{App, Arg, ArgMatches};
+use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
@@ -47,10 +47,39 @@ fn main() {
 
 fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
     let app = app
+        .setting(AppSettings::TrailingVarArg)
         .version(crate_version!())
         .author(crate_authors!())
         .about("Rust implementation of the Python language")
-        .arg(Arg::with_name("script").required(false).index(1))
+        .usage("rustpython [OPTIONS] [-c CMD | -m MODULE | FILE] [PYARGS]...")
+        .arg(
+            Arg::with_name("script")
+                .required(false)
+                .allow_hyphen_values(true)
+                .multiple(true)
+                .value_name("script, args")
+                .min_values(1),
+        )
+        .arg(
+            Arg::with_name("c")
+                .short("c")
+                .takes_value(true)
+                .allow_hyphen_values(true)
+                .multiple(true)
+                .value_name("cmd, args")
+                .min_values(1)
+                .help("run the given string as a program"),
+        )
+        .arg(
+            Arg::with_name("m")
+                .short("m")
+                .takes_value(true)
+                .allow_hyphen_values(true)
+                .multiple(true)
+                .value_name("module, args")
+                .min_values(1)
+                .help("run library module as script"),
+        )
         .arg(
             Arg::with_name("optimize")
                 .short("O")
@@ -93,20 +122,7 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
             Arg::with_name("ignore-environment")
                 .short("E")
                 .help("Ignore environment variables PYTHON* such as PYTHONPATH"),
-        )
-        .arg(
-            Arg::with_name("c")
-                .short("c")
-                .takes_value(true)
-                .help("run the given string as a program"),
-        )
-        .arg(
-            Arg::with_name("m")
-                .short("m")
-                .takes_value(true)
-                .help("run library module as script"),
-        )
-        .arg(Arg::from_usage("[pyargs] 'args for python'").multiple(true));
+        );
     #[cfg(feature = "flame-it")]
     let app = app
         .arg(
@@ -130,6 +146,9 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
     let ignore_environment = matches.is_present("ignore-environment");
     let mut settings: PySettings = Default::default();
     settings.ignore_environment = ignore_environment;
+
+    // add the current directory to sys.path
+    settings.path_list.push("".to_owned());
 
     if !ignore_environment {
         settings.path_list.append(&mut get_paths("RUSTPYTHONPATH"));
@@ -181,6 +200,22 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
     {
         settings.dont_write_bytecode = true;
     }
+
+    let argv = if let Some(script) = matches.values_of("script") {
+        script.map(ToOwned::to_owned).collect()
+    } else if let Some(module) = matches.values_of("m") {
+        std::iter::once("PLACEHOLDER".to_owned())
+            .chain(module.skip(1).map(ToOwned::to_owned))
+            .collect()
+    } else if let Some(cmd) = matches.values_of("c") {
+        std::iter::once("-c".to_owned())
+            .chain(cmd.skip(1).map(ToOwned::to_owned))
+            .collect()
+    } else {
+        vec![]
+    };
+
+    settings.argv = argv;
 
     settings
 }
@@ -276,30 +311,35 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
         }
     }
 
+    let scope = vm.new_scope_with_builtins();
+    let main_module = vm.ctx.new_module("__main__", scope.globals.clone());
+
+    vm.get_attribute(vm.sys_module.clone(), "modules")?
+        .set_item("__main__", main_module, vm)?;
+
     // Figure out if a -c option was given:
     if let Some(command) = matches.value_of("c") {
-        run_command(&vm, command.to_string())?;
+        run_command(&vm, scope, command.to_string())?;
     } else if let Some(module) = matches.value_of("m") {
         run_module(&vm, module)?;
+    } else if let Some(filename) = matches.value_of("script") {
+        run_script(&vm, scope, filename)?
     } else {
-        // Figure out if a script was passed:
-        match matches.value_of("script") {
-            None => run_shell(&vm)?,
-            Some(filename) => run_script(&vm, filename)?,
-        }
+        run_shell(&vm, scope)?;
     }
 
     Ok(())
 }
 
-fn _run_string(vm: &VirtualMachine, source: &str, source_path: String) -> PyResult {
+fn _run_string(vm: &VirtualMachine, scope: Scope, source: &str, source_path: String) -> PyResult {
     let code_obj = vm
         .compile(source, &compile::Mode::Exec, source_path.clone())
         .map_err(|err| vm.new_syntax_error(&err))?;
     // trace!("Code object: {:?}", code_obj.borrow());
-    let attrs = vm.ctx.new_dict();
-    attrs.set_item("__file__", vm.new_str(source_path), vm)?;
-    vm.run_code_obj(code_obj, Scope::with_builtins(None, attrs, vm))
+    scope
+        .globals
+        .set_item("__file__", vm.new_str(source_path), vm)?;
+    vm.run_code_obj(code_obj, scope)
 }
 
 fn handle_exception<T>(vm: &VirtualMachine, result: PyResult<T>) {
@@ -309,20 +349,21 @@ fn handle_exception<T>(vm: &VirtualMachine, result: PyResult<T>) {
     }
 }
 
-fn run_command(vm: &VirtualMachine, source: String) -> PyResult<()> {
+fn run_command(vm: &VirtualMachine, scope: Scope, source: String) -> PyResult<()> {
     debug!("Running command {}", source);
-
-    _run_string(vm, &source, "<stdin>".to_string())?;
+    _run_string(vm, scope, &source, "<stdin>".to_string())?;
     Ok(())
 }
 
 fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
-    vm.import(module, &vm.ctx.new_tuple(vec![]), 0)?;
+    let runpy = vm.import("runpy", &vm.ctx.new_tuple(vec![]), 0)?;
+    let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
+    vm.invoke(run_module_as_main, vec![vm.new_str(module.to_owned())])?;
     Ok(())
 }
 
-fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult<()> {
+fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<()> {
     debug!("Running file {}", script_file);
     // Parse an ast from it:
     let file_path = PathBuf::from(script_file);
@@ -353,7 +394,7 @@ fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult<()> {
 
     match util::read_file(&file_path) {
         Ok(source) => {
-            _run_string(vm, &source, file_path.to_str().unwrap().to_string())?;
+            _run_string(vm, scope, &source, file_path.to_str().unwrap().to_string())?;
         }
         Err(err) => {
             error!(
@@ -372,11 +413,15 @@ fn test_run_script() {
     let vm: VirtualMachine = Default::default();
 
     // test file run
-    let r = run_script(&vm, "tests/snippets/dir_main/__main__.py");
+    let r = run_script(
+        &vm,
+        vm.new_scope_with_builtins(),
+        "tests/snippets/dir_main/__main__.py",
+    );
     assert!(r.is_ok());
 
     // test module run
-    let r = run_script(&vm, "tests/snippets/dir_main");
+    let r = run_script(&vm, vm.new_scope_with_builtins(), "tests/snippets/dir_main");
     assert!(r.is_ok());
 }
 
@@ -441,14 +486,13 @@ fn get_prompt(vm: &VirtualMachine, prompt_name: &str) -> String {
 }
 
 #[cfg(not(target_os = "redox"))]
-fn run_shell(vm: &VirtualMachine) -> PyResult<()> {
+fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     use rustyline::{error::ReadlineError, Editor};
 
     println!(
         "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
         crate_version!()
     );
-    let vars = vm.new_scope_with_builtins();
 
     // Read a single line:
     let mut input = String::new();
@@ -483,7 +527,7 @@ fn run_shell(vm: &VirtualMachine) -> PyResult<()> {
                     }
                 }
 
-                match shell_exec(vm, &input, vars.clone()) {
+                match shell_exec(vm, &input, scope.clone()) {
                     Err(CompileError {
                         error: CompileErrorType::Parse(ParseErrorType::EOF),
                         ..
@@ -517,14 +561,13 @@ fn run_shell(vm: &VirtualMachine) -> PyResult<()> {
 }
 
 #[cfg(target_os = "redox")]
-fn run_shell(vm: &VirtualMachine) -> PyResult<()> {
+fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     use std::io::{self, BufRead, Write};
 
     println!(
         "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
         crate_version!()
     );
-    let vars = vm.new_scope_with_builtins();
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -535,7 +578,7 @@ fn run_shell(vm: &VirtualMachine) -> PyResult<()> {
     for line in stdin.lock().lines() {
         let mut line = line.expect("line failed");
         line.push('\n');
-        let _ = shell_exec(vm, &line, vars.clone());
+        let _ = shell_exec(vm, &line, scope.clone());
         print!("{}", get_prompt(vm, "ps1"));
         stdout.flush().expect("flush failed");
     }

@@ -74,6 +74,11 @@ pub enum StatementType {
         op: Operator,
         value: Box<Expression>,
     },
+    AnnAssign {
+        target: Box<Expression>,
+        annotation: Box<Expression>,
+        value: Option<Expression>,
+    },
     Expression {
         expression: Expression,
     },
@@ -143,9 +148,8 @@ pub type Expression = Located<ExpressionType>;
 #[derive(Debug, PartialEq)]
 pub enum ExpressionType {
     BoolOp {
-        a: Box<Expression>,
         op: BooleanOperator,
-        b: Box<Expression>,
+        values: Vec<Expression>,
     },
     Binop {
         a: Box<Expression>,
@@ -313,6 +317,7 @@ pub struct Comprehension {
     pub target: Expression,
     pub iter: Expression,
     pub ifs: Vec<Expression>,
+    pub is_async: bool,
 }
 
 #[derive(Debug, PartialEq)]

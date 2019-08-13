@@ -32,10 +32,11 @@ def g3():
     yield 23
     yield from make_numbers()
     yield 44
+    yield from make_numbers()
 
 r = list(g3())
 # print(r)
-assert r == [23, 1, 2, 3, 44]
+assert r == [23, 1, 2, 3, 44, 1, 2, 3]
 
 def g4():
     yield
@@ -64,3 +65,26 @@ assert next(g) == 1
 
 with assertRaises(KeyError):
     assert g.throw(KeyError, KeyError(), None) == 2
+
+
+r = []
+def p(a, b, c):
+    # print(a, b, c)
+    r.append(a)
+    r.append(b)
+    r.append(c)
+
+
+def g5():
+    p('a', (yield 2), (yield 5))
+    yield 99
+
+g = g5()
+g.send(None)
+g.send(66)
+# g.send(88)
+l = list(g)
+# print(r)
+# print(l)
+assert l == [99]
+assert r == ['a', 66, None]

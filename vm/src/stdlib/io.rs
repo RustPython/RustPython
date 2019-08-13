@@ -587,7 +587,7 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(file, Some(vm.ctx.str_type()))],
+        required = [(file, None)],
         optional = [(mode, Some(vm.ctx.str_type()))]
     );
 
@@ -739,6 +739,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "TextIOWrapper" => text_io_wrapper,
         "StringIO" => string_io,
         "BytesIO" => bytes_io,
+        "DEFAULT_BUFFER_SIZE" => ctx.new_int(8 * 1024),
     })
 }
 

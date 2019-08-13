@@ -5,6 +5,7 @@ use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{create_type, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
+use itertools::Itertools;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -15,6 +16,9 @@ fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let traceback = vm.ctx.new_list(Vec::new());
     vm.set_attr(&exc_self, "__traceback__", traceback)?;
+    vm.set_attr(&exc_self, "__cause__", vm.get_none())?;
+    vm.set_attr(&exc_self, "__context__", vm.get_none())?;
+    vm.set_attr(&exc_self, "__suppress_context__", vm.new_bool(false))?;
     Ok(vm.get_none())
 }
 
@@ -115,23 +119,31 @@ pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
         .unwrap()
         .downcast::<PyTuple>()
         .expect("'args' must be a tuple");
-    let args_repr = exception_args_as_string(vm, varargs);
+    let args_repr = exception_args_as_string(vm, varargs, true);
 
     let exc_name = exc.class().name.clone();
     match args_repr.len() {
         0 => println!("{}", exc_name),
         1 => println!("{}: {}", exc_name, args_repr[0]),
-        _ => println!("{}: ({})", exc_name, args_repr.join(", ")),
+        _ => println!("{}: ({})", exc_name, args_repr.into_iter().format(", ")),
     }
 }
 
-fn exception_args_as_string(vm: &VirtualMachine, varargs: PyTupleRef) -> Vec<String> {
+fn exception_args_as_string(
+    vm: &VirtualMachine,
+    varargs: PyTupleRef,
+    str_single: bool,
+) -> Vec<String> {
     match varargs.elements.len() {
         0 => vec![],
         1 => {
-            let args0_repr = match vm.to_repr(&varargs.elements[0]) {
-                Ok(args0_repr) => args0_repr.value.clone(),
-                Err(_) => "<element repr() failed>".to_string(),
+            let args0_repr = if str_single {
+                vm.to_pystr(&varargs.elements[0])
+                    .unwrap_or_else(|_| "<element str() failed>".to_string())
+            } else {
+                vm.to_repr(&varargs.elements[0])
+                    .map(|s| s.as_str().to_owned())
+                    .unwrap_or_else(|_| "<element repr() failed>".to_string())
             };
             vec![args0_repr]
         }
@@ -160,11 +172,11 @@ fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         .unwrap()
         .downcast::<PyTuple>()
         .expect("'args' must be a tuple");
-    let args_str = exception_args_as_string(vm, args);
+    let args_str = exception_args_as_string(vm, args, false);
     let joined_str = match args_str.len() {
         0 => "".to_string(),
-        1 => args_str[0].to_string(),
-        _ => format!("({})", args_str.join(", ")),
+        1 => args_str.into_iter().next().unwrap(),
+        _ => format!("({})", args_str.into_iter().format(", ")),
     };
     Ok(vm.new_str(joined_str))
 }
@@ -180,7 +192,7 @@ fn exception_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         .unwrap()
         .downcast::<PyTuple>()
         .expect("'args' must be a tuple");
-    let args_repr = exception_args_as_string(vm, args);
+    let args_repr = exception_args_as_string(vm, args, false);
 
     let exc_name = exc.class().name.clone();
     let joined_str = match args_repr.len() {
@@ -235,6 +247,8 @@ pub struct ExceptionZoo {
     pub resource_warning: PyClassRef,
     pub runtime_warning: PyClassRef,
     pub user_warning: PyClassRef,
+
+    pub keyboard_interrupt: PyClassRef,
 }
 
 impl ExceptionZoo {
@@ -285,6 +299,8 @@ impl ExceptionZoo {
         let runtime_warning = create_type("RuntimeWarning", &type_type, &warning);
         let user_warning = create_type("UserWarning", &type_type, &warning);
 
+        let keyboard_interrupt = create_type("KeyboardInterrupt", &type_type, &base_exception_type);
+
         ExceptionZoo {
             arithmetic_error,
             assertion_error,
@@ -327,6 +343,7 @@ impl ExceptionZoo {
             runtime_warning,
             reference_error,
             user_warning,
+            keyboard_interrupt,
         }
     }
 }
