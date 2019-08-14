@@ -105,8 +105,8 @@ pub fn get_value(obj: &PyObjectRef) -> PyRange {
 }
 
 pub fn init(context: &PyContext) {
-    PyRange::extend_class(context, &context.range_type);
-    PyRangeIterator::extend_class(context, &context.rangeiterator_type);
+    PyRange::extend_class(context, &context.types.range_type);
+    PyRangeIterator::extend_class(context, &context.types.rangeiterator_type);
 }
 
 type PyRangeRef = PyRef<PyRange>;

@@ -122,5 +122,5 @@ impl PySequenceIterator {
 }
 
 pub fn init(context: &PyContext) {
-    PySequenceIterator::extend_class(context, &context.iter_type);
+    PySequenceIterator::extend_class(context, &context.types.iter_type);
 }

@@ -24,7 +24,7 @@ impl PyValue for PyInstance {
 pub fn new_instance(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
     let cls = PyClassRef::try_from_object(vm, args.shift())?;
-    let dict = if cls.is(&vm.ctx.object) {
+    let dict = if cls.is(&vm.ctx.object()) {
         None
     } else {
         Some(vm.ctx.new_dict())
@@ -149,7 +149,7 @@ fn object_format(
 }
 
 pub fn init(context: &PyContext) {
-    let object = &context.object;
+    let object = &context.types.object_type;
     let object_doc = "The most base type";
 
     extend_class!(context, object, {

@@ -212,7 +212,7 @@ pub fn init(ctx: &PyContext) {
                     type(object) -> the object's type\n\
                     type(name, bases, dict) -> a new type";
 
-    extend_class!(&ctx, &ctx.type_type, {
+    extend_class!(&ctx, &ctx.types.type_type, {
         "__call__" => ctx.new_rustfunc(type_call),
         "__dict__" =>
         PropertyBuilder::new(ctx)
@@ -433,8 +433,8 @@ mod tests {
     #[test]
     fn test_linearise() {
         let context = PyContext::new();
-        let object: PyClassRef = context.object.clone();
-        let type_type = &context.type_type;
+        let object: PyClassRef = context.object();
+        let type_type = &context.types.type_type;
 
         let a = new(type_type.clone(), "A", vec![object.clone()], HashMap::new()).unwrap();
         let b = new(type_type.clone(), "B", vec![object.clone()], HashMap::new()).unwrap();

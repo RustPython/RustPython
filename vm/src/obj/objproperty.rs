@@ -293,6 +293,6 @@ impl<'a> PropertyBuilder<'a> {
 }
 
 pub fn init(context: &PyContext) {
-    PyReadOnlyProperty::extend_class(context, &context.readonly_property_type);
-    PyProperty::extend_class(context, &context.property_type);
+    PyReadOnlyProperty::extend_class(context, &context.types.readonly_property_type);
+    PyProperty::extend_class(context, &context.types.property_type);
 }

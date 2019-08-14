@@ -748,6 +748,6 @@ impl TryFromObject for SetIterable {
 }
 
 pub fn init(context: &PyContext) {
-    PySet::extend_class(context, &context.set_type);
-    PyFrozenSet::extend_class(context, &context.frozenset_type);
+    PySet::extend_class(context, &context.types.set_type);
+    PyFrozenSet::extend_class(context, &context.types.frozenset_type);
 }

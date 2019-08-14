@@ -66,7 +66,7 @@ Returns True when the argument x is true, False otherwise.
 The builtins True and False are the only two instances of the class bool.
 The class bool is a subclass of the class int, and cannot be subclassed.";
 
-    let bool_type = &context.bool_type;
+    let bool_type = &context.types.bool_type;
     extend_class!(context, bool_type, {
         "__new__" => context.new_rustfunc(bool_new),
         "__repr__" => context.new_rustfunc(bool_repr),

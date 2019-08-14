@@ -671,7 +671,7 @@ impl IntOptions {
     fn get_int_value(self, vm: &VirtualMachine) -> PyResult<BigInt> {
         if let OptionalArg::Present(val) = self.val_options {
             let base = if let OptionalArg::Present(base) = self.base {
-                if !objtype::isinstance(&val, &vm.ctx.str_type) {
+                if !objtype::isinstance(&val, &vm.ctx.str_type()) {
                     return Err(vm.new_type_error(
                         "int() can't convert non-string with explicit base".to_string(),
                     ));
@@ -766,8 +766,8 @@ fn div_ints(vm: &VirtualMachine, i1: &BigInt, i2: &BigInt) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    PyInt::extend_class(context, &context.int_type);
-    extend_class!(context, &context.int_type, {
+    PyInt::extend_class(context, &context.types.int_type);
+    extend_class!(context, &context.types.int_type, {
         "__new__" => context.new_rustfunc(int_new),
     });
 }

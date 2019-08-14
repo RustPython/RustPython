@@ -28,5 +28,5 @@ impl PyNamespace {
 }
 
 pub fn init(context: &PyContext) {
-    PyNamespace::extend_class(context, &context.namespace_type);
+    PyNamespace::extend_class(context, &context.types.namespace_type);
 }

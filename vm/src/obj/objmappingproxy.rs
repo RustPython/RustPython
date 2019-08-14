@@ -13,7 +13,7 @@ pub type PyMappingProxyRef = PyRef<PyMappingProxy>;
 
 impl PyValue for PyMappingProxy {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.mappingproxy_type.clone()
+        vm.ctx.types.mappingproxy_type.clone()
     }
 }
 
@@ -38,5 +38,5 @@ impl PyMappingProxy {
 }
 
 pub fn init(context: &PyContext) {
-    PyMappingProxy::extend_class(context, &context.mappingproxy_type)
+    PyMappingProxy::extend_class(context, &context.types.mappingproxy_type)
 }
