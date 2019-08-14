@@ -8,7 +8,9 @@
 use crate::error::{CompileError, CompileErrorType};
 use crate::output_stream::{CodeObjectStream, OutputStream};
 use crate::peephole::PeepholeOptimizer;
-use crate::symboltable::{make_symbol_table, statements_to_symbol_table, Symbol, SymbolScope};
+use crate::symboltable::{
+    make_symbol_table, statements_to_symbol_table, Symbol, SymbolScope, SymbolTable,
+};
 use num_complex::Complex64;
 use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use rustpython_parser::{ast, parser};
@@ -18,7 +20,7 @@ type BasicOutputStream = PeepholeOptimizer<CodeObjectStream>;
 /// Main structure holding the state of compilation.
 struct Compiler<O: OutputStream = BasicOutputStream> {
     output_stack: Vec<O>,
-    scope_stack: Vec<SymbolScope>,
+    symbol_table_stack: Vec<SymbolTable>,
     nxt_label: usize,
     source_path: Option<String>,
     current_source_location: ast::Location,
@@ -147,7 +149,7 @@ impl<O: OutputStream> Compiler<O> {
     fn new(optimize: u8) -> Self {
         Compiler {
             output_stack: Vec::new(),
-            scope_stack: Vec::new(),
+            symbol_table_stack: Vec::new(),
             nxt_label: 0,
             source_path: None,
             current_source_location: ast::Location::default(),
@@ -182,10 +184,10 @@ impl<O: OutputStream> Compiler<O> {
     fn compile_program(
         &mut self,
         program: &ast::Program,
-        symbol_scope: SymbolScope,
+        symbol_table: SymbolTable,
     ) -> Result<(), CompileError> {
         let size_before = self.output_stack.len();
-        self.scope_stack.push(symbol_scope);
+        self.symbol_table_stack.push(symbol_table);
         self.compile_statements(&program.statements)?;
         assert_eq!(self.output_stack.len(), size_before);
 
@@ -200,9 +202,9 @@ impl<O: OutputStream> Compiler<O> {
     fn compile_program_single(
         &mut self,
         program: &ast::Program,
-        symbol_scope: SymbolScope,
+        symbol_table: SymbolTable,
     ) -> Result<(), CompileError> {
-        self.scope_stack.push(symbol_scope);
+        self.symbol_table_stack.push(symbol_table);
 
         let mut emitted_return = false;
 
@@ -239,9 +241,9 @@ impl<O: OutputStream> Compiler<O> {
     fn compile_statement_eval(
         &mut self,
         statements: &[ast::Statement],
-        symbol_table: SymbolScope,
+        symbol_table: SymbolTable,
     ) -> Result<(), CompileError> {
-        self.scope_stack.push(symbol_table);
+        self.symbol_table_stack.push(symbol_table);
         for statement in statements {
             if let ast::StatementType::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
@@ -265,12 +267,11 @@ impl<O: OutputStream> Compiler<O> {
 
     fn scope_for_name(&self, name: &str) -> bytecode::NameScope {
         let symbol = self.lookup_name(name);
-        if symbol.is_global {
-            bytecode::NameScope::Global
-        } else if symbol.is_nonlocal {
-            bytecode::NameScope::NonLocal
-        } else {
-            bytecode::NameScope::Local
+        match symbol.scope {
+            SymbolScope::Global => bytecode::NameScope::Global,
+            SymbolScope::Nonlocal => bytecode::NameScope::NonLocal,
+            SymbolScope::Unknown => bytecode::NameScope::Local,
+            SymbolScope::Local => bytecode::NameScope::Local,
         }
     }
 
@@ -1921,22 +1922,27 @@ impl<O: OutputStream> Compiler<O> {
 
     // Scope helpers:
     fn enter_scope(&mut self) {
-        // println!("Enter scope {:?}", self.scope_stack);
+        // println!("Enter scope {:?}", self.symbol_table_stack);
         // Enter first subscope!
-        let scope = self.scope_stack.last_mut().unwrap().sub_scopes.remove(0);
-        self.scope_stack.push(scope);
+        let table = self
+            .symbol_table_stack
+            .last_mut()
+            .unwrap()
+            .sub_tables
+            .remove(0);
+        self.symbol_table_stack.push(table);
     }
 
     fn leave_scope(&mut self) {
-        // println!("Leave scope {:?}", self.scope_stack);
-        let scope = self.scope_stack.pop().unwrap();
-        assert!(scope.sub_scopes.is_empty());
+        // println!("Leave scope {:?}", self.symbol_table_stack);
+        let table = self.symbol_table_stack.pop().unwrap();
+        assert!(table.sub_tables.is_empty());
     }
 
     fn lookup_name(&self, name: &str) -> &Symbol {
         // println!("Looking up {:?}", name);
-        let scope = self.scope_stack.last().unwrap();
-        scope.lookup(name).expect(
+        let symbol_table = self.symbol_table_stack.last().unwrap();
+        symbol_table.lookup(name).expect(
             "The symbol must be present in the symbol table, even when it is undefined in python.",
         )
     }
