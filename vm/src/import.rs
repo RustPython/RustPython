@@ -68,7 +68,7 @@ pub fn import_file(
 ) -> PyResult {
     let code_obj = compile::compile(
         &content,
-        &compile::Mode::Exec,
+        compile::Mode::Exec,
         file_path,
         vm.settings.optimize,
     )

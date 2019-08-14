@@ -877,7 +877,7 @@ impl VirtualMachine {
     pub fn compile(
         &self,
         source: &str,
-        mode: &compile::Mode,
+        mode: compile::Mode,
         source_path: String,
     ) -> Result<PyCodeRef, CompileError> {
         compile::compile(source, mode, source_path, self.settings.optimize)
