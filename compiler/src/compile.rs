@@ -300,16 +300,11 @@ impl<O: OutputStream> Compiler<O> {
             Import { names } => {
                 // import a, b, c as d
                 for name in names {
-                    self.emit(Instruction::Import {
-                        name: Some(name.symbol.clone()),
-                        symbols: vec![],
-                        level: 0,
-                    });
-
+                    self.compile_import(Some(&name.symbol), vec![], 0, name.alias.is_some());
                     if let Some(alias) = &name.alias {
                         self.store_name(alias);
                     } else {
-                        self.store_name(&name.symbol);
+                        self.store_name(name.symbol.split('.').next().unwrap());
                     }
                 }
             }
@@ -322,21 +317,25 @@ impl<O: OutputStream> Compiler<O> {
 
                 if import_star {
                     // from .... import *
-                    self.emit(Instruction::ImportStar {
-                        name: module.clone(),
-                        level: *level,
-                    });
+                    self.compile_import(
+                        module.as_ref().map(String::as_str),
+                        vec!["*".to_owned()],
+                        *level,
+                        false,
+                    );
+                    self.emit(Instruction::ImportStar);
                 } else {
                     // from mod import a, b as c
                     // First, determine the fromlist (for import lib):
                     let from_list = names.iter().map(|n| n.symbol.clone()).collect();
 
                     // Load module once:
-                    self.emit(Instruction::Import {
-                        name: module.clone(),
-                        symbols: from_list,
-                        level: *level,
-                    });
+                    self.compile_import(
+                        module.as_ref().map(String::as_str),
+                        from_list,
+                        *level,
+                        false,
+                    );
 
                     for name in names {
                         // import symbol from module:
@@ -572,6 +571,30 @@ impl<O: OutputStream> Compiler<O> {
             }
         }
         Ok(())
+    }
+
+    fn compile_import(
+        &mut self,
+        name: Option<&str>,
+        symbols: Vec<String>,
+        level: usize,
+        get_final_module: bool,
+    ) {
+        self.emit(Instruction::Import {
+            name: name.map(ToOwned::to_owned),
+            symbols,
+            level,
+        });
+
+        if get_final_module {
+            if let Some(name) = name {
+                for part in name.split('.').skip(1) {
+                    self.emit(Instruction::LoadAttr {
+                        name: part.to_owned(),
+                    });
+                }
+            }
+        }
     }
 
     fn compile_delete(&mut self, expression: &ast::Expression) -> Result<(), CompileError> {

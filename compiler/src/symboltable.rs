@@ -388,7 +388,10 @@ impl SymbolTableBuilder {
                         self.register_name(alias, SymbolUsage::Assigned)?;
                     } else {
                         // `import module`
-                        self.register_name(&name.symbol, SymbolUsage::Assigned)?;
+                        self.register_name(
+                            name.symbol.split('.').next().unwrap(),
+                            SymbolUsage::Assigned,
+                        )?;
                     }
                 }
             }

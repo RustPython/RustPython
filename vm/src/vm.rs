@@ -407,10 +407,23 @@ impl VirtualMachine {
     }
 
     pub fn import(&self, module: &str, from_list: &PyObjectRef, level: usize) -> PyResult {
-        let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
-        sys_modules
-            .get_item(module.to_string(), self)
-            .or_else(|_| {
+        // if the import inputs seem weird, e.g a package import or something, rather than just
+        // a straight `import ident`
+        let weird = module.contains('.')
+            || level != 0
+            || objbool::boolval(self, from_list.clone()).unwrap_or(true);
+
+        let module = self.new_str(module.to_owned());
+
+        let sys_module = if weird {
+            None
+        } else {
+            let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
+            sys_modules.get_item(module.clone(), self).ok()
+        };
+        match sys_module {
+            Some(module) => Ok(module),
+            None => {
                 let import_func = self
                     .get_attribute(self.builtins.clone(), "__import__")
                     .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
@@ -426,15 +439,16 @@ impl VirtualMachine {
                 self.invoke(
                     &import_func,
                     vec![
-                        self.ctx.new_str(module.to_string()),
+                        module,
                         globals,
                         locals,
                         from_list.clone(),
                         self.ctx.new_int(level),
                     ],
                 )
-            })
-            .map_err(|exc| import::remove_importlib_frames(self, &exc))
+                .map_err(|exc| import::remove_importlib_frames(self, &exc))
+            }
+        }
     }
 
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via

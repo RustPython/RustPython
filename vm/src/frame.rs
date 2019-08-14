@@ -198,10 +198,7 @@ impl Frame {
                 ref symbols,
                 ref level,
             } => self.import(vm, name, symbols, *level),
-            bytecode::Instruction::ImportStar {
-                ref name,
-                ref level,
-            } => self.import_star(vm, name, *level),
+            bytecode::Instruction::ImportStar => self.import_star(vm),
             bytecode::Instruction::ImportFrom { ref name } => self.import_from(vm, name),
             bytecode::Instruction::LoadName {
                 ref name,
@@ -740,25 +737,23 @@ impl Frame {
         // Load attribute, and transform any error into import error.
         let obj = vm
             .get_attribute(module, name)
-            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name)));
-        self.push_value(obj?);
+            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name)))?;
+        self.push_value(obj);
         Ok(None)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn import_star(
-        &self,
-        vm: &VirtualMachine,
-        module: &Option<String>,
-        level: usize,
-    ) -> FrameResult {
-        let module = module.clone().unwrap_or_default();
-        let module = vm.import(&module, &vm.ctx.new_tuple(vec![]), level)?;
+    fn import_star(&self, vm: &VirtualMachine) -> FrameResult {
+        let module = self.pop_value();
 
         // Grab all the names from the module and put them in the context
         if let Some(dict) = &module.dict {
             for (k, v) in dict {
-                self.scope.store_name(&vm, &objstr::get_value(&k), v);
+                let k = vm.to_str(&k)?;
+                let k = k.as_str();
+                if !k.starts_with('_') {
+                    self.scope.store_name(&vm, k, v);
+                }
             }
         }
         Ok(None)
