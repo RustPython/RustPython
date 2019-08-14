@@ -863,6 +863,43 @@ impl VirtualMachine {
         })
     }
 
+    pub fn generic_getattribute(
+        &self,
+        obj: PyObjectRef,
+        name_str: PyStringRef,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let name = name_str.as_str();
+        let cls = obj.class();
+
+        if let Some(attr) = objtype::class_get_attr(&cls, &name) {
+            let attr_class = attr.class();
+            if objtype::class_has_attr(&attr_class, "__set__") {
+                if let Some(descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
+                    return self
+                        .invoke(&descriptor, vec![attr, obj, cls.into_object()])
+                        .map(Some);
+                }
+            }
+        }
+
+        let attr = if let Some(ref dict) = obj.dict {
+            dict.get_item_option(name_str.clone(), self)?
+        } else {
+            None
+        };
+
+        if let Some(obj_attr) = attr {
+            Ok(Some(obj_attr))
+        } else if let Some(attr) = objtype::class_get_attr(&cls, &name) {
+            self.call_get_descriptor(attr, obj).map(Some)
+        } else if let Some(getter) = objtype::class_get_attr(&cls, "__getattr__") {
+            self.invoke(&getter, vec![obj, name_str.into_object()])
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
         match_class!(obj,
             PyFunction => true,
