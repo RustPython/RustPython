@@ -225,9 +225,6 @@ fn object_dict_setter(
 
 fn object_getattribute(obj: PyObjectRef, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
     vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
-    match vm.generic_getattribute(obj.clone(), name.clone()) {
-        Ok(Some(val)) => Ok(val),
-        Ok(None) => Err(vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name))),
-        Err(err) => Err(err),
-    }
+    vm.generic_getattribute(obj.clone(), name.clone())?
+        .ok_or_else(|| vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
 }

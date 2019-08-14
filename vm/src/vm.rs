@@ -415,13 +415,13 @@ impl VirtualMachine {
 
         let module = self.new_str(module.to_owned());
 
-        let sys_module = if weird {
+        let cached_module = if weird {
             None
         } else {
             let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
             sys_modules.get_item(module.clone(), self).ok()
         };
-        match sys_module {
+        match cached_module {
             Some(module) => Ok(module),
             None => {
                 let import_func = self

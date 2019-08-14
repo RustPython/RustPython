@@ -28,14 +28,13 @@ impl PyModuleRef {
     }
 
     fn getattribute(self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        match vm.generic_getattribute(self.as_object().clone(), name.clone()) {
-            Ok(Some(val)) => Ok(val),
-            Ok(None) => Err(vm.new_attribute_error(format!(
-                "module '{}' has no attribute '{}'",
-                self.name, name,
-            ))),
-            Err(err) => Err(err),
-        }
+        vm.generic_getattribute(self.as_object().clone(), name.clone())?
+            .ok_or_else(|| {
+                vm.new_attribute_error(format!(
+                    "module '{}' has no attribute '{}'",
+                    self.name, name,
+                ))
+            })
     }
 
     fn repr(self, vm: &VirtualMachine) -> PyResult {
