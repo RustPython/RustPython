@@ -204,8 +204,25 @@ impl SymbolTableAnalyzer {
                 // all is well
             }
             SymbolScope::Unknown => {
-                if symbol.is_assigned {
+                // Try hard to figure out what the scope of this symbol is.
+
+                if symbol.is_assigned || symbol.is_parameter {
                     symbol.scope = SymbolScope::Local;
+                } else {
+                    // TODO: comment this out and make it work properly:
+                    /*
+                    let found_in_outer_scope = self
+                        .tables
+                        .iter()
+                        .any(|t| t.symbols.contains_key(&symbol.name));
+                    if found_in_outer_scope {
+                        // Symbol is in some outer scope.
+
+                    } else {
+                        // Well, it must be a global then :)
+                        // symbol.scope = SymbolScope::Global;
+                    }
+                    */
                 }
             }
         }
@@ -710,7 +727,10 @@ impl SymbolTableBuilder {
                     });
                 }
             }
-            SymbolUsage::Parameter | SymbolUsage::Assigned => {
+            SymbolUsage::Parameter => {
+                symbol.is_parameter = true;
+            }
+            SymbolUsage::Assigned => {
                 symbol.is_assigned = true;
             }
             SymbolUsage::Global => {
