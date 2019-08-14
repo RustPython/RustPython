@@ -1,7 +1,6 @@
 /*! Python `property` descriptor class.
 
 */
-
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
@@ -9,6 +8,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use std::cell::RefCell;
 
 // Read-only property, doesn't have __set__ or __delete__
 #[pyclass]
@@ -80,7 +80,7 @@ pub struct PyProperty {
     getter: Option<PyObjectRef>,
     setter: Option<PyObjectRef>,
     deleter: Option<PyObjectRef>,
-    doc: Option<PyObjectRef>,
+    doc: RefCell<Option<PyObjectRef>>,
 }
 
 impl PyValue for PyProperty {
@@ -107,20 +107,14 @@ impl PyProperty {
         );
 
         fn into_option(vm: &VirtualMachine, arg: Option<&PyObjectRef>) -> Option<PyObjectRef> {
-            arg.and_then(|arg| {
-                if vm.ctx.none().is(arg) {
-                    None
-                } else {
-                    Some(arg.clone())
-                }
-            })
+            arg.and_then(|arg| py_none_to_option(vm, arg))
         }
 
         PyProperty {
             getter: into_option(vm, fget),
             setter: into_option(vm, fset),
             deleter: into_option(vm, fdel),
-            doc: into_option(vm, doc),
+            doc: RefCell::new(into_option(vm, doc)),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -189,6 +183,15 @@ impl PyProperty {
         self.deleter.clone()
     }
 
+    fn doc_getter(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+        self.doc.borrow().clone()
+    }
+
+    fn doc_setter(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.doc.replace(py_none_to_option(vm, &value));
+        Ok(vm.get_none())
+    }
+
     // Python builder functions
 
     #[pymethod]
@@ -201,7 +204,7 @@ impl PyProperty {
             getter: getter.or_else(|| zelf.getter.clone()),
             setter: zelf.setter.clone(),
             deleter: zelf.deleter.clone(),
-            doc: None,
+            doc: RefCell::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }
@@ -216,7 +219,7 @@ impl PyProperty {
             getter: zelf.getter.clone(),
             setter: setter.or_else(|| zelf.setter.clone()),
             deleter: zelf.deleter.clone(),
-            doc: None,
+            doc: RefCell::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }
@@ -231,9 +234,18 @@ impl PyProperty {
             getter: zelf.getter.clone(),
             setter: zelf.setter.clone(),
             deleter: deleter.or_else(|| zelf.deleter.clone()),
-            doc: None,
+            doc: RefCell::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
+    }
+}
+
+/// Take a python object and turn it into an option object, where python None maps to rust None.
+fn py_none_to_option(vm: &VirtualMachine, value: &PyObjectRef) -> Option<PyObjectRef> {
+    if vm.ctx.none().is(value) {
+        None
+    } else {
+        Some(value.clone())
     }
 }
 
@@ -276,7 +288,7 @@ impl<'a> PropertyBuilder<'a> {
                 getter: self.getter.clone(),
                 setter: self.setter.clone(),
                 deleter: None,
-                doc: None,
+                doc: RefCell::new(None),
             };
 
             PyObject::new(payload, self.ctx.property_type(), None)
@@ -295,4 +307,14 @@ impl<'a> PropertyBuilder<'a> {
 pub fn init(context: &PyContext) {
     PyReadOnlyProperty::extend_class(context, &context.readonly_property_type);
     PyProperty::extend_class(context, &context.property_type);
+
+    // This is a bit unfortunate, but this instance attribute overlaps with the
+    // class __doc__ string..
+    extend_class!(context, &context.property_type, {
+        "__doc__" =>
+        PropertyBuilder::new(context)
+            .add_getter(PyProperty::doc_getter)
+            .add_setter(PyProperty::doc_setter)
+            .create(),
+    });
 }
