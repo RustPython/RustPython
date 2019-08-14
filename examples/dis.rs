@@ -36,6 +36,7 @@ fn main() {
                 .help("The mode to compile the scripts in")
                 .long("mode")
                 .short("m")
+                .default_value("exec")
                 .possible_values(&["exec", "single", "eval"])
                 .takes_value(true),
         )
