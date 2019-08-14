@@ -127,7 +127,7 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef
     let mode = args
         .mode
         .as_str()
-        .parse()
+        .parse::<compile::Mode>()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
 
     vm.compile(&source, mode, args.filename.value.to_string())

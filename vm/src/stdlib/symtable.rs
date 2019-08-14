@@ -29,7 +29,7 @@ fn symtable_symtable(
 ) -> PyResult<PySymbolTableRef> {
     let mode = mode
         .as_str()
-        .parse()
+        .parse::<compile::Mode>()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
     let symtable =
         source_to_symtable(&source.value, mode).map_err(|err| vm.new_syntax_error(&err))?;

@@ -132,12 +132,6 @@ impl std::fmt::Display for ModeParseError {
     }
 }
 
-#[derive(Clone, Copy)]
-enum EvalContext {
-    Statement,
-    Expression,
-}
-
 pub(crate) type Label = usize;
 
 impl<O> Default for Compiler<O>
