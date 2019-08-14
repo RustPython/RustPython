@@ -37,11 +37,18 @@ impl PyModuleRef {
             Err(err) => Err(err),
         }
     }
+
+    fn repr(self, vm: &VirtualMachine) -> PyResult {
+        let importlib = vm.import("_frozen_importlib", &vm.ctx.new_tuple(vec![]), 0)?;
+        let module_repr = vm.get_attribute(importlib, "_module_repr")?;
+        vm.invoke(&module_repr, vec![self.into_object()])
+    }
 }
 
 pub fn init(context: &PyContext) {
-    extend_class!(&context, &context.module_type, {
+    extend_class!(&context, &context.types.module_type, {
         "__new__" => context.new_rustfunc(PyModuleRef::new),
         "__getattribute__" => context.new_rustfunc(PyModuleRef::getattribute),
+        "__repr__" => context.new_rustfunc(PyModuleRef::repr),
     });
 }
