@@ -37,7 +37,7 @@ impl PyReadOnlyProperty {
         if obj.is(vm.ctx.none.as_object()) {
             Ok(zelf.into_object())
         } else {
-            vm.invoke(zelf.getter.clone(), obj)
+            vm.invoke(&zelf.getter, obj)
         }
     }
 }
@@ -129,8 +129,8 @@ impl PyProperty {
 
     // specialised version that doesn't check for None
     pub(crate) fn instance_binding_get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(getter) = self.getter.as_ref() {
-            vm.invoke(getter.clone(), obj)
+        if let Some(ref getter) = self.getter.as_ref() {
+            vm.invoke(getter, obj)
         } else {
             Err(vm.new_attribute_error("unreadable attribute".to_string()))
         }
@@ -147,7 +147,7 @@ impl PyProperty {
             if obj.is(vm.ctx.none.as_object()) {
                 Ok(zelf.into_object())
             } else {
-                vm.invoke(getter.clone(), obj)
+                vm.invoke(&getter, obj)
             }
         } else {
             Err(vm.new_attribute_error("unreadable attribute".to_string()))
@@ -156,8 +156,8 @@ impl PyProperty {
 
     #[pymethod(name = "__set__")]
     fn set(&self, obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(setter) = self.setter.as_ref() {
-            vm.invoke(setter.clone(), vec![obj, value])
+        if let Some(ref setter) = self.setter.as_ref() {
+            vm.invoke(setter, vec![obj, value])
         } else {
             Err(vm.new_attribute_error("can't set attribute".to_string()))
         }
@@ -165,8 +165,8 @@ impl PyProperty {
 
     #[pymethod(name = "__delete__")]
     fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(deleter) = self.deleter.as_ref() {
-            vm.invoke(deleter.clone(), obj)
+        if let Some(ref deleter) = self.deleter.as_ref() {
+            vm.invoke(deleter, obj)
         } else {
             Err(vm.new_attribute_error("can't delete attribute".to_string()))
         }

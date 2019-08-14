@@ -52,7 +52,7 @@ impl PyFilter {
             } else {
                 // the predicate itself can raise StopIteration which does stop the filter
                 // iteration
-                vm.invoke(predicate.clone(), vec![next_obj.clone()])?
+                vm.invoke(&predicate, vec![next_obj.clone()])?
             };
             if objbool::boolval(vm, predicate_value)? {
                 return Ok(next_obj);

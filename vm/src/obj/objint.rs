@@ -714,7 +714,7 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, mut base: u32) -> PyResult
             let method = vm.get_method_or_type_error(obj.clone(), "__int__", || {
                 format!("int() argument must be a string or a number, not '{}'", obj.class().name)
             })?;
-            let result = vm.invoke(method, PyFuncArgs::default())?;
+            let result = vm.invoke(&method, PyFuncArgs::default())?;
             match result.payload::<PyInt>() {
                 Some(int_obj) => Ok(int_obj.as_bigint().clone()),
                 None => Err(vm.new_type_error(format!(

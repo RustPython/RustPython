@@ -755,7 +755,7 @@ fn do_sort(
     for x in values.iter() {
         keys.push(match &key_func {
             None => x.clone(),
-            Some(ref func) => vm.invoke((*func).clone(), vec![x.clone()])?,
+            Some(ref func) => vm.invoke(func, vec![x.clone()])?,
         });
     }
 

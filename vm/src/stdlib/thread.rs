@@ -37,7 +37,7 @@ fn get_ident(_vm: &VirtualMachine) -> u32 {
 
 fn allocate_lock(vm: &VirtualMachine) -> PyResult {
     let lock_class = vm.class("_thread", "RLock");
-    vm.invoke(lock_class.into_object(), vec![])
+    vm.invoke(&lock_class.into_object(), vec![])
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
