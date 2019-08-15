@@ -59,6 +59,11 @@ assert int(1).__rxor__(1) == 0
 assert int(3).__rxor__(-3) == -2
 assert int(3).__rxor__(4) == 7
 
+assert int(4).__lshift__(1) == 8
+assert int(4).__rshift__(1) == 2
+assert int(4).__rlshift__(1) == 16
+assert int(4).__rrshift__(1) == 0
+
 # Test underscores in numbers:
 assert 1_2 == 12
 assert 1_2_3 == 123
