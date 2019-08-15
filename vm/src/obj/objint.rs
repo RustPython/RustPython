@@ -345,6 +345,16 @@ impl PyInt {
         inner_lshift(self, other, vm)
     }
 
+    #[pymethod(name = "__rlshift__")]
+    fn rlshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if !objtype::isinstance(&other, &vm.ctx.int_type()) {
+            return Ok(vm.ctx.not_implemented());
+        }
+
+        let other = other.payload::<PyInt>().unwrap();
+        inner_lshift(other, self, vm)
+    }
+
     #[pymethod(name = "__rshift__")]
     fn rshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&other, &vm.ctx.int_type()) {
@@ -353,6 +363,16 @@ impl PyInt {
 
         let other = other.payload::<PyInt>().unwrap();
         inner_rshift(self, other, vm)
+    }
+
+    #[pymethod(name = "__rrshift__")]
+    fn rrshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if !objtype::isinstance(&other, &vm.ctx.int_type()) {
+            return Ok(vm.ctx.not_implemented());
+        }
+
+        let other = other.payload::<PyInt>().unwrap();
+        inner_rshift(other, self, vm)
     }
 
     #[pymethod(name = "__xor__")]
