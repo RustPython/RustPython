@@ -228,15 +228,18 @@ fn os_access(path: PyStringRef, mode: PyIntRef, vm: &VirtualMachine) -> PyResult
     match mode {
         0 => match file_metadata {
             Ok(_) => Ok(true),
-            Err(_) => Ok(false),
+            Err(err) => match err.kind() {
+                ErrorKind::NotFound => Ok(false),
+                err => Err(convert_io_error(vm, err)),
+            }
         },
         4 => match file_metadata {
             Ok(metadata) => Ok(metadata.permissions().readonly()),
-            Err(_) => Ok(false),
+            Err(err) => Err(convert_io_error(vm, err)),
         },
         2 => unimplemented!(),
         1 => unimplemented!(),
-        _ => unimplemented!(),
+        _ => Err(vm.new_value_error(format!("The mode has to be one of the following 0 to know if a file exists, 4 to know if a file is readable, 2 to know if a file is writable, and 1 to know if a file is executable.")))
     }
 }
 
