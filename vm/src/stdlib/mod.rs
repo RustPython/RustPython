@@ -5,6 +5,7 @@ mod codecs;
 mod collections;
 mod dis;
 mod errno;
+mod functools;
 mod hashlib;
 mod imp;
 mod itertools;
@@ -57,6 +58,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "dis".to_string() => Box::new(dis::make_module),
         "_codecs".to_string() => Box::new(codecs::make_module),
         "_collections".to_string() => Box::new(collections::make_module),
+        "_functools".to_string() => Box::new(functools::make_module),
         "errno".to_string() => Box::new(errno::make_module),
         "hashlib".to_string() => Box::new(hashlib::make_module),
         "itertools".to_string() => Box::new(itertools::make_module),
