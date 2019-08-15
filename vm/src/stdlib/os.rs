@@ -6,6 +6,8 @@ use std::io::{self, Error, ErrorKind, Read, Write};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
+use num_cpus;
+
 #[cfg(unix)]
 use nix::errno::Errno;
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -759,6 +761,11 @@ fn os_getpid(vm: &VirtualMachine) -> PyObjectRef {
     vm.new_int(pid)
 }
 
+fn os_cpu_count(vm: &VirtualMachine) -> PyObjectRef {
+    let cpu_count = num_cpus::get();
+    vm.new_int(cpu_count)
+}
+
 #[cfg(unix)]
 fn os_getppid(vm: &VirtualMachine) -> PyObjectRef {
     let ppid = unistd::getppid().as_raw();
@@ -1002,7 +1009,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "R_OK" => ctx.new_int(4),
         "W_OK" => ctx.new_int(2),
         "X_OK" => ctx.new_int(1),
-        "getpid" => ctx.new_rustfunc(os_getpid)
+        "getpid" => ctx.new_rustfunc(os_getpid),
+        "cpu_count" => ctx.new_rustfunc(os_cpu_count)
     });
 
     for support in support_funcs {

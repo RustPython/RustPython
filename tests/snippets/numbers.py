@@ -38,6 +38,20 @@ assert int(0).__invert__() == -1
 assert int(-3).__invert__() == 2
 assert int(4).__invert__() == -5
 
+assert int(0).__ror__(0) == 0
+assert int(1).__ror__(0) == 1
+assert int(0).__ror__(1) == 1
+assert int(1).__ror__(1) == 1
+assert int(3).__ror__(-3) == -1
+assert int(3).__ror__(4) == 7
+
+assert int(0).__rand__(0) == 0
+assert int(1).__rand__(0) == 0
+assert int(0).__rand__(1) == 0
+assert int(1).__rand__(1) == 1
+assert int(3).__rand__(-3) == 1
+assert int(3).__rand__(4) == 0
+
 assert int(0).__rxor__(0) == 0
 assert int(1).__rxor__(0) == 1
 assert int(0).__rxor__(1) == 1
