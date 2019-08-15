@@ -526,7 +526,7 @@ impl PyString {
 
         match do_cformat(vm, _format_string, values.clone()) {
             Ok(_format_string) => Ok(vm.ctx.not_implemented()),
-            Err(err) => Err(err)
+            Err(err) => Err(err),
         }
     }
 
