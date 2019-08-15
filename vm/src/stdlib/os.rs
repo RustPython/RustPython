@@ -221,8 +221,7 @@ fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
     }
 }
 
-fn os_access(path: PyStringRef, mode: PyIntRef, vm: &VirtualMachine) -> PyResult<bool> {
-    let mode = mode.as_bigint().to_u8().unwrap();
+fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
     let path = path.as_str();
     let file_metadata = fs::metadata(path);
     match mode {
