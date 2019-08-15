@@ -440,20 +440,21 @@ impl PyFloat {
             OptionalArg::Missing => None,
             OptionalArg::Present(ref value) => {
                 if !vm.get_none().is(value) {
-                    let ndigits = if objtype::isinstance(value, &vm.ctx.int_type()) {
-                        objint::get_value(value)
-                    } else {
+                    if !objtype::isinstance(value, &vm.ctx.int_type()) {
                         return Err(vm.new_type_error(format!(
-                            "TypeError: '{}' object cannot be interpreted as an integer",
+                            "'{}' object cannot be interpreted as an integer",
                             value.class().name
                         )));
                     };
+                    // Only accept int type ndigits
+                    let ndigits = objint::get_value(value);
                     Some(ndigits)
                 } else {
                     None
                 }
             }
         };
+
         if let Some(ndigits) = ndigits {
             if ndigits.is_zero() {
                 let fract = self.value.fract();
