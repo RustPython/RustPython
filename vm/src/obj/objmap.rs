@@ -51,7 +51,7 @@ impl PyMap {
             .collect::<Result<Vec<_>, _>>()?;
 
         // the mapper itself can raise StopIteration which does stop the map iteration
-        vm.invoke(self.mapper.clone(), next_objs)
+        vm.invoke(&self.mapper, next_objs)
     }
 
     #[pymethod(name = "__iter__")]

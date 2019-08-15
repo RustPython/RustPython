@@ -218,8 +218,9 @@ impl PyItertoolsStarmap {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         let obj = call_next(vm, &self.iter)?;
+        let function = &self.function;
 
-        vm.invoke(self.function.clone(), vm.extract_elements(&obj)?)
+        vm.invoke(function, vm.extract_elements(&obj)?)
     }
 
     #[pymethod(name = "__iter__")]
@@ -271,8 +272,9 @@ impl PyItertoolsTakewhile {
 
         // might be StopIteration or anything else, which is propaged upwwards
         let obj = call_next(vm, &self.iterable)?;
+        let predicate = &self.predicate;
 
-        let verdict = vm.invoke(self.predicate.clone(), vec![obj.clone()])?;
+        let verdict = vm.invoke(predicate, vec![obj.clone()])?;
         let verdict = objbool::boolval(vm, verdict)?;
         if verdict {
             Ok(obj)

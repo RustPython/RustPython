@@ -612,7 +612,7 @@ pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
                 obj.class().name
             )
         })?;
-        let result = vm.invoke(method, vec![])?;
+        let result = vm.invoke(&method, vec![])?;
         Ok(get_value(&result))
     }
 }

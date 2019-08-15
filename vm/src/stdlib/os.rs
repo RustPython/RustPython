@@ -6,6 +6,8 @@ use std::io::{self, Error, ErrorKind, Read, Write};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
+use num_cpus;
+
 #[cfg(unix)]
 use nix::errno::Errno;
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -312,6 +314,15 @@ fn _os_environ(vm: &VirtualMachine) -> PyDictRef {
         environ.set_item(&key, vm.new_str(value), vm).unwrap();
     }
     environ
+}
+
+fn os_readlink(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
+    let path = make_path(vm, path, &dir_fd);
+    let path = fs::read_link(path.as_str()).map_err(|err| convert_io_error(vm, err))?;
+    let path = path.into_os_string().into_string().map_err(|_osstr| {
+        vm.new_unicode_decode_error("Can't convert OS path to valid UTF-8 string".into())
+    })?;
+    Ok(vm.ctx.new_str(path))
 }
 
 #[derive(Debug)]
@@ -759,6 +770,11 @@ fn os_getpid(vm: &VirtualMachine) -> PyObjectRef {
     vm.new_int(pid)
 }
 
+fn os_cpu_count(vm: &VirtualMachine) -> PyObjectRef {
+    let cpu_count = num_cpus::get();
+    vm.new_int(cpu_count)
+}
+
 #[cfg(unix)]
 fn os_getppid(vm: &VirtualMachine) -> PyObjectRef {
     let ppid = unistd::getppid().as_raw();
@@ -957,7 +973,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         // mkfifo Some Some None
         // mknod Some Some None
         // pathconf Some None None
-        // readlink Some Some None
+        SupportFunc::new(vm, "readlink", os_readlink, Some(false), Some(false), None),
         SupportFunc::new(vm, "remove", os_remove, Some(false), Some(false), None),
         SupportFunc::new(vm, "rename", os_rename, Some(false), Some(false), None),
         SupportFunc::new(vm, "replace", os_rename, Some(false), Some(false), None), // TODO: Fix replace
@@ -1002,7 +1018,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "R_OK" => ctx.new_int(4),
         "W_OK" => ctx.new_int(2),
         "X_OK" => ctx.new_int(1),
-        "getpid" => ctx.new_rustfunc(os_getpid)
+        "getpid" => ctx.new_rustfunc(os_getpid),
+        "cpu_count" => ctx.new_rustfunc(os_cpu_count)
     });
 
     for support in support_funcs {

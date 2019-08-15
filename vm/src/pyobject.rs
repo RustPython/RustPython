@@ -687,7 +687,7 @@ pub struct PyCallable {
 impl PyCallable {
     #[inline]
     pub fn invoke(&self, args: impl Into<PyFuncArgs>, vm: &VirtualMachine) -> PyResult {
-        vm.invoke(self.obj.clone(), args)
+        vm.invoke(&self.obj, args)
     }
 
     #[inline]
@@ -842,8 +842,9 @@ impl<T> PyIterable<T> {
     /// This operation may fail if an exception is raised while invoking the
     /// `__iter__` method of the iterable object.
     pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterator<'a, T>> {
+        let method = &self.method;
         let iter_obj = vm.invoke(
-            self.method.clone(),
+            method,
             PyFuncArgs {
                 args: vec![],
                 kwargs: IndexMap::new(),

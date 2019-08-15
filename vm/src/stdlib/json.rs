@@ -11,6 +11,12 @@ pub fn json_dumps(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
     serde_json::to_string(&serializer).map_err(|err| vm.new_type_error(err.to_string()))
 }
 
+pub fn json_dump(obj: PyObjectRef, fs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let result = json_dumps(obj, vm)?;
+    vm.call_method(&fs, "write", vec![vm.new_str(result)])?;
+    Ok(vm.get_none())
+}
+
 /// Implement json.loads
 pub fn json_loads(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
     // TODO: Implement non-trivial deserialization case
@@ -34,6 +40,11 @@ pub fn json_loads(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
     })
 }
 
+pub fn json_load(fp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let result = vm.call_method(&fp, "read", vec![])?;
+    json_loads(result.downcast()?, vm)
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -46,7 +57,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     py_module!(vm, "json", {
         "dumps" => ctx.new_rustfunc(json_dumps),
+        "dump" => ctx.new_rustfunc(json_dump),
         "loads" => ctx.new_rustfunc(json_loads),
+        "load" => ctx.new_rustfunc(json_load),
         "JSONDecodeError" => json_decode_error
     })
 }
