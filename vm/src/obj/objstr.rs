@@ -520,14 +520,7 @@ impl PyString {
 
     #[pymethod(name = "__rmod__")]
     fn rmod(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let format_string_text = &self.value;
-        let _format_string = CFormatString::from_str(format_string_text)
-            .map_err(|err| vm.new_value_error(format!("{}", err)))?;
-
-        match do_cformat(vm, _format_string, values.clone()) {
-            Ok(_format_string) => Ok(vm.ctx.not_implemented()),
-            Err(err) => Err(err),
-        }
+        Ok(vm.ctx.not_implemented())
     }
 
     #[pymethod]
