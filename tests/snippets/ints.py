@@ -167,3 +167,16 @@ class F(float):
         return 3
 
 assert int(F(1.2)) == 3
+
+assert isinstance((0).__round__(), int)
+assert isinstance((1).__round__(), int)
+assert (0).__round__() == 0
+assert (1).__round__() == 1
+assert isinstance((0).__round__(0), int)
+assert isinstance((1).__round__(0), int)
+assert (0).__round__(0) == 0
+assert (1).__round__(0) == 1
+assert_raises(TypeError, lambda: (0).__round__(None))
+assert_raises(TypeError, lambda: (1).__round__(None))
+assert_raises(TypeError, lambda: (0).__round__(0.0))
+assert_raises(TypeError, lambda: (1).__round__(0.0))

@@ -9,13 +9,14 @@ use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::obj::objtype::PyClassRef;
 use crate::pyhash;
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
 use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
+use super::objint;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype;
 
@@ -468,8 +469,29 @@ impl PyInt {
         zelf: PyRef<Self>,
         _precision: OptionalArg<PyObjectRef>,
         _vm: &VirtualMachine,
-    ) -> PyIntRef {
-        zelf
+    ) -> PyResult<PyIntRef> {
+        let _ndigits = match _precision {
+            OptionalArg::Missing => None,
+            OptionalArg::Present(ref value) => {
+                if !_vm.get_none().is(value) {
+                    if !objtype::isinstance(value, &_vm.ctx.int_type()) {
+                        return Err(_vm.new_type_error(format!(
+                            "'{}' object cannot be interpreted as an integer",
+                            value.class().name
+                        )));
+                    };
+                    // Only accept int type _ndigits
+                    let _ndigits = objint::get_value(value);
+                    Some(_ndigits)
+                } else {
+                    return Err(_vm.new_type_error(format!(
+                        "'{}' object cannot be interpreted as an integer",
+                        value.class().name
+                    )));
+                }
+            }
+        };
+        Ok(zelf)
     }
 
     #[pymethod(name = "__int__")]
