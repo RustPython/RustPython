@@ -1,6 +1,8 @@
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objbyteinner;
+use crate::obj::objstr;
+use crate::obj::objtype;
 use crate::py_serde;
-use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
 use crate::types::create_type;
 use crate::VirtualMachine;
 use serde_json;
@@ -18,8 +20,23 @@ pub fn json_dump(obj: PyObjectRef, fs: PyObjectRef, vm: &VirtualMachine) -> PyRe
 }
 
 /// Implement json.loads
-pub fn json_loads(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
+pub fn json_loads(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     // TODO: Implement non-trivial deserialization case
+    let string = if objtype::isinstance(&obj, &vm.ctx.str_type()) {
+        objstr::get_value(&obj)
+    } else if objtype::isinstance(&obj, &vm.ctx.bytearray_type())
+        || objtype::isinstance(&obj, &vm.ctx.bytes_type())
+    {
+        let bytes = objbyteinner::try_as_byte(&obj).unwrap();
+        String::from_utf8(bytes.to_vec()).map_err(|err| vm.new_type_error(err.to_string()))?
+    } else {
+        let msg = format!(
+            "the JSON object must be str, bytes or bytearray, not {}",
+            obj.class().name
+        );
+        return Err(vm.new_type_error(msg));
+    };
+
     let de_result =
         py_serde::deserialize(vm, &mut serde_json::Deserializer::from_str(string.as_str()));
 
@@ -42,7 +59,7 @@ pub fn json_loads(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
 
 pub fn json_load(fp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let result = vm.call_method(&fp, "read", vec![])?;
-    json_loads(result.downcast()?, vm)
+    json_loads(result, vm)
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
