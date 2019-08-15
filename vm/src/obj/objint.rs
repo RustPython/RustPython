@@ -369,8 +369,8 @@ impl PyInt {
     }
 
     #[pymethod(name = "__ror__")]
-    fn ror(&self,other: PyObjectRef,vm: &VirtualMachine) -> PyObjectRef{
-        self.or(other,vm)
+    fn ror(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        self.or(other, vm)
     }
 
     #[pymethod(name = "__and__")]
@@ -382,10 +382,10 @@ impl PyInt {
             vm.ctx.not_implemented()
         }
     }
-    
+
     #[pymethod(name = "__rand__")]
-    fn rand(&self, other: PyObjectRef,vm: &VirtualMachine) -> PyObjectRef{
-        self.and(other,vm)
+    fn rand(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        self.and(other, vm)
     }
 
     #[pymethod(name = "__pow__")]
