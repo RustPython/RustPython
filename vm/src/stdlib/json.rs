@@ -39,6 +39,11 @@ pub fn json_loads(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
     })
 }
 
+pub fn json_load(fp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let result = vm.call_method(&fp, "read", vec![])?;
+    json_loads(result.downcast()?, vm)
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -53,6 +58,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "dumps" => ctx.new_rustfunc(json_dumps),
         "dump" => ctx.new_rustfunc(json_dump),
         "loads" => ctx.new_rustfunc(json_loads),
+        "load" => ctx.new_rustfunc(json_load),
         "JSONDecodeError" => json_decode_error
     })
 }
