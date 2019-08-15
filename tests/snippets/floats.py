@@ -163,6 +163,8 @@ assert isinstance(0.5.__round__(None), int)
 assert isinstance(1.5.__round__(None), int)
 assert 0.5.__round__(None) == 0
 assert 1.5.__round__(None) == 2
+assert_raises(TypeError, lambda: 0.5.__round__(0.0))
+assert_raises(TypeError, lambda: 1.5.__round__(0.0))
 assert_raises(OverflowError, float('inf').__round__)
 assert_raises(ValueError, float('nan').__round__)
 
