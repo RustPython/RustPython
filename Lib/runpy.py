@@ -13,7 +13,7 @@ importers when locating support scripts as well as when importing modules.
 import sys
 try:
     import __importlib_util
-except:
+except ImportError:
 # FIXME replace above with below once we can import importlib
     import importlib.machinery # importlib first so we can test #15386 via -m
     import importlib.util as __importlib_util
