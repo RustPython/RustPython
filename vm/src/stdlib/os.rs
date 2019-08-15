@@ -242,7 +242,7 @@ fn os_access(path: PyStringRef, mode: PyIntRef, vm: &VirtualMachine) -> PyResult
         },
         2 => unimplemented!(),
         1 => unimplemented!(),
-        _ => Err(vm.new_value_error(format!("The mode has to be one of the following 0 to know if a file exists, 4 to know if a file is readable, 2 to know if a file is writable, and 1 to know if a file is executable.")))
+        _ => Err(vm.new_value_error("The mode has to be one of the following 0 to know if a file exists, 4 to know if a file is readable, 2 to know if a file is writable, and 1 to know if a file is executable.".to_string()))
     }
 }
 
