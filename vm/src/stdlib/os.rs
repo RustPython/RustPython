@@ -221,11 +221,18 @@ fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
     }
 }
 
+// Flags for os_access
+const F_OK: u8 = 0;
+const R_OK: u8 = 4;
+const W_OK: u8 = 2;
+const X_OK: u8 = 1;
+
+// TODO : Implement W_OK and X_OK
 fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
     let path = path.as_str();
     let file_metadata = fs::metadata(path);
     match mode {
-        0 => match file_metadata {
+        F_OK => match file_metadata {
             Ok(_) => Ok(true),
             Err(err) => {
                 if err.kind() == ErrorKind::NotFound {
@@ -235,12 +242,12 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
                 }
             }
         },
-        4 => match file_metadata {
+        R_OK => match file_metadata {
             Ok(metadata) => Ok(metadata.permissions().readonly()),
             Err(err) => Err(convert_io_error(vm, err)),
         },
-        2 => unimplemented!(),
-        1 => unimplemented!(),
+        W_OK => unimplemented!(),
+        X_OK => unimplemented!(),
         _ => Err(vm.new_value_error("The mode has to be one of the following 0 to know if a file exists, 4 to know if a file is readable, 2 to know if a file is writable, and 1 to know if a file is executable.".to_string()))
     }
 }
@@ -1029,10 +1036,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "O_APPEND" => ctx.new_int(FileCreationFlags::O_APPEND.bits()),
         "O_EXCL" => ctx.new_int(FileCreationFlags::O_EXCL.bits()),
         "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits()),
-        "F_OK" => ctx.new_int(0),
-        "R_OK" => ctx.new_int(4),
-        "W_OK" => ctx.new_int(2),
-        "X_OK" => ctx.new_int(1),
+        "F_OK" => ctx.new_int(F_OK),
+        "R_OK" => ctx.new_int(R_OK),
+        "W_OK" => ctx.new_int(W_OK),
+        "X_OK" => ctx.new_int(X_OK),
         "getpid" => ctx.new_rustfunc(os_getpid),
         "cpu_count" => ctx.new_rustfunc(os_cpu_count),
         "access" => ctx.new_rustfunc(os_access)
