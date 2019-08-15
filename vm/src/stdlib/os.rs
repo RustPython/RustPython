@@ -221,6 +221,25 @@ fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
     }
 }
 
+fn os_access(path: PyStringRef, mode: PyIntRef, vm: &VirtualMachine) -> PyResult<bool> {
+    let mode = mode.as_bigint().to_u8().unwrap();
+    let path = path.as_str();
+    let file_metadata = fs::metadata(path);
+    match mode {
+        0 => match file_metadata {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
+        },
+        4 => match file_metadata {
+            Ok(metadata) => Ok(metadata.permissions().readonly()),
+            Err(_) => Ok(false),
+        },
+        2 => unimplemented!(),
+        1 => unimplemented!(),
+        _ => unimplemented!(),
+    }
+}
+
 fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -1010,7 +1029,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "W_OK" => ctx.new_int(2),
         "X_OK" => ctx.new_int(1),
         "getpid" => ctx.new_rustfunc(os_getpid),
-        "cpu_count" => ctx.new_rustfunc(os_cpu_count)
+        "cpu_count" => ctx.new_rustfunc(os_cpu_count),
+        "access" => ctx.new_rustfunc(os_access)
     });
 
     for support in support_funcs {
