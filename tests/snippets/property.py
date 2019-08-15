@@ -59,7 +59,11 @@ with assertRaises(AttributeError):
 with assertRaises(TypeError):
     property.__new__(object)
 
-# assert p.__doc__ is None
+assert p.__doc__ is None
+
+# Test property instance __doc__ attribute:
+p.__doc__ = '222'
+assert p.__doc__ == '222'
 
 
 p1 = property("a", "b", "c")
