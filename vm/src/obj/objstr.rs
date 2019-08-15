@@ -518,6 +518,18 @@ impl PyString {
         do_cformat(vm, format_string, values.clone())
     }
 
+    #[pymethod(name = "__rmod__")]
+    fn rmod(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let format_string_text = &self.value;
+        let _format_string = CFormatString::from_str(format_string_text)
+            .map_err(|err| vm.new_value_error(format!("{}", err)))?;
+
+        match do_cformat(vm, _format_string, values.clone()) {
+            Ok(_format_string) => Ok(vm.new_str("NotImplemented".to_string())),
+            Err(err) => Err(err)
+        }
+    }
+
     #[pymethod]
     fn format(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         if args.args.is_empty() {
