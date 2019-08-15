@@ -118,6 +118,10 @@ fn object_repr(zelf: PyObjectRef, _vm: &VirtualMachine) -> String {
     format!("<{} object at 0x{:x}>", zelf.class().name, zelf.get_id())
 }
 
+fn object_subclasshook(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    Ok(vm.ctx.not_implemented())
+}
+
 pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
     let attributes: PyAttributes = objtype::get_attributes(obj.class());
 
@@ -179,7 +183,8 @@ pub fn init(context: &PyContext) {
         "__repr__" => context.new_rustfunc(object_repr),
         "__format__" => context.new_rustfunc(object_format),
         "__getattribute__" => context.new_rustfunc(object_getattribute),
-        "__doc__" => context.new_str(object_doc.to_string())
+        "__subclasshook__" => context.new_classmethod(object_subclasshook),
+        "__doc__" => context.new_str(object_doc.to_string()),
     });
 }
 
