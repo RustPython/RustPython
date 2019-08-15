@@ -21,8 +21,8 @@ use crate::vm::VirtualMachine;
 use crate::obj::objtype::PyClassRef;
 #[cfg(unix)]
 use crate::stdlib::os::convert_nix_error;
-use num_traits::ToPrimitive;
 use num_bigint::Sign;
+use num_traits::ToPrimitive;
 
 #[derive(Debug, Copy, Clone)]
 enum AddressFamily {
@@ -412,7 +412,9 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
 
 fn socket_htonl(host: PyIntRef, vm: &VirtualMachine) -> PyResult {
     if host.as_bigint().sign() == Sign::Minus {
-        return Err(vm.new_overflow_error("can't convert negative value to unsigned int".to_string()));
+        return Err(
+            vm.new_overflow_error("can't convert negative value to unsigned int".to_string())
+        );
     }
 
     let host = host.as_bigint().to_u32().unwrap();
