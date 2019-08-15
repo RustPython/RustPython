@@ -221,20 +221,23 @@ fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
     }
 }
 
-fn os_access(path: PyStringRef, mode: PyIntRef, vm: &VirtualMachine) -> PyResult<bool> {
+fn os_access(path: PyStringRef, mode: PyIntRef, vm: &VirtualMachine) -> PyResult {
     let mode = mode.as_bigint().to_u8().unwrap();
     let path = path.as_str();
     let file_metadata = fs::metadata(path);
     match mode {
         0 => match file_metadata {
-            Ok(_) => Ok(true),
-            Err(err) => match err.kind() {
-                ErrorKind::NotFound => Ok(false),
-                err => Err(convert_io_error(vm, err)),
+            Ok(_) => Ok(vm.new_bool(true)),
+            Err(err) => {
+                if err.kind() == ErrorKind::NotFound {
+                    Ok(vm.new_bool(false))
+                } else {
+                    Err(convert_io_error(vm, err))
+                }
             }
         },
         4 => match file_metadata {
-            Ok(metadata) => Ok(metadata.permissions().readonly()),
+            Ok(metadata) => Ok(vm.new_bool(metadata.permissions().readonly())),
             Err(err) => Err(convert_io_error(vm, err)),
         },
         2 => unimplemented!(),
