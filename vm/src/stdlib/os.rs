@@ -314,6 +314,15 @@ fn _os_environ(vm: &VirtualMachine) -> PyDictRef {
     environ
 }
 
+fn os_readlink(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
+    let path = make_path(vm, path, &dir_fd);
+    let path = fs::read_link(path.as_str()).map_err(|err| convert_io_error(vm, err))?;
+    let path = path.into_os_string().into_string().map_err(|_osstr| {
+        vm.new_unicode_decode_error("Can't convert OS path to valid UTF-8 string".into())
+    })?;
+    Ok(vm.ctx.new_str(path))
+}
+
 #[derive(Debug)]
 struct DirEntry {
     entry: fs::DirEntry,
@@ -957,7 +966,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         // mkfifo Some Some None
         // mknod Some Some None
         // pathconf Some None None
-        // readlink Some Some None
+        SupportFunc::new(vm, "readlink", os_readlink, Some(false), Some(false), None),
         SupportFunc::new(vm, "remove", os_remove, Some(false), Some(false), None),
         SupportFunc::new(vm, "rename", os_rename, Some(false), Some(false), None),
         SupportFunc::new(vm, "replace", os_rename, Some(false), Some(false), None), // TODO: Fix replace
