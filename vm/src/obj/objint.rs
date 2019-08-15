@@ -8,8 +8,8 @@ use crate::format::FormatSpec;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol, IdProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
