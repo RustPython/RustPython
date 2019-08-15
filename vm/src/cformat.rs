@@ -209,6 +209,41 @@ impl CFormatSpec {
             self.fill_string(format!("{}{}", prefix, magnitude_string), ' ', None)
         }
     }
+
+    pub fn format_float(&self, num: f64) -> String {
+        let magnitude = num.abs();
+
+        let sign_string = match num.is_sign_positive() {
+            false => "-",
+            true => {
+                if self.flags.contains(CConversionFlags::SIGN_CHAR) {
+                    "+"
+                } else if self.flags.contains(CConversionFlags::BLANK_SIGN) {
+                    " "
+                } else {
+                    ""
+                }
+            }
+        };
+
+        // TODO: Support precision
+        let magnitude_string = format!("{:.6}", magnitude);
+
+        if self.flags.contains(CConversionFlags::ZERO_PAD) {
+            let fill_char = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
+                '0'
+            } else {
+                ' '
+            };
+            format!(
+                "{}{}",
+                sign_string,
+                self.fill_string(magnitude_string, fill_char, Some(sign_string.chars().count()))
+            )
+        } else {
+            self.fill_string(format!("{}{}", sign_string, magnitude_string), ' ', None)
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -760,6 +795,41 @@ mod tests {
                 .unwrap()
                 .format_number(&BigInt::from(0x1337)),
             "0x1337    ".to_string()
+        );
+        assert_eq!(
+            "%f"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_float(f64::from(1.2345)),
+            "1.234500".to_string()
+        );
+        assert_eq!(
+            "%+f"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_float(f64::from(1.2345)),
+            "+1.234500".to_string()
+        );
+        assert_eq!(
+            "% f"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_float(f64::from(1.2345)),
+            " 1.234500".to_string()
+        );
+        assert_eq!(
+            "%f"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_float(f64::from(-1.2345)),
+            "-1.234500".to_string()
+        );
+        assert_eq!(
+            "%f"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_float(f64::from(1.2345678901)),
+            "1.234568".to_string()
         );
     }
 

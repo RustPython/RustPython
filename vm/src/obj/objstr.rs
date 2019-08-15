@@ -29,6 +29,7 @@ use crate::vm::VirtualMachine;
 use super::objbytes::PyBytes;
 use super::objdict::PyDict;
 use super::objint::{self, PyInt};
+use super::objfloat;
 use super::objiter;
 use super::objnone::PyNone;
 use super::objsequence::PySliceableSequence;
@@ -1219,6 +1220,18 @@ fn do_cformat_specifier(
                 )));
             }
             Ok(format_spec.format_number(objint::get_value(&obj)))
+        }
+        CFormatType::Float(_) => {
+            if !objtype::isinstance(&obj, &vm.ctx.float_type()) {
+                let required_type_string = "an floating point";
+                return Err(vm.new_type_error(format!(
+                    "%{} format: {} is required, not {}",
+                    format_spec.format_char,
+                    required_type_string,
+                    obj.class()
+                )));
+            }
+            Ok(format_spec.format_float(objfloat::get_value(&obj)))
         }
         CFormatType::Character => {
             let char_string = {
