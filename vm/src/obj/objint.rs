@@ -172,8 +172,8 @@ fn inner_lshift(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
 
     // i2 failed `to_usize()` conversion
     match &int2.value {
-        v if v < &BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
-        v if v > &BigInt::from(usize::max_value()) => {
+        v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
+        v if *v > BigInt::from(usize::max_value()) => {
             Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
         }
         _ => panic!("Failed converting {} to rust usize", int2.value),
@@ -187,8 +187,8 @@ fn inner_rshift(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
 
     // i2 failed `to_usize()` conversion
     match &int2.value {
-        v if v < &BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
-        v if v > &BigInt::from(usize::max_value()) => {
+        v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
+        v if *v > BigInt::from(usize::max_value()) => {
             Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
         }
         _ => panic!("Failed converting {} to rust usize", int2.value),
