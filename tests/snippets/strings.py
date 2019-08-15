@@ -294,11 +294,5 @@ assert next(str_iter_reversed) == "1"
 assert next(str_iter_reversed, None) == None
 assert_raises(StopIteration, lambda: next(str_iter_reversed))
 
-assert str.__rmod__('%i', 30) == "NotImplemented"
-
-typeError = False
-try:
-    str.__rmod__(30, '%i')
-except TypeError:
-    typeError = True
-assert typeError
+assert str.__rmod__('%i', 30) == NotImplemented
+assert_raises(TypeError, lambda: str.__rmod__(30, '%i'))
