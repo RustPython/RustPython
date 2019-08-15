@@ -525,7 +525,7 @@ impl PyString {
             .map_err(|err| vm.new_value_error(format!("{}", err)))?;
 
         match do_cformat(vm, _format_string, values.clone()) {
-            Ok(_format_string) => Ok(vm.new_str("NotImplemented".to_string())),
+            Ok(_format_string) => Ok(vm.ctx.not_implemented()),
             Err(err) => Err(err)
         }
     }
