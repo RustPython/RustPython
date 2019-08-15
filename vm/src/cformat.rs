@@ -831,6 +831,20 @@ mod tests {
                 .format_float(f64::from(1.2345678901)),
             "1.234568".to_string()
         );
+        assert_eq!(
+            "%f"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(123)),
+            "123.000000".to_string()
+        );
+        assert_eq!(
+            "%f"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(-123)),
+            "-123.000000".to_string()
+        )
     }
 
     #[test]
