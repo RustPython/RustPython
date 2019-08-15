@@ -135,3 +135,5 @@ assert socket.inet_ntoa(b"\xff\xff\xff\xff")=="255.255.255.255"
 with assertRaises(OSError):
 	socket.inet_ntoa(b"\xff\xff\xff\xff\xff")
 
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+	pass
