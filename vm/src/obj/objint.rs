@@ -165,6 +165,36 @@ fn inner_divmod(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+fn inner_lshift(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
+    if let Some(n_bits) = int2.value.to_usize() {
+        return Ok(vm.ctx.new_int(&int1.value << n_bits));
+    }
+
+    // i2 failed `to_usize()` conversion
+    match &int2.value {
+        v if v < &BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
+        v if v > &BigInt::from(usize::max_value()) => {
+            Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
+        }
+        _ => panic!("Failed converting {} to rust usize", int2.value),
+    }
+}
+
+fn inner_rshift(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
+    if let Some(n_bits) = int2.value.to_usize() {
+        return Ok(vm.ctx.new_int(&int1.value >> n_bits));
+    }
+
+    // i2 failed `to_usize()` conversion
+    match &int2.value {
+        v if v < &BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
+        v if v > &BigInt::from(usize::max_value()) => {
+            Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
+        }
+        _ => panic!("Failed converting {} to rust usize", int2.value),
+    }
+}
+
 #[pyimpl]
 impl PyInt {
     #[pymethod(name = "__eq__")]
@@ -311,18 +341,8 @@ impl PyInt {
             return Ok(vm.ctx.not_implemented());
         }
 
-        if let Some(n_bits) = get_value(&other).to_usize() {
-            return Ok(vm.ctx.new_int((&self.value) << n_bits));
-        }
-
-        // i2 failed `to_usize()` conversion
-        match get_value(&other) {
-            v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
-            v if *v > BigInt::from(usize::max_value()) => {
-                Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
-            }
-            _ => panic!("Failed converting {} to rust usize", get_value(&other)),
-        }
+        let other = other.payload::<PyInt>().unwrap();
+        inner_lshift(self, other, vm)
     }
 
     #[pymethod(name = "__rshift__")]
@@ -331,18 +351,8 @@ impl PyInt {
             return Ok(vm.ctx.not_implemented());
         }
 
-        if let Some(n_bits) = get_value(&other).to_usize() {
-            return Ok(vm.ctx.new_int((&self.value) >> n_bits));
-        }
-
-        // i2 failed `to_usize()` conversion
-        match get_value(&other) {
-            v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
-            v if *v > BigInt::from(usize::max_value()) => {
-                Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
-            }
-            _ => panic!("Failed converting {} to rust usize", get_value(&other)),
-        }
+        let other = other.payload::<PyInt>().unwrap();
+        inner_rshift(self, other, vm)
     }
 
     #[pymethod(name = "__xor__")]
