@@ -23,3 +23,13 @@ fd = os.open('README.md', os.O_RDONLY)
 with FileIO(fd) as fio:
 	res2 = fio.read()
 	assert res == res2
+
+fi = FileIO('README.md')
+fi.read()
+fi.close()
+try:
+    fi.read()
+except ValueError:
+    pass
+else:
+    raise RuntimeError('ValueError should be raised')
