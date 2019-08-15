@@ -480,7 +480,7 @@ impl PyBytesRef {
             "utf-8" | "utf8" | "" => {
                 let mut p: u32 = 0u32;
                 let mut remaining_bytes = 0;
-                for &b in self.get_value() {
+                for (pos, &b) in self.get_value().iter().enumerate() {
                     if (b as u8) & 128 == 0 {
                         if b.is_ascii() {
                             decode_content.push(b as char)
@@ -488,6 +488,17 @@ impl PyBytesRef {
                             decode_content.push(replacing_char.unwrap())
                         }
                     } else if (b as u8) & 192 == 128 {
+
+                        if remaining_bytes == 0 {
+                            if strict_mod {
+                                let err_msg = format!("'utf-8' codec can't decode byte 0x{1:x} in position {0}: invalid start byte", pos, b as u8);
+                                return Err(vm.new_unicode_decode_error(err_msg))
+                            } else if !strict_mod && replacing_char.is_some() {
+                                decode_content.push(replacing_char.unwrap());
+                            }
+                            continue;
+                        }
+
                         remaining_bytes -= 1;
 
                         p += u32::from(b as u8 & 63) << (6 * remaining_bytes);
