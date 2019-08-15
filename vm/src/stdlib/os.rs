@@ -6,6 +6,7 @@ use std::fs::OpenOptions;
 use std::io::{self, Error, ErrorKind, Read, Write};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
+use std::os::unix::fs::PermissionsExt;
 
 #[cfg(unix)]
 use nix::errno::Errno;
@@ -862,6 +863,20 @@ fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     env::set_current_dir(&path.value).map_err(|err| convert_io_error(vm, err))
 }
 
+#[cfg(unix)]
+fn os_chmod(path: PyStringRef, dir_fd: DirFd, mode: u32, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<()> {
+    let path = make_path(vm, path, &dir_fd);
+    let metadata = match follow_symlinks.follow_symlinks {
+        true => fs::metadata(&path.value),
+        false => fs::symlink_metadata(&path.value),
+    };
+    let meta = metadata.map_err(|err| convert_io_error(vm, err))?;
+    let mut permissions = meta.permissions();
+    permissions.set_mode(mode);
+    fs::set_permissions(&path.value, permissions).map_err(|err| convert_io_error(vm, err))?;
+    Ok(())
+}
+
 fn os_fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if objtype::issubclass(&path.class(), &vm.ctx.str_type())
         || objtype::issubclass(&path.class(), &vm.ctx.bytes_type())
@@ -1080,6 +1095,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "chdir", os_chdir, Some(false), None, None),
         // chflags Some, None Some
         // chmod Some Some Some
+        SupportFunc::new(vm, "chmod", os_chmod, Some(false), Some(false), Some(false)),
         // chown Some Some Some
         // chroot Some None None
         SupportFunc::new(vm, "listdir", os_listdir, Some(false), None, None),
@@ -1120,6 +1136,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "lstat" => ctx.new_rustfunc(os_lstat),
         "getcwd" => ctx.new_rustfunc(os_getcwd),
         "chdir" => ctx.new_rustfunc(os_chdir),
+        "chmod" => ctx.new_rustfunc(os_chmod),
         "fspath" => ctx.new_rustfunc(os_fspath),
         "O_RDONLY" => ctx.new_int(FileCreationFlags::O_RDONLY.bits()),
         "O_WRONLY" => ctx.new_int(FileCreationFlags::O_WRONLY.bits()),
