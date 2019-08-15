@@ -217,6 +217,8 @@ assert "%+f" % (1.2345) == "+1.234500"
 assert "% f" % (1.2345) == " 1.234500"
 assert "%f" % (-1.2345) == "-1.234500"
 assert "%f" % (1.23456789012) == "1.234568"
+assert "%f" % (123) == "123.000000"
+assert "%f" % (-123) == "-123.000000"
 
 assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25), msg="format requires a mapping")
 assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo", msg="format requires a mapping")
