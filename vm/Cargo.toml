@@ -78,3 +78,4 @@ flate2 = { version = "1.0", features = ["zlib"], default-features = false }
 libz-sys = "1.0.25"
 gethostname = "0.2.0"
 subprocess = "0.1.18"
+num_cpus = "1.0"
