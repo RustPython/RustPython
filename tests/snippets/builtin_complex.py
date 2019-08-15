@@ -145,3 +145,7 @@ assert '(1+1j)' == str(1+1j)
 assert '(1-1j)' == str(1-1j)
 assert '(1+1j)' == repr(1+1j)
 assert '(1-1j)' == repr(1-1j)
+
+# __getnewargs__
+assert (3 + 5j).__getnewargs__() == (3.0, 5.0)
+assert (5j).__getnewargs__() == (0.0, 5.0)
