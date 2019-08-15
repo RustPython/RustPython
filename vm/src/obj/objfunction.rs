@@ -42,7 +42,7 @@ impl PyValue for PyFunction {
 
 impl PyFunctionRef {
     fn call(self, args: Args, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult {
-        vm.invoke(self.into_object(), (&args, &kwargs))
+        vm.invoke(&self.into_object(), (&args, &kwargs))
     }
 
     fn code(self, _vm: &VirtualMachine) -> PyCodeRef {

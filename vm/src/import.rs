@@ -17,14 +17,14 @@ pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
     let importlib = import_frozen(vm, "_frozen_importlib")?;
     let impmod = import_builtin(vm, "_imp")?;
     let install = vm.get_attribute(importlib.clone(), "_install")?;
-    vm.invoke(install, vec![vm.sys_module.clone(), impmod])?;
+    vm.invoke(&install, vec![vm.sys_module.clone(), impmod])?;
     vm.import_func
         .replace(vm.get_attribute(importlib.clone(), "__import__")?);
     if external && cfg!(feature = "rustpython-compiler") {
         flame_guard!("install_external");
         let install_external =
             vm.get_attribute(importlib.clone(), "_install_external_importers")?;
-        vm.invoke(install_external, vec![])?;
+        vm.invoke(&install_external, vec![])?;
         // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
         let importlib_external =
             vm.import("_frozen_importlib_external", &vm.ctx.new_tuple(vec![]), 0)?;

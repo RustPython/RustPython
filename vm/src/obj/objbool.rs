@@ -28,7 +28,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
         Some(method_or_err) => {
             // If descriptor returns Error, propagate it further
             let method = method_or_err?;
-            let bool_obj = vm.invoke(method, PyFuncArgs::default())?;
+            let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
             match bool_obj.payload::<PyInt>() {
                 Some(int_obj) => !int_obj.as_bigint().is_zero(),
                 None => {
@@ -42,7 +42,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
         None => match vm.get_method(obj.clone(), "__len__") {
             Some(method_or_err) => {
                 let method = method_or_err?;
-                let bool_obj = vm.invoke(method, PyFuncArgs::default())?;
+                let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
                 match bool_obj.payload::<PyInt>() {
                     Some(int_obj) => !int_obj.as_bigint().is_zero(),
                     None => {

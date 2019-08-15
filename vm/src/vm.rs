@@ -258,7 +258,7 @@ impl VirtualMachine {
     fn new_exception_obj(&self, exc_type: PyClassRef, args: Vec<PyObjectRef>) -> PyResult {
         // TODO: add repr of args into logging?
         vm_trace!("New exception created: {}", exc_type.name);
-        self.invoke(exc_type.into_object(), args)
+        self.invoke(&exc_type.into_object(), args)
     }
 
     pub fn new_empty_exception(&self, exc_type: PyClassRef) -> PyResult {
@@ -424,7 +424,7 @@ impl VirtualMachine {
                     (self.get_none(), self.get_none())
                 };
                 self.invoke(
-                    import_func,
+                    &import_func,
                     vec![
                         self.ctx.new_str(module.to_string()),
                         globals,
@@ -463,7 +463,7 @@ impl VirtualMachine {
 
     pub fn call_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
         let attr_class = attr.class();
-        if let Some(descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
+        if let Some(ref descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
             let cls = obj.class();
             self.invoke(descriptor, vec![attr, obj.clone(), cls.into_object()])
         } else {
@@ -487,14 +487,14 @@ impl VirtualMachine {
                     func
                 );
                 let wrapped = self.call_get_descriptor(func, obj.clone())?;
-                self.invoke(wrapped, args)
+                self.invoke(&wrapped, args)
             }
             None => Err(self.new_type_error(format!("Unsupported method: {}", method_name))),
         }
     }
 
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
-    fn _invoke(&self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
+    fn _invoke(&self, func_ref: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", func_ref, args);
 
         if let Some(PyFunction {
@@ -513,7 +513,7 @@ impl VirtualMachine {
             ref object,
         }) = func_ref.payload()
         {
-            self.invoke(function.clone(), args.insert(object.clone()))
+            self.invoke(&function, args.insert(object.clone()))
         } else if let Some(PyBuiltinFunction { ref value }) = func_ref.payload() {
             value(self, args)
         } else {
@@ -523,9 +523,8 @@ impl VirtualMachine {
         }
     }
 
-    // TODO: make func_ref an &PyObjectRef
     #[inline]
-    pub fn invoke<T>(&self, func_ref: PyObjectRef, args: T) -> PyResult
+    pub fn invoke<T>(&self, func_ref: &PyObjectRef, args: T) -> PyResult
     where
         T: Into<PyFuncArgs>,
     {
@@ -546,7 +545,7 @@ impl VirtualMachine {
             let trace_func = self.trace_func.borrow().clone();
             if !self.is_none(&trace_func) {
                 self.use_tracing.replace(false);
-                let res = self.invoke(trace_func, args.clone());
+                let res = self.invoke(&trace_func, args.clone());
                 self.use_tracing.replace(true);
                 res?;
             }
@@ -554,7 +553,7 @@ impl VirtualMachine {
             let profile_func = self.profile_func.borrow().clone();
             if !self.is_none(&profile_func) {
                 self.use_tracing.replace(false);
-                let res = self.invoke(profile_func, args);
+                let res = self.invoke(&profile_func, args);
                 self.use_tracing.replace(true);
                 res?;
             }
@@ -592,7 +591,7 @@ impl VirtualMachine {
 
     pub fn invoke_with_locals(
         &self,
-        function: PyObjectRef,
+        function: &PyObjectRef,
         cells: PyDictRef,
         locals: PyDictRef,
     ) -> PyResult {
@@ -605,7 +604,7 @@ impl VirtualMachine {
         }
         panic!(
             "invoke_with_locals: expected python function, got: {:?}",
-            function
+            *function
         );
     }
 
@@ -831,7 +830,7 @@ impl VirtualMachine {
     {
         if let Some(method_or_err) = self.get_method(obj.clone(), method) {
             let method = method_or_err?;
-            let result = self.invoke(method, vec![arg.clone()])?;
+            let result = self.invoke(&method, vec![arg.clone()])?;
             if !result.is(&self.ctx.not_implemented()) {
                 return Ok(result);
             }
@@ -1132,7 +1131,7 @@ impl VirtualMachine {
     pub fn _membership(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
         if let Some(method_or_err) = self.get_method(haystack.clone(), "__contains__") {
             let method = method_or_err?;
-            self.invoke(method, vec![needle])
+            self.invoke(&method, vec![needle])
         } else {
             self._membership_iter_search(haystack, needle)
         }

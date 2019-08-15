@@ -92,7 +92,7 @@ pub fn check_signals(vm: &VirtualMachine) {
                 .get(&(signum as i32))
                 .expect("Handler should be set")
                 .clone();
-            vm.invoke(handler, vec![vm.new_int(signum), vm.get_none()])
+            vm.invoke(&handler, vec![vm.new_int(signum), vm.get_none()])
                 .expect("Test");
         }
     }

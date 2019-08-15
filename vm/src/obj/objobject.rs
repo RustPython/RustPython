@@ -72,7 +72,7 @@ fn object_setattr(
     if let Some(attr) = objtype::class_get_attr(&cls, &attr_name.value) {
         if let Some(descriptor) = objtype::class_get_attr(&attr.class(), "__set__") {
             return vm
-                .invoke(descriptor, vec![attr, obj.clone(), value])
+                .invoke(&descriptor, vec![attr, obj.clone(), value])
                 .map(|_| ());
         }
     }
@@ -94,7 +94,7 @@ fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine)
 
     if let Some(attr) = objtype::class_get_attr(&cls, &attr_name.value) {
         if let Some(descriptor) = objtype::class_get_attr(&attr.class(), "__delete__") {
-            return vm.invoke(descriptor, vec![attr, obj.clone()]).map(|_| ());
+            return vm.invoke(&descriptor, vec![attr, obj.clone()]).map(|_| ());
         }
     }
 
@@ -126,7 +126,7 @@ pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
     // Get instance attributes:
     if let Some(object_dict) = &obj.dict {
         vm.invoke(
-            vm.get_attribute(dict.clone().into_object(), "update")?,
+            &vm.get_attribute(dict.clone().into_object(), "update")?,
             object_dict.clone().into_object(),
         )?;
     }
@@ -227,7 +227,7 @@ fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMach
         let attr_class = attr.class();
         if objtype::class_has_attr(&attr_class, "__set__") {
             if let Some(descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
-                return vm.invoke(descriptor, vec![attr, obj, cls.into_object()]);
+                return vm.invoke(&descriptor, vec![attr, obj, cls.into_object()]);
             }
         }
     }
@@ -236,7 +236,7 @@ fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMach
         Ok(obj_attr)
     } else if let Some(attr) = objtype::class_get_attr(&cls, &name) {
         vm.call_get_descriptor(attr, obj)
-    } else if let Some(getter) = objtype::class_get_attr(&cls, "__getattr__") {
+    } else if let Some(ref getter) = objtype::class_get_attr(&cls, "__getattr__") {
         vm.invoke(getter, vec![obj, name_str.into_object()])
     } else {
         Err(vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))

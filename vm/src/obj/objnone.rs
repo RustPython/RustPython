@@ -64,7 +64,7 @@ impl PyNoneRef {
             if let Ok(property) = PyPropertyRef::try_from_object(vm, descriptor.clone()) {
                 property.instance_binding_get(obj, vm)
             } else {
-                vm.invoke(get_func, vec![descriptor, obj, cls])
+                vm.invoke(&get_func, vec![descriptor, obj, cls])
             }
         }
 
@@ -95,7 +95,7 @@ impl PyNoneRef {
                 Ok(attr)
             }
         } else if let Some(getter) = class_get_attr(&cls, "__getattr__") {
-            vm.invoke(getter, vec![self.into_object(), name.into_object()])
+            vm.invoke(&getter, vec![self.into_object(), name.into_object()])
         } else {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self.as_object(), name)))
         }

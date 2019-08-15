@@ -488,7 +488,7 @@ impl Frame {
 
                 // Call function:
                 let func_ref = self.pop_value();
-                let value = vm.invoke(func_ref, args)?;
+                let value = vm.invoke(&func_ref, args)?;
                 self.push_value(value);
                 Ok(None)
             }
@@ -599,7 +599,7 @@ impl Frame {
                 if !expr.is(&vm.get_none()) {
                     let repr = vm.to_repr(&expr)?;
                     // TODO: implement sys.displayhook
-                    if let Ok(print) = vm.get_attribute(vm.builtins.clone(), "print") {
+                    if let Ok(ref print) = vm.get_attribute(vm.builtins.clone(), "print") {
                         vm.invoke(print, vec![repr.into_object()])?;
                     }
                 }
