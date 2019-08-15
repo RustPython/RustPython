@@ -1,6 +1,6 @@
-use crate::obj::objbyteinner;
-use crate::obj::objstr;
-use crate::obj::objtype;
+use crate::obj::objbytearray::PyByteArray;
+use crate::obj::objbytes::PyBytes;
+use crate::obj::objstr::PyString;
 use crate::py_serde;
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
 use crate::types::create_type;
@@ -21,25 +21,18 @@ pub fn json_dump(obj: PyObjectRef, fs: PyObjectRef, vm: &VirtualMachine) -> PyRe
 
 /// Implement json.loads
 pub fn json_loads(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    // TODO: Implement non-trivial deserialization case
-    let string = if objtype::isinstance(&obj, &vm.ctx.str_type()) {
-        objstr::get_value(&obj)
-    } else if objtype::isinstance(&obj, &vm.ctx.bytearray_type())
-        || objtype::isinstance(&obj, &vm.ctx.bytes_type())
-    {
-        let bytes = objbyteinner::try_as_byte(&obj).unwrap();
-        String::from_utf8(bytes.to_vec()).map_err(|err| vm.new_type_error(err.to_string()))?
-    } else {
-        let msg = format!(
-            "the JSON object must be str, bytes or bytearray, not {}",
-            obj.class().name
-        );
-        return Err(vm.new_type_error(msg));
-    };
-
-    let de_result =
-        py_serde::deserialize(vm, &mut serde_json::Deserializer::from_str(string.as_str()));
-
+    let de_result = match_class!(obj,
+        s @ PyString => py_serde::deserialize(vm, &mut serde_json::Deserializer::from_str(s.as_str())),
+        b @ PyBytes => py_serde::deserialize(vm, &mut serde_json::Deserializer::from_slice(&b)),
+        ba @ PyByteArray => py_serde::deserialize(vm, &mut serde_json::Deserializer::from_slice(&ba.inner.borrow().elements)),
+        obj => {
+            let msg = format!(
+                "the JSON object must be str, bytes or bytearray, not {}",
+                obj.class().name
+            );
+            return Err(vm.new_type_error(msg));
+        }
+    );
     de_result.map_err(|err| {
         let module = vm
             .get_attribute(vm.sys_module.clone(), "modules")
