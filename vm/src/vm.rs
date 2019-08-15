@@ -407,10 +407,23 @@ impl VirtualMachine {
     }
 
     pub fn import(&self, module: &str, from_list: &PyObjectRef, level: usize) -> PyResult {
-        let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
-        sys_modules
-            .get_item(module.to_string(), self)
-            .or_else(|_| {
+        // if the import inputs seem weird, e.g a package import or something, rather than just
+        // a straight `import ident`
+        let weird = module.contains('.')
+            || level != 0
+            || objbool::boolval(self, from_list.clone()).unwrap_or(true);
+
+        let module = self.new_str(module.to_owned());
+
+        let cached_module = if weird {
+            None
+        } else {
+            let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
+            sys_modules.get_item(module.clone(), self).ok()
+        };
+        match cached_module {
+            Some(module) => Ok(module),
+            None => {
                 let import_func = self
                     .get_attribute(self.builtins.clone(), "__import__")
                     .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
@@ -426,15 +439,16 @@ impl VirtualMachine {
                 self.invoke(
                     &import_func,
                     vec![
-                        self.ctx.new_str(module.to_string()),
+                        module,
                         globals,
                         locals,
                         from_list.clone(),
                         self.ctx.new_int(level),
                     ],
                 )
-            })
-            .map_err(|exc| import::remove_importlib_frames(self, &exc))
+                .map_err(|exc| import::remove_importlib_frames(self, &exc))
+            }
+        }
     }
 
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via
@@ -861,6 +875,43 @@ impl VirtualMachine {
             // Try to call the reflection method
             vm.call_or_unsupported(rhs, lhs, reflection, unsupported)
         })
+    }
+
+    pub fn generic_getattribute(
+        &self,
+        obj: PyObjectRef,
+        name_str: PyStringRef,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let name = name_str.as_str();
+        let cls = obj.class();
+
+        if let Some(attr) = objtype::class_get_attr(&cls, &name) {
+            let attr_class = attr.class();
+            if objtype::class_has_attr(&attr_class, "__set__") {
+                if let Some(descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
+                    return self
+                        .invoke(&descriptor, vec![attr, obj, cls.into_object()])
+                        .map(Some);
+                }
+            }
+        }
+
+        let attr = if let Some(ref dict) = obj.dict {
+            dict.get_item_option(name_str.clone(), self)?
+        } else {
+            None
+        };
+
+        if let Some(obj_attr) = attr {
+            Ok(Some(obj_attr))
+        } else if let Some(attr) = objtype::class_get_attr(&cls, &name) {
+            self.call_get_descriptor(attr, obj).map(Some)
+        } else if let Some(getter) = objtype::class_get_attr(&cls, "__getattr__") {
+            self.invoke(&getter, vec![obj, name_str.into_object()])
+                .map(Some)
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {

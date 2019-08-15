@@ -223,39 +223,8 @@ fn object_dict_setter(
     ))
 }
 
-fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    let name = &name_str.value;
+fn object_getattribute(obj: PyObjectRef, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
     vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
-    let cls = obj.class();
-
-    if let Some(attr) = objtype::class_get_attr(&cls, &name) {
-        let attr_class = attr.class();
-        if objtype::class_has_attr(&attr_class, "__set__") {
-            if let Some(descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
-                return vm.invoke(&descriptor, vec![attr, obj, cls.into_object()]);
-            }
-        }
-    }
-
-    if let Some(obj_attr) = object_getattr(&obj, &name, &vm)? {
-        Ok(obj_attr)
-    } else if let Some(attr) = objtype::class_get_attr(&cls, &name) {
-        vm.call_get_descriptor(attr, obj)
-    } else if let Some(ref getter) = objtype::class_get_attr(&cls, "__getattr__") {
-        vm.invoke(getter, vec![obj, name_str.into_object()])
-    } else {
-        Err(vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
-    }
-}
-
-fn object_getattr(
-    obj: &PyObjectRef,
-    attr_name: &str,
-    vm: &VirtualMachine,
-) -> PyResult<Option<PyObjectRef>> {
-    if let Some(ref dict) = obj.dict {
-        dict.get_item_option(attr_name, vm)
-    } else {
-        Ok(None)
-    }
+    vm.generic_getattribute(obj.clone(), name.clone())?
+        .ok_or_else(|| vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
 }

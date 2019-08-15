@@ -305,11 +305,15 @@ impl<O: OutputStream> Compiler<O> {
                         symbols: vec![],
                         level: 0,
                     });
-
                     if let Some(alias) = &name.alias {
+                        for part in name.symbol.split('.').skip(1) {
+                            self.emit(Instruction::LoadAttr {
+                                name: part.to_owned(),
+                            });
+                        }
                         self.store_name(alias);
                     } else {
-                        self.store_name(&name.symbol);
+                        self.store_name(name.symbol.split('.').next().unwrap());
                     }
                 }
             }
@@ -322,10 +326,12 @@ impl<O: OutputStream> Compiler<O> {
 
                 if import_star {
                     // from .... import *
-                    self.emit(Instruction::ImportStar {
+                    self.emit(Instruction::Import {
                         name: module.clone(),
+                        symbols: vec!["*".to_owned()],
                         level: *level,
                     });
+                    self.emit(Instruction::ImportStar);
                 } else {
                     // from mod import a, b as c
                     // First, determine the fromlist (for import lib):

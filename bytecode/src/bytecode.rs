@@ -84,10 +84,7 @@ pub enum Instruction {
         symbols: Vec<String>,
         level: usize,
     },
-    ImportStar {
-        name: Option<String>,
-        level: usize,
-    },
+    ImportStar,
     ImportFrom {
         name: String,
     },
@@ -429,7 +426,7 @@ impl Instruction {
                 format!("{:?}", symbols),
                 level
             ),
-            ImportStar { name, level } => w!(ImportStar, format!("{:?}", name), level),
+            ImportStar => w!(ImportStar),
             ImportFrom { name } => w!(ImportFrom, name),
             LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
             StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
