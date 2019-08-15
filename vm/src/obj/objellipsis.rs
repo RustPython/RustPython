@@ -5,7 +5,8 @@ use crate::vm::VirtualMachine;
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.ellipsis_type, {
         "__new__" => context.new_rustfunc(ellipsis_new),
-        "__repr__" => context.new_rustfunc(ellipsis_repr)
+        "__repr__" => context.new_rustfunc(ellipsis_repr),
+        "__reduce__" => context.new_rustfunc(ellipsis_reduce),
     });
 }
 
@@ -15,6 +16,11 @@ fn ellipsis_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn ellipsis_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(_cls, None)]);
+    Ok(vm.new_str("Ellipsis".to_string()))
+}
+
+fn ellipsis_reduce(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(_cls, None)]);
     Ok(vm.new_str("Ellipsis".to_string()))
 }

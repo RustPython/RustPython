@@ -11,6 +11,9 @@ assert b is c
 assert b is d
 assert d is e
 
+assert Ellipsis.__repr__() == 'Ellipsis'
+assert Ellipsis.__reduce__() == 'Ellipsis'
+
 assert Ellipsis is ...
 Ellipsis = 2
 assert Ellipsis is not ...
