@@ -14,6 +14,10 @@ def json_dump(obj):
     f.seek(0)
     return f.getvalue()
 
+def json_load(obj):
+    f = StringIO(obj)
+    return json.load(f)
+
 assert '"string"' == json.dumps("string")
 assert '"string"' == json_dump("string")
 
@@ -60,25 +64,48 @@ assert round_trip_test({'a': 'b'})
 
 # should reject non-str keys in jsons
 assert_raises(json.JSONDecodeError, lambda: json.loads('{3: "abc"}'))
+assert_raises(json.JSONDecodeError, lambda: json_load('{3: "abc"}'))
 
 # should serialize non-str keys as strings
 assert json.dumps({'3': 'abc'}) == json.dumps({3: 'abc'})
 
 assert 1 == json.loads("1")
+assert 1 == json_load("1")
+
 assert -1 == json.loads("-1")
+assert -1 == json_load("-1")
+
 assert 1.0 == json.loads("1.0")
+assert 1.0 == json_load("1.0")
+
 assert -1.0 == json.loads("-1.0")
+assert -1.0 == json_load("-1.0")
+
 assert "str" == json.loads('"str"')
+assert "str" == json_load('"str"')
+
 assert True is json.loads('true')
+assert True is json_load('true')
+
 assert False is json.loads('false')
+assert False is json_load('false')
+
 assert None is json.loads('null')
+assert None is json_load('null')
+
 assert [] == json.loads('[]')
+assert [] == json_load('[]')
+
 assert ['a'] == json.loads('["a"]')
+assert ['a'] == json_load('["a"]')
+
 assert [['a'], 'b'] == json.loads('[["a"], "b"]')
+assert [['a'], 'b'] == json_load('[["a"], "b"]')
 
 class String(str): pass
 
 assert "string" == json.loads(String('"string"'))
+assert "string" == json_load(String('"string"'))
 
 assert '"string"' == json.dumps(String("string"))
 assert '"string"' == json_dump(String("string"))
