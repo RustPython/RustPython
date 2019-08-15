@@ -78,7 +78,7 @@ impl PyValue for PyMethod {
 }
 
 pub fn init(context: &PyContext) {
-    let function_type = &context.function_type;
+    let function_type = &context.types.function_type;
     extend_class!(context, function_type, {
         "__get__" => context.new_rustfunc(bind_method),
         "__call__" => context.new_rustfunc(PyFunctionRef::call),
@@ -87,7 +87,7 @@ pub fn init(context: &PyContext) {
         "__kwdefaults__" => context.new_property(PyFunctionRef::kwdefaults),
     });
 
-    let builtin_function_or_method_type = &context.builtin_function_or_method_type;
+    let builtin_function_or_method_type = &context.types.builtin_function_or_method_type;
     extend_class!(context, builtin_function_or_method_type, {
         "__get__" => context.new_rustfunc(bind_method)
     });

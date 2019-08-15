@@ -41,7 +41,7 @@ impl From<Complex64> for PyComplex {
 }
 
 pub fn init(context: &PyContext) {
-    PyComplex::extend_class(context, &context.complex_type);
+    PyComplex::extend_class(context, &context.types.complex_type);
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {

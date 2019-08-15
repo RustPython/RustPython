@@ -859,7 +859,7 @@ impl PyListReverseIterator {
 
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
-    let list_type = &context.list_type;
+    let list_type = &context.types.list_type;
 
     let list_doc = "Built-in mutable sequence.\n\n\
                     If no argument is given, the constructor creates a new empty list.\n\
@@ -901,6 +901,6 @@ pub fn init(context: &PyContext) {
         "remove" => context.new_rustfunc(PyListRef::remove)
     });
 
-    PyListIterator::extend_class(context, &context.listiterator_type);
-    PyListReverseIterator::extend_class(context, &context.listreverseiterator_type);
+    PyListIterator::extend_class(context, &context.types.listiterator_type);
+    PyListReverseIterator::extend_class(context, &context.types.listreverseiterator_type);
 }

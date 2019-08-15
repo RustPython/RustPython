@@ -619,5 +619,5 @@ pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
 
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
-    PyFloat::extend_class(context, &context.float_type);
+    PyFloat::extend_class(context, &context.types.float_type);
 }

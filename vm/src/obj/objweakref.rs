@@ -48,7 +48,7 @@ impl PyWeakRef {
 }
 
 pub fn init(context: &PyContext) {
-    extend_class!(context, &context.weakref_type, {
+    extend_class!(context, &context.types.weakref_type, {
         "__new__" => context.new_rustfunc(PyWeakRef::create),
         "__call__" => context.new_rustfunc(PyWeakRef::call)
     });

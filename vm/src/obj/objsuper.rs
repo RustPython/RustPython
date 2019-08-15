@@ -33,7 +33,7 @@ impl PyValue for PySuper {
 }
 
 pub fn init(context: &PyContext) {
-    let super_type = &context.super_type;
+    let super_type = &context.types.super_type;
 
     let super_doc = "super() -> same as super(__class__, <first argument>)\n\
                      super(type) -> unbound super object\n\

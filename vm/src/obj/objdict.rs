@@ -423,7 +423,7 @@ macro_rules! dict_iterator {
 
         impl PyValue for $name {
             fn class(vm: &VirtualMachine) -> PyClassRef {
-                vm.ctx.$class.clone()
+                vm.ctx.types.$class.clone()
             }
         }
 
@@ -473,7 +473,7 @@ macro_rules! dict_iterator {
 
         impl PyValue for $iter_name {
             fn class(vm: &VirtualMachine) -> PyClassRef {
-                vm.ctx.$iter_class.clone()
+                vm.ctx.types.$iter_class.clone()
             }
         }
     };
@@ -511,7 +511,7 @@ dict_iterator! {
 }
 
 pub fn init(context: &PyContext) {
-    extend_class!(context, &context.dict_type, {
+    extend_class!(context, &context.types.dict_type, {
         "__bool__" => context.new_rustfunc(PyDictRef::bool),
         "__len__" => context.new_rustfunc(PyDictRef::len),
         "__contains__" => context.new_rustfunc(PyDictRef::contains),
@@ -536,10 +536,10 @@ pub fn init(context: &PyContext) {
         "popitem" => context.new_rustfunc(PyDictRef::popitem),
     });
 
-    PyDictKeys::extend_class(context, &context.dictkeys_type);
-    PyDictKeyIterator::extend_class(context, &context.dictkeyiterator_type);
-    PyDictValues::extend_class(context, &context.dictvalues_type);
-    PyDictValueIterator::extend_class(context, &context.dictvalueiterator_type);
-    PyDictItems::extend_class(context, &context.dictitems_type);
-    PyDictItemIterator::extend_class(context, &context.dictitemiterator_type);
+    PyDictKeys::extend_class(context, &context.types.dictkeys_type);
+    PyDictKeyIterator::extend_class(context, &context.types.dictkeyiterator_type);
+    PyDictValues::extend_class(context, &context.types.dictvalues_type);
+    PyDictValueIterator::extend_class(context, &context.types.dictvalueiterator_type);
+    PyDictItems::extend_class(context, &context.types.dictitems_type);
+    PyDictItemIterator::extend_class(context, &context.types.dictitemiterator_type);
 }

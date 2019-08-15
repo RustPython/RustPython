@@ -65,5 +65,5 @@ impl PyClassMethod {
 }
 
 pub fn init(context: &PyContext) {
-    PyClassMethod::extend_class(context, &context.classmethod_type);
+    PyClassMethod::extend_class(context, &context.types.classmethod_type);
 }

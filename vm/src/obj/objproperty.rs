@@ -305,12 +305,12 @@ impl<'a> PropertyBuilder<'a> {
 }
 
 pub fn init(context: &PyContext) {
-    PyReadOnlyProperty::extend_class(context, &context.readonly_property_type);
-    PyProperty::extend_class(context, &context.property_type);
+    PyReadOnlyProperty::extend_class(context, &context.types.readonly_property_type);
+    PyProperty::extend_class(context, &context.types.property_type);
 
     // This is a bit unfortunate, but this instance attribute overlaps with the
     // class __doc__ string..
-    extend_class!(context, &context.property_type, {
+    extend_class!(context, &context.types.property_type, {
         "__doc__" =>
         PropertyBuilder::new(context)
             .add_getter(PyProperty::doc_getter)

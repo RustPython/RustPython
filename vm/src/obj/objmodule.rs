@@ -25,7 +25,7 @@ impl PyModuleRef {
 }
 
 pub fn init(context: &PyContext) {
-    extend_class!(&context, &context.module_type, {
+    extend_class!(&context, &context.types.module_type, {
         "__init__" => context.new_rustfunc(PyModuleRef::init),
     });
 }

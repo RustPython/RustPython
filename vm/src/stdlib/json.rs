@@ -1,6 +1,7 @@
 use crate::obj::objstr::PyStringRef;
 use crate::py_serde;
-use crate::pyobject::{create_type, ItemProtocol, PyObjectRef, PyResult};
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
+use crate::types::create_type;
 use crate::VirtualMachine;
 use serde_json;
 
@@ -50,7 +51,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     // TODO: Make this a proper type with a constructor
     let json_decode_error = create_type(
         "JSONDecodeError",
-        &ctx.type_type,
+        &ctx.types.type_type,
         &ctx.exceptions.exception_type,
     );
 
