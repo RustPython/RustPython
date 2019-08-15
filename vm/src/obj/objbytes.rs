@@ -492,7 +492,7 @@ impl PyBytesRef {
                         if remaining_bytes == 0 {
                             if strict_mod {
                                 let err_msg = format!("'utf-8' codec can't decode byte 0x{1:x} in position {0}: invalid start byte", pos, b as u8);
-                                return Err(vm.new_unicode_decode_error(err_msg))
+                                return Err(vm.new_unicode_decode_error(err_msg));
                             } else if !strict_mod && replacing_char.is_some() {
                                 decode_content.push(replacing_char.unwrap());
                             }
