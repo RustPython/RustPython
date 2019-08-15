@@ -1,20 +1,30 @@
-use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyResult};
+use crate::obj::objtype::{issubclass, PyClassRef};
+use crate::pyobject::{PyContext, PyEllipsisRef, PyResult};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.ellipsis_type, {
         "__new__" => context.new_rustfunc(ellipsis_new),
-        "__repr__" => context.new_rustfunc(ellipsis_repr)
+        "__repr__" => context.new_rustfunc(ellipsis_repr),
+        "__reduce__" => context.new_rustfunc(ellipsis_reduce),
     });
 }
 
-fn ellipsis_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(_cls, None)]);
-    Ok(vm.ctx.ellipsis())
+fn ellipsis_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
+    if issubclass(&cls, &vm.ctx.ellipsis_type) {
+        Ok(vm.ctx.ellipsis())
+    } else {
+        Err(vm.new_type_error(format!(
+            "ellipsis.__new__({ty}): {ty} is not a subtype of ellipsis",
+            ty = cls,
+        )))
+    }
 }
 
-fn ellipsis_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(_cls, None)]);
-    Ok(vm.new_str("Ellipsis".to_string()))
+fn ellipsis_repr(_self: PyEllipsisRef, _vm: &VirtualMachine) -> String {
+    "Ellipsis".to_string()
+}
+
+fn ellipsis_reduce(_self: PyEllipsisRef, _vm: &VirtualMachine) -> String {
+    "Ellipsis".to_string()
 }
