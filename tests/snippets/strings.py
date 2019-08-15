@@ -212,6 +212,11 @@ assert "%(first)s %(second)s" % {'second': 'World!', 'first': "Hello,"} == "Hell
 assert "%(key())s" % {'key()': 'aaa'}
 assert "%s %a %r" % (f, f, f) == "str(Foo) repr(Foo) repr(Foo)"
 assert "repr() shows quotes: %r; str() doesn't: %s" % ("test1", "test2") == "repr() shows quotes: 'test1'; str() doesn't: test2"
+assert "%f" % (1.2345) == "1.234500"
+assert "%+f" % (1.2345) == "+1.234500"
+assert "% f" % (1.2345) == " 1.234500"
+assert "%f" % (-1.2345) == "-1.234500"
+assert "%f" % (1.23456789012) == "1.234568"
 
 assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25), msg="format requires a mapping")
 assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo", msg="format requires a mapping")
