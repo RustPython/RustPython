@@ -22,6 +22,7 @@ use crate::obj::objtype::PyClassRef;
 #[cfg(unix)]
 use crate::stdlib::os::convert_nix_error;
 use num_traits::ToPrimitive;
+use num_bigint::Sign;
 
 #[derive(Debug, Copy, Clone)]
 enum AddressFamily {
@@ -409,6 +410,15 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
 }
 
+fn socket_htonl(host: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    if host.as_bigint().sign() == Sign::Minus {
+        return Err(vm.new_overflow_error("can't convert negative value to unsigned int".to_string()));
+    }
+
+    let host = host.as_bigint().to_u32().unwrap();
+    Ok(vm.new_int(host.to_be()))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -435,6 +445,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "inet_aton" => ctx.new_rustfunc(socket_inet_aton),
          "inet_ntoa" => ctx.new_rustfunc(socket_inet_ntoa),
          "gethostname" => ctx.new_rustfunc(socket_gethostname),
+         "htonl" => ctx.new_rustfunc(socket_htonl),
     });
 
     extend_module_platform_specific(vm, module)
