@@ -6,9 +6,12 @@
 use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
 
+use num_bigint::BigInt;
+use num_traits::{One, Zero};
+
 use crate::function::PyFuncArgs;
 use crate::obj::objint::PyIntRef;
-use crate::obj::{objfloat, objtype};
+use crate::obj::{objfloat, objint, objtype};
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -231,6 +234,18 @@ fn math_gcd(a: PyIntRef, b: PyIntRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_int(a.as_bigint().gcd(b.as_bigint())))
 }
 
+fn math_factorial(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(value, None)]);
+    let value = objint::get_value(value);
+    if *value < BigInt::zero() {
+        return Err(vm.new_value_error("factorial() not defined for negative values".to_string()));
+    } else if *value <= BigInt::one() {
+        return Ok(vm.ctx.new_int(BigInt::from(1u64)));
+    }
+    let ret: BigInt = num_iter::range_inclusive(BigInt::from(1u64), value.clone()).product();
+    Ok(vm.ctx.new_int(ret))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -287,6 +302,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
         // Gcd function
         "gcd" => ctx.new_rustfunc(math_gcd),
+
+        // Factorial function
+        "factorial" => ctx.new_rustfunc(math_factorial),
 
         // Constants:
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...
