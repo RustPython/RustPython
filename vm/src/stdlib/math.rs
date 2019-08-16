@@ -11,6 +11,7 @@ use num_traits::cast::ToPrimitive;
 use num_traits::{One, Zero};
 
 use crate::function::PyFuncArgs;
+use crate::obj::objfloat::PyFloatRef;
 use crate::obj::objint::PyIntRef;
 use crate::obj::{objfloat, objint, objtype};
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
@@ -230,11 +231,10 @@ fn math_frexp(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     )
 }
 
-fn math_ldexp(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None), (i, None)]);
-    let value = objfloat::make_float(vm, value)?;
-    let i = objint::get_value(i);
-    Ok(vm.ctx.new_float(value * (2_f64).powf(i.to_f64().unwrap())))
+fn math_ldexp(value: PyFloatRef, i: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    Ok(vm
+        .ctx
+        .new_float(value.to_f64() * (2_f64).powf(i.as_bigint().to_f64().unwrap())))
 }
 
 fn math_gcd(a: PyIntRef, b: PyIntRef, vm: &VirtualMachine) -> PyResult {
