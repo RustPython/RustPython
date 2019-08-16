@@ -13,8 +13,9 @@ use crate::function::PyFuncArgs;
 use crate::obj::objint::PyIntRef;
 use crate::obj::{objfloat, objint, objtype};
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
-use crate::vm::VirtualMachine;// Helper macro:
+use crate::vm::VirtualMachine;
 
+// Helper macro:
 macro_rules! make_math_func {
     ( $fname:ident, $fun:ident ) => {
         fn $fname(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
