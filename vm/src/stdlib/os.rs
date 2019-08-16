@@ -4,7 +4,6 @@ use std::ffi::CStr;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Error, ErrorKind, Read, Write};
-use std::os::unix::fs::MetadataExt;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
@@ -234,6 +233,7 @@ bitflags! {
 }
 
 #[cfg(unix)]
+#[derive(Debug)]
 struct Permissions {
     is_readable: bool,
     is_writable: bool,
@@ -241,6 +241,7 @@ struct Permissions {
 }
 
 #[cfg(unix)]
+#[derive(Debug)]
 struct FilePermissions {
     owner_permissions: Permissions,
     group_permissions: Permissions,
@@ -340,26 +341,39 @@ fn get_right_permission(
 
 #[cfg(unix)]
 fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+    use std::os::unix::fs::MetadataExt;
+
     let path = path.as_str();
     let file_metadata = fs::metadata(path);
-    match mode {
-        F_OK => match file_metadata {
-            Ok(_) => Ok(true),
-            Err(err) => {
-                if err.kind() == ErrorKind::NotFound {
-                    Ok(false)
-                } else {
-                    Err(convert_io_error(vm, err))
+    let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
+        vm.new_value_error(
+            "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK"
+                .to_string(),
+        )
+    })?;
+
+    match file_metadata {
+        Ok(metadata) => {
+            let user_id = metadata.uid();
+            let group_id = metadata.gid();
+            let mode = metadata.mode();
+
+            match get_right_permission(mode, Uid::from_raw(user_id), Gid::from_raw(group_id)) {
+                Ok(perm) => {
+                    if flags.contains(AccessFlags::R_OK) & perm.is_readable {
+                        Ok(true)
+                    } else if flags.contains(AccessFlags::W_OK) & perm.is_writable {
+                        Ok(true)
+                    } else if flags.contains(AccessFlags::X_OK) & perm.is_executable {
+                        Ok(true)
+                    } else {
+                        Ok(false)
+                    }
                 }
+                Err(err) => Err(convert_nix_error(vm, err)),
             }
-        },
-        R_OK => match file_metadata {
-            Ok(metadata) => Ok(metadata.permissions().readonly()),
-            Err(err) => Err(convert_io_error(vm, err)),
-        },
-        W_OK => unimplemented!(),
-        X_OK => unimplemented!(),
-        _ => Err(vm.new_value_error("The mode has to be one of the following 0 to know if a file exists, 4 to know if a file is readable, 2 to know if a file is writable, and 1 to know if a file is executable.".to_string()))
+        }
+        Err(err) => Err(convert_io_error(vm, err)),
     }
 }
 
