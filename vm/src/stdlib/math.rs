@@ -7,8 +7,8 @@ use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
 
 use num_bigint::BigInt;
-use num_traits::{One, Zero};
 use num_traits::cast::ToPrimitive;
+use num_traits::{One, Zero};
 
 use crate::function::PyFuncArgs;
 use crate::obj::objint::PyIntRef;
@@ -234,9 +234,8 @@ fn math_ldexp(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None), (i, None)]);
     let value = objfloat::make_float(vm, value)?;
     let i = objint::get_value(i);
-    Ok(vm.ctx.new_float(value * (2 as f64).powf(i.to_f64().unwrap())))
+    Ok(vm.ctx.new_float(value * (2_f64).powf(i.to_f64().unwrap())))
 }
-
 
 fn math_gcd(a: PyIntRef, b: PyIntRef, vm: &VirtualMachine) -> PyResult {
     use num_integer::Integer;
