@@ -28,6 +28,7 @@ use crate::vm::VirtualMachine;
 
 use super::objbytes::PyBytes;
 use super::objdict::PyDict;
+use super::objfloat;
 use super::objint::{self, PyInt};
 use super::objiter;
 use super::objnone::PyNone;
@@ -1225,6 +1226,21 @@ fn do_cformat_specifier(
             }
             Ok(format_spec.format_number(objint::get_value(&obj)))
         }
+        CFormatType::Float(_) => {
+            if objtype::isinstance(&obj, &vm.ctx.float_type()) {
+                Ok(format_spec.format_float(objfloat::get_value(&obj)))
+            } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
+                Ok(format_spec.format_float(objint::get_value(&obj).to_f64().unwrap()))
+            } else {
+                let required_type_string = "an floating point or integer";
+                Err(vm.new_type_error(format!(
+                    "%{} format: {} is required, not {}",
+                    format_spec.format_char,
+                    required_type_string,
+                    obj.class()
+                )))
+            }
+        }
         CFormatType::Character => {
             let char_string = {
                 if objtype::isinstance(&obj, &vm.ctx.int_type()) {
@@ -1251,10 +1267,6 @@ fn do_cformat_specifier(
             format_spec.precision = Some(CFormatQuantity::Amount(1));
             Ok(format_spec.format_string(char_string))
         }
-        _ => Err(vm.new_not_implemented_error(format!(
-            "Not yet implemented for %{}",
-            format_spec.format_char
-        ))),
     }
 }
 
