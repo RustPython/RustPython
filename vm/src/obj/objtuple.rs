@@ -276,7 +276,7 @@ impl PyTupleIterator {
 
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
-    let tuple_type = &context.tuple_type;
+    let tuple_type = &context.types.tuple_type;
     let tuple_doc = "tuple() -> empty tuple
 tuple(iterable) -> tuple initialized from iterable's items
 
@@ -303,5 +303,5 @@ If the argument is a tuple, the return value is the same object.";
         "index" => context.new_rustfunc(PyTupleRef::index)
     });
 
-    PyTupleIterator::extend_class(context, &context.tupleiterator_type);
+    PyTupleIterator::extend_class(context, &context.types.tupleiterator_type);
 }

@@ -431,6 +431,31 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+#[cfg(windows)]
+fn file_io_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    use std::os::windows::io::IntoRawHandle;
+    arg_check!(vm, args, required = [(file_io, None)]);
+    let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
+    let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
+    let handle = os::rust_file(raw_fd);
+    let raw_handle = handle.into_raw_handle();
+    unsafe {
+        kernel32::CloseHandle(raw_handle);
+    }
+    Ok(vm.ctx.none())
+}
+
+#[cfg(unix)]
+fn file_io_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(file_io, None)]);
+    let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
+    let raw_fd = objint::get_value(&file_no).to_i32().unwrap();
+    unsafe {
+        libc::close(raw_fd);
+    }
+    Ok(vm.ctx.none())
+}
+
 fn file_io_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(true))
 }
@@ -607,7 +632,7 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     // This is subsequently consumed by a Buffered Class.
     let file_io_class = vm.get_attribute(io_module.clone(), "FileIO").unwrap();
     let file_io_obj = vm.invoke(
-        file_io_class,
+        &file_io_class,
         vec![file.clone(), vm.ctx.new_str(mode.clone())],
     )?;
 
@@ -620,13 +645,13 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
             let buffered_writer_class = vm
                 .get_attribute(io_module.clone(), "BufferedWriter")
                 .unwrap();
-            vm.invoke(buffered_writer_class, vec![file_io_obj.clone()])
+            vm.invoke(&buffered_writer_class, vec![file_io_obj.clone()])
         }
         'r' => {
             let buffered_reader_class = vm
                 .get_attribute(io_module.clone(), "BufferedReader")
                 .unwrap();
-            vm.invoke(buffered_reader_class, vec![file_io_obj.clone()])
+            vm.invoke(&buffered_reader_class, vec![file_io_obj.clone()])
         }
         //TODO: updating => PyBufferedRandom
         _ => unimplemented!("'a' mode is not yet implemented"),
@@ -637,7 +662,7 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         // a TextIOWrapper which is subsequently returned.
         't' => {
             let text_io_wrapper_class = vm.get_attribute(io_module, "TextIOWrapper").unwrap();
-            vm.invoke(text_io_wrapper_class, vec![buffered.unwrap()])
+            vm.invoke(&text_io_wrapper_class, vec![buffered.unwrap()])
         }
         // If the mode is binary this Buffered class is returned directly at
         // this point.
@@ -678,6 +703,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "read" => ctx.new_rustfunc(file_io_read),
         "readinto" => ctx.new_rustfunc(file_io_readinto),
         "write" => ctx.new_rustfunc(file_io_write),
+        "close" => ctx.new_rustfunc(file_io_close),
         "seekable" => ctx.new_rustfunc(file_io_seekable)
     });
 

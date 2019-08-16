@@ -47,5 +47,5 @@ impl PyValue for PyMemoryView {
 }
 
 pub fn init(ctx: &PyContext) {
-    PyMemoryView::extend_class(ctx, &ctx.memoryview_type)
+    PyMemoryView::extend_class(ctx, &ctx.types.memoryview_type)
 }

@@ -25,6 +25,7 @@ use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator::PyGenerator;
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
+use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
@@ -32,8 +33,8 @@ use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyhash;
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TryIntoRef,
-    TypeProtocol,
+    IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
+    TryIntoRef, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::stdlib;
@@ -142,9 +143,23 @@ impl VirtualMachine {
         flame_guard!("init VirtualMachine");
         let ctx = PyContext::new();
 
+        // make a new module without access to the vm; doesn't
+        // set __spec__, __loader__, etc. attributes
+        let new_module = |name: &str, dict| {
+            PyObject::new(
+                PyModule {
+                    name: name.to_owned(),
+                },
+                ctx.types.module_type.clone(),
+                Some(dict),
+            )
+        };
+
         // Hard-core modules:
-        let builtins = ctx.new_module("builtins", ctx.new_dict());
-        let sysmod = ctx.new_module("sys", ctx.new_dict());
+        let builtins_dict = ctx.new_dict();
+        let builtins = new_module("builtins", builtins_dict.clone());
+        let sysmod_dict = ctx.new_dict();
+        let sysmod = new_module("sys", sysmod_dict.clone());
 
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
         let frozen = RefCell::new(frozen::get_module_inits());
@@ -167,6 +182,19 @@ impl VirtualMachine {
             settings,
             signal_handlers: Default::default(),
         };
+
+        objmodule::init_module_dict(
+            &vm,
+            &builtins_dict,
+            vm.new_str("builtins".to_owned()),
+            vm.get_none(),
+        );
+        objmodule::init_module_dict(
+            &vm,
+            &sysmod_dict,
+            vm.new_str("sys".to_owned()),
+            vm.get_none(),
+        );
 
         builtins::make_module(&vm, builtins.clone());
         sysmodule::make_module(&vm, sysmod, builtins);
@@ -254,11 +282,22 @@ impl VirtualMachine {
         self.ctx.new_bool(b)
     }
 
+    pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
+        objmodule::init_module_dict(self, &dict, self.new_str(name.to_owned()), self.get_none());
+        PyObject::new(
+            PyModule {
+                name: name.to_owned(),
+            },
+            self.ctx.types.module_type.clone(),
+            Some(dict),
+        )
+    }
+
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     fn new_exception_obj(&self, exc_type: PyClassRef, args: Vec<PyObjectRef>) -> PyResult {
         // TODO: add repr of args into logging?
         vm_trace!("New exception created: {}", exc_type.name);
-        self.invoke(exc_type.into_object(), args)
+        self.invoke(&exc_type.into_object(), args)
     }
 
     pub fn new_empty_exception(&self, exc_type: PyClassRef) -> PyResult {
@@ -407,10 +446,23 @@ impl VirtualMachine {
     }
 
     pub fn import(&self, module: &str, from_list: &PyObjectRef, level: usize) -> PyResult {
-        let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
-        sys_modules
-            .get_item(module.to_string(), self)
-            .or_else(|_| {
+        // if the import inputs seem weird, e.g a package import or something, rather than just
+        // a straight `import ident`
+        let weird = module.contains('.')
+            || level != 0
+            || objbool::boolval(self, from_list.clone()).unwrap_or(true);
+
+        let module = self.new_str(module.to_owned());
+
+        let cached_module = if weird {
+            None
+        } else {
+            let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
+            sys_modules.get_item(module.clone(), self).ok()
+        };
+        match cached_module {
+            Some(module) => Ok(module),
+            None => {
                 let import_func = self
                     .get_attribute(self.builtins.clone(), "__import__")
                     .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
@@ -424,17 +476,18 @@ impl VirtualMachine {
                     (self.get_none(), self.get_none())
                 };
                 self.invoke(
-                    import_func,
+                    &import_func,
                     vec![
-                        self.ctx.new_str(module.to_string()),
+                        module,
                         globals,
                         locals,
                         from_list.clone(),
                         self.ctx.new_int(level),
                     ],
                 )
-            })
-            .map_err(|exc| import::remove_importlib_frames(self, &exc))
+                .map_err(|exc| import::remove_importlib_frames(self, &exc))
+            }
+        }
     }
 
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via
@@ -463,7 +516,7 @@ impl VirtualMachine {
 
     pub fn call_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
         let attr_class = attr.class();
-        if let Some(descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
+        if let Some(ref descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
             let cls = obj.class();
             self.invoke(descriptor, vec![attr, obj.clone(), cls.into_object()])
         } else {
@@ -487,14 +540,14 @@ impl VirtualMachine {
                     func
                 );
                 let wrapped = self.call_get_descriptor(func, obj.clone())?;
-                self.invoke(wrapped, args)
+                self.invoke(&wrapped, args)
             }
             None => Err(self.new_type_error(format!("Unsupported method: {}", method_name))),
         }
     }
 
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
-    fn _invoke(&self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
+    fn _invoke(&self, func_ref: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", func_ref, args);
 
         if let Some(PyFunction {
@@ -513,7 +566,7 @@ impl VirtualMachine {
             ref object,
         }) = func_ref.payload()
         {
-            self.invoke(function.clone(), args.insert(object.clone()))
+            self.invoke(&function, args.insert(object.clone()))
         } else if let Some(PyBuiltinFunction { ref value }) = func_ref.payload() {
             value(self, args)
         } else {
@@ -523,9 +576,8 @@ impl VirtualMachine {
         }
     }
 
-    // TODO: make func_ref an &PyObjectRef
     #[inline]
-    pub fn invoke<T>(&self, func_ref: PyObjectRef, args: T) -> PyResult
+    pub fn invoke<T>(&self, func_ref: &PyObjectRef, args: T) -> PyResult
     where
         T: Into<PyFuncArgs>,
     {
@@ -546,7 +598,7 @@ impl VirtualMachine {
             let trace_func = self.trace_func.borrow().clone();
             if !self.is_none(&trace_func) {
                 self.use_tracing.replace(false);
-                let res = self.invoke(trace_func, args.clone());
+                let res = self.invoke(&trace_func, args.clone());
                 self.use_tracing.replace(true);
                 res?;
             }
@@ -554,7 +606,7 @@ impl VirtualMachine {
             let profile_func = self.profile_func.borrow().clone();
             if !self.is_none(&profile_func) {
                 self.use_tracing.replace(false);
-                let res = self.invoke(profile_func, args);
+                let res = self.invoke(&profile_func, args);
                 self.use_tracing.replace(true);
                 res?;
             }
@@ -592,7 +644,7 @@ impl VirtualMachine {
 
     pub fn invoke_with_locals(
         &self,
-        function: PyObjectRef,
+        function: &PyObjectRef,
         cells: PyDictRef,
         locals: PyDictRef,
     ) -> PyResult {
@@ -605,7 +657,7 @@ impl VirtualMachine {
         }
         panic!(
             "invoke_with_locals: expected python function, got: {:?}",
-            function
+            *function
         );
     }
 
@@ -831,7 +883,7 @@ impl VirtualMachine {
     {
         if let Some(method_or_err) = self.get_method(obj.clone(), method) {
             let method = method_or_err?;
-            let result = self.invoke(method, vec![arg.clone()])?;
+            let result = self.invoke(&method, vec![arg.clone()])?;
             if !result.is(&self.ctx.not_implemented()) {
                 return Ok(result);
             }
@@ -862,6 +914,43 @@ impl VirtualMachine {
             // Try to call the reflection method
             vm.call_or_unsupported(rhs, lhs, reflection, unsupported)
         })
+    }
+
+    pub fn generic_getattribute(
+        &self,
+        obj: PyObjectRef,
+        name_str: PyStringRef,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let name = name_str.as_str();
+        let cls = obj.class();
+
+        if let Some(attr) = objtype::class_get_attr(&cls, &name) {
+            let attr_class = attr.class();
+            if objtype::class_has_attr(&attr_class, "__set__") {
+                if let Some(descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
+                    return self
+                        .invoke(&descriptor, vec![attr, obj, cls.into_object()])
+                        .map(Some);
+                }
+            }
+        }
+
+        let attr = if let Some(ref dict) = obj.dict {
+            dict.get_item_option(name_str.clone(), self)?
+        } else {
+            None
+        };
+
+        if let Some(obj_attr) = attr {
+            Ok(Some(obj_attr))
+        } else if let Some(attr) = objtype::class_get_attr(&cls, &name) {
+            self.call_get_descriptor(attr, obj).map(Some)
+        } else if let Some(getter) = objtype::class_get_attr(&cls, "__getattr__") {
+            self.invoke(&getter, vec![obj, name_str.into_object()])
+                .map(Some)
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
@@ -1132,7 +1221,7 @@ impl VirtualMachine {
     pub fn _membership(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
         if let Some(method_or_err) = self.get_method(haystack.clone(), "__contains__") {
             let method = method_or_err?;
-            self.invoke(method, vec![needle])
+            self.invoke(&method, vec![needle])
         } else {
             self._membership_iter_search(haystack, needle)
         }

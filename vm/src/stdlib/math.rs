@@ -181,7 +181,7 @@ fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -
             func_name,
         )
     })?;
-    vm.invoke(method, vec![])
+    vm.invoke(&method, vec![])
 }
 
 fn math_trunc(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -191,7 +191,7 @@ fn math_trunc(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn math_ceil(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
-    if objtype::isinstance(value, &vm.ctx.float_type) {
+    if objtype::isinstance(value, &vm.ctx.float_type()) {
         let v = objfloat::get_value(value);
         Ok(vm.ctx.new_float(v.ceil()))
     } else {
@@ -201,7 +201,7 @@ fn math_ceil(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn math_floor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
-    if objtype::isinstance(value, &vm.ctx.float_type) {
+    if objtype::isinstance(value, &vm.ctx.float_type()) {
         let v = objfloat::get_value(value);
         Ok(vm.ctx.new_float(v.floor()))
     } else {

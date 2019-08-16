@@ -1146,10 +1146,10 @@ impl IntoPyObject for &String {
 }
 
 pub fn init(ctx: &PyContext) {
-    PyString::extend_class(ctx, &ctx.str_type);
+    PyString::extend_class(ctx, &ctx.types.str_type);
 
-    PyStringIterator::extend_class(ctx, &ctx.striterator_type);
-    PyStringReverseIterator::extend_class(ctx, &ctx.strreverseiterator_type);
+    PyStringIterator::extend_class(ctx, &ctx.types.striterator_type);
+    PyStringReverseIterator::extend_class(ctx, &ctx.types.strreverseiterator_type);
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -1328,9 +1328,9 @@ fn do_cformat(
     } else {
         // check for only literal parts, in which case only dict or empty tuple is allowed
         if num_specifiers == 0
-            && !(objtype::isinstance(&values_obj, &vm.ctx.tuple_type)
+            && !(objtype::isinstance(&values_obj, &vm.ctx.types.tuple_type)
                 && objtuple::get_value(&values_obj).is_empty())
-            && !objtype::isinstance(&values_obj, &vm.ctx.dict_type)
+            && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
         {
             return Err(vm.new_type_error(
                 "not all arguments converted during string formatting".to_string(),
@@ -1396,7 +1396,7 @@ fn do_cformat(
             .into_iter()
             .nth(tuple_index)
             .is_some())
-        && !objtype::isinstance(&values_obj, &vm.ctx.dict_type)
+        && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
     {
         return Err(
             vm.new_type_error("not all arguments converted during string formatting".to_string())

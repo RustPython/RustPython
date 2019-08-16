@@ -1,6 +1,7 @@
 use crate::function::OptionalArg;
 use crate::obj::{objbytes::PyBytesRef, objint::PyIntRef};
-use crate::pyobject::{create_type, ItemProtocol, PyObjectRef, PyResult};
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
+use crate::types::create_type;
 use crate::vm::VirtualMachine;
 
 use adler32::RollingAdler32 as Adler32;
@@ -18,7 +19,11 @@ const DEF_BUF_SIZE: usize = 16 * 1024;
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let zlib_error = create_type("error", &ctx.type_type, &ctx.exceptions.exception_type);
+    let zlib_error = create_type(
+        "error",
+        &ctx.types.type_type,
+        &ctx.exceptions.exception_type,
+    );
 
     py_module!(vm, "zlib", {
         "crc32" => ctx.new_rustfunc(zlib_crc32),

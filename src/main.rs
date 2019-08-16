@@ -312,7 +312,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     }
 
     let scope = vm.new_scope_with_builtins();
-    let main_module = vm.ctx.new_module("__main__", scope.globals.clone());
+    let main_module = vm.new_module("__main__", scope.globals.clone());
 
     vm.get_attribute(vm.sys_module.clone(), "modules")?
         .set_item("__main__", main_module, vm)?;
@@ -359,7 +359,7 @@ fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
     let runpy = vm.import("runpy", &vm.ctx.new_tuple(vec![]), 0)?;
     let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
-    vm.invoke(run_module_as_main, vec![vm.new_str(module.to_owned())])?;
+    vm.invoke(&run_module_as_main, vec![vm.new_str(module.to_owned())])?;
     Ok(())
 }
 

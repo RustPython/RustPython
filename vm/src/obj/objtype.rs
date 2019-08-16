@@ -137,7 +137,7 @@ impl PyClassRef {
         if let Some(attr) = class_get_attr(&mcl, &name) {
             let attr_class = attr.class();
             if class_has_attr(&attr_class, "__set__") {
-                if let Some(descriptor) = class_get_attr(&attr_class, "__get__") {
+                if let Some(ref descriptor) = class_get_attr(&attr_class, "__get__") {
                     return vm.invoke(
                         descriptor,
                         vec![attr, self.into_object(), mcl.into_object()],
@@ -148,7 +148,7 @@ impl PyClassRef {
 
         if let Some(attr) = class_get_attr(&self, &name) {
             let attr_class = attr.class();
-            if let Some(descriptor) = class_get_attr(&attr_class, "__get__") {
+            if let Some(ref descriptor) = class_get_attr(&attr_class, "__get__") {
                 let none = vm.get_none();
                 return vm.invoke(descriptor, vec![attr, none, self.into_object()]);
             }
@@ -158,7 +158,7 @@ impl PyClassRef {
             Ok(cls_attr)
         } else if let Some(attr) = class_get_attr(&mcl, &name) {
             vm.call_get_descriptor(attr, self.into_object())
-        } else if let Some(getter) = class_get_attr(&self, "__getattr__") {
+        } else if let Some(ref getter) = class_get_attr(&self, "__getattr__") {
             vm.invoke(getter, vec![mcl.into_object(), name_ref.into_object()])
         } else {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
@@ -172,7 +172,7 @@ impl PyClassRef {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let Some(attr) = class_get_attr(&self.class(), &attr_name.value) {
-            if let Some(descriptor) = class_get_attr(&attr.class(), "__set__") {
+            if let Some(ref descriptor) = class_get_attr(&attr.class(), "__set__") {
                 vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
                 return Ok(());
             }
@@ -212,7 +212,7 @@ pub fn init(ctx: &PyContext) {
                     type(object) -> the object's type\n\
                     type(name, bases, dict) -> a new type";
 
-    extend_class!(&ctx, &ctx.type_type, {
+    extend_class!(&ctx, &ctx.types.type_type, {
         "__call__" => ctx.new_rustfunc(type_call),
         "__dict__" =>
         PropertyBuilder::new(ctx)
@@ -288,11 +288,11 @@ pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMach
     vm_trace!("type_call: {:?}", class);
     let new = class_get_attr(&class, "__new__").expect("All types should have a __new__.");
     let new_wrapped = vm.call_get_descriptor(new, class.into_object())?;
-    let obj = vm.invoke(new_wrapped, (&args, &kwargs))?;
+    let obj = vm.invoke(&new_wrapped, (&args, &kwargs))?;
 
     if let Some(init_method_or_err) = vm.get_method(obj.clone(), "__init__") {
         let init_method = init_method_or_err?;
-        let res = vm.invoke(init_method, (&args, &kwargs))?;
+        let res = vm.invoke(&init_method, (&args, &kwargs))?;
         if !res.is(&vm.get_none()) {
             return Err(vm.new_type_error("__init__ must return None".to_string()));
         }
@@ -433,8 +433,8 @@ mod tests {
     #[test]
     fn test_linearise() {
         let context = PyContext::new();
-        let object: PyClassRef = context.object.clone();
-        let type_type = &context.type_type;
+        let object: PyClassRef = context.object();
+        let type_type = &context.types.type_type;
 
         let a = new(type_type.clone(), "A", vec![object.clone()], HashMap::new()).unwrap();
         let b = new(type_type.clone(), "B", vec![object.clone()], HashMap::new()).unwrap();
