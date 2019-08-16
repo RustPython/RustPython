@@ -1,3 +1,4 @@
+use num_cpus;
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::fs::File;
@@ -5,8 +6,6 @@ use std::fs::OpenOptions;
 use std::io::{self, Error, ErrorKind, Read, Write};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
-
-use num_cpus;
 
 #[cfg(unix)]
 use nix::errno::Errno;
@@ -218,6 +217,160 @@ fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
     match errno {
         Errno::EPERM => vm.ctx.exceptions.permission_error.clone(),
         _ => vm.ctx.exceptions.os_error.clone(),
+    }
+}
+
+// Flags for os_access
+bitflags! {
+    pub struct AccessFlags: u8{
+        const F_OK = 0;
+        const R_OK = 4;
+        const W_OK = 2;
+        const X_OK = 1;
+
+    }
+
+}
+
+#[cfg(unix)]
+struct Permissions {
+    is_readable: bool,
+    is_writable: bool,
+    is_executable: bool,
+}
+
+#[cfg(unix)]
+struct FilePermissions {
+    owner_permissions: Permissions,
+    group_permissions: Permissions,
+    others_permissions: Permissions,
+}
+
+#[cfg(unix)]
+fn get_permissions(mode: u32) -> Permissions {
+    match mode {
+        4 => Permissions {
+            is_readable: true,
+            is_writable: false,
+            is_executable: false,
+        },
+        2 => Permissions {
+            is_readable: false,
+            is_writable: true,
+            is_executable: false,
+        },
+        1 => Permissions {
+            is_readable: false,
+            is_writable: false,
+            is_executable: true,
+        },
+        6 => Permissions {
+            is_readable: true,
+            is_writable: true,
+            is_executable: false,
+        },
+        5 => Permissions {
+            is_readable: true,
+            is_writable: false,
+            is_executable: true,
+        },
+        3 => Permissions {
+            is_readable: false,
+            is_writable: true,
+            is_executable: true,
+        },
+        7 => Permissions {
+            is_readable: true,
+            is_writable: true,
+            is_executable: true,
+        },
+        _ => Permissions {
+            is_readable: false,
+            is_writable: false,
+            is_executable: false,
+        },
+    }
+}
+
+#[cfg(unix)]
+fn get_owner_permissions(mode: u32) -> Permissions {
+    let owner_mode = (mode & 0o700) >> 6;
+    get_permissions(owner_mode)
+}
+
+#[cfg(unix)]
+fn get_group_permissions(mode: u32) -> Permissions {
+    let group_mode = (mode & 0o070) >> 3;
+    get_permissions(group_mode)
+}
+
+#[cfg(unix)]
+fn get_others_permissions(mode: u32) -> Permissions {
+    let others_mode = mode & 0o007;
+    get_permissions(others_mode)
+}
+
+#[cfg(unix)]
+fn parse_file_permissions(mode: u32) -> FilePermissions {
+    FilePermissions {
+        owner_permissions: get_owner_permissions(mode),
+        group_permissions: get_group_permissions(mode),
+        others_permissions: get_others_permissions(mode),
+    }
+}
+
+#[cfg(unix)]
+fn get_right_permission(
+    mode: u32,
+    file_owner: Uid,
+    file_group: Gid,
+) -> Result<Permissions, nix::Error> {
+    let file_permissions = parse_file_permissions(mode);
+    let user_id = nix::unistd::getuid();
+    let groups_ids = nix::unistd::getgroups()?;
+    if file_owner == user_id {
+        Ok(file_permissions.owner_permissions)
+    } else if groups_ids.contains(&file_group) {
+        Ok(file_permissions.group_permissions)
+    } else {
+        Ok(file_permissions.others_permissions)
+    }
+}
+
+#[cfg(unix)]
+fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+    use std::os::unix::fs::MetadataExt;
+
+    let path = path.as_str();
+    let file_metadata = fs::metadata(path);
+    let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
+        vm.new_value_error(
+            "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK"
+                .to_string(),
+        )
+    })?;
+
+    match file_metadata {
+        Ok(metadata) => {
+            let user_id = metadata.uid();
+            let group_id = metadata.gid();
+            let mode = metadata.mode();
+
+            match get_right_permission(mode, Uid::from_raw(user_id), Gid::from_raw(group_id)) {
+                Ok(perm) => {
+                    if (flags.contains(AccessFlags::R_OK) & perm.is_readable)
+                        || (flags.contains(AccessFlags::W_OK) & perm.is_writable)
+                        || (flags.contains(AccessFlags::X_OK) & perm.is_executable)
+                    {
+                        Ok(true)
+                    } else {
+                        Ok(false)
+                    }
+                }
+                Err(err) => Err(convert_nix_error(vm, err)),
+            }
+        }
+        Err(err) => Err(convert_io_error(vm, err)),
     }
 }
 
@@ -1014,10 +1167,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "O_APPEND" => ctx.new_int(FileCreationFlags::O_APPEND.bits()),
         "O_EXCL" => ctx.new_int(FileCreationFlags::O_EXCL.bits()),
         "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits()),
-        "F_OK" => ctx.new_int(0),
-        "R_OK" => ctx.new_int(4),
-        "W_OK" => ctx.new_int(2),
-        "X_OK" => ctx.new_int(1),
+        "F_OK" => ctx.new_int(AccessFlags::F_OK.bits()),
+        "R_OK" => ctx.new_int(AccessFlags::R_OK.bits()),
+        "W_OK" => ctx.new_int(AccessFlags::W_OK.bits()),
+        "X_OK" => ctx.new_int(AccessFlags::X_OK.bits()),
         "getpid" => ctx.new_rustfunc(os_getpid),
         "cpu_count" => ctx.new_rustfunc(os_cpu_count)
     });
@@ -1068,6 +1221,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setgid" => ctx.new_rustfunc(os_setgid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
+        "access" => ctx.new_rustfunc(os_access)
     });
 
     #[cfg(not(target_os = "redox"))]
