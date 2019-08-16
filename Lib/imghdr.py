@@ -1,9 +1,11 @@
 """Recognize image file formats based on their first few bytes."""
 
-from os import PathLike
+#from os import PathLike
 
 __all__ = ["what"]
 
+# should replace using FileIO into file
+from io import FileIO
 #-------------------------#
 # Recognize image headers #
 #-------------------------#
@@ -12,8 +14,9 @@ def what(file, h=None):
     f = None
     try:
         if h is None:
-            if isinstance(file, (str, PathLike)):
-                f = open(file, 'rb')
+            # if isinstance(file, (str, PathLike))
+            if isinstance(file, str): # FIXME(corona10): RustPython doesn't support PathLike yet.
+                f = FileIO(file, 'rb')
                 h = f.read(32)
             else:
                 location = file.tell()
