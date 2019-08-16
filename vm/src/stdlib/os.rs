@@ -233,7 +233,6 @@ bitflags! {
 }
 
 #[cfg(unix)]
-#[derive(Debug)]
 struct Permissions {
     is_readable: bool,
     is_writable: bool,
@@ -241,7 +240,6 @@ struct Permissions {
 }
 
 #[cfg(unix)]
-#[derive(Debug)]
 struct FilePermissions {
     owner_permissions: Permissions,
     group_permissions: Permissions,
