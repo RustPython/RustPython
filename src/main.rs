@@ -312,7 +312,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     }
 
     let scope = vm.new_scope_with_builtins();
-    let main_module = vm.ctx.new_module("__main__", scope.globals.clone());
+    let main_module = vm.new_module("__main__", scope.globals.clone());
 
     vm.get_attribute(vm.sys_module.clone(), "modules")?
         .set_item("__main__", main_module, vm)?;

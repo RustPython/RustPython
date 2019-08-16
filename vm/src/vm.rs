@@ -25,6 +25,7 @@ use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator::PyGenerator;
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
+use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
@@ -32,8 +33,8 @@ use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyhash;
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TryIntoRef,
-    TypeProtocol,
+    IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
+    TryIntoRef, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::stdlib;
@@ -142,9 +143,23 @@ impl VirtualMachine {
         flame_guard!("init VirtualMachine");
         let ctx = PyContext::new();
 
+        // make a new module without access to the vm; doesn't
+        // set __spec__, __loader__, etc. attributes
+        let new_module = |name: &str, dict| {
+            PyObject::new(
+                PyModule {
+                    name: name.to_owned(),
+                },
+                ctx.types.module_type.clone(),
+                Some(dict),
+            )
+        };
+
         // Hard-core modules:
-        let builtins = ctx.new_module("builtins", ctx.new_dict());
-        let sysmod = ctx.new_module("sys", ctx.new_dict());
+        let builtins_dict = ctx.new_dict();
+        let builtins = new_module("builtins", builtins_dict.clone());
+        let sysmod_dict = ctx.new_dict();
+        let sysmod = new_module("sys", sysmod_dict.clone());
 
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
         let frozen = RefCell::new(frozen::get_module_inits());
@@ -167,6 +182,19 @@ impl VirtualMachine {
             settings,
             signal_handlers: Default::default(),
         };
+
+        objmodule::init_module_dict(
+            &vm,
+            &builtins_dict,
+            vm.new_str("builtins".to_owned()),
+            vm.get_none(),
+        );
+        objmodule::init_module_dict(
+            &vm,
+            &sysmod_dict,
+            vm.new_str("sys".to_owned()),
+            vm.get_none(),
+        );
 
         builtins::make_module(&vm, builtins.clone());
         sysmodule::make_module(&vm, sysmod, builtins);
@@ -252,6 +280,17 @@ impl VirtualMachine {
     /// Create a new python bool object.
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
         self.ctx.new_bool(b)
+    }
+
+    pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
+        objmodule::init_module_dict(self, &dict, self.new_str(name.to_owned()), self.get_none());
+        PyObject::new(
+            PyModule {
+                name: name.to_owned(),
+            },
+            self.ctx.types.module_type.clone(),
+            Some(dict),
+        )
     }
 
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]

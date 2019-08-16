@@ -87,7 +87,7 @@ pub fn import_codeobj(
     if set_file_attr {
         attrs.set_item("__file__", vm.new_str(code_obj.source_path.to_owned()), vm)?;
     }
-    let module = vm.ctx.new_module(module_name, attrs.clone());
+    let module = vm.new_module(module_name, attrs.clone());
 
     // Store module in cache to prevent infinite loop with mutual importing libs:
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
