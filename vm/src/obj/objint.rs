@@ -299,7 +299,7 @@ impl PyInt {
     #[pymethod(name = "__floordiv__")]
     fn floordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let other = other.payload::<PyInt>().unwrap();
+            let other = get_py_int(&other);
             inner_floordiv(self, &other, &vm)
         } else {
             Ok(vm.ctx.not_implemented())
@@ -309,7 +309,7 @@ impl PyInt {
     #[pymethod(name = "__rfloordiv__")]
     fn rfloordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let other = other.payload::<PyInt>().unwrap();
+            let other = get_py_int(&other);
             inner_floordiv(&other, self, &vm)
         } else {
             Ok(vm.ctx.not_implemented())
@@ -322,7 +322,7 @@ impl PyInt {
             return Ok(vm.ctx.not_implemented());
         }
 
-        let other = other.payload::<PyInt>().unwrap();
+        let other = get_py_int(&other);
         inner_lshift(self, other, vm)
     }
 
@@ -332,7 +332,7 @@ impl PyInt {
             return Ok(vm.ctx.not_implemented());
         }
 
-        let other = other.payload::<PyInt>().unwrap();
+        let other = get_py_int(&other);
         inner_lshift(other, self, vm)
     }
 
@@ -342,7 +342,7 @@ impl PyInt {
             return Ok(vm.ctx.not_implemented());
         }
 
-        let other = other.payload::<PyInt>().unwrap();
+        let other = get_py_int(&other);
         inner_rshift(self, other, vm)
     }
 
@@ -352,7 +352,7 @@ impl PyInt {
             return Ok(vm.ctx.not_implemented());
         }
 
-        let other = other.payload::<PyInt>().unwrap();
+        let other = get_py_int(&other);
         inner_rshift(other, self, vm)
     }
 
@@ -402,7 +402,7 @@ impl PyInt {
     #[pymethod(name = "__pow__")]
     fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let other = other.payload::<PyInt>().unwrap();
+            let other = get_py_int(&other);
             inner_pow(self, &other, vm)
         } else {
             Ok(vm.ctx.not_implemented())
@@ -412,7 +412,7 @@ impl PyInt {
     #[pymethod(name = "__rpow__")]
     fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let other = other.payload::<PyInt>().unwrap();
+            let other = get_py_int(&other);
             inner_pow(&other, self, vm)
         } else {
             Ok(vm.ctx.not_implemented())
@@ -422,7 +422,7 @@ impl PyInt {
     #[pymethod(name = "__mod__")]
     fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let other = other.payload::<PyInt>().unwrap();
+            let other = get_py_int(&other);
             inner_mod(self, &other, vm)
         } else {
             Ok(vm.ctx.not_implemented())
@@ -432,7 +432,7 @@ impl PyInt {
     #[pymethod(name = "__rmod__")]
     fn rmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let other = other.payload::<PyInt>().unwrap();
+            let other = get_py_int(&other);
             inner_mod(&other, self, vm)
         } else {
             Ok(vm.ctx.not_implemented())
@@ -442,7 +442,7 @@ impl PyInt {
     #[pymethod(name = "__divmod__")]
     fn divmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let other = other.payload::<PyInt>().unwrap();
+            let other = get_py_int(&other);
             inner_divmod(self, &other, vm)
         } else {
             Ok(vm.ctx.not_implemented())
@@ -452,7 +452,7 @@ impl PyInt {
     #[pymethod(name = "__rdivmod__")]
     fn rdivmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let other = other.payload::<PyInt>().unwrap();
+            let other = get_py_int(&other);
             inner_divmod(&other, self, vm)
         } else {
             Ok(vm.ctx.not_implemented())
@@ -768,11 +768,11 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, mut base: u32) -> PyResult
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> &BigInt {
-    &obj.payload::<PyInt>().unwrap().value
+    &get_py_int(obj).value
 }
 
 pub fn get_float_value(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-    obj.payload::<PyInt>().unwrap().float(vm)
+    get_py_int(obj).float(vm)
 }
 
 #[inline]
@@ -819,6 +819,10 @@ fn get_shift_amount(amount: &PyInt, vm: &VirtualMachine) -> PyResult<usize> {
             _ => panic!("Failed converting {} to rust usize", amount.value),
         }
     }
+}
+
+fn get_py_int(obj: &PyObjectRef) -> &PyInt {
+    &obj.payload::<PyInt>().unwrap()
 }
 
 pub fn init(context: &PyContext) {
