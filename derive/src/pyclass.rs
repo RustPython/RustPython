@@ -424,10 +424,12 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
                 vm: &::rustpython_vm::vm::VirtualMachine,
                 cls: ::rustpython_vm::obj::objtype::PyClassRef,
             ) -> ::rustpython_vm::pyobject::PyResult<::rustpython_vm::obj::objtuple::PyTupleRef> {
-                let tuple: ::rustpython_vm::obj::objtuple::PyTuple =
-                    vec![#(::rustpython_vm::pyobject::IntoPyObject
-                                ::into_pyobject(self.#field_names, vm)?
-                         ),*].into();
+                let tuple = ::rustpython_vm::obj::objtuple::PyTuple::from(
+                    vec![#(::rustpython_vm::pyobject::IntoPyObject::into_pyobject(
+                        ::std::clone::Clone::clone(&self.#field_names),
+                        vm,
+                    )?),*],
+                );
                 ::rustpython_vm::pyobject::PyValue::into_ref_with_type(tuple, vm, cls)
             }
         }

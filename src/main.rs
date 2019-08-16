@@ -317,6 +317,15 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     vm.get_attribute(vm.sys_module.clone(), "modules")?
         .set_item("__main__", main_module, vm)?;
 
+    let site_result = vm.import("site", &vm.ctx.new_tuple(vec![]), 0);
+
+    if site_result.is_err() {
+        warn!(
+            "Failed to import site, consider adding the Lib directory to your RUSTPYTHONPATH \
+             environment variable",
+        );
+    }
+
     // Figure out if a -c option was given:
     if let Some(command) = matches.value_of("c") {
         run_command(&vm, scope, command.to_string())?;

@@ -173,6 +173,16 @@ fn sys_exit(code: OptionalArg<i32>, _vm: &VirtualMachine) -> PyResult<()> {
     std::process::exit(code)
 }
 
+#[pystruct_sequence(name = "version_info")]
+#[derive(Default, Debug)]
+struct VersionInfo {
+    major: usize,
+    minor: usize,
+    micro: usize,
+    releaselevel: String,
+    serial: usize,
+}
+
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
     let ctx = &vm.ctx;
 
@@ -180,6 +190,17 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
     let flags = SysFlags::from_settings(&vm.settings)
         .into_struct_sequence(vm, flags_type)
         .unwrap();
+
+    let version_info_type = VersionInfo::make_class(ctx);
+    let version_info = VersionInfo {
+        major: env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap(),
+        minor: env!("CARGO_PKG_VERSION_MINOR").parse().unwrap(),
+        micro: env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
+        releaselevel: "alpha".to_owned(),
+        serial: 0,
+    }
+    .into_struct_sequence(vm, version_info_type)
+    .unwrap();
 
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {
@@ -302,6 +323,7 @@ settrace() -- set the global debug tracing function
 
     let prefix = option_env!("RUSTPYTHON_PREFIX").unwrap_or("/usr/local");
     let base_prefix = option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or(prefix);
+    let exec_prefix = option_env!("RUSTPYTHON_EXECPREFIX").unwrap_or(prefix);
 
     extend_module!(vm, module, {
       "__name__" => ctx.new_str(String::from("sys")),
@@ -337,9 +359,11 @@ settrace() -- set the global debug tracing function
       "setprofile" => ctx.new_rustfunc(sys_setprofile),
       "settrace" => ctx.new_rustfunc(sys_settrace),
       "version" => vm.new_str(version::get_version()),
+      "version_info" => version_info,
       "exc_info" => ctx.new_rustfunc(sys_exc_info),
       "prefix" => ctx.new_str(prefix.to_string()),
       "base_prefix" => ctx.new_str(base_prefix.to_string()),
+      "exec_prefix" => ctx.new_str(exec_prefix.to_string()),
       "exit" => ctx.new_rustfunc(sys_exit),
     });
 
