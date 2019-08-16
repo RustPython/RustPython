@@ -233,6 +233,7 @@ bitflags! {
 
 }
 
+#[cfg(unix)]
 fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
     let path = path.as_str();
     let file_metadata = fs::metadata(path);
@@ -1046,8 +1047,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "W_OK" => ctx.new_int(AccessFlags::W_OK.bits()),
         "X_OK" => ctx.new_int(AccessFlags::X_OK.bits()),
         "getpid" => ctx.new_rustfunc(os_getpid),
-        "cpu_count" => ctx.new_rustfunc(os_cpu_count),
-        "access" => ctx.new_rustfunc(os_access)
+        "cpu_count" => ctx.new_rustfunc(os_cpu_count)
     });
 
     for support in support_funcs {
@@ -1096,6 +1096,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setgid" => ctx.new_rustfunc(os_setgid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
+        "access" => ctx.new_rustfunc(os_access)
     });
 
     #[cfg(not(target_os = "redox"))]
