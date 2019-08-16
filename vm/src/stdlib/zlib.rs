@@ -99,7 +99,7 @@ fn zlib_compress(
         .unwrap_or(libz::Z_DEFAULT_COMPRESSION);
 
     let compression = match level {
-        valid_level @ libz::Z_NO_COMPRESSION...libz::Z_BEST_COMPRESSION => {
+        valid_level @ libz::Z_NO_COMPRESSION..=libz::Z_BEST_COMPRESSION => {
             Compression::new(valid_level as u32)
         }
         libz::Z_DEFAULT_COMPRESSION => Compression::default(),
