@@ -28,8 +28,8 @@ use crate::vm::VirtualMachine;
 
 use super::objbytes::PyBytes;
 use super::objdict::PyDict;
-use super::objint::{self, PyInt};
 use super::objfloat;
+use super::objint::{self, PyInt};
 use super::objiter;
 use super::objnone::PyNone;
 use super::objsequence::PySliceableSequence;
@@ -1224,7 +1224,7 @@ fn do_cformat_specifier(
         CFormatType::Float(_) => {
             if objtype::isinstance(&obj, &vm.ctx.float_type()) {
                 Ok(format_spec.format_float(objfloat::get_value(&obj)))
-            } else if objtype::isinstance(&obj, &vm.ctx.int_type()){
+            } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
                 Ok(format_spec.format_float(objint::get_value(&obj).to_f64().unwrap()))
             } else {
                 let required_type_string = "an floating point or integer";
