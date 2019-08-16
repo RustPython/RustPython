@@ -768,11 +768,11 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, mut base: u32) -> PyResult
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> &BigInt {
-    &obj.payload::<PyInt>().unwrap().value
+    &get_py_int(obj).value
 }
 
 pub fn get_float_value(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-    obj.payload::<PyInt>().unwrap().float(vm)
+    get_py_int(obj).float(vm)
 }
 
 #[inline]
