@@ -188,7 +188,19 @@ impl<O: OutputStream> Compiler<O> {
     ) -> Result<(), CompileError> {
         let size_before = self.output_stack.len();
         self.symbol_table_stack.push(symbol_table);
-        self.compile_statements(&program.statements)?;
+
+        let (statements, doc) = get_doc(&program.statements);
+        if let Some(value) = doc {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String { value },
+            });
+            self.emit(Instruction::StoreName {
+                name: "__doc__".to_owned(),
+                scope: bytecode::NameScope::Global,
+            });
+        }
+        self.compile_statements(statements)?;
+
         assert_eq!(self.output_stack.len(), size_before);
 
         // Emit None at end:
@@ -1897,30 +1909,36 @@ impl<O: OutputStream> Compiler<O> {
     }
 
     fn compile_string(&mut self, string: &ast::StringGroup) -> Result<(), CompileError> {
-        match string {
-            ast::StringGroup::Joined { values } => {
-                for value in values {
-                    self.compile_string(value)?;
+        if let Some(value) = try_get_constant_string(string) {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String { value },
+            });
+        } else {
+            match string {
+                ast::StringGroup::Joined { values } => {
+                    for value in values {
+                        self.compile_string(value)?;
+                    }
+                    self.emit(Instruction::BuildString { size: values.len() })
                 }
-                self.emit(Instruction::BuildString { size: values.len() })
-            }
-            ast::StringGroup::Constant { value } => {
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::String {
-                        value: value.to_string(),
-                    },
-                });
-            }
-            ast::StringGroup::FormattedValue {
-                value,
-                conversion,
-                spec,
-            } => {
-                self.compile_expression(value)?;
-                self.emit(Instruction::FormatValue {
-                    conversion: conversion.map(compile_conversion_flag),
-                    spec: spec.clone(),
-                });
+                ast::StringGroup::Constant { value } => {
+                    self.emit(Instruction::LoadConst {
+                        value: bytecode::Constant::String {
+                            value: value.to_string(),
+                        },
+                    });
+                }
+                ast::StringGroup::FormattedValue {
+                    value,
+                    conversion,
+                    spec,
+                } => {
+                    self.compile_expression(value)?;
+                    self.emit(Instruction::FormatValue {
+                        conversion: conversion.map(compile_conversion_flag),
+                        spec: spec.clone(),
+                    });
+                }
             }
         }
         Ok(())
@@ -2000,18 +2018,37 @@ impl<O: OutputStream> Compiler<O> {
 }
 
 fn get_doc(body: &[ast::Statement]) -> (&[ast::Statement], Option<String>) {
-    if let Some(val) = body.get(0) {
+    if let Some((val, body_rest)) = body.split_first() {
         if let ast::StatementType::Expression { ref expression } = val.node {
             if let ast::ExpressionType::String { value } = &expression.node {
-                if let ast::StringGroup::Constant { ref value } = value {
-                    if let Some((_, body_rest)) = body.split_first() {
-                        return (body_rest, Some(value.to_string()));
-                    }
+                if let Some(value) = try_get_constant_string(value) {
+                    return (body_rest, Some(value.to_string()));
                 }
             }
         }
     }
     (body, None)
+}
+
+fn try_get_constant_string(string: &ast::StringGroup) -> Option<String> {
+    fn get_constant_string_inner(out_string: &mut String, string: &ast::StringGroup) -> bool {
+        match string {
+            ast::StringGroup::Constant { value } => {
+                out_string.push_str(&value);
+                true
+            }
+            ast::StringGroup::Joined { values } => values
+                .iter()
+                .all(|value| get_constant_string_inner(out_string, value)),
+            ast::StringGroup::FormattedValue { .. } => false,
+        }
+    }
+    let mut out_string = String::new();
+    if get_constant_string_inner(&mut out_string, string) {
+        Some(out_string)
+    } else {
+        None
+    }
 }
 
 fn compile_location(location: &ast::Location) -> bytecode::Location {
