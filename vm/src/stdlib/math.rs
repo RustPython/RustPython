@@ -237,15 +237,14 @@ fn math_gcd(a: PyIntRef, b: PyIntRef, vm: &VirtualMachine) -> PyResult {
 fn math_factorial(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
     let value = objint::get_value(value);
-    match value {
-        value if value < &BigInt::zero() => Err(vm.new_value_error(format!("factorial() not defined for negative values"))),
-        value if value <= &BigInt::one() => Ok(vm.ctx.new_int(BigInt::from(1u64))),
-        _ => {
-            let ret: BigInt =
-                num_iter::range_inclusive(BigInt::from(1u64), BigInt::from(value.clone())).product();
-            Ok(vm.ctx.new_int(ret))
-        }
+    if value < &BigInt::zero() {
+        return Err(vm.new_value_error(format!("factorial() not defined for negative values")))
+    } else if value <= &BigInt::one() {
+        return Ok(vm.ctx.new_int(BigInt::from(1u64)))
     }
+    let ret: BigInt =
+        num_iter::range_inclusive(BigInt::from(1u64), BigInt::from(value.clone())).product();
+    Ok(vm.ctx.new_int(ret))
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
