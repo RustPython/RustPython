@@ -518,6 +518,11 @@ impl PyString {
         do_cformat(vm, format_string, values.clone())
     }
 
+    #[pymethod(name = "__rmod__")]
+    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
+    }
+
     #[pymethod]
     fn format(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         if args.args.is_empty() {
