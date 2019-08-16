@@ -83,6 +83,13 @@ assert str(math.frexp(0.0)) == str((+0.0, 0))
 assert str(math.frexp(-0.0)) == str((-0.0, 0))
 assert math.frexp(1) == (0.5, 1)
 assert math.frexp(1.5) == (0.75, 1)
+assert_raises(TypeError, lambda: math.frexp(None))
+
+assert str(math.ldexp(+0.0, 0)) == str(0.0)
+assert str(math.ldexp(-0.0, 0)) == str(-0.0)
+assert math.ldexp(0.5, 1) == 1
+assert math.ldexp(0.75, 1) == 1.5
+assert_raises(TypeError, lambda: math.ldexp(None, None))
 
 assert math.frexp(float('inf')) == (float('inf'), 0)
 assert str(math.frexp(float('nan'))) == str((float('nan'), 0))

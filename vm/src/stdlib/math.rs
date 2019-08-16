@@ -7,9 +7,11 @@ use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
 
 use num_bigint::BigInt;
+use num_traits::cast::ToPrimitive;
 use num_traits::{One, Zero};
 
 use crate::function::PyFuncArgs;
+use crate::obj::objfloat::PyFloatRef;
 use crate::obj::objint::PyIntRef;
 use crate::obj::{objfloat, objint, objtype};
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
@@ -229,6 +231,12 @@ fn math_frexp(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     )
 }
 
+fn math_ldexp(value: PyFloatRef, i: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    Ok(vm
+        .ctx
+        .new_float(value.to_f64() * (2_f64).powf(i.as_bigint().to_f64().unwrap())))
+}
+
 fn math_gcd(a: PyIntRef, b: PyIntRef, vm: &VirtualMachine) -> PyResult {
     use num_integer::Integer;
     Ok(vm.new_int(a.as_bigint().gcd(b.as_bigint())))
@@ -294,6 +302,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "lgamma" => ctx.new_rustfunc(math_lgamma),
 
         "frexp" => ctx.new_rustfunc(math_frexp),
+        "ldexp" => ctx.new_rustfunc(math_ldexp),
 
         // Rounding functions:
         "trunc" => ctx.new_rustfunc(math_trunc),
