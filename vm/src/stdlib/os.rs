@@ -360,11 +360,10 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
 
             match get_right_permission(mode, Uid::from_raw(user_id), Gid::from_raw(group_id)) {
                 Ok(perm) => {
-                    if flags.contains(AccessFlags::R_OK) & perm.is_readable {
-                        Ok(true)
-                    } else if flags.contains(AccessFlags::W_OK) & perm.is_writable {
-                        Ok(true)
-                    } else if flags.contains(AccessFlags::X_OK) & perm.is_executable {
+                    if (flags.contains(AccessFlags::R_OK) & perm.is_readable)
+                        || (flags.contains(AccessFlags::W_OK) & perm.is_writable)
+                        || (flags.contains(AccessFlags::X_OK) & perm.is_executable)
+                    {
                         Ok(true)
                     } else {
                         Ok(false)
