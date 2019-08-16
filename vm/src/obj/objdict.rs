@@ -12,7 +12,7 @@ use super::objbool;
 use super::objiter;
 use super::objstr;
 use super::objtype;
-use crate::dictdatatype;
+use crate::dictdatatype::{self, DictKey};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::PyClassImpl;
 
@@ -205,14 +205,31 @@ impl PyDictRef {
 
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
     fn inner_getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(value) = self.entries.borrow().get(vm, &key)? {
-            return Ok(value);
+        if let Some(value) = self.inner_getitem_option(&key, vm)? {
+            Ok(value)
+        } else {
+            Err(vm.new_key_error(key.clone()))
         }
+    }
+
+    /// Return an optional inner item, or an error (can be key error as well)
+    fn inner_getitem_option<K: DictKey + IntoPyObject + Clone>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        if let Some(value) = self.entries.borrow().get(vm, key)? {
+            return Ok(Some(value));
+        }
+
         if let Some(method_or_err) = vm.get_method(self.clone().into_object(), "__missing__") {
             let method = method_or_err?;
-            return vm.invoke(&method, vec![key]);
+            Ok(Some(
+                vm.invoke(&method, vec![key.clone().into_pyobject(vm)?])?,
+            ))
+        } else {
+            Ok(None)
         }
-        Err(vm.new_key_error(key.clone()))
     }
 
     fn get(
@@ -318,18 +335,44 @@ impl PyDictRef {
         self.entries.borrow().size()
     }
 
-    pub fn get_item_option<T: IntoPyObject>(
+    /// This function can be used to get an item without raising the
+    /// KeyError, so we can simply check upon the result being Some
+    /// python value, or None.
+    /// Note that we can pass any type which implements the DictKey
+    /// trait. Notable examples are String and PyObjectRef.
+    pub fn get_item_option<T: IntoPyObject + DictKey + Clone>(
         &self,
-        key: T,
+        key: &T,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        match self.get_item(key, vm) {
-            Ok(value) => Ok(Some(value)),
-            Err(exc) => {
-                if objtype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
-                    Ok(None)
-                } else {
-                    Err(exc)
+        // Test if this object is a true dict, or mabye a subclass?
+        // If it is a dict, we can directly invoke inner_get_item_option,
+        // and prevent the creation of the KeyError exception.
+        // Also note, that we prevent the creation of a full PyString object
+        // if we lookup local names (which happens all of the time).
+        if self.typ().is(&vm.ctx.dict_type()) {
+            // We can take the short path here!
+            match self.inner_getitem_option(key, vm) {
+                Err(exc) => {
+                    if objtype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
+                        Ok(None)
+                    } else {
+                        Err(exc)
+                    }
+                }
+                Ok(x) => Ok(x),
+            }
+        } else {
+            // Fall back to full get_item with KeyError checking
+
+            match self.get_item(key.clone().into_pyobject(vm)?, vm) {
+                Ok(value) => Ok(Some(value)),
+                Err(exc) => {
+                    if objtype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
+                        Ok(None)
+                    } else {
+                        Err(exc)
+                    }
                 }
             }
         }

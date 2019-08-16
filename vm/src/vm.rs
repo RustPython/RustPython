@@ -936,7 +936,7 @@ impl VirtualMachine {
         }
 
         let attr = if let Some(ref dict) = obj.dict {
-            dict.get_item_option(name_str.clone(), self)?
+            dict.get_item_option(&name_str.value, self)?
         } else {
             None
         };

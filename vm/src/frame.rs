@@ -1017,7 +1017,7 @@ impl Frame {
         let module = self
             .scope
             .globals
-            .get_item_option("__name__", vm)?
+            .get_item_option(&"__name__".to_string(), vm)?
             .unwrap_or_else(|| vm.get_none());
         vm.set_attr(&func_obj, "__module__", module)?;
         vm.set_attr(&func_obj, "__annotations__", annotations)?;
