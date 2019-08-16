@@ -321,6 +321,24 @@ fn parse_file_permissions(mode: u32) -> FilePermissions {
 }
 
 #[cfg(unix)]
+fn get_right_permission(
+    mode: u32,
+    file_owner: Uid,
+    file_group: Gid,
+) -> Result<Permissions, nix::Error> {
+    let file_permissions = parse_file_permissions(mode);
+    let user_id = nix::unistd::getuid();
+    let groups_ids = nix::unistd::getgroups()?;
+    if file_owner == user_id {
+        Ok(file_permissions.owner_permissions)
+    } else if groups_ids.contains(&file_group) {
+        Ok(file_permissions.group_permissions)
+    } else {
+        Ok(file_permissions.others_permissions)
+    }
+}
+
+#[cfg(unix)]
 fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
     let path = path.as_str();
     let file_metadata = fs::metadata(path);
