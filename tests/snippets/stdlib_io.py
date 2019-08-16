@@ -1,5 +1,6 @@
 from io import BufferedReader, FileIO, StringIO, BytesIO
 import os
+from testutils import assertRaises
 
 fi = FileIO('README.md')
 assert fi.seekable()
@@ -27,9 +28,5 @@ with FileIO(fd) as fio:
 fi = FileIO('README.md')
 fi.read()
 fi.close()
-try:
+with assertRaises(ValueError):
     fi.read()
-except ValueError:
-    pass
-else:
-    raise RuntimeError('ValueError should be raised')

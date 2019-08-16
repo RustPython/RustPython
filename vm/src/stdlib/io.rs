@@ -433,6 +433,7 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 #[cfg(windows)]
 fn file_io_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    use std::os::windows::io::IntoRawHandle;
     arg_check!(vm, args, required = [(file_io, None)]);
     let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
     let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
