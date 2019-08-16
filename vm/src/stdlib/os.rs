@@ -1,12 +1,12 @@
+use num_cpus;
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Error, ErrorKind, Read, Write};
+use std::os::unix::fs::MetadataExt;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
-
-use num_cpus;
 
 #[cfg(unix)]
 use nix::errno::Errno;
@@ -222,12 +222,17 @@ fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
 }
 
 // Flags for os_access
-const F_OK: u8 = 0;
-const R_OK: u8 = 4;
-const W_OK: u8 = 2;
-const X_OK: u8 = 1;
+bitflags! {
+    pub struct AccessFlags: u8{
+        const F_OK = 0;
+        const R_OK = 4;
+        const W_OK = 2;
+        const X_OK = 1;
 
-// TODO : Implement W_OK and X_OK
+    }
+
+}
+
 fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
     let path = path.as_str();
     let file_metadata = fs::metadata(path);
@@ -1036,10 +1041,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "O_APPEND" => ctx.new_int(FileCreationFlags::O_APPEND.bits()),
         "O_EXCL" => ctx.new_int(FileCreationFlags::O_EXCL.bits()),
         "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits()),
-        "F_OK" => ctx.new_int(F_OK),
-        "R_OK" => ctx.new_int(R_OK),
-        "W_OK" => ctx.new_int(W_OK),
-        "X_OK" => ctx.new_int(X_OK),
+        "F_OK" => ctx.new_int(AccessFlags::F_OK.bits()),
+        "R_OK" => ctx.new_int(AccessFlags::R_OK.bits()),
+        "W_OK" => ctx.new_int(AccessFlags::W_OK.bits()),
+        "X_OK" => ctx.new_int(AccessFlags::X_OK.bits()),
         "getpid" => ctx.new_rustfunc(os_getpid),
         "cpu_count" => ctx.new_rustfunc(os_cpu_count),
         "access" => ctx.new_rustfunc(os_access)
