@@ -515,8 +515,13 @@ impl PyString {
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let format_string_text = &self.value;
         let format_string = CFormatString::from_str(format_string_text)
-            .map_err(|err| vm.new_value_error(format!("{}", err)))?;
+            .map_err(|err| vm.new_value_error(err.to_string()))?;
         do_cformat(vm, format_string, values.clone())
+    }
+
+    #[pymethod(name = "__rmod__")]
+    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
     }
 
     #[pymethod]

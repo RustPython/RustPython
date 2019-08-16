@@ -11,6 +11,7 @@ use gethostname::gethostname;
 
 use byteorder::{BigEndian, ByteOrder};
 
+use crate::function::PyFuncArgs;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objstr::PyStringRef;
@@ -179,6 +180,14 @@ impl SocketRef {
         vm: &VirtualMachine,
     ) -> PyResult<SocketRef> {
         Socket::new(family, kind).into_ref_with_type(vm, cls)
+    }
+
+    fn enter(self, _vm: &VirtualMachine) -> SocketRef {
+        self
+    }
+
+    fn exit(self, _args: PyFuncArgs, _vm: &VirtualMachine) {
+        self.close(_vm)
     }
 
     fn connect(self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
@@ -425,29 +434,31 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let socket = py_class!(ctx, "socket", ctx.object(), {
-         "__new__" => ctx.new_rustfunc(SocketRef::new),
-         "connect" => ctx.new_rustfunc(SocketRef::connect),
-         "recv" => ctx.new_rustfunc(SocketRef::recv),
-         "send" => ctx.new_rustfunc(SocketRef::send),
-         "bind" => ctx.new_rustfunc(SocketRef::bind),
-         "accept" => ctx.new_rustfunc(SocketRef::accept),
-         "listen" => ctx.new_rustfunc(SocketRef::listen),
-         "close" => ctx.new_rustfunc(SocketRef::close),
-         "getsockname" => ctx.new_rustfunc(SocketRef::getsockname),
-         "sendto" => ctx.new_rustfunc(SocketRef::sendto),
-         "recvfrom" => ctx.new_rustfunc(SocketRef::recvfrom),
-         "fileno" => ctx.new_rustfunc(SocketRef::fileno),
+        "__new__" => ctx.new_rustfunc(SocketRef::new),
+        "__enter__" => ctx.new_rustfunc(SocketRef::enter),
+        "__exit__" => ctx.new_rustfunc(SocketRef::exit),
+        "connect" => ctx.new_rustfunc(SocketRef::connect),
+        "recv" => ctx.new_rustfunc(SocketRef::recv),
+        "send" => ctx.new_rustfunc(SocketRef::send),
+        "bind" => ctx.new_rustfunc(SocketRef::bind),
+        "accept" => ctx.new_rustfunc(SocketRef::accept),
+        "listen" => ctx.new_rustfunc(SocketRef::listen),
+        "close" => ctx.new_rustfunc(SocketRef::close),
+        "getsockname" => ctx.new_rustfunc(SocketRef::getsockname),
+        "sendto" => ctx.new_rustfunc(SocketRef::sendto),
+        "recvfrom" => ctx.new_rustfunc(SocketRef::recvfrom),
+        "fileno" => ctx.new_rustfunc(SocketRef::fileno),
     });
 
     let module = py_module!(vm, "socket", {
         "AF_INET" => ctx.new_int(AddressFamily::Inet as i32),
         "SOCK_STREAM" => ctx.new_int(SocketKind::Stream as i32),
-         "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
-         "socket" => socket,
-         "inet_aton" => ctx.new_rustfunc(socket_inet_aton),
-         "inet_ntoa" => ctx.new_rustfunc(socket_inet_ntoa),
-         "gethostname" => ctx.new_rustfunc(socket_gethostname),
-         "htonl" => ctx.new_rustfunc(socket_htonl),
+        "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
+        "socket" => socket,
+        "inet_aton" => ctx.new_rustfunc(socket_inet_aton),
+        "inet_ntoa" => ctx.new_rustfunc(socket_inet_ntoa),
+        "gethostname" => ctx.new_rustfunc(socket_gethostname),
+        "htonl" => ctx.new_rustfunc(socket_htonl),
     });
 
     extend_module_platform_specific(vm, module)
@@ -464,7 +475,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
 
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
-         "sethostname" => ctx.new_rustfunc(socket_sethostname),
+        "sethostname" => ctx.new_rustfunc(socket_sethostname),
     });
 
     module
