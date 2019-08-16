@@ -519,7 +519,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__rmod__")]
-    fn rmod(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.not_implemented())
     }
 
