@@ -256,7 +256,7 @@ impl WASMVirtualMachine {
             let mod_name = name.clone();
 
             let stdlib_init_fn = move |vm: &VirtualMachine| {
-                let module = vm.ctx.new_module(&name, vm.ctx.new_dict());
+                let module = vm.new_module(&name, vm.ctx.new_dict());
                 for (key, value) in module_items.clone() {
                     vm.set_attr(&module, key, value).unwrap();
                 }

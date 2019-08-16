@@ -430,16 +430,6 @@ impl PyContext {
         objtype::new(self.type_type(), name, vec![base], PyAttributes::new()).unwrap()
     }
 
-    pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
-        PyObject::new(
-            PyModule {
-                name: name.to_string(),
-            },
-            self.types.module_type.clone(),
-            Some(dict),
-        )
-    }
-
     pub fn new_namespace(&self) -> PyObjectRef {
         PyObject::new(PyNamespace, self.namespace_type(), Some(self.new_dict()))
     }
