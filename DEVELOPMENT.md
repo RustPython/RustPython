@@ -46,7 +46,7 @@ Python code should follow the
 
 ## Testing
 
-To test RustPython's functionality, a collection of Python snippets are located
+To test RustPython's functionality, a collection of Python snippets is located
 in the `tests/snippets` directory and can be run using `pytest`:
 
 ```shell
@@ -68,11 +68,6 @@ https://speedscope.app.
 
 ```shell
 $ cargo run --release --features flame-it script.py
-```
-
-To display the default output json file:
-
-```shell
 $ cat flamescope.json
 {<json>}
 ```
@@ -108,12 +103,12 @@ repository's structure:
 
 ## Understanding Internals
 
-The RustPython package is the `rustpython` top-level crate. The `Cargo.toml`
+The RustPython workspace includes the `rustpython` top-level crate. The `Cargo.toml`
 file in the root of the repo provide configuration of the crate and the
 implementation is found in the `src` directory (specifically, 
 `src/main.rs`).
 
-The top-level `rustpython` depends on several lower-level crates including:
+The top-level `rustpython` binary depends on several lower-level crates including:
 
 - `rustpython-parser` (implementation in `parser/src`)
 - `rustpython-compiler` (implementation in `compiler/src`)
@@ -145,7 +140,7 @@ an Abstract Syntax Tree (AST):
 
 ### rustpython-compiler
 
-The `rustpython-compiler`'s purpose is to transform the AST (Abstract Syntax
+The `rustpython-compiler` crate's purpose is to transform the AST (Abstract Syntax
 Tree) to bytecode. The implementation of the compiler is found in the
 `compiler/src` directory. The compiler implements Python's peephole optimizer
 implementation, Symbol table, and streams in Rust.
@@ -158,7 +153,7 @@ bytecode instructions can be found in the
 
 ### rustpython-vm
 
-The `rustpython-vm` has the important job of running the virtual machine that
+The `rustpython-vm` crate has the important job of running the virtual machine that
 executes Python's instructions. The `vm/src` directory contains code to
 implement the read and evaluation loop that fetches and dispatches
 instructions. This directory also contains the implementation of the
