@@ -8,6 +8,7 @@ use statrs::function::gamma::{gamma, ln_gamma};
 
 use num_bigint::BigInt;
 use num_traits::{One, Zero};
+use num_traits::cast::ToPrimitive;
 
 use crate::function::PyFuncArgs;
 use crate::obj::objint::PyIntRef;
@@ -229,6 +230,14 @@ fn math_frexp(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     )
 }
 
+fn math_ldexp(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(value, None), (i, None)]);
+    let value = objfloat::make_float(vm, value)?;
+    let i = objint::get_value(i);
+    Ok(vm.ctx.new_float(value * (2 as f64).powf(i.to_f64().unwrap())))
+}
+
+
 fn math_gcd(a: PyIntRef, b: PyIntRef, vm: &VirtualMachine) -> PyResult {
     use num_integer::Integer;
     Ok(vm.new_int(a.as_bigint().gcd(b.as_bigint())))
@@ -294,6 +303,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "lgamma" => ctx.new_rustfunc(math_lgamma),
 
         "frexp" => ctx.new_rustfunc(math_frexp),
+        "ldexp" => ctx.new_rustfunc(math_ldexp),
 
         // Rounding functions:
         "trunc" => ctx.new_rustfunc(math_trunc),
