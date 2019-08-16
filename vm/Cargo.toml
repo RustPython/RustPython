@@ -79,3 +79,6 @@ libz-sys = "1.0.25"
 gethostname = "0.2.0"
 subprocess = "0.1.18"
 num_cpus = "1.0"
+
+[target."cfg(windows)".dependencies]
+kernel32-sys = "0.2.2"

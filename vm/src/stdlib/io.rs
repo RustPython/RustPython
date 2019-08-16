@@ -431,6 +431,31 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+#[cfg(windows)]
+fn file_io_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    use std::os::windows::io::IntoRawHandle;
+    arg_check!(vm, args, required = [(file_io, None)]);
+    let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
+    let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
+    let handle = os::rust_file(raw_fd);
+    let raw_handle = handle.into_raw_handle();
+    unsafe {
+        kernel32::CloseHandle(raw_handle);
+    }
+    Ok(vm.ctx.none())
+}
+
+#[cfg(unix)]
+fn file_io_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(file_io, None)]);
+    let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
+    let raw_fd = objint::get_value(&file_no).to_i32().unwrap();
+    unsafe {
+        libc::close(raw_fd);
+    }
+    Ok(vm.ctx.none())
+}
+
 fn file_io_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(true))
 }
@@ -678,6 +703,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "read" => ctx.new_rustfunc(file_io_read),
         "readinto" => ctx.new_rustfunc(file_io_readinto),
         "write" => ctx.new_rustfunc(file_io_write),
+        "close" => ctx.new_rustfunc(file_io_close),
         "seekable" => ctx.new_rustfunc(file_io_seekable)
     });
 
