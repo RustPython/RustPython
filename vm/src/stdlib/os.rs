@@ -234,6 +234,93 @@ bitflags! {
 }
 
 #[cfg(unix)]
+struct Permissions {
+    is_readable: bool,
+    is_writable: bool,
+    is_executable: bool,
+}
+
+#[cfg(unix)]
+struct FilePermissions {
+    owner_permissions: Permissions,
+    group_permissions: Permissions,
+    others_permissions: Permissions,
+}
+
+#[cfg(unix)]
+fn get_permissions(mode: u32) -> Permissions {
+    match mode {
+        4 => Permissions {
+            is_readable: true,
+            is_writable: false,
+            is_executable: false,
+        },
+        2 => Permissions {
+            is_readable: false,
+            is_writable: true,
+            is_executable: false,
+        },
+        1 => Permissions {
+            is_readable: false,
+            is_writable: false,
+            is_executable: true,
+        },
+        6 => Permissions {
+            is_readable: true,
+            is_writable: true,
+            is_executable: false,
+        },
+        5 => Permissions {
+            is_readable: true,
+            is_writable: false,
+            is_executable: true,
+        },
+        3 => Permissions {
+            is_readable: false,
+            is_writable: true,
+            is_executable: true,
+        },
+        7 => Permissions {
+            is_readable: true,
+            is_writable: true,
+            is_executable: true,
+        },
+        _ => Permissions {
+            is_readable: false,
+            is_writable: false,
+            is_executable: false,
+        },
+    }
+}
+
+#[cfg(unix)]
+fn get_owner_permissions(mode: u32) -> Permissions {
+    let owner_mode = (mode & 0o700) >> 6;
+    get_permissions(owner_mode)
+}
+
+#[cfg(unix)]
+fn get_group_permissions(mode: u32) -> Permissions {
+    let group_mode = (mode & 0o070) >> 3;
+    get_permissions(group_mode)
+}
+
+#[cfg(unix)]
+fn get_others_permissions(mode: u32) -> Permissions {
+    let others_mode = mode & 0o007;
+    get_permissions(others_mode)
+}
+
+#[cfg(unix)]
+fn parse_file_permissions(mode: u32) -> FilePermissions {
+    FilePermissions {
+        owner_permissions: get_owner_permissions(mode),
+        group_permissions: get_group_permissions(mode),
+        others_permissions: get_others_permissions(mode),
+    }
+}
+
+#[cfg(unix)]
 fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
     let path = path.as_str();
     let file_metadata = fs::metadata(path);
