@@ -200,7 +200,18 @@ impl PyDictRef {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.entries.borrow_mut().insert(vm, &key, value)
+        self.inner_setitem_fast(&key, value, vm)
+    }
+
+    /// Set item variant which can be called with multiple
+    /// key types, such as str to name a notable one.
+    fn inner_setitem_fast<K: DictKey + IntoPyObject + Copy>(
+        &self,
+        key: K,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.entries.borrow_mut().insert(vm, key, value)
     }
 
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
@@ -213,9 +224,9 @@ impl PyDictRef {
     }
 
     /// Return an optional inner item, or an error (can be key error as well)
-    fn inner_getitem_option<K: DictKey + IntoPyObject + Clone>(
+    fn inner_getitem_option<K: DictKey + IntoPyObject + Copy>(
         &self,
-        key: &K,
+        key: K,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         if let Some(value) = self.entries.borrow().get(vm, key)? {
@@ -224,9 +235,7 @@ impl PyDictRef {
 
         if let Some(method_or_err) = vm.get_method(self.clone().into_object(), "__missing__") {
             let method = method_or_err?;
-            Ok(Some(
-                vm.invoke(&method, vec![key.clone().into_pyobject(vm)?])?,
-            ))
+            Ok(Some(vm.invoke(&method, vec![key.into_pyobject(vm)?])?))
         } else {
             Ok(None)
         }
@@ -340,9 +349,9 @@ impl PyDictRef {
     /// python value, or None.
     /// Note that we can pass any type which implements the DictKey
     /// trait. Notable examples are String and PyObjectRef.
-    pub fn get_item_option<T: IntoPyObject + DictKey + Clone>(
+    pub fn get_item_option<T: IntoPyObject + DictKey + Copy>(
         &self,
-        key: &T,
+        key: T,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         // Test if this object is a true dict, or mabye a subclass?
@@ -365,7 +374,7 @@ impl PyDictRef {
         } else {
             // Fall back to full get_item with KeyError checking
 
-            match self.get_item(key.clone().into_pyobject(vm)?, vm) {
+            match self.get_item(key, vm) {
                 Ok(value) => Ok(Some(value)),
                 Err(exc) => {
                     if objtype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
@@ -380,20 +389,26 @@ impl PyDictRef {
 }
 
 impl ItemProtocol for PyDictRef {
-    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
+    fn get_item<T: IntoPyObject + DictKey + Copy>(&self, key: T, vm: &VirtualMachine) -> PyResult {
         self.as_object().get_item(key, vm)
     }
 
-    fn set_item<T: IntoPyObject>(
+    fn set_item<T: IntoPyObject + DictKey + Copy>(
         &self,
         key: T,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        self.as_object().set_item(key, value, vm)
+        if self.typ().is(&vm.ctx.dict_type()) {
+            self.inner_setitem_fast(key, value, vm)
+                .map(|_| vm.ctx.none())
+        } else {
+            // Fall back to slow path if we are in a dict subclass:
+            self.as_object().set_item(key, value, vm)
+        }
     }
 
-    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
+    fn del_item<T: IntoPyObject + DictKey + Copy>(&self, key: T, vm: &VirtualMachine) -> PyResult {
         self.as_object().del_item(key, vm)
     }
 }

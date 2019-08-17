@@ -285,12 +285,12 @@ impl Frame {
                         let dict: PyDictRef =
                             obj.downcast().expect("Need a dictionary to build a map.");
                         for (key, value) in dict {
-                            map_obj.set_item(key, value, vm).unwrap();
+                            map_obj.set_item(&key, value, vm).unwrap();
                         }
                     }
                 } else {
                     for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
-                        map_obj.set_item(key, value, vm).unwrap();
+                        map_obj.set_item(&key, value, vm).unwrap();
                     }
                 }
 
@@ -946,14 +946,14 @@ impl Frame {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        obj.set_item(idx, value, vm)?;
+        obj.set_item(&idx, value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        obj.del_item(idx, vm)?;
+        obj.del_item(&idx, vm)?;
         Ok(None)
     }
 
@@ -1017,7 +1017,7 @@ impl Frame {
         let module = self
             .scope
             .globals
-            .get_item_option(&"__name__".to_string(), vm)?
+            .get_item_option("__name__", vm)?
             .unwrap_or_else(|| vm.get_none());
         vm.set_attr(&func_obj, "__module__", module)?;
         vm.set_attr(&func_obj, "__annotations__", annotations)?;
@@ -1062,7 +1062,7 @@ impl Frame {
                 bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
                 bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
                 // TODO: Subscript should probably have its own op
-                bytecode::BinaryOperator::Subscript => a_ref.get_item(b_ref, vm),
+                bytecode::BinaryOperator::Subscript => a_ref.get_item(&b_ref, vm),
                 bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
                 bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
                 bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),

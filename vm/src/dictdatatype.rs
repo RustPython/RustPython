@@ -1,7 +1,7 @@
 use crate::obj::objbool;
 use crate::obj::objstr::PyString;
 use crate::pyhash;
-use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
+use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
 /// Ordered dictionary implementation.
@@ -53,12 +53,12 @@ impl<T: Clone> Dict<T> {
         &mut self,
         hash_index: HashIndex,
         hash_value: HashValue,
-        key: &PyObjectRef,
+        key: PyObjectRef,
         value: T,
     ) {
         let entry = DictEntry {
             hash: hash_value,
-            key: key.clone(),
+            key,
             value,
         };
         let entry_index = self.entries.len();
@@ -73,7 +73,12 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Store a key
-    pub fn insert(&mut self, vm: &VirtualMachine, key: &PyObjectRef, value: T) -> PyResult<()> {
+    pub fn insert<K: DictKey + IntoPyObject + Copy>(
+        &mut self,
+        vm: &VirtualMachine,
+        key: K,
+        value: T,
+    ) -> PyResult<()> {
         match self.lookup(vm, key)? {
             LookupResult::Existing(index) => {
                 // Update existing key
@@ -89,13 +94,13 @@ impl<T: Clone> Dict<T> {
                 hash_value,
             } => {
                 // New key:
-                self.unchecked_push(hash_index, hash_value, key, value);
+                self.unchecked_push(hash_index, hash_value, key.into_pyobject(vm)?, value);
                 Ok(())
             }
         }
     }
 
-    pub fn contains<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool> {
+    pub fn contains<K: DictKey + Copy>(&self, vm: &VirtualMachine, key: K) -> PyResult<bool> {
         if let LookupResult::Existing(_) = self.lookup(vm, key)? {
             Ok(true)
         } else {
@@ -113,7 +118,7 @@ impl<T: Clone> Dict<T> {
 
     /// Retrieve a key
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
-    pub fn get<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
+    pub fn get<K: DictKey + Copy>(&self, vm: &VirtualMachine, key: K) -> PyResult<Option<T>> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             Ok(Some(self.unchecked_get(index)))
         } else {
@@ -156,7 +161,7 @@ impl<T: Clone> Dict<T> {
             LookupResult::NewIndex {
                 hash_value,
                 hash_index,
-            } => self.unchecked_push(hash_index, hash_value, &key, value),
+            } => self.unchecked_push(hash_index, hash_value, key.clone(), value),
         };
         Ok(())
     }
@@ -201,7 +206,7 @@ impl<T: Clone> Dict<T> {
 
     /// Lookup the index for the given key.
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
-    fn lookup<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<LookupResult> {
+    fn lookup<K: DictKey + Copy>(&self, vm: &VirtualMachine, key: K) -> PyResult<LookupResult> {
         let hash_value = key.do_hash(vm)?;
         let perturb = hash_value;
         let mut hash_index: HashIndex = hash_value;
@@ -244,7 +249,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Retrieve and delete a key
-    pub fn pop<K: DictKey>(&mut self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
+    pub fn pop<K: DictKey + Copy>(&mut self, vm: &VirtualMachine, key: K) -> PyResult<Option<T>> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             let value = self.unchecked_get(index);
             self.unchecked_delete(index);
@@ -280,26 +285,26 @@ enum LookupResult {
 /// - PyObjectRef -> arbitrary python type used as key
 /// - str -> string reference used as key, this is often used internally
 pub trait DictKey {
-    fn do_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue>;
-    fn do_is(&self, other: &PyObjectRef) -> bool;
-    fn do_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool>;
+    fn do_hash(self, vm: &VirtualMachine) -> PyResult<HashValue>;
+    fn do_is(self, other: &PyObjectRef) -> bool;
+    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool>;
 }
 
 /// Implement trait for PyObjectRef such that we can use python objects
 /// to index dictionaries.
-impl DictKey for PyObjectRef {
-    fn do_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+impl DictKey for &PyObjectRef {
+    fn do_hash(self, vm: &VirtualMachine) -> PyResult<HashValue> {
         let raw_hash = vm._hash(self)?;
         let mut hasher = DefaultHasher::new();
         raw_hash.hash(&mut hasher);
         Ok(hasher.finish() as HashValue)
     }
 
-    fn do_is(&self, other: &PyObjectRef) -> bool {
+    fn do_is(self, other: &PyObjectRef) -> bool {
         self.is(other)
     }
 
-    fn do_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         let result = vm._eq(self.clone(), other_key.clone())?;
         objbool::boolval(vm, result)
     }
@@ -307,8 +312,35 @@ impl DictKey for PyObjectRef {
 
 /// Implement trait for the str type, so that we can use strings
 /// to index dictionaries.
-impl DictKey for String {
-    fn do_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
+impl DictKey for &str {
+    fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
+        // follow a similar route as the hashing of PyStringRef
+        let raw_hash = pyhash::hash_value(&self.to_string()).to_bigint().unwrap();
+        let raw_hash = pyhash::hash_bigint(&raw_hash);
+        let mut hasher = DefaultHasher::new();
+        raw_hash.hash(&mut hasher);
+        Ok(hasher.finish() as HashValue)
+    }
+
+    fn do_is(self, _other: &PyObjectRef) -> bool {
+        // No matter who the other pyobject is, we are never the same thing, since
+        // we are a str, not a pyobject.
+        false
+    }
+
+    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+        if let Some(py_str_value) = other_key.payload::<PyString>() {
+            Ok(py_str_value.value == self)
+        } else {
+            // Fall back to PyString implementation.
+            let s = vm.new_str(self.to_string());
+            s.do_eq(vm, other_key)
+        }
+    }
+}
+
+impl DictKey for &String {
+    fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStringRef
         let raw_hash = pyhash::hash_value(self).to_bigint().unwrap();
         let raw_hash = pyhash::hash_bigint(&raw_hash);
@@ -317,13 +349,13 @@ impl DictKey for String {
         Ok(hasher.finish() as HashValue)
     }
 
-    fn do_is(&self, _other: &PyObjectRef) -> bool {
+    fn do_is(self, _other: &PyObjectRef) -> bool {
         // No matter who the other pyobject is, we are never the same thing, since
         // we are a str, not a pyobject.
         false
     }
 
-    fn do_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         if let Some(py_str_value) = other_key.payload::<PyString>() {
             Ok(&py_str_value.value == self)
         } else {
@@ -364,9 +396,9 @@ mod tests {
         assert_eq!(2, dict.len());
 
         assert_eq!(true, dict.contains(&vm, &key1).unwrap());
-        assert_eq!(true, dict.contains(&vm, &"x".to_string()).unwrap());
+        assert_eq!(true, dict.contains(&vm, "x").unwrap());
 
-        let val = dict.get(&vm, &"x".to_string()).unwrap().unwrap();
+        let val = dict.get(&vm, "x").unwrap().unwrap();
         vm._eq(val, value2)
             .expect("retrieved value must be equal to inserted value.");
     }
@@ -389,8 +421,8 @@ mod tests {
 
     fn check_hash_equivalence(text: &str) {
         let vm: VirtualMachine = Default::default();
-        let value1 = text.to_string();
-        let value2 = vm.new_str(value1.clone());
+        let value1 = text;
+        let value2 = vm.new_str(value1.to_string());
 
         let hash1 = value1.do_hash(&vm).expect("Hash should not fail.");
         let hash2 = value2.do_hash(&vm).expect("Hash should not fail.");

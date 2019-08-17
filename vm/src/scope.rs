@@ -133,12 +133,12 @@ impl NameProtocol for Scope {
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter() {
-            if let Some(value) = dict.get_item_option(&name.to_string(), vm).unwrap() {
+            if let Some(value) = dict.get_item_option(name, vm).unwrap() {
                 return Some(value);
             }
         }
 
-        if let Some(value) = self.globals.get_item_option(&name.to_string(), vm).unwrap() {
+        if let Some(value) = self.globals.get_item_option(name, vm).unwrap() {
             return Some(value);
         }
 
@@ -148,7 +148,7 @@ impl NameProtocol for Scope {
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
     fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter().skip(1) {
-            if let Some(value) = dict.get_item_option(&name.to_string(), vm).unwrap() {
+            if let Some(value) = dict.get_item_option(name, vm).unwrap() {
                 return Some(value);
             }
         }
@@ -174,7 +174,7 @@ impl NameProtocol for Scope {
 
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
-        self.globals.get_item_option(&name.to_string(), vm).unwrap()
+        self.globals.get_item_option(name, vm).unwrap()
     }
 
     fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
