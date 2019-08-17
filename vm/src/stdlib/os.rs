@@ -227,9 +227,7 @@ bitflags! {
         const R_OK = 4;
         const W_OK = 2;
         const X_OK = 1;
-
     }
-
 }
 
 #[cfg(unix)]
@@ -240,82 +238,11 @@ struct Permissions {
 }
 
 #[cfg(unix)]
-struct FilePermissions {
-    owner_permissions: Permissions,
-    group_permissions: Permissions,
-    others_permissions: Permissions,
-}
-
-#[cfg(unix)]
 fn get_permissions(mode: u32) -> Permissions {
-    match mode {
-        4 => Permissions {
-            is_readable: true,
-            is_writable: false,
-            is_executable: false,
-        },
-        2 => Permissions {
-            is_readable: false,
-            is_writable: true,
-            is_executable: false,
-        },
-        1 => Permissions {
-            is_readable: false,
-            is_writable: false,
-            is_executable: true,
-        },
-        6 => Permissions {
-            is_readable: true,
-            is_writable: true,
-            is_executable: false,
-        },
-        5 => Permissions {
-            is_readable: true,
-            is_writable: false,
-            is_executable: true,
-        },
-        3 => Permissions {
-            is_readable: false,
-            is_writable: true,
-            is_executable: true,
-        },
-        7 => Permissions {
-            is_readable: true,
-            is_writable: true,
-            is_executable: true,
-        },
-        _ => Permissions {
-            is_readable: false,
-            is_writable: false,
-            is_executable: false,
-        },
-    }
-}
-
-#[cfg(unix)]
-fn get_owner_permissions(mode: u32) -> Permissions {
-    let owner_mode = (mode & 0o700) >> 6;
-    get_permissions(owner_mode)
-}
-
-#[cfg(unix)]
-fn get_group_permissions(mode: u32) -> Permissions {
-    let group_mode = (mode & 0o070) >> 3;
-    get_permissions(group_mode)
-}
-
-#[cfg(unix)]
-fn get_others_permissions(mode: u32) -> Permissions {
-    let others_mode = mode & 0o007;
-    get_permissions(others_mode)
-}
-
-#[cfg(unix)]
-fn parse_file_permissions(mode: u32) -> FilePermissions {
-    FilePermissions {
-        owner_permissions: get_owner_permissions(mode),
-        group_permissions: get_group_permissions(mode),
-        others_permissions: get_others_permissions(mode),
+    Permissions {
+        is_readable: mode & 4 != 0,
+        is_writable: mode & 2 != 0,
+        is_executable: mode & 1 != 0,
     }
 }
 
@@ -325,15 +252,24 @@ fn get_right_permission(
     file_owner: Uid,
     file_group: Gid,
 ) -> Result<Permissions, nix::Error> {
-    let file_permissions = parse_file_permissions(mode);
+    let owner_mode = (mode & 0o700) >> 6;
+    let owner_permissions = get_permissions(owner_mode);
+
+    let group_mode = (mode & 0o070) >> 3;
+    let group_permissions = get_permissions(group_mode);
+
+    let others_mode = mode & 0o007;
+    let others_permissions = get_permissions(others_mode);
+
     let user_id = nix::unistd::getuid();
     let groups_ids = nix::unistd::getgroups()?;
+
     if file_owner == user_id {
-        Ok(file_permissions.owner_permissions)
+        Ok(owner_permissions)
     } else if groups_ids.contains(&file_group) {
-        Ok(file_permissions.group_permissions)
+        Ok(group_permissions)
     } else {
-        Ok(file_permissions.others_permissions)
+        Ok(others_permissions)
     }
 }
 
@@ -342,7 +278,7 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
     use std::os::unix::fs::MetadataExt;
 
     let path = path.as_str();
-    let file_metadata = fs::metadata(path);
+
     let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
         vm.new_value_error(
             "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK"
@@ -350,28 +286,27 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
         )
     })?;
 
-    match file_metadata {
-        Ok(metadata) => {
-            let user_id = metadata.uid();
-            let group_id = metadata.gid();
-            let mode = metadata.mode();
+    let metadata = fs::metadata(path);
 
-            match get_right_permission(mode, Uid::from_raw(user_id), Gid::from_raw(group_id)) {
-                Ok(perm) => {
-                    if (flags.contains(AccessFlags::R_OK) & perm.is_readable)
-                        || (flags.contains(AccessFlags::W_OK) & perm.is_writable)
-                        || (flags.contains(AccessFlags::X_OK) & perm.is_executable)
-                    {
-                        Ok(true)
-                    } else {
-                        Ok(false)
-                    }
-                }
-                Err(err) => Err(convert_nix_error(vm, err)),
-            }
-        }
-        Err(err) => Err(convert_io_error(vm, err)),
+    // if it's only checking for F_OK
+    if flags == AccessFlags::F_OK {
+        return Ok(metadata.is_ok());
     }
+
+    let metadata = metadata.map_err(|err| convert_io_error(vm, err))?;
+
+    let user_id = metadata.uid();
+    let group_id = metadata.gid();
+    let mode = metadata.mode();
+
+    let perm = get_right_permission(mode, Uid::from_raw(user_id), Gid::from_raw(group_id))
+        .map_err(|err| convert_nix_error(vm, err))?;
+
+    let r_ok = !flags.contains(AccessFlags::R_OK) || perm.is_readable;
+    let w_ok = !flags.contains(AccessFlags::W_OK) || perm.is_writable;
+    let x_ok = !flags.contains(AccessFlags::X_OK) || perm.is_executable;
+
+    Ok(r_ok && w_ok && x_ok)
 }
 
 fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
