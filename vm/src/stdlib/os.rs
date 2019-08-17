@@ -4,6 +4,7 @@ use std::ffi::CStr;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Error, ErrorKind, Read, Write};
+use std::convert::TryInto;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 #[cfg(windows)]
@@ -31,6 +32,8 @@ use crate::pyobject::{
     ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+
+use bitflags::bitflags;
 
 #[cfg(unix)]
 pub fn raw_file_number(handle: File) -> i64 {
@@ -119,8 +122,14 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let fname = &make_path(vm, name, &dir_fd).value;
 
     let mut options = OpenOptions::new();
-    let flags = objint::get_value(flags).to_i32().unwrap();
-    options.custom_flags(flags);
+
+    if cfg!(unix) {
+        let flags = objint::get_value(flags).to_i32().unwrap();
+        options.custom_flags(flags);
+    } else {
+        let flags = objint::get_value(flags).to_u32().unwrap();
+        options.custom_flags(flags.try_into().unwrap_or_default());
+    };
 
     let handle = options
         .open(&fname)
@@ -1075,14 +1084,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
         "O_RDWR" => ctx.new_int(libc::O_RDWR),
-        "O_NONBLOCK" => ctx.new_int(libc::O_NONBLOCK),
         "O_APPEND" => ctx.new_int(libc::O_APPEND),
         "O_EXCL" => ctx.new_int(libc::O_EXCL),
         "O_CREAT" => ctx.new_int(libc::O_CREAT),
-        "F_OK" => ctx.new_int(libc::F_OK),
-        "R_OK" => ctx.new_int(libc::R_OK),
-        "W_OK" => ctx.new_int(libc::W_OK),
-        "X_OK" => ctx.new_int(libc::X_OK),
+        "F_OK" => ctx.new_int(0),
+        "R_OK" => ctx.new_int(4),
+        "W_OK" => ctx.new_int(2),
+        "X_OK" => ctx.new_int(1),
     });
 
     for support in support_funcs {

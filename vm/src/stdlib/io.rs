@@ -302,11 +302,7 @@ fn compute_c_flag(mode: &str) -> u32 {
     let flag = match mode.chars().next() {
         Some(mode) => match mode {
             'w' => libc::O_WRONLY | libc::O_CREAT,
-            'x' => {
-                libc::O_WRONLY
-                    | libc::O_CREAT
-                    | libc::O_EXCL
-            }
+            'x' => libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
             'a' => libc::O_APPEND,
             '+' => libc::O_RDWR,
             _ => libc::O_RDONLY,
