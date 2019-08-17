@@ -98,6 +98,8 @@ assert -10 // -4 == 2
 
 assert int() == 0
 assert int(1) == 1
+assert int("101", 2) == 5
+assert int("101", base=2) == 5
 
 # implied base
 assert int('1', base=0) == 1
@@ -114,6 +116,10 @@ with assertRaises(ValueError):
     int('0oFF', base=10)
 with assertRaises(ValueError):
     int('0bFF', base=10)
+with assertRaises(ValueError):
+    int(b"F\xc3\xb8\xc3\xb6\xbbB\xc3\xa5r")
+with assertRaises(ValueError):
+    int(b"F\xc3\xb8\xc3\xb6\xbbB\xc3\xa5r")
 
 # underscore
 assert int('0xFF_FF_FF', base=16) == 16_777_215

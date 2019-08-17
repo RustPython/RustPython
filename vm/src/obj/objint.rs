@@ -753,7 +753,7 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
             let bytes = bytes.get_value();
             let s = std::str::from_utf8(bytes)
                 .map(|s| s.trim())
-                .map_err(|_| invalid_literal(vm, &bytes.iter().map(|&c| c as char).collect::<String>(), base))?;
+                .map_err(|e| vm.new_value_error(format!("utf8 decode error: {}", e)))?;
             str_to_int(vm, s, base)
         },
         obj => {
