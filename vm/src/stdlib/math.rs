@@ -254,6 +254,18 @@ fn math_factorial(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(ret))
 }
 
+fn math_modf(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
+
+    let fract = x.fract();
+    let int = x.trunc();
+
+    Ok(vm
+        .ctx
+        .new_tuple(vec![vm.ctx.new_float(fract), vm.ctx.new_float(int)]))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -303,6 +315,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
         "frexp" => ctx.new_rustfunc(math_frexp),
         "ldexp" => ctx.new_rustfunc(math_ldexp),
+        "modf" => ctx.new_rustfunc(math_modf),
 
         // Rounding functions:
         "trunc" => ctx.new_rustfunc(math_trunc),
