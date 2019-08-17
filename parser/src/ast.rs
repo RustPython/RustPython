@@ -148,9 +148,8 @@ pub type Expression = Located<ExpressionType>;
 #[derive(Debug, PartialEq)]
 pub enum ExpressionType {
     BoolOp {
-        a: Box<Expression>,
         op: BooleanOperator,
-        b: Box<Expression>,
+        values: Vec<Expression>,
     },
     Binop {
         a: Box<Expression>,

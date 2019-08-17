@@ -155,3 +155,12 @@ assert T4.t1.__doc__ == "t1"
 
 cm = classmethod(lambda cls: cls)
 assert cm.__func__(int) is int
+
+assert str(super(int, 5)) == "<super: <class 'int'>, <int object>>"
+
+class T5(int):
+    pass
+
+assert str(super(int, T5(5))) == "<super: <class 'int'>, <T5 object>>"
+
+#assert str(super(type, None)) == "<super: <class 'type'>, NULL>"

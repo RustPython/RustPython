@@ -247,7 +247,7 @@ ImportDots: usize = {
 
 ImportAsNames: Vec<ast::ImportSymbol> = {
     <i:OneOrMore<ImportAsAlias<Identifier>>> => i,
-    "(" <i:OneOrMore<ImportAsAlias<Identifier>>> ")" => i,
+    "(" <i:OneOrMore<ImportAsAlias<Identifier>>> ","? ")" => i,
     "*" => {
         // Star import all
         vec![ast::ImportSymbol { symbol: "*".to_string(), alias: None }]
@@ -659,18 +659,32 @@ LambdaDef: ast::Expression = {
 }
 
 OrTest: ast::Expression = {
-    AndTest,
-    <e1:OrTest> <location:@L> "or" <e2:AndTest> => ast::Expression {
-        location,
-        node: ast::ExpressionType::BoolOp { a: Box::new(e1), op: ast::BooleanOperator::Or, b: Box::new(e2) }
+    <e1:AndTest> <location:@L> <e2:("or" AndTest)*> => {
+        if e2.is_empty() {
+            e1
+        } else {
+            let mut values = vec![e1];
+            values.extend(e2.into_iter().map(|e| e.1));
+            ast::Expression {
+                location,
+                node: ast::ExpressionType::BoolOp { op: ast::BooleanOperator::Or, values }
+            }
+        }
     },
 };
 
 AndTest: ast::Expression = {
-    NotTest,
-    <e1:AndTest> <location:@L> "and" <e2:NotTest> => ast::Expression {
-        location,
-        node: ast::ExpressionType::BoolOp { a: Box::new(e1), op: ast::BooleanOperator::And, b: Box::new(e2) }
+    <e1:NotTest> <location:@L> <e2:("and" NotTest)*> => {
+        if e2.is_empty() {
+            e1
+        } else {
+            let mut values = vec![e1];
+            values.extend(e2.into_iter().map(|e| e.1));
+            ast::Expression {
+                location,
+                node: ast::ExpressionType::BoolOp { op: ast::BooleanOperator::And, values }
+            }
+        }
     },
 };
 
@@ -952,11 +966,11 @@ Atom: ast::Expression = {
 };
 
 ListLiteralValues: Vec<ast::Expression> = {
-    <e:OneOrMore<TestOrStarExpr>> <_trailing_comma:","?> => e,
+    <e:OneOrMore<TestOrStarExpr>> ","? => e,
 };
 
 DictLiteralValues: Vec<(Option<ast::Expression>, ast::Expression)> = {
-    <elements:OneOrMore<DictElement>> <_trailing_comma:","?> => elements,
+    <elements:OneOrMore<DictElement>> ","? => elements,
 };
 
 DictEntry: (ast::Expression, ast::Expression) = {

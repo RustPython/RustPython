@@ -84,10 +84,7 @@ pub enum Instruction {
         symbols: Vec<String>,
         level: usize,
     },
-    ImportStar {
-        name: Option<String>,
-        level: usize,
-    },
+    ImportStar,
     ImportFrom {
         name: String,
     },
@@ -138,10 +135,22 @@ pub enum Instruction {
     Jump {
         target: Label,
     },
-    JumpIf {
+    /// Pop the top of the stack, and jump if this value is true.
+    JumpIfTrue {
         target: Label,
     },
+    /// Pop the top of the stack, and jump if this value is false.
     JumpIfFalse {
+        target: Label,
+    },
+    /// Peek at the top of the stack, and jump if this value is true.
+    /// Otherwise, pop top of stack.
+    JumpIfTrueOrPop {
+        target: Label,
+    },
+    /// Peek at the top of the stack, and jump if this value is false.
+    /// Otherwise, pop top of stack.
+    JumpIfFalseOrPop {
         target: Label,
     },
     MakeFunction {
@@ -336,10 +345,13 @@ impl CodeObject {
             }
         })
     }
-}
 
-impl fmt::Display for CodeObject {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn display_inner(
+        &self,
+        f: &mut fmt::Formatter,
+        expand_codeobjects: bool,
+        level: usize,
+    ) -> fmt::Result {
         let label_targets: HashSet<&usize> = self.label_map.values().collect();
         for (offset, instruction) in self.instructions.iter().enumerate() {
             let arrow = if label_targets.contains(&offset) {
@@ -347,15 +359,40 @@ impl fmt::Display for CodeObject {
             } else {
                 "  "
             };
-            write!(f, "          {} {:5} ", arrow, offset)?;
-            instruction.fmt_dis(f, &self.label_map)?;
+            for _ in 0..level {
+                write!(f, "          ")?;
+            }
+            write!(f, "{} {:5} ", arrow, offset)?;
+            instruction.fmt_dis(f, &self.label_map, expand_codeobjects, level)?;
         }
         Ok(())
+    }
+
+    pub fn display_expand_codeobjects<'a>(&'a self) -> impl fmt::Display + 'a {
+        struct Display<'a>(&'a CodeObject);
+        impl fmt::Display for Display<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                self.0.display_inner(f, true, 1)
+            }
+        }
+        Display(self)
+    }
+}
+
+impl fmt::Display for CodeObject {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.display_inner(f, false, 1)
     }
 }
 
 impl Instruction {
-    fn fmt_dis(&self, f: &mut fmt::Formatter, label_map: &HashMap<Label, usize>) -> fmt::Result {
+    fn fmt_dis(
+        &self,
+        f: &mut fmt::Formatter,
+        label_map: &HashMap<Label, usize>,
+        expand_codeobjects: bool,
+        level: usize,
+    ) -> fmt::Result {
         macro_rules! w {
             ($variant:ident) => {
                 write!(f, "{:20}\n", stringify!($variant))
@@ -389,7 +426,7 @@ impl Instruction {
                 format!("{:?}", symbols),
                 level
             ),
-            ImportStar { name, level } => w!(ImportStar, format!("{:?}", name), level),
+            ImportStar => w!(ImportStar),
             ImportFrom { name } => w!(ImportFrom, name),
             LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
             StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
@@ -398,7 +435,14 @@ impl Instruction {
             DeleteSubscript => w!(DeleteSubscript),
             StoreAttr { name } => w!(StoreAttr, name),
             DeleteAttr { name } => w!(DeleteAttr, name),
-            LoadConst { value } => w!(LoadConst, value),
+            LoadConst { value } => match value {
+                Constant::Code { code } if expand_codeobjects => {
+                    writeln!(f, "LoadConst ({:?}):", code)?;
+                    code.display_inner(f, true, level + 1)?;
+                    Ok(())
+                }
+                _ => w!(LoadConst, value),
+            },
             UnaryOperation { op } => w!(UnaryOperation, format!("{:?}", op)),
             BinaryOperation { op, inplace } => w!(BinaryOperation, format!("{:?}", op), inplace),
             LoadAttr { name } => w!(LoadAttr, name),
@@ -411,8 +455,10 @@ impl Instruction {
             Continue => w!(Continue),
             Break => w!(Break),
             Jump { target } => w!(Jump, label_map[target]),
-            JumpIf { target } => w!(JumpIf, label_map[target]),
+            JumpIfTrue { target } => w!(JumpIfTrue, label_map[target]),
             JumpIfFalse { target } => w!(JumpIfFalse, label_map[target]),
+            JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, label_map[target]),
+            JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, label_map[target]),
             MakeFunction { flags } => w!(MakeFunction, format!("{:?}", flags)),
             CallFunction { typ } => w!(CallFunction, format!("{:?}", typ)),
             ForIter { target } => w!(ForIter, label_map[target]),

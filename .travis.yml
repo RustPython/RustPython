@@ -1,9 +1,13 @@
-before_cache: |
-  if command -v cargo; then
-    ! command -v cargo-sweep && cargo install cargo-sweep
-    cargo sweep -i
-    cargo sweep -t 15
-  fi
+before_cache:
+  - |
+    if command -v cargo; then
+      if ! command -v cargo-sweep; then
+        cargo install cargo-sweep
+      fi
+      cargo sweep -i
+      cargo sweep -t 15
+    fi
+  - rm -rf ~/.cargo/registry/src
 
 matrix:
   fast_finish: true
@@ -145,3 +149,44 @@ matrix:
       env:
         - JOBCACHE=7
         - TRAVIS_RUST_VERSION=stable
+
+    - name: Ensure compilation on Redox OS with Redoxer
+      # language: minimal so that it actually uses bionic rather than xenial;
+      # rust isn't yet available on bionic
+      language: minimal
+      dist: bionic
+      if: type = cron
+      cache:
+        cargo: true
+        directories:
+          - $HOME/.redoxer
+          - $HOME/.cargo
+      before_install:
+        # install rust as travis does for language: rust
+        - curl -sSf https://build.travis-ci.org/files/rustup-init.sh | sh -s --
+          --default-toolchain=$TRAVIS_RUST_VERSION -y
+        - export PATH=${TRAVIS_HOME}/.cargo/bin:$PATH
+        - rustc --version
+        - rustup --version
+        - cargo --version
+
+        - sudo apt-get update -qq
+        - sudo apt-get install libfuse-dev
+      install:
+        - if ! command -v redoxer; then cargo install redoxfs redoxer; fi
+        - redoxer install
+      script:
+        - bash redox/uncomment-cargo.sh
+        - redoxer build --verbose
+        - bash redox/comment-cargo.sh
+      before_cache:
+        - |
+          if ! command -v cargo-sweep; then
+            rustup install stable
+            cargo +stable install cargo-sweep
+          fi
+        - cargo sweep -t 15
+        - rm -rf ~/.cargo/registry/src
+      env:
+        - JOBCACHE=10
+        - TRAVIS_RUST_VERSION=nightly

@@ -12,6 +12,7 @@ $ diff cpython.txt rustpython.txt
 import ast
 import sys
 import symtable
+import dis
 
 filename = sys.argv[1]
 print('Crawling file:', filename)
@@ -67,3 +68,9 @@ def print_table(table, indent=0):
 
 table = symtable.symtable(source, 'a', 'exec')
 print_table(table)
+
+print()
+print('======== dis.dis ========')
+print()
+co = compile(source, filename, 'exec')
+print(dis.dis(co))

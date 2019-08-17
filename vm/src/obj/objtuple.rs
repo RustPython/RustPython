@@ -3,7 +3,9 @@ use std::fmt;
 
 use crate::function::OptionalArg;
 use crate::pyhash;
-use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
@@ -34,6 +36,27 @@ impl From<Vec<PyObjectRef>> for PyTuple {
 impl PyValue for PyTuple {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.tuple_type()
+    }
+}
+
+impl<A> IntoPyObject for (A,)
+where
+    A: IntoPyObject,
+{
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_tuple(vec![self.0.into_pyobject(vm)?]))
+    }
+}
+
+impl<A, B> IntoPyObject for (A, B)
+where
+    A: IntoPyObject,
+    B: IntoPyObject,
+{
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_tuple(vec![self.0.into_pyobject(vm)?, self.1.into_pyobject(vm)?]))
     }
 }
 
@@ -253,7 +276,7 @@ impl PyTupleIterator {
 
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
-    let tuple_type = &context.tuple_type;
+    let tuple_type = &context.types.tuple_type;
     let tuple_doc = "tuple() -> empty tuple
 tuple(iterable) -> tuple initialized from iterable's items
 
@@ -280,5 +303,5 @@ If the argument is a tuple, the return value is the same object.";
         "index" => context.new_rustfunc(PyTupleRef::index)
     });
 
-    PyTupleIterator::extend_class(context, &context.tupleiterator_type);
+    PyTupleIterator::extend_class(context, &context.types.tupleiterator_type);
 }

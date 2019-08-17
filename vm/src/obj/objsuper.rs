@@ -24,6 +24,7 @@ pub type PySuperRef = PyRef<PySuper>;
 pub struct PySuper {
     obj: PyObjectRef,
     typ: PyObjectRef,
+    obj_type: PyObjectRef,
 }
 
 impl PyValue for PySuper {
@@ -33,7 +34,7 @@ impl PyValue for PySuper {
 }
 
 pub fn init(context: &PyContext) {
-    let super_type = &context.super_type;
+    let super_type = &context.types.super_type;
 
     let super_doc = "super() -> same as super(__class__, <first argument>)\n\
                      super(type) -> unbound super object\n\
@@ -53,7 +54,29 @@ pub fn init(context: &PyContext) {
         "__new__" => context.new_rustfunc(super_new),
         "__getattribute__" => context.new_rustfunc(super_getattribute),
         "__doc__" => context.new_str(super_doc.to_string()),
+        "__str__" => context.new_rustfunc(super_str),
+        "__repr__" => context.new_rustfunc(super_repr),
     });
+}
+
+fn super_str(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    vm.call_method(&zelf, "__repr__", vec![])
+}
+
+fn super_repr(zelf: PyObjectRef, _vm: &VirtualMachine) -> String {
+    let super_obj = zelf.downcast::<PySuper>().unwrap();
+    let class_type_str = if let Ok(type_class) = super_obj.typ.clone().downcast::<PyClass>() {
+        type_class.name.clone()
+    } else {
+        "NONE".to_string()
+    };
+    match super_obj.obj_type.clone().downcast::<PyClass>() {
+        Ok(obj_class_typ) => format!(
+            "<super: <class '{}'>, <{} object>>",
+            class_type_str, obj_class_typ.name
+        ),
+        _ => format!("<super: <class '{}'> NULL>", class_type_str),
+    }
 }
 
 fn super_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -141,7 +164,7 @@ fn super_new(
     };
 
     // Check obj type:
-    if !objtype::isinstance(&py_obj, &py_type) {
+    let obj_type = if !objtype::isinstance(&py_obj, &py_type) {
         let is_subclass = if let Ok(py_obj) = PyClassRef::try_from_object(vm, py_obj.clone()) {
             objtype::issubclass(&py_obj, &py_type)
         } else {
@@ -152,11 +175,15 @@ fn super_new(
                 "super(type, obj): obj must be an instance or subtype of type".to_string(),
             ));
         }
-    }
+        PyClassRef::try_from_object(vm, py_obj.clone())?
+    } else {
+        py_obj.class()
+    };
 
     PySuper {
         obj: py_obj,
         typ: py_type.into_object(),
+        obj_type: obj_type.into_object(),
     }
     .into_ref_with_type(vm, cls)
 }

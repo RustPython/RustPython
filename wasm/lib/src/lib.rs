@@ -63,7 +63,7 @@ const TS_CMT_START: &'static str = "/*";
 ///     receive the Python kwargs as the `this` argument.
 /// -   `stdout?`: `(out: string) => void`: A function to replace the native print
 ///     function, by default `console.log`.
-pub fn eval_py(source: String, options: Option<Object>) -> Result<JsValue, JsValue> {
+pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
     let options = options.unwrap_or_else(Object::new);
     let js_vars = {
         let prop = Reflect::get(&options, &"vars".into())?;

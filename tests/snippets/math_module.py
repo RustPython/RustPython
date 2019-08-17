@@ -83,6 +83,13 @@ assert str(math.frexp(0.0)) == str((+0.0, 0))
 assert str(math.frexp(-0.0)) == str((-0.0, 0))
 assert math.frexp(1) == (0.5, 1)
 assert math.frexp(1.5) == (0.75, 1)
+assert_raises(TypeError, lambda: math.frexp(None))
+
+assert str(math.ldexp(+0.0, 0)) == str(0.0)
+assert str(math.ldexp(-0.0, 0)) == str(-0.0)
+assert math.ldexp(0.5, 1) == 1
+assert math.ldexp(0.75, 1) == 1.5
+assert_raises(TypeError, lambda: math.ldexp(None, None))
 
 assert math.frexp(float('inf')) == (float('inf'), 0)
 assert str(math.frexp(float('nan'))) == str((float('nan'), 0))
@@ -97,3 +104,11 @@ assert math.gcd(1, -1) == 1
 assert math.gcd(-1, -1) == 1
 assert math.gcd(125, -255) == 5
 assert_raises(TypeError, lambda: math.gcd(1.1, 2))
+
+assert math.factorial(0) == 1
+assert math.factorial(1) == 1
+assert math.factorial(2) == 2
+assert math.factorial(3) == 6
+assert math.factorial(10) == 3628800
+assert math.factorial(20) == 2432902008176640000
+assert_raises(ValueError, lambda: math.factorial(-1))

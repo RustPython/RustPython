@@ -17,14 +17,14 @@ pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
     let importlib = import_frozen(vm, "_frozen_importlib")?;
     let impmod = import_builtin(vm, "_imp")?;
     let install = vm.get_attribute(importlib.clone(), "_install")?;
-    vm.invoke(install, vec![vm.sys_module.clone(), impmod])?;
+    vm.invoke(&install, vec![vm.sys_module.clone(), impmod])?;
     vm.import_func
         .replace(vm.get_attribute(importlib.clone(), "__import__")?);
     if external && cfg!(feature = "rustpython-compiler") {
         flame_guard!("install_external");
         let install_external =
             vm.get_attribute(importlib.clone(), "_install_external_importers")?;
-        vm.invoke(install_external, vec![])?;
+        vm.invoke(&install_external, vec![])?;
         // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
         let importlib_external =
             vm.import("_frozen_importlib_external", &vm.ctx.new_tuple(vec![]), 0)?;
@@ -68,7 +68,7 @@ pub fn import_file(
 ) -> PyResult {
     let code_obj = compile::compile(
         &content,
-        &compile::Mode::Exec,
+        compile::Mode::Exec,
         file_path,
         vm.settings.optimize,
     )
@@ -87,7 +87,7 @@ pub fn import_codeobj(
     if set_file_attr {
         attrs.set_item("__file__", vm.new_str(code_obj.source_path.to_owned()), vm)?;
     }
-    let module = vm.ctx.new_module(module_name, attrs.clone());
+    let module = vm.new_module(module_name, attrs.clone());
 
     // Store module in cache to prevent infinite loop with mutual importing libs:
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;

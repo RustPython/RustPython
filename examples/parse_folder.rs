@@ -14,8 +14,8 @@ extern crate log;
 use clap::{App, Arg};
 
 use rustpython_parser::{ast, parser};
-use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::path::Path;
+use std::time::{Duration, Instant};
 
 fn main() {
     env_logger::init();
@@ -61,30 +61,45 @@ fn parse_folder(path: &Path) -> std::io::Result<Vec<ParsedFile>> {
         }
 
         if metadata.is_file() && path.extension().and_then(|s| s.to_str()) == Some("py") {
-            let result = parse_python_file(&path);
-            match &result {
+            let parsed_file = parse_python_file(&path);
+            match &parsed_file.result {
                 Ok(_) => {}
                 Err(y) => error!("Erreur in file {:?} {:?}", path, y),
             }
-            res.push(ParsedFile {
-                filename: Box::new(path),
-                result,
-            });
+
+            res.push(parsed_file);
         }
     }
     Ok(res)
 }
 
-fn parse_python_file(filename: &Path) -> ParseResult {
+fn parse_python_file(filename: &Path) -> ParsedFile {
     info!("Parsing file {:?}", filename);
-    let source = std::fs::read_to_string(filename).map_err(|e| e.to_string())?;
-    parser::parse_program(&source).map_err(|e| e.to_string())
+    match std::fs::read_to_string(filename) {
+        Err(e) => ParsedFile {
+            // filename: Box::new(filename.to_path_buf()),
+            // code: "".to_string(),
+            num_lines: 0,
+            result: Err(e.to_string()),
+        },
+        Ok(source) => {
+            let num_lines = source.to_string().lines().count();
+            let result = parser::parse_program(&source).map_err(|e| e.to_string());
+            ParsedFile {
+                // filename: Box::new(filename.to_path_buf()),
+                // code: source.to_string(),
+                num_lines,
+                result,
+            }
+        }
+    }
 }
 
 fn statistics(results: ScanResult) {
     // println!("Processed {:?} files", res.len());
     println!("Scanned a total of {} files", results.parsed_files.len());
-    let total = results.parsed_files.len();
+    let total: usize = results.parsed_files.len();
+    let total_lines: usize = results.parsed_files.iter().map(|p| p.num_lines).sum();
     let failed = results
         .parsed_files
         .iter()
@@ -103,9 +118,19 @@ fn statistics(results: ScanResult) {
     let duration = results.t2 - results.t1;
     println!("Total time spend: {:?}", duration);
     println!(
-        "File processing rate: {} files/second",
-        (total * 1_000_000) as f64 / duration.as_micros() as f64
+        "Processed {} files. That's {} files/second",
+        total,
+        rate(total, duration)
     );
+    println!(
+        "Processed {} lines of python code. That's {} lines/second",
+        total_lines,
+        rate(total_lines, duration)
+    );
+}
+
+fn rate(counter: usize, duration: Duration) -> f64 {
+    (counter * 1_000_000) as f64 / duration.as_micros() as f64
 }
 
 struct ScanResult {
@@ -115,7 +140,9 @@ struct ScanResult {
 }
 
 struct ParsedFile {
-    filename: Box<PathBuf>,
+    // filename: Box<PathBuf>,
+    // code: String,
+    num_lines: usize,
     result: ParseResult,
 }
 

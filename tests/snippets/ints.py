@@ -36,7 +36,17 @@ assert (2).__rsub__(1) == -1
 assert (2).__mul__(1) == 2
 assert (2).__rmul__(1) == 2
 assert (2).__truediv__(1) == 2.0
+with assertRaises(ZeroDivisionError):
+    (2).__truediv__(0)
 assert (2).__rtruediv__(1) == 0.5
+assert (-2).__floordiv__(3) == -1
+with assertRaises(ZeroDivisionError):
+    (2).__floordiv__(0)
+assert (-3).__rfloordiv__(2) == -1
+assert (-2).__divmod__(3) == (-1, 1)
+with assertRaises(ZeroDivisionError):
+    (2).__divmod__(0)
+assert (-3).__rdivmod__(2) == (-1, -1)
 assert (2).__pow__(3) == 8
 assert (10).__pow__(-1) == 0.1
 assert (2).__rpow__(3) == 9
@@ -90,6 +100,10 @@ assert int() == 0
 assert int("101", 2) == 5
 assert int("101", base=2) == 5
 assert int(1) == 1
+assert int(' 1') == 1
+assert int('1 ') == 1
+assert int(' 1 ') == 1
+assert int('10', base=0) == 10
 
 assert int.from_bytes(b'\x00\x10', 'big') == 16
 assert int.from_bytes(b'\x00\x10', 'little') == 4096
@@ -102,6 +116,13 @@ assert (-1024).to_bytes(4, 'big', signed=True) == b'\xff\xff\xfc\x00'
 assert (-1024).to_bytes(4, 'little', signed=True) == b'\x00\xfc\xff\xff'
 assert (2147483647).to_bytes(8, 'big', signed=False) == b'\x00\x00\x00\x00\x7f\xff\xff\xff'
 assert (-2147483648).to_bytes(8, 'little', signed=True) == b'\x00\x00\x00\x80\xff\xff\xff\xff'
+
+with assertRaises(ValueError):
+    # check base first
+    int(' 1 ', base=1)
+
+with assertRaises(ValueError):
+    int(' 1 ', base=37)
 
 with assertRaises(TypeError):
     int(base=2)
@@ -146,3 +167,16 @@ class F(float):
         return 3
 
 assert int(F(1.2)) == 3
+
+assert isinstance((0).__round__(), int)
+assert isinstance((1).__round__(), int)
+assert (0).__round__() == 0
+assert (1).__round__() == 1
+assert isinstance((0).__round__(0), int)
+assert isinstance((1).__round__(0), int)
+assert (0).__round__(0) == 0
+assert (1).__round__(0) == 1
+assert_raises(TypeError, lambda: (0).__round__(None))
+assert_raises(TypeError, lambda: (1).__round__(None))
+assert_raises(TypeError, lambda: (0).__round__(0.0))
+assert_raises(TypeError, lambda: (1).__round__(0.0))

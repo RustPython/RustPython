@@ -11,7 +11,8 @@ use std::ops::Deref;
 
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject,
 };
 
 use super::objbyteinner::{
@@ -59,6 +60,12 @@ impl PyBytes {
     }
 }
 
+impl IntoPyObject for Vec<u8> {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self))
+    }
+}
+
 impl Deref for PyBytes {
     type Target = [u8];
 
@@ -78,14 +85,14 @@ pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a 
 }
 
 pub fn init(context: &PyContext) {
-    PyBytesRef::extend_class(context, &context.bytes_type);
-    let bytes_type = &context.bytes_type;
+    PyBytesRef::extend_class(context, &context.types.bytes_type);
+    let bytes_type = &context.types.bytes_type;
     extend_class!(context, bytes_type, {
     "fromhex" => context.new_rustfunc(PyBytesRef::fromhex),
     "maketrans" => context.new_rustfunc(PyByteInner::maketrans),
 
     });
-    PyBytesIterator::extend_class(context, &context.bytesiterator_type);
+    PyBytesIterator::extend_class(context, &context.types.bytesiterator_type);
 }
 
 #[pyimpl]

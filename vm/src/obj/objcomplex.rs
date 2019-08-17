@@ -41,7 +41,7 @@ impl From<Complex64> for PyComplex {
 }
 
 pub fn init(context: &PyContext) {
-    PyComplex::extend_class(context, &context.complex_type);
+    PyComplex::extend_class(context, &context.types.complex_type);
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {
@@ -257,5 +257,13 @@ impl PyComplex {
         let im_hash = pyhash::hash_float(self.value.im);
         let ret = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(pyhash::IMAG);
         ret.0
+    }
+
+    #[pymethod(name = "__getnewargs__")]
+    fn complex_getnewargs(&self, vm: &VirtualMachine) -> PyResult {
+        let Complex64 { re, im } = self.value;
+        Ok(vm
+            .ctx
+            .new_tuple(vec![vm.ctx.new_float(re), vm.ctx.new_float(im)]))
     }
 }

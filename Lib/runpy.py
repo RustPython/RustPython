@@ -11,10 +11,12 @@ importers when locating support scripts as well as when importing modules.
 
 
 import sys
-import __importlib_util
+try:
+    import __importlib_util
+except ImportError:
 # FIXME replace above with below once we can import importlib
-# import importlib.machinery # importlib first so we can test #15386 via -m
-# import importlib.util
+    import importlib.machinery # importlib first so we can test #15386 via -m
+    import importlib.util as __importlib_util
 import types
 # FIXME uncomment line below once we can import pkgutil
 # from pkgutil import read_code, get_importer

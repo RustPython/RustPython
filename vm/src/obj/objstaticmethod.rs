@@ -32,7 +32,7 @@ impl PyStaticMethodRef {
 }
 
 pub fn init(context: &PyContext) {
-    let staticmethod_type = &context.staticmethod_type;
+    let staticmethod_type = &context.types.staticmethod_type;
     extend_class!(context, staticmethod_type, {
         "__get__" => context.new_rustfunc(PyStaticMethodRef::get),
         "__new__" => context.new_rustfunc(PyStaticMethodRef::new),

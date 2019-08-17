@@ -188,12 +188,18 @@ fn do_findall(vm: &VirtualMachine, pattern: &PyPattern, search_text: PyStringRef
     let out = pattern
         .regex
         .captures_iter(search_text.as_str().as_bytes())
-        .map(|captures| {
-            if captures.len() == 1 {
-                let full = captures.get(1).unwrap().as_bytes();
+        .map(|captures| match captures.len() {
+            1 => {
+                let full = captures.get(0).unwrap().as_bytes();
                 let full = String::from_utf8_lossy(full).into_owned();
                 vm.new_str(full)
-            } else {
+            }
+            2 => {
+                let capture = captures.get(1).unwrap().as_bytes();
+                let capture = String::from_utf8_lossy(capture).into_owned();
+                vm.new_str(capture)
+            }
+            _ => {
                 let out = captures
                     .iter()
                     .skip(1)
@@ -353,6 +359,11 @@ impl PyPattern {
         vm: &VirtualMachine,
     ) -> PyResult {
         do_split(vm, self, search_text, maxsplit.into_option())
+    }
+
+    #[pymethod]
+    fn findall(&self, search_text: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        do_findall(vm, self, search_text)
     }
 }
 

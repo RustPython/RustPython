@@ -1,9 +1,8 @@
 use js_sys::{Array, Object, Reflect};
 use rustpython_vm::function::Args;
 use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStringRef, objtype::PyClassRef};
-use rustpython_vm::pyobject::{
-    create_type, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-};
+use rustpython_vm::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use rustpython_vm::types::create_type;
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
 
@@ -244,7 +243,7 @@ fn new_js_error(vm: &VirtualMachine, err: JsValue) -> PyObjectRef {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     py_module!(vm, "_js", {
-        "JsError" => create_type("JsError", &ctx.type_type, &ctx.exceptions.exception_type),
+        "JsError" => create_type("JsError", &ctx.type_type(), &ctx.exceptions.exception_type),
         "JsValue" => PyJsValue::make_class(ctx),
     })
 }

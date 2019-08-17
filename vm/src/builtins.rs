@@ -21,7 +21,6 @@ use crate::obj::objtype::{self, PyClassRef};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
-use crate::eval::get_compile_mode;
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
@@ -38,7 +37,7 @@ fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let method = vm.get_method_or_type_error(x.clone(), "__abs__", || {
         format!("bad operand type for abs(): '{}'", x.class().name)
     })?;
-    vm.invoke(method, PyFuncArgs::new(vec![], vec![]))
+    vm.invoke(&method, PyFuncArgs::new(vec![], vec![]))
 }
 
 fn builtin_all(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool> {
@@ -125,9 +124,13 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef
         Either::B(bytes) => str::from_utf8(&bytes).unwrap().to_string(),
     };
 
-    let mode = get_compile_mode(vm, &args.mode.value)?;
+    let mode = args
+        .mode
+        .as_str()
+        .parse::<compile::Mode>()
+        .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-    vm.compile(&source, &mode, args.filename.value.to_string())
+    vm.compile(&source, mode, args.filename.value.to_string())
         .map_err(|err| vm.new_syntax_error(&err))
 }
 
@@ -175,7 +178,7 @@ fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if objtype::isinstance(source, &vm.ctx.str_type()) {
         let mode = compile::Mode::Eval;
         let source = objstr::get_value(source);
-        vm.compile(&source, &mode, "<string>".to_string())
+        vm.compile(&source, mode, "<string>".to_string())
             .map_err(|err| vm.new_syntax_error(&err))?
     } else {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
@@ -202,7 +205,7 @@ fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let code_obj = if objtype::isinstance(source, &vm.ctx.str_type()) {
         let mode = compile::Mode::Exec;
         let source = objstr::get_value(source);
-        vm.compile(&source, &mode, "<string>".to_string())
+        vm.compile(&source, mode, "<string>".to_string())
             .map_err(|err| vm.new_syntax_error(&err))?
     } else if let Ok(code_obj) = PyCodeRef::try_from_object(vm, source.clone()) {
         code_obj
@@ -392,7 +395,7 @@ fn builtin_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let method = vm.get_method_or_type_error(obj.clone(), "__len__", || {
         format!("object of type '{}' has no len()", obj.class().name)
     })?;
-    vm.invoke(method, PyFuncArgs::default())
+    vm.invoke(&method, PyFuncArgs::default())
 }
 
 fn builtin_locals(vm: &VirtualMachine) -> PyDictRef {
@@ -425,15 +428,15 @@ fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut x = candidates_iter.next().unwrap();
     // TODO: this key function looks pretty duplicate. Maybe we can create
     // a local function?
-    let mut x_key = if let Some(f) = &key_func {
-        vm.invoke(f.clone(), vec![x.clone()])?
+    let mut x_key = if let Some(ref f) = &key_func {
+        vm.invoke(f, vec![x.clone()])?
     } else {
         x.clone()
     };
 
     for y in candidates_iter {
-        let y_key = if let Some(f) = &key_func {
-            vm.invoke(f.clone(), vec![y.clone()])?
+        let y_key = if let Some(ref f) = &key_func {
+            vm.invoke(f, vec![y.clone()])?
         } else {
             y.clone()
         };
@@ -473,15 +476,15 @@ fn builtin_min(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut x = candidates_iter.next().unwrap();
     // TODO: this key function looks pretty duplicate. Maybe we can create
     // a local function?
-    let mut x_key = if let Some(f) = &key_func {
-        vm.invoke(f.clone(), vec![x.clone()])?
+    let mut x_key = if let Some(ref f) = &key_func {
+        vm.invoke(f, vec![x.clone()])?
     } else {
         x.clone()
     };
 
     for y in candidates_iter {
-        let y_key = if let Some(f) = &key_func {
-            vm.invoke(f.clone(), vec![y.clone()])?
+        let y_key = if let Some(ref f) = &key_func {
+            vm.invoke(f, vec![y.clone()])?
         } else {
             y.clone()
         };
@@ -708,7 +711,7 @@ fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
     if let Some(reversed_method) = vm.get_method(obj.clone(), "__reversed__") {
-        vm.invoke(reversed_method?, PyFuncArgs::default())
+        vm.invoke(&reversed_method?, PyFuncArgs::default())
     } else {
         vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
             "argument to reversed() must be a sequence".to_string()
@@ -731,9 +734,19 @@ fn builtin_round(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(ndigits, None)]
     );
     if let Some(ndigits) = ndigits {
-        let ndigits = vm.call_method(ndigits, "__int__", vec![])?;
-        let rounded = vm.call_method(number, "__round__", vec![ndigits])?;
-        Ok(rounded)
+        if objtype::isinstance(ndigits, &vm.ctx.int_type()) {
+            let ndigits = vm.call_method(ndigits, "__int__", vec![])?;
+            let rounded = vm.call_method(number, "__round__", vec![ndigits])?;
+            Ok(rounded)
+        } else if vm.ctx.none().is(ndigits) {
+            let rounded = &vm.call_method(number, "__round__", vec![])?;
+            Ok(vm.ctx.new_int(objint::get_value(rounded).clone()))
+        } else {
+            Err(vm.new_type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                ndigits.class().name
+            )))
+        }
     } else {
         // without a parameter, the result type is coerced to int
         let rounded = &vm.call_method(number, "__round__", vec![])?;
@@ -774,7 +787,7 @@ fn builtin_sum(iterable: PyIterable, start: OptionalArg, vm: &VirtualMachine) ->
 
 // Should be renamed to builtin___import__?
 fn builtin_import(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    vm.invoke(vm.import_func.borrow().clone(), args)
+    vm.invoke(&vm.import_func.borrow(), args)
 }
 
 fn builtin_vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
@@ -949,7 +962,11 @@ pub fn builtin_build_class_(
         if objtype::issubclass(&base.class(), &metaclass) {
             metaclass = base.class();
         } else if !objtype::issubclass(&metaclass, &base.class()) {
-            return Err(vm.new_type_error("metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases".to_string()));
+            return Err(vm.new_type_error(
+                "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
+                 subclass of the metaclasses of all its bases"
+                    .to_owned(),
+            ));
         }
     }
 
@@ -957,13 +974,13 @@ pub fn builtin_build_class_(
 
     // Prepare uses full __getattribute__ resolution chain.
     let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
-    let namespace = vm.invoke(prepare, vec![name_obj.clone(), bases.clone()])?;
+    let namespace = vm.invoke(&prepare, vec![name_obj.clone(), bases.clone()])?;
 
     let namespace: PyDictRef = TryFromObject::try_from_object(vm, namespace)?;
 
     let cells = vm.ctx.new_dict();
 
-    vm.invoke_with_locals(function, cells.clone(), namespace.clone())?;
+    vm.invoke_with_locals(&function, cells.clone(), namespace.clone())?;
 
     namespace.set_item("__name__", name_obj.clone(), vm)?;
     namespace.set_item("__qualname__", qualified_name.into_object(), vm)?;

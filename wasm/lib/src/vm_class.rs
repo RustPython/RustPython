@@ -256,7 +256,7 @@ impl WASMVirtualMachine {
             let mod_name = name.clone();
 
             let stdlib_init_fn = move |vm: &VirtualMachine| {
-                let module = vm.ctx.new_module(&name, vm.ctx.new_dict());
+                let module = vm.new_module(&name, vm.ctx.new_dict());
                 for (key, value) in module_items.clone() {
                     vm.set_attr(&module, key, value).unwrap();
                 }
@@ -271,13 +271,13 @@ impl WASMVirtualMachine {
         })?
     }
 
-    fn run(&self, source: String, mode: compile::Mode) -> Result<JsValue, JsValue> {
+    fn run(&self, source: &str, mode: compile::Mode) -> Result<JsValue, JsValue> {
         self.assert_valid()?;
         self.with_unchecked(
             |StoredVirtualMachine {
                  ref vm, ref scope, ..
              }| {
-                let code = vm.compile(&source, &mode, "<wasm>".to_string());
+                let code = vm.compile(source, mode, "<wasm>".to_string());
                 let code = code.map_err(|err| {
                     let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
                     let _ =
@@ -295,16 +295,16 @@ impl WASMVirtualMachine {
         )
     }
 
-    pub fn exec(&self, source: String) -> Result<JsValue, JsValue> {
+    pub fn exec(&self, source: &str) -> Result<JsValue, JsValue> {
         self.run(source, compile::Mode::Exec)
     }
 
-    pub fn eval(&self, source: String) -> Result<JsValue, JsValue> {
+    pub fn eval(&self, source: &str) -> Result<JsValue, JsValue> {
         self.run(source, compile::Mode::Eval)
     }
 
     #[wasm_bindgen(js_name = execSingle)]
-    pub fn exec_single(&self, source: String) -> Result<JsValue, JsValue> {
+    pub fn exec_single(&self, source: &str) -> Result<JsValue, JsValue> {
         self.run(source, compile::Mode::Single)
     }
 }

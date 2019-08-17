@@ -52,7 +52,7 @@ impl PyFilter {
             } else {
                 // the predicate itself can raise StopIteration which does stop the filter
                 // iteration
-                vm.invoke(predicate.clone(), vec![next_obj.clone()])?
+                vm.invoke(&predicate, vec![next_obj.clone()])?
             };
             if objbool::boolval(vm, predicate_value)? {
                 return Ok(next_obj);
@@ -67,8 +67,8 @@ impl PyFilter {
 }
 
 pub fn init(context: &PyContext) {
-    PyFilter::extend_class(context, &context.filter_type);
-    extend_class!(context, &context.filter_type, {
+    PyFilter::extend_class(context, &context.types.filter_type);
+    extend_class!(context, &context.types.filter_type, {
         "__new__" => context.new_rustfunc(filter_new),
     });
 }

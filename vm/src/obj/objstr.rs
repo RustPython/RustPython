@@ -28,6 +28,7 @@ use crate::vm::VirtualMachine;
 
 use super::objbytes::PyBytes;
 use super::objdict::PyDict;
+use super::objfloat;
 use super::objint::{self, PyInt};
 use super::objiter;
 use super::objnone::PyNone;
@@ -514,8 +515,13 @@ impl PyString {
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let format_string_text = &self.value;
         let format_string = CFormatString::from_str(format_string_text)
-            .map_err(|err| vm.new_value_error(format!("{}", err)))?;
+            .map_err(|err| vm.new_value_error(err.to_string()))?;
         do_cformat(vm, format_string, values.clone())
+    }
+
+    #[pymethod(name = "__rmod__")]
+    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
     }
 
     #[pymethod]
@@ -1145,10 +1151,10 @@ impl IntoPyObject for &String {
 }
 
 pub fn init(ctx: &PyContext) {
-    PyString::extend_class(ctx, &ctx.str_type);
+    PyString::extend_class(ctx, &ctx.types.str_type);
 
-    PyStringIterator::extend_class(ctx, &ctx.striterator_type);
-    PyStringReverseIterator::extend_class(ctx, &ctx.strreverseiterator_type);
+    PyStringIterator::extend_class(ctx, &ctx.types.striterator_type);
+    PyStringReverseIterator::extend_class(ctx, &ctx.types.strreverseiterator_type);
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -1220,6 +1226,21 @@ fn do_cformat_specifier(
             }
             Ok(format_spec.format_number(objint::get_value(&obj)))
         }
+        CFormatType::Float(_) => {
+            if objtype::isinstance(&obj, &vm.ctx.float_type()) {
+                Ok(format_spec.format_float(objfloat::get_value(&obj)))
+            } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
+                Ok(format_spec.format_float(objint::get_value(&obj).to_f64().unwrap()))
+            } else {
+                let required_type_string = "an floating point or integer";
+                Err(vm.new_type_error(format!(
+                    "%{} format: {} is required, not {}",
+                    format_spec.format_char,
+                    required_type_string,
+                    obj.class()
+                )))
+            }
+        }
         CFormatType::Character => {
             let char_string = {
                 if objtype::isinstance(&obj, &vm.ctx.int_type()) {
@@ -1246,10 +1267,6 @@ fn do_cformat_specifier(
             format_spec.precision = Some(CFormatQuantity::Amount(1));
             Ok(format_spec.format_string(char_string))
         }
-        _ => Err(vm.new_not_implemented_error(format!(
-            "Not yet implemented for %{}",
-            format_spec.format_char
-        ))),
     }
 }
 
@@ -1312,9 +1329,9 @@ fn do_cformat(
     } else {
         // check for only literal parts, in which case only dict or empty tuple is allowed
         if num_specifiers == 0
-            && !(objtype::isinstance(&values_obj, &vm.ctx.tuple_type)
+            && !(objtype::isinstance(&values_obj, &vm.ctx.types.tuple_type)
                 && objtuple::get_value(&values_obj).is_empty())
-            && !objtype::isinstance(&values_obj, &vm.ctx.dict_type)
+            && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
         {
             return Err(vm.new_type_error(
                 "not all arguments converted during string formatting".to_string(),
@@ -1380,7 +1397,7 @@ fn do_cformat(
             .into_iter()
             .nth(tuple_index)
             .is_some())
-        && !objtype::isinstance(&values_obj, &vm.ctx.dict_type)
+        && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
     {
         return Err(
             vm.new_type_error("not all arguments converted during string formatting".to_string())

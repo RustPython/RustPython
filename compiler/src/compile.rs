@@ -8,16 +8,19 @@
 use crate::error::{CompileError, CompileErrorType};
 use crate::output_stream::{CodeObjectStream, OutputStream};
 use crate::peephole::PeepholeOptimizer;
-use crate::symboltable::{make_symbol_table, statements_to_symbol_table, Symbol, SymbolScope};
+use crate::symboltable::{
+    make_symbol_table, statements_to_symbol_table, Symbol, SymbolScope, SymbolTable,
+};
 use num_complex::Complex64;
 use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use rustpython_parser::{ast, parser};
 
 type BasicOutputStream = PeepholeOptimizer<CodeObjectStream>;
 
+/// Main structure holding the state of compilation.
 struct Compiler<O: OutputStream = BasicOutputStream> {
     output_stack: Vec<O>,
-    scope_stack: Vec<SymbolScope>,
+    symbol_table_stack: Vec<SymbolTable>,
     nxt_label: usize,
     source_path: Option<String>,
     current_source_location: ast::Location,
@@ -30,7 +33,7 @@ struct Compiler<O: OutputStream = BasicOutputStream> {
 /// Compile a given sourcecode into a bytecode object.
 pub fn compile(
     source: &str,
-    mode: &Mode,
+    mode: Mode,
     source_path: String,
     optimize: u8,
 ) -> Result<CodeObject, CompileError> {
@@ -101,16 +104,34 @@ pub fn compile_program_single(
     })
 }
 
+#[derive(Clone, Copy)]
 pub enum Mode {
     Exec,
     Eval,
     Single,
 }
 
-#[derive(Clone, Copy)]
-enum EvalContext {
-    Statement,
-    Expression,
+impl std::str::FromStr for Mode {
+    type Err = ModeParseError;
+    fn from_str(s: &str) -> Result<Self, ModeParseError> {
+        match s {
+            "exec" => Ok(Mode::Exec),
+            "eval" => Ok(Mode::Eval),
+            "single" => Ok(Mode::Single),
+            _ => Err(ModeParseError { _priv: () }),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ModeParseError {
+    _priv: (),
+}
+
+impl std::fmt::Display for ModeParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, r#"mode should be "exec", "eval", or "single""#)
+    }
 }
 
 pub(crate) type Label = usize;
@@ -128,7 +149,7 @@ impl<O: OutputStream> Compiler<O> {
     fn new(optimize: u8) -> Self {
         Compiler {
             output_stack: Vec::new(),
-            scope_stack: Vec::new(),
+            symbol_table_stack: Vec::new(),
             nxt_label: 0,
             source_path: None,
             current_source_location: ast::Location::default(),
@@ -163,11 +184,23 @@ impl<O: OutputStream> Compiler<O> {
     fn compile_program(
         &mut self,
         program: &ast::Program,
-        symbol_scope: SymbolScope,
+        symbol_table: SymbolTable,
     ) -> Result<(), CompileError> {
         let size_before = self.output_stack.len();
-        self.scope_stack.push(symbol_scope);
-        self.compile_statements(&program.statements)?;
+        self.symbol_table_stack.push(symbol_table);
+
+        let (statements, doc) = get_doc(&program.statements);
+        if let Some(value) = doc {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String { value },
+            });
+            self.emit(Instruction::StoreName {
+                name: "__doc__".to_owned(),
+                scope: bytecode::NameScope::Global,
+            });
+        }
+        self.compile_statements(statements)?;
+
         assert_eq!(self.output_stack.len(), size_before);
 
         // Emit None at end:
@@ -181,9 +214,9 @@ impl<O: OutputStream> Compiler<O> {
     fn compile_program_single(
         &mut self,
         program: &ast::Program,
-        symbol_scope: SymbolScope,
+        symbol_table: SymbolTable,
     ) -> Result<(), CompileError> {
-        self.scope_stack.push(symbol_scope);
+        self.symbol_table_stack.push(symbol_table);
 
         let mut emitted_return = false;
 
@@ -220,9 +253,9 @@ impl<O: OutputStream> Compiler<O> {
     fn compile_statement_eval(
         &mut self,
         statements: &[ast::Statement],
-        symbol_table: SymbolScope,
+        symbol_table: SymbolTable,
     ) -> Result<(), CompileError> {
-        self.scope_stack.push(symbol_table);
+        self.symbol_table_stack.push(symbol_table);
         for statement in statements {
             if let ast::StatementType::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
@@ -246,12 +279,11 @@ impl<O: OutputStream> Compiler<O> {
 
     fn scope_for_name(&self, name: &str) -> bytecode::NameScope {
         let symbol = self.lookup_name(name);
-        if symbol.is_global {
-            bytecode::NameScope::Global
-        } else if symbol.is_nonlocal {
-            bytecode::NameScope::NonLocal
-        } else {
-            bytecode::NameScope::Local
+        match symbol.scope {
+            SymbolScope::Global => bytecode::NameScope::Global,
+            SymbolScope::Nonlocal => bytecode::NameScope::NonLocal,
+            SymbolScope::Unknown => bytecode::NameScope::Local,
+            SymbolScope::Local => bytecode::NameScope::Local,
         }
     }
 
@@ -285,11 +317,15 @@ impl<O: OutputStream> Compiler<O> {
                         symbols: vec![],
                         level: 0,
                     });
-
                     if let Some(alias) = &name.alias {
+                        for part in name.symbol.split('.').skip(1) {
+                            self.emit(Instruction::LoadAttr {
+                                name: part.to_owned(),
+                            });
+                        }
                         self.store_name(alias);
                     } else {
-                        self.store_name(&name.symbol);
+                        self.store_name(name.symbol.split('.').next().unwrap());
                     }
                 }
             }
@@ -302,10 +338,12 @@ impl<O: OutputStream> Compiler<O> {
 
                 if import_star {
                     // from .... import *
-                    self.emit(Instruction::ImportStar {
+                    self.emit(Instruction::Import {
                         name: module.clone(),
+                        symbols: vec!["*".to_owned()],
                         level: *level,
                     });
+                    self.emit(Instruction::ImportStar);
                 } else {
                     // from mod import a, b as c
                     // First, determine the fromlist (for import lib):
@@ -350,14 +388,14 @@ impl<O: OutputStream> Compiler<O> {
                 match orelse {
                     None => {
                         // Only if:
-                        self.compile_test(test, None, Some(end_label), EvalContext::Statement)?;
+                        self.compile_jump_if(test, false, end_label)?;
                         self.compile_statements(body)?;
                         self.set_label(end_label);
                     }
                     Some(statements) => {
                         // if - else:
                         let else_label = self.new_label();
-                        self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
+                        self.compile_jump_if(test, false, else_label)?;
                         self.compile_statements(body)?;
                         self.emit(Instruction::Jump { target: end_label });
 
@@ -459,7 +497,7 @@ impl<O: OutputStream> Compiler<O> {
                 // if some flag, ignore all assert statements!
                 if self.optimize == 0 {
                     let end_label = self.new_label();
-                    self.compile_test(test, Some(end_label), None, EvalContext::Statement)?;
+                    self.compile_jump_if(test, true, end_label)?;
                     self.emit(Instruction::LoadName {
                         name: String::from("AssertionError"),
                         scope: bytecode::NameScope::Local,
@@ -1006,7 +1044,7 @@ impl<O: OutputStream> Compiler<O> {
 
         self.set_label(start_label);
 
-        self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
+        self.compile_jump_if(test, false, else_label)?;
 
         let was_in_loop = self.in_loop;
         self.in_loop = true;
@@ -1118,12 +1156,9 @@ impl<O: OutputStream> Compiler<O> {
             });
 
             // if comparison result is false, we break with this value; if true, try the next one.
-            // (CPython compresses these three opcodes into JUMP_IF_FALSE_OR_POP)
-            self.emit(Instruction::Duplicate);
-            self.emit(Instruction::JumpIfFalse {
+            self.emit(Instruction::JumpIfFalseOrPop {
                 target: break_label,
             });
-            self.emit(Instruction::Pop);
         }
 
         // handle the last comparison
@@ -1256,63 +1291,117 @@ impl<O: OutputStream> Compiler<O> {
         self.emit(Instruction::BinaryOperation { op: i, inplace });
     }
 
-    fn compile_test(
+    /// Implement boolean short circuit evaluation logic.
+    /// https://en.wikipedia.org/wiki/Short-circuit_evaluation
+    ///
+    /// This means, in a boolean statement 'x and y' the variable y will
+    /// not be evaluated when x is false.
+    ///
+    /// The idea is to jump to a label if the expression is either true or false
+    /// (indicated by the condition parameter).
+    fn compile_jump_if(
         &mut self,
         expression: &ast::Expression,
-        true_label: Option<Label>,
-        false_label: Option<Label>,
-        context: EvalContext,
+        condition: bool,
+        target_label: Label,
     ) -> Result<(), CompileError> {
         // Compile expression for test, and jump to label if false
         match &expression.node {
-            ast::ExpressionType::BoolOp { a, op, b } => match op {
-                ast::BooleanOperator::And => {
-                    let f = false_label.unwrap_or_else(|| self.new_label());
-                    self.compile_test(a, None, Some(f), context)?;
-                    self.compile_test(b, true_label, false_label, context)?;
-                    if false_label.is_none() {
-                        self.set_label(f);
-                    }
-                }
-                ast::BooleanOperator::Or => {
-                    let t = true_label.unwrap_or_else(|| self.new_label());
-                    self.compile_test(a, Some(t), None, context)?;
-                    self.compile_test(b, true_label, false_label, context)?;
-                    if true_label.is_none() {
-                        self.set_label(t);
-                    }
-                }
-            },
-            _ => {
-                self.compile_expression(expression)?;
-                match context {
-                    EvalContext::Statement => {
-                        if let Some(true_label) = true_label {
-                            self.emit(Instruction::JumpIf { target: true_label });
-                        }
-                        if let Some(false_label) = false_label {
-                            self.emit(Instruction::JumpIfFalse {
-                                target: false_label,
-                            });
+            ast::ExpressionType::BoolOp { op, values } => {
+                match op {
+                    ast::BooleanOperator::And => {
+                        if condition {
+                            // If all values are true.
+                            let end_label = self.new_label();
+                            let (last_value, values) = values.split_last().unwrap();
+
+                            // If any of the values is false, we can short-circuit.
+                            for value in values {
+                                self.compile_jump_if(value, false, end_label)?;
+                            }
+
+                            // It depends upon the last value now: will it be true?
+                            self.compile_jump_if(last_value, true, target_label)?;
+                            self.set_label(end_label);
+                        } else {
+                            // If any value is false, the whole condition is false.
+                            for value in values {
+                                self.compile_jump_if(value, false, target_label)?;
+                            }
                         }
                     }
-                    EvalContext::Expression => {
-                        if let Some(true_label) = true_label {
-                            self.emit(Instruction::Duplicate);
-                            self.emit(Instruction::JumpIf { target: true_label });
-                            self.emit(Instruction::Pop);
-                        }
-                        if let Some(false_label) = false_label {
-                            self.emit(Instruction::Duplicate);
-                            self.emit(Instruction::JumpIfFalse {
-                                target: false_label,
-                            });
-                            self.emit(Instruction::Pop);
+                    ast::BooleanOperator::Or => {
+                        if condition {
+                            // If any of the values is true.
+                            for value in values {
+                                self.compile_jump_if(value, true, target_label)?;
+                            }
+                        } else {
+                            // If all of the values are false.
+                            let end_label = self.new_label();
+                            let (last_value, values) = values.split_last().unwrap();
+
+                            // If any value is true, we can short-circuit:
+                            for value in values {
+                                self.compile_jump_if(value, true, end_label)?;
+                            }
+
+                            // It all depends upon the last value now!
+                            self.compile_jump_if(last_value, false, target_label)?;
+                            self.set_label(end_label);
                         }
                     }
                 }
             }
+            ast::ExpressionType::Unop {
+                op: ast::UnaryOperator::Not,
+                a,
+            } => {
+                self.compile_jump_if(a, !condition, target_label)?;
+            }
+            _ => {
+                // Fall back case which always will work!
+                self.compile_expression(expression)?;
+                if condition {
+                    self.emit(Instruction::JumpIfTrue {
+                        target: target_label,
+                    });
+                } else {
+                    self.emit(Instruction::JumpIfFalse {
+                        target: target_label,
+                    });
+                }
+            }
         }
+        Ok(())
+    }
+
+    /// Compile a boolean operation as an expression.
+    /// This means, that the last value remains on the stack.
+    fn compile_bool_op(
+        &mut self,
+        op: &ast::BooleanOperator,
+        values: &[ast::Expression],
+    ) -> Result<(), CompileError> {
+        let end_label = self.new_label();
+
+        let (last_value, values) = values.split_last().unwrap();
+        for value in values {
+            self.compile_expression(value)?;
+
+            match op {
+                ast::BooleanOperator::And => {
+                    self.emit(Instruction::JumpIfFalseOrPop { target: end_label });
+                }
+                ast::BooleanOperator::Or => {
+                    self.emit(Instruction::JumpIfTrueOrPop { target: end_label });
+                }
+            }
+        }
+
+        // If all values did not qualify, take the value of the last value:
+        self.compile_expression(last_value)?;
+        self.set_label(end_label);
         Ok(())
     }
 
@@ -1327,12 +1416,7 @@ impl<O: OutputStream> Compiler<O> {
                 args,
                 keywords,
             } => self.compile_call(function, args, keywords)?,
-            BoolOp { .. } => self.compile_test(
-                expression,
-                Option::None,
-                Option::None,
-                EvalContext::Expression,
-            )?,
+            BoolOp { op, values } => self.compile_bool_op(op, values)?,
             Binop { a, op, b } => {
                 self.compile_expression(a)?;
                 self.compile_expression(b)?;
@@ -1527,8 +1611,7 @@ impl<O: OutputStream> Compiler<O> {
             IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
                 let end_label = self.new_label();
-                self.compile_test(test, Option::None, Option::None, EvalContext::Expression)?;
-                self.emit(Instruction::JumpIfFalse { target: no_label });
+                self.compile_jump_if(test, false, no_label)?;
                 // True case
                 self.compile_expression(body)?;
                 self.emit(Instruction::Jump { target: end_label });
@@ -1745,12 +1828,7 @@ impl<O: OutputStream> Compiler<O> {
 
             // Now evaluate the ifs:
             for if_condition in &generator.ifs {
-                self.compile_test(
-                    if_condition,
-                    None,
-                    Some(start_label),
-                    EvalContext::Statement,
-                )?
+                self.compile_jump_if(if_condition, false, start_label)?
             }
         }
 
@@ -1831,30 +1909,36 @@ impl<O: OutputStream> Compiler<O> {
     }
 
     fn compile_string(&mut self, string: &ast::StringGroup) -> Result<(), CompileError> {
-        match string {
-            ast::StringGroup::Joined { values } => {
-                for value in values {
-                    self.compile_string(value)?;
+        if let Some(value) = try_get_constant_string(string) {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String { value },
+            });
+        } else {
+            match string {
+                ast::StringGroup::Joined { values } => {
+                    for value in values {
+                        self.compile_string(value)?;
+                    }
+                    self.emit(Instruction::BuildString { size: values.len() })
                 }
-                self.emit(Instruction::BuildString { size: values.len() })
-            }
-            ast::StringGroup::Constant { value } => {
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::String {
-                        value: value.to_string(),
-                    },
-                });
-            }
-            ast::StringGroup::FormattedValue {
-                value,
-                conversion,
-                spec,
-            } => {
-                self.compile_expression(value)?;
-                self.emit(Instruction::FormatValue {
-                    conversion: conversion.map(compile_conversion_flag),
-                    spec: spec.clone(),
-                });
+                ast::StringGroup::Constant { value } => {
+                    self.emit(Instruction::LoadConst {
+                        value: bytecode::Constant::String {
+                            value: value.to_string(),
+                        },
+                    });
+                }
+                ast::StringGroup::FormattedValue {
+                    value,
+                    conversion,
+                    spec,
+                } => {
+                    self.compile_expression(value)?;
+                    self.emit(Instruction::FormatValue {
+                        conversion: conversion.map(compile_conversion_flag),
+                        spec: spec.clone(),
+                    });
+                }
             }
         }
         Ok(())
@@ -1862,22 +1946,29 @@ impl<O: OutputStream> Compiler<O> {
 
     // Scope helpers:
     fn enter_scope(&mut self) {
-        // println!("Enter scope {:?}", self.scope_stack);
+        // println!("Enter scope {:?}", self.symbol_table_stack);
         // Enter first subscope!
-        let scope = self.scope_stack.last_mut().unwrap().sub_scopes.remove(0);
-        self.scope_stack.push(scope);
+        let table = self
+            .symbol_table_stack
+            .last_mut()
+            .unwrap()
+            .sub_tables
+            .remove(0);
+        self.symbol_table_stack.push(table);
     }
 
     fn leave_scope(&mut self) {
-        // println!("Leave scope {:?}", self.scope_stack);
-        let scope = self.scope_stack.pop().unwrap();
-        assert!(scope.sub_scopes.is_empty());
+        // println!("Leave scope {:?}", self.symbol_table_stack);
+        let table = self.symbol_table_stack.pop().unwrap();
+        assert!(table.sub_tables.is_empty());
     }
 
     fn lookup_name(&self, name: &str) -> &Symbol {
         // println!("Looking up {:?}", name);
-        let scope = self.scope_stack.last().unwrap();
-        scope.lookup(name).unwrap()
+        let symbol_table = self.symbol_table_stack.last().unwrap();
+        symbol_table.lookup(name).expect(
+            "The symbol must be present in the symbol table, even when it is undefined in python.",
+        )
     }
 
     // Low level helper functions:
@@ -1927,18 +2018,37 @@ impl<O: OutputStream> Compiler<O> {
 }
 
 fn get_doc(body: &[ast::Statement]) -> (&[ast::Statement], Option<String>) {
-    if let Some(val) = body.get(0) {
+    if let Some((val, body_rest)) = body.split_first() {
         if let ast::StatementType::Expression { ref expression } = val.node {
             if let ast::ExpressionType::String { value } = &expression.node {
-                if let ast::StringGroup::Constant { ref value } = value {
-                    if let Some((_, body_rest)) = body.split_first() {
-                        return (body_rest, Some(value.to_string()));
-                    }
+                if let Some(value) = try_get_constant_string(value) {
+                    return (body_rest, Some(value.to_string()));
                 }
             }
         }
     }
     (body, None)
+}
+
+fn try_get_constant_string(string: &ast::StringGroup) -> Option<String> {
+    fn get_constant_string_inner(out_string: &mut String, string: &ast::StringGroup) -> bool {
+        match string {
+            ast::StringGroup::Constant { value } => {
+                out_string.push_str(&value);
+                true
+            }
+            ast::StringGroup::Joined { values } => values
+                .iter()
+                .all(|value| get_constant_string_inner(out_string, value)),
+            ast::StringGroup::FormattedValue { .. } => false,
+        }
+    }
+    let mut out_string = String::new();
+    if get_constant_string_inner(&mut out_string, string) {
+        Some(out_string)
+    } else {
+        None
+    }
 }
 
 fn compile_location(location: &ast::Location) -> bytecode::Location {
@@ -1988,11 +2098,11 @@ mod tests {
                 LoadConst {
                     value: Boolean { value: true }
                 },
-                JumpIf { target: 1 },
+                JumpIfTrue { target: 1 },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIf { target: 1 },
+                JumpIfTrue { target: 1 },
                 LoadConst {
                     value: Boolean { value: false }
                 },
@@ -2042,7 +2152,7 @@ mod tests {
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIf { target: 1 },
+                JumpIfTrue { target: 1 },
                 LoadConst {
                     value: Boolean { value: false }
                 },
