@@ -6,6 +6,8 @@ use std::fs::OpenOptions;
 use std::io::{self, Error, ErrorKind, Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
@@ -91,6 +93,7 @@ pub fn os_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+#[cfg(any(unix, windows))]
 pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -124,6 +127,11 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         .map_err(|err| convert_io_error(vm, err))?;
 
     Ok(vm.ctx.new_int(raw_file_number(handle)))
+}
+
+#[cfg(all(not(unix), not(windows)))]
+pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    unimplemented!()
 }
 
 pub fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
