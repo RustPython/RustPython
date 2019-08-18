@@ -138,11 +138,8 @@ impl NameProtocol for Scope {
             }
         }
 
-        if let Some(value) = self.globals.get_item_option(name, vm).unwrap() {
-            return Some(value);
-        }
-
-        vm.get_attribute(vm.builtins.clone(), name).ok()
+        // Fall back to loading a global after all scopes have been searched!
+        self.load_global(vm, name)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
@@ -174,7 +171,11 @@ impl NameProtocol for Scope {
 
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
-        self.globals.get_item_option(name, vm).unwrap()
+        if let Some(value) = self.globals.get_item_option(name, vm).unwrap() {
+            Some(value)
+        } else {
+            vm.get_attribute(vm.builtins.clone(), name).ok()
+        }
     }
 
     fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
