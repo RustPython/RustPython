@@ -282,8 +282,8 @@ impl<O: OutputStream> Compiler<O> {
         match symbol.scope {
             SymbolScope::Global => bytecode::NameScope::Global,
             SymbolScope::Nonlocal => bytecode::NameScope::NonLocal,
-            SymbolScope::Unknown => bytecode::NameScope::Local,
-            SymbolScope::Local => bytecode::NameScope::Local,
+            SymbolScope::Unknown => bytecode::NameScope::Free,
+            SymbolScope::Local => bytecode::NameScope::Free,
         }
     }
 
@@ -500,7 +500,7 @@ impl<O: OutputStream> Compiler<O> {
                     self.compile_jump_if(test, true, end_label)?;
                     self.emit(Instruction::LoadName {
                         name: String::from("AssertionError"),
-                        scope: bytecode::NameScope::Local,
+                        scope: bytecode::NameScope::Global,
                     });
                     match msg {
                         Some(e) => {
@@ -736,7 +736,7 @@ impl<O: OutputStream> Compiler<O> {
                 // Check exception type:
                 self.emit(Instruction::LoadName {
                     name: String::from("isinstance"),
-                    scope: bytecode::NameScope::Local,
+                    scope: bytecode::NameScope::Global,
                 });
                 self.emit(Instruction::Rotate { amount: 2 });
                 self.compile_expression(exc_type)?;
@@ -931,11 +931,11 @@ impl<O: OutputStream> Compiler<O> {
 
         self.emit(Instruction::LoadName {
             name: "__name__".to_string(),
-            scope: bytecode::NameScope::Local,
+            scope: bytecode::NameScope::Free,
         });
         self.emit(Instruction::StoreName {
             name: "__module__".to_string(),
-            scope: bytecode::NameScope::Local,
+            scope: bytecode::NameScope::Free,
         });
         self.compile_statements(new_body)?;
         self.emit(Instruction::LoadConst {

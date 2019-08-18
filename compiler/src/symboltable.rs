@@ -213,21 +213,21 @@ impl SymbolTableAnalyzer {
                 if symbol.is_assigned || symbol.is_parameter {
                     symbol.scope = SymbolScope::Local;
                 } else {
-                    // TODO: comment this out and make it work properly:
-                    /*
-                     */
-                    let found_in_outer_scope = self
-                        .tables
-                        .iter()
-                        .skip(1)
-                        .any(|t| t.symbols.contains_key(&symbol.name));
+                    // Interesting stuff about the __class__ variable:
+                    // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
+                    let found_in_outer_scope = (symbol.name == "__class__")
+                        || self
+                            .tables
+                            .iter()
+                            .skip(1)
+                            .any(|t| t.symbols.contains_key(&symbol.name));
 
                     if found_in_outer_scope {
                         // Symbol is in some outer scope.
                         symbol.is_free = true;
                     } else {
                         // Well, it must be a global then :)
-                        // symbol.scope = SymbolScope::Global;
+                        symbol.scope = SymbolScope::Global;
                     }
                 }
             }
