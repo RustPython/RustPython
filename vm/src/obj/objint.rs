@@ -143,7 +143,7 @@ fn inner_mod(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
     if int2.value.is_zero() {
         Err(vm.new_zero_division_error("integer modulo by zero".to_string()))
     } else {
-        Ok(vm.ctx.new_int(&int1.value % &int2.value))
+        Ok(vm.ctx.new_int(int1.value.mod_floor(&int2.value)))
     }
 }
 
