@@ -36,7 +36,7 @@ matrix:
       env:
         # Prevention of cache corruption.
         # See: https://docs.travis-ci.com/user/caching/#caches-and-build-matrices
-        - JOBCACHE=1
+        - JOBCACHE=11
 
     # To test the snippets, we use Travis' Python environment (because
     # installing rust ourselves is a lot easier than installing Python)
