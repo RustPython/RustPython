@@ -85,13 +85,15 @@ fn time_gmtime(secs: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<
         OptionalArg::Present(secs) => pyobj_to_naive_date_time(&secs, vm)?.unwrap_or(default),
         OptionalArg::Missing => default,
     };
-    let value = PyStructTime::new(instant);
+    let value = PyStructTime::new(instant, 0);
     Ok(value)
 }
 
 fn time_localtime(secs: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyStructTime> {
     let instant = optional_or_localtime(secs, vm)?;
-    let value = PyStructTime::new(instant);
+    // TODO: isdst flag must be valid value here
+    // https://docs.python.org/3/library/time.html#time.localtime
+    let value = PyStructTime::new(instant, -1);
     Ok(value)
 }
 
@@ -157,13 +159,14 @@ fn time_strptime(
     };
     let instant = NaiveDateTime::parse_from_str(&string.value, &format)
         .map_err(|e| vm.new_value_error(format!("Parse error: {:?}", e)))?;
-    let struct_time = PyStructTime::new(instant);
+    let struct_time = PyStructTime::new(instant, -1);
     Ok(struct_time)
 }
 
 #[pyclass(name = "struct_time")]
 struct PyStructTime {
     tm: NaiveDateTime,
+    isdst: i32,
 }
 
 type PyStructTimeRef = PyRef<PyStructTime>;
@@ -182,20 +185,19 @@ impl PyValue for PyStructTime {
 
 #[pyimpl]
 impl PyStructTime {
-    fn new(tm: NaiveDateTime) -> Self {
-        PyStructTime { tm }
+    fn new(tm: NaiveDateTime, isdst: i32) -> Self {
+        PyStructTime { tm, isdst }
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> String {
+    fn repr(&self, vm: &VirtualMachine) -> String {
         // TODO: extract year day and isdst somehow..
         format!(
-            "time.struct_time(tm_year={}, tm_mon={}, tm_mday={}, tm_hour={}, tm_min={}, tm_sec={}, tm_wday={}, tm_yday={})",
-            self.tm.date().year(), self.tm.date().month(), self.tm.date().day(),
-            self.tm.time().hour(), self.tm.time().minute(), self.tm.time().second(),
-            self.tm.date().weekday().num_days_from_monday(),
-            self.tm.date().ordinal()
-            )
+            "time.struct_time(tm_year={}, tm_mon={}, tm_mday={}, tm_hour={}, tm_min={}, tm_sec={}, tm_wday={}, tm_yday={}, tm_isdst={})",
+            self.tm_year(vm), self.tm_mon(vm), self.tm_mday(vm),
+            self.tm_hour(vm), self.tm_min(vm), self.tm_sec(vm),
+            self.tm_wday(vm), self.tm_yday(vm), self.tm_isdst(vm),
+        )
     }
 
     fn get_date_time(&self) -> NaiveDateTime {
@@ -204,23 +206,22 @@ impl PyStructTime {
 
     #[pymethod(name = "__len__")]
     fn len(&self, _vm: &VirtualMachine) -> usize {
-        8
+        9
     }
 
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, needle: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        let index = get_sequence_index(vm, &needle, 8)?;
+        let index = get_sequence_index(vm, &needle, 9)?;
         match index {
-            0 => Ok(vm.ctx.new_int(self.tm.date().year())),
-            1 => Ok(vm.ctx.new_int(self.tm.date().month())),
-            2 => Ok(vm.ctx.new_int(self.tm.date().day())),
-            3 => Ok(vm.ctx.new_int(self.tm.time().hour())),
-            4 => Ok(vm.ctx.new_int(self.tm.time().minute())),
-            5 => Ok(vm.ctx.new_int(self.tm.time().second())),
-            6 => Ok(vm
-                .ctx
-                .new_int(self.tm.date().weekday().num_days_from_monday())),
-            7 => Ok(vm.ctx.new_int(self.tm.date().ordinal())),
+            0 => Ok(vm.ctx.new_int(self.tm_year(vm))),
+            1 => Ok(vm.ctx.new_int(self.tm_mon(vm))),
+            2 => Ok(vm.ctx.new_int(self.tm_mday(vm))),
+            3 => Ok(vm.ctx.new_int(self.tm_hour(vm))),
+            4 => Ok(vm.ctx.new_int(self.tm_min(vm))),
+            5 => Ok(vm.ctx.new_int(self.tm_sec(vm))),
+            6 => Ok(vm.ctx.new_int(self.tm_wday(vm))),
+            7 => Ok(vm.ctx.new_int(self.tm_yday(vm))),
+            8 => Ok(vm.ctx.new_int(self.tm_isdst(vm))),
             _ => unreachable!(),
         }
     }
@@ -263,6 +264,11 @@ impl PyStructTime {
     #[pyproperty(name = "tm_yday")]
     fn tm_yday(&self, _vm: &VirtualMachine) -> u32 {
         self.tm.date().ordinal()
+    }
+
+    #[pyproperty(name = "tm_isdst")]
+    fn tm_isdst(&self, _vm: &VirtualMachine) -> i32 {
+        self.isdst
     }
 }
 
