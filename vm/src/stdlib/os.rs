@@ -262,7 +262,7 @@ fn get_right_permission(
     let others_permissions = get_permissions(others_mode);
 
     let user_id = nix::unistd::getuid();
-    let groups_ids = nix::unistd::getgroups()?;
+    let groups_ids = getgroups()?;
 
     if file_owner == user_id {
         Ok(owner_permissions)
@@ -271,6 +271,32 @@ fn get_right_permission(
     } else {
         Ok(others_permissions)
     }
+}
+
+#[cfg(target_os = "macos")]
+fn getgroups() -> nix::Result<Vec<Gid>> {
+    use libc::{c_int, gid_t};
+    use std::ptr;
+    let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
+    let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
+    loop {
+        let ret = unsafe {
+            libc::getgroups(
+                groups.capacity() as c_int,
+                groups.as_mut_ptr() as *mut gid_t,
+            )
+        };
+
+        return Errno::result(ret).map(|s| {
+            unsafe { groups.set_len(s as usize) };
+            groups
+        });
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn getgroups() -> nix::Result<Vec<Gid>> {
+    nix::unistd::getgroups()
 }
 
 #[cfg(unix)]
