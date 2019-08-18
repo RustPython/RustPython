@@ -95,7 +95,6 @@ fn print_traceback_entry(vm: &VirtualMachine, tb_entry: &PyObjectRef) {
         print_source_line(filename, lineno.parse().unwrap());
     } else {
         println!("  File ??");
-        return;
     }
 }
 

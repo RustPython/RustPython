@@ -31,6 +31,9 @@ pub fn statements_to_symbol_table(
 /// Captures all symbols in the current scope, and has a list of subscopes in this scope.
 #[derive(Clone, Default)]
 pub struct SymbolTable {
+    /// The name of this symbol table. Often the name of the class or function.
+    pub name: String,
+
     /// A set of symbols present on this scope level.
     pub symbols: IndexMap<String, Symbol>,
 
@@ -40,8 +43,9 @@ pub struct SymbolTable {
 }
 
 impl SymbolTable {
-    fn new() -> Self {
+    fn new(name: String) -> Self {
         SymbolTable {
+            name,
             symbols: Default::default(),
             sub_tables: vec![],
         }
@@ -211,18 +215,20 @@ impl SymbolTableAnalyzer {
                 } else {
                     // TODO: comment this out and make it work properly:
                     /*
+                     */
                     let found_in_outer_scope = self
                         .tables
                         .iter()
+                        .skip(1)
                         .any(|t| t.symbols.contains_key(&symbol.name));
+
                     if found_in_outer_scope {
                         // Symbol is in some outer scope.
-
+                        symbol.is_free = true;
                     } else {
                         // Well, it must be a global then :)
                         // symbol.scope = SymbolScope::Global;
                     }
-                    */
                 }
             }
         }
@@ -257,8 +263,7 @@ enum ExpressionContext {
 
 impl SymbolTableBuilder {
     fn prepare(&mut self) {
-        let table = SymbolTable::new();
-        self.tables.push(table);
+        self.enter_block("top")
     }
 
     fn finish(&mut self) -> Result<SymbolTable, SymbolTableError> {
@@ -268,9 +273,9 @@ impl SymbolTableBuilder {
         Ok(symbol_table)
     }
 
-    fn enter_block(&mut self) {
+    fn enter_block(&mut self, name: &str) {
         // let parent = Some(self.tables.last().unwrap().clone());
-        let table = SymbolTable::new();
+        let table = SymbolTable::new(name.to_string());
         self.tables.push(table);
     }
 
@@ -343,7 +348,7 @@ impl SymbolTableBuilder {
                 if let Some(expression) = returns {
                     self.scan_expression(expression, &ExpressionContext::Load)?;
                 }
-                self.enter_function(args)?;
+                self.enter_function(name, args)?;
                 self.scan_statements(body)?;
                 self.leave_block();
             }
@@ -355,7 +360,7 @@ impl SymbolTableBuilder {
                 decorator_list,
             } => {
                 self.register_name(name, SymbolUsage::Assigned)?;
-                self.enter_block();
+                self.enter_block(name);
                 self.scan_statements(body)?;
                 self.leave_block();
                 self.scan_expressions(bases, &ExpressionContext::Load)?;
@@ -607,7 +612,7 @@ impl SymbolTableBuilder {
                 }
             }
             Lambda { args, body } => {
-                self.enter_function(args)?;
+                self.enter_function("lambda", args)?;
                 self.scan_expression(body, &ExpressionContext::Load)?;
                 self.leave_block();
             }
@@ -620,7 +625,7 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
-    fn enter_function(&mut self, args: &ast::Parameters) -> SymbolTableResult {
+    fn enter_function(&mut self, name: &str, args: &ast::Parameters) -> SymbolTableResult {
         // Evaluate eventual default parameters:
         self.scan_expressions(&args.defaults, &ExpressionContext::Load)?;
         for kw_default in &args.kw_defaults {
@@ -639,7 +644,7 @@ impl SymbolTableBuilder {
             self.scan_parameter_annotation(name)?;
         }
 
-        self.enter_block();
+        self.enter_block(name);
 
         // Fill scope with parameter names:
         self.scan_parameters(&args.args)?;
