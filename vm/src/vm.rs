@@ -452,14 +452,13 @@ impl VirtualMachine {
             || level != 0
             || objbool::boolval(self, from_list.clone()).unwrap_or(true);
 
-        let module = self.new_str(module.to_owned());
-
         let cached_module = if weird {
             None
         } else {
             let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
-            sys_modules.get_item(module.clone(), self).ok()
+            sys_modules.get_item(module, self).ok()
         };
+
         match cached_module {
             Some(module) => Ok(module),
             None => {
@@ -478,7 +477,7 @@ impl VirtualMachine {
                 self.invoke(
                     &import_func,
                     vec![
-                        module,
+                        self.new_str(module.to_owned()),
                         globals,
                         locals,
                         from_list.clone(),
@@ -936,7 +935,7 @@ impl VirtualMachine {
         }
 
         let attr = if let Some(ref dict) = obj.dict {
-            dict.get_item_option(name_str.clone(), self)?
+            dict.get_item_option(&name_str.value, self)?
         } else {
             None
         };
