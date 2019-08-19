@@ -3,6 +3,7 @@ use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::time::Duration;
 
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::unistd::sethostname;
@@ -12,11 +13,13 @@ use gethostname::gethostname;
 use byteorder::{BigEndian, ByteOrder};
 
 use crate::function::PyFuncArgs;
+use crate::obj::objbool::boolval;
 use crate::obj::objbytes::PyBytesRef;
+use crate::obj::objfloat::try_float;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
-use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use crate::obj::objtype::PyClassRef;
@@ -152,6 +155,7 @@ pub struct Socket {
     address_family: AddressFamily,
     socket_kind: SocketKind,
     con: RefCell<Option<Connection>>,
+    timeout: RefCell<Option<Duration>>,
 }
 
 impl PyValue for Socket {
@@ -166,6 +170,7 @@ impl Socket {
             address_family,
             socket_kind,
             con: RefCell::new(None),
+            timeout: RefCell::new(None),
         }
     }
 }
@@ -193,7 +198,7 @@ impl SocketRef {
     fn connect(self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
         let address_string = address.get_address_string();
 
-        match self.socket_kind {
+        let res = match self.socket_kind {
             SocketKind::Stream => match TcpStream::connect(address_string) {
                 Ok(stream) => {
                     self.con.borrow_mut().replace(Connection::TcpStream(stream));
@@ -211,13 +216,15 @@ impl SocketRef {
                     Err(vm.new_type_error("".to_string()))
                 }
             }
-        }
+        };
+        self.internal_setblocking(self.internal_getblocking());
+        return res;
     }
 
     fn bind(self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
         let address_string = address.get_address_string();
 
-        match self.socket_kind {
+        let res = match self.socket_kind {
             SocketKind::Stream => match TcpListener::bind(address_string) {
                 Ok(stream) => {
                     self.con
@@ -234,7 +241,9 @@ impl SocketRef {
                 }
                 Err(s) => Err(vm.new_os_error(s.to_string())),
             },
-        }
+        };
+        self.internal_setblocking(self.internal_getblocking());
+        return res;
     }
 
     fn listen(self, _num: PyIntRef, _vm: &VirtualMachine) {}
@@ -254,6 +263,7 @@ impl SocketRef {
             address_family: self.address_family,
             socket_kind: self.socket_kind,
             con: RefCell::new(Some(Connection::TcpStream(tcp_stream))),
+            timeout: RefCell::new(None),
         }
         .into_ref(vm);
 
@@ -352,6 +362,85 @@ impl SocketRef {
             Err(s) => Err(vm.new_os_error(s.to_string())),
         }
     }
+
+    fn gettimeout(self, vm: &VirtualMachine) -> PyResult {
+        match self.timeout.borrow().as_ref() {
+            Some(duration) => Ok(vm.ctx.new_float(duration.as_secs() as f64)),
+            None => Ok(vm.get_none()),
+        }
+    }
+
+    fn setblocking(self, block: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        match boolval(vm, block.clone()) {
+            Ok(value) => {
+                if value {
+                    self.timeout.replace(None);
+                } else {
+                    self.timeout.borrow_mut().replace(Duration::from_secs(0));
+                }
+                if self.internal_setblocking(value) {
+                    Ok(())
+                } else {
+                    Err(vm.new_os_error("Set socket blocking error".to_string()))
+                }
+            }
+            Err(_) => Err(vm.new_type_error(format!(
+                "an integer os required (got type {})",
+                &block.class().name.clone()
+            ))),
+        }
+    }
+
+    fn internal_setblocking(&self, block: bool) -> bool {
+        match self.con.borrow_mut().as_mut() {
+            Some(conn) => match conn {
+                Connection::TcpStream(con) => con.set_nonblocking(!block).is_ok(),
+                Connection::TcpListener(con) => con.set_nonblocking(!block).is_ok(),
+                Connection::UdpSocket(con) => con.set_nonblocking(!block).is_ok(),
+            },
+            None => true,
+        }
+    }
+
+    fn getblocking(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bool(self.internal_getblocking()))
+    }
+
+    fn internal_getblocking(&self) -> bool {
+        match self.timeout.borrow().as_ref() {
+            Some(duration) => {
+                if duration.as_secs() != 0 {
+                    true
+                } else {
+                    false
+                }
+            }
+            None => true,
+        }
+    }
+
+    fn settimeout(self, timeout: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if vm.is_none(&timeout) {
+            return self.setblocking(vm.new_bool(true), vm);
+        }
+        match try_float(&timeout, vm) {
+            Ok(option_timeout) => {
+                let timeout = option_timeout.unwrap_or(0.0);
+                self.timeout
+                    .borrow_mut()
+                    .replace(Duration::from_secs(timeout as u64));
+
+                let block = timeout <= 0.0;
+
+                self.internal_setblocking(block);
+                Ok(())
+            }
+            Err(_) => Err(vm.new_type_error(format!(
+                "an integer required (got {} object)",
+                &timeout.class().name.clone()
+            ))),
+        }
+    }
 }
 
 struct Address {
@@ -448,6 +537,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "sendto" => ctx.new_rustfunc(SocketRef::sendto),
         "recvfrom" => ctx.new_rustfunc(SocketRef::recvfrom),
         "fileno" => ctx.new_rustfunc(SocketRef::fileno),
+        "gettimeout" => ctx.new_rustfunc(SocketRef::gettimeout),
+        "settimeout" => ctx.new_rustfunc(SocketRef::settimeout),
+        "getblocking" => ctx.new_rustfunc(SocketRef::getblocking),
+        "setblocking" => ctx.new_rustfunc(SocketRef::setblocking),
     });
 
     let module = py_module!(vm, "socket", {
