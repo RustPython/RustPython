@@ -365,8 +365,8 @@ ForStatement: ast::Statement = {
 };
 
 TryStatement: ast::Statement = {
-    <location:@L> "try" ":" <body:Suite> <handlers:ExceptionHandlers?> <finally:("finally" ":" Suite)?> => {
-        let (handlers, orelse) = handlers.unwrap_or_default();
+    <location:@L> "try" ":" <body:Suite> <handlers:ExceptClause+> <else_suite:("else" ":" Suite)?> <finally:("finally" ":" Suite)?> => {
+        let orelse = else_suite.map(|s| s.2);
         let finalbody = finally.map(|s| s.2);
         ast::Statement {
             location,
@@ -378,12 +378,19 @@ TryStatement: ast::Statement = {
             },
         }
     },
-};
-
-ExceptionHandlers: (Vec<ast::ExceptHandler>, Option<ast::Suite>) = {
-    <handlers:ExceptClause+> <else_suite:("else" ":" Suite)?> => {
-        let orelse = else_suite.map(|s| s.2);
-        (handlers, orelse)
+    <location:@L> "try" ":" <body:Suite> <finally:("finally" ":" Suite)> => {
+        let handlers = vec![];
+        let orelse = None;
+        let finalbody = Some(finally.2);
+        ast::Statement {
+            location,
+            node: ast::StatementType::Try {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            },
+        }
     },
 };
 

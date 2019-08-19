@@ -240,10 +240,19 @@ except NameError as ex2:
     pass
 
 
+# the else clause requires at least one except clause:
 with assertRaises(SyntaxError):
-    exec("""if True:
-    try:
-        pass
-    else:
-        pass
+    exec("""
+try:
+    pass
+else:
+    pass
     """)
+
+
+# Try requires at least except or finally (or both)
+with assertRaises(SyntaxError):
+    exec("""
+try:
+    pass
+""")
