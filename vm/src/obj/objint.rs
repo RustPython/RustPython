@@ -771,8 +771,7 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
 }
 
 fn str_to_int(vm: &VirtualMachine, literal: &str, mut base: u32) -> PyResult<BigInt> {
-    let mut buf = literal.chars().filter(|&c| c != '_').collect::<String>();
-
+    let mut buf = validate_literal(vm, literal, base)?;
     let is_signed = buf.starts_with('+') || buf.starts_with('-');
     let radix_range = if is_signed { 1..3 } else { 0..2 };
     let radix_candidate = buf.get(radix_range.clone());
@@ -785,16 +784,44 @@ fn str_to_int(vm: &VirtualMachine, literal: &str, mut base: u32) -> PyResult<Big
             } else {
                 base = matched_radix;
             }
+
             buf.drain(radix_range);
         }
     }
 
-    // base still not found, use default
+    // base still not found, try to use default
     if base == 0 {
+        if buf.starts_with('0') {
+            return Err(invalid_literal(vm, literal, base));
+        }
+
         base = 10;
     }
 
     BigInt::from_str_radix(&buf, base).map_err(|_err| invalid_literal(vm, literal, base))
+}
+
+fn validate_literal(vm: &VirtualMachine, literal: &str, base: u32) -> PyResult<String> {
+    if literal.starts_with('_') || literal.ends_with('_') {
+        return Err(invalid_literal(vm, literal, base));
+    }
+
+    let mut buf = String::with_capacity(literal.len());
+    let mut last_tok = None;
+    for c in literal.chars() {
+        if !(c.is_ascii_alphanumeric() || c == '_' || c == '+' || c == '-') {
+            return Err(invalid_literal(vm, literal, base));
+        }
+
+        if c == '_' && Some(c) == last_tok {
+            return Err(invalid_literal(vm, literal, base));
+        }
+
+        last_tok = Some(c);
+        buf.push(c);
+    }
+
+    Ok(buf)
 }
 
 fn detect_base(literal: &str) -> Option<u32> {
