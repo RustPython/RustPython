@@ -124,6 +124,12 @@ macro_rules! def_array_enum {
                     $(ArrayContentType::$n(v) => v.reverse(),)*
                 }
             }
+
+            fn getitem(&self, i: usize, vm: &VirtualMachine) -> Option<PyResult> {
+                match self {
+                    $(ArrayContentType::$n(v) => v.get(i).map(|x| x.into_pyobject(vm)),)*
+                }
+            }
         }
     };
 }
@@ -279,6 +285,15 @@ impl PyArray {
     #[pymethod]
     fn reverse(&self, _vm: &VirtualMachine) {
         self.array.borrow_mut().reverse()
+    }
+
+    #[pymethod(name = "__getitem__")]
+    fn getitem(&self, i: isize, vm: &VirtualMachine) -> PyResult {
+        let i = self.idx(i, vm)?;
+        self.array
+            .borrow()
+            .getitem(i, vm)
+            .unwrap_or_else(|| Err(vm.new_index_error("array index out of range".to_owned())))
     }
 }
 
