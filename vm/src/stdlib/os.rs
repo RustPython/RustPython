@@ -4,7 +4,6 @@ use std::ffi::CStr;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Error, ErrorKind, Read, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
@@ -871,10 +870,12 @@ fn os_chmod(
     follow_symlinks: FollowSymlinks,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
+    use std::os::unix::fs::PermissionsExt;
     let path = make_path(vm, path, &dir_fd);
-    let metadata = match follow_symlinks.follow_symlinks {
-        true => fs::metadata(&path.value),
-        false => fs::symlink_metadata(&path.value),
+    let metadata = if follow_symlinks.follow_symlinks {
+        fs::metadata(&path.value)
+    } else {
+        fs::symlink_metadata(&path.value)
     };
     let meta = metadata.map_err(|err| convert_io_error(vm, err))?;
     let mut permissions = meta.permissions();
