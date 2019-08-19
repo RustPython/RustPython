@@ -68,6 +68,7 @@ pub mod scope;
 pub mod stdlib;
 mod sysmodule;
 mod traceback;
+pub mod types;
 pub mod util;
 mod version;
 mod vm;

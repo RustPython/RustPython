@@ -198,10 +198,7 @@ impl Frame {
                 ref symbols,
                 ref level,
             } => self.import(vm, name, symbols, *level),
-            bytecode::Instruction::ImportStar {
-                ref name,
-                ref level,
-            } => self.import_star(vm, name, *level),
+            bytecode::Instruction::ImportStar => self.import_star(vm),
             bytecode::Instruction::ImportFrom { ref name } => self.import_from(vm, name),
             bytecode::Instruction::LoadName {
                 ref name,
@@ -288,12 +285,12 @@ impl Frame {
                         let dict: PyDictRef =
                             obj.downcast().expect("Need a dictionary to build a map.");
                         for (key, value) in dict {
-                            map_obj.set_item(key, value, vm).unwrap();
+                            map_obj.set_item(&key, value, vm).unwrap();
                         }
                     }
                 } else {
                     for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
-                        map_obj.set_item(key, value, vm).unwrap();
+                        map_obj.set_item(&key, value, vm).unwrap();
                     }
                 }
 
@@ -488,7 +485,7 @@ impl Frame {
 
                 // Call function:
                 let func_ref = self.pop_value();
-                let value = vm.invoke(func_ref, args)?;
+                let value = vm.invoke(&func_ref, args)?;
                 self.push_value(value);
                 Ok(None)
             }
@@ -599,7 +596,7 @@ impl Frame {
                 if !expr.is(&vm.get_none()) {
                     let repr = vm.to_repr(&expr)?;
                     // TODO: implement sys.displayhook
-                    if let Ok(print) = vm.get_attribute(vm.builtins.clone(), "print") {
+                    if let Ok(ref print) = vm.get_attribute(vm.builtins.clone(), "print") {
                         vm.invoke(print, vec![repr.into_object()])?;
                     }
                 }
@@ -740,25 +737,23 @@ impl Frame {
         // Load attribute, and transform any error into import error.
         let obj = vm
             .get_attribute(module, name)
-            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name)));
-        self.push_value(obj?);
+            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name)))?;
+        self.push_value(obj);
         Ok(None)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn import_star(
-        &self,
-        vm: &VirtualMachine,
-        module: &Option<String>,
-        level: usize,
-    ) -> FrameResult {
-        let module = module.clone().unwrap_or_default();
-        let module = vm.import(&module, &vm.ctx.new_tuple(vec![]), level)?;
+    fn import_star(&self, vm: &VirtualMachine) -> FrameResult {
+        let module = self.pop_value();
 
         // Grab all the names from the module and put them in the context
         if let Some(dict) = &module.dict {
             for (k, v) in dict {
-                self.scope.store_name(&vm, &objstr::get_value(&k), v);
+                let k = vm.to_str(&k)?;
+                let k = k.as_str();
+                if !k.starts_with('_') {
+                    self.scope.store_name(&vm, k, v);
+                }
             }
         }
         Ok(None)
@@ -951,14 +946,14 @@ impl Frame {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        obj.set_item(idx, value, vm)?;
+        obj.set_item(&idx, value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        obj.del_item(idx, vm)?;
+        obj.del_item(&idx, vm)?;
         Ok(None)
     }
 
@@ -1067,7 +1062,7 @@ impl Frame {
                 bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
                 bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
                 // TODO: Subscript should probably have its own op
-                bytecode::BinaryOperator::Subscript => a_ref.get_item(b_ref, vm),
+                bytecode::BinaryOperator::Subscript => a_ref.get_item(&b_ref, vm),
                 bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
                 bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
                 bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),

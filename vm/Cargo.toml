@@ -29,6 +29,7 @@ num-bigint = { version = "0.2", features = ["serde"] }
 num-traits = "=0.2.6"
 num-integer = "=0.1.39"
 num-rational = "0.2.1"
+num-iter = "0.1"
 rand = "0.5"
 log = "0.3"
 rustpython-derive = {path = "../derive", version = "0.1.0"}
@@ -78,3 +79,7 @@ flate2 = { version = "1.0", features = ["zlib"], default-features = false }
 libz-sys = "1.0.25"
 gethostname = "0.2.0"
 subprocess = "0.1.18"
+num_cpus = "1.0"
+
+[target."cfg(windows)".dependencies]
+kernel32-sys = "0.2.2"

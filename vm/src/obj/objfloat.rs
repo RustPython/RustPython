@@ -440,25 +440,38 @@ impl PyFloat {
             OptionalArg::Missing => None,
             OptionalArg::Present(ref value) => {
                 if !vm.get_none().is(value) {
-                    let ndigits = if objtype::isinstance(value, &vm.ctx.int_type()) {
-                        objint::get_value(value)
-                    } else {
+                    if !objtype::isinstance(value, &vm.ctx.int_type()) {
                         return Err(vm.new_type_error(format!(
-                            "TypeError: '{}' object cannot be interpreted as an integer",
+                            "'{}' object cannot be interpreted as an integer",
                             value.class().name
                         )));
                     };
-                    if ndigits.is_zero() {
-                        None
-                    } else {
-                        Some(ndigits)
-                    }
+                    // Only accept int type ndigits
+                    let ndigits = objint::get_value(value);
+                    Some(ndigits)
                 } else {
                     None
                 }
             }
         };
-        if ndigits.is_none() {
+
+        if let Some(ndigits) = ndigits {
+            if ndigits.is_zero() {
+                let fract = self.value.fract();
+                let value = if (fract.abs() - 0.5).abs() < std::f64::EPSILON {
+                    if self.value.trunc() % 2.0 == 0.0 {
+                        self.value - fract
+                    } else {
+                        self.value + fract
+                    }
+                } else {
+                    self.value.round()
+                };
+                Ok(vm.ctx.new_float(value))
+            } else {
+                Ok(vm.ctx.not_implemented())
+            }
+        } else {
             let fract = self.value.fract();
             let value = if (fract.abs() - 0.5).abs() < std::f64::EPSILON {
                 if self.value.trunc() % 2.0 == 0.0 {
@@ -471,8 +484,6 @@ impl PyFloat {
             };
             let int = try_to_bigint(value, vm)?;
             Ok(vm.ctx.new_int(int))
-        } else {
-            Ok(vm.ctx.not_implemented())
         }
     }
 
@@ -612,12 +623,12 @@ pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
                 obj.class().name
             )
         })?;
-        let result = vm.invoke(method, vec![])?;
+        let result = vm.invoke(&method, vec![])?;
         Ok(get_value(&result))
     }
 }
 
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
-    PyFloat::extend_class(context, &context.float_type);
+    PyFloat::extend_class(context, &context.types.float_type);
 }

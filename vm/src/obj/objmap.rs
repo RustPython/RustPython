@@ -51,7 +51,7 @@ impl PyMap {
             .collect::<Result<Vec<_>, _>>()?;
 
         // the mapper itself can raise StopIteration which does stop the map iteration
-        vm.invoke(self.mapper.clone(), next_objs)
+        vm.invoke(&self.mapper, next_objs)
     }
 
     #[pymethod(name = "__iter__")]
@@ -61,8 +61,8 @@ impl PyMap {
 }
 
 pub fn init(context: &PyContext) {
-    PyMap::extend_class(context, &context.map_type);
-    extend_class!(context, &context.map_type, {
+    PyMap::extend_class(context, &context.types.map_type);
+    extend_class!(context, &context.types.map_type, {
         "__new__" => context.new_rustfunc(map_new),
     });
 }

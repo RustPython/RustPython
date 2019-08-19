@@ -28,6 +28,7 @@ use crate::vm::VirtualMachine;
 
 use super::objbytes::PyBytes;
 use super::objdict::PyDict;
+use super::objfloat;
 use super::objint::{self, PyInt};
 use super::objiter;
 use super::objnone::PyNone;
@@ -514,8 +515,13 @@ impl PyString {
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let format_string_text = &self.value;
         let format_string = CFormatString::from_str(format_string_text)
-            .map_err(|err| vm.new_value_error(format!("{}", err)))?;
+            .map_err(|err| vm.new_value_error(err.to_string()))?;
         do_cformat(vm, format_string, values.clone())
+    }
+
+    #[pymethod(name = "__rmod__")]
+    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
     }
 
     #[pymethod]
@@ -990,7 +996,7 @@ impl PyString {
 
         let mut translated = String::new();
         for c in self.value.chars() {
-            match table.get_item(c as u32, vm) {
+            match table.get_item(&(c as u32).into_pyobject(vm)?, vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyString>() {
                         translated.push_str(&text.value);
@@ -1030,11 +1036,11 @@ impl PyString {
                 Ok(from_str) => {
                     if to_str.len(vm) == from_str.len(vm) {
                         for (c1, c2) in from_str.value.chars().zip(to_str.value.chars()) {
-                            new_dict.set_item(c1 as u32, vm.new_int(c2 as u32), vm)?;
+                            new_dict.set_item(&vm.new_int(c1 as u32), vm.new_int(c2 as u32), vm)?;
                         }
                         if let OptionalArg::Present(none_str) = none_str {
                             for c in none_str.value.chars() {
-                                new_dict.set_item(c as u32, vm.get_none(), vm)?;
+                                new_dict.set_item(&vm.new_int(c as u32), vm.get_none(), vm)?;
                             }
                         }
                         new_dict.into_pyobject(vm)
@@ -1055,11 +1061,15 @@ impl PyString {
                 Ok(dict) => {
                     for (key, val) in dict {
                         if let Some(num) = key.payload::<PyInt>() {
-                            new_dict.set_item(num.as_bigint().to_i32(), val, vm)?;
+                            new_dict.set_item(
+                                &num.as_bigint().to_i32().into_pyobject(vm)?,
+                                val,
+                                vm,
+                            )?;
                         } else if let Some(string) = key.payload::<PyString>() {
                             if string.len(vm) == 1 {
                                 let num_value = string.value.chars().next().unwrap() as u32;
-                                new_dict.set_item(num_value, val, vm)?;
+                                new_dict.set_item(&num_value.into_pyobject(vm)?, val, vm)?;
                             } else {
                                 return Err(vm.new_value_error(
                                     "string keys in translate table must be of length 1".to_owned(),
@@ -1145,10 +1155,10 @@ impl IntoPyObject for &String {
 }
 
 pub fn init(ctx: &PyContext) {
-    PyString::extend_class(ctx, &ctx.str_type);
+    PyString::extend_class(ctx, &ctx.types.str_type);
 
-    PyStringIterator::extend_class(ctx, &ctx.striterator_type);
-    PyStringReverseIterator::extend_class(ctx, &ctx.strreverseiterator_type);
+    PyStringIterator::extend_class(ctx, &ctx.types.striterator_type);
+    PyStringReverseIterator::extend_class(ctx, &ctx.types.strreverseiterator_type);
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -1220,6 +1230,21 @@ fn do_cformat_specifier(
             }
             Ok(format_spec.format_number(objint::get_value(&obj)))
         }
+        CFormatType::Float(_) => {
+            if objtype::isinstance(&obj, &vm.ctx.float_type()) {
+                Ok(format_spec.format_float(objfloat::get_value(&obj)))
+            } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
+                Ok(format_spec.format_float(objint::get_value(&obj).to_f64().unwrap()))
+            } else {
+                let required_type_string = "an floating point or integer";
+                Err(vm.new_type_error(format!(
+                    "%{} format: {} is required, not {}",
+                    format_spec.format_char,
+                    required_type_string,
+                    obj.class()
+                )))
+            }
+        }
         CFormatType::Character => {
             let char_string = {
                 if objtype::isinstance(&obj, &vm.ctx.int_type()) {
@@ -1246,10 +1271,6 @@ fn do_cformat_specifier(
             format_spec.precision = Some(CFormatQuantity::Amount(1));
             Ok(format_spec.format_string(char_string))
         }
-        _ => Err(vm.new_not_implemented_error(format!(
-            "Not yet implemented for %{}",
-            format_spec.format_char
-        ))),
     }
 }
 
@@ -1312,9 +1333,9 @@ fn do_cformat(
     } else {
         // check for only literal parts, in which case only dict or empty tuple is allowed
         if num_specifiers == 0
-            && !(objtype::isinstance(&values_obj, &vm.ctx.tuple_type)
+            && !(objtype::isinstance(&values_obj, &vm.ctx.types.tuple_type)
                 && objtuple::get_value(&values_obj).is_empty())
-            && !objtype::isinstance(&values_obj, &vm.ctx.dict_type)
+            && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
         {
             return Err(vm.new_type_error(
                 "not all arguments converted during string formatting".to_string(),
@@ -1380,7 +1401,7 @@ fn do_cformat(
             .into_iter()
             .nth(tuple_index)
             .is_some())
-        && !objtype::isinstance(&values_obj, &vm.ctx.dict_type)
+        && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
     {
         return Err(
             vm.new_type_error("not all arguments converted during string formatting".to_string())
@@ -1442,13 +1463,15 @@ fn perform_format(
 }
 
 impl PySliceableSequence for String {
-    fn do_slice(&self, range: Range<usize>) -> Self {
+    type Sliced = String;
+
+    fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
         to_graphemes(self)
             .get(range)
             .map_or(String::default(), |c| c.join(""))
     }
 
-    fn do_slice_reverse(&self, range: Range<usize>) -> Self {
+    fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
         to_graphemes(self)
             .get_mut(range)
             .map_or(String::default(), |slice| {
@@ -1457,7 +1480,7 @@ impl PySliceableSequence for String {
             })
     }
 
-    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self {
+    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
         if let Some(s) = to_graphemes(self).get(range) {
             return s
                 .iter()
@@ -1469,7 +1492,7 @@ impl PySliceableSequence for String {
         String::default()
     }
 
-    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self {
+    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
         if let Some(s) = to_graphemes(self).get(range) {
             return s
                 .iter()
@@ -1482,7 +1505,7 @@ impl PySliceableSequence for String {
         String::default()
     }
 
-    fn empty() -> Self {
+    fn empty() -> Self::Sliced {
         String::default()
     }
 

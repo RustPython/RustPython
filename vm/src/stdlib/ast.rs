@@ -252,7 +252,7 @@ fn optional_statements_to_ast(
     let statements = if let Some(statements) = statements {
         statements_to_ast(vm, statements)?.into_object()
     } else {
-        vm.ctx.none()
+        vm.ctx.new_list(vec![])
     };
     Ok(statements)
 }
@@ -281,6 +281,17 @@ fn make_string_list(vm: &VirtualMachine, names: &[String]) -> PyObjectRef {
             .map(|x| vm.ctx.new_str(x.to_string()))
             .collect(),
     )
+}
+
+fn optional_expressions_to_ast(
+    vm: &VirtualMachine,
+    expressions: &[Option<ast::Expression>],
+) -> PyResult<PyListRef> {
+    let py_expression_nodes: PyResult<_> = expressions
+        .iter()
+        .map(|expression| Ok(optional_expression_to_ast(vm, expression)?))
+        .collect();
+    Ok(vm.ctx.new_list(py_expression_nodes?).downcast().unwrap())
 }
 
 fn optional_expression_to_ast(vm: &VirtualMachine, value: &Option<ast::Expression>) -> PyResult {
@@ -526,8 +537,23 @@ fn operator_string(op: &ast::Operator) -> String {
 }
 
 fn parameters_to_ast(vm: &VirtualMachine, args: &ast::Parameters) -> PyResult<AstNodeRef> {
-    let args = map_ast(parameter_to_ast, vm, &args.args)?;
-    Ok(node!(vm, arguments, { args => args }))
+    Ok(node!(vm, arguments, {
+        args => map_ast(parameter_to_ast, vm, &args.args)?,
+        vararg => vararg_to_ast(vm, &args.vararg)?,
+        kwonlyargs => map_ast(parameter_to_ast, vm, &args.kwonlyargs)?,
+        kw_defaults => optional_expressions_to_ast(vm, &args.kw_defaults)?,
+        kwarg => vararg_to_ast(vm, &args.kwarg)?,
+        defaults => expressions_to_ast(vm, &args.defaults)?
+    }))
+}
+
+fn vararg_to_ast(vm: &VirtualMachine, vararg: &ast::Varargs) -> PyResult {
+    let py_node = match vararg {
+        ast::Varargs::None => vm.get_none(),
+        ast::Varargs::Unnamed => vm.get_none(),
+        ast::Varargs::Named(parameter) => parameter_to_ast(vm, parameter)?.into_object(),
+    };
+    Ok(py_node)
 }
 
 fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult<AstNodeRef> {
@@ -537,10 +563,15 @@ fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult
         vm.ctx.none()
     };
 
-    Ok(node!(vm, arg, {
+    let py_node = node!(vm, arg, {
         arg => vm.ctx.new_str(parameter.arg.to_string()),
         annotation => py_annotation
-    }))
+    });
+
+    let lineno = vm.ctx.new_int(parameter.location.row());
+    vm.set_attr(py_node.as_object(), "lineno", lineno)?;
+
+    Ok(py_node)
 }
 
 fn optional_string_to_py_obj(vm: &VirtualMachine, name: &Option<String>) -> PyObjectRef {

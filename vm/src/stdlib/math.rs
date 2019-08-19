@@ -6,9 +6,14 @@
 use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
 
+use num_bigint::BigInt;
+use num_traits::cast::ToPrimitive;
+use num_traits::{One, Zero};
+
 use crate::function::PyFuncArgs;
+use crate::obj::objfloat::PyFloatRef;
 use crate::obj::objint::PyIntRef;
-use crate::obj::{objfloat, objtype};
+use crate::obj::{objfloat, objint, objtype};
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -181,7 +186,7 @@ fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -
             func_name,
         )
     })?;
-    vm.invoke(method, vec![])
+    vm.invoke(&method, vec![])
 }
 
 fn math_trunc(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -191,7 +196,7 @@ fn math_trunc(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn math_ceil(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
-    if objtype::isinstance(value, &vm.ctx.float_type) {
+    if objtype::isinstance(value, &vm.ctx.float_type()) {
         let v = objfloat::get_value(value);
         Ok(vm.ctx.new_float(v.ceil()))
     } else {
@@ -201,7 +206,7 @@ fn math_ceil(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn math_floor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
-    if objtype::isinstance(value, &vm.ctx.float_type) {
+    if objtype::isinstance(value, &vm.ctx.float_type()) {
         let v = objfloat::get_value(value);
         Ok(vm.ctx.new_float(v.floor()))
     } else {
@@ -226,9 +231,39 @@ fn math_frexp(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     )
 }
 
+fn math_ldexp(value: PyFloatRef, i: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    Ok(vm
+        .ctx
+        .new_float(value.to_f64() * (2_f64).powf(i.as_bigint().to_f64().unwrap())))
+}
+
 fn math_gcd(a: PyIntRef, b: PyIntRef, vm: &VirtualMachine) -> PyResult {
     use num_integer::Integer;
     Ok(vm.new_int(a.as_bigint().gcd(b.as_bigint())))
+}
+
+fn math_factorial(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(value, None)]);
+    let value = objint::get_value(value);
+    if *value < BigInt::zero() {
+        return Err(vm.new_value_error("factorial() not defined for negative values".to_string()));
+    } else if *value <= BigInt::one() {
+        return Ok(vm.ctx.new_int(BigInt::from(1u64)));
+    }
+    let ret: BigInt = num_iter::range_inclusive(BigInt::from(1u64), value.clone()).product();
+    Ok(vm.ctx.new_int(ret))
+}
+
+fn math_modf(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
+
+    let fract = x.fract();
+    let int = x.trunc();
+
+    Ok(vm
+        .ctx
+        .new_tuple(vec![vm.ctx.new_float(fract), vm.ctx.new_float(int)]))
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -279,6 +314,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "lgamma" => ctx.new_rustfunc(math_lgamma),
 
         "frexp" => ctx.new_rustfunc(math_frexp),
+        "ldexp" => ctx.new_rustfunc(math_ldexp),
+        "modf" => ctx.new_rustfunc(math_modf),
 
         // Rounding functions:
         "trunc" => ctx.new_rustfunc(math_trunc),
@@ -287,6 +324,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
         // Gcd function
         "gcd" => ctx.new_rustfunc(math_gcd),
+
+        // Factorial function
+        "factorial" => ctx.new_rustfunc(math_factorial),
 
         // Constants:
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...

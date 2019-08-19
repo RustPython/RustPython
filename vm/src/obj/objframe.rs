@@ -9,7 +9,7 @@ use crate::pyobject::{PyContext, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
-    extend_class!(context, &context.frame_type, {
+    extend_class!(context, &context.types.frame_type, {
         "__new__" => context.new_rustfunc(FrameRef::new),
         "__repr__" => context.new_rustfunc(FrameRef::repr),
         "f_locals" => context.new_property(FrameRef::flocals),

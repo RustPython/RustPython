@@ -26,6 +26,16 @@ _CASE_INSENSITIVE_PLATFORMS =  (_CASE_INSENSITIVE_PLATFORMS_BYTES_KEY
                                 + _CASE_INSENSITIVE_PLATFORMS_STR_KEY)
 
 
+def _w_long(x):
+    """Convert a 32-bit integer to little-endian."""
+    return (int(x) & 0xFFFFFFFF).to_bytes(4, 'little')
+
+
+def _r_long(int_bytes):
+    """Convert 4 bytes in little-endian to an integer."""
+    return int.from_bytes(int_bytes, 'little')
+
+
 def _make_relax_case():
     if sys.platform.startswith(_CASE_INSENSITIVE_PLATFORMS):
         if sys.platform.startswith(_CASE_INSENSITIVE_PLATFORMS_STR_KEY):

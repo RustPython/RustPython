@@ -119,6 +119,12 @@ with assertRaises(OSError):
 with assertRaises(OSError):
 	socket.inet_aton("test")
 
+with assertRaises(OverflowError):
+	socket.htonl(-1)
+
+assert socket.htonl(0)==0
+assert socket.htonl(10)==167772160
+
 assert socket.inet_aton("127.0.0.1")==b"\x7f\x00\x00\x01"
 assert socket.inet_aton("255.255.255.255")==b"\xff\xff\xff\xff"
 
@@ -129,3 +135,5 @@ assert socket.inet_ntoa(b"\xff\xff\xff\xff")=="255.255.255.255"
 with assertRaises(OSError):
 	socket.inet_ntoa(b"\xff\xff\xff\xff\xff")
 
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+	pass

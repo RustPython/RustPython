@@ -312,10 +312,19 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     }
 
     let scope = vm.new_scope_with_builtins();
-    let main_module = vm.ctx.new_module("__main__", scope.globals.clone());
+    let main_module = vm.new_module("__main__", scope.globals.clone());
 
     vm.get_attribute(vm.sys_module.clone(), "modules")?
         .set_item("__main__", main_module, vm)?;
+
+    let site_result = vm.import("site", &vm.ctx.new_tuple(vec![]), 0);
+
+    if site_result.is_err() {
+        warn!(
+            "Failed to import site, consider adding the Lib directory to your RUSTPYTHONPATH \
+             environment variable",
+        );
+    }
 
     // Figure out if a -c option was given:
     if let Some(command) = matches.value_of("c") {
@@ -333,7 +342,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
 
 fn _run_string(vm: &VirtualMachine, scope: Scope, source: &str, source_path: String) -> PyResult {
     let code_obj = vm
-        .compile(source, &compile::Mode::Exec, source_path.clone())
+        .compile(source, compile::Mode::Exec, source_path.clone())
         .map_err(|err| vm.new_syntax_error(&err))?;
     // trace!("Code object: {:?}", code_obj.borrow());
     scope
@@ -359,7 +368,7 @@ fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
     let runpy = vm.import("runpy", &vm.ctx.new_tuple(vec![]), 0)?;
     let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
-    vm.invoke(run_module_as_main, vec![vm.new_str(module.to_owned())])?;
+    vm.invoke(&run_module_as_main, vec![vm.new_str(module.to_owned())])?;
     Ok(())
 }
 
@@ -426,16 +435,16 @@ fn test_run_script() {
 }
 
 fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), CompileError> {
-    match vm.compile(source, &compile::Mode::Single, "<stdin>".to_string()) {
+    match vm.compile(source, compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => {
             match vm.run_code_obj(code, scope.clone()) {
                 Ok(value) => {
                     // Save non-None values as "_"
 
-                    use rustpython_vm::pyobject::{IdProtocol, IntoPyObject};
+                    use rustpython_vm::pyobject::IdProtocol;
 
                     if !value.is(&vm.get_none()) {
-                        let key = objstr::PyString::from("_").into_pyobject(vm);
+                        let key = "_";
                         scope.globals.set_item(key, value, vm).unwrap();
                     }
                 }

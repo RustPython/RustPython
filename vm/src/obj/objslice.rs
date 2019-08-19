@@ -114,7 +114,7 @@ fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<Big
 }
 
 pub fn init(context: &PyContext) {
-    let slice_type = &context.slice_type;
+    let slice_type = &context.types.slice_type;
 
     extend_class!(context, slice_type, {
         "__new__" => context.new_rustfunc(slice_new),

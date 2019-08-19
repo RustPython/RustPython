@@ -1,3 +1,4 @@
+use num_cpus;
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::fs::File;
@@ -219,6 +220,121 @@ fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
     }
 }
 
+// Flags for os_access
+bitflags! {
+    pub struct AccessFlags: u8{
+        const F_OK = 0;
+        const R_OK = 4;
+        const W_OK = 2;
+        const X_OK = 1;
+    }
+}
+
+#[cfg(unix)]
+struct Permissions {
+    is_readable: bool,
+    is_writable: bool,
+    is_executable: bool,
+}
+
+#[cfg(unix)]
+fn get_permissions(mode: u32) -> Permissions {
+    Permissions {
+        is_readable: mode & 4 != 0,
+        is_writable: mode & 2 != 0,
+        is_executable: mode & 1 != 0,
+    }
+}
+
+#[cfg(unix)]
+fn get_right_permission(
+    mode: u32,
+    file_owner: Uid,
+    file_group: Gid,
+) -> Result<Permissions, nix::Error> {
+    let owner_mode = (mode & 0o700) >> 6;
+    let owner_permissions = get_permissions(owner_mode);
+
+    let group_mode = (mode & 0o070) >> 3;
+    let group_permissions = get_permissions(group_mode);
+
+    let others_mode = mode & 0o007;
+    let others_permissions = get_permissions(others_mode);
+
+    let user_id = nix::unistd::getuid();
+    let groups_ids = getgroups()?;
+
+    if file_owner == user_id {
+        Ok(owner_permissions)
+    } else if groups_ids.contains(&file_group) {
+        Ok(group_permissions)
+    } else {
+        Ok(others_permissions)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn getgroups() -> nix::Result<Vec<Gid>> {
+    use libc::{c_int, gid_t};
+    use std::ptr;
+    let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
+    let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
+    loop {
+        let ret = unsafe {
+            libc::getgroups(
+                groups.capacity() as c_int,
+                groups.as_mut_ptr() as *mut gid_t,
+            )
+        };
+
+        return Errno::result(ret).map(|s| {
+            unsafe { groups.set_len(s as usize) };
+            groups
+        });
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn getgroups() -> nix::Result<Vec<Gid>> {
+    nix::unistd::getgroups()
+}
+
+#[cfg(unix)]
+fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+    use std::os::unix::fs::MetadataExt;
+
+    let path = path.as_str();
+
+    let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
+        vm.new_value_error(
+            "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK"
+                .to_string(),
+        )
+    })?;
+
+    let metadata = fs::metadata(path);
+
+    // if it's only checking for F_OK
+    if flags == AccessFlags::F_OK {
+        return Ok(metadata.is_ok());
+    }
+
+    let metadata = metadata.map_err(|err| convert_io_error(vm, err))?;
+
+    let user_id = metadata.uid();
+    let group_id = metadata.gid();
+    let mode = metadata.mode();
+
+    let perm = get_right_permission(mode, Uid::from_raw(user_id), Gid::from_raw(group_id))
+        .map_err(|err| convert_nix_error(vm, err))?;
+
+    let r_ok = !flags.contains(AccessFlags::R_OK) || perm.is_readable;
+    let w_ok = !flags.contains(AccessFlags::W_OK) || perm.is_writable;
+    let x_ok = !flags.contains(AccessFlags::X_OK) || perm.is_executable;
+
+    Ok(r_ok && w_ok && x_ok)
+}
+
 fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -312,6 +428,15 @@ fn _os_environ(vm: &VirtualMachine) -> PyDictRef {
         environ.set_item(&key, vm.new_str(value), vm).unwrap();
     }
     environ
+}
+
+fn os_readlink(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
+    let path = make_path(vm, path, &dir_fd);
+    let path = fs::read_link(path.as_str()).map_err(|err| convert_io_error(vm, err))?;
+    let path = path.into_os_string().into_string().map_err(|_osstr| {
+        vm.new_unicode_decode_error("Can't convert OS path to valid UTF-8 string".into())
+    })?;
+    Ok(vm.ctx.new_str(path))
 }
 
 #[derive(Debug)]
@@ -759,6 +884,11 @@ fn os_getpid(vm: &VirtualMachine) -> PyObjectRef {
     vm.new_int(pid)
 }
 
+fn os_cpu_count(vm: &VirtualMachine) -> PyObjectRef {
+    let cpu_count = num_cpus::get();
+    vm.new_int(cpu_count)
+}
+
 #[cfg(unix)]
 fn os_getppid(vm: &VirtualMachine) -> PyObjectRef {
     let ppid = unistd::getppid().as_raw();
@@ -957,7 +1087,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         // mkfifo Some Some None
         // mknod Some Some None
         // pathconf Some None None
-        // readlink Some Some None
+        SupportFunc::new(vm, "readlink", os_readlink, Some(false), Some(false), None),
         SupportFunc::new(vm, "remove", os_remove, Some(false), Some(false), None),
         SupportFunc::new(vm, "rename", os_rename, Some(false), Some(false), None),
         SupportFunc::new(vm, "replace", os_rename, Some(false), Some(false), None), // TODO: Fix replace
@@ -998,11 +1128,12 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "O_APPEND" => ctx.new_int(FileCreationFlags::O_APPEND.bits()),
         "O_EXCL" => ctx.new_int(FileCreationFlags::O_EXCL.bits()),
         "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits()),
-        "F_OK" => ctx.new_int(0),
-        "R_OK" => ctx.new_int(4),
-        "W_OK" => ctx.new_int(2),
-        "X_OK" => ctx.new_int(1),
-        "getpid" => ctx.new_rustfunc(os_getpid)
+        "F_OK" => ctx.new_int(AccessFlags::F_OK.bits()),
+        "R_OK" => ctx.new_int(AccessFlags::R_OK.bits()),
+        "W_OK" => ctx.new_int(AccessFlags::W_OK.bits()),
+        "X_OK" => ctx.new_int(AccessFlags::X_OK.bits()),
+        "getpid" => ctx.new_rustfunc(os_getpid),
+        "cpu_count" => ctx.new_rustfunc(os_cpu_count)
     });
 
     for support in support_funcs {
@@ -1051,6 +1182,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setgid" => ctx.new_rustfunc(os_setgid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
+        "access" => ctx.new_rustfunc(os_access)
     });
 
     #[cfg(not(target_os = "redox"))]

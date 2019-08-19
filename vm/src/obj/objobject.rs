@@ -24,7 +24,7 @@ impl PyValue for PyInstance {
 pub fn new_instance(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
     let cls = PyClassRef::try_from_object(vm, args.shift())?;
-    let dict = if cls.is(&vm.ctx.object) {
+    let dict = if cls.is(&vm.ctx.object()) {
         None
     } else {
         Some(vm.ctx.new_dict())
@@ -72,13 +72,13 @@ fn object_setattr(
     if let Some(attr) = objtype::class_get_attr(&cls, &attr_name.value) {
         if let Some(descriptor) = objtype::class_get_attr(&attr.class(), "__set__") {
             return vm
-                .invoke(descriptor, vec![attr, obj.clone(), value])
+                .invoke(&descriptor, vec![attr, obj.clone(), value])
                 .map(|_| ());
         }
     }
 
     if let Some(ref dict) = obj.clone().dict {
-        dict.set_item(attr_name, value, vm)?;
+        dict.set_item(&attr_name.value, value, vm)?;
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
@@ -94,12 +94,12 @@ fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine)
 
     if let Some(attr) = objtype::class_get_attr(&cls, &attr_name.value) {
         if let Some(descriptor) = objtype::class_get_attr(&attr.class(), "__delete__") {
-            return vm.invoke(descriptor, vec![attr, obj.clone()]).map(|_| ());
+            return vm.invoke(&descriptor, vec![attr, obj.clone()]).map(|_| ());
         }
     }
 
     if let Some(ref dict) = obj.dict {
-        dict.del_item(attr_name, vm)?;
+        dict.del_item(&attr_name.value, vm)?;
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
@@ -118,6 +118,10 @@ fn object_repr(zelf: PyObjectRef, _vm: &VirtualMachine) -> String {
     format!("<{} object at 0x{:x}>", zelf.class().name, zelf.get_id())
 }
 
+fn object_subclasshook(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    Ok(vm.ctx.not_implemented())
+}
+
 pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
     let attributes: PyAttributes = objtype::get_attributes(obj.class());
 
@@ -126,7 +130,7 @@ pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
     // Get instance attributes:
     if let Some(object_dict) = &obj.dict {
         vm.invoke(
-            vm.get_attribute(dict.clone().into_object(), "update")?,
+            &vm.get_attribute(dict.clone().into_object(), "update")?,
             object_dict.clone().into_object(),
         )?;
     }
@@ -149,7 +153,7 @@ fn object_format(
 }
 
 pub fn init(context: &PyContext) {
-    let object = &context.object;
+    let object = &context.types.object_type;
     let object_doc = "The most base type";
 
     extend_class!(context, object, {
@@ -179,7 +183,8 @@ pub fn init(context: &PyContext) {
         "__repr__" => context.new_rustfunc(object_repr),
         "__format__" => context.new_rustfunc(object_format),
         "__getattribute__" => context.new_rustfunc(object_getattribute),
-        "__doc__" => context.new_str(object_doc.to_string())
+        "__subclasshook__" => context.new_classmethod(object_subclasshook),
+        "__doc__" => context.new_str(object_doc.to_string()),
     });
 }
 
@@ -218,39 +223,8 @@ fn object_dict_setter(
     ))
 }
 
-fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    let name = &name_str.value;
+fn object_getattribute(obj: PyObjectRef, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
     vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
-    let cls = obj.class();
-
-    if let Some(attr) = objtype::class_get_attr(&cls, &name) {
-        let attr_class = attr.class();
-        if objtype::class_has_attr(&attr_class, "__set__") {
-            if let Some(descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
-                return vm.invoke(descriptor, vec![attr, obj, cls.into_object()]);
-            }
-        }
-    }
-
-    if let Some(obj_attr) = object_getattr(&obj, &name, &vm)? {
-        Ok(obj_attr)
-    } else if let Some(attr) = objtype::class_get_attr(&cls, &name) {
-        vm.call_get_descriptor(attr, obj)
-    } else if let Some(getter) = objtype::class_get_attr(&cls, "__getattr__") {
-        vm.invoke(getter, vec![obj, name_str.into_object()])
-    } else {
-        Err(vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
-    }
-}
-
-fn object_getattr(
-    obj: &PyObjectRef,
-    attr_name: &str,
-    vm: &VirtualMachine,
-) -> PyResult<Option<PyObjectRef>> {
-    if let Some(ref dict) = obj.dict {
-        dict.get_item_option(attr_name, vm)
-    } else {
-        Ok(None)
-    }
+    vm.generic_getattribute(obj.clone(), name.clone())?
+        .ok_or_else(|| vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
 }

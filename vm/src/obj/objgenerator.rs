@@ -75,5 +75,5 @@ fn handle_execution_result(result: ExecutionResult, vm: &VirtualMachine) -> PyRe
 }
 
 pub fn init(ctx: &PyContext) {
-    PyGenerator::extend_class(ctx, &ctx.generator_type);
+    PyGenerator::extend_class(ctx, &ctx.types.generator_type);
 }

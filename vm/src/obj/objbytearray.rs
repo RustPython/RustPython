@@ -78,14 +78,14 @@ impl PyValue for PyByteArray {
 
 /// Fill bytearray class methods dictionary.
 pub fn init(context: &PyContext) {
-    PyByteArrayRef::extend_class(context, &context.bytearray_type);
-    let bytearray_type = &context.bytearray_type;
+    PyByteArrayRef::extend_class(context, &context.types.bytearray_type);
+    let bytearray_type = &context.types.bytearray_type;
     extend_class!(context, bytearray_type, {
     "fromhex" => context.new_rustfunc(PyByteArrayRef::fromhex),
     "maketrans" => context.new_rustfunc(PyByteInner::maketrans),
     });
 
-    PyByteArrayIterator::extend_class(context, &context.bytearrayiterator_type);
+    PyByteArrayIterator::extend_class(context, &context.types.bytearrayiterator_type);
 }
 
 #[pyimpl]

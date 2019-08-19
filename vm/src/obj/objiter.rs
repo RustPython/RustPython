@@ -20,7 +20,7 @@ use super::objtype::PyClassRef;
 pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
     if let Some(method_or_err) = vm.get_method(iter_target.clone(), "__iter__") {
         let method = method_or_err?;
-        vm.invoke(method, vec![])
+        vm.invoke(&method, vec![])
     } else {
         vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
             format!("Cannot iterate over {}", iter_target.class().name)
@@ -122,5 +122,5 @@ impl PySequenceIterator {
 }
 
 pub fn init(context: &PyContext) {
-    PySequenceIterator::extend_class(context, &context.iter_type);
+    PySequenceIterator::extend_class(context, &context.types.iter_type);
 }

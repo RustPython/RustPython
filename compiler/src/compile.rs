@@ -8,7 +8,9 @@
 use crate::error::{CompileError, CompileErrorType};
 use crate::output_stream::{CodeObjectStream, OutputStream};
 use crate::peephole::PeepholeOptimizer;
-use crate::symboltable::{make_symbol_table, statements_to_symbol_table, Symbol, SymbolScope};
+use crate::symboltable::{
+    make_symbol_table, statements_to_symbol_table, Symbol, SymbolScope, SymbolTable,
+};
 use num_complex::Complex64;
 use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use rustpython_parser::{ast, parser};
@@ -18,7 +20,7 @@ type BasicOutputStream = PeepholeOptimizer<CodeObjectStream>;
 /// Main structure holding the state of compilation.
 struct Compiler<O: OutputStream = BasicOutputStream> {
     output_stack: Vec<O>,
-    scope_stack: Vec<SymbolScope>,
+    symbol_table_stack: Vec<SymbolTable>,
     nxt_label: usize,
     source_path: Option<String>,
     current_source_location: ast::Location,
@@ -31,7 +33,7 @@ struct Compiler<O: OutputStream = BasicOutputStream> {
 /// Compile a given sourcecode into a bytecode object.
 pub fn compile(
     source: &str,
-    mode: &Mode,
+    mode: Mode,
     source_path: String,
     optimize: u8,
 ) -> Result<CodeObject, CompileError> {
@@ -102,10 +104,34 @@ pub fn compile_program_single(
     })
 }
 
+#[derive(Clone, Copy)]
 pub enum Mode {
     Exec,
     Eval,
     Single,
+}
+
+impl std::str::FromStr for Mode {
+    type Err = ModeParseError;
+    fn from_str(s: &str) -> Result<Self, ModeParseError> {
+        match s {
+            "exec" => Ok(Mode::Exec),
+            "eval" => Ok(Mode::Eval),
+            "single" => Ok(Mode::Single),
+            _ => Err(ModeParseError { _priv: () }),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ModeParseError {
+    _priv: (),
+}
+
+impl std::fmt::Display for ModeParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, r#"mode should be "exec", "eval", or "single""#)
+    }
 }
 
 pub(crate) type Label = usize;
@@ -123,7 +149,7 @@ impl<O: OutputStream> Compiler<O> {
     fn new(optimize: u8) -> Self {
         Compiler {
             output_stack: Vec::new(),
-            scope_stack: Vec::new(),
+            symbol_table_stack: Vec::new(),
             nxt_label: 0,
             source_path: None,
             current_source_location: ast::Location::default(),
@@ -158,11 +184,23 @@ impl<O: OutputStream> Compiler<O> {
     fn compile_program(
         &mut self,
         program: &ast::Program,
-        symbol_scope: SymbolScope,
+        symbol_table: SymbolTable,
     ) -> Result<(), CompileError> {
         let size_before = self.output_stack.len();
-        self.scope_stack.push(symbol_scope);
-        self.compile_statements(&program.statements)?;
+        self.symbol_table_stack.push(symbol_table);
+
+        let (statements, doc) = get_doc(&program.statements);
+        if let Some(value) = doc {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String { value },
+            });
+            self.emit(Instruction::StoreName {
+                name: "__doc__".to_owned(),
+                scope: bytecode::NameScope::Global,
+            });
+        }
+        self.compile_statements(statements)?;
+
         assert_eq!(self.output_stack.len(), size_before);
 
         // Emit None at end:
@@ -176,9 +214,9 @@ impl<O: OutputStream> Compiler<O> {
     fn compile_program_single(
         &mut self,
         program: &ast::Program,
-        symbol_scope: SymbolScope,
+        symbol_table: SymbolTable,
     ) -> Result<(), CompileError> {
-        self.scope_stack.push(symbol_scope);
+        self.symbol_table_stack.push(symbol_table);
 
         let mut emitted_return = false;
 
@@ -215,9 +253,9 @@ impl<O: OutputStream> Compiler<O> {
     fn compile_statement_eval(
         &mut self,
         statements: &[ast::Statement],
-        symbol_table: SymbolScope,
+        symbol_table: SymbolTable,
     ) -> Result<(), CompileError> {
-        self.scope_stack.push(symbol_table);
+        self.symbol_table_stack.push(symbol_table);
         for statement in statements {
             if let ast::StatementType::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
@@ -241,12 +279,11 @@ impl<O: OutputStream> Compiler<O> {
 
     fn scope_for_name(&self, name: &str) -> bytecode::NameScope {
         let symbol = self.lookup_name(name);
-        if symbol.is_global {
-            bytecode::NameScope::Global
-        } else if symbol.is_nonlocal {
-            bytecode::NameScope::NonLocal
-        } else {
-            bytecode::NameScope::Local
+        match symbol.scope {
+            SymbolScope::Global => bytecode::NameScope::Global,
+            SymbolScope::Nonlocal => bytecode::NameScope::NonLocal,
+            SymbolScope::Unknown => bytecode::NameScope::Local,
+            SymbolScope::Local => bytecode::NameScope::Local,
         }
     }
 
@@ -280,11 +317,15 @@ impl<O: OutputStream> Compiler<O> {
                         symbols: vec![],
                         level: 0,
                     });
-
                     if let Some(alias) = &name.alias {
+                        for part in name.symbol.split('.').skip(1) {
+                            self.emit(Instruction::LoadAttr {
+                                name: part.to_owned(),
+                            });
+                        }
                         self.store_name(alias);
                     } else {
-                        self.store_name(&name.symbol);
+                        self.store_name(name.symbol.split('.').next().unwrap());
                     }
                 }
             }
@@ -297,10 +338,12 @@ impl<O: OutputStream> Compiler<O> {
 
                 if import_star {
                     // from .... import *
-                    self.emit(Instruction::ImportStar {
+                    self.emit(Instruction::Import {
                         name: module.clone(),
+                        symbols: vec!["*".to_owned()],
                         level: *level,
                     });
+                    self.emit(Instruction::ImportStar);
                 } else {
                     // from mod import a, b as c
                     // First, determine the fromlist (for import lib):
@@ -1866,30 +1909,36 @@ impl<O: OutputStream> Compiler<O> {
     }
 
     fn compile_string(&mut self, string: &ast::StringGroup) -> Result<(), CompileError> {
-        match string {
-            ast::StringGroup::Joined { values } => {
-                for value in values {
-                    self.compile_string(value)?;
+        if let Some(value) = try_get_constant_string(string) {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String { value },
+            });
+        } else {
+            match string {
+                ast::StringGroup::Joined { values } => {
+                    for value in values {
+                        self.compile_string(value)?;
+                    }
+                    self.emit(Instruction::BuildString { size: values.len() })
                 }
-                self.emit(Instruction::BuildString { size: values.len() })
-            }
-            ast::StringGroup::Constant { value } => {
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::String {
-                        value: value.to_string(),
-                    },
-                });
-            }
-            ast::StringGroup::FormattedValue {
-                value,
-                conversion,
-                spec,
-            } => {
-                self.compile_expression(value)?;
-                self.emit(Instruction::FormatValue {
-                    conversion: conversion.map(compile_conversion_flag),
-                    spec: spec.clone(),
-                });
+                ast::StringGroup::Constant { value } => {
+                    self.emit(Instruction::LoadConst {
+                        value: bytecode::Constant::String {
+                            value: value.to_string(),
+                        },
+                    });
+                }
+                ast::StringGroup::FormattedValue {
+                    value,
+                    conversion,
+                    spec,
+                } => {
+                    self.compile_expression(value)?;
+                    self.emit(Instruction::FormatValue {
+                        conversion: conversion.map(compile_conversion_flag),
+                        spec: spec.clone(),
+                    });
+                }
             }
         }
         Ok(())
@@ -1897,22 +1946,27 @@ impl<O: OutputStream> Compiler<O> {
 
     // Scope helpers:
     fn enter_scope(&mut self) {
-        // println!("Enter scope {:?}", self.scope_stack);
+        // println!("Enter scope {:?}", self.symbol_table_stack);
         // Enter first subscope!
-        let scope = self.scope_stack.last_mut().unwrap().sub_scopes.remove(0);
-        self.scope_stack.push(scope);
+        let table = self
+            .symbol_table_stack
+            .last_mut()
+            .unwrap()
+            .sub_tables
+            .remove(0);
+        self.symbol_table_stack.push(table);
     }
 
     fn leave_scope(&mut self) {
-        // println!("Leave scope {:?}", self.scope_stack);
-        let scope = self.scope_stack.pop().unwrap();
-        assert!(scope.sub_scopes.is_empty());
+        // println!("Leave scope {:?}", self.symbol_table_stack);
+        let table = self.symbol_table_stack.pop().unwrap();
+        assert!(table.sub_tables.is_empty());
     }
 
     fn lookup_name(&self, name: &str) -> &Symbol {
         // println!("Looking up {:?}", name);
-        let scope = self.scope_stack.last().unwrap();
-        scope.lookup(name).expect(
+        let symbol_table = self.symbol_table_stack.last().unwrap();
+        symbol_table.lookup(name).expect(
             "The symbol must be present in the symbol table, even when it is undefined in python.",
         )
     }
@@ -1964,18 +2018,37 @@ impl<O: OutputStream> Compiler<O> {
 }
 
 fn get_doc(body: &[ast::Statement]) -> (&[ast::Statement], Option<String>) {
-    if let Some(val) = body.get(0) {
+    if let Some((val, body_rest)) = body.split_first() {
         if let ast::StatementType::Expression { ref expression } = val.node {
             if let ast::ExpressionType::String { value } = &expression.node {
-                if let ast::StringGroup::Constant { ref value } = value {
-                    if let Some((_, body_rest)) = body.split_first() {
-                        return (body_rest, Some(value.to_string()));
-                    }
+                if let Some(value) = try_get_constant_string(value) {
+                    return (body_rest, Some(value.to_string()));
                 }
             }
         }
     }
     (body, None)
+}
+
+fn try_get_constant_string(string: &ast::StringGroup) -> Option<String> {
+    fn get_constant_string_inner(out_string: &mut String, string: &ast::StringGroup) -> bool {
+        match string {
+            ast::StringGroup::Constant { value } => {
+                out_string.push_str(&value);
+                true
+            }
+            ast::StringGroup::Joined { values } => values
+                .iter()
+                .all(|value| get_constant_string_inner(out_string, value)),
+            ast::StringGroup::FormattedValue { .. } => false,
+        }
+    }
+    let mut out_string = String::new();
+    if get_constant_string_inner(&mut out_string, string) {
+        Some(out_string)
+    } else {
+        None
+    }
 }
 
 fn compile_location(location: &ast::Location) -> bytecode::Location {

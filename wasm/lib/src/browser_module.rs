@@ -133,7 +133,7 @@ fn browser_request_animation_frame(func: PyCallable, vm: &VirtualMachine) -> PyR
         let vm = &stored_vm.vm;
         let func = func.clone();
         let args = vec![vm.ctx.new_float(time)];
-        let _ = vm.invoke(func.into_object(), args);
+        let _ = vm.invoke(&func.into_object(), args);
 
         let closure = f.borrow_mut().take();
         drop(closure);
@@ -212,12 +212,12 @@ impl PyPromise {
                     } else {
                         vec![convert::js_to_py(vm, val)]
                     };
-                    vm.invoke(on_fulfill.into_object(), PyFuncArgs::new(args, vec![]))
+                    vm.invoke(&on_fulfill.into_object(), PyFuncArgs::new(args, vec![]))
                 }
                 Err(err) => {
                     if let OptionalArg::Present(on_reject) = on_reject {
                         let err = convert::js_to_py(vm, err);
-                        vm.invoke(on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]))
+                        vm.invoke(&on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]))
                     } else {
                         return Err(err);
                     }
@@ -240,7 +240,7 @@ impl PyPromise {
                     .expect("that the vm is valid when the promise resolves");
                 let vm = &stored_vm.vm;
                 let err = convert::js_to_py(vm, err);
-                let res = vm.invoke(on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]));
+                let res = vm.invoke(&on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]));
                 convert::pyresult_to_jsresult(vm, res)
             })
         });
