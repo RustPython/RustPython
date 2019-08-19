@@ -238,3 +238,12 @@ try:
         raise NameError from ex
 except NameError as ex2:
     pass
+
+
+with assertRaises(SyntaxError):
+    exec("""if True:
+    try:
+        pass
+    else:
+        pass
+    """)

@@ -31,22 +31,22 @@ Program: ast::Program = {
 };
 
 // A file line either has a declaration, or an empty newline:
-FileLine: Vec<ast::Statement> = {
+FileLine: ast::Suite = {
     Statement,
     "\n" => vec![],
 };
 
-Suite: Vec<ast::Statement> = {
+Suite: ast::Suite = {
     SimpleStatement,
     "\n" indent <s:Statement+> dedent => s.into_iter().flatten().collect(),
 };
 
-Statement: Vec<ast::Statement> = {
+Statement: ast::Suite = {
     SimpleStatement,
     <s:CompoundStatement> => vec![s],
 };
 
-SimpleStatement: Vec<ast::Statement> = {
+SimpleStatement: ast::Suite = {
     <s1:SmallStatement> <s2:(";" SmallStatement)*> ";"? "\n" => {
         let mut statements = vec![s1];
         statements.extend(s2.into_iter().map(|e| e.1));
@@ -365,8 +365,8 @@ ForStatement: ast::Statement = {
 };
 
 TryStatement: ast::Statement = {
-    <location:@L> "try" ":" <body:Suite> <handlers:ExceptClause*> <else_suite:("else" ":" Suite)?> <finally:("finally" ":" Suite)?> => {
-        let orelse = else_suite.map(|s| s.2);
+    <location:@L> "try" ":" <body:Suite> <handlers:ExceptionHandlers?> <finally:("finally" ":" Suite)?> => {
+        let (handlers, orelse) = handlers.unwrap_or_default();
         let finalbody = finally.map(|s| s.2);
         ast::Statement {
             location,
@@ -377,6 +377,13 @@ TryStatement: ast::Statement = {
                 finalbody,
             },
         }
+    },
+};
+
+ExceptionHandlers: (Vec<ast::ExceptHandler>, Option<ast::Suite>) = {
+    <handlers:ExceptClause+> <else_suite:("else" ":" Suite)?> => {
+        let orelse = else_suite.map(|s| s.2);
+        (handlers, orelse)
     },
 };
 
