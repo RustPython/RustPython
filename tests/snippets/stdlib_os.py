@@ -232,6 +232,10 @@ with TestWithTempDir() as tmpdir:
 	os.stat(fname, follow_symlinks=False).st_ino == os.stat(symlink_file, follow_symlinks=False).st_ino
 	os.stat(fname, follow_symlinks=False).st_mode == os.stat(symlink_file, follow_symlinks=False).st_mode
 
+	# os.chmod
+	os.chmod(fname, 0o666)
+	assert oct(os.stat(fname).st_mode) == '0o100666'
+
 	# os.path
 	assert os.path.exists(fname) == True
 	assert os.path.exists("NO_SUCH_FILE") == False
