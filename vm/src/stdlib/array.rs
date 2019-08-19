@@ -137,6 +137,7 @@ macro_rules! def_array_enum {
 def_array_enum!(
     (SignedByte, i8, 'b'),
     (UnsignedByte, u8, 'B'),
+    // TODO: support unicode char
     (SignedShort, i16, 'h'),
     (UnsignedShort, u16, 'H'),
     (SignedInt, i16, 'i'),
