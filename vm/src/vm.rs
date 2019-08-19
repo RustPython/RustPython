@@ -11,7 +11,7 @@ use std::fmt;
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
 
-use crate::builtins;
+use crate::builtins::{self, to_ascii};
 use crate::bytecode;
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
@@ -443,6 +443,13 @@ impl VirtualMachine {
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStringRef> {
         let repr = self.call_method(obj, "__repr__", vec![])?;
         TryFromObject::try_from_object(self, repr)
+    }
+
+    pub fn to_ascii(&self, obj: &PyObjectRef) -> PyResult {
+        let repr = self.call_method(obj, "__repr__", vec![])?;
+        let repr: PyStringRef = TryFromObject::try_from_object(self, repr)?;
+        let ascii = to_ascii(&repr.value);
+        Ok(self.new_str(ascii))
     }
 
     pub fn import(&self, module: &str, from_list: &PyObjectRef, level: usize) -> PyResult {

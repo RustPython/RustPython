@@ -666,7 +666,7 @@ impl Frame {
                 let value = match conversion {
                     Some(Str) => vm.to_str(&self.pop_value())?.into_object(),
                     Some(Repr) => vm.to_repr(&self.pop_value())?.into_object(),
-                    Some(Ascii) => self.pop_value(), // TODO
+                    Some(Ascii) => vm.to_ascii(&self.pop_value())?,
                     None => self.pop_value(),
                 };
 
