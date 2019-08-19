@@ -4,9 +4,9 @@ use std::ffi::CStr;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Error, ErrorKind, Read, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
-use std::os::unix::fs::PermissionsExt;
 
 #[cfg(unix)]
 use nix::errno::Errno;
@@ -864,7 +864,13 @@ fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 #[cfg(unix)]
-fn os_chmod(path: PyStringRef, dir_fd: DirFd, mode: u32, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<()> {
+fn os_chmod(
+    path: PyStringRef,
+    dir_fd: DirFd,
+    mode: u32,
+    follow_symlinks: FollowSymlinks,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     let path = make_path(vm, path, &dir_fd);
     let metadata = match follow_symlinks.follow_symlinks {
         true => fs::metadata(&path.value),
@@ -1094,7 +1100,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         // access Some Some None
         SupportFunc::new(vm, "chdir", os_chdir, Some(false), None, None),
         // chflags Some, None Some
-        // chmod Some Some Some
         SupportFunc::new(vm, "chmod", os_chmod, Some(false), Some(false), Some(false)),
         // chown Some Some Some
         // chroot Some None None
@@ -1136,7 +1141,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "lstat" => ctx.new_rustfunc(os_lstat),
         "getcwd" => ctx.new_rustfunc(os_getcwd),
         "chdir" => ctx.new_rustfunc(os_chdir),
-        "chmod" => ctx.new_rustfunc(os_chmod),
         "fspath" => ctx.new_rustfunc(os_fspath),
         "O_RDONLY" => ctx.new_int(FileCreationFlags::O_RDONLY.bits()),
         "O_WRONLY" => ctx.new_int(FileCreationFlags::O_WRONLY.bits()),
@@ -1199,7 +1203,8 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setgid" => ctx.new_rustfunc(os_setgid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
-        "access" => ctx.new_rustfunc(os_access)
+        "access" => ctx.new_rustfunc(os_access),
+        "chmod" => ctx.new_rustfunc(os_chmod)
     });
 
     #[cfg(not(target_os = "redox"))]
