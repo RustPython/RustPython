@@ -1463,13 +1463,15 @@ fn perform_format(
 }
 
 impl PySliceableSequence for String {
-    fn do_slice(&self, range: Range<usize>) -> Self {
+    type Sliced = String;
+
+    fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
         to_graphemes(self)
             .get(range)
             .map_or(String::default(), |c| c.join(""))
     }
 
-    fn do_slice_reverse(&self, range: Range<usize>) -> Self {
+    fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
         to_graphemes(self)
             .get_mut(range)
             .map_or(String::default(), |slice| {
@@ -1478,7 +1480,7 @@ impl PySliceableSequence for String {
             })
     }
 
-    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self {
+    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
         if let Some(s) = to_graphemes(self).get(range) {
             return s
                 .iter()
@@ -1490,7 +1492,7 @@ impl PySliceableSequence for String {
         String::default()
     }
 
-    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self {
+    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
         if let Some(s) = to_graphemes(self).get(range) {
             return s
                 .iter()
@@ -1503,7 +1505,7 @@ impl PySliceableSequence for String {
         String::default()
     }
 
-    fn empty() -> Self {
+    fn empty() -> Self::Sliced {
         String::default()
     }
 
