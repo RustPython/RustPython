@@ -167,9 +167,8 @@ impl Frame {
     #[allow(clippy::cognitive_complexity)]
     fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            check_signals(vm);
-        }
+        check_signals(vm)?;
+
         let instruction = self.fetch_instruction();
 
         flame_guard!(format!("Frame::execute_instruction({:?})", instruction));

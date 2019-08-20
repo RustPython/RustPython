@@ -9,7 +9,7 @@ use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType}
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
     import,
-    obj::objstr,
+    obj::objstr::PyStringRef,
     print_exception,
     pyobject::{ItemProtocol, PyResult},
     scope::Scope,
@@ -486,12 +486,10 @@ fn get_history_path() -> PathBuf {
     xdg_dirs.place_cache_file("repl_history.txt").unwrap()
 }
 
-fn get_prompt(vm: &VirtualMachine, prompt_name: &str) -> String {
+fn get_prompt(vm: &VirtualMachine, prompt_name: &str) -> Option<PyStringRef> {
     vm.get_attribute(vm.sys_module.clone(), prompt_name)
+        .and_then(|prompt| vm.to_str(&prompt))
         .ok()
-        .as_ref()
-        .map(objstr::get_value)
-        .unwrap_or_else(String::new)
 }
 
 #[cfg(not(target_os = "redox"))]
@@ -521,7 +519,8 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         } else {
             get_prompt(vm, "ps1")
         };
-        match repl.readline(&prompt) {
+        let prompt = prompt.as_ref().map(|s| s.as_str()).unwrap_or("");
+        match repl.readline(prompt) {
             Ok(line) => {
                 debug!("You entered {:?}", line);
                 input.push_str(&line);
@@ -542,7 +541,6 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                         ..
                     }) => {
                         continuing = true;
-                        continue;
                     }
                     _ => {
                         input = String::new();
@@ -550,10 +548,11 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                // TODO: Raise a real KeyboardInterrupt exception
-                println!("^C");
+                let exc = vm
+                    .new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())
+                    .unwrap();
+                print_exception(vm, &exc);
                 continuing = false;
-                continue;
             }
             Err(ReadlineError::Eof) => {
                 break;
@@ -562,7 +561,7 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 println!("Error: {:?}", err);
                 break;
             }
-        };
+        }
     }
     repl.save_history(repl_history_path_str).unwrap();
 
