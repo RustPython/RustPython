@@ -281,7 +281,7 @@ fn struct_pack(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         if objtype::isinstance(&fmt_arg, &vm.ctx.str_type()) {
             let fmt_str = objstr::get_value(&fmt_arg);
 
-            let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;;
+            let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;
 
             if format_spec.codes.len() + 1 == args.args.len() {
                 // Create data vector:
