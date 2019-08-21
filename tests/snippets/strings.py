@@ -225,18 +225,6 @@ assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo", msg="format requ
 assert_raises(ValueError, lambda: "This %(food}s is great!" % {"food": "cookie"}, msg="incomplete format key")
 assert_raises(ValueError, lambda: "My name is %" % "Foo", msg="incomplete format")
 
-# Erase if features are implemented
-assert_raises(NotImplementedError, lambda: "%e" % 1.2345,
-              msg="Not yet implemented for %e and %E")
-assert_raises(NotImplementedError, lambda: "%E" % 1.2345,
-              msg="Not yet implemented for %e and %E")
-assert_raises(NotImplementedError, lambda: "%g" % 1.2345,
-              msg="Not yet implemented for %g and %G")
-assert_raises(NotImplementedError, lambda: "%G" % 1.2345,
-              msg="Not yet implemented for %g and %G")
-assert_raises(NotImplementedError, lambda: "%3.9f" % 1.2345,
-              msg="Not yet implemented for %#.#f types")
-
 assert 'a' < 'b'
 assert 'a' <= 'b'
 assert 'a' <= 'a'
