@@ -1231,18 +1231,22 @@ fn do_cformat_specifier(
             Ok(format_spec.format_number(objint::get_value(&obj)))
         }
         CFormatType::Float(_) => {
-            if objtype::isinstance(&obj, &vm.ctx.float_type()) {
-                Ok(format_spec.format_float(objfloat::get_value(&obj)))
+            let result = if objtype::isinstance(&obj, &vm.ctx.float_type()) {
+                format_spec.format_float(objfloat::get_value(&obj))
             } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
-                Ok(format_spec.format_float(objint::get_value(&obj).to_f64().unwrap()))
+                format_spec.format_float(objint::get_value(&obj).to_f64().unwrap())
             } else {
                 let required_type_string = "an floating point or integer";
-                Err(vm.new_type_error(format!(
+                return Err(vm.new_type_error(format!(
                     "%{} format: {} is required, not {}",
                     format_spec.format_char,
                     required_type_string,
                     obj.class()
-                )))
+                )));
+            };
+            match result {
+                Ok(transformed) => Ok(transformed),
+                Err(error) => Err(vm.new_not_implemented_error(error)),
             }
         }
         CFormatType::Character => {
