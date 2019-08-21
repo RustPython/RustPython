@@ -12,8 +12,9 @@ before_cache:
 matrix:
   fast_finish: true
   include:
-    - name: Run Rust tests
+    - name: Run Rust tests(linux)
       language: rust
+      os: linux
       rust: stable
       cache: cargo
       script:
@@ -23,6 +24,19 @@ matrix:
         # Prevention of cache corruption.
         # See: https://docs.travis-ci.com/user/caching/#caches-and-build-matrices
         - JOBCACHE=1
+
+    - name: Run Rust tests(osx)
+      language: rust
+      os: osx
+      rust: stable
+      cache: cargo
+      script:
+        - cargo build --verbose --all
+        - cargo test --verbose --all
+      env:
+        # Prevention of cache corruption.
+        # See: https://docs.travis-ci.com/user/caching/#caches-and-build-matrices
+        - JOBCACHE=11
 
     # To test the snippets, we use Travis' Python environment (because
     # installing rust ourselves is a lot easier than installing Python)

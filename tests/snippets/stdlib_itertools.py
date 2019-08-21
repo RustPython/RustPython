@@ -183,3 +183,21 @@ assert_matches_seq(it, [1, 2])
 
 it = i([1, 2, 3], None, None, 3)
 assert_matches_seq(it, [1])
+
+# itertools.filterfalse
+it = itertools.filterfalse(lambda x: x%2, range(10))
+assert 0 == next(it)
+assert 2 == next(it)
+assert 4 == next(it)
+assert 6 == next(it)
+assert 8 == next(it)
+with assertRaises(StopIteration):
+    next(it)
+
+l = [0, 1, None, False, True, [], {}]
+it = itertools.filterfalse(None, l)
+assert 0 == next(it)
+assert None == next(it)
+assert False == next(it)
+assert [] == next(it)
+assert {} == next(it)

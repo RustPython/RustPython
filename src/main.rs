@@ -441,10 +441,10 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), Com
                 Ok(value) => {
                     // Save non-None values as "_"
 
-                    use rustpython_vm::pyobject::{IdProtocol, IntoPyObject};
+                    use rustpython_vm::pyobject::IdProtocol;
 
                     if !value.is(&vm.get_none()) {
-                        let key = objstr::PyString::from("_").into_pyobject(vm);
+                        let key = "_";
                         scope.globals.set_item(key, value, vm).unwrap();
                     }
                 }

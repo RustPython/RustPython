@@ -11,7 +11,7 @@ use std::fmt;
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
 
-use crate::builtins;
+use crate::builtins::{self, to_ascii};
 use crate::bytecode;
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
@@ -445,6 +445,13 @@ impl VirtualMachine {
         TryFromObject::try_from_object(self, repr)
     }
 
+    pub fn to_ascii(&self, obj: &PyObjectRef) -> PyResult {
+        let repr = self.call_method(obj, "__repr__", vec![])?;
+        let repr: PyStringRef = TryFromObject::try_from_object(self, repr)?;
+        let ascii = to_ascii(&repr.value);
+        Ok(self.new_str(ascii))
+    }
+
     pub fn import(&self, module: &str, from_list: &PyObjectRef, level: usize) -> PyResult {
         // if the import inputs seem weird, e.g a package import or something, rather than just
         // a straight `import ident`
@@ -452,14 +459,13 @@ impl VirtualMachine {
             || level != 0
             || objbool::boolval(self, from_list.clone()).unwrap_or(true);
 
-        let module = self.new_str(module.to_owned());
-
         let cached_module = if weird {
             None
         } else {
             let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
-            sys_modules.get_item(module.clone(), self).ok()
+            sys_modules.get_item(module, self).ok()
         };
+
         match cached_module {
             Some(module) => Ok(module),
             None => {
@@ -478,7 +484,7 @@ impl VirtualMachine {
                 self.invoke(
                     &import_func,
                     vec![
-                        module,
+                        self.new_str(module.to_owned()),
                         globals,
                         locals,
                         from_list.clone(),
@@ -936,7 +942,7 @@ impl VirtualMachine {
         }
 
         let attr = if let Some(ref dict) = obj.dict {
-            dict.get_item_option(name_str.clone(), self)?
+            dict.get_item_option(&name_str.value, self)?
         } else {
             None
         };
