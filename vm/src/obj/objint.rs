@@ -681,8 +681,8 @@ impl PyInt {
         Ok(PyBytes::new(bytes))
     }
     #[pyproperty]
-    fn real(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
-        zelf
+    fn real(&self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_int(self.value.clone())
     }
 
     #[pyproperty]

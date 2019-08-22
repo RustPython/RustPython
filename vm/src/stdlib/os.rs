@@ -1096,12 +1096,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
             }
         }
     }
-    let support_funcs = vec![
+    let mut support_funcs = vec![
         SupportFunc::new(vm, "open", os_open, None, Some(false), None),
         // access Some Some None
         SupportFunc::new(vm, "chdir", os_chdir, Some(false), None, None),
         // chflags Some, None Some
-        SupportFunc::new(vm, "chmod", os_chmod, Some(false), Some(false), Some(false)),
         // chown Some Some Some
         // chroot Some None None
         SupportFunc::new(vm, "listdir", os_listdir, Some(false), None, None),
@@ -1121,6 +1120,15 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "unlink", os_remove, Some(false), Some(false), None),
         // utime Some Some Some
     ];
+    #[cfg(unix)]
+    support_funcs.extend(vec![SupportFunc::new(
+        vm,
+        "chmod",
+        os_chmod,
+        Some(false),
+        Some(false),
+        Some(false),
+    )]);
     let supports_fd = PySet::default().into_ref(vm);
     let supports_dir_fd = PySet::default().into_ref(vm);
     let supports_follow_symlinks = PySet::default().into_ref(vm);
