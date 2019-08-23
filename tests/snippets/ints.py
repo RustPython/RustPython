@@ -97,13 +97,56 @@ assert 10 // -4 == -3
 assert -10 // -4 == 2
 
 assert int() == 0
+assert int(1) == 1
 assert int("101", 2) == 5
 assert int("101", base=2) == 5
-assert int(1) == 1
+
+# implied base
+assert int('1', base=0) == 1
+assert int('123', base=0) == 123
+assert int('0b101', base=0) == 5
+assert int('0B101', base=0) == 5
+assert int('0o100', base=0) == 64
+assert int('0O100', base=0) == 64
+assert int('0xFF', base=0) == 255
+assert int('0XFF', base=0) == 255
+with assertRaises(ValueError):
+    int('0xFF', base=10)
+with assertRaises(ValueError):
+    int('0oFF', base=10)
+with assertRaises(ValueError):
+    int('0bFF', base=10)
+with assertRaises(ValueError):
+    int('0bFF', base=10)
+with assertRaises(ValueError):
+    int(b"F\xc3\xb8\xc3\xb6\xbbB\xc3\xa5r")
+with assertRaises(ValueError):
+    int(b"F\xc3\xb8\xc3\xb6\xbbB\xc3\xa5r")
+
+# underscore
+assert int('0xFF_FF_FF', base=16) == 16_777_215
+with assertRaises(ValueError):
+    int("_123_")
+with assertRaises(ValueError):
+    int("123_")
+with assertRaises(ValueError):
+    int("_123")
+with assertRaises(ValueError):
+    int("1__23")
+
+# signed
+assert int('-123') == -123
+assert int('+0b101', base=2) == +5
+
+# trailing spaces
 assert int(' 1') == 1
 assert int('1 ') == 1
 assert int(' 1 ') == 1
 assert int('10', base=0) == 10
+
+# type byte, signed, implied base
+assert int(b'     -0XFF ', base=0) == -255
+
 
 assert int.from_bytes(b'\x00\x10', 'big') == 16
 assert int.from_bytes(b'\x00\x10', 'little') == 4096
