@@ -358,30 +358,25 @@ impl PyString {
             OptionalArg::Missing => None,
         };
         let num_splits = num.into_option().unwrap_or(-1);
-        let elements = if let Some(pattern) = pattern {
-            if num_splits.is_negative() {
-                value
-                    .split(pattern)
-                    .map(|o| vm.ctx.new_str(o.to_string()))
-                    .collect()
-            } else {
-                value
-                    .splitn(num_splits as usize + 1, pattern)
-                    .map(|o| vm.ctx.new_str(o.to_string()))
-                    .collect()
-            }
-        } else if num_splits.is_negative() {
-            value
+        let elements: Vec<_> = match (pattern, num_splits.is_negative()) {
+            (Some(pattern), true) => value
+                .split(pattern)
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (Some(pattern), false) => value
+                .splitn(num_splits as usize + 1, pattern)
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (None, true) => value
                 .split(|c: char| c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
                 .map(|o| vm.ctx.new_str(o.to_string()))
-                .collect()
-        } else {
-            value
+                .collect(),
+            (None, false) => value
                 .splitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
                 .map(|o| vm.ctx.new_str(o.to_string()))
-                .collect()
+                .collect(),
         };
         vm.ctx.new_list(elements)
     }
@@ -399,30 +394,25 @@ impl PyString {
             OptionalArg::Missing => None,
         };
         let num_splits = num.into_option().unwrap_or(-1);
-        let mut elements: Vec<_> = if let Some(pattern) = pattern {
-            if num_splits.is_negative() {
-                value
-                    .split(pattern)
-                    .map(|o| vm.ctx.new_str(o.to_string()))
-                    .collect()
-            } else {
-                value
-                    .splitn(num_splits as usize + 1, pattern)
-                    .map(|o| vm.ctx.new_str(o.to_string()))
-                    .collect()
-            }
-        } else if num_splits.is_negative() {
-            value
-                .split(|c: char| c.is_ascii_whitespace())
+        let mut elements: Vec<_> = match (pattern, num_splits.is_negative()) {
+            (Some(pattern), true) => value
+                .rsplit(pattern)
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (Some(pattern), false) => value
+                .rsplitn(num_splits as usize + 1, pattern)
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (None, true) => value
+                .rsplit(|c: char| c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
                 .map(|o| vm.ctx.new_str(o.to_string()))
-                .collect()
-        } else {
-            value
-                .splitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
+                .collect(),
+            (None, false) => value
+                .rsplitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
                 .map(|o| vm.ctx.new_str(o.to_string()))
-                .collect()
+                .collect(),
         };
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.

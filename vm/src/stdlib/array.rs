@@ -16,6 +16,7 @@ macro_rules! def_array_enum {
             $($n(Vec<$t>),)*
         }
 
+        #[allow(clippy::naive_bytecount, clippy::float_cmp)]
         impl ArrayContentType {
             fn from_char(c: char) -> Option<Self> {
                 match c {

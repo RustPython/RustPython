@@ -42,7 +42,7 @@ impl IntoPyObject for f64 {
 }
 impl IntoPyObject for f32 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_float(self as f64))
+        Ok(vm.ctx.new_float(f64::from(self)))
     }
 }
 
