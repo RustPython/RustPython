@@ -34,7 +34,7 @@ fn symtable_symtable(
     let symtable =
         source_to_symtable(&source.value, mode).map_err(|err| vm.new_syntax_error(&err))?;
 
-    let py_symbol_table = to_py_symbol_table("top".to_string(), symtable);
+    let py_symbol_table = to_py_symbol_table(symtable);
     Ok(py_symbol_table.into_ref(vm))
 }
 
@@ -56,8 +56,8 @@ fn source_to_symtable(
     Ok(symtable)
 }
 
-fn to_py_symbol_table(name: String, symtable: symboltable::SymbolTable) -> PySymbolTable {
-    PySymbolTable { name, symtable }
+fn to_py_symbol_table(symtable: symboltable::SymbolTable) -> PySymbolTable {
+    PySymbolTable { symtable }
 }
 
 type PySymbolTableRef = PyRef<PySymbolTable>;
@@ -65,7 +65,6 @@ type PySymbolRef = PyRef<PySymbol>;
 
 #[pyclass(name = "SymbolTable")]
 struct PySymbolTable {
-    name: String,
     symtable: symboltable::SymbolTable,
 }
 
@@ -85,7 +84,7 @@ impl PyValue for PySymbolTable {
 impl PySymbolTable {
     #[pymethod(name = "get_name")]
     fn get_name(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.name.clone()))
+        Ok(vm.ctx.new_str(self.symtable.name.clone()))
     }
 
     #[pymethod(name = "lookup")]
@@ -118,11 +117,7 @@ impl PySymbolTable {
             .symtable
             .sub_tables
             .iter()
-            .map(|s| {
-                to_py_symbol_table("bla".to_string(), s.clone())
-                    .into_ref(vm)
-                    .into_object()
-            })
+            .map(|t| to_py_symbol_table(t.clone()).into_ref(vm).into_object())
             .collect();
         Ok(vm.ctx.new_list(children))
     }

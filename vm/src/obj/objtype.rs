@@ -312,6 +312,8 @@ fn type_dict_setter(_instance: PyClassRef, _value: PyObjectRef, vm: &VirtualMach
 
 /// This is the internal get_attr implementation for fast lookup on a class.
 pub fn class_get_attr(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
+    flame_guard!(format!("class_get_attr({:?})", attr_name));
+
     if let Some(item) = class.attributes.borrow().get(attr_name).cloned() {
         return Some(item);
     }

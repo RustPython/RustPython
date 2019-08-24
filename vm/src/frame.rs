@@ -907,6 +907,9 @@ impl Frame {
             bytecode::NameScope::Local => {
                 self.scope.store_name(vm, name, obj);
             }
+            bytecode::NameScope::Free => {
+                self.scope.store_name(vm, name, obj);
+            }
         }
         Ok(None)
     }
@@ -928,7 +931,8 @@ impl Frame {
         let optional_value = match name_scope {
             bytecode::NameScope::Global => self.scope.load_global(vm, name),
             bytecode::NameScope::NonLocal => self.scope.load_cell(vm, name),
-            bytecode::NameScope::Local => self.scope.load_name(&vm, name),
+            bytecode::NameScope::Local => self.scope.load_local(&vm, name),
+            bytecode::NameScope::Free => self.scope.load_name(&vm, name),
         };
 
         let value = match optional_value {
