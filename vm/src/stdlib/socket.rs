@@ -12,12 +12,12 @@ use gethostname::gethostname;
 
 use byteorder::{BigEndian, ByteOrder};
 
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::PyFuncArgs;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
-use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::vm::VirtualMachine;
 
 use crate::obj::objtype::PyClassRef;
@@ -421,9 +421,9 @@ impl SocketRef {
         }
     }
 
-    fn setblocking(self, block: OptionalArg<bool>, vm: &VirtualMachine) -> PyResult<()> {
+    fn setblocking(self, block: Option<bool>, vm: &VirtualMachine) -> PyResult<()> {
         match block {
-            OptionalArg::Present(value) => {
+            Some(value) => {
                 if value {
                     self.timeout.replace(None);
                 } else {
@@ -438,9 +438,9 @@ impl SocketRef {
                     Ok(())
                 }
             }
-            OptionalArg::Missing => {
-                self.timeout.replace(None);
-                Ok(())
+            None => {
+                // Avoid converting None to bool
+                Err(vm.new_type_error("an bool is required".to_string()))
             }
         }
     }
@@ -458,9 +458,9 @@ impl SocketRef {
         }
     }
 
-    fn settimeout(self, option_timeout: OptionalArg<f64>, vm: &VirtualMachine) -> PyResult<()> {
+    fn settimeout(self, option_timeout: Option<f64>, vm: &VirtualMachine) -> PyResult<()> {
         match option_timeout {
-            OptionalArg::Present(timeout) => {
+            Some(timeout) => {
                 self.timeout
                     .borrow_mut()
                     .replace(Duration::from_secs(timeout as u64));
@@ -476,7 +476,10 @@ impl SocketRef {
                     Ok(())
                 }
             }
-            OptionalArg::Missing => Ok(()),
+            None => {
+                self.timeout.replace(None);
+                Ok(())
+            }
         }
     }
 }
@@ -586,6 +589,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = py_module!(vm, "socket", {
         "error" => ctx.exceptions.os_error.clone(),
         "timeout" => socket_timeout,
+        "gaierror" => socket_gaierror,
         "AF_INET" => ctx.new_int(AddressFamily::Inet as i32),
         "SOCK_STREAM" => ctx.new_int(SocketKind::Stream as i32),
         "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
