@@ -40,6 +40,11 @@ impl IntoPyObject for f64 {
         Ok(vm.ctx.new_float(self))
     }
 }
+impl IntoPyObject for f32 {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_float(f64::from(self)))
+    }
+}
 
 impl TryFromObject for f64 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
@@ -65,6 +70,18 @@ pub fn try_float(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f6
         None
     })
 }
+
+macro_rules! impl_try_from_object_float {
+    ($($t:ty),*) => {
+        $(impl TryFromObject for $t {
+            fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+                PyFloatRef::try_from_object(vm, obj).map(|f| f.to_f64() as $t)
+            }
+        })*
+    };
+}
+
+impl_try_from_object_float!(f32, f64);
 
 fn inner_div(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
     if v2 != 0.0 {

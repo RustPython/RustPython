@@ -534,6 +534,8 @@ impl VirtualMachine {
     where
         T: Into<PyFuncArgs>,
     {
+        flame_guard!(format!("call_method({:?})", method_name));
+
         // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
         let cls = obj.class();
         match objtype::class_get_attr(&cls, method_name) {
@@ -552,7 +554,6 @@ impl VirtualMachine {
         }
     }
 
-    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     fn _invoke(&self, func_ref: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", func_ref, args);
 

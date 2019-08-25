@@ -1,3 +1,4 @@
+mod array;
 #[cfg(feature = "rustpython-parser")]
 mod ast;
 mod binascii;
@@ -54,7 +55,8 @@ pub type StdlibInitFunc = Box<dyn Fn(&VirtualMachine) -> PyObjectRef>;
 pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[allow(unused_mut)]
     let mut modules = hashmap! {
-        "binascii".to_string() => Box::new(binascii::make_module) as StdlibInitFunc,
+        "array".to_string() => Box::new(array::make_module) as StdlibInitFunc,
+        "binascii".to_string() => Box::new(binascii::make_module),
         "dis".to_string() => Box::new(dis::make_module),
         "_codecs".to_string() => Box::new(codecs::make_module),
         "_collections".to_string() => Box::new(collections::make_module),
