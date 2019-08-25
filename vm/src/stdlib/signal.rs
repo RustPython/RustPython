@@ -95,6 +95,7 @@ fn alarm(time: PyIntRef, _vm: &VirtualMachine) -> u32 {
     prev_time.unwrap_or(0)
 }
 
+#[cfg_attr(feature = "flame-it", flame)]
 pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
     if !ANY_TRIGGERED.swap(false, Ordering::Relaxed) {
         return Ok(());
