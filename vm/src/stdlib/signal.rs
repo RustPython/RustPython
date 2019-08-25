@@ -26,7 +26,10 @@ const SIG_ERR: libc::sighandler_t = !0;
 // We cannot use the NSIG const in the arr macro. This will fail compilation if NSIG is different.
 static TRIGGERS: [AtomicBool; NSIG] = arr![AtomicBool::new(false); 64];
 
+static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
+
 extern "C" fn run_signal(signum: i32) {
+    ANY_TRIGGERED.store(true, Ordering::Relaxed);
     TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
 }
 
@@ -93,6 +96,9 @@ fn alarm(time: PyIntRef, _vm: &VirtualMachine) -> u32 {
 }
 
 pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
+    if !ANY_TRIGGERED.swap(false, Ordering::Relaxed) {
+        return Ok(());
+    }
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
         let triggerd = trigger.swap(false, Ordering::Relaxed);
         if triggerd {
