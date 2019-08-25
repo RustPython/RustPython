@@ -63,10 +63,11 @@ pub struct VirtualMachine {
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: RefCell<bool>,
+    pub signal_handlers: RefCell<[PyObjectRef; NSIG]>,
     pub settings: PySettings,
-    #[cfg(not(target_arch = "wasm32"))]
-    pub signal_handlers: RefCell<[PyObjectRef; stdlib::signal::NSIG]>,
 }
+
+pub const NSIG: usize = 64;
 
 /// Struct containing all kind of settings for the python vm.
 pub struct PySettings {
@@ -168,10 +169,9 @@ impl VirtualMachine {
         let import_func = RefCell::new(ctx.none());
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
+        let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
 
         let vm = VirtualMachine {
-            #[cfg(not(target_arch = "wasm32"))]
-            signal_handlers: RefCell::new(arr![ctx.none(); 64]),
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
             stdlib_inits,
@@ -184,6 +184,7 @@ impl VirtualMachine {
             profile_func,
             trace_func,
             use_tracing: RefCell::new(false),
+            signal_handlers,
             settings,
         };
 

@@ -1,6 +1,6 @@
 use crate::obj::objint::PyIntRef;
 use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
-use crate::vm::VirtualMachine;
+use crate::vm::{VirtualMachine, NSIG};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -23,8 +23,6 @@ const SIG_IGN: libc::sighandler_t = 1;
 #[cfg(windows)]
 const SIG_ERR: libc::sighandler_t = !0;
 
-pub const NSIG: usize = 64;
-
 // We cannot use the NSIG const in the arr macro. This will fail compilation if NSIG is different.
 static TRIGGERS: [AtomicBool; NSIG] = arr![AtomicBool::new(false); 64];
 
@@ -33,7 +31,7 @@ extern "C" fn run_signal(signum: i32) {
 }
 
 fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
-    if (1..=NSIG as i32).contains(&signum) {
+    if (1..NSIG as i32).contains(&signum) {
         Ok(())
     } else {
         Err(vm.new_value_error("signal number out of range".to_owned()))

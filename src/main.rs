@@ -11,7 +11,7 @@ use rustpython_vm::{
     import,
     obj::objstr::PyStringRef,
     print_exception,
-    pyobject::{ItemProtocol, PyResult},
+    pyobject::{ItemProtocol, PyObjectRef, PyResult},
     scope::Scope,
     util, PySettings, VirtualMachine,
 };
@@ -434,40 +434,32 @@ fn test_run_script() {
     assert!(r.is_ok());
 }
 
-fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), CompileError> {
+enum ShellExecResult {
+    Ok,
+    PyErr(PyObjectRef),
+    Continue,
+}
+
+fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResult {
     match vm.compile(source, compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => {
             match vm.run_code_obj(code, scope.clone()) {
                 Ok(value) => {
                     // Save non-None values as "_"
-
-                    use rustpython_vm::pyobject::IdProtocol;
-
-                    if !value.is(&vm.get_none()) {
+                    if !vm.is_none(&value) {
                         let key = "_";
                         scope.globals.set_item(key, value, vm).unwrap();
                     }
+                    ShellExecResult::Ok
                 }
-
-                Err(err) => {
-                    print_exception(vm, &err);
-                }
+                Err(err) => ShellExecResult::PyErr(err),
             }
-
-            Ok(())
         }
-        // Don't inject syntax errors for line continuation
-        Err(
-            err @ CompileError {
-                error: CompileErrorType::Parse(ParseErrorType::EOF),
-                ..
-            },
-        ) => Err(err),
-        Err(err) => {
-            let exc = vm.new_syntax_error(&err);
-            print_exception(vm, &exc);
-            Err(err)
-        }
+        Err(CompileError {
+            error: CompileErrorType::Parse(ParseErrorType::EOF),
+            ..
+        }) => ShellExecResult::Continue,
+        Err(err) => ShellExecResult::PyErr(vm.new_syntax_error(&err)),
     }
 }
 
@@ -519,16 +511,27 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         } else {
             get_prompt(vm, "ps1")
         };
-        let prompt = prompt.as_ref().map(|s| s.as_str()).unwrap_or("");
-        match repl.readline(prompt) {
+        let prompt = match prompt {
+            Some(ref s) => s.as_str(),
+            None => "",
+        };
+        let result = match repl.readline(prompt) {
             Ok(line) => {
                 debug!("You entered {:?}", line);
-                input.push_str(&line);
-                input.push('\n');
+
                 repl.add_history_entry(line.trim_end());
 
+                let stop_continuing = line.is_empty();
+
+                if input.is_empty() {
+                    input = line;
+                } else {
+                    input.push_str(&line);
+                }
+                input.push_str("\n");
+
                 if continuing {
-                    if line.is_empty() {
+                    if stop_continuing {
                         continuing = false;
                     } else {
                         continue;
@@ -536,31 +539,38 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 }
 
                 match shell_exec(vm, &input, scope.clone()) {
-                    Err(CompileError {
-                        error: CompileErrorType::Parse(ParseErrorType::EOF),
-                        ..
-                    }) => {
-                        continuing = true;
-                    }
-                    _ => {
+                    ShellExecResult::Ok => {
                         input = String::new();
+                        Ok(())
+                    }
+                    ShellExecResult::Continue => {
+                        continuing = true;
+                        Ok(())
+                    }
+                    ShellExecResult::PyErr(err) => {
+                        input = String::new();
+                        Err(err)
                     }
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                let exc = vm
+                continuing = false;
+                let keyboard_interrupt = vm
                     .new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())
                     .unwrap();
-                print_exception(vm, &exc);
-                continuing = false;
+                Err(keyboard_interrupt)
             }
             Err(ReadlineError::Eof) => {
                 break;
             }
             Err(err) => {
-                println!("Error: {:?}", err);
+                eprintln!("Readline error: {:?}", err);
                 break;
             }
+        };
+
+        if let Err(exc) = result {
+            print_exception(vm, &exc);
         }
     }
     repl.save_history(repl_history_path_str).unwrap();
@@ -586,7 +596,11 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     for line in stdin.lock().lines() {
         let mut line = line.expect("line failed");
         line.push('\n');
-        let _ = shell_exec(vm, &line, scope.clone());
+        match shell_exec(vm, &line, scope.clone()) {
+            ShellExecResult::Ok => {}
+            ShellExecResult::Continue => println!("Unexpected EOF"),
+            ShellExecResult::PyErr(exc) => print_exception(vm, &exc),
+        }
         print!("{}", get_prompt(vm, "ps1"));
         stdout.flush().expect("flush failed");
     }
