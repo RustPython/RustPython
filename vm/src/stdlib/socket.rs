@@ -237,7 +237,7 @@ impl SocketRef {
                             return Err(vm.new_exception(error_type, e.to_string()));
                         }
                     };
-                    TcpStream::connect_timeout(&sock_addr, duration.clone())
+                    TcpStream::connect_timeout(&sock_addr, *duration)
                 } else {
                     TcpStream::connect(address_string)
                 };
