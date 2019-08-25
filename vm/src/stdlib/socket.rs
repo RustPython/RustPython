@@ -458,8 +458,8 @@ impl SocketRef {
         }
     }
 
-    fn settimeout(self, option_timeout: Option<f64>, vm: &VirtualMachine) -> PyResult<()> {
-        match option_timeout {
+    fn settimeout(self, timeout: Option<f64>, vm: &VirtualMachine) -> PyResult<()> {
+        match timeout {
             Some(timeout) => {
                 self.timeout
                     .borrow_mut()
