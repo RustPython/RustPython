@@ -2,12 +2,27 @@ use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
+use crate::obj::{objbool, objiter};
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::fmt;
+
+struct ArrayTypeSpecifierError {
+    _priv: (),
+}
+
+impl fmt::Display for ArrayTypeSpecifierError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "bad typecode (must be b, B, u, h, H, i, I, l, L, q, Q, f or d)"
+        )
+    }
+}
 
 macro_rules! def_array_enum {
     ($(($n:ident, $t:ident, $c:literal)),*$(,)?) => {
@@ -18,10 +33,10 @@ macro_rules! def_array_enum {
 
         #[allow(clippy::naive_bytecount, clippy::float_cmp)]
         impl ArrayContentType {
-            fn from_char(c: char) -> Option<Self> {
+            fn from_char(c: char) -> Result<Self, ArrayTypeSpecifierError> {
                 match c {
-                    $($c => Some(ArrayContentType::$n(Vec::new())),)*
-                    _ => None,
+                    $($c => Ok(ArrayContentType::$n(Vec::new())),)*
+                    _ => Err(ArrayTypeSpecifierError { _priv: () }),
                 }
             }
 
@@ -131,6 +146,15 @@ macro_rules! def_array_enum {
                     $(ArrayContentType::$n(v) => v.get(i).map(|x| x.into_pyobject(vm)),)*
                 }
             }
+
+            fn iter<'a>(&'a self, vm: &'a VirtualMachine) -> impl Iterator<Item = PyResult> + 'a {
+                let mut i = 0;
+                std::iter::from_fn(move || {
+                    let ret = self.getitem(i, vm);
+                    i += 1;
+                    ret
+                })
+            }
         }
     };
 }
@@ -181,11 +205,8 @@ impl PyArray {
                 ))
             }
         };
-        let array = ArrayContentType::from_char(spec).ok_or_else(|| {
-            vm.new_value_error(
-                "bad typecode (must be b, B, u, h, H, i, I, l, L, q, Q, f or d)".to_owned(),
-            )
-        })?;
+        let array =
+            ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err.to_string()))?;
         let zelf = PyArray {
             array: RefCell::new(array),
         };
@@ -297,10 +318,75 @@ impl PyArray {
             .getitem(i, vm)
             .unwrap_or_else(|| Err(vm.new_index_error("array index out of range".to_owned())))
     }
+
+    #[pymethod(name = "__eq__")]
+    fn eq(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let lhs = class_or_notimplemented!(vm, Self, lhs);
+        let rhs = class_or_notimplemented!(vm, Self, rhs);
+        let lhs = lhs.array.borrow();
+        let rhs = rhs.array.borrow();
+        if lhs.len() != rhs.len() {
+            Ok(vm.new_bool(false))
+        } else {
+            for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
+                let ne = objbool::boolval(vm, vm._ne(a?, b?)?)?;
+                if ne {
+                    return Ok(vm.new_bool(false));
+                }
+            }
+            Ok(vm.new_bool(true))
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyArrayIter {
+        PyArrayIter {
+            position: Cell::new(0),
+            array: zelf,
+        }
+    }
+}
+
+#[pyclass]
+#[derive(Debug)]
+pub struct PyArrayIter {
+    position: Cell<usize>,
+    array: PyArrayRef,
+}
+
+impl PyValue for PyArrayIter {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("array", "arrayiterator")
+    }
+}
+
+#[pyimpl]
+impl PyArrayIter {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        if self.position.get() < self.array.array.borrow().len() {
+            let ret = self
+                .array
+                .array
+                .borrow()
+                .getitem(self.position.get(), vm)
+                .unwrap()?;
+            self.position.set(self.position.get() + 1);
+            Ok(ret)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     py_module!(vm, "array", {
         "array" => PyArray::make_class(&vm.ctx),
+        "arrayiterator" => PyArrayIter::make_class(&vm.ctx),
     })
 }
