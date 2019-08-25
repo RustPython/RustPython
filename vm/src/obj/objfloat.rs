@@ -46,15 +46,6 @@ impl IntoPyObject for f32 {
     }
 }
 
-impl TryFromObject for f64 {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        try_float(&obj, vm)?.map_or_else(
-            || Err(vm.new_type_error(format!("Expect float object, but get {}", obj.class().name))),
-            |val| Ok(val),
-        )
-    }
-}
-
 impl From<f64> for PyFloat {
     fn from(value: f64) -> Self {
         PyFloat { value }

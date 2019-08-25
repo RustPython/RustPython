@@ -138,23 +138,12 @@ with assertRaises(OSError):
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 	pass
 
-connector = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-connection.settimeout(None)
-assert connection.getblocking() == True
-assert connection.gettimeout() == None
-
-connection.settimeout(0)
-assert connection.getblocking() == False
-assert connection.gettimeout() == 0
-
-connection.setblocking(True)
-assert connection.getblocking() == True
-assert connection.gettimeout() == None
-
-connection.setblocking(False)
-assert connection.getblocking() == False
-assert connection.gettimeout() == 0.0
-
-connection.settimeout(3)
-assert connection.gettimeout() == 3
-assert connection.getblocking() == True
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+	listener.bind(("127.0.0.1", 0))
+	listener.listen(1)
+	connector = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	connector.connect(("127.0.0.1", listener.getsockname()[1]))
+	(connection, addr) = listener.accept()
+	connection.settimeout(1.0)
+	with assertRaises(OSError):
+		connection.recv(len(MESSAGE_A))

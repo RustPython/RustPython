@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket };
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::time::Duration;
 
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -25,7 +25,6 @@ use crate::obj::objtype::PyClassRef;
 use crate::stdlib::os::convert_nix_error;
 use num_bigint::Sign;
 use num_traits::ToPrimitive;
-use itertools::Itertools;
 
 #[derive(Debug, Copy, Clone)]
 enum AddressFamily {
@@ -225,8 +224,11 @@ impl SocketRef {
                         Ok(mut sock_addrs) => {
                             if sock_addrs.len() == 0 {
                                 let error_type = vm.class("socket", "gaierror");
-                                return Err(vm.new_exception(error_type, "nodename nor servname provided, or not known".to_string()))
-                            }else{
+                                return Err(vm.new_exception(
+                                    error_type,
+                                    "nodename nor servname provided, or not known".to_string(),
+                                ));
+                            } else {
                                 sock_addrs.next().unwrap()
                             }
                         }
@@ -466,9 +468,10 @@ impl SocketRef {
                 let block = timeout > 0.0;
 
                 if let Some(conn) = self.con.borrow_mut().as_mut() {
-                    conn.setblocking(block).and_then(|_| {
-                        conn.settimeout(Duration::from_secs(timeout as u64))
-                    }).map_err(|err| vm.new_os_error(err.to_string())).map(|_| ())
+                    conn.setblocking(block)
+                        .and_then(|_| conn.settimeout(Duration::from_secs(timeout as u64)))
+                        .map_err(|err| vm.new_os_error(err.to_string()))
+                        .map(|_| ())
                 } else {
                     Ok(())
                 }
