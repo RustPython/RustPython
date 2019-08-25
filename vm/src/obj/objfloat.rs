@@ -8,7 +8,7 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use hexf_parse;
@@ -40,6 +40,11 @@ impl IntoPyObject for f64 {
         Ok(vm.ctx.new_float(self))
     }
 }
+impl IntoPyObject for f32 {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_float(f64::from(self)))
+    }
+}
 
 impl From<f64> for PyFloat {
     fn from(value: f64) -> Self {
@@ -56,6 +61,18 @@ pub fn try_float(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f6
         None
     })
 }
+
+macro_rules! impl_try_from_object_float {
+    ($($t:ty),*) => {
+        $(impl TryFromObject for $t {
+            fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+                PyFloatRef::try_from_object(vm, obj).map(|f| f.to_f64() as $t)
+            }
+        })*
+    };
+}
+
+impl_try_from_object_float!(f32, f64);
 
 fn inner_div(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
     if v2 != 0.0 {
