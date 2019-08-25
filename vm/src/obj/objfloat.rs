@@ -8,7 +8,7 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use hexf_parse;
@@ -38,6 +38,15 @@ impl PyValue for PyFloat {
 impl IntoPyObject for f64 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_float(self))
+    }
+}
+
+impl TryFromObject for f64 {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        try_float(&obj, vm)?.map_or_else(
+            || Err(vm.new_type_error(format!("Expect float object, but get {}", obj.class().name))),
+            |val| Ok(val),
+        )
     }
 }
 

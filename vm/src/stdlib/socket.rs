@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket };
 use std::time::Duration;
 
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -12,10 +12,8 @@ use gethostname::gethostname;
 
 use byteorder::{BigEndian, ByteOrder};
 
-use crate::function::PyFuncArgs;
-use crate::obj::objbool::boolval;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objfloat::try_float;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
@@ -27,6 +25,7 @@ use crate::obj::objtype::PyClassRef;
 use crate::stdlib::os::convert_nix_error;
 use num_bigint::Sign;
 use num_traits::ToPrimitive;
+use itertools::Itertools;
 
 #[derive(Debug, Copy, Clone)]
 enum AddressFamily {
@@ -125,6 +124,27 @@ impl Connection {
     fn fileno(&self) -> i64 {
         unimplemented!();
     }
+
+    fn setblocking(&mut self, value: bool) -> io::Result<()> {
+        match self {
+            Connection::TcpListener(con) => con.set_nonblocking(!value),
+            Connection::UdpSocket(con) => con.set_nonblocking(!value),
+            Connection::TcpStream(con) => con.set_nonblocking(!value),
+        }
+    }
+
+    fn settimeout(&mut self, duration: Duration) -> io::Result<()> {
+        match self {
+            // net
+            Connection::TcpListener(_con) => Ok(()),
+            Connection::UdpSocket(con) => con
+                .set_read_timeout(Some(duration))
+                .and_then(|_| con.set_write_timeout(Some(duration))),
+            Connection::TcpStream(con) => con
+                .set_read_timeout(Some(duration))
+                .and_then(|_| con.set_write_timeout(Some(duration))),
+        }
+    }
 }
 
 impl Read for Connection {
@@ -198,14 +218,39 @@ impl SocketRef {
     fn connect(self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
         let address_string = address.get_address_string();
 
-        let res = match self.socket_kind {
-            SocketKind::Stream => match TcpStream::connect(address_string) {
-                Ok(stream) => {
-                    self.con.borrow_mut().replace(Connection::TcpStream(stream));
-                    Ok(())
+        match self.socket_kind {
+            SocketKind::Stream => {
+                let con = if let Some(duration) = self.timeout.borrow().as_ref() {
+                    let sock_addr = match address_string.to_socket_addrs() {
+                        Ok(mut sock_addrs) => {
+                            if sock_addrs.len() == 0 {
+                                let error_type = vm.class("socket", "gaierror");
+                                return Err(vm.new_exception(error_type, "nodename nor servname provided, or not known".to_string()))
+                            }else{
+                                sock_addrs.next().unwrap()
+                            }
+                        }
+                        Err(e) => {
+                            let error_type = vm.class("socket", "gaierror");
+                            return Err(vm.new_exception(error_type, e.to_string()));
+                        }
+                    };
+                    TcpStream::connect_timeout(&sock_addr, duration.clone())
+                } else {
+                    TcpStream::connect(address_string)
+                };
+                match con {
+                    Ok(stream) => {
+                        self.con.borrow_mut().replace(Connection::TcpStream(stream));
+                        Ok(())
+                    }
+                    Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
+                        let socket_timeout = vm.class("socket", "timeout");
+                        Err(vm.new_exception(socket_timeout, "Timed out".to_string()))
+                    }
+                    Err(s) => Err(vm.new_os_error(s.to_string())),
                 }
-                Err(s) => Err(vm.new_os_error(s.to_string())),
-            },
+            }
             SocketKind::Dgram => {
                 if let Some(Connection::UdpSocket(con)) = self.con.borrow().as_ref() {
                     match con.connect(address_string) {
@@ -216,15 +261,13 @@ impl SocketRef {
                     Err(vm.new_type_error("".to_string()))
                 }
             }
-        };
-        self.internal_setblocking(self.internal_getblocking());
-        return res;
+        }
     }
 
     fn bind(self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
         let address_string = address.get_address_string();
 
-        let res = match self.socket_kind {
+        match self.socket_kind {
             SocketKind::Stream => match TcpListener::bind(address_string) {
                 Ok(stream) => {
                     self.con
@@ -241,9 +284,7 @@ impl SocketRef {
                 }
                 Err(s) => Err(vm.new_os_error(s.to_string())),
             },
-        };
-        self.internal_setblocking(self.internal_getblocking());
-        return res;
+        }
     }
 
     fn listen(self, _num: PyIntRef, _vm: &VirtualMachine) {}
@@ -277,6 +318,10 @@ impl SocketRef {
         match self.con.borrow_mut().as_mut() {
             Some(v) => match v.read_exact(&mut buffer) {
                 Ok(_) => (),
+                Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
+                    let socket_timeout = vm.class("socket", "timeout");
+                    return Err(vm.new_exception(socket_timeout, "Timed out".to_string()));
+                }
                 Err(s) => return Err(vm.new_os_error(s.to_string())),
             },
             None => return Err(vm.new_type_error("".to_string())),
@@ -305,9 +350,13 @@ impl SocketRef {
         match self.con.borrow_mut().as_mut() {
             Some(v) => match v.write(&bytes) {
                 Ok(_) => (),
+                Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
+                    let socket_timeout = vm.class("socket", "timeout");
+                    return Err(vm.new_exception(socket_timeout, "Timed out".to_string()));
+                }
                 Err(s) => return Err(vm.new_os_error(s.to_string())),
             },
-            None => return Err(vm.new_type_error("".to_string())),
+            None => return Err(vm.new_type_error("Socket is not connected".to_string())),
         };
         Ok(())
     }
@@ -363,82 +412,68 @@ impl SocketRef {
         }
     }
 
-    fn gettimeout(self, vm: &VirtualMachine) -> PyResult {
+    fn gettimeout(self, _vm: &VirtualMachine) -> PyResult<Option<f64>> {
         match self.timeout.borrow().as_ref() {
-            Some(duration) => Ok(vm.ctx.new_float(duration.as_secs() as f64)),
-            None => Ok(vm.get_none()),
+            Some(duration) => Ok(Some(duration.as_secs() as f64)),
+            None => Ok(None),
         }
     }
 
-    fn setblocking(self, block: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        match boolval(vm, block.clone()) {
-            Ok(value) => {
+    fn setblocking(self, block: OptionalArg<bool>, vm: &VirtualMachine) -> PyResult<()> {
+        match block {
+            OptionalArg::Present(value) => {
                 if value {
                     self.timeout.replace(None);
                 } else {
                     self.timeout.borrow_mut().replace(Duration::from_secs(0));
                 }
-                if self.internal_setblocking(value) {
-                    Ok(())
+                if let Some(conn) = self.con.borrow_mut().as_mut() {
+                    return match conn.setblocking(value) {
+                        Ok(_) => Ok(()),
+                        Err(err) => Err(vm.new_os_error(err.to_string())),
+                    };
                 } else {
-                    Err(vm.new_os_error("Set socket blocking error".to_string()))
+                    Ok(())
                 }
             }
-            Err(_) => Err(vm.new_type_error(format!(
-                "an integer os required (got type {})",
-                &block.class().name.clone()
-            ))),
+            OptionalArg::Missing => {
+                self.timeout.replace(None);
+                Ok(())
+            }
         }
     }
 
-    fn internal_setblocking(&self, block: bool) -> bool {
-        match self.con.borrow_mut().as_mut() {
-            Some(conn) => match conn {
-                Connection::TcpStream(con) => con.set_nonblocking(!block).is_ok(),
-                Connection::TcpListener(con) => con.set_nonblocking(!block).is_ok(),
-                Connection::UdpSocket(con) => con.set_nonblocking(!block).is_ok(),
-            },
-            None => true,
-        }
-    }
-
-    fn getblocking(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.internal_getblocking()))
-    }
-
-    fn internal_getblocking(&self) -> bool {
+    fn getblocking(self, _vm: &VirtualMachine) -> PyResult<Option<bool>> {
         match self.timeout.borrow().as_ref() {
             Some(duration) => {
                 if duration.as_secs() != 0 {
-                    true
+                    Ok(Some(true))
                 } else {
-                    false
+                    Ok(Some(false))
                 }
             }
-            None => true,
+            None => Ok(Some(true)),
         }
     }
 
-    fn settimeout(self, timeout: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.is_none(&timeout) {
-            return self.setblocking(vm.new_bool(true), vm);
-        }
-        match try_float(&timeout, vm) {
-            Ok(option_timeout) => {
-                let timeout = option_timeout.unwrap_or(0.0);
+    fn settimeout(self, option_timeout: OptionalArg<f64>, vm: &VirtualMachine) -> PyResult<()> {
+        match option_timeout {
+            OptionalArg::Present(timeout) => {
                 self.timeout
                     .borrow_mut()
                     .replace(Duration::from_secs(timeout as u64));
 
-                let block = timeout <= 0.0;
+                let block = timeout > 0.0;
 
-                self.internal_setblocking(block);
-                Ok(())
+                if let Some(conn) = self.con.borrow_mut().as_mut() {
+                    conn.setblocking(block).and_then(|_| {
+                        conn.settimeout(Duration::from_secs(timeout as u64))
+                    }).map_err(|err| vm.new_os_error(err.to_string())).map(|_| ())
+                } else {
+                    Ok(())
+                }
             }
-            Err(_) => Err(vm.new_type_error(format!(
-                "an integer required (got {} object)",
-                &timeout.class().name.clone()
-            ))),
+            OptionalArg::Missing => Ok(()),
         }
     }
 }
@@ -521,6 +556,8 @@ fn socket_htonl(host: PyIntRef, vm: &VirtualMachine) -> PyResult {
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
+    let socket_timeout = ctx.new_class("socket.timeout", vm.ctx.exceptions.os_error.clone());
+    let socket_gaierror = ctx.new_class("socket.gaierror", vm.ctx.exceptions.os_error.clone());
 
     let socket = py_class!(ctx, "socket", ctx.object(), {
         "__new__" => ctx.new_rustfunc(SocketRef::new),
@@ -537,13 +574,15 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "sendto" => ctx.new_rustfunc(SocketRef::sendto),
         "recvfrom" => ctx.new_rustfunc(SocketRef::recvfrom),
         "fileno" => ctx.new_rustfunc(SocketRef::fileno),
-        "gettimeout" => ctx.new_rustfunc(SocketRef::gettimeout),
-        "settimeout" => ctx.new_rustfunc(SocketRef::settimeout),
         "getblocking" => ctx.new_rustfunc(SocketRef::getblocking),
         "setblocking" => ctx.new_rustfunc(SocketRef::setblocking),
+        "gettimeout" => ctx.new_rustfunc(SocketRef::gettimeout),
+        "settimeout" => ctx.new_rustfunc(SocketRef::settimeout),
     });
 
     let module = py_module!(vm, "socket", {
+        "error" => ctx.exceptions.os_error.clone(),
+        "timeout" => socket_timeout,
         "AF_INET" => ctx.new_int(AddressFamily::Inet as i32),
         "SOCK_STREAM" => ctx.new_int(SocketKind::Stream as i32),
         "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
