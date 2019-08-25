@@ -1,6 +1,6 @@
 pub mod array;
 #[cfg(feature = "rustpython-parser")]
-mod ast;
+pub(crate) mod ast;
 mod binascii;
 mod codecs;
 mod collections;
@@ -86,7 +86,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[cfg(feature = "rustpython-parser")]
     {
         modules.insert(
-            "ast".to_string(),
+            "_ast".to_string(),
             Box::new(ast::make_module) as StdlibInitFunc,
         );
         modules.insert("keyword".to_string(), Box::new(keyword::make_module));

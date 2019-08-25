@@ -30,7 +30,7 @@ use crate::pyobject::{
 };
 use crate::scope::Scope;
 use crate::vm::VirtualMachine;
-
+use crate::stdlib::ast;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
 
@@ -125,7 +125,7 @@ struct CompileArgs {
 }
 
 #[cfg(feature = "rustpython-compiler")]
-fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef> {
+fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
     // TODO: compile::compile should probably get bytes
     let source = match &args.source {
         Either::A(string) => string.as_str(),
@@ -138,8 +138,17 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef
         .parse::<compile::Mode>()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-    vm.compile(source, mode, args.filename.as_str().to_string())
-        .map_err(|err| vm.new_syntax_error(&err))
+    let flags = args
+        .flags
+        .map_or(Ok(0), |v| i32::try_from_object(vm, v.into_object()))?;
+
+    if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
+        vm.compile(&source, mode, args.filename.value.to_string())
+            .map(|o| o.into_object())
+            .map_err(|err| vm.new_syntax_error(&err))
+    } else {
+        ast::source_to_ast(&vm, &source)
+    }
 }
 
 fn builtin_delattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {

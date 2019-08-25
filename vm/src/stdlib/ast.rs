@@ -10,7 +10,6 @@ use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
 
 use crate::obj::objlist::PyListRef;
-use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -19,9 +18,12 @@ use crate::vm::VirtualMachine;
 struct AstNode;
 type AstNodeRef = PyRef<AstNode>;
 
+const MODULE_NAME: &str = "_ast";
+pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
+
 impl PyValue for AstNode {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("ast", "AST")
+        vm.class(MODULE_NAME, "AST")
     }
 }
 
@@ -48,14 +50,16 @@ macro_rules! node {
     }
 }
 
-fn program_to_ast(vm: &VirtualMachine, program: &ast::Program) -> PyResult<AstNodeRef> {
-    let py_body = statements_to_ast(vm, &program.statements)?;
-    Ok(node!(vm, Module, { body => py_body }))
+pub(crate) fn source_to_ast(vm: &VirtualMachine, source: &str) -> PyResult {
+    let internal_ast =
+        parser::parse_program(source).map_err(|err| vm.new_value_error(format!("{}", err)))?;
+    let py_body = statements_to_ast(vm, &internal_ast.statements)?;
+    Ok(node!(vm, Module, { body => py_body }).into_object())
 }
 
 // Create a node class instance
 fn create_node(vm: &VirtualMachine, name: &str) -> PyResult<AstNodeRef> {
-    AstNode.into_ref_with_type(vm, vm.class("ast", name))
+    AstNode.into_ref_with_type(vm, vm.class(MODULE_NAME, name))
 }
 
 fn statements_to_ast(vm: &VirtualMachine, statements: &[ast::Statement]) -> PyResult<PyListRef> {
@@ -630,20 +634,11 @@ fn string_to_ast(vm: &VirtualMachine, string: &ast::StringGroup) -> PyResult<Ast
     Ok(string)
 }
 
-fn ast_parse(source: PyStringRef, vm: &VirtualMachine) -> PyResult<AstNodeRef> {
-    let internal_ast = parser::parse_program(source.as_str())
-        .map_err(|err| vm.new_value_error(format!("{}", err)))?;
-    // source.clone();
-    program_to_ast(&vm, &internal_ast)
-}
-
-#[allow(clippy::cognitive_complexity)]
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let ast_base = py_class!(ctx, "AST", ctx.object(), {});
-    py_module!(vm, "ast", {
-        "parse" => ctx.new_rustfunc(ast_parse),
+    py_module!(vm, MODULE_NAME, {
         "AST" => ast_base.clone(),
         // TODO: There's got to be a better way!
         "alias" => py_class!(ctx, "alias", ast_base.clone(), {}),
@@ -709,5 +704,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "withitem" => py_class!(ctx, "withitem", ast_base.clone(), {}),
         "Yield" => py_class!(ctx, "Yield", ast_base.clone(), {}),
         "YieldFrom" => py_class!(ctx, "YieldFrom", ast_base.clone(), {}),
+        "PyCF_ONLY_AST" => ctx.new_int(PY_COMPILE_FLAG_AST_ONLY),
     })
 }
