@@ -294,7 +294,7 @@ fn getgroups() -> nix::Result<Vec<Gid>> {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "redox"))]
 fn getgroups() -> nix::Result<Vec<Gid>> {
     nix::unistd::getgroups()
 }
@@ -1213,7 +1213,8 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
         "access" => ctx.new_rustfunc(os_access),
-        "chmod" => ctx.new_rustfunc(os_chmod)
+        "chmod" => ctx.new_rustfunc(os_chmod),
+        "ttyname" => ctx.new_rustfunc(os_ttyname),
     });
 
     #[cfg(not(target_os = "redox"))]
@@ -1223,7 +1224,6 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setegid" => ctx.new_rustfunc(os_setegid),
         "seteuid" => ctx.new_rustfunc(os_seteuid),
         "openpty" => ctx.new_rustfunc(os_openpty),
-        "ttyname" => ctx.new_rustfunc(os_ttyname),
     });
 
     module
