@@ -583,28 +583,26 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     use std::io::{self, BufRead, Write};
 
     println!(
-        "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
+        "Welcome to the magnificent Rust Python {} interpreter!",
         crate_version!()
     );
 
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
-
-    let mut print_prompt = || {
+    fn print_prompt() {
         let prompt = get_prompt(vm, "ps1");
         let prompt = match prompt {
             Some(ref s) => s.as_str(),
             None => "",
         };
         print!("{}", prompt);
-        stdout.flush().expect("flush failed");
-    };
+        io::stdout().lock().flush().expect("flush failed");
+    }
+
+    let stdin = io::stdin();
 
     print_prompt();
     for line in stdin.lock().lines() {
         let mut line = line.expect("line failed");
-        line.push('\n');
+        line.push_str("\n");
         match shell_exec(vm, &line, scope.clone()) {
             ShellExecResult::Ok => {}
             ShellExecResult::Continue => println!("Unexpected EOF"),
