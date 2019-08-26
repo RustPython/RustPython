@@ -1210,6 +1210,7 @@ dependencies = [
  "unicode-xid 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "unicode_categories 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "unicode_names2 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wasm-bindgen 0.2.50 (registry+https://github.com/rust-lang/crates.io-index)",
  "wtf8 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
