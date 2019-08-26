@@ -591,8 +591,17 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     let stdout = io::stdout();
     let mut stdout = stdout.lock();
 
-    print!("{}", get_prompt(vm, "ps1"));
-    stdout.flush().expect("flush failed");
+    let mut print_prompt = || {
+        let prompt = get_prompt(vm, "ps1");
+        let prompt = match prompt {
+            Some(ref s) => s.as_str(),
+            None => "",
+        };
+        print!("{}", prompt);
+        stdout.flush().expect("flush failed");
+    };
+
+    print_prompt();
     for line in stdin.lock().lines() {
         let mut line = line.expect("line failed");
         line.push('\n');
@@ -601,8 +610,7 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             ShellExecResult::Continue => println!("Unexpected EOF"),
             ShellExecResult::PyErr(exc) => print_exception(vm, &exc),
         }
-        print!("{}", get_prompt(vm, "ps1"));
-        stdout.flush().expect("flush failed");
+        print_prompt();
     }
 
     Ok(())
