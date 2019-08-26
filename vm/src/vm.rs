@@ -39,6 +39,7 @@ use crate::pyobject::{
 use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
+use arr_macro::arr;
 use num_bigint::BigInt;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::{compile, error::CompileError};
@@ -62,9 +63,11 @@ pub struct VirtualMachine {
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: RefCell<bool>,
+    pub signal_handlers: RefCell<[PyObjectRef; NSIG]>,
     pub settings: PySettings,
-    pub signal_handlers: RefCell<HashMap<i32, PyObjectRef>>,
 }
+
+pub const NSIG: usize = 64;
 
 /// Struct containing all kind of settings for the python vm.
 pub struct PySettings {
@@ -166,6 +169,8 @@ impl VirtualMachine {
         let import_func = RefCell::new(ctx.none());
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
+        let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
+
         let vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
@@ -179,8 +184,8 @@ impl VirtualMachine {
             profile_func,
             trace_func,
             use_tracing: RefCell::new(false),
+            signal_handlers,
             settings,
-            signal_handlers: Default::default(),
         };
 
         objmodule::init_module_dict(
@@ -198,6 +203,10 @@ impl VirtualMachine {
 
         builtins::make_module(&vm, builtins.clone());
         sysmodule::make_module(&vm, sysmod, builtins);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        import::import_builtin(&vm, "signal").expect("Couldn't initialize signal module");
+
         vm
     }
 

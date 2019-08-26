@@ -15,8 +15,8 @@ fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let exc_args = vm.ctx.new_tuple(args.args[1..].to_vec());
     vm.set_attr(&exc_self, "args", exc_args)?;
 
-    let traceback = vm.ctx.new_list(Vec::new());
-    vm.set_attr(&exc_self, "__traceback__", traceback)?;
+    // TODO: have an actual `traceback` object for __traceback__
+    vm.set_attr(&exc_self, "__traceback__", vm.ctx.new_list(vec![]))?;
     vm.set_attr(&exc_self, "__cause__", vm.get_none())?;
     vm.set_attr(&exc_self, "__context__", vm.get_none())?;
     vm.set_attr(&exc_self, "__suppress_context__", vm.new_bool(false))?;
@@ -101,11 +101,13 @@ fn print_traceback_entry(vm: &VirtualMachine, tb_entry: &PyObjectRef) {
 /// Print exception with traceback
 pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
     if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
-        println!("Traceback (most recent call last):");
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
             let mut tb_entries = objsequence::get_elements_list(&tb).to_vec();
             tb_entries.reverse();
 
+            if !tb_entries.is_empty() {
+                println!("Traceback (most recent call last):");
+            }
             for exc_location in tb_entries.iter() {
                 print_traceback_entry(vm, exc_location);
             }
