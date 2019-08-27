@@ -83,3 +83,6 @@ num_cpus = "1.0"
 
 [target."cfg(windows)".dependencies]
 kernel32-sys = "0.2.2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
