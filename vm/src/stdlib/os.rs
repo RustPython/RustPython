@@ -294,7 +294,7 @@ fn getgroups() -> nix::Result<Vec<Gid>> {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "redox"))]
+#[cfg(any(target_os = "linux", target_os = "redox", target_os = "android"))]
 fn getgroups() -> nix::Result<Vec<Gid>> {
     nix::unistd::getgroups()
 }
