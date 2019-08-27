@@ -56,7 +56,14 @@ bitflags! {
     }
 }
 
-pub type Label = usize;
+#[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Label(usize);
+
+impl Label {
+    pub fn new(label: usize) -> Self {
+        Label(label)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 /// An indication where the name must be accessed.
@@ -499,8 +506,8 @@ impl Instruction {
             SetupFinally { handler } => w!(SetupFinally, label_map[handler]),
             EnterFinally => w!(EnterFinally),
             EndFinally => w!(EndFinally),
-            SetupWith { end } => w!(SetupWith, end),
-            CleanupWith { end } => w!(CleanupWith, end),
+            SetupWith { end } => w!(SetupWith, label_map[end]),
+            CleanupWith { end } => w!(CleanupWith, label_map[end]),
             PopBlock => w!(PopBlock),
             Raise { argc } => w!(Raise, argc),
             BuildString { size } => w!(BuildString, size),
