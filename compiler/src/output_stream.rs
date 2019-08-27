@@ -1,5 +1,4 @@
-use crate::compile::Label;
-use rustpython_bytecode::bytecode::{CodeObject, Instruction, Location};
+use rustpython_bytecode::bytecode::{CodeObject, Instruction, Label, Location};
 
 pub trait OutputStream: From<CodeObject> + Into<CodeObject> {
     /// Output an instruction

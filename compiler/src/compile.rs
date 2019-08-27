@@ -12,7 +12,7 @@ use crate::symboltable::{
     make_symbol_table, statements_to_symbol_table, Symbol, SymbolScope, SymbolTable,
 };
 use num_complex::Complex64;
-use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
+use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Label, Varargs};
 use rustpython_parser::{ast, parser};
 
 type BasicOutputStream = PeepholeOptimizer<CodeObjectStream>;
@@ -133,8 +133,6 @@ impl std::fmt::Display for ModeParseError {
         write!(f, r#"mode should be "exec", "eval", or "single""#)
     }
 }
-
-pub(crate) type Label = usize;
 
 impl<O> Default for Compiler<O>
 where
@@ -2004,7 +2002,7 @@ impl<O: OutputStream> Compiler<O> {
 
     // Generate a new label
     fn new_label(&mut self) -> Label {
-        let l = self.nxt_label;
+        let l = Label::new(self.nxt_label);
         self.nxt_label += 1;
         l
     }
@@ -2093,9 +2091,9 @@ fn compile_conversion_flag(conversion_flag: ast::ConversionFlag) -> bytecode::Co
 mod tests {
     use super::Compiler;
     use crate::symboltable::make_symbol_table;
-    use rustpython_bytecode::bytecode::CodeObject;
     use rustpython_bytecode::bytecode::Constant::*;
     use rustpython_bytecode::bytecode::Instruction::*;
+    use rustpython_bytecode::bytecode::{CodeObject, Label};
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {
@@ -2116,15 +2114,21 @@ mod tests {
                 LoadConst {
                     value: Boolean { value: true }
                 },
-                JumpIfTrue { target: 1 },
+                JumpIfTrue {
+                    target: Label::new(1)
+                },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIfTrue { target: 1 },
+                JumpIfTrue {
+                    target: Label::new(1)
+                },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIfFalse { target: 0 },
+                JumpIfFalse {
+                    target: Label::new(0)
+                },
                 Pass,
                 LoadConst { value: None },
                 ReturnValue
@@ -2141,15 +2145,21 @@ mod tests {
                 LoadConst {
                     value: Boolean { value: true }
                 },
-                JumpIfFalse { target: 0 },
+                JumpIfFalse {
+                    target: Label::new(0)
+                },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIfFalse { target: 0 },
+                JumpIfFalse {
+                    target: Label::new(0)
+                },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIfFalse { target: 0 },
+                JumpIfFalse {
+                    target: Label::new(0)
+                },
                 Pass,
                 LoadConst { value: None },
                 ReturnValue
@@ -2166,19 +2176,27 @@ mod tests {
                 LoadConst {
                     value: Boolean { value: true }
                 },
-                JumpIfFalse { target: 2 },
+                JumpIfFalse {
+                    target: Label::new(2)
+                },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIfTrue { target: 1 },
+                JumpIfTrue {
+                    target: Label::new(1)
+                },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIfFalse { target: 0 },
+                JumpIfFalse {
+                    target: Label::new(0)
+                },
                 LoadConst {
                     value: Boolean { value: true }
                 },
-                JumpIfFalse { target: 0 },
+                JumpIfFalse {
+                    target: Label::new(0)
+                },
                 Pass,
                 LoadConst { value: None },
                 ReturnValue

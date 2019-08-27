@@ -1,7 +1,6 @@
-use crate::compile::Label;
 use crate::output_stream::OutputStream;
 use arrayvec::ArrayVec;
-use rustpython_bytecode::bytecode::{self, CodeObject, Instruction, Location};
+use rustpython_bytecode::bytecode::{self, CodeObject, Instruction, Label, Location};
 
 const PEEPHOLE_BUFFER_SIZE: usize = 20;
 
@@ -92,7 +91,7 @@ where
         self.push(instruction, loc.into());
         optimize(self);
     }
-    fn set_label(&mut self, label: crate::compile::Label) {
+    fn set_label(&mut self, label: Label) {
         if let Some(instr) = self.buffer.last_mut() {
             instr.1.labels.push(label)
         }
