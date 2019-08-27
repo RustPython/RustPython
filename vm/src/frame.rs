@@ -43,6 +43,9 @@ enum BlockType {
     TryExcept {
         handler: bytecode::Label,
     },
+    Finally {
+        handler: bytecode::Label,
+    },
     With {
         end: bytecode::Label,
         context_manager: PyObjectRef,
@@ -51,6 +54,24 @@ enum BlockType {
 }
 
 pub type FrameRef = PyRef<Frame>;
+
+/// The reason why we might be unwinding a block.
+/// This could be return of function, exception being
+/// raised, a break or continue being hit, etc..
+enum UnwindReason {
+    /// We are returning a value from a return statement.
+    Returning { value: PyObjectRef },
+
+    /// We hit an exception, so unwind any try-except and finally blocks.
+    Raising { exception: PyObjectRef },
+
+    // NoWorries,
+    /// We are unwinding blocks, since we hit break
+    Break,
+
+    /// We are unwinding blocks since we hit a continue statements.
+    Continue,
+}
 
 pub struct Frame {
     pub code: bytecode::CodeObject,
@@ -137,9 +158,12 @@ impl Frame {
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
                     objlist::PyListRef::try_from_object(vm, traceback)?.append(raise_location, vm);
-                    match self.unwind_exception(vm, exception) {
-                        None => {}
-                        Some(exception) => {
+                    match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
+                        Ok(None) => {}
+                        Ok(Some(result)) => {
+                            break Ok(result);
+                        }
+                        Err(exception) => {
                             // TODO: append line number to traceback?
                             // traceback.append();
                             break Err(exception);
@@ -151,9 +175,10 @@ impl Frame {
     }
 
     pub fn throw(&self, vm: &VirtualMachine, exception: PyObjectRef) -> PyResult<ExecutionResult> {
-        match self.unwind_exception(vm, exception) {
-            None => self.run(vm),
-            Some(exception) => Err(exception),
+        match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
+            Ok(None) => self.run(vm),
+            Ok(Some(result)) => Ok(result),
+            Err(exception) => Err(exception),
         }
     }
 
@@ -345,11 +370,7 @@ impl Frame {
             bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(vm, op),
             bytecode::Instruction::ReturnValue => {
                 let value = self.pop_value();
-                if let Some(exc) = self.unwind_blocks(vm) {
-                    Err(exc)
-                } else {
-                    Ok(Some(ExecutionResult::Return(value)))
-                }
+                self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
             bytecode::Instruction::YieldValue => {
                 let value = self.pop_value();
@@ -382,6 +403,14 @@ impl Frame {
                 self.push_block(BlockType::TryExcept { handler: *handler });
                 Ok(None)
             }
+            bytecode::Instruction::SetupFinally { handler } => {
+                self.push_block(BlockType::Finally { handler: *handler });
+                Ok(None)
+            }
+            bytecode::Instruction::EndFinally => {
+                let _block = self.pop_block().unwrap();
+                Ok(None)
+            }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
                 // Call enter:
@@ -401,7 +430,7 @@ impl Frame {
                 } = &block.typ
                 {
                     debug_assert!(end1 == end2);
-                    self.call_context_manager_exit_no_exception(vm, &context_manager)?;
+                    self.call_context_manager_exit(vm, &context_manager, None)?;
                 } else {
                     unreachable!("Block stack is incorrect, expected a with block");
                 }
@@ -567,29 +596,12 @@ impl Frame {
                 Err(exception)
             }
 
-            bytecode::Instruction::Break => {
-                let block = self.unwind_loop(vm);
-                if let BlockType::Loop { end, .. } = block.typ {
-                    self.pop_block();
-                    self.jump(end);
-                } else {
-                    unreachable!()
-                }
-                Ok(None)
-            }
+            bytecode::Instruction::Break => self.unwind_blocks(vm, UnwindReason::Break),
             bytecode::Instruction::Pass => {
                 // Ah, this is nice, just relax!
                 Ok(None)
             }
-            bytecode::Instruction::Continue => {
-                let block = self.unwind_loop(vm);
-                if let BlockType::Loop { start, .. } = block.typ {
-                    self.jump(start);
-                } else {
-                    unreachable!();
-                }
-                Ok(None)
-            }
+            bytecode::Instruction::Continue => self.unwind_blocks(vm, UnwindReason::Continue),
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
                 if !expr.is(&vm.get_none()) {
@@ -758,134 +770,138 @@ impl Frame {
         Ok(None)
     }
 
-    // Unwind all blocks:
+    /// Unwind blocks.
+    /// The reason for unwinding gives a hint on what to do when
+    /// unwinding a block.
+    /// Optionally returns an exception.
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn unwind_blocks(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        while let Some(block) = self.pop_block() {
+    fn unwind_blocks(&self, vm: &VirtualMachine, mut reason: UnwindReason) -> FrameResult {
+        // First unwind all existing blocks on the block stack:
+        while let Some(block) = self.current_block() {
             match block.typ {
-                BlockType::Loop { .. } => {}
-                BlockType::TryExcept { .. } => {
-                    // TODO: execute finally handler
+                BlockType::Loop { start, end } => match &reason {
+                    UnwindReason::Break => {
+                        self.pop_block().unwrap();
+                        self.jump(end);
+                        return Ok(None);
+                    }
+                    UnwindReason::Continue => {
+                        self.jump(start);
+                        return Ok(None);
+                    }
+                    _ => {
+                        self.pop_block().unwrap();
+                    }
+                },
+                BlockType::Finally { .. } => {
+                    self.pop_block().unwrap();
+                    // TODO!
                 }
-                BlockType::With {
-                    context_manager, ..
-                } => {
-                    match self.call_context_manager_exit_no_exception(vm, &context_manager) {
-                        Ok(..) => {}
-                        Err(exc) => {
-                            // __exit__ went wrong,
-                            return Some(exc);
+                BlockType::TryExcept { handler } => {
+                    self.pop_block().unwrap();
+                    match &reason {
+                        UnwindReason::Raising { exception } => {
+                            self.push_block(BlockType::ExceptHandler {});
+                            self.push_value(exception.clone());
+                            vm.push_exception(exception.clone());
+                            self.jump(handler);
+                            return Ok(None);
+                        }
+                        _ => {
+                            // No worries!
                         }
                     }
                 }
-                BlockType::ExceptHandler => {
-                    vm.pop_exception().expect("Should have exception in stack");
-                }
-            }
-        }
-
-        None
-    }
-
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn unwind_loop(&self, vm: &VirtualMachine) -> Block {
-        loop {
-            let block = self.current_block().expect("not in a loop");
-            match block.typ {
-                BlockType::Loop { .. } => break block,
-                BlockType::TryExcept { .. } => {
-                    // TODO: execute finally handler
-                }
                 BlockType::With {
-                    context_manager, ..
-                } => match self.call_context_manager_exit_no_exception(vm, &context_manager) {
-                    Ok(..) => {}
-                    Err(exc) => {
-                        panic!("Exception in with __exit__ {:?}", exc);
-                    }
-                },
-                BlockType::ExceptHandler => {
-                    vm.pop_exception().expect("Should have exception in stack");
-                }
-            }
-
-            self.pop_block();
-        }
-    }
-
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn unwind_exception(&self, vm: &VirtualMachine, exc: PyObjectRef) -> Option<PyObjectRef> {
-        // unwind block stack on exception and find any handlers:
-        while let Some(block) = self.pop_block() {
-            match block.typ {
-                BlockType::TryExcept { handler } => {
-                    self.push_block(BlockType::ExceptHandler {});
-                    self.push_value(exc.clone());
-                    vm.push_exception(exc);
-                    self.jump(handler);
-                    return None;
-                }
-                BlockType::With {
-                    end,
                     context_manager,
+                    end,
                 } => {
-                    match self.call_context_manager_exit(vm, &context_manager, exc.clone()) {
-                        Ok(exit_result_obj) => {
-                            match objbool::boolval(vm, exit_result_obj) {
-                                // If __exit__ method returned True, suppress the exception and continue execution.
-                                Ok(suppress_exception) => {
-                                    if suppress_exception {
-                                        self.jump(end);
-                                        return None;
-                                    } else {
-                                        // go on with the stack unwinding.
+                    self.pop_block().unwrap();
+                    match &reason {
+                        UnwindReason::Raising { exception } => {
+                            match self.call_context_manager_exit(
+                                vm,
+                                &context_manager,
+                                Some(exception.clone()),
+                            ) {
+                                Ok(exit_result_obj) => {
+                                    match objbool::boolval(vm, exit_result_obj) {
+                                        // If __exit__ method returned True, suppress the exception and continue execution.
+                                        Ok(suppress_exception) => {
+                                            if suppress_exception {
+                                                self.jump(end);
+                                                return Ok(None);
+                                            } else {
+                                                // go on with the stack unwinding.
+                                            }
+                                        }
+                                        Err(exit_exc) => {
+                                            reason = UnwindReason::Raising {
+                                                exception: exit_exc,
+                                            };
+                                            // return Err(exit_exc);
+                                        }
                                     }
                                 }
                                 Err(exit_exc) => {
-                                    return Some(exit_exc);
+                                    // TODO: what about original exception?
+                                    reason = UnwindReason::Raising {
+                                        exception: exit_exc,
+                                    };
+                                    // return Err(exit_exc);
                                 }
                             }
                         }
-                        Err(exit_exc) => {
-                            // TODO: what about original exception?
-                            return Some(exit_exc);
+                        _ => {
+                            match self.call_context_manager_exit(vm, &context_manager, None) {
+                                Ok(..) => {}
+                                Err(exit_exc) => {
+                                    // __exit__ went wrong,
+                                    reason = UnwindReason::Raising {
+                                        exception: exit_exc,
+                                    };
+                                    // return Err(exc);
+                                }
+                            }
                         }
                     }
                 }
-                BlockType::Loop { .. } => {}
                 BlockType::ExceptHandler => {
+                    self.pop_block().unwrap();
                     vm.pop_exception().expect("Should have exception in stack");
                 }
             }
         }
-        Some(exc)
-    }
 
-    fn call_context_manager_exit_no_exception(
-        &self,
-        vm: &VirtualMachine,
-        context_manager: &PyObjectRef,
-    ) -> PyResult {
-        // TODO: do we want to put the exit call on the stack?
-        // TODO: what happens when we got an error during execution of __exit__?
-        vm.call_method(
-            context_manager,
-            "__exit__",
-            vec![vm.ctx.none(), vm.ctx.none(), vm.ctx.none()],
-        )
+        // We do not have any more blocks to unwind. Inspect the reason we are here:
+        match reason {
+            UnwindReason::Raising { exception } => Err(exception),
+            UnwindReason::Returning { value } => Ok(Some(ExecutionResult::Return(value))),
+            UnwindReason::Break | UnwindReason::Continue => {
+                panic!("Internal error: break or continue must occur within a loop block.")
+            } // UnwindReason::NoWorries => Ok(None),
+        }
+
+        // None
     }
 
     fn call_context_manager_exit(
         &self,
         vm: &VirtualMachine,
         context_manager: &PyObjectRef,
-        exc: PyObjectRef,
+        exc: Option<PyObjectRef>,
     ) -> PyResult {
         // TODO: do we want to put the exit call on the stack?
         // TODO: what happens when we got an error during execution of __exit__?
-        let exc_type = exc.class().into_object();
-        let exc_val = exc.clone();
-        let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
+        let (exc_type, exc_val, exc_tb) = if let Some(exc) = exc {
+            let exc_type = exc.class().into_object();
+            let exc_val = exc.clone();
+            let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
+            (exc_type, exc_val, exc_tb)
+        } else {
+            (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
+        };
+
         vm.call_method(context_manager, "__exit__", vec![exc_type, exc_val, exc_tb])
     }
 
@@ -964,7 +980,7 @@ impl Frame {
         let target_pc = self.code.label_map[&label];
         #[cfg(feature = "vm-tracing-logging")]
         trace!("jump from {:?} to {:?}", self.lasti, target_pc);
-        *self.lasti.borrow_mut() = target_pc;
+        self.lasti.replace(target_pc);
     }
 
     fn execute_make_function(

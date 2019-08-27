@@ -708,12 +708,20 @@ impl<O: OutputStream> Compiler<O> {
         &mut self,
         body: &[ast::Statement],
         handlers: &[ast::ExceptHandler],
-        orelse: &Option<Vec<ast::Statement>>,
-        finalbody: &Option<Vec<ast::Statement>>,
+        orelse: &Option<ast::Suite>,
+        finalbody: &Option<ast::Suite>,
     ) -> Result<(), CompileError> {
         let mut handler_label = self.new_label();
         let finally_label = self.new_label();
         let else_label = self.new_label();
+
+        // Setup a finally block if we have a finally statement.
+        if finalbody.is_some() {
+            self.emit(Instruction::SetupFinally {
+                handler: finally_label,
+            });
+        }
+
         // try:
         self.emit(Instruction::SetupExcept {
             handler: handler_label,
@@ -798,8 +806,9 @@ impl<O: OutputStream> Compiler<O> {
         self.set_label(finally_label);
         if let Some(statements) = finalbody {
             self.compile_statements(statements)?;
+            self.emit(Instruction::EndFinally);
         }
-        // unimplemented!();
+
         Ok(())
     }
 
