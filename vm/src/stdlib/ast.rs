@@ -7,7 +7,7 @@ use std::ops::Deref;
 
 use num_complex::Complex64;
 
-use rustpython_parser::{ast, parser};
+use rustpython_parser::{ast, mode::Mode, parser};
 
 use crate::obj::objlist::PyListRef;
 use crate::obj::objtype::PyClassRef;
@@ -50,11 +50,12 @@ macro_rules! node {
     }
 }
 
-pub(crate) fn source_to_ast(vm: &VirtualMachine, source: &str) -> PyResult {
-    let internal_ast =
-        parser::parse_program(source).map_err(|err| vm.new_value_error(format!("{}", err)))?;
-    let py_body = statements_to_ast(vm, &internal_ast.statements)?;
-    Ok(node!(vm, Module, { body => py_body }).into_object())
+fn top_to_ast(vm: &VirtualMachine, top: &ast::Top) -> PyResult<PyListRef> {
+    match top {
+        ast::Top::Program(program) => statements_to_ast(vm, &program.statements),
+        ast::Top::Statement(statements) => statements_to_ast(vm, statements),
+        ast::Top::Expression(_) => unimplemented!("top_to_ast unimplemented ast::Top::Expression"),
+    }
 }
 
 // Create a node class instance
@@ -632,6 +633,12 @@ fn string_to_ast(vm: &VirtualMachine, string: &ast::StringGroup) -> PyResult<Ast
         }
     };
     Ok(string)
+}
+
+pub(crate) fn parse(vm: &VirtualMachine, source: &str, mode: Mode) -> PyResult {
+    let ast = parser::parse(source, mode).map_err(|err| vm.new_value_error(format!("{}", err)))?;
+    let py_body = top_to_ast(vm, &ast)?;
+    Ok(node!(vm, Module, { body => py_body }).into_object())
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

@@ -29,10 +29,10 @@ use crate::pyobject::{
     TryFromObject, TypeProtocol,
 };
 use crate::scope::Scope;
-use crate::vm::VirtualMachine;
 use crate::stdlib::ast;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
+use crate::vm::VirtualMachine;
 
 fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let method = vm.get_method_or_type_error(x.clone(), "__abs__", || {
@@ -143,11 +143,11 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
         .map_or(Ok(0), |v| i32::try_from_object(vm, v.into_object()))?;
 
     if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
-        vm.compile(&source, mode, args.filename.value.to_string())
+        vm.compile(&source, mode, args.filename.as_str().to_string())
             .map(|o| o.into_object())
             .map_err(|err| vm.new_syntax_error(&err))
     } else {
-        ast::source_to_ast(&vm, &source)
+        ast::parse(&vm, &source, mode.to_parser_mode())
     }
 }
 

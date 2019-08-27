@@ -6,6 +6,7 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use crate::error::{CompileError, CompileErrorType};
+pub use crate::mode::Mode;
 use crate::output_stream::{CodeObjectStream, OutputStream};
 use crate::peephole::PeepholeOptimizer;
 use crate::symboltable::{
@@ -103,36 +104,6 @@ pub fn compile_program_single(
         let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program_single(&ast, symbol_table)
     })
-}
-
-#[derive(Clone, Copy)]
-pub enum Mode {
-    Exec,
-    Eval,
-    Single,
-}
-
-impl std::str::FromStr for Mode {
-    type Err = ModeParseError;
-    fn from_str(s: &str) -> Result<Self, ModeParseError> {
-        match s {
-            "exec" => Ok(Mode::Exec),
-            "eval" => Ok(Mode::Eval),
-            "single" => Ok(Mode::Single),
-            _ => Err(ModeParseError { _priv: () }),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct ModeParseError {
-    _priv: (),
-}
-
-impl std::fmt::Display for ModeParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, r#"mode should be "exec", "eval", or "single""#)
-    }
 }
 
 impl<O> Default for Compiler<O>

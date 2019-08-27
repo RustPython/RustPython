@@ -11,6 +11,7 @@ mod fstring;
 mod function;
 pub mod lexer;
 pub mod location;
+pub mod mode;
 pub mod parser;
 lalrpop_mod!(
     #[allow(clippy::all)]
