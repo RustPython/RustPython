@@ -178,6 +178,26 @@ pub enum Instruction {
         start: Label,
         end: Label,
     },
+
+    /// Setup a finally handler, which will be called whenever one of this events occurs:
+    /// - the block is popped
+    /// - the function returns
+    /// - an exception is returned
+    SetupFinally {
+        handler: Label,
+    },
+
+    /// Enter a finally block, without returning, excepting, just because we are there.
+    EnterFinally,
+
+    /// Marker bytecode for the end of a finally sequence.
+    /// When this bytecode is executed, the eval loop does one of those things:
+    /// - Continue at a certain bytecode position
+    /// - Propagate the exception
+    /// - Return from a function
+    /// - Do nothing at all, just continue
+    EndFinally,
+
     SetupExcept {
         handler: Label,
     },
@@ -475,7 +495,10 @@ impl Instruction {
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupLoop { start, end } => w!(SetupLoop, label_map[start], label_map[end]),
-            SetupExcept { handler } => w!(SetupExcept, handler),
+            SetupExcept { handler } => w!(SetupExcept, label_map[handler]),
+            SetupFinally { handler } => w!(SetupFinally, label_map[handler]),
+            EnterFinally => w!(EnterFinally),
+            EndFinally => w!(EndFinally),
             SetupWith { end } => w!(SetupWith, end),
             CleanupWith { end } => w!(CleanupWith, end),
             PopBlock => w!(PopBlock),
