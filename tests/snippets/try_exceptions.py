@@ -187,6 +187,19 @@ with assertRaises(ZeroDivisionError):
             pass
         raise
 
+# try-return-finally behavior:
+l = []
+def foo():
+    try:
+        return 33
+    finally:
+        l.append(1337)
+
+r = foo()
+assert r == 33
+assert l == [1337]
+
+
 # Regression https://github.com/RustPython/RustPython/issues/867
 for _ in [1, 2]:
     try:

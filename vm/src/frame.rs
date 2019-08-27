@@ -46,6 +46,11 @@ enum BlockType {
     Finally {
         handler: bytecode::Label,
     },
+
+    /// Active finally sequence
+    FinallyHandler {
+        reason: Option<UnwindReason>,
+    },
     With {
         end: bytecode::Label,
         context_manager: PyObjectRef,
@@ -58,6 +63,7 @@ pub type FrameRef = PyRef<Frame>;
 /// The reason why we might be unwinding a block.
 /// This could be return of function, exception being
 /// raised, a break or continue being hit, etc..
+#[derive(Clone, Debug)]
 enum UnwindReason {
     /// We are returning a value from a return statement.
     Returning { value: PyObjectRef },
@@ -407,9 +413,26 @@ impl Frame {
                 self.push_block(BlockType::Finally { handler: *handler });
                 Ok(None)
             }
-            bytecode::Instruction::EndFinally => {
-                let _block = self.pop_block().unwrap();
+            bytecode::Instruction::EnterFinally => {
+                self.push_block(BlockType::FinallyHandler { reason: None });
                 Ok(None)
+            }
+            bytecode::Instruction::EndFinally => {
+                // Pop the finally handler from the stack, and recall
+                // what was the reason we were in this finally clause.
+                let block = self.pop_block();
+
+                if let BlockType::FinallyHandler { reason } = block.typ {
+                    if let Some(reason) = reason {
+                        self.unwind_blocks(vm, reason)
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    panic!(
+                        "Block type must be finally handler when reaching EndFinally instruction!"
+                    );
+                }
             }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
@@ -423,7 +446,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::CleanupWith { end: end1 } => {
-                let block = self.pop_block().unwrap();
+                let block = self.pop_block();
                 if let BlockType::With {
                     end: end2,
                     context_manager,
@@ -438,7 +461,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::PopBlock => {
-                self.pop_block().expect("no pop to block");
+                self.pop_block();
                 Ok(None)
             }
             bytecode::Instruction::GetIter => {
@@ -687,7 +710,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::PopException {} => {
-                let block = self.pop_block().unwrap(); // this asserts that the block is_some.
+                let block = self.pop_block();
                 if let BlockType::ExceptHandler = block.typ {
                     vm.pop_exception().expect("Should have exception in stack");
                     Ok(None)
@@ -781,7 +804,7 @@ impl Frame {
             match block.typ {
                 BlockType::Loop { start, end } => match &reason {
                     UnwindReason::Break => {
-                        self.pop_block().unwrap();
+                        self.pop_block();
                         self.jump(end);
                         return Ok(None);
                     }
@@ -790,33 +813,32 @@ impl Frame {
                         return Ok(None);
                     }
                     _ => {
-                        self.pop_block().unwrap();
+                        self.pop_block();
                     }
                 },
-                BlockType::Finally { .. } => {
-                    self.pop_block().unwrap();
-                    // TODO!
+                BlockType::Finally { handler } => {
+                    self.pop_block();
+                    self.push_block(BlockType::FinallyHandler {
+                        reason: Some(reason.clone()),
+                    });
+                    self.jump(handler);
+                    return Ok(None);
                 }
                 BlockType::TryExcept { handler } => {
-                    self.pop_block().unwrap();
-                    match &reason {
-                        UnwindReason::Raising { exception } => {
-                            self.push_block(BlockType::ExceptHandler {});
-                            self.push_value(exception.clone());
-                            vm.push_exception(exception.clone());
-                            self.jump(handler);
-                            return Ok(None);
-                        }
-                        _ => {
-                            // No worries!
-                        }
+                    self.pop_block();
+                    if let UnwindReason::Raising { exception } = &reason {
+                        self.push_block(BlockType::ExceptHandler {});
+                        self.push_value(exception.clone());
+                        vm.push_exception(exception.clone());
+                        self.jump(handler);
+                        return Ok(None);
                     }
                 }
                 BlockType::With {
                     context_manager,
                     end,
                 } => {
-                    self.pop_block().unwrap();
+                    self.pop_block();
                     match &reason {
                         UnwindReason::Raising { exception } => {
                             match self.call_context_manager_exit(
@@ -866,8 +888,11 @@ impl Frame {
                         }
                     }
                 }
+                BlockType::FinallyHandler { .. } => {
+                    self.pop_block();
+                }
                 BlockType::ExceptHandler => {
-                    self.pop_block().unwrap();
+                    self.pop_block();
                     vm.pop_exception().expect("Should have exception in stack");
                 }
             }
@@ -881,8 +906,6 @@ impl Frame {
                 panic!("Internal error: break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),
         }
-
-        // None
     }
 
     fn call_context_manager_exit(
@@ -1193,10 +1216,14 @@ impl Frame {
         });
     }
 
-    fn pop_block(&self) -> Option<Block> {
-        let block = self.blocks.borrow_mut().pop()?;
+    fn pop_block(&self) -> Block {
+        let block = self
+            .blocks
+            .borrow_mut()
+            .pop()
+            .expect("No more blocks to pop!");
         self.stack.borrow_mut().truncate(block.level);
-        Some(block)
+        block
     }
 
     fn current_block(&self) -> Option<Block> {

@@ -712,13 +712,13 @@ impl<O: OutputStream> Compiler<O> {
         finalbody: &Option<ast::Suite>,
     ) -> Result<(), CompileError> {
         let mut handler_label = self.new_label();
-        let finally_label = self.new_label();
+        let finally_handler_label = self.new_label();
         let else_label = self.new_label();
 
         // Setup a finally block if we have a finally statement.
         if finalbody.is_some() {
             self.emit(Instruction::SetupFinally {
-                handler: finally_label,
+                handler: finally_handler_label,
             });
         }
 
@@ -773,26 +773,28 @@ impl<O: OutputStream> Compiler<O> {
             // Handler code:
             self.compile_statements(&handler.body)?;
             self.emit(Instruction::PopException);
+
+            if finalbody.is_some() {
+                self.emit(Instruction::PopBlock); // pop finally block
+                                                  // We enter the finally block, without exception.
+                self.emit(Instruction::EnterFinally);
+            }
+
             self.emit(Instruction::Jump {
-                target: finally_label,
+                target: finally_handler_label,
             });
 
             // Emit a new label for the next handler
             self.set_label(handler_label);
             handler_label = self.new_label();
         }
+
         self.emit(Instruction::Jump {
             target: handler_label,
         });
         self.set_label(handler_label);
         // If code flows here, we have an unhandled exception,
-        // emit finally code and raise again!
-        // Duplicate finally code here:
-        // TODO: this bytecode is now duplicate, could this be
-        // improved?
-        if let Some(statements) = finalbody {
-            self.compile_statements(statements)?;
-        }
+        // raise the exception again!
         self.emit(Instruction::Raise { argc: 0 });
 
         // We successfully ran the try block:
@@ -802,8 +804,15 @@ impl<O: OutputStream> Compiler<O> {
             self.compile_statements(statements)?;
         }
 
+        if finalbody.is_some() {
+            self.emit(Instruction::PopBlock); // pop finally block
+
+            // We enter the finally block, without return / exception.
+            self.emit(Instruction::EnterFinally);
+        }
+
         // finally:
-        self.set_label(finally_label);
+        self.set_label(finally_handler_label);
         if let Some(statements) = finalbody {
             self.compile_statements(statements)?;
             self.emit(Instruction::EndFinally);
