@@ -587,7 +587,7 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         crate_version!()
     );
 
-    fn print_prompt() {
+    fn print_prompt(vm: &VirtualMachine) {
         let prompt = get_prompt(vm, "ps1");
         let prompt = match prompt {
             Some(ref s) => s.as_str(),
@@ -599,7 +599,7 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
 
     let stdin = io::stdin();
 
-    print_prompt();
+    print_prompt(vm);
     for line in stdin.lock().lines() {
         let mut line = line.expect("line failed");
         line.push_str("\n");
@@ -608,7 +608,7 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             ShellExecResult::Continue => println!("Unexpected EOF"),
             ShellExecResult::PyErr(exc) => print_exception(vm, &exc),
         }
-        print_prompt();
+        print_prompt(vm);
     }
 
     Ok(())
