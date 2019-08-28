@@ -28,6 +28,9 @@ with FileIO(fd) as fio:
 fi = FileIO('README.md')
 fi.read()
 fi.close()
+assert fi.closefd
+assert fi.closed
+
 with assertRaises(ValueError):
     fi.read()
 
