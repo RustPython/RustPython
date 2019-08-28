@@ -45,6 +45,9 @@ pub struct CodeObject {
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
     pub is_generator: bool,
+
+    /// Maximum value stack size required for this code object.
+    pub max_stack_size: usize,
 }
 
 bitflags! {
@@ -368,6 +371,7 @@ impl CodeObject {
             first_line_number,
             obj_name,
             is_generator: false,
+            max_stack_size: 0,
         }
     }
 

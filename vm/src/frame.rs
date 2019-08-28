@@ -85,7 +85,7 @@ pub struct Frame {
     stack: RefCell<Vec<PyObjectRef>>, // The main data frame of the stack machine
     blocks: RefCell<Vec<Block>>,      // Block frames, for controlling loops and exceptions
     pub scope: Scope,                 // Variables
-    pub lasti: RefCell<usize>,        // index of last instruction ran
+    lasti: RefCell<usize>,            // index of last instruction ran
 }
 
 impl PyValue for Frame {
@@ -115,10 +115,12 @@ impl Frame {
         */
         // let locals = globals;
         // locals.extend(callargs);
+        let code = code.code.clone();
+        let max_stack_size = 32; // code.max_stack_size;
 
         Frame {
-            code: code.code.clone(),
-            stack: RefCell::new(vec![]),
+            code,
+            stack: RefCell::new(Vec::with_capacity(max_stack_size)),
             blocks: RefCell::new(vec![]),
             // save the callargs as locals
             // globals: locals.clone(),
@@ -901,12 +903,19 @@ impl Frame {
     }
 
     fn execute_raise(&self, vm: &VirtualMachine, argc: usize) -> FrameResult {
-        let cause = match argc {
-            2 => self.get_exception(vm, true)?,
-            _ => vm.get_none(),
+        if argc > 2 {
+            // TODO: argc of 3 not implemented.
+            panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3");
+        }
+
+        let cause = if argc < 2 {
+            vm.get_none()
+        } else {
+            self.get_exception(vm, true)?
         };
-        let exception = match argc {
-            0 => match vm.current_exception() {
+
+        let exception = if argc == 0 {
+            match vm.current_exception() {
                 Some(exc) => exc,
                 None => {
                     return Err(vm.new_exception(
@@ -914,18 +923,20 @@ impl Frame {
                         "No active exception to reraise".to_string(),
                     ));
                 }
-            },
-            1 | 2 => self.get_exception(vm, false)?,
-            3 => panic!("Not implemented!"),
-            _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
+            }
+        } else {
+            self.get_exception(vm, false)?
         };
-        let context = match argc {
-            0 => vm.get_none(), // We have already got the exception,
-            _ => match vm.current_exception() {
+
+        let context = if argc == 0 {
+            vm.get_none() // We have already got the exception,
+        } else {
+            match vm.current_exception() {
                 Some(exc) => exc,
                 None => vm.get_none(),
-            },
+            }
         };
+
         info!(
             "Exception raised: {:?} with cause: {:?} and context: {:?}",
             exception, cause, context
@@ -1025,6 +1036,11 @@ impl Frame {
             }
         }
     }
+
+    pub fn get_lasti(&self) -> usize {
+        *self.lasti.borrow()
+    }
+
     fn execute_make_function(
         &self,
         vm: &VirtualMachine,
@@ -1094,39 +1110,40 @@ impl Frame {
         op: &bytecode::BinaryOperator,
         inplace: bool,
     ) -> FrameResult {
+        use bytecode::BinaryOperator::*;
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
         let value = if inplace {
             match *op {
-                bytecode::BinaryOperator::Subtract => vm._isub(a_ref, b_ref),
-                bytecode::BinaryOperator::Add => vm._iadd(a_ref, b_ref),
-                bytecode::BinaryOperator::Multiply => vm._imul(a_ref, b_ref),
-                bytecode::BinaryOperator::MatrixMultiply => vm._imatmul(a_ref, b_ref),
-                bytecode::BinaryOperator::Power => vm._ipow(a_ref, b_ref),
-                bytecode::BinaryOperator::Divide => vm._itruediv(a_ref, b_ref),
-                bytecode::BinaryOperator::FloorDivide => vm._ifloordiv(a_ref, b_ref),
-                bytecode::BinaryOperator::Modulo => vm._imod(a_ref, b_ref),
-                bytecode::BinaryOperator::Lshift => vm._ilshift(a_ref, b_ref),
-                bytecode::BinaryOperator::Rshift => vm._irshift(a_ref, b_ref),
-                bytecode::BinaryOperator::Xor => vm._ixor(a_ref, b_ref),
-                bytecode::BinaryOperator::Or => vm._ior(a_ref, b_ref),
-                bytecode::BinaryOperator::And => vm._iand(a_ref, b_ref),
+                Subtract => vm._isub(a_ref, b_ref),
+                Add => vm._iadd(a_ref, b_ref),
+                Multiply => vm._imul(a_ref, b_ref),
+                MatrixMultiply => vm._imatmul(a_ref, b_ref),
+                Power => vm._ipow(a_ref, b_ref),
+                Divide => vm._itruediv(a_ref, b_ref),
+                FloorDivide => vm._ifloordiv(a_ref, b_ref),
+                Modulo => vm._imod(a_ref, b_ref),
+                Lshift => vm._ilshift(a_ref, b_ref),
+                Rshift => vm._irshift(a_ref, b_ref),
+                Xor => vm._ixor(a_ref, b_ref),
+                Or => vm._ior(a_ref, b_ref),
+                And => vm._iand(a_ref, b_ref),
             }?
         } else {
             match *op {
-                bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
-                bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
-                bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
-                bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
-                bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
-                bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
-                bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
-                bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
-                bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
-                bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
-                bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
-                bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
-                bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
+                Subtract => vm._sub(a_ref, b_ref),
+                Add => vm._add(a_ref, b_ref),
+                Multiply => vm._mul(a_ref, b_ref),
+                MatrixMultiply => vm._matmul(a_ref, b_ref),
+                Power => vm._pow(a_ref, b_ref),
+                Divide => vm._truediv(a_ref, b_ref),
+                FloorDivide => vm._floordiv(a_ref, b_ref),
+                Modulo => vm._mod(a_ref, b_ref),
+                Lshift => vm._lshift(a_ref, b_ref),
+                Rshift => vm._rshift(a_ref, b_ref),
+                Xor => vm._xor(a_ref, b_ref),
+                Or => vm._or(a_ref, b_ref),
+                And => vm._and(a_ref, b_ref),
             }?
         };
 
@@ -1248,6 +1265,7 @@ impl Frame {
 
     pub fn push_value(&self, obj: PyObjectRef) {
         self.stack.borrow_mut().push(obj);
+        // println!("Stack size: {}, capa: {}", self.stack.borrow().len(), self.stack.borrow().capacity());
     }
 
     fn pop_value(&self) -> PyObjectRef {

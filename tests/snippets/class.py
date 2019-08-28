@@ -164,3 +164,14 @@ class T5(int):
 assert str(super(int, T5(5))) == "<super: <class 'int'>, <T5 object>>"
 
 #assert str(super(type, None)) == "<super: <class 'type'>, NULL>"
+
+
+# Scoping rules for class variables:
+
+y = 7
+class T6:
+    y = 8
+    assert y == 8
+    def __init__(self):
+        assert y == 7
+T6()
