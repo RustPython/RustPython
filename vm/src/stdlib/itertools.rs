@@ -290,6 +290,69 @@ impl PyItertoolsTakewhile {
     }
 }
 
+#[pyclass]
+#[derive(Debug)]
+struct PyItertoolsDropwhile {
+    predicate: PyObjectRef,
+    iterable: PyObjectRef,
+    start_flag: RefCell<bool>,
+}
+
+impl PyValue for PyItertoolsDropwhile {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "dropwhile")
+    }
+}
+
+#[pyimpl]
+impl PyItertoolsDropwhile {
+    #[pymethod(name = "__new__")]
+    #[allow(clippy::new_ret_no_self)]
+    fn new(
+        _cls: PyClassRef,
+        predicate: PyObjectRef,
+        iterable: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let iter = get_iter(vm, &iterable)?;
+
+        Ok(PyItertoolsDropwhile {
+            predicate,
+            iterable: iter,
+            start_flag: RefCell::new(false),
+        }
+        .into_ref(vm)
+        .into_object())
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let predicate = &self.predicate;
+        let iterable = &self.iterable;
+
+        if !*self.start_flag.borrow_mut() {
+            loop {
+                let obj = call_next(vm, iterable)?;
+                let pred_value = vm.invoke(predicate, vec![obj.clone()])?;
+                if !objbool::boolval(vm, pred_value)? {
+                    *self.start_flag.borrow_mut() = true;
+                    return Ok(obj);
+                }
+            }
+        }
+
+        loop {
+            let obj = call_next(vm, iterable)?;
+            return Ok(obj);
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
 #[pyclass(name = "islice")]
 #[derive(Debug)]
 struct PyItertoolsIslice {
@@ -484,6 +547,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let count = ctx.new_class("count", ctx.object());
     PyItertoolsCount::extend_class(ctx, &count);
 
+    let dropwhile = ctx.new_class("dropwhile", ctx.object());
+    PyItertoolsDropwhile::extend_class(ctx, &dropwhile);
+
     let repeat = ctx.new_class("repeat", ctx.object());
     PyItertoolsRepeat::extend_class(ctx, &repeat);
 
@@ -500,6 +566,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     py_module!(vm, "itertools", {
         "chain" => chain,
         "count" => count,
+        "dropwhile" => dropwhile,
         "repeat" => repeat,
         "starmap" => starmap,
         "takewhile" => takewhile,
