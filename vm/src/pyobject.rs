@@ -670,7 +670,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PyCallable {
     obj: PyObjectRef,
 }

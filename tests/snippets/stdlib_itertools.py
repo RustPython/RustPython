@@ -201,3 +201,12 @@ assert None == next(it)
 assert False == next(it)
 assert [] == next(it)
 assert {} == next(it)
+
+
+# itertools.dropwhile
+it = itertools.dropwhile(lambda x: x<5, [1,4,6,4,1])
+assert 6 == next(it)
+assert 4 == next(it)
+assert 1 == next(it)
+with assertRaises(StopIteration):
+    next(it)
