@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::ops::{AddAssign, SubAssign};
 
@@ -12,7 +12,7 @@ use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter::{call_next, get_iter, new_stop_iteration};
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{IdProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 #[pyclass(name = "chain")]
@@ -293,9 +293,9 @@ impl PyItertoolsTakewhile {
 #[pyclass]
 #[derive(Debug)]
 struct PyItertoolsDropwhile {
-    predicate: PyObjectRef,
+    predicate: PyCallable,
     iterable: PyObjectRef,
-    start_flag: RefCell<bool>,
+    start_flag: Cell<bool>,
 }
 
 impl PyValue for PyItertoolsDropwhile {
@@ -304,25 +304,26 @@ impl PyValue for PyItertoolsDropwhile {
     }
 }
 
+type PyItertoolsDropwhileRef = PyRef<PyItertoolsDropwhile>;
+
 #[pyimpl]
 impl PyItertoolsDropwhile {
     #[pymethod(name = "__new__")]
     #[allow(clippy::new_ret_no_self)]
     fn new(
-        _cls: PyClassRef,
-        predicate: PyObjectRef,
+        cls: PyClassRef,
+        predicate: PyCallable,
         iterable: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<PyItertoolsDropwhileRef> {
         let iter = get_iter(vm, &iterable)?;
 
-        Ok(PyItertoolsDropwhile {
+        PyItertoolsDropwhile {
             predicate,
             iterable: iter,
-            start_flag: RefCell::new(false),
+            start_flag: Cell::new(false),
         }
-        .into_ref(vm)
-        .into_object())
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]
@@ -330,21 +331,18 @@ impl PyItertoolsDropwhile {
         let predicate = &self.predicate;
         let iterable = &self.iterable;
 
-        if !*self.start_flag.borrow_mut() {
+        if !self.start_flag.get() {
             loop {
                 let obj = call_next(vm, iterable)?;
-                let pred_value = vm.invoke(predicate, vec![obj.clone()])?;
+                let pred = predicate.clone();
+                let pred_value = vm.invoke(&pred.into_object(), vec![obj.clone()])?;
                 if !objbool::boolval(vm, pred_value)? {
-                    *self.start_flag.borrow_mut() = true;
+                    self.start_flag.set(true);
                     return Ok(obj);
                 }
             }
         }
-
-        loop {
-            let obj = call_next(vm, iterable)?;
-            return Ok(obj);
-        }
+        call_next(vm, iterable)
     }
 
     #[pymethod(name = "__iter__")]
