@@ -430,10 +430,10 @@ impl SocketRef {
                     self.timeout.borrow_mut().replace(Duration::from_secs(0));
                 }
                 if let Some(conn) = self.con.borrow_mut().as_mut() {
-                    return match conn.setblocking(value) {
+                    match conn.setblocking(value) {
                         Ok(_) => Ok(()),
                         Err(err) => Err(vm.new_os_error(err.to_string())),
-                    };
+                    }
                 } else {
                     Ok(())
                 }

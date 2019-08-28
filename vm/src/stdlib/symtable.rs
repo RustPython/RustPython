@@ -83,8 +83,18 @@ impl PyValue for PySymbolTable {
 #[pyimpl]
 impl PySymbolTable {
     #[pymethod(name = "get_name")]
-    fn get_name(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.symtable.name.clone()))
+    fn get_name(&self, _vm: &VirtualMachine) -> String {
+        self.symtable.name.clone()
+    }
+
+    #[pymethod(name = "get_type")]
+    fn get_type(&self, _vm: &VirtualMachine) -> String {
+        self.symtable.typ.to_string()
+    }
+
+    #[pymethod(name = "get_lineno")]
+    fn get_lineno(&self, _vm: &VirtualMachine) -> usize {
+        self.symtable.line_number
     }
 
     #[pymethod(name = "lookup")]
@@ -100,6 +110,17 @@ impl PySymbolTable {
         }
     }
 
+    #[pymethod(name = "get_identifiers")]
+    fn get_identifiers(&self, vm: &VirtualMachine) -> PyResult {
+        let symbols = self
+            .symtable
+            .symbols
+            .keys()
+            .map(|s| vm.ctx.new_str(s.to_string()))
+            .collect();
+        Ok(vm.ctx.new_list(symbols))
+    }
+
     #[pymethod(name = "get_symbols")]
     fn get_symbols(&self, vm: &VirtualMachine) -> PyResult {
         let symbols = self
@@ -109,6 +130,11 @@ impl PySymbolTable {
             .map(|s| (PySymbol { symbol: s.clone() }).into_ref(vm).into_object())
             .collect();
         Ok(vm.ctx.new_list(symbols))
+    }
+
+    #[pymethod(name = "has_children")]
+    fn has_children(&self, _vm: &VirtualMachine) -> bool {
+        !self.symtable.sub_tables.is_empty()
     }
 
     #[pymethod(name = "get_children")]
