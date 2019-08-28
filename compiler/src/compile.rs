@@ -584,7 +584,7 @@ impl<O: OutputStream> Compiler<O> {
                 }
             }
             Pass => {
-                self.emit(Instruction::Pass);
+                // No need to emit any code here :)
             }
         }
         Ok(())
@@ -1443,10 +1443,7 @@ impl<O: OutputStream> Compiler<O> {
             Subscript { a, b } => {
                 self.compile_expression(a)?;
                 self.compile_expression(b)?;
-                self.emit(Instruction::BinaryOperation {
-                    op: bytecode::BinaryOperator::Subscript,
-                    inplace: false,
-                });
+                self.emit(Instruction::Subscript);
             }
             Unop { op, a } => {
                 self.compile_expression(a)?;
@@ -2129,7 +2126,6 @@ mod tests {
                 JumpIfFalse {
                     target: Label::new(0)
                 },
-                Pass,
                 LoadConst { value: None },
                 ReturnValue
             ],
@@ -2160,7 +2156,6 @@ mod tests {
                 JumpIfFalse {
                     target: Label::new(0)
                 },
-                Pass,
                 LoadConst { value: None },
                 ReturnValue
             ],
@@ -2197,7 +2192,6 @@ mod tests {
                 JumpIfFalse {
                     target: Label::new(0)
                 },
-                Pass,
                 LoadConst { value: None },
                 ReturnValue
             ],

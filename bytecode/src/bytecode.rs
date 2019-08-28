@@ -115,6 +115,7 @@ pub enum Instruction {
     DeleteName {
         name: String,
     },
+    Subscript,
     StoreSubscript,
     DeleteSubscript,
     StoreAttr {
@@ -145,7 +146,6 @@ pub enum Instruction {
     },
     Duplicate,
     GetIter,
-    Pass,
     Continue,
     Break,
     Jump {
@@ -316,7 +316,6 @@ pub enum BinaryOperator {
     Modulo,
     Add,
     Subtract,
-    Subscript,
     Lshift,
     Rshift,
     And,
@@ -467,6 +466,7 @@ impl Instruction {
             LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
             StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
             DeleteName { name } => w!(DeleteName, name),
+            Subscript => w!(Subscript),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),
             StoreAttr { name } => w!(StoreAttr, name),
@@ -487,7 +487,6 @@ impl Instruction {
             Rotate { amount } => w!(Rotate, amount),
             Duplicate => w!(Duplicate),
             GetIter => w!(GetIter),
-            Pass => w!(Pass),
             Continue => w!(Continue),
             Break => w!(Break),
             Jump { target } => w!(Jump, label_map[target]),
