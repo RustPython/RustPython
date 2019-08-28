@@ -87,7 +87,7 @@ a.remove(1)
 assert len(a) == 2
 assert not 1 in a
 
-assert_raises(ValueError, lambda: a.remove(10), 'Remove not exist element')
+assert_raises(ValueError, lambda: a.remove(10))  # Remove not exist element
 
 foo = bar = [1]
 foo += [2]
@@ -142,7 +142,7 @@ for size in [1, 2, 3, 4, 5, 8, 10, 100, 1000]:
    lst.sort()
    assert lst == orig
    assert sorted(lst) == orig
-   assert_raises(ZeroDivisionError, lambda: sorted(lst, key=lambda x: 1/x))
+   assert_raises(ZeroDivisionError, sorted, lst, key=lambda x: 1/x)
    lst.reverse()
    assert sorted(lst) == orig
    assert sorted(lst, reverse=True) == lst

@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 
 __name__ = "function"
@@ -93,5 +93,5 @@ def f8() -> int:
 assert f8() == 10
 
 
-with assertRaises(SyntaxError):
+with assert_raises(SyntaxError):
     exec('print(keyword=10, 20)')

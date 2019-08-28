@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 assert True
 assert not False
@@ -133,7 +133,7 @@ class TestBoolThrowError:
     def __bool__(self):
         return object()
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bool(TestBoolThrowError())
 
 class TestLenThrowError:
@@ -141,14 +141,14 @@ class TestLenThrowError:
         return object()
 
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bool(TestLenThrowError())
 
 # Verify that TypeError occurs when bad things are returned
 # from __bool__().  This isn't really a bool test, but
 # it's related.
 def check(o):
-    with assertRaises(TypeError):
+    with assert_raises(TypeError):
         bool(o)
 
 class Foo(object):
@@ -176,5 +176,8 @@ class Eggs:
     def __len__(self):
         return -1
 
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     bool(Eggs())
+
+with assert_raises(TypeError):
+    bool(TestLenThrowError())

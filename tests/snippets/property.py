@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 
 class Fubar:
@@ -53,10 +53,10 @@ p = property(lambda x: x[0])
 assert p.__get__((2,), tuple) == 2
 assert p.__get__((2,)) == 2
 
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     null_property.__get__((), tuple)
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     property.__new__(object)
 
 assert p.__doc__ is None

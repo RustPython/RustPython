@@ -3,7 +3,7 @@ import time
 import sys
 import signal
 
-from testutils import assertRaises
+from testutils import assert_raises
 
 p = subprocess.Popen(["echo", "test"])
 
@@ -18,7 +18,7 @@ p = subprocess.Popen(["sleep", "2"])
 
 assert p.poll() is None
 
-with assertRaises(subprocess.TimeoutExpired):
+with assert_raises(subprocess.TimeoutExpired):
 	assert p.wait(1)
 
 p.wait()

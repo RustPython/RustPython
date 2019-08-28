@@ -220,10 +220,10 @@ assert "%f" % (1.23456789012) == "1.234568"
 assert "%f" % (123) == "123.000000"
 assert "%f" % (-123) == "-123.000000"
 
-assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25), msg="format requires a mapping")
-assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo", msg="format requires a mapping")
-assert_raises(ValueError, lambda: "This %(food}s is great!" % {"food": "cookie"}, msg="incomplete format key")
-assert_raises(ValueError, lambda: "My name is %" % "Foo", msg="incomplete format")
+assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25))  # format requires a mapping
+assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo")  # format requires a mapping
+assert_raises(ValueError, lambda: "This %(food}s is great!" % {"food": "cookie"})  # incomplete format key
+assert_raises(ValueError, lambda: "My name is %" % "Foo")  # incomplete format
 
 assert 'a' < 'b'
 assert 'a' <= 'b'
@@ -285,7 +285,7 @@ assert next(str_iter) == "7"
 assert next(str_iter) == "8"
 assert next(str_iter) == "9"
 assert next(str_iter, None) == None
-assert_raises(StopIteration, lambda: next(str_iter))
+assert_raises(StopIteration, next, str_iter)
 
 str_iter_reversed = reversed(iterable_str)
 
@@ -299,7 +299,7 @@ assert next(str_iter_reversed) == "3"
 assert next(str_iter_reversed) == "2"
 assert next(str_iter_reversed) == "1"
 assert next(str_iter_reversed, None) == None
-assert_raises(StopIteration, lambda: next(str_iter_reversed))
+assert_raises(StopIteration, next, str_iter_reversed)
 
 assert str.__rmod__('%i', 30) == NotImplemented
 assert_raises(TypeError, lambda: str.__rmod__(30, '%i'))

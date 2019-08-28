@@ -1,4 +1,4 @@
-from testutils import assert_raises, assertRaises
+from testutils import assert_raises
 
 # int to int comparisons
 
@@ -36,15 +36,15 @@ assert (2).__rsub__(1) == -1
 assert (2).__mul__(1) == 2
 assert (2).__rmul__(1) == 2
 assert (2).__truediv__(1) == 2.0
-with assertRaises(ZeroDivisionError):
+with assert_raises(ZeroDivisionError):
     (2).__truediv__(0)
 assert (2).__rtruediv__(1) == 0.5
 assert (-2).__floordiv__(3) == -1
-with assertRaises(ZeroDivisionError):
+with assert_raises(ZeroDivisionError):
     (2).__floordiv__(0)
 assert (-3).__rfloordiv__(2) == -1
 assert (-2).__divmod__(3) == (-1, 1)
-with assertRaises(ZeroDivisionError):
+with assert_raises(ZeroDivisionError):
     (2).__divmod__(0)
 assert (-3).__rdivmod__(2) == (-1, -1)
 assert (2).__pow__(3) == 8
@@ -52,11 +52,11 @@ assert (10).__pow__(-1) == 0.1
 assert (2).__rpow__(3) == 9
 assert (10).__mod__(5) == 0
 assert (10).__mod__(6) == 4
-with assertRaises(ZeroDivisionError):
+with assert_raises(ZeroDivisionError):
     (10).__mod__(0)
 assert (5).__rmod__(10) == 0
 assert (6).__rmod__(10) == 4
-with assertRaises(ZeroDivisionError):
+with assert_raises(ZeroDivisionError):
     (0).__rmod__(10)
 
 # real/imag attributes
@@ -110,28 +110,28 @@ assert int('0o100', base=0) == 64
 assert int('0O100', base=0) == 64
 assert int('0xFF', base=0) == 255
 assert int('0XFF', base=0) == 255
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     int('0xFF', base=10)
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     int('0oFF', base=10)
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     int('0bFF', base=10)
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     int('0bFF', base=10)
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     int(b"F\xc3\xb8\xc3\xb6\xbbB\xc3\xa5r")
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     int(b"F\xc3\xb8\xc3\xb6\xbbB\xc3\xa5r")
 
 # underscore
 assert int('0xFF_FF_FF', base=16) == 16_777_215
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     int("_123_")
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     int("123_")
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     int("_123")
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     int("1__23")
 
 # signed
@@ -160,20 +160,20 @@ assert (-1024).to_bytes(4, 'little', signed=True) == b'\x00\xfc\xff\xff'
 assert (2147483647).to_bytes(8, 'big', signed=False) == b'\x00\x00\x00\x00\x7f\xff\xff\xff'
 assert (-2147483648).to_bytes(8, 'little', signed=True) == b'\x00\x00\x00\x80\xff\xff\xff\xff'
 
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     # check base first
     int(' 1 ', base=1)
 
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     int(' 1 ', base=37)
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     int(base=2)
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     int(1, base=2)
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     # check that first parameter is truly positional only
     int(val_options=1)
 
@@ -189,14 +189,14 @@ class B(object):
 b = B()
 b.__int__ = lambda: 20
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     assert int(b) == 20
 
 class C(object):
     def __int__(self):
         return 'str'
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     int(C())
 
 class I(int):

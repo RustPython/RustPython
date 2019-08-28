@@ -1,5 +1,5 @@
 
-from testutils import assertRaises
+from testutils import assert_raises
 
 
 class A:
@@ -13,11 +13,11 @@ assert type(hash(1)) is int
 assert type(hash(1.1)) is int
 assert type(hash("")) is int
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     hash({})
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     hash(set())
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     hash([])

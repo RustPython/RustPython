@@ -1,4 +1,4 @@
-from testutils import assert_raises, assertRaises
+from testutils import assert_raises
 
 assert set([1,2]) == set([1,2])
 assert not set([1,2,3]) == set([1,2])
@@ -29,10 +29,10 @@ assert not set([1,3]) < set([1,2])
 
 assert (set() == []) is False
 assert set().__eq__([]) == NotImplemented
-assert_raises(TypeError, lambda: set() < [], "'<' not supported between instances of 'set' and 'list'")
-assert_raises(TypeError, lambda: set() <= [], "'<=' not supported between instances of 'set' and 'list'")
-assert_raises(TypeError, lambda: set() > [], "'>' not supported between instances of 'set' and 'list'")
-assert_raises(TypeError, lambda: set() >= [], "'>=' not supported between instances of 'set' and 'list'")
+assert_raises(TypeError, lambda: set() < [])  # '<' not supported between instances of 'set' and 'list'
+assert_raises(TypeError, lambda: set() <= [])  # '<=' not supported between instances of 'set' and 'list'
+assert_raises(TypeError, lambda: set() > [])  # '>' not supported between instances of 'set' and 'list'
+assert_raises(TypeError, lambda: set() >= [])  # '>=' not supported between instances of 'set' and 'list'
 assert set().issuperset([])
 assert set().issubset([])
 assert not set().issuperset([1, 2, 3])
@@ -40,12 +40,12 @@ assert set().issubset([1, 2])
 
 assert (set() == 3) is False
 assert set().__eq__(3) == NotImplemented
-assert_raises(TypeError, lambda: set() < 3, "'int' object is not iterable")
-assert_raises(TypeError, lambda: set() <= 3, "'int' object is not iterable")
-assert_raises(TypeError, lambda: set() > 3, "'int' object is not iterable")
-assert_raises(TypeError, lambda: set() >= 3, "'int' object is not iterable")
-assert_raises(TypeError, lambda: set().issuperset(3), "'int' object is not iterable")
-assert_raises(TypeError, lambda: set().issubset(3), "'int' object is not iterable")
+assert_raises(TypeError, lambda: set() < 3)  # 'int' object is not iterable
+assert_raises(TypeError, lambda: set() <= 3)  # 'int' object is not iterable
+assert_raises(TypeError, lambda: set() > 3)  # 'int' object is not iterable
+assert_raises(TypeError, lambda: set() >= 3)  # 'int' object is not iterable
+assert_raises(TypeError, set().issuperset, 3)  # 'int' object is not iterable
+assert_raises(TypeError, set().issubset, 3)  # 'int' object is not iterable
 
 class Hashable(object):
     def __init__(self, obj):
@@ -109,8 +109,8 @@ assert_raises(TypeError, lambda: set() ^ [])
 assert_raises(TypeError, lambda: set() + [])
 assert_raises(TypeError, lambda: set() - [])
 
-assert_raises(TypeError, lambda: set([[]]))
-assert_raises(TypeError, lambda: set().add([]))
+assert_raises(TypeError, set, [[]])
+assert_raises(TypeError, set().add, [])
 
 a = set([1, 2, 3])
 assert a.discard(1) is None
@@ -147,9 +147,9 @@ assert a == b
 a = set([1,2,3])
 a |= set([3,4,5])
 assert a == set([1,2,3,4,5])
-with assertRaises(TypeError):
+with assert_raises(TypeError):
 	a |= 1
-with assertRaises(TypeError):
+with assert_raises(TypeError):
 	a |= [1,2,3]
 
 a = set([1,2,3])
@@ -160,9 +160,9 @@ assert_raises(TypeError, lambda: a.intersection_update(1))
 a = set([1,2,3])
 a &= set([2,3,4,5])
 assert a == set([2,3])
-with assertRaises(TypeError):
+with assert_raises(TypeError):
 	a &= 1
-with assertRaises(TypeError):
+with assert_raises(TypeError):
 	a &= [1,2,3]
 
 a = set([1,2,3])
@@ -173,9 +173,9 @@ assert_raises(TypeError, lambda: a.difference_update(1))
 a = set([1,2,3])
 a -= set([3,4,5])
 assert a == set([1,2])
-with assertRaises(TypeError):
+with assert_raises(TypeError):
 	a -= 1
-with assertRaises(TypeError):
+with assert_raises(TypeError):
 	a -= [1,2,3]
 
 a = set([1,2,3])
@@ -186,9 +186,9 @@ assert_raises(TypeError, lambda: a.difference_update(1))
 a = set([1,2,3])
 a ^= set([3,4,5])
 assert a == set([1,2,4,5])
-with assertRaises(TypeError):
+with assert_raises(TypeError):
 	a ^= 1
-with assertRaises(TypeError):
+with assert_raises(TypeError):
 	a ^= [1,2,3]
 
 # frozen set
@@ -261,7 +261,7 @@ assert frozenset([1,2,3]).isdisjoint(frozenset([5,6])) == True
 assert frozenset([1,2,3]).isdisjoint(frozenset([2,5,6])) == False
 assert frozenset([1,2,3]).isdisjoint([5,6]) == True
 
-assert_raises(TypeError, lambda: frozenset([[]]))
+assert_raises(TypeError, frozenset, [[]])
 
 a = frozenset([1,2,3])
 b = set()

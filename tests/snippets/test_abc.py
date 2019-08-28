@@ -1,6 +1,6 @@
 import abc
 
-from testutils import assertRaises
+from testutils import assert_raises
 
 
 class CustomInterface(abc.ABC):
@@ -14,7 +14,7 @@ class CustomInterface(abc.ABC):
 
 
 # TODO raise an error if there are in any abstract methods not fulfilled
-# with assertRaises(TypeError):
+# with assert_raises(TypeError):
 #     CustomInterface()
 
 

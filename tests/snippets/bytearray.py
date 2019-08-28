@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 # new
 assert bytearray([1, 2, 3])
@@ -9,9 +9,9 @@ assert b"bla"
 assert (
     bytearray("bla", "utf8") == bytearray("bla", encoding="utf-8") == bytearray(b"bla")
 )
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray("bla")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray("bla", encoding=b"jilj")
 
 assert bytearray(
@@ -56,7 +56,7 @@ assert bytearray(b"foobar").__lt__(2) == NotImplemented
 assert bytearray(b"foobar").__le__(2) == NotImplemented
 
 # # hash
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     hash(bytearray(b"abcd"))  # unashable
 
 # # iter
@@ -75,7 +75,7 @@ assert bytearray(b"d") in bytearray(b"abcd")
 assert bytearray(b"dc") not in bytearray(b"abcd")
 assert 97 in bytearray(b"abcd")
 assert 150 not in bytearray(b"abcd")
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     350 in bytearray(b"abcd")
 
 
@@ -147,7 +147,7 @@ try:
     bytearray.fromhex("6Z2")
 except ValueError as e:
     str(e) == "non-hexadecimal number found in fromhex() arg at position 1"
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray.fromhex(b"hhjjk")
 # center
 assert [bytearray(b"koki").center(i, b"|") for i in range(3, 10)] == [
@@ -171,11 +171,11 @@ assert [bytearray(b"kok").center(i, b"|") for i in range(2, 10)] == [
     b"|||kok|||",
 ]
 bytearray(b"kok").center(4) == b" kok"  # " test no arg"
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray(b"b").center(2, "a")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray(b"b").center(2, b"ba")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray(b"b").center(b"ba")
 assert bytearray(b"kok").center(5, bytearray(b"x")) == b"xkokx"
 bytearray(b"kok").center(-5) == b"kok"
@@ -203,11 +203,11 @@ assert [bytearray(b"kok").ljust(i, b"|") for i in range(2, 10)] == [
 ]
 
 bytearray(b"kok").ljust(4) == b"kok "  # " test no arg"
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray(b"b").ljust(2, "a")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray(b"b").ljust(2, b"ba")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray(b"b").ljust(b"ba")
 assert bytearray(b"kok").ljust(5, bytearray(b"x")) == b"kokxx"
 assert bytearray(b"kok").ljust(-5) == b"kok"
@@ -235,11 +235,11 @@ assert [bytearray(b"kok").rjust(i, b"|") for i in range(2, 10)] == [
 
 
 bytearray(b"kok").rjust(4) == b" kok"  # " test no arg"
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray(b"b").rjust(2, "a")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray(b"b").rjust(2, b"ba")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray(b"b").rjust(b"ba")
 assert bytearray(b"kok").rjust(5, bytearray(b"x")) == b"xxkok"
 assert bytearray(b"kok").rjust(-5) == b"kok"
@@ -261,7 +261,7 @@ assert bytearray(b"azeazerazeazopia").count(b"aze", None, 7) == 2
 assert bytearray(b"azeazerazeazopia").count(b"aze", 2, 7) == 1
 assert bytearray(b"azeazerazeazopia").count(b"aze", -13, -10) == 1
 assert bytearray(b"azeazerazeazopia").count(b"aze", 1, 10000) == 2
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     bytearray(b"ilj").count(3550)
 assert bytearray(b"azeazerazeazopia").count(97) == 5
 
@@ -269,7 +269,7 @@ assert bytearray(b"azeazerazeazopia").count(97) == 5
 assert bytearray(b"").join(
     (b"jiljl", bytearray(b"kmoomk"), memoryview(b"aaaa"))
 ) == bytearray(b"jiljlkmoomkaaaa")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytearray(b"").join((b"km", "kl"))
 
 
@@ -294,13 +294,13 @@ assert bytearray(b"abcd").index(b"cd") == 2
 assert bytearray(b"abcd").index(b"cd", 0) == 2
 assert bytearray(b"abcd").index(b"cd", 1) == 2
 assert bytearray(b"abcd").index(99) == 2
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     bytearray(b"abcde").index(b"c", 3, 1)
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     bytearray(b"abcd").index(b"cdaaaaa")
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     bytearray(b"abcd").index(b"b", 3, 4)
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     bytearray(b"abcd").index(1)
 
 
@@ -696,9 +696,9 @@ assert a == bytearray(b'dlrow ,olleh')
 a = bytearray(b'test')
 a[0] = 1
 assert a == bytearray(b'\x01est')
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     a[0] = b'a'
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     a[0] = memoryview(b'a')
 a[:2] = [0, 9]
 assert a == bytearray(b'\x00\x09st')
