@@ -585,7 +585,7 @@ impl SymbolTableBuilder {
             }
             Bytes { .. } => {}
             Tuple { elements } | Set { elements } | List { elements } | Slice { elements } => {
-                self.scan_expressions(elements, &ExpressionContext::Load)?;
+                self.scan_expressions(elements, context)?;
             }
             Comprehension { kind, generators } => {
                 match **kind {
