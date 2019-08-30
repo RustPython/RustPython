@@ -87,7 +87,7 @@ a.remove(1)
 assert len(a) == 2
 assert not 1 in a
 
-assert_raises(ValueError, lambda: a.remove(10))  # Remove not exist element
+assert_raises(ValueError, lambda: a.remove(10), _msg='Remove not exist element')
 
 foo = bar = [1]
 foo += [2]

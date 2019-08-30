@@ -1,24 +1,26 @@
-def assert_raises(expected, *args, **kw):
+def assert_raises(expected, *args, _msg=None, **kw):
     if args:
         f, f_args = args[0], args[1:]
-        with AssertRaises(expected):
+        with AssertRaises(expected, _msg):
             f(*f_args, **kw)
     else:
         assert not kw
-        return AssertRaises(expected)
+        return AssertRaises(expected, _msg)
 
 
 class AssertRaises:
-    def __init__(self, expected):
+    def __init__(self, expected, msg):
         self.expected = expected
         self.exception = None
+        self.failmsg = msg
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
-            failmsg = '{} was not raised'.format(self.expected.__name__)
+            failmsg = self.failmsg or \
+                '{} was not raised'.format(self.expected.__name__)
             assert False, failmsg
         if not issubclass(exc_type, self.expected):
             return False

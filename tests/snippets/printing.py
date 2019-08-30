@@ -3,8 +3,8 @@ import io
 
 print(2 + 3)
 
-assert_raises(TypeError, print, 'test', end=4)  # wrong type passed to end
-assert_raises(TypeError, print, 'test', sep=['a'])  # wrong type passed to sep
+assert_raises(TypeError, print, 'test', end=4, _msg='wrong type passed to end')
+assert_raises(TypeError, print, 'test', sep=['a'], _msg='wrong type passed to sep')
 
 try:
     print('test', end=None, sep=None, flush=None)

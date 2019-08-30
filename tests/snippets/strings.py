@@ -220,10 +220,10 @@ assert "%f" % (1.23456789012) == "1.234568"
 assert "%f" % (123) == "123.000000"
 assert "%f" % (-123) == "-123.000000"
 
-assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25))  # format requires a mapping
-assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo")  # format requires a mapping
-assert_raises(ValueError, lambda: "This %(food}s is great!" % {"food": "cookie"})  # incomplete format key
-assert_raises(ValueError, lambda: "My name is %" % "Foo")  # incomplete format
+assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25), _msg='format requires a mapping')
+assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo", _msg='format requires a mapping')
+assert_raises(ValueError, lambda: "This %(food}s is great!" % {"food": "cookie"}, _msg='incomplete format key')
+assert_raises(ValueError, lambda: "My name is %" % "Foo", _msg='incomplete format')
 
 assert 'a' < 'b'
 assert 'a' <= 'b'

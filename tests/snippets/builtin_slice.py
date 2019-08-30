@@ -20,7 +20,7 @@ assert b[-10:1] == [1]
 assert b[0:0] == []
 assert b[1:0] == []
 
-assert_raises(ValueError, lambda: b[::0])  # zero step slice
+assert_raises(ValueError, lambda: b[::0], _msg='zero step slice')
 
 assert b[::-1] == [2, 1]
 assert b[1::-1] == [2, 1]
