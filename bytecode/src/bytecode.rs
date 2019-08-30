@@ -56,13 +56,29 @@ bitflags! {
     }
 }
 
-pub type Label = usize;
+#[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Label(usize);
+
+impl Label {
+    pub fn new(label: usize) -> Self {
+        Label(label)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// An indication where the name must be accessed.
 pub enum NameScope {
+    /// The name will be in the local scope.
     Local,
+
+    /// The name will be located in scope surrounding the current scope.
     NonLocal,
+
+    /// The name will be in global scope.
     Global,
+
+    /// The name will be located in any scope between the current scope and the top scope.
+    Free,
 }
 
 /// Transforms a value prior to formatting it.
@@ -99,6 +115,7 @@ pub enum Instruction {
     DeleteName {
         name: String,
     },
+    Subscript,
     StoreSubscript,
     DeleteSubscript,
     StoreAttr {
@@ -129,7 +146,6 @@ pub enum Instruction {
     },
     Duplicate,
     GetIter,
-    Pass,
     Continue,
     Break,
     Jump {
@@ -169,6 +185,26 @@ pub enum Instruction {
         start: Label,
         end: Label,
     },
+
+    /// Setup a finally handler, which will be called whenever one of this events occurs:
+    /// - the block is popped
+    /// - the function returns
+    /// - an exception is returned
+    SetupFinally {
+        handler: Label,
+    },
+
+    /// Enter a finally block, without returning, excepting, just because we are there.
+    EnterFinally,
+
+    /// Marker bytecode for the end of a finally sequence.
+    /// When this bytecode is executed, the eval loop does one of those things:
+    /// - Continue at a certain bytecode position
+    /// - Propagate the exception
+    /// - Return from a function
+    /// - Do nothing at all, just continue
+    EndFinally,
+
     SetupExcept {
         handler: Label,
     },
@@ -280,7 +316,6 @@ pub enum BinaryOperator {
     Modulo,
     Add,
     Subtract,
-    Subscript,
     Lshift,
     Rshift,
     And,
@@ -431,6 +466,7 @@ impl Instruction {
             LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
             StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
             DeleteName { name } => w!(DeleteName, name),
+            Subscript => w!(Subscript),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),
             StoreAttr { name } => w!(StoreAttr, name),
@@ -451,7 +487,6 @@ impl Instruction {
             Rotate { amount } => w!(Rotate, amount),
             Duplicate => w!(Duplicate),
             GetIter => w!(GetIter),
-            Pass => w!(Pass),
             Continue => w!(Continue),
             Break => w!(Break),
             Jump { target } => w!(Jump, label_map[target]),
@@ -466,9 +501,12 @@ impl Instruction {
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupLoop { start, end } => w!(SetupLoop, label_map[start], label_map[end]),
-            SetupExcept { handler } => w!(SetupExcept, handler),
-            SetupWith { end } => w!(SetupWith, end),
-            CleanupWith { end } => w!(CleanupWith, end),
+            SetupExcept { handler } => w!(SetupExcept, label_map[handler]),
+            SetupFinally { handler } => w!(SetupFinally, label_map[handler]),
+            EnterFinally => w!(EnterFinally),
+            EndFinally => w!(EndFinally),
+            SetupWith { end } => w!(SetupWith, label_map[end]),
+            CleanupWith { end } => w!(CleanupWith, label_map[end]),
             PopBlock => w!(PopBlock),
             Raise { argc } => w!(Raise, argc),
             BuildString { size } => w!(BuildString, size),

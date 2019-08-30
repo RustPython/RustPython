@@ -3,10 +3,10 @@
 /// https://docs.python.org/3/library/time.html
 use std::fmt;
 use std::ops::Range;
-use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::OptionalArg;
+use crate::obj::objfloat::PyFloatRef;
 use crate::obj::objint::PyInt;
 use crate::obj::objsequence::get_sequence_index;
 use crate::obj::objsequence::PySliceableSequence;
@@ -22,39 +22,67 @@ use num_traits::cast::ToPrimitive;
 use chrono::naive::NaiveDateTime;
 use chrono::{Datelike, Timelike};
 
-fn time_sleep(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(seconds, Some(vm.ctx.float_type()))]);
-    let seconds = objfloat::get_value(seconds);
+#[cfg(unix)]
+fn time_sleep(seconds: PyFloatRef, vm: &VirtualMachine) -> PyResult<()> {
+    // this is basically std::thread::sleep, but that catches interrupts and we don't want to
+    let seconds = seconds.to_f64();
+    let secs = seconds.trunc() as u64;
+    let nsecs = (seconds.fract() * 1e9) as i64;
+
+    let mut ts = libc::timespec {
+        tv_sec: std::cmp::min(libc::time_t::max_value() as u64, secs) as libc::time_t,
+        tv_nsec: nsecs,
+    };
+    let res = unsafe { libc::nanosleep(&ts, &mut ts) };
+    let interrupted = res == -1 && nix::errno::errno() == libc::EINTR;
+
+    if interrupted {
+        crate::stdlib::signal::check_signals(vm)?;
+    }
+
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn time_sleep(seconds: PyFloatRef, _vm: &VirtualMachine) {
+    let seconds = seconds.to_f64();
     let secs: u64 = seconds.trunc() as u64;
     let nanos: u32 = (seconds.fract() * 1e9) as u32;
     let duration = Duration::new(secs, nanos);
-    thread::sleep(duration);
-    Ok(vm.get_none())
+    std::thread::sleep(duration);
 }
 
 fn duration_to_f64(d: Duration) -> f64 {
     (d.as_secs() as f64) + (f64::from(d.subsec_nanos()) / 1e9)
 }
 
-fn time_time(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
-    let x = match SystemTime::now().duration_since(UNIX_EPOCH) {
+#[cfg(not(target_arch = "wasm32"))]
+fn time_time(_vm: &VirtualMachine) -> f64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(v) => duration_to_f64(v),
-        Err(err) => panic!("Error: {:?}", err),
-    };
-    let value = vm.ctx.new_float(x);
-    Ok(value)
+        Err(err) => panic!("Time error: {:?}", err),
+    }
 }
 
-fn time_monotonic(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
+#[cfg(target_arch = "wasm32")]
+fn time_time(_vm: &VirtualMachine) -> f64 {
+    use wasm_bindgen::prelude::*;
+    #[wasm_bindgen]
+    extern "C" {
+        type Date;
+        #[wasm_bindgen(static_method_of = Date)]
+        fn now() -> f64;
+    }
+    // Date.now returns unix time in milliseconds, we want it in seconds
+    Date::now() / 1000.0
+}
+
+fn time_monotonic(_vm: &VirtualMachine) -> f64 {
     // TODO: implement proper monotonic time!
-    let x = match SystemTime::now().duration_since(UNIX_EPOCH) {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(v) => duration_to_f64(v),
-        Err(err) => panic!("Error: {:?}", err),
-    };
-    let value = vm.ctx.new_float(x);
-    Ok(value)
+        Err(err) => panic!("Time error: {:?}", err),
+    }
 }
 
 fn pyfloat_to_secs_and_nanos(seconds: &PyObjectRef) -> (i64, u32) {

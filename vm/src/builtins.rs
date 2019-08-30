@@ -60,8 +60,15 @@ fn builtin_any(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool
 
 fn builtin_ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
     let repr = vm.to_repr(&obj)?;
+    let ascii = to_ascii(&repr.value);
+    Ok(ascii)
+}
+
+/// Convert a string to ascii compatible, escaping unicodes into escape
+/// sequences.
+pub fn to_ascii(value: &str) -> String {
     let mut ascii = String::new();
-    for c in repr.value.chars() {
+    for c in value.chars() {
         if c.is_ascii() {
             ascii.push(c)
         } else {
@@ -74,7 +81,7 @@ fn builtin_ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
             ascii.push_str(&hex)
         }
     }
-    Ok(ascii)
+    ascii
 }
 
 fn builtin_bin(x: PyIntRef, _vm: &VirtualMachine) -> String {

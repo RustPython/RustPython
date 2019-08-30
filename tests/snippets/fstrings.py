@@ -39,9 +39,17 @@ v = Value()
 assert f'{v}' == 'foo'
 assert f'{v!r}' == 'bar'
 assert f'{v!s}' == 'baz'
+assert f'{v!a}' == 'bar'
 
 # advanced expressions:
 
 assert f'{True or True}' == 'True'
 assert f'{1 == 1}' == 'True'
 assert f'{"0" if True else "1"}' == '0'
+
+# Test ascii representation of unicodes:
+v = "\u262e"
+assert f'>{v}' == '>\u262e'
+assert f'>{v!r}' == ">'\u262e'"
+assert f'>{v!s}' == '>\u262e'
+assert f'>{v!a}' == r">'\u262e'"

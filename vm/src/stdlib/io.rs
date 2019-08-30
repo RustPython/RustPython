@@ -460,6 +460,8 @@ fn file_io_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     unsafe {
         kernel32::CloseHandle(raw_handle);
     }
+    vm.set_attr(file_io, "closefd", vm.new_bool(true))?;
+    vm.set_attr(file_io, "closed", vm.new_bool(true))?;
     Ok(vm.ctx.none())
 }
 
@@ -471,6 +473,8 @@ fn file_io_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     unsafe {
         libc::close(raw_fd);
     }
+    vm.set_attr(file_io, "closefd", vm.new_bool(true))?;
+    vm.set_attr(file_io, "closed", vm.new_bool(true))?;
     Ok(vm.ctx.none())
 }
 

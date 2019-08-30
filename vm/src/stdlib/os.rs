@@ -294,7 +294,7 @@ fn getgroups() -> nix::Result<Vec<Gid>> {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "redox", target_os = "android"))]
 fn getgroups() -> nix::Result<Vec<Gid>> {
     nix::unistd::getgroups()
 }
@@ -862,6 +862,28 @@ fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     env::set_current_dir(&path.value).map_err(|err| convert_io_error(vm, err))
 }
 
+#[cfg(unix)]
+fn os_chmod(
+    path: PyStringRef,
+    dir_fd: DirFd,
+    mode: u32,
+    follow_symlinks: FollowSymlinks,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = make_path(vm, path, &dir_fd);
+    let metadata = if follow_symlinks.follow_symlinks {
+        fs::metadata(&path.value)
+    } else {
+        fs::symlink_metadata(&path.value)
+    };
+    let meta = metadata.map_err(|err| convert_io_error(vm, err))?;
+    let mut permissions = meta.permissions();
+    permissions.set_mode(mode);
+    fs::set_permissions(&path.value, permissions).map_err(|err| convert_io_error(vm, err))?;
+    Ok(())
+}
+
 fn os_fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if objtype::issubclass(&path.class(), &vm.ctx.str_type())
         || objtype::issubclass(&path.class(), &vm.ctx.bytes_type())
@@ -1074,12 +1096,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
             }
         }
     }
-    let support_funcs = vec![
+    let mut support_funcs = vec![
         SupportFunc::new(vm, "open", os_open, None, Some(false), None),
         // access Some Some None
         SupportFunc::new(vm, "chdir", os_chdir, Some(false), None, None),
         // chflags Some, None Some
-        // chmod Some Some Some
         // chown Some Some Some
         // chroot Some None None
         SupportFunc::new(vm, "listdir", os_listdir, Some(false), None, None),
@@ -1099,6 +1120,15 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "unlink", os_remove, Some(false), Some(false), None),
         // utime Some Some Some
     ];
+    #[cfg(unix)]
+    support_funcs.extend(vec![SupportFunc::new(
+        vm,
+        "chmod",
+        os_chmod,
+        Some(false),
+        Some(false),
+        Some(false),
+    )]);
     let supports_fd = PySet::default().into_ref(vm);
     let supports_dir_fd = PySet::default().into_ref(vm);
     let supports_follow_symlinks = PySet::default().into_ref(vm);
@@ -1182,7 +1212,9 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setgid" => ctx.new_rustfunc(os_setgid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
-        "access" => ctx.new_rustfunc(os_access)
+        "access" => ctx.new_rustfunc(os_access),
+        "chmod" => ctx.new_rustfunc(os_chmod),
+        "ttyname" => ctx.new_rustfunc(os_ttyname),
     });
 
     #[cfg(not(target_os = "redox"))]
@@ -1192,7 +1224,6 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setegid" => ctx.new_rustfunc(os_setegid),
         "seteuid" => ctx.new_rustfunc(os_seteuid),
         "openpty" => ctx.new_rustfunc(os_openpty),
-        "ttyname" => ctx.new_rustfunc(os_ttyname),
     });
 
     module

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::ops::{AddAssign, SubAssign};
 
@@ -12,7 +12,7 @@ use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter::{call_next, get_iter, new_stop_iteration};
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{IdProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 #[pyclass(name = "chain")]
@@ -290,6 +290,67 @@ impl PyItertoolsTakewhile {
     }
 }
 
+#[pyclass]
+#[derive(Debug)]
+struct PyItertoolsDropwhile {
+    predicate: PyCallable,
+    iterable: PyObjectRef,
+    start_flag: Cell<bool>,
+}
+
+impl PyValue for PyItertoolsDropwhile {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "dropwhile")
+    }
+}
+
+type PyItertoolsDropwhileRef = PyRef<PyItertoolsDropwhile>;
+
+#[pyimpl]
+impl PyItertoolsDropwhile {
+    #[pymethod(name = "__new__")]
+    #[allow(clippy::new_ret_no_self)]
+    fn new(
+        cls: PyClassRef,
+        predicate: PyCallable,
+        iterable: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyItertoolsDropwhileRef> {
+        let iter = get_iter(vm, &iterable)?;
+
+        PyItertoolsDropwhile {
+            predicate,
+            iterable: iter,
+            start_flag: Cell::new(false),
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let predicate = &self.predicate;
+        let iterable = &self.iterable;
+
+        if !self.start_flag.get() {
+            loop {
+                let obj = call_next(vm, iterable)?;
+                let pred = predicate.clone();
+                let pred_value = vm.invoke(&pred.into_object(), vec![obj.clone()])?;
+                if !objbool::boolval(vm, pred_value)? {
+                    self.start_flag.set(true);
+                    return Ok(obj);
+                }
+            }
+        }
+        call_next(vm, iterable)
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
 #[pyclass(name = "islice")]
 #[derive(Debug)]
 struct PyItertoolsIslice {
@@ -484,6 +545,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let count = ctx.new_class("count", ctx.object());
     PyItertoolsCount::extend_class(ctx, &count);
 
+    let dropwhile = ctx.new_class("dropwhile", ctx.object());
+    PyItertoolsDropwhile::extend_class(ctx, &dropwhile);
+
     let repeat = ctx.new_class("repeat", ctx.object());
     PyItertoolsRepeat::extend_class(ctx, &repeat);
 
@@ -500,6 +564,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     py_module!(vm, "itertools", {
         "chain" => chain,
         "count" => count,
+        "dropwhile" => dropwhile,
         "repeat" => repeat,
         "starmap" => starmap,
         "takewhile" => takewhile,

@@ -14,7 +14,6 @@
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
 #![cfg_attr(not(feature = "use-proc-macro-hack"), feature(proc_macro_hygiene))]
-#![cfg_attr(target_os = "redox", feature(vecdeque_rotate))]
 
 #[cfg(feature = "flame-it")]
 #[macro_use]

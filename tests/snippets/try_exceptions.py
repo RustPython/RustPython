@@ -187,6 +187,19 @@ with assertRaises(ZeroDivisionError):
             pass
         raise
 
+# try-return-finally behavior:
+l = []
+def foo():
+    try:
+        return 33
+    finally:
+        l.append(1337)
+
+r = foo()
+assert r == 33
+assert l == [1337]
+
+
 # Regression https://github.com/RustPython/RustPython/issues/867
 for _ in [1, 2]:
     try:
@@ -238,3 +251,21 @@ try:
         raise NameError from ex
 except NameError as ex2:
     pass
+
+
+# the else clause requires at least one except clause:
+with assertRaises(SyntaxError):
+    exec("""
+try:
+    pass
+else:
+    pass
+    """)
+
+
+# Try requires at least except or finally (or both)
+with assertRaises(SyntaxError):
+    exec("""
+try:
+    pass
+""")

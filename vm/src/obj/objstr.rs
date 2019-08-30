@@ -349,21 +349,35 @@ impl PyString {
     fn split(
         &self,
         pattern: OptionalArg<PyStringRef>,
-        num: OptionalArg<usize>,
+        num: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
         let value = &self.value;
         let pattern = match pattern {
-            OptionalArg::Present(ref s) => &s.value,
-            OptionalArg::Missing => " ",
+            OptionalArg::Present(ref s) => Some(s.as_str()),
+            OptionalArg::Missing => None,
         };
-        let num_splits = num
-            .into_option()
-            .unwrap_or_else(|| value.split(pattern).count());
-        let elements = value
-            .splitn(num_splits + 1, pattern)
-            .map(|o| vm.ctx.new_str(o.to_string()))
-            .collect();
+        let num_splits = num.into_option().unwrap_or(-1);
+        let elements: Vec<_> = match (pattern, num_splits.is_negative()) {
+            (Some(pattern), true) => value
+                .split(pattern)
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (Some(pattern), false) => value
+                .splitn(num_splits as usize + 1, pattern)
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (None, true) => value
+                .split(|c: char| c.is_ascii_whitespace())
+                .filter(|s| !s.is_empty())
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (None, false) => value
+                .splitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
+                .filter(|s| !s.is_empty())
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+        };
         vm.ctx.new_list(elements)
     }
 
@@ -371,21 +385,35 @@ impl PyString {
     fn rsplit(
         &self,
         pattern: OptionalArg<PyStringRef>,
-        num: OptionalArg<usize>,
+        num: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
         let value = &self.value;
         let pattern = match pattern {
-            OptionalArg::Present(ref s) => &s.value,
-            OptionalArg::Missing => " ",
+            OptionalArg::Present(ref s) => Some(s.as_str()),
+            OptionalArg::Missing => None,
         };
-        let num_splits = num
-            .into_option()
-            .unwrap_or_else(|| value.split(pattern).count());
-        let mut elements: Vec<_> = value
-            .rsplitn(num_splits + 1, pattern)
-            .map(|o| vm.ctx.new_str(o.to_string()))
-            .collect();
+        let num_splits = num.into_option().unwrap_or(-1);
+        let mut elements: Vec<_> = match (pattern, num_splits.is_negative()) {
+            (Some(pattern), true) => value
+                .rsplit(pattern)
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (Some(pattern), false) => value
+                .rsplitn(num_splits as usize + 1, pattern)
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (None, true) => value
+                .rsplit(|c: char| c.is_ascii_whitespace())
+                .filter(|s| !s.is_empty())
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (None, false) => value
+                .rsplitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
+                .filter(|s| !s.is_empty())
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+        };
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.
         elements.reverse();
@@ -1230,21 +1258,20 @@ fn do_cformat_specifier(
             }
             Ok(format_spec.format_number(objint::get_value(&obj)))
         }
-        CFormatType::Float(_) => {
-            if objtype::isinstance(&obj, &vm.ctx.float_type()) {
-                Ok(format_spec.format_float(objfloat::get_value(&obj)))
-            } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
-                Ok(format_spec.format_float(objint::get_value(&obj).to_f64().unwrap()))
-            } else {
-                let required_type_string = "an floating point or integer";
-                Err(vm.new_type_error(format!(
-                    "%{} format: {} is required, not {}",
-                    format_spec.format_char,
-                    required_type_string,
-                    obj.class()
-                )))
-            }
+        CFormatType::Float(_) => if objtype::isinstance(&obj, &vm.ctx.float_type()) {
+            format_spec.format_float(objfloat::get_value(&obj))
+        } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
+            format_spec.format_float(objint::get_value(&obj).to_f64().unwrap())
+        } else {
+            let required_type_string = "an floating point or integer";
+            return Err(vm.new_type_error(format!(
+                "%{} format: {} is required, not {}",
+                format_spec.format_char,
+                required_type_string,
+                obj.class()
+            )));
         }
+        .map_err(|e| vm.new_not_implemented_error(e)),
         CFormatType::Character => {
             let char_string = {
                 if objtype::isinstance(&obj, &vm.ctx.int_type()) {

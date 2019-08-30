@@ -224,6 +224,7 @@ const ERROR_CODES: &[(&str, i32)] = &[
     ("ERANGE", libc::ERANGE),
     ("ECONNRESET", libc::ECONNRESET),
     ("EADDRINUSE", libc::EADDRINUSE),
+    #[cfg(not(target_os = "redox"))]
     ("ENOTSUP", libc::ENOTSUP),
     ("ENAMETOOLONG", libc::ENAMETOOLONG),
     ("ENOTTY", libc::ENOTTY),

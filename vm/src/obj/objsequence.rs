@@ -471,7 +471,9 @@ pub fn is_valid_slice_arg(
         match_class!(value,
         i @ PyInt => Ok(Some(i.as_bigint().clone())),
         _obj @ PyNone => Ok(None),
-        _=> {return Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()));}
+        _=> {
+            Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()))
+        }
         // TODO: check for an __index__ method
         )
     } else {
