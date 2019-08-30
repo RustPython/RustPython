@@ -249,11 +249,11 @@ impl PyRange {
         let start = self.start.as_bigint();
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
-        //let bint_sz = BigInt::value_from(mem::size_of_val(&start));
-        let bint_sz = PyInt::new(mem::size_of_val(&start));
-        let mut size = 0;
+        let bint_sz = mem::size_of_val(&start);
+        //let bint_sz = PyInt::new(mem::size_of_val(&start));
+        let mut size:PyInt = 0;
         if start < stop {
-            size =  objint::get_value(self.len(vm)) * objint::get_value(bint_sz);
+            let size =  self.len(vm) ;
         }
         PyInt::new(size)
     }
