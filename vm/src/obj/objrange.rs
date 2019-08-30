@@ -250,13 +250,10 @@ impl PyRange {
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
         //let bint_sz = BigInt::value_from(mem::size_of_val(&start));
-        let bint_sz = PyInt::from(mem::size_of_val(&start));
+        let bint_sz = PyInt::new(mem::size_of_val(&start));
         let mut size = 0;
         if start < stop {
-            size =  objint::get_value(&self.len(vm)) * objint::get_value(&bint_sz);
-        }
-        if start > stop {
-            size = ((start - stop - 1usize) / (-step) + 1) * bint_sz;
+            size =  objint::get_value(self.len(vm)) * objint::get_value(bint_sz);
         }
         PyInt::new(size)
     }
