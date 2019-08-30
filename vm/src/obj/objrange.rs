@@ -3,7 +3,7 @@ use std::mem;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
-
+use super::objint;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -250,11 +250,10 @@ impl PyRange {
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
         //let bint_sz = BigInt::value_from(mem::size_of_val(&start));
-        let bint_sz = BigInt::from(mem::size_of_val(&start));
-        //let bint_sz = mem::size_of_val(&start);
+        let bint_sz = PyInt::from(mem::size_of_val(&start));
         let mut size = 0;
         if start < stop {
-            size =  ((stop - start - 1usize) / step + 1) * bint_sz;
+            size =  objint::get_value(&self.len(vm)) * objint::get_value(&bint_sz);
         }
         if start > stop {
             size = ((start - stop - 1usize) / (-step) + 1) * bint_sz;
