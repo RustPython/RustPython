@@ -246,15 +246,12 @@ impl PyRange {
     }
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self, vm: &VirtualMachine) -> PyInt {
-        let start = self.start.as_bigint();
-        let stop = self.stop.as_bigint();
-        let step = self.step.as_bigint();
-        let bint_sz = mem::size_of_val(&start);
-        //let bint_sz = PyInt::new(mem::size_of_val(&start));
-        let mut size:PyInt = 0;
+        let bint_sz = BigInt::from(mem::size_of_val(&start));
+        let mut size = BigInt::from(0);
         if start < stop {
-            let size =  self.len(vm) ;
+            size =  bint_sz * (self.len(vm).as_bigint());// * bint_sz ;
         }
+        //PyInt::new(objint::get_value(size))
         PyInt::new(size)
     }
 
