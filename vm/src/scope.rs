@@ -179,15 +179,6 @@ impl NameProtocol for Scope {
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
     /// Load a global name.
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
-        // First, take a look in the outmost local scope (the scope at top level)
-        let last_local_dict = self.locals.iter().last();
-        if let Some(local_dict) = last_local_dict {
-            if let Some(value) = local_dict.get_item_option(name, vm).unwrap() {
-                return Some(value);
-            }
-        }
-
-        // Now, take a look at the globals or builtins.
         if let Some(value) = self.globals.get_item_option(name, vm).unwrap() {
             Some(value)
         } else {
