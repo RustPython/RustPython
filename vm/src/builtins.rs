@@ -468,21 +468,18 @@ fn builtin_min(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(x)
 }
 
-fn builtin_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(iterator, None)],
-        optional = [(default_value, None)]
-    );
-
-    match vm.call_method(iterator, "__next__", vec![]) {
+fn builtin_next(
+    iterator: PyObjectRef,
+    default_value: OptionalArg<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    match vm.call_method(&iterator, "__next__", vec![]) {
         Ok(value) => Ok(value),
         Err(value) => {
             if objtype::isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
                 match default_value {
-                    None => Err(value),
-                    Some(value) => Ok(value.clone()),
+                    OptionalArg::Missing => Err(value),
+                    OptionalArg::Present(value) => Ok(value.clone()),
                 }
             } else {
                 Err(value)
@@ -491,10 +488,8 @@ fn builtin_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn builtin_oct(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
-
-    let n = objint::get_value(number);
+fn builtin_oct(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    let n = number.as_bigint();
     let s = if n.is_negative() {
         format!("-0o{:o}", n.abs())
     } else {
