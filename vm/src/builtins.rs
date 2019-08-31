@@ -301,17 +301,14 @@ fn builtin_hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> 
     }
 }
 
-fn builtin_hash(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, None)]);
-    vm._hash(obj).and_then(|v| Ok(vm.new_int(v)))
+fn builtin_hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    vm._hash(&obj).and_then(|v| Ok(vm.new_int(v)))
 }
 
 // builtin_help
 
-fn builtin_hex(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
-
-    let n = objint::get_value(number);
+fn builtin_hex(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    let n = number.as_bigint();
     let s = if n.is_negative() {
         format!("-0x{:x}", n.abs())
     } else {
