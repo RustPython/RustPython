@@ -252,8 +252,8 @@ impl SymbolTableAnalyzer {
                         // Symbol is in some outer scope.
                         symbol.is_free = true;
                     } else {
-                        // Well, it must be a global then :)
-                        symbol.scope = SymbolScope::Global;
+                        // Don't make assumptions when we don't know.
+                        symbol.scope = SymbolScope::Unknown;
                     }
                 }
             }
