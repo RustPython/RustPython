@@ -260,7 +260,7 @@ impl VirtualMachine {
 
     pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyClassRef> {
         let class = self
-            .get_attribute(self.import(module, &self.ctx.new_tuple(vec![]), 0)?, class)?
+            .get_attribute(self.import(module, &[], 0)?, class)?
             .downcast()
             .expect("not a class");
         Ok(class)
@@ -268,7 +268,7 @@ impl VirtualMachine {
 
     pub fn class(&self, module: &str, class: &str) -> PyClassRef {
         let module = self
-            .import(module, &self.ctx.new_tuple(vec![]), 0)
+            .import(module, &[], 0)
             .unwrap_or_else(|_| panic!("unable to import {}", module));
         let class = self
             .get_attribute(module.clone(), class)
@@ -461,12 +461,10 @@ impl VirtualMachine {
         Ok(self.new_str(ascii))
     }
 
-    pub fn import(&self, module: &str, from_list: &PyObjectRef, level: usize) -> PyResult {
+    pub fn import(&self, module: &str, from_list: &[String], level: usize) -> PyResult {
         // if the import inputs seem weird, e.g a package import or something, rather than just
         // a straight `import ident`
-        let weird = module.contains('.')
-            || level != 0
-            || objbool::boolval(self, from_list.clone()).unwrap_or(true);
+        let weird = module.contains('.') || level != 0 || !from_list.is_empty();
 
         let cached_module = if weird {
             None
@@ -490,13 +488,19 @@ impl VirtualMachine {
                 } else {
                     (self.get_none(), self.get_none())
                 };
+                let from_list = self.ctx.new_tuple(
+                    from_list
+                        .iter()
+                        .map(|name| self.new_str(name.to_string()))
+                        .collect(),
+                );
                 self.invoke(
                     &import_func,
                     vec![
                         self.new_str(module.to_owned()),
                         globals,
                         locals,
-                        from_list.clone(),
+                        from_list,
                         self.ctx.new_int(level),
                     ],
                 )
