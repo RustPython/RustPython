@@ -318,9 +318,7 @@ fn builtin_hex(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-fn builtin_id(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, None)]);
-
+fn builtin_id(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.context().new_int(obj.get_id()))
 }
 
@@ -358,13 +356,11 @@ fn builtin_issubclass(
     )
 }
 
-fn builtin_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(iter_target, None)]);
-    objiter::get_iter(vm, iter_target)
+fn builtin_iter(iter_target: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    objiter::get_iter(vm, &iter_target)
 }
 
-fn builtin_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, None)]);
+fn builtin_len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let method = vm.get_method_or_type_error(obj.clone(), "__len__", || {
         format!("object of type '{}' has no len()", obj.class().name)
     })?;
