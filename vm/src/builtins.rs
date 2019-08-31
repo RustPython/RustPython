@@ -530,38 +530,38 @@ fn builtin_ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) ->
     }
 }
 
-fn builtin_pow(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(x, None), (y, None)],
-        optional = [(mod_value, Some(vm.ctx.int_type()))]
-    );
-
+fn builtin_pow(
+    x: PyObjectRef,
+    y: PyObjectRef,
+    mod_value: OptionalArg<PyIntRef>,
+    vm: &VirtualMachine,
+) -> PyResult {
     match mod_value {
-        None => vm.call_or_reflection(x.clone(), y.clone(), "__pow__", "__rpow__", |vm, x, y| {
-            Err(vm.new_unsupported_operand_error(x, y, "pow"))
-        }),
-        Some(m) => {
+        OptionalArg::Missing => {
+            vm.call_or_reflection(x.clone(), y.clone(), "__pow__", "__rpow__", |vm, x, y| {
+                Err(vm.new_unsupported_operand_error(x, y, "pow"))
+            })
+        }
+        OptionalArg::Present(m) => {
             // Check if the 3rd argument is defined and perform modulus on the result
-            if !(objtype::isinstance(x, &vm.ctx.int_type())
-                && objtype::isinstance(y, &vm.ctx.int_type()))
+            if !(objtype::isinstance(&x, &vm.ctx.int_type())
+                && objtype::isinstance(&y, &vm.ctx.int_type()))
             {
                 return Err(vm.new_type_error(
                     "pow() 3rd argument not allowed unless all arguments are integers".to_string(),
                 ));
             }
-            let y = objint::get_value(y);
+            let y = objint::get_value(&y);
             if y.sign() == Sign::Minus {
                 return Err(vm.new_value_error(
                     "pow() 2nd argument cannot be negative when 3rd argument specified".to_string(),
                 ));
             }
-            let m = objint::get_value(m);
+            let m = m.as_bigint();
             if m.is_zero() {
                 return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_string()));
             }
-            let x = objint::get_value(x);
+            let x = objint::get_value(&x);
             Ok(vm.new_int(x.modpow(&y, &m)))
         }
     }
