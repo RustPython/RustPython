@@ -456,18 +456,10 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             let py_generators = map_ast(comprehension_to_ast, vm, generators)?;
 
             match kind.deref() {
-                ast::ComprehensionKind::GeneratorExpression { .. } => {
-                    node!(vm, GeneratorExp, {generators => py_generators})
-                }
-                ast::ComprehensionKind::List { .. } => {
-                    node!(vm, ListComp, {generators => py_generators})
-                }
-                ast::ComprehensionKind::Set { .. } => {
-                    node!(vm, SetComp, {generators => py_generators})
-                }
-                ast::ComprehensionKind::Dict { .. } => {
-                    node!(vm, DictComp, {generators => py_generators})
-                }
+                ast::ComprehensionKind::GeneratorExpression { .. } => node!(vm, GeneratorExp, {generators => py_generators}),
+                ast::ComprehensionKind::List { .. } => node!(vm, ListComp, {generators => py_generators}),
+                ast::ComprehensionKind::Set { .. } => node!(vm, SetComp, {generators => py_generators}),
+                ast::ComprehensionKind::Dict { .. } => node!(vm, DictComp, {generators => py_generators}),
             }
         }
         Await { value } => {
@@ -613,12 +605,8 @@ fn comprehension_to_ast(
 
 fn string_to_ast(vm: &VirtualMachine, string: &ast::StringGroup) -> PyResult<AstNodeRef> {
     let string = match string {
-        ast::StringGroup::Constant { value } => {
-            node!(vm, Str, { s => vm.ctx.new_str(value.clone()) })
-        }
-        ast::StringGroup::FormattedValue { value, .. } => {
-            node!(vm, FormattedValue, { value => expression_to_ast(vm, value)? })
-        }
+        ast::StringGroup::Constant { value } => node!(vm, Str, { s => vm.ctx.new_str(value.clone()) }),
+        ast::StringGroup::FormattedValue { value, .. } => node!(vm, FormattedValue, { value => expression_to_ast(vm, value)? }),
         ast::StringGroup::Joined { values } => {
             let py_values = map_ast(string_to_ast, vm, &values)?;
             node!(vm, JoinedStr, { values => py_values })

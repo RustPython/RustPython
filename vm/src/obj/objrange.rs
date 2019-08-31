@@ -1,14 +1,14 @@
-use std::cell::Cell;
-use std::mem;
-use num_bigint::{BigInt, Sign};
-use num_integer::Integer;
-use num_traits::{One, Signed, Zero};
 use super::objint;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use num_bigint::{BigInt, Sign};
+use num_integer::Integer;
+use num_traits::{One, Signed, Zero};
+use std::cell::Cell;
+use std::mem;
 
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
@@ -248,8 +248,8 @@ impl PyRange {
     fn sizeof(&self, vm: &VirtualMachine) -> PyInt {
         let bint_sz = BigInt::from(mem::size_of_val(&self.start));
         let mut size = BigInt::from(0);
-        size =  bint_sz * (self.len(vm).as_bigint());// * bint_sz ;
-        //PyInt::new(objint::get_value(size))
+        size = bint_sz * (self.len(vm).as_bigint()); // * bint_sz ;
+                                                     //PyInt::new(objint::get_value(size))
         PyInt::new(size)
     }
 
