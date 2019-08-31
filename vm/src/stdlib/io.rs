@@ -648,7 +648,7 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     };
 
-    let io_module = vm.import("_io", &vm.ctx.new_tuple(vec![]), 0)?;
+    let io_module = vm.import("_io", &[], 0)?;
 
     // Construct a FileIO (subclass of RawIOBase)
     // This is subsequently consumed by a Buffered Class.

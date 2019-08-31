@@ -539,11 +539,7 @@ impl Frame {
         level: usize,
     ) -> FrameResult {
         let module = module.clone().unwrap_or_default();
-        let from_list = symbols
-            .iter()
-            .map(|symbol| vm.ctx.new_str(symbol.to_string()))
-            .collect();
-        let module = vm.import(&module, &vm.ctx.new_tuple(from_list), level)?;
+        let module = vm.import(&module, symbols, level)?;
 
         self.push_value(module);
         Ok(None)
