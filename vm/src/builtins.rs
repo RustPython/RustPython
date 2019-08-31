@@ -16,7 +16,7 @@ use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
-use crate::obj::objstr::{self, PyString, PyStringRef};
+use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
@@ -499,40 +499,34 @@ fn builtin_oct(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-fn builtin_ord(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(string, None)]);
-    if objtype::isinstance(string, &vm.ctx.str_type()) {
-        let string = objstr::borrow_value(string);
-        let string_len = string.chars().count();
-        if string_len != 1 {
-            return Err(vm.new_type_error(format!(
-                "ord() expected a character, but string of length {} found",
-                string_len
-            )));
+fn builtin_ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) -> PyResult {
+    match string {
+        Either::A(bytes) => {
+            let bytes_len = bytes.elements.len();
+            if bytes_len != 1 {
+                return Err(vm.new_type_error(format!(
+                    "ord() expected a character, but string of length {} found",
+                    bytes_len
+                )));
+            }
+            Ok(vm.context().new_int(bytes.elements[0]))
         }
-        match string.chars().next() {
-            Some(character) => Ok(vm.context().new_int(character as i32)),
-            None => Err(vm.new_type_error(
-                "ord() could not guess the integer representing this character".to_string(),
-            )),
+        Either::B(string) => {
+            let string = string.as_str();
+            let string_len = string.chars().count();
+            if string_len != 1 {
+                return Err(vm.new_type_error(format!(
+                    "ord() expected a character, but string of length {} found",
+                    string_len
+                )));
+            }
+            match string.chars().next() {
+                Some(character) => Ok(vm.context().new_int(character as i32)),
+                None => Err(vm.new_type_error(
+                    "ord() could not guess the integer representing this character".to_string(),
+                )),
+            }
         }
-    } else if objtype::isinstance(string, &vm.ctx.bytearray_type())
-        || objtype::isinstance(string, &vm.ctx.bytes_type())
-    {
-        let inner = PyByteInner::try_from_object(vm, string.clone()).unwrap();
-        let bytes_len = inner.elements.len();
-        if bytes_len != 1 {
-            return Err(vm.new_type_error(format!(
-                "ord() expected a character, but string of length {} found",
-                bytes_len
-            )));
-        }
-        Ok(vm.context().new_int(inner.elements[0]))
-    } else {
-        Err(vm.new_type_error(format!(
-            "ord() expected a string, bytes or bytearray, but found {}",
-            string.class().name
-        )))
     }
 }
 
