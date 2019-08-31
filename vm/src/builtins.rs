@@ -165,92 +165,63 @@ fn builtin_divmod(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     )
 }
 
+#[cfg(feature = "rustpython-compiler")]
+#[derive(FromArgs)]
+struct ScopeArgs {
+    #[pyarg(positional_or_keyword, default = "None")]
+    globals: Option<PyDictRef>,
+    // TODO: support any mapping for `locals`
+    #[pyarg(positional_or_keyword, default = "None")]
+    locals: Option<PyDictRef>,
+}
+
 /// Implements `eval`.
 /// See also: https://docs.python.org/3/library/functions.html#eval
 #[cfg(feature = "rustpython-compiler")]
-fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    // TODO: support any mapping for `locals`
-    arg_check!(
-        vm,
-        args,
-        required = [(source, None)],
-        optional = [(globals, None), (locals, Some(vm.ctx.dict_type()))]
-    );
-
-    let scope = make_scope(vm, globals, locals)?;
-
-    // Determine code object:
-    let code_obj = if let Ok(code_obj) = PyCodeRef::try_from_object(vm, source.clone()) {
-        code_obj
-    } else if objtype::isinstance(source, &vm.ctx.str_type()) {
-        let mode = compile::Mode::Eval;
-        let source = objstr::get_value(source);
-        vm.compile(&source, mode, "<string>".to_string())
-            .map_err(|err| vm.new_syntax_error(&err))?
-    } else {
-        return Err(vm.new_type_error("code argument must be str or code object".to_string()));
-    };
-
-    // Run the source:
-    vm.run_code_obj(code_obj, scope)
+fn builtin_eval(
+    source: Either<PyStringRef, PyCodeRef>,
+    scope: ScopeArgs,
+    vm: &VirtualMachine,
+) -> PyResult {
+    run_code(vm, source, scope, compile::Mode::Eval)
 }
 
 /// Implements `exec`
 /// https://docs.python.org/3/library/functions.html#exec
 #[cfg(feature = "rustpython-compiler")]
-fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(source, None)],
-        optional = [(globals, None), (locals, None)]
-    );
+fn builtin_exec(
+    source: Either<PyStringRef, PyCodeRef>,
+    scope: ScopeArgs,
+    vm: &VirtualMachine,
+) -> PyResult {
+    run_code(vm, source, scope, compile::Mode::Exec)
+}
 
-    let scope = make_scope(vm, globals, locals)?;
+fn run_code(
+    vm: &VirtualMachine,
+    source: Either<PyStringRef, PyCodeRef>,
+    scope: ScopeArgs,
+    mode: compile::Mode,
+) -> PyResult {
+    let scope = make_scope(vm, scope)?;
 
     // Determine code object:
-    let code_obj = if objtype::isinstance(source, &vm.ctx.str_type()) {
-        let mode = compile::Mode::Exec;
-        let source = objstr::get_value(source);
-        vm.compile(&source, mode, "<string>".to_string())
-            .map_err(|err| vm.new_syntax_error(&err))?
-    } else if let Ok(code_obj) = PyCodeRef::try_from_object(vm, source.clone()) {
-        code_obj
-    } else {
-        return Err(vm.new_type_error("source argument must be str or code object".to_string()));
+    let code_obj = match source {
+        Either::A(string) => vm
+            .compile(string.as_str(), mode, "<string>".to_string())
+            .map_err(|err| vm.new_syntax_error(&err))?,
+        Either::B(code_obj) => code_obj,
     };
 
     // Run the code:
     vm.run_code_obj(code_obj, scope)
 }
 
-fn make_scope(
-    vm: &VirtualMachine,
-    globals: Option<&PyObjectRef>,
-    locals: Option<&PyObjectRef>,
-) -> PyResult<Scope> {
-    let dict_type = vm.ctx.dict_type();
-    let globals = match globals {
-        Some(arg) => {
-            if arg.is(&vm.get_none()) {
-                None
-            } else if vm.isinstance(arg, &dict_type)? {
-                Some(arg)
-            } else {
-                let arg_typ = arg.class();
-                let actual_type = vm.to_pystr(&arg_typ)?;
-                let expected_type_name = vm.to_pystr(&dict_type)?;
-                return Err(vm.new_type_error(format!(
-                    "globals must be a {}, not {}",
-                    expected_type_name, actual_type
-                )));
-            }
-        }
-        None => None,
-    };
+fn make_scope(vm: &VirtualMachine, scope: ScopeArgs) -> PyResult<Scope> {
+    let globals = scope.globals;
     let current_scope = vm.current_scope();
-    let locals = match locals {
-        Some(dict) => dict.clone().downcast().ok(),
+    let locals = match scope.locals {
+        Some(dict) => Some(dict),
         None => {
             if globals.is_some() {
                 None
@@ -261,7 +232,6 @@ fn make_scope(
     };
     let globals = match globals {
         Some(dict) => {
-            let dict: PyDictRef = dict.clone().downcast().unwrap();
             if !dict.contains_key("__builtins__", vm) {
                 let builtins_dict = vm.builtins.dict.as_ref().unwrap().as_object();
                 dict.set_item("__builtins__", builtins_dict.clone(), vm)
