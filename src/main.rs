@@ -317,7 +317,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     vm.get_attribute(vm.sys_module.clone(), "modules")?
         .set_item("__main__", main_module, vm)?;
 
-    let site_result = vm.import("site", &vm.ctx.new_tuple(vec![]), 0);
+    let site_result = vm.import("site", &[], 0);
 
     if site_result.is_err() {
         warn!(
@@ -366,7 +366,7 @@ fn run_command(vm: &VirtualMachine, scope: Scope, source: String) -> PyResult<()
 
 fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
-    let runpy = vm.import("runpy", &vm.ctx.new_tuple(vec![]), 0)?;
+    let runpy = vm.import("runpy", &[], 0)?;
     let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
     vm.invoke(&run_module_as_main, vec![vm.new_str(module.to_owned())])?;
     Ok(())

@@ -26,8 +26,7 @@ pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
             vm.get_attribute(importlib.clone(), "_install_external_importers")?;
         vm.invoke(&install_external, vec![])?;
         // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
-        let importlib_external =
-            vm.import("_frozen_importlib_external", &vm.ctx.new_tuple(vec![]), 0)?;
+        let importlib_external = vm.import("_frozen_importlib_external", &[], 0)?;
         let mut magic = get_git_revision().into_bytes();
         magic.truncate(4);
         if magic.len() != 4 {
