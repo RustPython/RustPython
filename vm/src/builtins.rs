@@ -154,8 +154,7 @@ fn builtin_dir(obj: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
     Ok(sorted)
 }
 
-fn builtin_divmod(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(a, None), (b, None)]);
+fn builtin_divmod(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     vm.call_or_reflection(
         a.clone(),
         b.clone(),
