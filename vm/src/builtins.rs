@@ -665,9 +665,7 @@ fn builtin_repr(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStringRef> 
     vm.to_repr(&obj)
 }
 
-fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, None)]);
-
+fn builtin_reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if let Some(reversed_method) = vm.get_method(obj.clone(), "__reversed__") {
         vm.invoke(&reversed_method?, PyFuncArgs::default())
     } else {
@@ -684,31 +682,28 @@ fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn builtin_round(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(number, Some(vm.ctx.object()))],
-        optional = [(ndigits, None)]
-    );
-    if let Some(ndigits) = ndigits {
-        if objtype::isinstance(ndigits, &vm.ctx.int_type()) {
-            let ndigits = vm.call_method(ndigits, "__int__", vec![])?;
-            let rounded = vm.call_method(number, "__round__", vec![ndigits])?;
-            Ok(rounded)
-        } else if vm.ctx.none().is(ndigits) {
-            let rounded = &vm.call_method(number, "__round__", vec![])?;
+fn builtin_round(
+    number: PyObjectRef,
+    ndigits: OptionalArg<Option<PyIntRef>>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    match ndigits {
+        OptionalArg::Present(ndigits) => match ndigits {
+            Some(int) => {
+                let ndigits = vm.call_method(int.as_object(), "__int__", vec![])?;
+                let rounded = vm.call_method(&number, "__round__", vec![ndigits])?;
+                Ok(rounded)
+            }
+            None => {
+                let rounded = &vm.call_method(&number, "__round__", vec![])?;
+                Ok(vm.ctx.new_int(objint::get_value(rounded).clone()))
+            }
+        },
+        OptionalArg::Missing => {
+            // without a parameter, the result type is coerced to int
+            let rounded = &vm.call_method(&number, "__round__", vec![])?;
             Ok(vm.ctx.new_int(objint::get_value(rounded).clone()))
-        } else {
-            Err(vm.new_type_error(format!(
-                "'{}' object cannot be interpreted as an integer",
-                ndigits.class().name
-            )))
         }
-    } else {
-        // without a parameter, the result type is coerced to int
-        let rounded = &vm.call_method(number, "__round__", vec![])?;
-        Ok(vm.ctx.new_int(objint::get_value(rounded).clone()))
     }
 }
 
