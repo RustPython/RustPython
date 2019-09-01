@@ -27,3 +27,17 @@ z = [(9,), (10,)]
 w = [x for x, in z]
 assert w == [9, 10]
 
+# generator targets shouldn't affect scopes out of comprehensions
+[a for a in range(5)]
+assert 'a' not in locals()
+assert 'a' not in globals()
+
+[b for a, b in [(1, 1), (2, 2)]]
+assert 'b' not in locals()
+assert 'b' not in globals()
+
+{b: c for b, c in {1: 2}.items()}
+assert 'b' not in locals()
+assert 'c' not in locals()
+assert 'b' not in globals()
+assert 'c' not in globals()

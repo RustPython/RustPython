@@ -585,7 +585,7 @@ impl SymbolTableBuilder {
             }
             Bytes { .. } => {}
             Tuple { elements } | Set { elements } | List { elements } | Slice { elements } => {
-                self.scan_expressions(elements, &ExpressionContext::Load)?;
+                self.scan_expressions(elements, context)?;
             }
             Comprehension { kind, generators } => {
                 match **kind {
@@ -710,7 +710,8 @@ impl SymbolTableBuilder {
         let location = Default::default();
 
         // Some checks:
-        if table.symbols.contains_key(name) {
+        let containing = table.symbols.contains_key(name);
+        if containing {
             // Role already set..
             match role {
                 SymbolUsage::Global => {
@@ -747,7 +748,7 @@ impl SymbolTableBuilder {
         }
 
         // Insert symbol when required:
-        if !table.symbols.contains_key(name) {
+        if !containing {
             let symbol = Symbol::new(name);
             table.symbols.insert(name.to_string(), symbol);
         }
