@@ -251,8 +251,11 @@ impl SymbolTableAnalyzer {
                     if found_in_outer_scope {
                         // Symbol is in some outer scope.
                         symbol.is_free = true;
+                    } else if self.tables.is_empty() {
+                        // Don't make assumptions when we don't know.
+                        symbol.scope = SymbolScope::Unknown;
                     } else {
-                        // Well, it must be a global then :)
+                        // If there are scopes above we can assume global.
                         symbol.scope = SymbolScope::Global;
                     }
                 }
