@@ -8,7 +8,9 @@ assert len(range(10, 5, -2)) == 3, 'Expected length 3, for elements: 10, 8, 6'
 assert len(range(5, 10, 2)) == 3, 'Expected length 3, for elements: 5, 7, 9'
 
 # sizeof tests
-assert range(10,5, -2).__sizeof__()==64, 'picked up from my python3 installation on x64 arch'
+assert range(10,5, -2).__sizeof__()==16, 'Range with 5 elements'
+assert range(10,5, -1).__sizeof__()==16, 'Range with elements 10 must still have a size of 48'
+assert range(20,5, -1).__sizeof__()==16, 'Range with elements 20 must still have a size of 48'
 # index tests
 assert range(10).index(6) == 6
 assert range(4, 10).index(6) == 2
