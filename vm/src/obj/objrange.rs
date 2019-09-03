@@ -246,7 +246,7 @@ impl PyRange {
     }
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self, vm: &VirtualMachine) -> PyInt {
-        let mut size = mem::size_of_val(&-1);
+        let mut size = mem::size_of_val::from(0);
         size = mem::size_of_val(&self.start) * 1;
         PyInt::new(size)
     }
