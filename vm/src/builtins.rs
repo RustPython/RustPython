@@ -10,7 +10,7 @@ use std::str;
 use num_bigint::Sign;
 use num_traits::{Signed, ToPrimitive, Zero};
 
-use crate::obj::objbool;
+use crate::obj::objbool::{self, PyBoolLike};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
@@ -40,18 +40,18 @@ fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     vm.invoke(&method, PyFuncArgs::new(vec![], vec![]))
 }
 
-fn builtin_all(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool> {
+fn builtin_all(iterable: PyIterable<PyBoolLike>, vm: &VirtualMachine) -> PyResult<bool> {
     for item in iterable.iter(vm)? {
-        if !item? {
+        if !item?.to_bool() {
             return Ok(false);
         }
     }
     Ok(true)
 }
 
-fn builtin_any(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool> {
+fn builtin_any(iterable: PyIterable<PyBoolLike>, vm: &VirtualMachine) -> PyResult<bool> {
     for item in iterable.iter(vm)? {
-        if item? {
+        if item?.to_bool() {
             return Ok(true);
         }
     }
