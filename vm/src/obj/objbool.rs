@@ -202,6 +202,14 @@ pub struct PyBoolLike {
 }
 
 impl PyBoolLike {
+    pub fn get_false() -> Self {
+        PyBoolLike { value: false }
+    }
+
+    pub fn get_true() -> Self {
+        PyBoolLike { value: true }
+    }
+
     pub fn to_bool(self) -> bool {
         self.value
     }

@@ -573,8 +573,8 @@ pub struct PrintOptions {
     sep: Option<PyStringRef>,
     #[pyarg(keyword_only, default = "None")]
     end: Option<PyStringRef>,
-    #[pyarg(keyword_only, default = "false")]
-    flush: bool,
+    #[pyarg(keyword_only, default = "PyBoolLike::get_false()")]
+    flush: PyBoolLike,
     #[pyarg(keyword_only, default = "None")]
     file: Option<PyObjectRef>,
 }
@@ -654,7 +654,7 @@ pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) 
         .unwrap();
     printer.write(vm, end)?;
 
-    if options.flush {
+    if options.flush.to_bool() {
         printer.flush(vm)?;
     }
 
