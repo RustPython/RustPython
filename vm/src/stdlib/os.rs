@@ -1,9 +1,9 @@
 use num_cpus;
 use std::cell::RefCell;
-use std::ffi::CStr;
+use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::{self, Error, ErrorKind, Read, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
@@ -53,11 +53,10 @@ pub fn raw_file_number(handle: File) -> i64 {
 
 #[cfg(windows)]
 pub fn rust_file(raw_fileno: i64) -> File {
-    use std::ffi::c_void;
     use std::os::windows::io::FromRawHandle;
 
     //This seems to work as expected but further testing is required.
-    unsafe { File::from_raw_handle(raw_fileno as *mut c_void) }
+    unsafe { File::from_raw_handle(raw_fileno as *mut ffi::c_void) }
 }
 
 #[cfg(all(not(unix), not(windows)))]
@@ -1021,9 +1020,9 @@ pub fn os_ttyname(fd: PyIntRef, vm: &VirtualMachine) -> PyResult {
     if let Some(fd) = fd.as_bigint().to_i32() {
         let name = unsafe { ttyname(fd) };
         if name.is_null() {
-            Err(vm.new_os_error(Error::last_os_error().to_string()))
+            Err(vm.new_os_error(io::Error::last_os_error().to_string()))
         } else {
-            let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
+            let name = unsafe { ffi::CStr::from_ptr(name) }.to_str().unwrap();
             Ok(vm.ctx.new_str(name.to_owned()))
         }
     } else {
@@ -1096,6 +1095,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
             }
         }
     }
+    #[allow(unused_mut)]
     let mut support_funcs = vec![
         SupportFunc::new(vm, "open", os_open, None, Some(false), None),
         // access Some Some None
