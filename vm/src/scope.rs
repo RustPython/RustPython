@@ -1,4 +1,3 @@
-use std::collections::LinkedList;
 use std::fmt;
 
 use crate::obj::objdict::PyDictRef;
@@ -11,7 +10,7 @@ use crate::vm::VirtualMachine;
  */
 #[derive(Clone)]
 pub struct Scope {
-    locals: LinkedList<PyDictRef>,
+    locals: Vec<PyDictRef>,
     pub globals: PyDictRef,
 }
 
@@ -24,14 +23,11 @@ impl fmt::Debug for Scope {
 
 impl Scope {
     pub fn new(locals: Option<PyDictRef>, globals: PyDictRef, vm: &VirtualMachine) -> Scope {
-        let mut locals_list = LinkedList::new();
-        if let Some(dict) = locals {
-            locals_list.push_front(dict)
-        }
-        let scope = Scope {
-            locals: locals_list,
-            globals,
+        let locals = match locals {
+            Some(dict) => vec![dict],
+            None => vec![],
         };
+        let scope = Scope { locals, globals };
         scope.store_name(vm, "__annotations__", vm.ctx.new_dict().into_object());
         scope
     }
@@ -51,19 +47,20 @@ impl Scope {
     }
 
     pub fn get_locals(&self) -> PyDictRef {
-        match self.locals.front() {
+        match self.locals.first() {
             Some(dict) => dict.clone(),
             None => self.globals.clone(),
         }
     }
 
     pub fn get_only_locals(&self) -> Option<PyDictRef> {
-        self.locals.front().cloned()
+        self.locals.first().cloned()
     }
 
     pub fn new_child_scope_with_locals(&self, locals: PyDictRef) -> Scope {
-        let mut new_locals = self.locals.clone();
-        new_locals.push_front(locals);
+        let mut new_locals = Vec::with_capacity(self.locals.len() + 1);
+        new_locals.push(locals);
+        new_locals.append(&mut self.locals.clone());
         Scope {
             locals: new_locals,
             globals: self.globals.clone(),
