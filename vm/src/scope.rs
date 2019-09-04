@@ -60,7 +60,7 @@ impl Scope {
     pub fn new_child_scope_with_locals(&self, locals: PyDictRef) -> Scope {
         let mut new_locals = Vec::with_capacity(self.locals.len() + 1);
         new_locals.push(locals);
-        new_locals.append(&mut self.locals.clone());
+        new_locals.extend_from_slice(&self.locals);
         Scope {
             locals: new_locals,
             globals: self.globals.clone(),
