@@ -591,6 +591,23 @@ impl SymbolTableBuilder {
                 self.scan_expressions(elements, context)?;
             }
             Comprehension { kind, generators } => {
+                // Comprehensions are compiled as functions, so create a scope for them:
+                let scope_name = match **kind {
+                    ast::ComprehensionKind::GeneratorExpression { .. } => "genexpr",
+                    ast::ComprehensionKind::List { .. } => "listcomp",
+                    ast::ComprehensionKind::Set { .. } => "setcomp",
+                    ast::ComprehensionKind::Dict { .. } => "dictcomp",
+                };
+
+                self.enter_scope(
+                    scope_name,
+                    SymbolTableType::Function,
+                    expression.location.row(),
+                );
+
+                // Register the passed argument to the generator function as the name ".0"
+                self.register_name(".0", SymbolUsage::Parameter)?;
+
                 match **kind {
                     ast::ComprehensionKind::GeneratorExpression { ref element }
                     | ast::ComprehensionKind::List { ref element }
@@ -603,13 +620,25 @@ impl SymbolTableBuilder {
                     }
                 }
 
+                let mut is_first_generator = true;
                 for generator in generators {
                     self.scan_expression(&generator.target, &ExpressionContext::Store)?;
-                    self.scan_expression(&generator.iter, &ExpressionContext::Load)?;
+                    if is_first_generator {
+                        is_first_generator = false;
+                    } else {
+                        self.scan_expression(&generator.iter, &ExpressionContext::Load)?;
+                    }
+
                     for if_expr in &generator.ifs {
                         self.scan_expression(if_expr, &ExpressionContext::Load)?;
                     }
                 }
+
+                self.leave_scope();
+
+                // The first iterable is passed as an argument into the created function:
+                assert!(!generators.is_empty());
+                self.scan_expression(&generators[0].iter, &ExpressionContext::Load)?;
             }
             Call {
                 function,
