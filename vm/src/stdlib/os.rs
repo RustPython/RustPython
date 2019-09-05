@@ -279,19 +279,17 @@ fn getgroups() -> nix::Result<Vec<Gid>> {
     use std::ptr;
     let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
     let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
-    loop {
-        let ret = unsafe {
-            libc::getgroups(
-                groups.capacity() as c_int,
-                groups.as_mut_ptr() as *mut gid_t,
-            )
-        };
+    let ret = unsafe {
+        libc::getgroups(
+            groups.capacity() as c_int,
+            groups.as_mut_ptr() as *mut gid_t,
+        )
+    };
 
-        return Errno::result(ret).map(|s| {
-            unsafe { groups.set_len(s as usize) };
-            groups
-        });
-    }
+    Errno::result(ret).map(|s| {
+        unsafe { groups.set_len(s as usize) };
+        groups
+    })
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
