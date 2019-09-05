@@ -975,7 +975,7 @@ impl<O: OutputStream> Compiler<O> {
 
         // Turn code object into function object:
         self.emit(Instruction::MakeFunction {
-            flags: bytecode::FunctionOpArg::empty(),
+            flags: bytecode::FunctionOpArg::IS_CLASS,
         });
 
         self.emit(Instruction::LoadConst {

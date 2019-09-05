@@ -1064,6 +1064,16 @@ impl Frame {
         // pop argc arguments
         // argument: name, args, globals
         let scope = self.scope.clone();
+        let scope = if flags.contains(bytecode::FunctionOpArg::IS_CLASS) {
+            // if the function we're making is a class initializer
+            scope.new_child_scope(&vm.ctx).as_class()
+        } else if scope.is_class() {
+            // if the surrounding scope is a class, i.e. the function we're making is a method,
+            // then get the parent scope. See builtin_build_class for why.
+            scope.parent_scope()
+        } else {
+            scope
+        };
         let func_obj = vm
             .ctx
             .new_function(code_obj, scope, defaults, kw_only_defaults);
