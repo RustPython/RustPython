@@ -251,8 +251,11 @@ impl SymbolTableAnalyzer {
                     if found_in_outer_scope {
                         // Symbol is in some outer scope.
                         symbol.is_free = true;
+                    } else if self.tables.is_empty() {
+                        // Don't make assumptions when we don't know.
+                        symbol.scope = SymbolScope::Unknown;
                     } else {
-                        // Well, it must be a global then :)
+                        // If there are scopes above we can assume global.
                         symbol.scope = SymbolScope::Global;
                     }
                 }
@@ -585,9 +588,26 @@ impl SymbolTableBuilder {
             }
             Bytes { .. } => {}
             Tuple { elements } | Set { elements } | List { elements } | Slice { elements } => {
-                self.scan_expressions(elements, &ExpressionContext::Load)?;
+                self.scan_expressions(elements, context)?;
             }
             Comprehension { kind, generators } => {
+                // Comprehensions are compiled as functions, so create a scope for them:
+                let scope_name = match **kind {
+                    ast::ComprehensionKind::GeneratorExpression { .. } => "genexpr",
+                    ast::ComprehensionKind::List { .. } => "listcomp",
+                    ast::ComprehensionKind::Set { .. } => "setcomp",
+                    ast::ComprehensionKind::Dict { .. } => "dictcomp",
+                };
+
+                self.enter_scope(
+                    scope_name,
+                    SymbolTableType::Function,
+                    expression.location.row(),
+                );
+
+                // Register the passed argument to the generator function as the name ".0"
+                self.register_name(".0", SymbolUsage::Parameter)?;
+
                 match **kind {
                     ast::ComprehensionKind::GeneratorExpression { ref element }
                     | ast::ComprehensionKind::List { ref element }
@@ -600,13 +620,25 @@ impl SymbolTableBuilder {
                     }
                 }
 
+                let mut is_first_generator = true;
                 for generator in generators {
                     self.scan_expression(&generator.target, &ExpressionContext::Store)?;
-                    self.scan_expression(&generator.iter, &ExpressionContext::Load)?;
+                    if is_first_generator {
+                        is_first_generator = false;
+                    } else {
+                        self.scan_expression(&generator.iter, &ExpressionContext::Load)?;
+                    }
+
                     for if_expr in &generator.ifs {
                         self.scan_expression(if_expr, &ExpressionContext::Load)?;
                     }
                 }
+
+                self.leave_scope();
+
+                // The first iterable is passed as an argument into the created function:
+                assert!(!generators.is_empty());
+                self.scan_expression(&generators[0].iter, &ExpressionContext::Load)?;
             }
             Call {
                 function,
@@ -710,7 +742,8 @@ impl SymbolTableBuilder {
         let location = Default::default();
 
         // Some checks:
-        if table.symbols.contains_key(name) {
+        let containing = table.symbols.contains_key(name);
+        if containing {
             // Role already set..
             match role {
                 SymbolUsage::Global => {
@@ -747,7 +780,7 @@ impl SymbolTableBuilder {
         }
 
         // Insert symbol when required:
-        if !table.symbols.contains_key(name) {
+        if !containing {
             let symbol = Symbol::new(name);
             table.symbols.insert(name.to_string(), symbol);
         }

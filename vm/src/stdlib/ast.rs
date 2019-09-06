@@ -456,18 +456,25 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             let py_generators = map_ast(comprehension_to_ast, vm, generators)?;
 
             match kind.deref() {
-                ast::ComprehensionKind::GeneratorExpression { .. } => {
-                    node!(vm, GeneratorExp, {generators => py_generators})
+                ast::ComprehensionKind::GeneratorExpression { element } => {
+                    node!(vm, GeneratorExp, {
+                        elt => expression_to_ast(vm, element)?,
+                        generators => py_generators
+                    })
                 }
-                ast::ComprehensionKind::List { .. } => {
-                    node!(vm, ListComp, {generators => py_generators})
-                }
-                ast::ComprehensionKind::Set { .. } => {
-                    node!(vm, SetComp, {generators => py_generators})
-                }
-                ast::ComprehensionKind::Dict { .. } => {
-                    node!(vm, DictComp, {generators => py_generators})
-                }
+                ast::ComprehensionKind::List { element } => node!(vm, ListComp, {
+                    elt => expression_to_ast(vm, element)?,
+                    generators => py_generators
+                }),
+                ast::ComprehensionKind::Set { element } => node!(vm, SetComp, {
+                    elt => expression_to_ast(vm, element)?,
+                    generators => py_generators
+                }),
+                ast::ComprehensionKind::Dict { key, value } => node!(vm, DictComp, {
+                    key => expression_to_ast(vm, key)?,
+                    value => expression_to_ast(vm, value)?,
+                    generators => py_generators
+                }),
             }
         }
         Await { value } => {
