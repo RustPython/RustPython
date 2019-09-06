@@ -1030,6 +1030,26 @@ pub fn os_ttyname(fd: PyIntRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+#[cfg(feature = "rustpython-compiler")]
+#[derive(FromArgs)]
+pub struct GetEnvArgs {
+    #[pyarg(positional_or_keyword, optional = false)]
+    key: PyStringRef,
+    #[pyarg(keyword_only, default = "None")]
+    default: Option<PyObjectRef>,
+}
+
+pub fn os_getenv(args: GetEnvArgs, vm: &VirtualMachine) -> PyResult {
+    // TODO: Change "_os" when _os module is changed to os
+    let os = vm.get_attribute(vm.sys_module.clone(), "modules")?.get_item("_os", &vm)?;
+    let environ = vm.get_attribute(os, "environ")?;
+    let env_var = environ.get_item(&args.key.value, &vm);
+    match env_var {
+        Ok(t) => Ok(t),
+        Err(_) => Ok(args.default.unwrap_or_else(|| vm.ctx.none())),
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1163,7 +1183,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "W_OK" => ctx.new_int(AccessFlags::W_OK.bits()),
         "X_OK" => ctx.new_int(AccessFlags::X_OK.bits()),
         "getpid" => ctx.new_rustfunc(os_getpid),
-        "cpu_count" => ctx.new_rustfunc(os_cpu_count)
+        "cpu_count" => ctx.new_rustfunc(os_cpu_count),
+        "getenv" => ctx.new_rustfunc(os_getenv),
     });
 
     for support in support_funcs {
