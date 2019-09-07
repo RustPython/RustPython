@@ -61,7 +61,7 @@ impl SymbolTable {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum SymbolTableType {
     Module,
     Class,
@@ -241,12 +241,10 @@ impl SymbolTableAnalyzer {
                 } else {
                     // Interesting stuff about the __class__ variable:
                     // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
-                    let found_in_outer_scope = (symbol.name == "__class__")
-                        || self
-                            .tables
-                            .iter()
-                            .skip(1)
-                            .any(|t| t.symbols.contains_key(&symbol.name));
+                    let found_in_outer_scope = symbol.name == "__class__"
+                        || self.tables.iter().skip(1).any(|t| {
+                            t.typ != SymbolTableType::Class && t.symbols.contains_key(&symbol.name)
+                        });
 
                     if found_in_outer_scope {
                         // Symbol is in some outer scope.
@@ -387,7 +385,6 @@ impl SymbolTableBuilder {
                 keywords,
                 decorator_list,
             } => {
-                self.register_name(name, SymbolUsage::Assigned)?;
                 self.enter_scope(name, SymbolTableType::Class, statement.location.row());
                 self.scan_statements(body)?;
                 self.leave_scope();
@@ -396,6 +393,7 @@ impl SymbolTableBuilder {
                     self.scan_expression(&keyword.value, &ExpressionContext::Load)?;
                 }
                 self.scan_expressions(decorator_list, &ExpressionContext::Load)?;
+                self.register_name(name, SymbolUsage::Assigned)?;
             }
             Expression { expression } => {
                 self.scan_expression(expression, &ExpressionContext::Load)?

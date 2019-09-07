@@ -10,12 +10,10 @@ use std::str;
 use num_bigint::Sign;
 use num_traits::{Signed, ToPrimitive, Zero};
 
-use crate::frame::Frame;
 use crate::obj::objbool;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objfunction::{PyFunction, PyFunctionRef};
 use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objstr::{PyString, PyStringRef};
@@ -898,7 +896,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
 }
 
 pub fn builtin_build_class_(
-    function: PyFunctionRef,
+    function: PyObjectRef,
     qualified_name: PyStringRef,
     bases: Args<PyClassRef>,
     mut kwargs: KwArgs,
@@ -935,20 +933,7 @@ pub fn builtin_build_class_(
 
     let cells = vm.ctx.new_dict();
 
-    let PyFunction { code, scope, .. } = &*function;
-
-    let is_class = scope.is_class();
-
-    let mut scope = scope
-        .new_child_scope_with_locals(cells.clone())
-        .new_child_scope_with_locals(namespace.clone());
-
-    if is_class {
-        scope = scope.as_class();
-    }
-
-    let frame = Frame::new(code.clone(), scope).into_ref(vm);
-    vm.run_frame_full(frame)?;
+    vm.invoke_with_locals(&function, cells.clone(), namespace.clone())?;
 
     namespace.set_item("__name__", name_obj.clone(), vm)?;
     namespace.set_item("__qualname__", qualified_name.into_object(), vm)?;

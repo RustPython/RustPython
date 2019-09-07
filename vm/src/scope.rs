@@ -12,7 +12,6 @@ use crate::vm::VirtualMachine;
 pub struct Scope {
     locals: Vec<PyDictRef>,
     pub globals: PyDictRef,
-    is_class: bool,
 }
 
 impl fmt::Debug for Scope {
@@ -28,11 +27,7 @@ impl Scope {
             Some(dict) => vec![dict],
             None => vec![],
         };
-        let scope = Scope {
-            locals,
-            globals,
-            is_class: false,
-        };
+        let scope = Scope { locals, globals };
         scope.store_name(vm, "__annotations__", vm.ctx.new_dict().into_object());
         scope
     }
@@ -69,29 +64,11 @@ impl Scope {
         Scope {
             locals: new_locals,
             globals: self.globals.clone(),
-            is_class: false,
         }
     }
 
     pub fn new_child_scope(&self, ctx: &PyContext) -> Scope {
         self.new_child_scope_with_locals(ctx.new_dict())
-    }
-
-    pub fn parent_scope(&self) -> Scope {
-        Scope {
-            locals: self.locals[1..].to_vec(),
-            globals: self.globals.clone(),
-            is_class: false,
-        }
-    }
-
-    pub fn is_class(&self) -> bool {
-        self.is_class
-    }
-
-    pub fn as_class(mut self) -> Self {
-        self.is_class = true;
-        self
     }
 }
 
@@ -154,15 +131,6 @@ impl NameProtocol for Scope {
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
     /// Load a global name.
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
-        // First, take a look in the outmost local scope (the scope at top level)
-        let last_local_dict = self.locals.iter().last();
-        if let Some(local_dict) = last_local_dict {
-            if let Some(value) = local_dict.get_item_option(name, vm).unwrap() {
-                return Some(value);
-            }
-        }
-
-        // Now, take a look at the globals or builtins.
         if let Some(value) = self.globals.get_item_option(name, vm).unwrap() {
             Some(value)
         } else {

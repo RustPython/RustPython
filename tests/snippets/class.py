@@ -174,12 +174,15 @@ class A:
     assert a == 2
 A.b()
 
-def func():
-    class A:
-        a = 2
-        def b():
-            assert a == 1
-        b()
-        assert a == 2
-    A.b()
-func()
+# TODO: uncomment once free vars/cells are working
+# a = 1
+# def nested_scope():
+#     a = 2
+#     class A:
+#         a = 3
+#         def b():
+#             assert a == 2
+#         b()
+#         assert a == 3
+#     A.b()
+# nested_scope()

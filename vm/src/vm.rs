@@ -662,6 +662,25 @@ impl VirtualMachine {
         }
     }
 
+    pub fn invoke_with_locals(
+        &self,
+        function: &PyObjectRef,
+        cells: PyDictRef,
+        locals: PyDictRef,
+    ) -> PyResult {
+        if let Some(PyFunction { code, scope, .. }) = &function.payload() {
+            let scope = scope
+                .new_child_scope_with_locals(cells)
+                .new_child_scope_with_locals(locals);
+            let frame = Frame::new(code.clone(), scope).into_ref(self);
+            return self.run_frame_full(frame);
+        }
+        panic!(
+            "invoke_with_locals: expected python function, got: {:?}",
+            *function
+        );
+    }
+
     fn fill_locals_from_args(
         &self,
         code_object: &bytecode::CodeObject,

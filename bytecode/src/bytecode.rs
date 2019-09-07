@@ -53,7 +53,6 @@ bitflags! {
         const HAS_DEFAULTS = 0x01;
         const HAS_KW_ONLY_DEFAULTS = 0x02;
         const HAS_ANNOTATIONS = 0x04;
-        const IS_CLASS = 0x08;
     }
 }
 
