@@ -61,7 +61,7 @@ impl SymbolTable {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum SymbolTableType {
     Module,
     Class,
@@ -179,24 +179,24 @@ fn analyze_symbol_table(symbol_table: &mut SymbolTable) -> SymbolTableResult {
 /// build symbol table structure. It will mark variables
 /// as local variables for example.
 #[derive(Default)]
-struct SymbolTableAnalyzer {
-    tables: Vec<SymbolTable>,
+struct SymbolTableAnalyzer<'a> {
+    tables: Vec<(&'a mut IndexMap<String, Symbol>, SymbolTableType)>,
 }
 
-impl SymbolTableAnalyzer {
-    fn analyze_symbol_table(&mut self, symbol_table: &mut SymbolTable) -> SymbolTableResult {
-        // Store a copy to determine the parent.
-        // TODO: this should be improved to resolve this clone action.
-        self.tables.push(symbol_table.clone());
+impl<'a> SymbolTableAnalyzer<'a> {
+    fn analyze_symbol_table(&mut self, symbol_table: &'a mut SymbolTable) -> SymbolTableResult {
+        let symbols = &mut symbol_table.symbols;
+        let sub_tables = &mut symbol_table.sub_tables;
 
+        self.tables.push((symbols, symbol_table.typ));
         // Analyze sub scopes:
-        for sub_table in &mut symbol_table.sub_tables {
+        for sub_table in sub_tables {
             self.analyze_symbol_table(sub_table)?;
         }
-        self.tables.pop();
+        let (symbols, _) = self.tables.pop().unwrap();
 
         // Analyze symbols:
-        for symbol in symbol_table.symbols.values_mut() {
+        for symbol in symbols.values_mut() {
             self.analyze_symbol(symbol)?;
         }
 
@@ -207,11 +207,11 @@ impl SymbolTableAnalyzer {
         match symbol.scope {
             SymbolScope::Nonlocal => {
                 // check if name is defined in parent table!
-                let parent_symbol_table: Option<&SymbolTable> = self.tables.last();
+                let parent_symbol_table = self.tables.last();
                 // symbol.table.borrow().parent.clone();
 
-                if let Some(table) = parent_symbol_table {
-                    if !table.symbols.contains_key(&symbol.name) {
+                if let Some((symbols, _)) = parent_symbol_table {
+                    if !symbols.contains_key(&symbol.name) {
                         return Err(SymbolTableError {
                             error: format!("no binding for nonlocal '{}' found", symbol.name),
                             location: Default::default(),
@@ -242,8 +242,8 @@ impl SymbolTableAnalyzer {
                     // Interesting stuff about the __class__ variable:
                     // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
                     let found_in_outer_scope = symbol.name == "__class__"
-                        || self.tables.iter().skip(1).any(|t| {
-                            t.typ != SymbolTableType::Class && t.symbols.contains_key(&symbol.name)
+                        || self.tables.iter().skip(1).any(|(symbols, typ)| {
+                            *typ != SymbolTableType::Class && symbols.contains_key(&symbol.name)
                         });
 
                     if found_in_outer_scope {
