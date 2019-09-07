@@ -12,7 +12,7 @@ use nix::errno::Errno;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::pty::openpty;
 #[cfg(unix)]
-use nix::unistd::{self, Gid, Pid, Uid};
+use nix::unistd::{self, Gid, Pid, Uid, Whence};
 use num_traits::cast::ToPrimitive;
 
 use bitflags::bitflags;
@@ -1215,6 +1215,11 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "access" => ctx.new_rustfunc(os_access),
         "chmod" => ctx.new_rustfunc(os_chmod),
         "ttyname" => ctx.new_rustfunc(os_ttyname),
+        "SEEK_SET" => ctx.new_int(Whence::SeekSet as i8),
+        "SEEK_CUR" => ctx.new_int(Whence::SeekCur as i8),
+        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8),
+        "SEEK_DATA" => ctx.new_int(Whence::SeekData as i8),
+        "SEEK_HOLE" => ctx.new_int(Whence::SeekHole as i8)
     });
 
     #[cfg(not(target_os = "redox"))]
