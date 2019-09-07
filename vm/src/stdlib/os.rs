@@ -1217,9 +1217,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "ttyname" => ctx.new_rustfunc(os_ttyname),
         "SEEK_SET" => ctx.new_int(Whence::SeekSet as i8),
         "SEEK_CUR" => ctx.new_int(Whence::SeekCur as i8),
-        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8),
-        "SEEK_DATA" => ctx.new_int(Whence::SeekData as i8),
-        "SEEK_HOLE" => ctx.new_int(Whence::SeekHole as i8)
+        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8)
     });
 
     #[cfg(not(target_os = "redox"))]
@@ -1229,6 +1227,12 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setegid" => ctx.new_rustfunc(os_setegid),
         "seteuid" => ctx.new_rustfunc(os_seteuid),
         "openpty" => ctx.new_rustfunc(os_openpty),
+    });
+
+    #[cfg(not(target_os = "macos"))]
+    extend_module!(vm, module, {
+        "SEEK_DATA" => ctx.new_int(Whence::SeekData as i8),
+        "SEEK_HOLE" => ctx.new_int(Whence::SeekHole as i8)
     });
 
     module
