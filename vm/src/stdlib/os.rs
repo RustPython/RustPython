@@ -1041,7 +1041,9 @@ pub struct GetEnvArgs {
 
 pub fn os_getenv(args: GetEnvArgs, vm: &VirtualMachine) -> PyResult {
     // TODO: Change "_os" when _os module is changed to os
-    let os = vm.get_attribute(vm.sys_module.clone(), "modules")?.get_item("_os", &vm)?;
+    let os = vm
+        .get_attribute(vm.sys_module.clone(), "modules")?
+        .get_item("_os", &vm)?;
     let environ = vm.get_attribute(os, "environ")?;
     let env_var = environ.get_item(&args.key.value, &vm);
     match env_var {
