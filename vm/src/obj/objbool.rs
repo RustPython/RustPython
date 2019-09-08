@@ -37,15 +37,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
                 )));
             }
 
-            match bool_obj.payload::<PyInt>() {
-                Some(int_obj) => !int_obj.as_bigint().is_zero(),
-                None => {
-                    return Err(vm.new_type_error(format!(
-                        "__bool__ should return bool, returned type {}",
-                        bool_obj.class().name
-                    )))
-                }
-            }
+            get_value(&bool_obj)
         }
         None => match vm.get_method(obj.clone(), "__len__") {
             Some(method_or_err) => {
