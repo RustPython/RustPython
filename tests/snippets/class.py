@@ -175,6 +175,9 @@ class A:
 A.b()
 
 # TODO: uncomment once free vars/cells are working
+# The symboltable sees that b() is referring to a in the nested scope,
+# so it marks it as non local. When it's executed, it walks up the scopes
+# and still finds the a from the class scope.
 # a = 1
 # def nested_scope():
 #     a = 2
