@@ -1,5 +1,4 @@
 use std::fmt;
-use std::rc::Rc;
 
 use crate::obj::objdict::PyDictRef;
 use crate::pyobject::{ItemProtocol, PyContext, PyObjectRef, PyResult};
@@ -9,58 +8,9 @@ use crate::vm::VirtualMachine;
  * So a scope is a linked list of scopes.
  * When a name is looked up, it is check in its scope.
  */
-#[derive(Debug)]
-struct RcListNode<T> {
-    elem: T,
-    next: Option<Rc<RcListNode<T>>>,
-}
-
-#[derive(Debug, Clone)]
-struct RcList<T> {
-    head: Option<Rc<RcListNode<T>>>,
-}
-
-struct Iter<'a, T: 'a> {
-    next: Option<&'a RcListNode<T>>,
-}
-
-impl<T> RcList<T> {
-    pub fn new() -> Self {
-        RcList { head: None }
-    }
-
-    pub fn insert(self, elem: T) -> Self {
-        RcList {
-            head: Some(Rc::new(RcListNode {
-                elem,
-                next: self.head,
-            })),
-        }
-    }
-
-    #[cfg_attr(feature = "flame-it", flame("RcList"))]
-    pub fn iter(&self) -> Iter<T> {
-        Iter {
-            next: self.head.as_ref().map(|node| &**node),
-        }
-    }
-}
-
-impl<'a, T> Iterator for Iter<'a, T> {
-    type Item = &'a T;
-
-    #[cfg_attr(feature = "flame-it", flame("Iter"))]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.next.map(|node| {
-            self.next = node.next.as_ref().map(|node| &**node);
-            &node.elem
-        })
-    }
-}
-
 #[derive(Clone)]
 pub struct Scope {
-    locals: RcList<PyDictRef>,
+    locals: Vec<PyDictRef>,
     pub globals: PyDictRef,
 }
 
@@ -74,8 +24,8 @@ impl fmt::Debug for Scope {
 impl Scope {
     pub fn new(locals: Option<PyDictRef>, globals: PyDictRef, vm: &VirtualMachine) -> Scope {
         let locals = match locals {
-            Some(dict) => RcList::new().insert(dict),
-            None => RcList::new(),
+            Some(dict) => vec![dict],
+            None => vec![],
         };
         let scope = Scope { locals, globals };
         scope.store_name(vm, "__annotations__", vm.ctx.new_dict().into_object());
@@ -97,19 +47,22 @@ impl Scope {
     }
 
     pub fn get_locals(&self) -> PyDictRef {
-        match self.locals.iter().next() {
+        match self.locals.first() {
             Some(dict) => dict.clone(),
             None => self.globals.clone(),
         }
     }
 
     pub fn get_only_locals(&self) -> Option<PyDictRef> {
-        self.locals.iter().next().cloned()
+        self.locals.first().cloned()
     }
 
     pub fn new_child_scope_with_locals(&self, locals: PyDictRef) -> Scope {
+        let mut new_locals = Vec::with_capacity(self.locals.len() + 1);
+        new_locals.push(locals);
+        new_locals.extend_from_slice(&self.locals);
         Scope {
-            locals: self.locals.clone().insert(locals),
+            locals: new_locals,
             globals: self.globals.clone(),
         }
     }
@@ -123,6 +76,7 @@ pub trait NameProtocol {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
     fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn delete_name(&self, vm: &VirtualMachine, name: &str) -> PyResult;
+    fn load_local(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
     fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
     fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
@@ -138,11 +92,14 @@ impl NameProtocol for Scope {
             }
         }
 
-        if let Some(value) = self.globals.get_item_option(name, vm).unwrap() {
-            return Some(value);
-        }
+        // Fall back to loading a global after all scopes have been searched!
+        self.load_global(vm, name)
+    }
 
-        vm.get_attribute(vm.builtins.clone(), name).ok()
+    #[cfg_attr(feature = "flame-it", flame("Scope"))]
+    /// Load a local name. Only check the local dictionary for the given name.
+    fn load_local(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+        self.get_locals().get_item_option(name, vm).unwrap()
     }
 
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
@@ -157,8 +114,7 @@ impl NameProtocol for Scope {
 
     fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
         self.locals
-            .iter()
-            .nth(1)
+            .get(1)
             .expect("no outer scope for non-local")
             .set_item(name, value, vm)
             .unwrap();
@@ -173,8 +129,13 @@ impl NameProtocol for Scope {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Scope"))]
+    /// Load a global name.
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
-        self.globals.get_item_option(name, vm).unwrap()
+        if let Some(value) = self.globals.get_item_option(name, vm).unwrap() {
+            Some(value)
+        } else {
+            vm.get_attribute(vm.builtins.clone(), name).ok()
+        }
     }
 
     fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {

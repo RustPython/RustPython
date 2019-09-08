@@ -1,4 +1,5 @@
 
+import os
 import time
 import sys
 
@@ -19,8 +20,11 @@ benchmarks = [
     ['benchmarks/mandelbrot.py'],
 ]
 
-@pytest.mark.parametrize('exe', pythons)
-@pytest.mark.parametrize('args', benchmarks)
+exe_ids = ['cpython', 'rustpython']
+benchmark_ids = [benchmark[0].split('/')[-1] for benchmark in benchmarks]
+
+@pytest.mark.parametrize('exe', pythons, ids=exe_ids)
+@pytest.mark.parametrize('args', benchmarks, ids=benchmark_ids)
 def test_bench(exe, args, benchmark):
     def bench():
         subprocess.run([exe] + args)

@@ -4,16 +4,13 @@
 
 use rustpython_parser::lexer;
 
-use crate::function::PyFuncArgs;
-use crate::obj::objstr;
+use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
-fn keyword_iskeyword(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let s = objstr::get_value(s);
+fn keyword_iskeyword(s: PyStringRef, vm: &VirtualMachine) -> PyResult {
     let keywords = lexer::get_keywords();
-    let value = keywords.contains_key(&s);
+    let value = keywords.contains_key(s.as_str());
     let value = vm.ctx.new_bool(value);
     Ok(value)
 }

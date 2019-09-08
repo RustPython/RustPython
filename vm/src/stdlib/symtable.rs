@@ -34,7 +34,7 @@ fn symtable_symtable(
     let symtable =
         source_to_symtable(&source.value, mode).map_err(|err| vm.new_syntax_error(&err))?;
 
-    let py_symbol_table = to_py_symbol_table("top".to_string(), symtable);
+    let py_symbol_table = to_py_symbol_table(symtable);
     Ok(py_symbol_table.into_ref(vm))
 }
 
@@ -56,8 +56,8 @@ fn source_to_symtable(
     Ok(symtable)
 }
 
-fn to_py_symbol_table(name: String, symtable: symboltable::SymbolTable) -> PySymbolTable {
-    PySymbolTable { name, symtable }
+fn to_py_symbol_table(symtable: symboltable::SymbolTable) -> PySymbolTable {
+    PySymbolTable { symtable }
 }
 
 type PySymbolTableRef = PyRef<PySymbolTable>;
@@ -65,7 +65,6 @@ type PySymbolRef = PyRef<PySymbol>;
 
 #[pyclass(name = "SymbolTable")]
 struct PySymbolTable {
-    name: String,
     symtable: symboltable::SymbolTable,
 }
 
@@ -84,8 +83,18 @@ impl PyValue for PySymbolTable {
 #[pyimpl]
 impl PySymbolTable {
     #[pymethod(name = "get_name")]
-    fn get_name(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.name.clone()))
+    fn get_name(&self, _vm: &VirtualMachine) -> String {
+        self.symtable.name.clone()
+    }
+
+    #[pymethod(name = "get_type")]
+    fn get_type(&self, _vm: &VirtualMachine) -> String {
+        self.symtable.typ.to_string()
+    }
+
+    #[pymethod(name = "get_lineno")]
+    fn get_lineno(&self, _vm: &VirtualMachine) -> usize {
+        self.symtable.line_number
     }
 
     #[pymethod(name = "lookup")]
@@ -101,6 +110,17 @@ impl PySymbolTable {
         }
     }
 
+    #[pymethod(name = "get_identifiers")]
+    fn get_identifiers(&self, vm: &VirtualMachine) -> PyResult {
+        let symbols = self
+            .symtable
+            .symbols
+            .keys()
+            .map(|s| vm.ctx.new_str(s.to_string()))
+            .collect();
+        Ok(vm.ctx.new_list(symbols))
+    }
+
     #[pymethod(name = "get_symbols")]
     fn get_symbols(&self, vm: &VirtualMachine) -> PyResult {
         let symbols = self
@@ -112,17 +132,18 @@ impl PySymbolTable {
         Ok(vm.ctx.new_list(symbols))
     }
 
+    #[pymethod(name = "has_children")]
+    fn has_children(&self, _vm: &VirtualMachine) -> bool {
+        !self.symtable.sub_tables.is_empty()
+    }
+
     #[pymethod(name = "get_children")]
     fn get_children(&self, vm: &VirtualMachine) -> PyResult {
         let children = self
             .symtable
             .sub_tables
             .iter()
-            .map(|s| {
-                to_py_symbol_table("bla".to_string(), s.clone())
-                    .into_ref(vm)
-                    .into_object()
-            })
+            .map(|t| to_py_symbol_table(t.clone()).into_ref(vm).into_object())
             .collect();
         Ok(vm.ctx.new_list(children))
     }

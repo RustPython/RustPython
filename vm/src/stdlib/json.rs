@@ -1,6 +1,8 @@
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objbytearray::PyByteArray;
+use crate::obj::objbytes::PyBytes;
+use crate::obj::objstr::PyString;
 use crate::py_serde;
-use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
 use crate::types::create_type;
 use crate::VirtualMachine;
 use serde_json;
@@ -18,11 +20,19 @@ pub fn json_dump(obj: PyObjectRef, fs: PyObjectRef, vm: &VirtualMachine) -> PyRe
 }
 
 /// Implement json.loads
-pub fn json_loads(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    // TODO: Implement non-trivial deserialization case
-    let de_result =
-        py_serde::deserialize(vm, &mut serde_json::Deserializer::from_str(string.as_str()));
-
+pub fn json_loads(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let de_result = match_class!(obj,
+        s @ PyString => py_serde::deserialize(vm, &mut serde_json::Deserializer::from_str(s.as_str())),
+        b @ PyBytes => py_serde::deserialize(vm, &mut serde_json::Deserializer::from_slice(&b)),
+        ba @ PyByteArray => py_serde::deserialize(vm, &mut serde_json::Deserializer::from_slice(&ba.inner.borrow().elements)),
+        obj => {
+            let msg = format!(
+                "the JSON object must be str, bytes or bytearray, not {}",
+                obj.class().name
+            );
+            return Err(vm.new_type_error(msg));
+        }
+    );
     de_result.map_err(|err| {
         let module = vm
             .get_attribute(vm.sys_module.clone(), "modules")
@@ -42,7 +52,7 @@ pub fn json_loads(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
 
 pub fn json_load(fp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let result = vm.call_method(&fp, "read", vec![])?;
-    json_loads(result.downcast()?, vm)
+    json_loads(result, vm)
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

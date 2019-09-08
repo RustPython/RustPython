@@ -11,7 +11,7 @@ use std::fmt;
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
 
-use crate::builtins;
+use crate::builtins::{self, to_ascii};
 use crate::bytecode;
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
@@ -39,6 +39,7 @@ use crate::pyobject::{
 use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
+use arr_macro::arr;
 use num_bigint::BigInt;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::{compile, error::CompileError};
@@ -62,9 +63,11 @@ pub struct VirtualMachine {
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: RefCell<bool>,
+    pub signal_handlers: RefCell<[PyObjectRef; NSIG]>,
     pub settings: PySettings,
-    pub signal_handlers: RefCell<HashMap<i32, PyObjectRef>>,
 }
+
+pub const NSIG: usize = 64;
 
 /// Struct containing all kind of settings for the python vm.
 pub struct PySettings {
@@ -166,6 +169,8 @@ impl VirtualMachine {
         let import_func = RefCell::new(ctx.none());
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
+        let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
+
         let vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
@@ -179,8 +184,8 @@ impl VirtualMachine {
             profile_func,
             trace_func,
             use_tracing: RefCell::new(false),
+            signal_handlers,
             settings,
-            signal_handlers: Default::default(),
         };
 
         objmodule::init_module_dict(
@@ -198,6 +203,10 @@ impl VirtualMachine {
 
         builtins::make_module(&vm, builtins.clone());
         sysmodule::make_module(&vm, sysmod, builtins);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        import::import_builtin(&vm, "signal").expect("Couldn't initialize signal module");
+
         vm
     }
 
@@ -251,7 +260,7 @@ impl VirtualMachine {
 
     pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyClassRef> {
         let class = self
-            .get_attribute(self.import(module, &self.ctx.new_tuple(vec![]), 0)?, class)?
+            .get_attribute(self.import(module, &[], 0)?, class)?
             .downcast()
             .expect("not a class");
         Ok(class)
@@ -259,7 +268,7 @@ impl VirtualMachine {
 
     pub fn class(&self, module: &str, class: &str) -> PyClassRef {
         let module = self
-            .import(module, &self.ctx.new_tuple(vec![]), 0)
+            .import(module, &[], 0)
             .unwrap_or_else(|_| panic!("unable to import {}", module));
         let class = self
             .get_attribute(module.clone(), class)
@@ -445,21 +454,25 @@ impl VirtualMachine {
         TryFromObject::try_from_object(self, repr)
     }
 
-    pub fn import(&self, module: &str, from_list: &PyObjectRef, level: usize) -> PyResult {
+    pub fn to_ascii(&self, obj: &PyObjectRef) -> PyResult {
+        let repr = self.call_method(obj, "__repr__", vec![])?;
+        let repr: PyStringRef = TryFromObject::try_from_object(self, repr)?;
+        let ascii = to_ascii(&repr.value);
+        Ok(self.new_str(ascii))
+    }
+
+    pub fn import(&self, module: &str, from_list: &[String], level: usize) -> PyResult {
         // if the import inputs seem weird, e.g a package import or something, rather than just
         // a straight `import ident`
-        let weird = module.contains('.')
-            || level != 0
-            || objbool::boolval(self, from_list.clone()).unwrap_or(true);
-
-        let module = self.new_str(module.to_owned());
+        let weird = module.contains('.') || level != 0 || !from_list.is_empty();
 
         let cached_module = if weird {
             None
         } else {
             let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
-            sys_modules.get_item(module.clone(), self).ok()
+            sys_modules.get_item(module, self).ok()
         };
+
         match cached_module {
             Some(module) => Ok(module),
             None => {
@@ -475,13 +488,19 @@ impl VirtualMachine {
                 } else {
                     (self.get_none(), self.get_none())
                 };
+                let from_list = self.ctx.new_tuple(
+                    from_list
+                        .iter()
+                        .map(|name| self.new_str(name.to_string()))
+                        .collect(),
+                );
                 self.invoke(
                     &import_func,
                     vec![
-                        module,
+                        self.new_str(module.to_owned()),
                         globals,
                         locals,
-                        from_list.clone(),
+                        from_list,
                         self.ctx.new_int(level),
                     ],
                 )
@@ -528,6 +547,8 @@ impl VirtualMachine {
     where
         T: Into<PyFuncArgs>,
     {
+        flame_guard!(format!("call_method({:?})", method_name));
+
         // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
         let cls = obj.class();
         match objtype::class_get_attr(&cls, method_name) {
@@ -546,7 +567,6 @@ impl VirtualMachine {
         }
     }
 
-    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     fn _invoke(&self, func_ref: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", func_ref, args);
 
@@ -936,7 +956,7 @@ impl VirtualMachine {
         }
 
         let attr = if let Some(ref dict) = obj.dict {
-            dict.get_item_option(name_str.clone(), self)?
+            dict.get_item_option(&name_str.value, self)?
         } else {
             None
         };

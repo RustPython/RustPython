@@ -43,6 +43,14 @@ enum BlockType {
     TryExcept {
         handler: bytecode::Label,
     },
+    Finally {
+        handler: bytecode::Label,
+    },
+
+    /// Active finally sequence
+    FinallyHandler {
+        reason: Option<UnwindReason>,
+    },
     With {
         end: bytecode::Label,
         context_manager: PyObjectRef,
@@ -51,6 +59,25 @@ enum BlockType {
 }
 
 pub type FrameRef = PyRef<Frame>;
+
+/// The reason why we might be unwinding a block.
+/// This could be return of function, exception being
+/// raised, a break or continue being hit, etc..
+#[derive(Clone, Debug)]
+enum UnwindReason {
+    /// We are returning a value from a return statement.
+    Returning { value: PyObjectRef },
+
+    /// We hit an exception, so unwind any try-except and finally blocks.
+    Raising { exception: PyObjectRef },
+
+    // NoWorries,
+    /// We are unwinding blocks, since we hit break
+    Break,
+
+    /// We are unwinding blocks since we hit a continue statements.
+    Continue,
+}
 
 pub struct Frame {
     pub code: bytecode::CodeObject,
@@ -137,9 +164,12 @@ impl Frame {
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
                     objlist::PyListRef::try_from_object(vm, traceback)?.append(raise_location, vm);
-                    match self.unwind_exception(vm, exception) {
-                        None => {}
-                        Some(exception) => {
+                    match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
+                        Ok(None) => {}
+                        Ok(Some(result)) => {
+                            break Ok(result);
+                        }
+                        Err(exception) => {
                             // TODO: append line number to traceback?
                             // traceback.append();
                             break Err(exception);
@@ -151,9 +181,10 @@ impl Frame {
     }
 
     pub fn throw(&self, vm: &VirtualMachine, exception: PyObjectRef) -> PyResult<ExecutionResult> {
-        match self.unwind_exception(vm, exception) {
-            None => self.run(vm),
-            Some(exception) => Err(exception),
+        match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
+            Ok(None) => self.run(vm),
+            Ok(Some(result)) => Ok(result),
+            Err(exception) => Err(exception),
         }
     }
 
@@ -164,12 +195,10 @@ impl Frame {
     }
 
     /// Execute a single instruction.
-    #[allow(clippy::cognitive_complexity)]
     fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            check_signals(vm);
-        }
+        check_signals(vm)?;
+
         let instruction = self.fetch_instruction();
 
         flame_guard!(format!("Frame::execute_instruction({:?})", instruction));
@@ -209,6 +238,7 @@ impl Frame {
                 ref scope,
             } => self.store_name(vm, name, scope),
             bytecode::Instruction::DeleteName { ref name } => self.delete_name(vm, name),
+            bytecode::Instruction::Subscript => self.execute_subscript(vm),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
             bytecode::Instruction::Pop => {
@@ -223,29 +253,7 @@ impl Frame {
                 self.push_value(value);
                 Ok(None)
             }
-            bytecode::Instruction::Rotate { amount } => {
-                // Shuffles top of stack amount down
-                if *amount < 2 {
-                    panic!("Can only rotate two or more values");
-                }
-
-                let mut values = Vec::new();
-
-                // Pop all values from stack:
-                for _ in 0..*amount {
-                    values.push(self.pop_value());
-                }
-
-                // Push top of stack back first:
-                self.push_value(values.remove(0));
-
-                // Push other value back in order:
-                values.reverse();
-                for value in values {
-                    self.push_value(value);
-                }
-                Ok(None)
-            }
+            bytecode::Instruction::Rotate { amount } => self.execute_rotate(*amount),
             bytecode::Instruction::BuildString { size } => {
                 let s = self
                     .pop_multiple(*size)
@@ -278,45 +286,9 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::BuildMap { size, unpack } => {
-                let map_obj = vm.ctx.new_dict();
-                if *unpack {
-                    for obj in self.pop_multiple(*size) {
-                        // Take all key-value pairs from the dict:
-                        let dict: PyDictRef =
-                            obj.downcast().expect("Need a dictionary to build a map.");
-                        for (key, value) in dict {
-                            map_obj.set_item(key, value, vm).unwrap();
-                        }
-                    }
-                } else {
-                    for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
-                        map_obj.set_item(key, value, vm).unwrap();
-                    }
-                }
-
-                self.push_value(map_obj.into_object());
-                Ok(None)
+                self.execute_build_map(vm, *size, *unpack)
             }
-            bytecode::Instruction::BuildSlice { size } => {
-                assert!(*size == 2 || *size == 3);
-
-                let step = if *size == 3 {
-                    Some(self.pop_value())
-                } else {
-                    None
-                };
-                let stop = self.pop_value();
-                let start = self.pop_value();
-
-                let obj = PySlice {
-                    start: Some(start),
-                    stop,
-                    step,
-                }
-                .into_ref(vm);
-                self.push_value(obj.into_object());
-                Ok(None)
-            }
+            bytecode::Instruction::BuildSlice { size } => self.execute_build_slice(vm, *size),
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
                 let item = self.pop_value();
@@ -346,32 +318,13 @@ impl Frame {
             bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(vm, op),
             bytecode::Instruction::ReturnValue => {
                 let value = self.pop_value();
-                if let Some(exc) = self.unwind_blocks(vm) {
-                    Err(exc)
-                } else {
-                    Ok(Some(ExecutionResult::Return(value)))
-                }
+                self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
             bytecode::Instruction::YieldValue => {
                 let value = self.pop_value();
                 Ok(Some(ExecutionResult::Yield(value)))
             }
-            bytecode::Instruction::YieldFrom => {
-                // Value send into iterator:
-                self.pop_value();
-
-                let top_of_stack = self.last_value();
-                let next_obj = objiter::get_next_object(vm, &top_of_stack)?;
-
-                match next_obj {
-                    Some(value) => {
-                        // Set back program counter:
-                        *self.lasti.borrow_mut() -= 1;
-                        Ok(Some(ExecutionResult::Yield(value)))
-                    }
-                    None => Ok(None),
-                }
-            }
+            bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
             bytecode::Instruction::SetupLoop { start, end } => {
                 self.push_block(BlockType::Loop {
                     start: *start,
@@ -382,6 +335,31 @@ impl Frame {
             bytecode::Instruction::SetupExcept { handler } => {
                 self.push_block(BlockType::TryExcept { handler: *handler });
                 Ok(None)
+            }
+            bytecode::Instruction::SetupFinally { handler } => {
+                self.push_block(BlockType::Finally { handler: *handler });
+                Ok(None)
+            }
+            bytecode::Instruction::EnterFinally => {
+                self.push_block(BlockType::FinallyHandler { reason: None });
+                Ok(None)
+            }
+            bytecode::Instruction::EndFinally => {
+                // Pop the finally handler from the stack, and recall
+                // what was the reason we were in this finally clause.
+                let block = self.pop_block();
+
+                if let BlockType::FinallyHandler { reason } = block.typ {
+                    if let Some(reason) = reason {
+                        self.unwind_blocks(vm, reason)
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    panic!(
+                        "Block type must be finally handler when reaching EndFinally instruction!"
+                    );
+                }
             }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
@@ -395,14 +373,14 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::CleanupWith { end: end1 } => {
-                let block = self.pop_block().unwrap();
+                let block = self.pop_block();
                 if let BlockType::With {
                     end: end2,
                     context_manager,
                 } = &block.typ
                 {
                     debug_assert!(end1 == end2);
-                    self.call_context_manager_exit_no_exception(vm, &context_manager)?;
+                    self.call_context_manager_exit(vm, &context_manager, None)?;
                 } else {
                     unreachable!("Block stack is incorrect, expected a with block");
                 }
@@ -410,7 +388,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::PopBlock => {
-                self.pop_block().expect("no pop to block");
+                self.pop_block();
                 Ok(None)
             }
             bytecode::Instruction::GetIter => {
@@ -419,76 +397,9 @@ impl Frame {
                 self.push_value(iter_obj);
                 Ok(None)
             }
-            bytecode::Instruction::ForIter { target } => {
-                // The top of stack contains the iterator, lets push it forward:
-                let top_of_stack = self.last_value();
-                let next_obj = objiter::get_next_object(vm, &top_of_stack);
-
-                // Check the next object:
-                match next_obj {
-                    Ok(Some(value)) => {
-                        self.push_value(value);
-                        Ok(None)
-                    }
-                    Ok(None) => {
-                        // Pop iterator from stack:
-                        self.pop_value();
-
-                        // End of for loop
-                        self.jump(*target);
-                        Ok(None)
-                    }
-                    Err(next_error) => {
-                        // Pop iterator from stack:
-                        self.pop_value();
-                        Err(next_error)
-                    }
-                }
-            }
+            bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, *target),
             bytecode::Instruction::MakeFunction { flags } => self.execute_make_function(vm, *flags),
-            bytecode::Instruction::CallFunction { typ } => {
-                let args = match typ {
-                    bytecode::CallType::Positional(count) => {
-                        let args: Vec<PyObjectRef> = self.pop_multiple(*count);
-                        PyFuncArgs {
-                            args,
-                            kwargs: IndexMap::new(),
-                        }
-                    }
-                    bytecode::CallType::Keyword(count) => {
-                        let kwarg_names = self.pop_value();
-                        let args: Vec<PyObjectRef> = self.pop_multiple(*count);
-
-                        let kwarg_names = vm
-                            .extract_elements(&kwarg_names)?
-                            .iter()
-                            .map(|pyobj| objstr::get_value(pyobj))
-                            .collect();
-                        PyFuncArgs::new(args, kwarg_names)
-                    }
-                    bytecode::CallType::Ex(has_kwargs) => {
-                        let kwargs = if *has_kwargs {
-                            let kw_dict: PyDictRef =
-                                self.pop_value().downcast().expect("Kwargs must be a dict.");
-                            kw_dict
-                                .into_iter()
-                                .map(|elem| (objstr::get_value(&elem.0), elem.1))
-                                .collect()
-                        } else {
-                            IndexMap::new()
-                        };
-                        let args = self.pop_value();
-                        let args = vm.extract_elements(&args)?;
-                        PyFuncArgs { args, kwargs }
-                    }
-                };
-
-                // Call function:
-                let func_ref = self.pop_value();
-                let value = vm.invoke(&func_ref, args)?;
-                self.push_value(value);
-                Ok(None)
-            }
+            bytecode::Instruction::CallFunction { typ } => self.execute_call_function(vm, typ),
             bytecode::Instruction::Jump { target } => {
                 self.jump(*target);
                 Ok(None)
@@ -533,64 +444,10 @@ impl Frame {
                 Ok(None)
             }
 
-            bytecode::Instruction::Raise { argc } => {
-                let cause = match argc {
-                    2 => self.get_exception(vm, true)?,
-                    _ => vm.get_none(),
-                };
-                let exception = match argc {
-                    0 => match vm.current_exception() {
-                        Some(exc) => exc,
-                        None => {
-                            return Err(vm.new_exception(
-                                vm.ctx.exceptions.runtime_error.clone(),
-                                "No active exception to reraise".to_string(),
-                            ));
-                        }
-                    },
-                    1 | 2 => self.get_exception(vm, false)?,
-                    3 => panic!("Not implemented!"),
-                    _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
-                };
-                let context = match argc {
-                    0 => vm.get_none(), // We have already got the exception,
-                    _ => match vm.current_exception() {
-                        Some(exc) => exc,
-                        None => vm.get_none(),
-                    },
-                };
-                info!(
-                    "Exception raised: {:?} with cause: {:?} and context: {:?}",
-                    exception, cause, context
-                );
-                vm.set_attr(&exception, vm.new_str("__cause__".to_string()), cause)?;
-                vm.set_attr(&exception, vm.new_str("__context__".to_string()), context)?;
-                Err(exception)
-            }
+            bytecode::Instruction::Raise { argc } => self.execute_raise(vm, *argc),
 
-            bytecode::Instruction::Break => {
-                let block = self.unwind_loop(vm);
-                if let BlockType::Loop { end, .. } = block.typ {
-                    self.pop_block();
-                    self.jump(end);
-                } else {
-                    unreachable!()
-                }
-                Ok(None)
-            }
-            bytecode::Instruction::Pass => {
-                // Ah, this is nice, just relax!
-                Ok(None)
-            }
-            bytecode::Instruction::Continue => {
-                let block = self.unwind_loop(vm);
-                if let BlockType::Loop { start, .. } = block.typ {
-                    self.jump(start);
-                } else {
-                    unreachable!();
-                }
-                Ok(None)
-            }
+            bytecode::Instruction::Break => self.unwind_blocks(vm, UnwindReason::Break),
+            bytecode::Instruction::Continue => self.unwind_blocks(vm, UnwindReason::Continue),
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
                 if !expr.is(&vm.get_none()) {
@@ -619,54 +476,15 @@ impl Frame {
                 }
             }
             bytecode::Instruction::UnpackEx { before, after } => {
-                let value = self.pop_value();
-                let elements = vm.extract_elements(&value)?;
-                let min_expected = *before + *after;
-                if elements.len() < min_expected {
-                    Err(vm.new_value_error(format!(
-                        "Not enough values to unpack (expected at least {}, got {}",
-                        min_expected,
-                        elements.len()
-                    )))
-                } else {
-                    let middle = elements.len() - *before - *after;
-
-                    // Elements on stack from right-to-left:
-                    for element in elements[*before + middle..].iter().rev() {
-                        self.push_value(element.clone());
-                    }
-
-                    let middle_elements = elements
-                        .iter()
-                        .skip(*before)
-                        .take(middle)
-                        .cloned()
-                        .collect();
-                    let t = vm.ctx.new_list(middle_elements);
-                    self.push_value(t);
-
-                    // Lastly the first reversed values:
-                    for element in elements[..*before].iter().rev() {
-                        self.push_value(element.clone());
-                    }
-
-                    Ok(None)
-                }
+                self.execute_unpack_ex(vm, *before, *after)
             }
-            bytecode::Instruction::Unpack => {
-                let value = self.pop_value();
-                let elements = vm.extract_elements(&value)?;
-                for element in elements.into_iter().rev() {
-                    self.push_value(element);
-                }
-                Ok(None)
-            }
+            bytecode::Instruction::Unpack => self.execute_unpack(vm),
             bytecode::Instruction::FormatValue { conversion, spec } => {
                 use bytecode::ConversionFlag::*;
                 let value = match conversion {
                     Some(Str) => vm.to_str(&self.pop_value())?.into_object(),
                     Some(Repr) => vm.to_repr(&self.pop_value())?.into_object(),
-                    Some(Ascii) => self.pop_value(), // TODO
+                    Some(Ascii) => vm.to_ascii(&self.pop_value())?,
                     None => self.pop_value(),
                 };
 
@@ -676,7 +494,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::PopException {} => {
-                let block = self.pop_block().unwrap(); // this asserts that the block is_some.
+                let block = self.pop_block();
                 if let BlockType::ExceptHandler = block.typ {
                     vm.pop_exception().expect("Should have exception in stack");
                     Ok(None)
@@ -721,11 +539,7 @@ impl Frame {
         level: usize,
     ) -> FrameResult {
         let module = module.clone().unwrap_or_default();
-        let from_list = symbols
-            .iter()
-            .map(|symbol| vm.ctx.new_str(symbol.to_string()))
-            .collect();
-        let module = vm.import(&module, &vm.ctx.new_tuple(from_list), level)?;
+        let module = vm.import(&module, symbols, level)?;
 
         self.push_value(module);
         Ok(None)
@@ -759,134 +573,138 @@ impl Frame {
         Ok(None)
     }
 
-    // Unwind all blocks:
+    /// Unwind blocks.
+    /// The reason for unwinding gives a hint on what to do when
+    /// unwinding a block.
+    /// Optionally returns an exception.
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn unwind_blocks(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        while let Some(block) = self.pop_block() {
+    fn unwind_blocks(&self, vm: &VirtualMachine, mut reason: UnwindReason) -> FrameResult {
+        // First unwind all existing blocks on the block stack:
+        while let Some(block) = self.current_block() {
             match block.typ {
-                BlockType::Loop { .. } => {}
-                BlockType::TryExcept { .. } => {
-                    // TODO: execute finally handler
-                }
-                BlockType::With {
-                    context_manager, ..
-                } => {
-                    match self.call_context_manager_exit_no_exception(vm, &context_manager) {
-                        Ok(..) => {}
-                        Err(exc) => {
-                            // __exit__ went wrong,
-                            return Some(exc);
-                        }
+                BlockType::Loop { start, end } => match &reason {
+                    UnwindReason::Break => {
+                        self.pop_block();
+                        self.jump(end);
+                        return Ok(None);
                     }
-                }
-                BlockType::ExceptHandler => {
-                    vm.pop_exception().expect("Should have exception in stack");
-                }
-            }
-        }
-
-        None
-    }
-
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn unwind_loop(&self, vm: &VirtualMachine) -> Block {
-        loop {
-            let block = self.current_block().expect("not in a loop");
-            match block.typ {
-                BlockType::Loop { .. } => break block,
-                BlockType::TryExcept { .. } => {
-                    // TODO: execute finally handler
-                }
-                BlockType::With {
-                    context_manager, ..
-                } => match self.call_context_manager_exit_no_exception(vm, &context_manager) {
-                    Ok(..) => {}
-                    Err(exc) => {
-                        panic!("Exception in with __exit__ {:?}", exc);
+                    UnwindReason::Continue => {
+                        self.jump(start);
+                        return Ok(None);
+                    }
+                    _ => {
+                        self.pop_block();
                     }
                 },
-                BlockType::ExceptHandler => {
-                    vm.pop_exception().expect("Should have exception in stack");
-                }
-            }
-
-            self.pop_block();
-        }
-    }
-
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn unwind_exception(&self, vm: &VirtualMachine, exc: PyObjectRef) -> Option<PyObjectRef> {
-        // unwind block stack on exception and find any handlers:
-        while let Some(block) = self.pop_block() {
-            match block.typ {
-                BlockType::TryExcept { handler } => {
-                    self.push_block(BlockType::ExceptHandler {});
-                    self.push_value(exc.clone());
-                    vm.push_exception(exc);
+                BlockType::Finally { handler } => {
+                    self.pop_block();
+                    self.push_block(BlockType::FinallyHandler {
+                        reason: Some(reason.clone()),
+                    });
                     self.jump(handler);
-                    return None;
+                    return Ok(None);
+                }
+                BlockType::TryExcept { handler } => {
+                    self.pop_block();
+                    if let UnwindReason::Raising { exception } = &reason {
+                        self.push_block(BlockType::ExceptHandler {});
+                        self.push_value(exception.clone());
+                        vm.push_exception(exception.clone());
+                        self.jump(handler);
+                        return Ok(None);
+                    }
                 }
                 BlockType::With {
-                    end,
                     context_manager,
+                    end,
                 } => {
-                    match self.call_context_manager_exit(vm, &context_manager, exc.clone()) {
-                        Ok(exit_result_obj) => {
-                            match objbool::boolval(vm, exit_result_obj) {
-                                // If __exit__ method returned True, suppress the exception and continue execution.
-                                Ok(suppress_exception) => {
-                                    if suppress_exception {
-                                        self.jump(end);
-                                        return None;
-                                    } else {
-                                        // go on with the stack unwinding.
+                    self.pop_block();
+                    match &reason {
+                        UnwindReason::Raising { exception } => {
+                            match self.call_context_manager_exit(
+                                vm,
+                                &context_manager,
+                                Some(exception.clone()),
+                            ) {
+                                Ok(exit_result_obj) => {
+                                    match objbool::boolval(vm, exit_result_obj) {
+                                        // If __exit__ method returned True, suppress the exception and continue execution.
+                                        Ok(suppress_exception) => {
+                                            if suppress_exception {
+                                                self.jump(end);
+                                                return Ok(None);
+                                            } else {
+                                                // go on with the stack unwinding.
+                                            }
+                                        }
+                                        Err(exit_exc) => {
+                                            reason = UnwindReason::Raising {
+                                                exception: exit_exc,
+                                            };
+                                            // return Err(exit_exc);
+                                        }
                                     }
                                 }
                                 Err(exit_exc) => {
-                                    return Some(exit_exc);
+                                    // TODO: what about original exception?
+                                    reason = UnwindReason::Raising {
+                                        exception: exit_exc,
+                                    };
+                                    // return Err(exit_exc);
                                 }
                             }
                         }
-                        Err(exit_exc) => {
-                            // TODO: what about original exception?
-                            return Some(exit_exc);
+                        _ => {
+                            match self.call_context_manager_exit(vm, &context_manager, None) {
+                                Ok(..) => {}
+                                Err(exit_exc) => {
+                                    // __exit__ went wrong,
+                                    reason = UnwindReason::Raising {
+                                        exception: exit_exc,
+                                    };
+                                    // return Err(exc);
+                                }
+                            }
                         }
                     }
                 }
-                BlockType::Loop { .. } => {}
+                BlockType::FinallyHandler { .. } => {
+                    self.pop_block();
+                }
                 BlockType::ExceptHandler => {
+                    self.pop_block();
                     vm.pop_exception().expect("Should have exception in stack");
                 }
             }
         }
-        Some(exc)
-    }
 
-    fn call_context_manager_exit_no_exception(
-        &self,
-        vm: &VirtualMachine,
-        context_manager: &PyObjectRef,
-    ) -> PyResult {
-        // TODO: do we want to put the exit call on the stack?
-        // TODO: what happens when we got an error during execution of __exit__?
-        vm.call_method(
-            context_manager,
-            "__exit__",
-            vec![vm.ctx.none(), vm.ctx.none(), vm.ctx.none()],
-        )
+        // We do not have any more blocks to unwind. Inspect the reason we are here:
+        match reason {
+            UnwindReason::Raising { exception } => Err(exception),
+            UnwindReason::Returning { value } => Ok(Some(ExecutionResult::Return(value))),
+            UnwindReason::Break | UnwindReason::Continue => {
+                panic!("Internal error: break or continue must occur within a loop block.")
+            } // UnwindReason::NoWorries => Ok(None),
+        }
     }
 
     fn call_context_manager_exit(
         &self,
         vm: &VirtualMachine,
         context_manager: &PyObjectRef,
-        exc: PyObjectRef,
+        exc: Option<PyObjectRef>,
     ) -> PyResult {
         // TODO: do we want to put the exit call on the stack?
         // TODO: what happens when we got an error during execution of __exit__?
-        let exc_type = exc.class().into_object();
-        let exc_val = exc.clone();
-        let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
+        let (exc_type, exc_val, exc_tb) = if let Some(exc) = exc {
+            let exc_type = exc.class().into_object();
+            let exc_val = exc.clone();
+            let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
+            (exc_type, exc_val, exc_tb)
+        } else {
+            (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
+        };
+
         vm.call_method(context_manager, "__exit__", vec![exc_type, exc_val, exc_tb])
     }
 
@@ -905,6 +723,9 @@ impl Frame {
                 self.scope.store_cell(vm, name, obj);
             }
             bytecode::NameScope::Local => {
+                self.scope.store_name(vm, name, obj);
+            }
+            bytecode::NameScope::Free => {
                 self.scope.store_name(vm, name, obj);
             }
         }
@@ -928,7 +749,8 @@ impl Frame {
         let optional_value = match name_scope {
             bytecode::NameScope::Global => self.scope.load_global(vm, name),
             bytecode::NameScope::NonLocal => self.scope.load_cell(vm, name),
-            bytecode::NameScope::Local => self.scope.load_name(&vm, name),
+            bytecode::NameScope::Local => self.scope.load_local(&vm, name),
+            bytecode::NameScope::Free => self.scope.load_name(&vm, name),
         };
 
         let value = match optional_value {
@@ -942,18 +764,227 @@ impl Frame {
         Ok(None)
     }
 
+    fn execute_rotate(&self, amount: usize) -> FrameResult {
+        // Shuffles top of stack amount down
+        if amount < 2 {
+            panic!("Can only rotate two or more values");
+        }
+
+        let mut values = Vec::new();
+
+        // Pop all values from stack:
+        for _ in 0..amount {
+            values.push(self.pop_value());
+        }
+
+        // Push top of stack back first:
+        self.push_value(values.remove(0));
+
+        // Push other value back in order:
+        values.reverse();
+        for value in values {
+            self.push_value(value);
+        }
+        Ok(None)
+    }
+
+    fn execute_subscript(&self, vm: &VirtualMachine) -> FrameResult {
+        let b_ref = self.pop_value();
+        let a_ref = self.pop_value();
+        let value = a_ref.get_item(&b_ref, vm)?;
+        self.push_value(value);
+        Ok(None)
+    }
+
     fn execute_store_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        obj.set_item(idx, value, vm)?;
+        obj.set_item(&idx, value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        obj.del_item(idx, vm)?;
+        obj.del_item(&idx, vm)?;
+        Ok(None)
+    }
+
+    fn execute_build_map(&self, vm: &VirtualMachine, size: usize, unpack: bool) -> FrameResult {
+        let map_obj = vm.ctx.new_dict();
+        if unpack {
+            for obj in self.pop_multiple(size) {
+                // Take all key-value pairs from the dict:
+                let dict: PyDictRef = obj.downcast().expect("Need a dictionary to build a map.");
+                for (key, value) in dict {
+                    map_obj.set_item(&key, value, vm).unwrap();
+                }
+            }
+        } else {
+            for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
+                map_obj.set_item(&key, value, vm).unwrap();
+            }
+        }
+
+        self.push_value(map_obj.into_object());
+        Ok(None)
+    }
+
+    fn execute_build_slice(&self, vm: &VirtualMachine, size: usize) -> FrameResult {
+        assert!(size == 2 || size == 3);
+
+        let step = if size == 3 {
+            Some(self.pop_value())
+        } else {
+            None
+        };
+        let stop = self.pop_value();
+        let start = self.pop_value();
+
+        let obj = PySlice {
+            start: Some(start),
+            stop,
+            step,
+        }
+        .into_ref(vm);
+        self.push_value(obj.into_object());
+        Ok(None)
+    }
+
+    fn execute_call_function(&self, vm: &VirtualMachine, typ: &bytecode::CallType) -> FrameResult {
+        let args = match typ {
+            bytecode::CallType::Positional(count) => {
+                let args: Vec<PyObjectRef> = self.pop_multiple(*count);
+                PyFuncArgs {
+                    args,
+                    kwargs: IndexMap::new(),
+                }
+            }
+            bytecode::CallType::Keyword(count) => {
+                let kwarg_names = self.pop_value();
+                let args: Vec<PyObjectRef> = self.pop_multiple(*count);
+
+                let kwarg_names = vm
+                    .extract_elements(&kwarg_names)?
+                    .iter()
+                    .map(|pyobj| objstr::get_value(pyobj))
+                    .collect();
+                PyFuncArgs::new(args, kwarg_names)
+            }
+            bytecode::CallType::Ex(has_kwargs) => {
+                let kwargs = if *has_kwargs {
+                    let kw_dict: PyDictRef =
+                        self.pop_value().downcast().expect("Kwargs must be a dict.");
+                    kw_dict
+                        .into_iter()
+                        .map(|elem| (objstr::get_value(&elem.0), elem.1))
+                        .collect()
+                } else {
+                    IndexMap::new()
+                };
+                let args = self.pop_value();
+                let args = vm.extract_elements(&args)?;
+                PyFuncArgs { args, kwargs }
+            }
+        };
+
+        // Call function:
+        let func_ref = self.pop_value();
+        let value = vm.invoke(&func_ref, args)?;
+        self.push_value(value);
+        Ok(None)
+    }
+
+    fn execute_raise(&self, vm: &VirtualMachine, argc: usize) -> FrameResult {
+        let cause = match argc {
+            2 => self.get_exception(vm, true)?,
+            _ => vm.get_none(),
+        };
+        let exception = match argc {
+            0 => match vm.current_exception() {
+                Some(exc) => exc,
+                None => {
+                    return Err(vm.new_exception(
+                        vm.ctx.exceptions.runtime_error.clone(),
+                        "No active exception to reraise".to_string(),
+                    ));
+                }
+            },
+            1 | 2 => self.get_exception(vm, false)?,
+            3 => panic!("Not implemented!"),
+            _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
+        };
+        let context = match argc {
+            0 => vm.get_none(), // We have already got the exception,
+            _ => match vm.current_exception() {
+                Some(exc) => exc,
+                None => vm.get_none(),
+            },
+        };
+        info!(
+            "Exception raised: {:?} with cause: {:?} and context: {:?}",
+            exception, cause, context
+        );
+        vm.set_attr(&exception, vm.new_str("__cause__".to_string()), cause)?;
+        vm.set_attr(&exception, vm.new_str("__context__".to_string()), context)?;
+        Err(exception)
+    }
+
+    fn execute_yield_from(&self, vm: &VirtualMachine) -> FrameResult {
+        // Value send into iterator:
+        self.pop_value();
+
+        let top_of_stack = self.last_value();
+        let next_obj = objiter::get_next_object(vm, &top_of_stack)?;
+
+        match next_obj {
+            Some(value) => {
+                // Set back program counter:
+                *self.lasti.borrow_mut() -= 1;
+                Ok(Some(ExecutionResult::Yield(value)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    fn execute_unpack_ex(&self, vm: &VirtualMachine, before: usize, after: usize) -> FrameResult {
+        let value = self.pop_value();
+        let elements = vm.extract_elements(&value)?;
+        let min_expected = before + after;
+        if elements.len() < min_expected {
+            Err(vm.new_value_error(format!(
+                "Not enough values to unpack (expected at least {}, got {}",
+                min_expected,
+                elements.len()
+            )))
+        } else {
+            let middle = elements.len() - before - after;
+
+            // Elements on stack from right-to-left:
+            for element in elements[before + middle..].iter().rev() {
+                self.push_value(element.clone());
+            }
+
+            let middle_elements = elements.iter().skip(before).take(middle).cloned().collect();
+            let t = vm.ctx.new_list(middle_elements);
+            self.push_value(t);
+
+            // Lastly the first reversed values:
+            for element in elements[..before].iter().rev() {
+                self.push_value(element.clone());
+            }
+
+            Ok(None)
+        }
+    }
+
+    fn execute_unpack(&self, vm: &VirtualMachine) -> FrameResult {
+        let value = self.pop_value();
+        let elements = vm.extract_elements(&value)?;
+        for element in elements.into_iter().rev() {
+            self.push_value(element);
+        }
         Ok(None)
     }
 
@@ -961,9 +992,35 @@ impl Frame {
         let target_pc = self.code.label_map[&label];
         #[cfg(feature = "vm-tracing-logging")]
         trace!("jump from {:?} to {:?}", self.lasti, target_pc);
-        *self.lasti.borrow_mut() = target_pc;
+        self.lasti.replace(target_pc);
     }
 
+    /// The top of stack contains the iterator, lets push it forward
+    fn execute_for_iter(&self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
+        let top_of_stack = self.last_value();
+        let next_obj = objiter::get_next_object(vm, &top_of_stack);
+
+        // Check the next object:
+        match next_obj {
+            Ok(Some(value)) => {
+                self.push_value(value);
+                Ok(None)
+            }
+            Ok(None) => {
+                // Pop iterator from stack:
+                self.pop_value();
+
+                // End of for loop
+                self.jump(target);
+                Ok(None)
+            }
+            Err(next_error) => {
+                // Pop iterator from stack:
+                self.pop_value();
+                Err(next_error)
+            }
+        }
+    }
     fn execute_make_function(
         &self,
         vm: &VirtualMachine,
@@ -1044,7 +1101,6 @@ impl Frame {
                 bytecode::BinaryOperator::Power => vm._ipow(a_ref, b_ref),
                 bytecode::BinaryOperator::Divide => vm._itruediv(a_ref, b_ref),
                 bytecode::BinaryOperator::FloorDivide => vm._ifloordiv(a_ref, b_ref),
-                bytecode::BinaryOperator::Subscript => unreachable!(),
                 bytecode::BinaryOperator::Modulo => vm._imod(a_ref, b_ref),
                 bytecode::BinaryOperator::Lshift => vm._ilshift(a_ref, b_ref),
                 bytecode::BinaryOperator::Rshift => vm._irshift(a_ref, b_ref),
@@ -1061,8 +1117,6 @@ impl Frame {
                 bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
                 bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
                 bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
-                // TODO: Subscript should probably have its own op
-                bytecode::BinaryOperator::Subscript => a_ref.get_item(b_ref, vm),
                 bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
                 bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
                 bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
@@ -1174,10 +1228,14 @@ impl Frame {
         });
     }
 
-    fn pop_block(&self) -> Option<Block> {
-        let block = self.blocks.borrow_mut().pop()?;
+    fn pop_block(&self) -> Block {
+        let block = self
+            .blocks
+            .borrow_mut()
+            .pop()
+            .expect("No more blocks to pop!");
         self.stack.borrow_mut().truncate(block.level);
-        Some(block)
+        block
     }
 
     fn current_block(&self) -> Option<Block> {

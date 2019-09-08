@@ -74,7 +74,7 @@ impl PyModuleRef {
     }
 
     fn repr(self, vm: &VirtualMachine) -> PyResult {
-        let importlib = vm.import("_frozen_importlib", &vm.ctx.new_tuple(vec![]), 0)?;
+        let importlib = vm.import("_frozen_importlib", &[], 0)?;
         let module_repr = vm.get_attribute(importlib, "_module_repr")?;
         vm.invoke(&module_repr, vec![self.into_object()])
     }

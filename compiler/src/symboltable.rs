@@ -11,6 +11,7 @@ use crate::error::{CompileError, CompileErrorType};
 use indexmap::map::IndexMap;
 use rustpython_parser::ast;
 use rustpython_parser::location::Location;
+use std::fmt;
 
 pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolTable, SymbolTableError> {
     let mut builder: SymbolTableBuilder = Default::default();
@@ -29,8 +30,17 @@ pub fn statements_to_symbol_table(
 }
 
 /// Captures all symbols in the current scope, and has a list of subscopes in this scope.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct SymbolTable {
+    /// The name of this symbol table. Often the name of the class or function.
+    pub name: String,
+
+    /// The type of symbol table
+    pub typ: SymbolTableType,
+
+    /// The line number in the sourcecode where this symboltable begins.
+    pub line_number: usize,
+
     /// A set of symbols present on this scope level.
     pub symbols: IndexMap<String, Symbol>,
 
@@ -40,10 +50,30 @@ pub struct SymbolTable {
 }
 
 impl SymbolTable {
-    fn new() -> Self {
+    fn new(name: String, typ: SymbolTableType, line_number: usize) -> Self {
         SymbolTable {
+            name,
+            typ,
+            line_number,
             symbols: Default::default(),
             sub_tables: vec![],
+        }
+    }
+}
+
+#[derive(Clone)]
+pub enum SymbolTableType {
+    Module,
+    Class,
+    Function,
+}
+
+impl fmt::Display for SymbolTableType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SymbolTableType::Module => write!(f, "module"),
+            SymbolTableType::Class => write!(f, "class"),
+            SymbolTableType::Function => write!(f, "function"),
         }
     }
 }
@@ -204,8 +234,30 @@ impl SymbolTableAnalyzer {
                 // all is well
             }
             SymbolScope::Unknown => {
-                if symbol.is_assigned {
+                // Try hard to figure out what the scope of this symbol is.
+
+                if symbol.is_assigned || symbol.is_parameter {
                     symbol.scope = SymbolScope::Local;
+                } else {
+                    // Interesting stuff about the __class__ variable:
+                    // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
+                    let found_in_outer_scope = (symbol.name == "__class__")
+                        || self
+                            .tables
+                            .iter()
+                            .skip(1)
+                            .any(|t| t.symbols.contains_key(&symbol.name));
+
+                    if found_in_outer_scope {
+                        // Symbol is in some outer scope.
+                        symbol.is_free = true;
+                    } else if self.tables.is_empty() {
+                        // Don't make assumptions when we don't know.
+                        symbol.scope = SymbolScope::Unknown;
+                    } else {
+                        // If there are scopes above we can assume global.
+                        symbol.scope = SymbolScope::Global;
+                    }
                 }
             }
         }
@@ -240,8 +292,7 @@ enum ExpressionContext {
 
 impl SymbolTableBuilder {
     fn prepare(&mut self) {
-        let table = SymbolTable::new();
-        self.tables.push(table);
+        self.enter_scope("top", SymbolTableType::Module, 0)
     }
 
     fn finish(&mut self) -> Result<SymbolTable, SymbolTableError> {
@@ -251,14 +302,13 @@ impl SymbolTableBuilder {
         Ok(symbol_table)
     }
 
-    fn enter_block(&mut self) {
-        // let parent = Some(self.tables.last().unwrap().clone());
-        let table = SymbolTable::new();
+    fn enter_scope(&mut self, name: &str, typ: SymbolTableType, line_number: usize) {
+        let table = SymbolTable::new(name.to_string(), typ, line_number);
         self.tables.push(table);
     }
 
-    fn leave_block(&mut self) {
-        // Pop symbol table and add to sub table of parent table.
+    /// Pop symbol table and add to sub table of parent table.
+    fn leave_scope(&mut self) {
         let table = self.tables.pop().unwrap();
         self.tables.last_mut().unwrap().sub_tables.push(table);
     }
@@ -326,9 +376,9 @@ impl SymbolTableBuilder {
                 if let Some(expression) = returns {
                     self.scan_expression(expression, &ExpressionContext::Load)?;
                 }
-                self.enter_function(args)?;
+                self.enter_function(name, args, statement.location.row())?;
                 self.scan_statements(body)?;
-                self.leave_block();
+                self.leave_scope();
             }
             ClassDef {
                 name,
@@ -338,9 +388,9 @@ impl SymbolTableBuilder {
                 decorator_list,
             } => {
                 self.register_name(name, SymbolUsage::Assigned)?;
-                self.enter_block();
+                self.enter_scope(name, SymbolTableType::Class, statement.location.row());
                 self.scan_statements(body)?;
-                self.leave_block();
+                self.leave_scope();
                 self.scan_expressions(bases, &ExpressionContext::Load)?;
                 for keyword in keywords {
                     self.scan_expression(&keyword.value, &ExpressionContext::Load)?;
@@ -538,9 +588,26 @@ impl SymbolTableBuilder {
             }
             Bytes { .. } => {}
             Tuple { elements } | Set { elements } | List { elements } | Slice { elements } => {
-                self.scan_expressions(elements, &ExpressionContext::Load)?;
+                self.scan_expressions(elements, context)?;
             }
             Comprehension { kind, generators } => {
+                // Comprehensions are compiled as functions, so create a scope for them:
+                let scope_name = match **kind {
+                    ast::ComprehensionKind::GeneratorExpression { .. } => "genexpr",
+                    ast::ComprehensionKind::List { .. } => "listcomp",
+                    ast::ComprehensionKind::Set { .. } => "setcomp",
+                    ast::ComprehensionKind::Dict { .. } => "dictcomp",
+                };
+
+                self.enter_scope(
+                    scope_name,
+                    SymbolTableType::Function,
+                    expression.location.row(),
+                );
+
+                // Register the passed argument to the generator function as the name ".0"
+                self.register_name(".0", SymbolUsage::Parameter)?;
+
                 match **kind {
                     ast::ComprehensionKind::GeneratorExpression { ref element }
                     | ast::ComprehensionKind::List { ref element }
@@ -553,13 +620,25 @@ impl SymbolTableBuilder {
                     }
                 }
 
+                let mut is_first_generator = true;
                 for generator in generators {
                     self.scan_expression(&generator.target, &ExpressionContext::Store)?;
-                    self.scan_expression(&generator.iter, &ExpressionContext::Load)?;
+                    if is_first_generator {
+                        is_first_generator = false;
+                    } else {
+                        self.scan_expression(&generator.iter, &ExpressionContext::Load)?;
+                    }
+
                     for if_expr in &generator.ifs {
                         self.scan_expression(if_expr, &ExpressionContext::Load)?;
                     }
                 }
+
+                self.leave_scope();
+
+                // The first iterable is passed as an argument into the created function:
+                assert!(!generators.is_empty());
+                self.scan_expression(&generators[0].iter, &ExpressionContext::Load)?;
             }
             Call {
                 function,
@@ -590,9 +669,9 @@ impl SymbolTableBuilder {
                 }
             }
             Lambda { args, body } => {
-                self.enter_function(args)?;
+                self.enter_function("lambda", args, expression.location.row())?;
                 self.scan_expression(body, &ExpressionContext::Load)?;
-                self.leave_block();
+                self.leave_scope();
             }
             IfExpression { test, body, orelse } => {
                 self.scan_expression(test, &ExpressionContext::Load)?;
@@ -603,7 +682,12 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
-    fn enter_function(&mut self, args: &ast::Parameters) -> SymbolTableResult {
+    fn enter_function(
+        &mut self,
+        name: &str,
+        args: &ast::Parameters,
+        line_number: usize,
+    ) -> SymbolTableResult {
         // Evaluate eventual default parameters:
         self.scan_expressions(&args.defaults, &ExpressionContext::Load)?;
         for kw_default in &args.kw_defaults {
@@ -622,7 +706,7 @@ impl SymbolTableBuilder {
             self.scan_parameter_annotation(name)?;
         }
 
-        self.enter_block();
+        self.enter_scope(name, SymbolTableType::Function, line_number);
 
         // Fill scope with parameter names:
         self.scan_parameters(&args.args)?;
@@ -658,7 +742,8 @@ impl SymbolTableBuilder {
         let location = Default::default();
 
         // Some checks:
-        if table.symbols.contains_key(name) {
+        let containing = table.symbols.contains_key(name);
+        if containing {
             // Role already set..
             match role {
                 SymbolUsage::Global => {
@@ -695,7 +780,7 @@ impl SymbolTableBuilder {
         }
 
         // Insert symbol when required:
-        if !table.symbols.contains_key(name) {
+        if !containing {
             let symbol = Symbol::new(name);
             table.symbols.insert(name.to_string(), symbol);
         }
@@ -713,7 +798,10 @@ impl SymbolTableBuilder {
                     });
                 }
             }
-            SymbolUsage::Parameter | SymbolUsage::Assigned => {
+            SymbolUsage::Parameter => {
+                symbol.is_parameter = true;
+            }
+            SymbolUsage::Assigned => {
                 symbol.is_assigned = true;
             }
             SymbolUsage::Global => {

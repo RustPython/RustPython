@@ -28,6 +28,7 @@ use crate::vm::VirtualMachine;
 
 use super::objbytes::PyBytes;
 use super::objdict::PyDict;
+use super::objfloat;
 use super::objint::{self, PyInt};
 use super::objiter;
 use super::objnone::PyNone;
@@ -348,21 +349,35 @@ impl PyString {
     fn split(
         &self,
         pattern: OptionalArg<PyStringRef>,
-        num: OptionalArg<usize>,
+        num: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
         let value = &self.value;
         let pattern = match pattern {
-            OptionalArg::Present(ref s) => &s.value,
-            OptionalArg::Missing => " ",
+            OptionalArg::Present(ref s) => Some(s.as_str()),
+            OptionalArg::Missing => None,
         };
-        let num_splits = num
-            .into_option()
-            .unwrap_or_else(|| value.split(pattern).count());
-        let elements = value
-            .splitn(num_splits + 1, pattern)
-            .map(|o| vm.ctx.new_str(o.to_string()))
-            .collect();
+        let num_splits = num.into_option().unwrap_or(-1);
+        let elements: Vec<_> = match (pattern, num_splits.is_negative()) {
+            (Some(pattern), true) => value
+                .split(pattern)
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (Some(pattern), false) => value
+                .splitn(num_splits as usize + 1, pattern)
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (None, true) => value
+                .split(|c: char| c.is_ascii_whitespace())
+                .filter(|s| !s.is_empty())
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (None, false) => value
+                .splitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
+                .filter(|s| !s.is_empty())
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+        };
         vm.ctx.new_list(elements)
     }
 
@@ -370,21 +385,35 @@ impl PyString {
     fn rsplit(
         &self,
         pattern: OptionalArg<PyStringRef>,
-        num: OptionalArg<usize>,
+        num: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
         let value = &self.value;
         let pattern = match pattern {
-            OptionalArg::Present(ref s) => &s.value,
-            OptionalArg::Missing => " ",
+            OptionalArg::Present(ref s) => Some(s.as_str()),
+            OptionalArg::Missing => None,
         };
-        let num_splits = num
-            .into_option()
-            .unwrap_or_else(|| value.split(pattern).count());
-        let mut elements: Vec<_> = value
-            .rsplitn(num_splits + 1, pattern)
-            .map(|o| vm.ctx.new_str(o.to_string()))
-            .collect();
+        let num_splits = num.into_option().unwrap_or(-1);
+        let mut elements: Vec<_> = match (pattern, num_splits.is_negative()) {
+            (Some(pattern), true) => value
+                .rsplit(pattern)
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (Some(pattern), false) => value
+                .rsplitn(num_splits as usize + 1, pattern)
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (None, true) => value
+                .rsplit(|c: char| c.is_ascii_whitespace())
+                .filter(|s| !s.is_empty())
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+            (None, false) => value
+                .rsplitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
+                .filter(|s| !s.is_empty())
+                .map(|o| vm.ctx.new_str(o.to_string()))
+                .collect(),
+        };
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.
         elements.reverse();
@@ -995,7 +1024,7 @@ impl PyString {
 
         let mut translated = String::new();
         for c in self.value.chars() {
-            match table.get_item(c as u32, vm) {
+            match table.get_item(&(c as u32).into_pyobject(vm)?, vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyString>() {
                         translated.push_str(&text.value);
@@ -1035,11 +1064,11 @@ impl PyString {
                 Ok(from_str) => {
                     if to_str.len(vm) == from_str.len(vm) {
                         for (c1, c2) in from_str.value.chars().zip(to_str.value.chars()) {
-                            new_dict.set_item(c1 as u32, vm.new_int(c2 as u32), vm)?;
+                            new_dict.set_item(&vm.new_int(c1 as u32), vm.new_int(c2 as u32), vm)?;
                         }
                         if let OptionalArg::Present(none_str) = none_str {
                             for c in none_str.value.chars() {
-                                new_dict.set_item(c as u32, vm.get_none(), vm)?;
+                                new_dict.set_item(&vm.new_int(c as u32), vm.get_none(), vm)?;
                             }
                         }
                         new_dict.into_pyobject(vm)
@@ -1060,11 +1089,15 @@ impl PyString {
                 Ok(dict) => {
                     for (key, val) in dict {
                         if let Some(num) = key.payload::<PyInt>() {
-                            new_dict.set_item(num.as_bigint().to_i32(), val, vm)?;
+                            new_dict.set_item(
+                                &num.as_bigint().to_i32().into_pyobject(vm)?,
+                                val,
+                                vm,
+                            )?;
                         } else if let Some(string) = key.payload::<PyString>() {
                             if string.len(vm) == 1 {
                                 let num_value = string.value.chars().next().unwrap() as u32;
-                                new_dict.set_item(num_value, val, vm)?;
+                                new_dict.set_item(&num_value.into_pyobject(vm)?, val, vm)?;
                             } else {
                                 return Err(vm.new_value_error(
                                     "string keys in translate table must be of length 1".to_owned(),
@@ -1225,6 +1258,20 @@ fn do_cformat_specifier(
             }
             Ok(format_spec.format_number(objint::get_value(&obj)))
         }
+        CFormatType::Float(_) => if objtype::isinstance(&obj, &vm.ctx.float_type()) {
+            format_spec.format_float(objfloat::get_value(&obj))
+        } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
+            format_spec.format_float(objint::get_value(&obj).to_f64().unwrap())
+        } else {
+            let required_type_string = "an floating point or integer";
+            return Err(vm.new_type_error(format!(
+                "%{} format: {} is required, not {}",
+                format_spec.format_char,
+                required_type_string,
+                obj.class()
+            )));
+        }
+        .map_err(|e| vm.new_not_implemented_error(e)),
         CFormatType::Character => {
             let char_string = {
                 if objtype::isinstance(&obj, &vm.ctx.int_type()) {
@@ -1251,10 +1298,6 @@ fn do_cformat_specifier(
             format_spec.precision = Some(CFormatQuantity::Amount(1));
             Ok(format_spec.format_string(char_string))
         }
-        _ => Err(vm.new_not_implemented_error(format!(
-            "Not yet implemented for %{}",
-            format_spec.format_char
-        ))),
     }
 }
 
@@ -1447,13 +1490,15 @@ fn perform_format(
 }
 
 impl PySliceableSequence for String {
-    fn do_slice(&self, range: Range<usize>) -> Self {
+    type Sliced = String;
+
+    fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
         to_graphemes(self)
             .get(range)
             .map_or(String::default(), |c| c.join(""))
     }
 
-    fn do_slice_reverse(&self, range: Range<usize>) -> Self {
+    fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
         to_graphemes(self)
             .get_mut(range)
             .map_or(String::default(), |slice| {
@@ -1462,7 +1507,7 @@ impl PySliceableSequence for String {
             })
     }
 
-    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self {
+    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
         if let Some(s) = to_graphemes(self).get(range) {
             return s
                 .iter()
@@ -1474,7 +1519,7 @@ impl PySliceableSequence for String {
         String::default()
     }
 
-    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self {
+    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
         if let Some(s) = to_graphemes(self).get(range) {
             return s
                 .iter()
@@ -1487,7 +1532,7 @@ impl PySliceableSequence for String {
         String::default()
     }
 
-    fn empty() -> Self {
+    fn empty() -> Self::Sliced {
         String::default()
     }
 

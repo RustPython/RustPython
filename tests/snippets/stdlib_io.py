@@ -28,5 +28,14 @@ with FileIO(fd) as fio:
 fi = FileIO('README.md')
 fi.read()
 fi.close()
+assert fi.closefd
+assert fi.closed
+
 with assertRaises(ValueError):
     fi.read()
+
+with FileIO('README.md') as fio:
+	nres = fio.read(1)
+	assert len(nres) == 1
+	nres = fio.read(2)
+	assert len(nres) == 2

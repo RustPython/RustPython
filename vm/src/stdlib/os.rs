@@ -1,19 +1,18 @@
+use num_cpus;
 use std::cell::RefCell;
-use std::ffi::CStr;
+use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::{self, Error, ErrorKind, Read, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
-
-use num_cpus;
 
 #[cfg(unix)]
 use nix::errno::Errno;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::pty::openpty;
 #[cfg(unix)]
-use nix::unistd::{self, Gid, Pid, Uid};
+use nix::unistd::{self, Gid, Pid, Uid, Whence};
 use num_traits::cast::ToPrimitive;
 
 use bitflags::bitflags;
@@ -54,11 +53,10 @@ pub fn raw_file_number(handle: File) -> i64 {
 
 #[cfg(windows)]
 pub fn rust_file(raw_fileno: i64) -> File {
-    use std::ffi::c_void;
     use std::os::windows::io::FromRawHandle;
 
     //This seems to work as expected but further testing is required.
-    unsafe { File::from_raw_handle(raw_fileno as *mut c_void) }
+    unsafe { File::from_raw_handle(raw_fileno as *mut ffi::c_void) }
 }
 
 #[cfg(all(not(unix), not(windows)))]
@@ -219,6 +217,121 @@ fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
         Errno::EPERM => vm.ctx.exceptions.permission_error.clone(),
         _ => vm.ctx.exceptions.os_error.clone(),
     }
+}
+
+// Flags for os_access
+bitflags! {
+    pub struct AccessFlags: u8{
+        const F_OK = 0;
+        const R_OK = 4;
+        const W_OK = 2;
+        const X_OK = 1;
+    }
+}
+
+#[cfg(unix)]
+struct Permissions {
+    is_readable: bool,
+    is_writable: bool,
+    is_executable: bool,
+}
+
+#[cfg(unix)]
+fn get_permissions(mode: u32) -> Permissions {
+    Permissions {
+        is_readable: mode & 4 != 0,
+        is_writable: mode & 2 != 0,
+        is_executable: mode & 1 != 0,
+    }
+}
+
+#[cfg(unix)]
+fn get_right_permission(
+    mode: u32,
+    file_owner: Uid,
+    file_group: Gid,
+) -> Result<Permissions, nix::Error> {
+    let owner_mode = (mode & 0o700) >> 6;
+    let owner_permissions = get_permissions(owner_mode);
+
+    let group_mode = (mode & 0o070) >> 3;
+    let group_permissions = get_permissions(group_mode);
+
+    let others_mode = mode & 0o007;
+    let others_permissions = get_permissions(others_mode);
+
+    let user_id = nix::unistd::getuid();
+    let groups_ids = getgroups()?;
+
+    if file_owner == user_id {
+        Ok(owner_permissions)
+    } else if groups_ids.contains(&file_group) {
+        Ok(group_permissions)
+    } else {
+        Ok(others_permissions)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn getgroups() -> nix::Result<Vec<Gid>> {
+    use libc::{c_int, gid_t};
+    use std::ptr;
+    let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
+    let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
+    loop {
+        let ret = unsafe {
+            libc::getgroups(
+                groups.capacity() as c_int,
+                groups.as_mut_ptr() as *mut gid_t,
+            )
+        };
+
+        return Errno::result(ret).map(|s| {
+            unsafe { groups.set_len(s as usize) };
+            groups
+        });
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "redox", target_os = "android"))]
+fn getgroups() -> nix::Result<Vec<Gid>> {
+    nix::unistd::getgroups()
+}
+
+#[cfg(unix)]
+fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+    use std::os::unix::fs::MetadataExt;
+
+    let path = path.as_str();
+
+    let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
+        vm.new_value_error(
+            "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK"
+                .to_string(),
+        )
+    })?;
+
+    let metadata = fs::metadata(path);
+
+    // if it's only checking for F_OK
+    if flags == AccessFlags::F_OK {
+        return Ok(metadata.is_ok());
+    }
+
+    let metadata = metadata.map_err(|err| convert_io_error(vm, err))?;
+
+    let user_id = metadata.uid();
+    let group_id = metadata.gid();
+    let mode = metadata.mode();
+
+    let perm = get_right_permission(mode, Uid::from_raw(user_id), Gid::from_raw(group_id))
+        .map_err(|err| convert_nix_error(vm, err))?;
+
+    let r_ok = !flags.contains(AccessFlags::R_OK) || perm.is_readable;
+    let w_ok = !flags.contains(AccessFlags::W_OK) || perm.is_writable;
+    let x_ok = !flags.contains(AccessFlags::X_OK) || perm.is_executable;
+
+    Ok(r_ok && w_ok && x_ok)
 }
 
 fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -748,6 +861,28 @@ fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     env::set_current_dir(&path.value).map_err(|err| convert_io_error(vm, err))
 }
 
+#[cfg(unix)]
+fn os_chmod(
+    path: PyStringRef,
+    dir_fd: DirFd,
+    mode: u32,
+    follow_symlinks: FollowSymlinks,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = make_path(vm, path, &dir_fd);
+    let metadata = if follow_symlinks.follow_symlinks {
+        fs::metadata(&path.value)
+    } else {
+        fs::symlink_metadata(&path.value)
+    };
+    let meta = metadata.map_err(|err| convert_io_error(vm, err))?;
+    let mut permissions = meta.permissions();
+    permissions.set_mode(mode);
+    fs::set_permissions(&path.value, permissions).map_err(|err| convert_io_error(vm, err))?;
+    Ok(())
+}
+
 fn os_fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if objtype::issubclass(&path.class(), &vm.ctx.str_type())
         || objtype::issubclass(&path.class(), &vm.ctx.bytes_type())
@@ -885,9 +1020,9 @@ pub fn os_ttyname(fd: PyIntRef, vm: &VirtualMachine) -> PyResult {
     if let Some(fd) = fd.as_bigint().to_i32() {
         let name = unsafe { ttyname(fd) };
         if name.is_null() {
-            Err(vm.new_os_error(Error::last_os_error().to_string()))
+            Err(vm.new_os_error(io::Error::last_os_error().to_string()))
         } else {
-            let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
+            let name = unsafe { ffi::CStr::from_ptr(name) }.to_str().unwrap();
             Ok(vm.ctx.new_str(name.to_owned()))
         }
     } else {
@@ -960,12 +1095,12 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
             }
         }
     }
-    let support_funcs = vec![
+    #[allow(unused_mut)]
+    let mut support_funcs = vec![
         SupportFunc::new(vm, "open", os_open, None, Some(false), None),
         // access Some Some None
         SupportFunc::new(vm, "chdir", os_chdir, Some(false), None, None),
         // chflags Some, None Some
-        // chmod Some Some Some
         // chown Some Some Some
         // chroot Some None None
         SupportFunc::new(vm, "listdir", os_listdir, Some(false), None, None),
@@ -985,6 +1120,15 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "unlink", os_remove, Some(false), Some(false), None),
         // utime Some Some Some
     ];
+    #[cfg(unix)]
+    support_funcs.extend(vec![SupportFunc::new(
+        vm,
+        "chmod",
+        os_chmod,
+        Some(false),
+        Some(false),
+        Some(false),
+    )]);
     let supports_fd = PySet::default().into_ref(vm);
     let supports_dir_fd = PySet::default().into_ref(vm);
     let supports_follow_symlinks = PySet::default().into_ref(vm);
@@ -1014,10 +1158,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "O_APPEND" => ctx.new_int(FileCreationFlags::O_APPEND.bits()),
         "O_EXCL" => ctx.new_int(FileCreationFlags::O_EXCL.bits()),
         "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits()),
-        "F_OK" => ctx.new_int(0),
-        "R_OK" => ctx.new_int(4),
-        "W_OK" => ctx.new_int(2),
-        "X_OK" => ctx.new_int(1),
+        "F_OK" => ctx.new_int(AccessFlags::F_OK.bits()),
+        "R_OK" => ctx.new_int(AccessFlags::R_OK.bits()),
+        "W_OK" => ctx.new_int(AccessFlags::W_OK.bits()),
+        "X_OK" => ctx.new_int(AccessFlags::X_OK.bits()),
         "getpid" => ctx.new_rustfunc(os_getpid),
         "cpu_count" => ctx.new_rustfunc(os_cpu_count)
     });
@@ -1068,6 +1212,12 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setgid" => ctx.new_rustfunc(os_setgid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
+        "access" => ctx.new_rustfunc(os_access),
+        "chmod" => ctx.new_rustfunc(os_chmod),
+        "ttyname" => ctx.new_rustfunc(os_ttyname),
+        "SEEK_SET" => ctx.new_int(Whence::SeekSet as i8),
+        "SEEK_CUR" => ctx.new_int(Whence::SeekCur as i8),
+        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8)
     });
 
     #[cfg(not(target_os = "redox"))]
@@ -1077,7 +1227,12 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setegid" => ctx.new_rustfunc(os_setegid),
         "seteuid" => ctx.new_rustfunc(os_seteuid),
         "openpty" => ctx.new_rustfunc(os_openpty),
-        "ttyname" => ctx.new_rustfunc(os_ttyname),
+    });
+
+    #[cfg(not(target_os = "macos"))]
+    extend_module!(vm, module, {
+        "SEEK_DATA" => ctx.new_int(Whence::SeekData as i8),
+        "SEEK_HOLE" => ctx.new_int(Whence::SeekHole as i8)
     });
 
     module

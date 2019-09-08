@@ -1,6 +1,6 @@
-use crate::function::PyFuncArgs;
-use crate::obj::objbytes;
-use crate::obj::objint;
+use crate::function::OptionalArg;
+use crate::obj::objbytes::PyBytesRef;
+use crate::obj::objint::PyIntRef;
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use crc::{crc32, Hasher32};
@@ -14,10 +14,8 @@ fn hex_nibble(n: u8) -> u8 {
     }
 }
 
-fn binascii_hexlify(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(data, Some(vm.ctx.bytes_type()))]);
-
-    let bytes = objbytes::get_value(data);
+fn binascii_hexlify(data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    let bytes = data.get_value();
     let mut hex = Vec::<u8>::with_capacity(bytes.len() * 2);
     for b in bytes.iter() {
         hex.push(hex_nibble(b >> 4));
@@ -36,11 +34,9 @@ fn unhex_nibble(c: u8) -> Option<u8> {
     }
 }
 
-fn binascii_unhexlify(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn binascii_unhexlify(hexstr: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     // TODO: allow 'str' hexstrings as well
-    arg_check!(vm, args, required = [(hexstr, Some(vm.ctx.bytes_type()))]);
-
-    let hex_bytes = &objbytes::get_value(hexstr);
+    let hex_bytes = hexstr.get_value();
     if hex_bytes.len() % 2 != 0 {
         return Err(vm.new_value_error("Odd-length string".to_string()));
     }
@@ -59,18 +55,11 @@ fn binascii_unhexlify(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bytes(unhex))
 }
 
-fn binascii_crc32(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(data, Some(vm.ctx.bytes_type()))],
-        optional = [(value, None)]
-    );
-
-    let bytes = objbytes::get_value(data);
+fn binascii_crc32(data: PyBytesRef, value: OptionalArg<PyIntRef>, vm: &VirtualMachine) -> PyResult {
+    let bytes = data.get_value();
     let crc = match value {
-        None => 0u32,
-        Some(value) => objint::get_value(&value).to_u32().unwrap(),
+        OptionalArg::Missing => 0u32,
+        OptionalArg::Present(value) => value.as_bigint().to_u32().unwrap(),
     };
 
     let mut digest = crc32::Digest::new_with_initial(crc32::IEEE, crc);

@@ -78,7 +78,7 @@ fn object_setattr(
     }
 
     if let Some(ref dict) = obj.clone().dict {
-        dict.set_item(attr_name, value, vm)?;
+        dict.set_item(&attr_name.value, value, vm)?;
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
@@ -99,7 +99,7 @@ fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine)
     }
 
     if let Some(ref dict) = obj.dict {
-        dict.del_item(attr_name, vm)?;
+        dict.del_item(&attr_name.value, vm)?;
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(

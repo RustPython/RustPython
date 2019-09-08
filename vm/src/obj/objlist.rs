@@ -6,7 +6,7 @@ use std::ops::Range;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::OptionalArg;
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject,
@@ -17,8 +17,7 @@ use super::objbool;
 //use super::objint;
 use super::objiter;
 use super::objsequence::{
-    get_elements_cell, get_elements_list, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt,
-    seq_mul, SequenceIndex,
+    get_elements_list, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul, SequenceIndex,
 };
 use super::objslice::PySliceRef;
 use super::objtype;
@@ -99,6 +98,14 @@ impl PyList {
     }
 }
 
+#[derive(FromArgs)]
+struct SortOptions {
+    #[pyarg(keyword_only, default = "None")]
+    key: Option<PyObjectRef>,
+    #[pyarg(keyword_only, default = "false")]
+    reverse: bool,
+}
+
 pub type PyListRef = PyRef<PyList>;
 
 impl PyListRef {
@@ -139,9 +146,8 @@ impl PyListRef {
 
     fn iadd(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
-            self.elements
-                .borrow_mut()
-                .extend_from_slice(&get_elements_list(&other));
+            let e = get_elements_list(&other).clone();
+            self.elements.borrow_mut().extend_from_slice(&e);
             Ok(self.into_object())
         } else {
             Ok(vm.ctx.not_implemented())
@@ -687,6 +693,21 @@ impl PyListRef {
         // then drain (the values to delete should now be contiguous at teh start of the range)
         elements.drain(range.start..(range.start + deleted));
     }
+
+    fn sort(self, options: SortOptions, vm: &VirtualMachine) -> PyResult<()> {
+        // replace list contents with [] for duration of sort.
+        // this prevents keyfunc from messing with the list and makes it easy to
+        // check if it tries to append elements to it.
+        let mut elements = self.elements.replace(vec![]);
+        do_sort(vm, &mut elements, options.key, options.reverse)?;
+        let temp_elements = self.elements.replace(elements);
+
+        if !temp_elements.is_empty() {
+            return Err(vm.new_value_error("list modified during sort".to_string()));
+        }
+
+        Ok(())
+    }
 }
 
 fn list_new(
@@ -766,30 +787,6 @@ fn do_sort(
     }
 
     Ok(())
-}
-
-fn list_sort(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
-    let key_func = args.get_optional_kwarg("key");
-    let reverse = args.get_optional_kwarg("reverse");
-    let reverse = match reverse {
-        None => false,
-        Some(val) => objbool::boolval(vm, val)?,
-    };
-
-    let elements_cell = get_elements_cell(list);
-    // replace list contents with [] for duration of sort.
-    // this prevents keyfunc from messing with the list and makes it easy to
-    // check if it tries to append elements to it.
-    let mut elements = elements_cell.replace(vec![]);
-    do_sort(vm, &mut elements, key_func, reverse)?;
-    let temp_elements = elements_cell.replace(elements);
-
-    if !temp_elements.is_empty() {
-        return Err(vm.new_value_error("list modified during sort".to_string()));
-    }
-
-    Ok(vm.get_none())
 }
 
 #[pyclass]
@@ -896,7 +893,7 @@ pub fn init(context: &PyContext) {
         "index" => context.new_rustfunc(PyListRef::index),
         "insert" => context.new_rustfunc(PyListRef::insert),
         "reverse" => context.new_rustfunc(PyListRef::reverse),
-        "sort" => context.new_rustfunc(list_sort),
+        "sort" => context.new_rustfunc(PyListRef::sort),
         "pop" => context.new_rustfunc(PyListRef::pop),
         "remove" => context.new_rustfunc(PyListRef::remove)
     });

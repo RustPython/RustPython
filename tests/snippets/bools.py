@@ -80,6 +80,11 @@ assert False.__xor__(False) is False
 assert False.__rxor__(0) is not False
 assert False.__rxor__(False) is False
 
+assert True.real == 1
+assert True.imag == 0
+assert type(True.real) is int
+assert type(True.imag) is int
+
 # Check work for sequence and map
 assert bool({}) is False
 assert bool([]) is False

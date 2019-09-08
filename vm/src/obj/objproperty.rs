@@ -1,7 +1,7 @@
 /*! Python `property` descriptor class.
 
 */
-use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
+use crate::function::{IntoPyNativeFunc, OptionalArg};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
@@ -91,30 +91,31 @@ impl PyValue for PyProperty {
 
 pub type PyPropertyRef = PyRef<PyProperty>;
 
+#[derive(FromArgs)]
+struct PropertyArgs {
+    #[pyarg(positional_or_keyword, default = "None")]
+    fget: Option<PyObjectRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    fset: Option<PyObjectRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    fdel: Option<PyObjectRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    doc: Option<PyObjectRef>,
+}
+
 #[pyimpl]
 impl PyProperty {
     #[pymethod(name = "__new__")]
     fn new_property(
         cls: PyClassRef,
-        args: PyFuncArgs,
+        args: PropertyArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyPropertyRef> {
-        arg_check!(
-            vm,
-            args,
-            required = [],
-            optional = [(fget, None), (fset, None), (fdel, None), (doc, None)]
-        );
-
-        fn into_option(vm: &VirtualMachine, arg: Option<&PyObjectRef>) -> Option<PyObjectRef> {
-            arg.and_then(|arg| py_none_to_option(vm, arg))
-        }
-
         PyProperty {
-            getter: into_option(vm, fget),
-            setter: into_option(vm, fset),
-            deleter: into_option(vm, fdel),
-            doc: RefCell::new(into_option(vm, doc)),
+            getter: args.fget,
+            setter: args.fset,
+            deleter: args.fdel,
+            doc: RefCell::new(args.doc),
         }
         .into_ref_with_type(vm, cls)
     }

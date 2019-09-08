@@ -209,6 +209,59 @@ impl CFormatSpec {
             self.fill_string(format!("{}{}", prefix, magnitude_string), ' ', None)
         }
     }
+
+    pub fn format_float(&self, num: f64) -> Result<String, String> {
+        let magnitude = num.abs();
+
+        let sign_string = if num.is_sign_positive() {
+            if self.flags.contains(CConversionFlags::SIGN_CHAR) {
+                "+"
+            } else if self.flags.contains(CConversionFlags::BLANK_SIGN) {
+                " "
+            } else {
+                ""
+            }
+        } else {
+            "-"
+        };
+
+        // TODO: Support precision
+        let magnitude_string = match self.format_type {
+            CFormatType::Float(CFloatType::PointDecimal) => {
+                if Some(CFormatQuantity::Amount(6)) != self.precision {
+                    return Err("Not yet implemented for %#.#f types".to_string());
+                } else {
+                    format!("{:.6}", magnitude)
+                }
+            }
+            CFormatType::Float(CFloatType::Exponent(_)) => {
+                return Err("Not yet implemented for %e and %E".to_string())
+            }
+            CFormatType::Float(CFloatType::General(_)) => {
+                return Err("Not yet implemented for %g and %G".to_string())
+            }
+            _ => unreachable!(),
+        };
+
+        if self.flags.contains(CConversionFlags::ZERO_PAD) {
+            let fill_char = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
+                '0'
+            } else {
+                ' '
+            };
+            Ok(format!(
+                "{}{}",
+                sign_string,
+                self.fill_string(
+                    magnitude_string,
+                    fill_char,
+                    Some(sign_string.chars().count())
+                )
+            ))
+        } else {
+            Ok(self.fill_string(format!("{}{}", sign_string, magnitude_string), ' ', None))
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -760,6 +813,47 @@ mod tests {
                 .unwrap()
                 .format_number(&BigInt::from(0x1337)),
             "0x1337    ".to_string()
+        );
+    }
+
+    #[test]
+    fn test_parse_and_format_float() {
+        assert_eq!(
+            "%f".parse::<CFormatSpec>()
+                .unwrap()
+                .format_float(f64::from(1.2345))
+                .ok(),
+            Some("1.234500".to_string())
+        );
+        assert_eq!(
+            "%+f"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_float(f64::from(1.2345))
+                .ok(),
+            Some("+1.234500".to_string())
+        );
+        assert_eq!(
+            "% f"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_float(f64::from(1.2345))
+                .ok(),
+            Some(" 1.234500".to_string())
+        );
+        assert_eq!(
+            "%f".parse::<CFormatSpec>()
+                .unwrap()
+                .format_float(f64::from(-1.2345))
+                .ok(),
+            Some("-1.234500".to_string())
+        );
+        assert_eq!(
+            "%f".parse::<CFormatSpec>()
+                .unwrap()
+                .format_float(f64::from(1.2345678901))
+                .ok(),
+            Some("1.234568".to_string())
         );
     }
 
