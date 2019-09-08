@@ -146,9 +146,8 @@ impl PyListRef {
 
     fn iadd(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
-            self.elements
-                .borrow_mut()
-                .extend_from_slice(&get_elements_list(&other));
+            let e = get_elements_list(&other).clone();
+            self.elements.borrow_mut().extend_from_slice(&e);
             Ok(self.into_object())
         } else {
             Ok(vm.ctx.not_implemented())
