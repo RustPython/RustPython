@@ -29,6 +29,13 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
             // If descriptor returns Error, propagate it further
             let method = method_or_err?;
             let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
+            if !objtype::isinstance(&bool_obj, &vm.ctx.bool_type()) {
+                return Err(vm.new_type_error(format!(
+                    "__bool__ should return bool, returned type {}",
+                    bool_obj.class().name
+                )));
+            }
+
             match bool_obj.payload::<PyInt>() {
                 Some(int_obj) => !int_obj.as_bigint().is_zero(),
                 None => {
