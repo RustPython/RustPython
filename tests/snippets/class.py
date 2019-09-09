@@ -164,3 +164,28 @@ class T5(int):
 assert str(super(int, T5(5))) == "<super: <class 'int'>, <T5 object>>"
 
 #assert str(super(type, None)) == "<super: <class 'type'>, NULL>"
+
+a = 1
+class A:
+    a = 2
+    def b():
+        assert a == 1
+    b()
+    assert a == 2
+A.b()
+
+# TODO: uncomment once free vars/cells are working
+# The symboltable sees that b() is referring to a in the nested scope,
+# so it marks it as non local. When it's executed, it walks up the scopes
+# and still finds the a from the class scope.
+# a = 1
+# def nested_scope():
+#     a = 2
+#     class A:
+#         a = 3
+#         def b():
+#             assert a == 2
+#         b()
+#         assert a == 3
+#     A.b()
+# nested_scope()

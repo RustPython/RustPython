@@ -1782,6 +1782,7 @@ impl<O: OutputStream> Compiler<O> {
             line_number,
             name.clone(),
         ));
+        self.enter_scope();
 
         // Create empty object of proper type:
         match kind {
@@ -1890,6 +1891,9 @@ impl<O: OutputStream> Compiler<O> {
 
         // Fetch code for listcomp function:
         let code = self.pop_code_object();
+
+        // Pop scope
+        self.leave_scope();
 
         // List comprehension code:
         self.emit(Instruction::LoadConst {

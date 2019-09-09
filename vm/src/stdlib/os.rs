@@ -1,9 +1,9 @@
 use num_cpus;
 use std::cell::RefCell;
-use std::ffi::CStr;
+use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::{self, Error, ErrorKind, Read, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
@@ -12,7 +12,7 @@ use nix::errno::Errno;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::pty::openpty;
 #[cfg(unix)]
-use nix::unistd::{self, Gid, Pid, Uid};
+use nix::unistd::{self, Gid, Pid, Uid, Whence};
 use num_traits::cast::ToPrimitive;
 
 use bitflags::bitflags;
@@ -53,11 +53,10 @@ pub fn raw_file_number(handle: File) -> i64 {
 
 #[cfg(windows)]
 pub fn rust_file(raw_fileno: i64) -> File {
-    use std::ffi::c_void;
     use std::os::windows::io::FromRawHandle;
 
     //This seems to work as expected but further testing is required.
-    unsafe { File::from_raw_handle(raw_fileno as *mut c_void) }
+    unsafe { File::from_raw_handle(raw_fileno as *mut ffi::c_void) }
 }
 
 #[cfg(all(not(unix), not(windows)))]
@@ -1021,9 +1020,9 @@ pub fn os_ttyname(fd: PyIntRef, vm: &VirtualMachine) -> PyResult {
     if let Some(fd) = fd.as_bigint().to_i32() {
         let name = unsafe { ttyname(fd) };
         if name.is_null() {
-            Err(vm.new_os_error(Error::last_os_error().to_string()))
+            Err(vm.new_os_error(io::Error::last_os_error().to_string()))
         } else {
-            let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
+            let name = unsafe { ffi::CStr::from_ptr(name) }.to_str().unwrap();
             Ok(vm.ctx.new_str(name.to_owned()))
         }
     } else {
@@ -1096,6 +1095,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
             }
         }
     }
+    #[allow(unused_mut)]
     let mut support_funcs = vec![
         SupportFunc::new(vm, "open", os_open, None, Some(false), None),
         // access Some Some None
@@ -1215,6 +1215,9 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "access" => ctx.new_rustfunc(os_access),
         "chmod" => ctx.new_rustfunc(os_chmod),
         "ttyname" => ctx.new_rustfunc(os_ttyname),
+        "SEEK_SET" => ctx.new_int(Whence::SeekSet as i8),
+        "SEEK_CUR" => ctx.new_int(Whence::SeekCur as i8),
+        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8)
     });
 
     #[cfg(not(target_os = "redox"))]
@@ -1224,6 +1227,12 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setegid" => ctx.new_rustfunc(os_setegid),
         "seteuid" => ctx.new_rustfunc(os_seteuid),
         "openpty" => ctx.new_rustfunc(os_openpty),
+    });
+
+    #[cfg(not(target_os = "macos"))]
+    extend_module!(vm, module, {
+        "SEEK_DATA" => ctx.new_int(Whence::SeekData as i8),
+        "SEEK_HOLE" => ctx.new_int(Whence::SeekHole as i8)
     });
 
     module
