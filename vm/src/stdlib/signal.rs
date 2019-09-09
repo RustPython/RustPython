@@ -1,10 +1,7 @@
-use crate::obj::objint::PyIntRef;
 use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
 use crate::vm::{VirtualMachine, NSIG};
 
 use std::sync::atomic::{AtomicBool, Ordering};
-
-use num_traits::cast::ToPrimitive;
 
 use arr_macro::arr;
 
@@ -85,8 +82,7 @@ fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
 }
 
 #[cfg(unix)]
-fn alarm(time: PyIntRef, _vm: &VirtualMachine) -> u32 {
-    let time = time.as_bigint().to_u32().unwrap();
+fn alarm(time: u32, _vm: &VirtualMachine) -> u32 {
     let prev_time = if time == 0 {
         sig_alarm::cancel()
     } else {

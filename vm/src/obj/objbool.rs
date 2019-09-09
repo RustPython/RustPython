@@ -1,3 +1,4 @@
+use num_bigint::Sign;
 use num_traits::Zero;
 
 use crate::function::PyFuncArgs;
@@ -29,22 +30,30 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
             // If descriptor returns Error, propagate it further
             let method = method_or_err?;
             let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
-            match bool_obj.payload::<PyInt>() {
-                Some(int_obj) => !int_obj.as_bigint().is_zero(),
-                None => {
-                    return Err(vm.new_type_error(format!(
-                        "__bool__ should return bool, returned type {}",
-                        bool_obj.class().name
-                    )))
-                }
+            if !objtype::isinstance(&bool_obj, &vm.ctx.bool_type()) {
+                return Err(vm.new_type_error(format!(
+                    "__bool__ should return bool, returned type {}",
+                    bool_obj.class().name
+                )));
             }
+
+            get_value(&bool_obj)
         }
         None => match vm.get_method(obj.clone(), "__len__") {
             Some(method_or_err) => {
                 let method = method_or_err?;
                 let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
                 match bool_obj.payload::<PyInt>() {
-                    Some(int_obj) => !int_obj.as_bigint().is_zero(),
+                    Some(int_obj) => {
+                        let len_val = int_obj.as_bigint();
+                        if len_val.sign() == Sign::Minus {
+                            return Err(
+                                vm.new_value_error("__len__() should return >= 0".to_string())
+                            );
+                        }
+
+                        !len_val.is_zero()
+                    }
                     None => {
                         return Err(vm.new_type_error(format!(
                             "{} object cannot be interpreted as integer",

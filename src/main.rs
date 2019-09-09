@@ -317,7 +317,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     vm.get_attribute(vm.sys_module.clone(), "modules")?
         .set_item("__main__", main_module, vm)?;
 
-    let site_result = vm.import("site", &vm.ctx.new_tuple(vec![]), 0);
+    let site_result = vm.import("site", &[], 0);
 
     if site_result.is_err() {
         warn!(
@@ -366,7 +366,7 @@ fn run_command(vm: &VirtualMachine, scope: Scope, source: String) -> PyResult<()
 
 fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
-    let runpy = vm.import("runpy", &vm.ctx.new_tuple(vec![]), 0)?;
+    let runpy = vm.import("runpy", &[], 0)?;
     let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
     vm.invoke(&run_module_as_main, vec![vm.new_str(module.to_owned())])?;
     Ok(())
@@ -463,21 +463,6 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResul
     }
 }
 
-#[cfg(not(unix))]
-fn get_history_path() -> PathBuf {
-    PathBuf::from(".repl_history.txt")
-}
-
-#[cfg(unix)]
-fn get_history_path() -> PathBuf {
-    //work around for windows dependent builds. The xdg crate is unix specific
-    //so access to the BaseDirectories struct breaks builds on python.
-    extern crate xdg;
-
-    let xdg_dirs = xdg::BaseDirectories::with_prefix("rustpython").unwrap();
-    xdg_dirs.place_cache_file("repl_history.txt").unwrap()
-}
-
 fn get_prompt(vm: &VirtualMachine, prompt_name: &str) -> Option<PyStringRef> {
     vm.get_attribute(vm.sys_module.clone(), prompt_name)
         .and_then(|prompt| vm.to_str(&prompt))
@@ -498,8 +483,22 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     let mut repl = Editor::<()>::new();
 
     // Retrieve a `history_path_str` dependent on the OS
-    let repl_history_path_str = &get_history_path();
-    if repl.load_history(repl_history_path_str).is_err() {
+    let repl_history_path = match dirs::config_dir() {
+        Some(mut path) => {
+            path.push("rustpython");
+            path.push("repl_history.txt");
+            path
+        }
+        None => ".repl_history.txt".into(),
+    };
+
+    if !repl_history_path.exists() {
+        if let Some(parent) = repl_history_path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+    }
+
+    if repl.load_history(&repl_history_path).is_err() {
         println!("No previous history.");
     }
 
@@ -540,7 +539,7 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
 
                 match shell_exec(vm, &input, scope.clone()) {
                     ShellExecResult::Ok => {
-                        input = String::new();
+                        input.clear();
                         Ok(())
                     }
                     ShellExecResult::Continue => {
@@ -548,13 +547,14 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                         Ok(())
                     }
                     ShellExecResult::PyErr(err) => {
-                        input = String::new();
+                        input.clear();
                         Err(err)
                     }
                 }
             }
             Err(ReadlineError::Interrupted) => {
                 continuing = false;
+                input.clear();
                 let keyboard_interrupt = vm
                     .new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())
                     .unwrap();
@@ -573,7 +573,7 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             print_exception(vm, &exc);
         }
     }
-    repl.save_history(repl_history_path_str).unwrap();
+    repl.save_history(&repl_history_path).unwrap();
 
     Ok(())
 }

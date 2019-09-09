@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::{env, mem};
 
 use crate::frame::FrameRef;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, TypeProtocol,
@@ -97,17 +97,13 @@ impl SysFlags {
     }
 }
 
-fn sys_getrefcount(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(object, None)]);
-    let size = Rc::strong_count(&object);
-    Ok(vm.ctx.new_int(size))
+fn sys_getrefcount(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
+    Rc::strong_count(&obj)
 }
 
-fn sys_getsizeof(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(object, None)]);
+fn sys_getsizeof(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
     // TODO: implement default optional argument.
-    let size = mem::size_of_val(&object);
-    Ok(vm.ctx.new_int(size))
+    mem::size_of_val(&obj)
 }
 
 fn sys_getfilesystemencoding(_vm: &VirtualMachine) -> String {
