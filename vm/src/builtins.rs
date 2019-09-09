@@ -17,7 +17,7 @@ use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objstr::{PyString, PyStringRef};
-use crate::obj::objtype::{self, PyClassRef};
+use crate::obj::objtype::{self, PyClass, PyClassRef};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
@@ -944,5 +944,13 @@ pub fn builtin_build_class_(
         vec![name_obj, bases, namespace.into_object()],
     )?;
     cells.set_item("__class__", class.clone(), vm)?;
+
+    for base_class in class.clone().downcast::<PyClass>().unwrap().mro.clone() {
+        if let Ok(initter) = vm.get_attribute(base_class.into_object(), "__init_subclass__") {
+            let args: Args = Args::new(vec![class.clone()]);
+            vm.invoke(&initter, PyFuncArgs::from((&args, &kwargs)))?;
+            break;
+        }
+    }
     Ok(class)
 }

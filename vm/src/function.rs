@@ -290,6 +290,9 @@ impl<T> Args<T> {
     pub fn into_vec(self) -> Vec<T> {
         self.0
     }
+    pub fn new(args: Vec<T>) -> Self {
+        Self(args)
+    }
 }
 
 impl<T: PyValue> Args<PyRef<T>> {
