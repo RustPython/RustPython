@@ -143,3 +143,38 @@ class TestLenThrowError:
 
 with assertRaises(TypeError):
     bool(TestLenThrowError())
+
+# Verify that TypeError occurs when bad things are returned
+# from __bool__().  This isn't really a bool test, but
+# it's related.
+def check(o):
+    with assertRaises(TypeError):
+        bool(o)
+
+class Foo(object):
+    def __bool__(self):
+        return self
+check(Foo())
+
+class Bar(object):
+    def __bool__(self):
+        return "Yes"
+check(Bar())
+
+class Baz(int):
+    def __bool__(self):
+        return self
+check(Baz())
+
+# __bool__() must return a bool not an int
+class Spam(int):
+    def __bool__(self):
+        return 1
+check(Spam())
+
+class Eggs:
+    def __len__(self):
+        return -1
+
+with assertRaises(ValueError):
+    bool(Eggs())
