@@ -519,14 +519,6 @@ impl PyListRef {
         }
     }
 
-    fn sizeof(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        for element in self.elements.borrow().iter() {
-            let mut size = mem::size_of_val::from(0);
-            size += mem::size_of_val(element);
-        }
-        return Ok(size);
-    }
-
     fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
@@ -877,7 +869,6 @@ pub fn init(context: &PyContext) {
         "__contains__" => context.new_rustfunc(PyListRef::contains),
         "__delitem__" => context.new_rustfunc(PyListRef::delitem),
         "__eq__" => context.new_rustfunc(PyListRef::eq),
-        "__sizeof__" => context.new_rustfunc(PyListRef::sizeof),
         "__lt__" => context.new_rustfunc(PyListRef::lt),
         "__gt__" => context.new_rustfunc(PyListRef::gt),
         "__le__" => context.new_rustfunc(PyListRef::le),
