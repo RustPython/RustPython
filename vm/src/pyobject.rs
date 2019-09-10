@@ -478,9 +478,10 @@ impl PyContext {
         scope: Scope,
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
+        new_locals: bool,
     ) -> PyObjectRef {
         PyObject::new(
-            PyFunction::new(code_obj, scope, defaults, kw_only_defaults),
+            PyFunction::new(code_obj, scope, defaults, kw_only_defaults, new_locals),
             self.function_type(),
             Some(self.new_dict()),
         )
