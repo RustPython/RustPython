@@ -225,6 +225,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         "unknown".to_string()
     };
 
+    let framework = "".to_string();
+
     // https://doc.rust-lang.org/reference/conditional-compilation.html#target_endian
     let bytorder = if cfg!(target_endian = "little") {
         "little".to_string()
@@ -347,6 +349,7 @@ settrace() -- set the global debug tracing function
       "modules" => modules.clone(),
       "warnoptions" => ctx.new_list(vec![]),
       "platform" => ctx.new_str(platform),
+      "_framework" => ctx.new_str(framework),
       "meta_path" => ctx.new_list(vec![]),
       "path_hooks" => ctx.new_list(vec![]),
       "path_importer_cache" => ctx.new_dict(),
