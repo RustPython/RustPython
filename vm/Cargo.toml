@@ -26,7 +26,7 @@ blake2 = "0.8"
 
 num-complex = { version = "0.2", features = ["serde"] }
 num-bigint = { version = "0.2", features = ["serde"] }
-num-traits = "0.2.6"
+num-traits = "=0.2.6"
 num-integer = "0.1.39"
 num-rational = "0.2.1"
 num-iter = "0.1"

@@ -1229,7 +1229,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "openpty" => ctx.new_rustfunc(os_openpty),
     });
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "android", target_os = "redox")))]
     extend_module!(vm, module, {
         "SEEK_DATA" => ctx.new_int(Whence::SeekData as i8),
         "SEEK_HOLE" => ctx.new_int(Whence::SeekHole as i8)
