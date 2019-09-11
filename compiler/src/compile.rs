@@ -1616,10 +1616,12 @@ impl<O: OutputStream> Compiler<O> {
             Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
             }
-            Starred { value } => {
-                self.compile_expression(value)?;
-                self.emit(Instruction::Unpack);
-                panic!("We should not just unpack a starred args, since the size is unknown.");
+            Starred { .. } => {
+                use std::string::String;
+                return Err(CompileError {
+                    error: CompileErrorType::SyntaxError(String::from("Invalid starred expression")),
+                    location: self.current_source_location.clone(),
+                });
             }
             IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
