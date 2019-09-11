@@ -56,6 +56,14 @@ c = 2
 with assertRaises(SyntaxError):
     exec(src)
 
+# Invalid syntax:
+src = """
+def a():
+    nonlocal a
+"""
+
+with assertRaises(SyntaxError):
+    exec(src)
 
 # class X:
 #     nonlocal c
