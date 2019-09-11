@@ -1619,7 +1619,9 @@ impl<O: OutputStream> Compiler<O> {
             Starred { .. } => {
                 use std::string::String;
                 return Err(CompileError {
-                    error: CompileErrorType::SyntaxError(String::from("Invalid starred expression")),
+                    error: CompileErrorType::SyntaxError(String::from(
+                        "Invalid starred expression",
+                    )),
                     location: self.current_source_location.clone(),
                 });
             }
