@@ -24,12 +24,12 @@ sha2 = "0.8"
 sha3 = "0.8"
 blake2 = "0.8"
 
-num-complex = { version = "0.2", features = ["serde"] }
-num-bigint = { version = "0.2", features = ["serde"] }
-num-traits = "0.2.6"
-num-integer = "0.1.39"
-num-rational = "0.2.1"
-num-iter = "0.1"
+num-complex = { version = "0.2.2", features = ["serde"] }
+num-bigint = { version = "0.2.3", features = ["serde"] }
+num-traits = "0.2.8"
+num-integer = "0.1.41"
+num-rational = "0.2.2"
+num-iter = "0.1.39"
 rand = "0.5"
 log = "0.3"
 rustpython-derive = {path = "../derive", version = "0.1.0"}
@@ -43,7 +43,7 @@ regex = "1"
 rustc_version_runtime = "0.1.*"
 statrs = "0.10.0"
 caseless = "0.2.1"
-chrono = "=0.4.7"
+chrono = "=0.4.6"
 unicode-segmentation = "1.2.1"
 unicode-xid = "0.1.0"
 lazy_static = "^1.0.1"
@@ -83,6 +83,3 @@ num_cpus = "1.0"
 
 [target."cfg(windows)".dependencies]
 kernel32-sys = "0.2.2"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2"

@@ -293,9 +293,12 @@ fn getgroups() -> nix::Result<Vec<Gid>> {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "redox", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use nix::unistd::getgroups;
+
+#[cfg(target_os = "redox")]
 fn getgroups() -> nix::Result<Vec<Gid>> {
-    nix::unistd::getgroups()
+    unimplemented!("redox getgroups")
 }
 
 #[cfg(unix)]
@@ -1229,7 +1232,15 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "openpty" => ctx.new_rustfunc(os_openpty),
     });
 
-    #[cfg(not(target_os = "macos"))]
+    // cfg taken from nix
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        all(
+            target_os = "linux",
+            not(any(target_env = "musl", target_arch = "mips", target_arch = "mips64"))
+        )
+    ))]
     extend_module!(vm, module, {
         "SEEK_DATA" => ctx.new_int(Whence::SeekData as i8),
         "SEEK_HOLE" => ctx.new_int(Whence::SeekHole as i8)
