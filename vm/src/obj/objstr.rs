@@ -1572,10 +1572,10 @@ pub fn subscript(vm: &VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
         let string = value.to_string().get_slice_items(vm, &b)?;
         Ok(vm.new_str(string))
     } else {
-        panic!(
-            "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
+        Err(vm.new_type_error(format!(
+            "indexing type {:?} with index {:?} is not supported",
             value, b
-        )
+        )))
     }
 }
 
