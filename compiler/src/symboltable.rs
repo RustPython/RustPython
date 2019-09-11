@@ -211,7 +211,8 @@ impl<'a> SymbolTableAnalyzer<'a> {
                 // symbol.table.borrow().parent.clone();
 
                 if let Some((symbols, _)) = parent_symbol_table {
-                    if !symbols.contains_key(&symbol.name) {
+                    let scope_depth = self.tables.len();
+                    if !symbols.contains_key(&symbol.name) || scope_depth < 2 {
                         return Err(SymbolTableError {
                             error: format!("no binding for nonlocal '{}' found", symbol.name),
                             location: Default::default(),
