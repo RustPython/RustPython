@@ -478,7 +478,6 @@ impl Frame {
             bytecode::Instruction::UnpackEx { before, after } => {
                 self.execute_unpack_ex(vm, *before, *after)
             }
-            bytecode::Instruction::Unpack => self.execute_unpack(vm),
             bytecode::Instruction::FormatValue { conversion, spec } => {
                 use bytecode::ConversionFlag::*;
                 let value = match conversion {
@@ -977,15 +976,6 @@ impl Frame {
 
             Ok(None)
         }
-    }
-
-    fn execute_unpack(&self, vm: &VirtualMachine) -> FrameResult {
-        let value = self.pop_value();
-        let elements = vm.extract_elements(&value)?;
-        for element in elements.into_iter().rev() {
-            self.push_value(element);
-        }
-        Ok(None)
     }
 
     fn jump(&self, label: bytecode::Label) {

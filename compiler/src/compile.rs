@@ -1617,9 +1617,8 @@ impl<O: OutputStream> Compiler<O> {
                 self.compile_comprehension(kind, generators)?;
             }
             Starred { .. } => {
-                use std::string::String;
                 return Err(CompileError {
-                    error: CompileErrorType::SyntaxError(String::from(
+                    error: CompileErrorType::SyntaxError(std::string::String::from(
                         "Invalid starred expression",
                     )),
                     location: self.current_source_location.clone(),
