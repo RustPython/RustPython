@@ -151,7 +151,7 @@ impl fmt::Display for ParseErrorType {
             ParseErrorType::ExtraToken(ref tok) => write!(f, "Got extraneous token: {:?}", tok),
             ParseErrorType::InvalidToken => write!(f, "Got invalid token"),
             ParseErrorType::UnrecognizedToken(ref tok, _) => {
-                write!(f, "Got unexpected token: {:?}", tok)
+                write!(f, "Got unexpected token {}", tok)
             }
             ParseErrorType::Lexical(ref error) => write!(f, "{}", error),
         }
