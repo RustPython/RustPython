@@ -322,6 +322,12 @@ pub struct Comprehension {
 }
 
 #[derive(Debug, PartialEq)]
+pub struct ArgumentList {
+    pub args: Vec<Expression>,
+    pub keywords: Vec<Keyword>,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Keyword {
     pub name: Option<String>,
     pub value: Expression,
