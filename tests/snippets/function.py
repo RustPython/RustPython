@@ -1,3 +1,6 @@
+from testutils import assertRaises
+
+
 __name__ = "function"
 
 
@@ -88,3 +91,7 @@ def f8() -> int:
     return 10
 
 assert f8() == 10
+
+
+with assertRaises(SyntaxError):
+    exec('print(keyword=10, 20)')
