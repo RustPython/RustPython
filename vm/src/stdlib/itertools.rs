@@ -537,6 +537,66 @@ impl PyItertoolsFilterFalse {
     }
 }
 
+#[pyclass]
+#[derive(Debug)]
+struct PyItertoolsAccumulate {
+    iterable: PyObjectRef,
+    binop: PyObjectRef,
+    acc_value: RefCell<PyObjectRef>,
+}
+
+impl PyValue for PyItertoolsAccumulate {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "accumulate")
+    }
+}
+
+#[pyimpl]
+impl PyItertoolsAccumulate {
+    #[pymethod(name = "__new__")]
+    #[allow(clippy::new_ret_no_self)]
+    fn new(
+        _cls: PyClassRef,
+        iterable: PyObjectRef,
+        binop: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let iter = get_iter(vm, &iterable)?;
+
+        Ok(PyItertoolsAccumulate {
+            iterable: iter,
+            binop: binop.unwrap_or_else(|| vm.get_none()),
+            acc_value: RefCell::from(vm.get_none()),
+        }
+        .into_ref(vm)
+        .into_object())
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let acc_value = self.acc_value.borrow().clone();
+        let iterable = &self.iterable;
+
+        let obj = call_next(vm, iterable)?;
+
+        let next_acc_value = if acc_value.is(&vm.get_none()) {
+            obj.clone()
+        } else if self.binop.is(&vm.get_none()) {
+            vm._add(acc_value, obj.clone())?
+        } else {
+            vm.invoke(&self.binop, vec![acc_value, obj.clone()])?
+        };
+
+        self.acc_value.replace(next_acc_value.clone());
+        Ok(next_acc_value)
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -561,6 +621,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let filterfalse = ctx.new_class("filterfalse", ctx.object());
     PyItertoolsFilterFalse::extend_class(ctx, &filterfalse);
 
+    let accumulate = ctx.new_class("accumulate", ctx.object());
+    PyItertoolsAccumulate::extend_class(ctx, &accumulate);
+
     py_module!(vm, "itertools", {
         "chain" => chain,
         "count" => count,
@@ -570,5 +633,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "takewhile" => takewhile,
         "islice" => islice,
         "filterfalse" => filterfalse,
+        "accumulate" => accumulate,
     })
 }
