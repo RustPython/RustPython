@@ -10,7 +10,7 @@ use std::str;
 use num_bigint::Sign;
 use num_traits::{Signed, ToPrimitive, Zero};
 
-use crate::obj::objbool::{self, PyBoolLike};
+use crate::obj::objbool::{self, IntoPyBool};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
@@ -40,7 +40,7 @@ fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     vm.invoke(&method, PyFuncArgs::new(vec![], vec![]))
 }
 
-fn builtin_all(iterable: PyIterable<PyBoolLike>, vm: &VirtualMachine) -> PyResult<bool> {
+fn builtin_all(iterable: PyIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
     for item in iterable.iter(vm)? {
         if !item?.to_bool() {
             return Ok(false);
@@ -49,7 +49,7 @@ fn builtin_all(iterable: PyIterable<PyBoolLike>, vm: &VirtualMachine) -> PyResul
     Ok(true)
 }
 
-fn builtin_any(iterable: PyIterable<PyBoolLike>, vm: &VirtualMachine) -> PyResult<bool> {
+fn builtin_any(iterable: PyIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
     for item in iterable.iter(vm)? {
         if item?.to_bool() {
             return Ok(true);
@@ -573,8 +573,8 @@ pub struct PrintOptions {
     sep: Option<PyStringRef>,
     #[pyarg(keyword_only, default = "None")]
     end: Option<PyStringRef>,
-    #[pyarg(keyword_only, default = "PyBoolLike::get_false()")]
-    flush: PyBoolLike,
+    #[pyarg(keyword_only, default = "IntoPyBool::get_false()")]
+    flush: IntoPyBool,
     #[pyarg(keyword_only, default = "None")]
     file: Option<PyObjectRef>,
 }

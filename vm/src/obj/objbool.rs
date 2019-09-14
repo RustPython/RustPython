@@ -197,17 +197,17 @@ fn bool_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub struct PyBoolLike {
+pub struct IntoPyBool {
     value: bool,
 }
 
-impl PyBoolLike {
+impl IntoPyBool {
     pub fn get_false() -> Self {
-        PyBoolLike { value: false }
+        IntoPyBool { value: false }
     }
 
     pub fn get_true() -> Self {
-        PyBoolLike { value: true }
+        IntoPyBool { value: true }
     }
 
     pub fn to_bool(self) -> bool {
@@ -215,9 +215,9 @@ impl PyBoolLike {
     }
 }
 
-impl TryFromObject for PyBoolLike {
+impl TryFromObject for IntoPyBool {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(PyBoolLike {
+        Ok(IntoPyBool {
             value: boolval(vm, obj)?,
         })
     }
