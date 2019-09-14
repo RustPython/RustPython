@@ -542,7 +542,7 @@ impl PyItertoolsFilterFalse {
 struct PyItertoolsAccumulate {
     iterable: PyObjectRef,
     binop: PyObjectRef,
-    acc_value: RefCell<PyObjectRef>,
+    acc_value: RefCell<Option<PyObjectRef>>,
 }
 
 impl PyValue for PyItertoolsAccumulate {
@@ -566,7 +566,7 @@ impl PyItertoolsAccumulate {
         Ok(PyItertoolsAccumulate {
             iterable: iter,
             binop: binop.unwrap_or_else(|| vm.get_none()),
-            acc_value: RefCell::from(vm.get_none()),
+            acc_value: RefCell::from(Option::None),
         }
         .into_ref(vm)
         .into_object())
@@ -574,20 +574,21 @@ impl PyItertoolsAccumulate {
 
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let acc_value = self.acc_value.borrow().clone();
         let iterable = &self.iterable;
-
         let obj = call_next(vm, iterable)?;
 
-        let next_acc_value = if acc_value.is(&vm.get_none()) {
-            obj.clone()
-        } else if self.binop.is(&vm.get_none()) {
-            vm._add(acc_value, obj.clone())?
-        } else {
-            vm.invoke(&self.binop, vec![acc_value, obj.clone()])?
+        let next_acc_value = match &*self.acc_value.borrow() {
+            Option::None => obj.clone(),
+            Option::Some(value) => {
+                if self.binop.is(&vm.get_none()) {
+                    vm._add(value.clone(), obj.clone())?
+                } else {
+                    vm.invoke(&self.binop, vec![value.clone(), obj.clone()])?
+                }
+            }
         };
+        self.acc_value.replace(Option::from(next_acc_value.clone()));
 
-        self.acc_value.replace(next_acc_value.clone());
         Ok(next_acc_value)
     }
 
