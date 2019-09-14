@@ -842,15 +842,21 @@ impl<O: OutputStream> Compiler<O> {
 
         let mut flags = self.enter_function(name, args)?;
 
-        let (new_body, doc_str) = get_doc(body);
+        let (body, doc_str) = get_doc(body);
 
-        self.compile_statements(new_body)?;
+        self.compile_statements(body)?;
 
         // Emit None at end:
-        self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::None,
-        });
-        self.emit(Instruction::ReturnValue);
+        match body.last().map(|s| &s.node) {
+            Some(ast::StatementType::Return { .. }) => {}
+            _ => {
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::None,
+                });
+                self.emit(Instruction::ReturnValue);
+            }
+        }
+
         let code = self.pop_code_object();
         self.leave_scope();
 
