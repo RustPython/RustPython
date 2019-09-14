@@ -630,7 +630,7 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
     obj.payload::<PyFloat>().unwrap().value
 }
 
-pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
+fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     if objtype::isinstance(obj, &vm.ctx.float_type()) {
         Ok(get_value(obj))
     } else {
