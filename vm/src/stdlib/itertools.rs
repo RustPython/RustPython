@@ -556,20 +556,19 @@ impl PyItertoolsAccumulate {
     #[pymethod(name = "__new__")]
     #[allow(clippy::new_ret_no_self)]
     fn new(
-        _cls: PyClassRef,
+        cls: PyClassRef,
         iterable: PyObjectRef,
         binop: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<PyRef<PyItertoolsAccumulate>> {
         let iter = get_iter(vm, &iterable)?;
 
-        Ok(PyItertoolsAccumulate {
+        PyItertoolsAccumulate {
             iterable: iter,
             binop: binop.unwrap_or_else(|| vm.get_none()),
             acc_value: RefCell::from(Option::None),
         }
-        .into_ref(vm)
-        .into_object())
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]
