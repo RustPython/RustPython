@@ -645,6 +645,25 @@ pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct IntoPyFloat {
+    value: f64,
+}
+
+impl IntoPyFloat {
+    pub fn to_f64(self) -> f64 {
+        self.value
+    }
+}
+
+impl TryFromObject for IntoPyFloat {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        Ok(IntoPyFloat {
+            value: make_float(vm, &obj)?,
+        })
+    }
+}
+
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
     PyFloat::extend_class(context, &context.types.float_type);
