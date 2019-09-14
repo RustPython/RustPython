@@ -210,3 +210,28 @@ assert 4 == next(it)
 assert 1 == next(it)
 with assertRaises(StopIteration):
     next(it)
+
+
+# itertools.accumulate
+it = itertools.accumulate([6, 3, 7, 1, 0, 9, 8, 8])
+assert 6 == next(it)
+assert 9 == next(it)
+assert 16 == next(it)
+assert 17 == next(it)
+assert 17 == next(it)
+assert 26 == next(it)
+assert 34 == next(it)
+assert 42 == next(it)
+with assertRaises(StopIteration):
+    next(it)
+
+it = itertools.accumulate([3, 2, 4, 1, 0, 5, 8], lambda a, v: a*v)
+assert 3 == next(it)
+assert 6 == next(it)
+assert 24 == next(it)
+assert 24 == next(it)
+assert 0 == next(it)
+assert 0 == next(it)
+assert 0 == next(it)
+with assertRaises(StopIteration):
+    next(it)
