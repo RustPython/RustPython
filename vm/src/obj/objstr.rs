@@ -346,18 +346,10 @@ impl PyString {
     }
 
     #[pymethod]
-    fn split(
-        &self,
-        pattern: OptionalArg<PyStringRef>,
-        num: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyObjectRef {
+    fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyObjectRef {
         let value = &self.value;
-        let pattern = match pattern {
-            OptionalArg::Present(ref s) => Some(s.as_str()),
-            OptionalArg::Missing => None,
-        };
-        let num_splits = num.into_option().unwrap_or(-1);
+        let pattern = args.sep.as_ref().map(|s| s.as_str());
+        let num_splits = args.maxsplit;
         let elements: Vec<_> = match (pattern, num_splits.is_negative()) {
             (Some(pattern), true) => value
                 .split(pattern)
@@ -382,18 +374,10 @@ impl PyString {
     }
 
     #[pymethod]
-    fn rsplit(
-        &self,
-        pattern: OptionalArg<PyStringRef>,
-        num: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyObjectRef {
+    fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyObjectRef {
         let value = &self.value;
-        let pattern = match pattern {
-            OptionalArg::Present(ref s) => Some(s.as_str()),
-            OptionalArg::Missing => None,
-        };
-        let num_splits = num.into_option().unwrap_or(-1);
+        let pattern = args.sep.as_ref().map(|s| s.as_str());
+        let num_splits = args.maxsplit;
         let mut elements: Vec<_> = match (pattern, num_splits.is_negative()) {
             (Some(pattern), true) => value
                 .rsplit(pattern)
@@ -1180,6 +1164,14 @@ impl IntoPyObject for &String {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_str(self.clone()))
     }
+}
+
+#[derive(FromArgs)]
+struct SplitArgs {
+    #[pyarg(positional_or_keyword, default = "None")]
+    sep: Option<PyStringRef>,
+    #[pyarg(positional_or_keyword, default = "-1")]
+    maxsplit: isize,
 }
 
 pub fn init(ctx: &PyContext) {
