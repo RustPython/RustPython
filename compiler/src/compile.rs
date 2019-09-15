@@ -848,7 +848,9 @@ impl<O: OutputStream> Compiler<O> {
 
         // Emit None at end:
         match body.last().map(|s| &s.node) {
-            Some(ast::StatementType::Return { .. }) => {}
+            Some(ast::StatementType::Return { .. }) => {
+                // the last instruction is a ReturnValue already, we don't need to emit it
+            }
             _ => {
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::None,
