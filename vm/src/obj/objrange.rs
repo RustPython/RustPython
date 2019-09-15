@@ -299,17 +299,23 @@ impl PyRange {
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, subscript: RangeIndex, vm: &VirtualMachine) -> PyResult {
         match subscript {
-            RangeIndex::Int(index) => {
-                if let Some(value) = self.get(index.as_bigint()) {
-                    Ok(PyInt::new(value).into_ref(vm).into_object())
-                } else {
-                    Err(vm.new_index_error("range object index out of range".to_string()))
-                }
-            }
             RangeIndex::Slice(slice) => {
+                let start = self.start.as_bigint();
+                let stop = self.stop.as_bigint();
+                let step = self.step.as_bigint();
+
                 let new_start = if let Some(int) = slice.start_index(vm)? {
-                    if let Some(i) = self.get(&int) {
+                    let int = &int;
+                    if let Some(i) = self.get(int) {
                         PyInt::new(i).into_ref(vm)
+                    } else if start < stop {
+                        if stop <= int {
+                            self.stop.clone()
+                        } else {
+                            self.start.clone()
+                        }
+                    } else if int < stop {
+                        self.stop.clone()
                     } else {
                         self.start.clone()
                     }
@@ -318,8 +324,17 @@ impl PyRange {
                 };
 
                 let new_end = if let Some(int) = slice.stop_index(vm)? {
-                    if let Some(i) = self.get(&int) {
+                    let int = &int;
+                    if let Some(i) = self.get(int) {
                         PyInt::new(i).into_ref(vm)
+                    } else if start < stop {
+                        if int < start {
+                            self.start.clone()
+                        } else {
+                            self.stop.clone()
+                        }
+                    } else if start < int {
+                        self.start.clone()
                     } else {
                         self.stop.clone()
                     }
@@ -328,7 +343,11 @@ impl PyRange {
                 };
 
                 let new_step = if let Some(int) = slice.step_index(vm)? {
-                    PyInt::new(int * self.step.as_bigint()).into_ref(vm)
+                    if step.is_zero() {
+                        return Err(vm.new_value_error("slice step cannot be zero".to_string()));
+                    } else {
+                        PyInt::new(int * self.step.as_bigint()).into_ref(vm)
+                    }
                 } else {
                     self.step.clone()
                 };
@@ -340,6 +359,13 @@ impl PyRange {
                 }
                 .into_ref(vm)
                 .into_object())
+            }
+            RangeIndex::Int(index) => {
+                if let Some(value) = self.get(index.as_bigint()) {
+                    Ok(PyInt::new(value).into_ref(vm).into_object())
+                } else {
+                    Err(vm.new_index_error("range object index out of range".to_string()))
+                }
             }
         }
     }
