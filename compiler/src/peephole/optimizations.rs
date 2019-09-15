@@ -2,6 +2,11 @@ use rustpython_bytecode::bytecode::{self, Instruction};
 
 use super::{InstructionMetadata, OptimizationBuffer};
 
+macro_rules! metas {
+    [$($metas:expr),*$(,)?] => {
+        InstructionMetadata::from(vec![$($metas),*])
+    };
+}
 macro_rules! lc {
     ($name:ident {$($field:tt)*}) => {
         Instruction::LoadConst {
@@ -13,10 +18,10 @@ macro_rules! lc {
     };
 }
 macro_rules! emitconst {
-    ($buf:expr, [$($metas:expr),*], $($arg:tt)*) => {
+    ($buf:expr, [$($metas:expr),*$(,)?], $($arg:tt)*) => {
         $buf.emit(
             lc!($($arg)*),
-            InstructionMetadata::from(vec![$($metas),*]),
+            metas![$($metas),*],
         )
     };
 }
@@ -89,22 +94,5 @@ pub fn unpack(buf: &mut impl OptimizationBuffer) {
         }
     } else {
         buf.emit(instruction, meta)
-    }
-}
-
-pub fn useless_const(buf: &mut impl OptimizationBuffer) {
-    let (instruction, meta) = buf.pop();
-    if instruction == Instruction::Pop {
-        let (arg, arg_meta) = buf.pop();
-        if let Instruction::LoadConst { .. } = arg {
-            // just ignore it all
-            drop(arg);
-            drop(instruction);
-        } else {
-            buf.emit(arg, arg_meta);
-            buf.emit(instruction, meta);
-        }
-    } else {
-        buf.emit(instruction, meta);
     }
 }

@@ -92,7 +92,7 @@ impl<O: OutputStream> PeepholeOptimizer<O> {
     }
 
     fn optimize(&mut self) {
-        apply_optimizations!(self, operator, unpack, useless_const);
+        apply_optimizations!(self, operator, unpack);
     }
 }
 
@@ -122,8 +122,6 @@ impl<O: OutputStream> OptimizationBuffer for PeepholeOptimizer<O> {
         self.pop()
     }
 }
-
-// OPTIMIZATION
 
 pub trait OptimizationBuffer {
     fn emit(&mut self, instruction: Instruction, meta: InstructionMetadata);
