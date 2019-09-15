@@ -77,26 +77,32 @@ impl PyRange {
         let start = self.start.as_bigint();
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
+        let index = index.clone();
+        if self.is_empty() {
+            return None;
+        }
 
-        let index = if *index < BigInt::zero() {
-            let index = stop + index;
-            if index < BigInt::zero() {
+        let length = if start < stop {
+            (stop - start - 1) / step + 1
+        } else {
+            (start - stop - 1) / (-step) + 1
+        };
+
+        let index = if index < BigInt::zero() {
+            let new_index = &length + &index;
+            if new_index < BigInt::zero() {
+                return None;
+            }
+            length + index
+        } else {
+            if length <= index {
                 return None;
             }
             index
-        } else {
-            index.clone()
         };
 
-        let result = start + step * &index;
-
-        if (self.forward() && !self.is_empty() && result < *stop)
-            || (!self.forward() && !self.is_empty() && result > *stop)
-        {
-            Some(result)
-        } else {
-            None
-        }
+        let result = start + step * index;
+        Some(result)
     }
 }
 
