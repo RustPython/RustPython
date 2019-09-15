@@ -202,13 +202,8 @@ pub struct IntoPyBool {
 }
 
 impl IntoPyBool {
-    pub fn get_false() -> Self {
-        IntoPyBool { value: false }
-    }
-
-    pub fn get_true() -> Self {
-        IntoPyBool { value: true }
-    }
+    pub const TRUE: IntoPyBool = IntoPyBool { value: true };
+    pub const FALSE: IntoPyBool = IntoPyBool { value: false };
 
     pub fn to_bool(self) -> bool {
         self.value

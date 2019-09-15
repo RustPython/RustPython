@@ -573,7 +573,7 @@ pub struct PrintOptions {
     sep: Option<PyStringRef>,
     #[pyarg(keyword_only, default = "None")]
     end: Option<PyStringRef>,
-    #[pyarg(keyword_only, default = "IntoPyBool::get_false()")]
+    #[pyarg(keyword_only, default = "IntoPyBool::FALSE")]
     flush: IntoPyBool,
     #[pyarg(keyword_only, default = "None")]
     file: Option<PyObjectRef>,
