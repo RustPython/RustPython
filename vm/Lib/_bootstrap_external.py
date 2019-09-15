@@ -1575,22 +1575,21 @@ def _setup(_bootstrap_module):
         setattr(self_module, builtin_name, builtin_module)
 
     # Directly load the os module (needed during bootstrap).
-    os_details = ('_os', ['/']), ('_os', ['\\', '/'])  # XXX Changed to fit RustPython!!!
-    for builtin_os, path_separators in os_details:
-        # Assumption made in _path_join()
-        assert all(len(sep) == 1 for sep in path_separators)
-        path_sep = path_separators[0]
-        if builtin_os in sys.modules:
-            os_module = sys.modules[builtin_os]
-            break
-        else:
-            try:
-                os_module = _bootstrap._builtin_from_name(builtin_os)
-                break
-            except ImportError:
-                continue
+    # XXX Changed to fit RustPython!!!
+    builtin_os = "_os"
+    if builtin_os in sys.modules:
+        os_module = sys.modules[builtin_os]
     else:
-        raise ImportError('importlib requires posix or nt')
+        try:
+            os_module = _bootstrap._builtin_from_name(builtin_os)
+        except ImportError:
+            raise ImportError('importlib requires _os')
+    path_separators = ['\\', '/'] if os_module.name == 'nt' else ['/']
+    
+    # Assumption made in _path_join()
+    assert all(len(sep) == 1 for sep in path_separators)
+    path_sep = path_separators[0]
+
     setattr(self_module, '_os', os_module)
     setattr(self_module, 'path_sep', path_sep)
     setattr(self_module, 'path_separators', ''.join(path_separators))
