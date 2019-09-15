@@ -21,8 +21,7 @@ impl TryFromObject for bool {
         if objtype::isinstance(&obj, &vm.ctx.int_type()) {
             Ok(get_value(&obj))
         } else {
-            let actual_type = vm.to_pystr(&obj.class())?;
-            Err(vm.new_type_error(format!("Expected type bool, not {}", actual_type,)))
+            Err(vm.new_type_error(format!("Expected type bool, not {}", obj.class().name)))
         }
     }
 }
