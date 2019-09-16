@@ -10,7 +10,7 @@ use std::str;
 use num_bigint::Sign;
 use num_traits::{Signed, ToPrimitive, Zero};
 
-use crate::obj::objbool;
+use crate::obj::objbool::{self, IntoPyBool};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
@@ -40,18 +40,18 @@ fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     vm.invoke(&method, PyFuncArgs::new(vec![], vec![]))
 }
 
-fn builtin_all(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool> {
+fn builtin_all(iterable: PyIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
     for item in iterable.iter(vm)? {
-        if !item? {
+        if !item?.to_bool() {
             return Ok(false);
         }
     }
     Ok(true)
 }
 
-fn builtin_any(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool> {
+fn builtin_any(iterable: PyIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
     for item in iterable.iter(vm)? {
-        if item? {
+        if item?.to_bool() {
             return Ok(true);
         }
     }
@@ -573,8 +573,8 @@ pub struct PrintOptions {
     sep: Option<PyStringRef>,
     #[pyarg(keyword_only, default = "None")]
     end: Option<PyStringRef>,
-    #[pyarg(keyword_only, default = "false")]
-    flush: bool,
+    #[pyarg(keyword_only, default = "IntoPyBool::FALSE")]
+    flush: IntoPyBool,
     #[pyarg(keyword_only, default = "None")]
     file: Option<PyObjectRef>,
 }
@@ -654,7 +654,7 @@ pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) 
         .unwrap();
     printer.write(vm, end)?;
 
-    if options.flush {
+    if options.flush.to_bool() {
         printer.flush(vm)?;
     }
 
