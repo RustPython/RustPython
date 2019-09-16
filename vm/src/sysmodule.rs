@@ -322,6 +322,7 @@ settrace() -- set the global debug tracing function
     let prefix = option_env!("RUSTPYTHON_PREFIX").unwrap_or("/usr/local");
     let base_prefix = option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or(prefix);
     let exec_prefix = option_env!("RUSTPYTHON_EXECPREFIX").unwrap_or(prefix);
+    let base_exec_prefix = option_env!("RUSTPYTHON_BASEEXECPREFIX").unwrap_or(exec_prefix);
 
     extend_module!(vm, module, {
       "__name__" => ctx.new_str(String::from("sys")),
@@ -363,6 +364,7 @@ settrace() -- set the global debug tracing function
       "prefix" => ctx.new_str(prefix.to_string()),
       "base_prefix" => ctx.new_str(base_prefix.to_string()),
       "exec_prefix" => ctx.new_str(exec_prefix.to_string()),
+      "base_exec_prefix" => ctx.new_str(base_exec_prefix.to_string()),
       "exit" => ctx.new_rustfunc(sys_exit),
     });
 
