@@ -19,6 +19,23 @@ assert_raises(ValueError, lambda: range(4, 10, 2).index(5), 'out of step')
 assert_raises(ValueError, lambda: range(10).index('foo'), 'not an int')
 assert_raises(ValueError, lambda: range(1, 10, 0), 'step is zero')
 
+# get tests
+assert range(10)[0] == 0
+assert range(10)[9] == 9
+assert range(10, 0, -1)[0] == 10
+assert range(10, 0, -1)[9] == 1
+assert_raises(IndexError, lambda: range(10)[10], 'out of bound')
+
+# slice tests
+assert range(10)[0:3] == range(3)
+assert range(10)[-5:9] == range(5, 9)
+assert range(10)[100:10] == range(10, 10)
+assert range(10)[-15:3] == range(0, 3)
+assert range(10, 100, 3)[4:1000:5] == range(22, 100, 15)
+assert range(10)[:] == range(10)
+assert range(10, 0, -2)[0:5:2] == range(10, 0, -4)
+assert range(10)[10:11] == range(10,10)
+
 # count tests
 assert range(10).count(2) == 1
 assert range(10).count(11) == 0
@@ -86,3 +103,5 @@ assert range(10)[-1] == 9
 assert_raises(IndexError, lambda: range(10)[-11], 'out of bound')
 assert range(10)[-2:4] == range(8, 4)
 assert range(10)[-6:-2] == range(4, 8)
+assert range(50, 0, -2)[-5] == 10
+assert range(50, 0, -2)[-5:3:5] == range(10, 44, -10)
