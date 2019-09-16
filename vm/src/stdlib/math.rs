@@ -10,77 +10,53 @@ use num_bigint::BigInt;
 use num_traits::cast::ToPrimitive;
 use num_traits::{One, Zero};
 
-use crate::function::PyFuncArgs;
-use crate::obj::objfloat::PyFloatRef;
+use crate::function::OptionalArg;
+use crate::obj::objfloat::{IntoPyFloat, PyFloatRef};
 use crate::obj::objint::PyIntRef;
-use crate::obj::{objfloat, objint, objtype};
+use crate::obj::{objfloat, objtype};
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 // Helper macro:
 macro_rules! make_math_func {
     ( $fname:ident, $fun:ident ) => {
-        fn $fname(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-            arg_check!(vm, args, required = [(value, None)]);
-            let value = objfloat::make_float(vm, value)?;
-            let value = value.$fun();
-            let value = vm.ctx.new_float(value);
-            Ok(value)
+        fn $fname(value: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+            value.to_f64().$fun()
+        }
+    };
+}
+
+macro_rules! make_math_func_bool {
+    ( $fname:ident, $fun:ident ) => {
+        fn $fname(value: IntoPyFloat, _vm: &VirtualMachine) -> bool {
+            value.to_f64().$fun()
         }
     };
 }
 
 // Number theory functions:
 make_math_func!(math_fabs, abs);
-
-fn math_isfinite(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    let value = objfloat::make_float(vm, value)?.is_finite();
-    Ok(vm.ctx.new_bool(value))
-}
-
-fn math_isinf(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    let value = objfloat::make_float(vm, value)?.is_infinite();
-    Ok(vm.ctx.new_bool(value))
-}
-
-fn math_isnan(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    let value = objfloat::make_float(vm, value)?.is_nan();
-    Ok(vm.ctx.new_bool(value))
-}
+make_math_func_bool!(math_isfinite, is_finite);
+make_math_func_bool!(math_isinf, is_infinite);
+make_math_func_bool!(math_isnan, is_nan);
 
 // Power and logarithmic functions:
 make_math_func!(math_exp, exp);
 make_math_func!(math_expm1, exp_m1);
 
-fn math_log(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(x, None)], optional = [(base, None)]);
-    let x = objfloat::make_float(vm, x)?;
-    match base {
-        None => Ok(vm.ctx.new_float(x.ln())),
-        Some(base) => {
-            let base = objfloat::make_float(vm, base)?;
-            Ok(vm.ctx.new_float(x.log(base)))
-        }
-    }
+fn math_log(x: IntoPyFloat, base: OptionalArg<IntoPyFloat>, _vm: &VirtualMachine) -> f64 {
+    base.map_or_else(|| x.to_f64().ln(), |base| x.to_f64().log(base.to_f64()))
 }
 
-fn math_log1p(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(x, None)]);
-    let x = objfloat::make_float(vm, x)?;
-    Ok(vm.ctx.new_float((x + 1.0).ln()))
+fn math_log1p(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+    (x.to_f64() + 1.0).ln()
 }
 
 make_math_func!(math_log2, log2);
 make_math_func!(math_log10, log10);
 
-fn math_pow(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(x, None), (y, None)]);
-    let x = objfloat::make_float(vm, x)?;
-    let y = objfloat::make_float(vm, y)?;
-    Ok(vm.ctx.new_float(x.powf(y)))
+fn math_pow(x: IntoPyFloat, y: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+    x.to_f64().powf(y.to_f64())
 }
 
 make_math_func!(math_sqrt, sqrt);
@@ -90,35 +66,25 @@ make_math_func!(math_acos, acos);
 make_math_func!(math_asin, asin);
 make_math_func!(math_atan, atan);
 
-fn math_atan2(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(y, None), (x, None)]);
-    let y = objfloat::make_float(vm, y)?;
-    let x = objfloat::make_float(vm, x)?;
-    Ok(vm.ctx.new_float(y.atan2(x)))
+fn math_atan2(y: IntoPyFloat, x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+    y.to_f64().atan2(x.to_f64())
 }
 
 make_math_func!(math_cos, cos);
 
-fn math_hypot(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(x, None), (y, None)]);
-    let x = objfloat::make_float(vm, x)?;
-    let y = objfloat::make_float(vm, y)?;
-    Ok(vm.ctx.new_float(x.hypot(y)))
+fn math_hypot(x: IntoPyFloat, y: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+    x.to_f64().hypot(y.to_f64())
 }
 
 make_math_func!(math_sin, sin);
 make_math_func!(math_tan, tan);
 
-fn math_degrees(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    let x = objfloat::make_float(vm, value)?;
-    Ok(vm.ctx.new_float(x * (180.0 / std::f64::consts::PI)))
+fn math_degrees(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+    x.to_f64() * (180.0 / std::f64::consts::PI)
 }
 
-fn math_radians(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    let x = objfloat::make_float(vm, value)?;
-    Ok(vm.ctx.new_float(x * (std::f64::consts::PI / 180.0)))
+fn math_radians(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+    x.to_f64() * (std::f64::consts::PI / 180.0)
 }
 
 // Hyperbolic functions:
@@ -130,51 +96,43 @@ make_math_func!(math_sinh, sinh);
 make_math_func!(math_tanh, tanh);
 
 // Special functions:
-fn math_erf(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    let x = objfloat::make_float(vm, value)?;
-
+fn math_erf(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+    let x = x.to_f64();
     if x.is_nan() {
-        Ok(vm.ctx.new_float(x))
+        x
     } else {
-        Ok(vm.ctx.new_float(erf(x)))
+        erf(x)
     }
 }
 
-fn math_erfc(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    let x = objfloat::make_float(vm, value)?;
-
+fn math_erfc(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+    let x = x.to_f64();
     if x.is_nan() {
-        Ok(vm.ctx.new_float(x))
+        x
     } else {
-        Ok(vm.ctx.new_float(erfc(x)))
+        erfc(x)
     }
 }
 
-fn math_gamma(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    let x = objfloat::make_float(vm, value)?;
-
+fn math_gamma(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+    let x = x.to_f64();
     if x.is_finite() {
-        Ok(vm.ctx.new_float(gamma(x)))
+        gamma(x)
     } else if x.is_nan() || x.is_sign_positive() {
-        Ok(vm.ctx.new_float(x))
+        x
     } else {
-        Ok(vm.ctx.new_float(std::f64::NAN))
+        std::f64::NAN
     }
 }
 
-fn math_lgamma(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    let x = objfloat::make_float(vm, value)?;
-
+fn math_lgamma(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+    let x = x.to_f64();
     if x.is_finite() {
-        Ok(vm.ctx.new_float(ln_gamma(x)))
+        ln_gamma(x)
     } else if x.is_nan() {
-        Ok(vm.ctx.new_float(x))
+        x
     } else {
-        Ok(vm.ctx.new_float(std::f64::INFINITY))
+        std::f64::INFINITY
     }
 }
 
@@ -189,81 +147,61 @@ fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -
     vm.invoke(&method, vec![])
 }
 
-fn math_trunc(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    try_magic_method("__trunc__", vm, value)
+fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    try_magic_method("__trunc__", vm, &value)
 }
 
-fn math_ceil(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    if objtype::isinstance(value, &vm.ctx.float_type()) {
-        let v = objfloat::get_value(value);
+fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    if objtype::isinstance(&value, &vm.ctx.float_type()) {
+        let v = objfloat::get_value(&value);
         Ok(vm.ctx.new_float(v.ceil()))
     } else {
-        try_magic_method("__ceil__", vm, value)
+        try_magic_method("__ceil__", vm, &value)
     }
 }
 
-fn math_floor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    if objtype::isinstance(value, &vm.ctx.float_type()) {
-        let v = objfloat::get_value(value);
+fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    if objtype::isinstance(&value, &vm.ctx.float_type()) {
+        let v = objfloat::get_value(&value);
         Ok(vm.ctx.new_float(v.floor()))
     } else {
-        try_magic_method("__floor__", vm, value)
+        try_magic_method("__floor__", vm, &value)
     }
 }
 
-fn math_frexp(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    objfloat::try_float(&value, vm)?.map_or_else(
-        || Err(vm.new_type_error(format!("must be real number, not {}", value.class()))),
-        |value| {
-            let (m, e) = if value.is_finite() {
-                let (m, e) = objfloat::ufrexp(value);
-                (m * value.signum(), e)
-            } else {
-                (value, 0)
-            };
-            Ok(vm
-                .ctx
-                .new_tuple(vec![vm.ctx.new_float(m), vm.ctx.new_int(e)]))
-        },
-    )
+fn math_frexp(value: IntoPyFloat, _vm: &VirtualMachine) -> (f64, i32) {
+    let value = value.to_f64();
+    if value.is_finite() {
+        let (m, e) = objfloat::ufrexp(value);
+        (m * value.signum(), e)
+    } else {
+        (value, 0)
+    }
 }
 
-fn math_ldexp(value: PyFloatRef, i: PyIntRef, vm: &VirtualMachine) -> PyResult {
-    Ok(vm
-        .ctx
-        .new_float(value.to_f64() * (2_f64).powf(i.as_bigint().to_f64().unwrap())))
+fn math_ldexp(value: PyFloatRef, i: PyIntRef, _vm: &VirtualMachine) -> f64 {
+    value.to_f64() * (2_f64).powf(i.as_bigint().to_f64().unwrap())
 }
 
-fn math_gcd(a: PyIntRef, b: PyIntRef, vm: &VirtualMachine) -> PyResult {
+fn math_gcd(a: PyIntRef, b: PyIntRef, _vm: &VirtualMachine) -> BigInt {
     use num_integer::Integer;
-    Ok(vm.new_int(a.as_bigint().gcd(b.as_bigint())))
+    a.as_bigint().gcd(b.as_bigint())
 }
 
-fn math_factorial(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    let value = objint::get_value(value);
+fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+    let value = value.as_bigint();
     if *value < BigInt::zero() {
         return Err(vm.new_value_error("factorial() not defined for negative values".to_string()));
     } else if *value <= BigInt::one() {
-        return Ok(vm.ctx.new_int(BigInt::from(1u64)));
+        return Ok(BigInt::from(1u64));
     }
     let ret: BigInt = num_iter::range_inclusive(BigInt::from(1u64), value.clone()).product();
-    Ok(vm.ctx.new_int(ret))
+    Ok(ret)
 }
 
-fn math_modf(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, None)]);
-    let x = objfloat::make_float(vm, value)?;
-
-    let fract = x.fract();
-    let int = x.trunc();
-
-    Ok(vm
-        .ctx
-        .new_tuple(vec![vm.ctx.new_float(fract), vm.ctx.new_float(int)]))
+fn math_modf(x: IntoPyFloat, _vm: &VirtualMachine) -> (f64, f64) {
+    let x = x.to_f64();
+    (x.fract(), x.trunc())
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

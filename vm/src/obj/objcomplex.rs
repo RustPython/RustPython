@@ -9,7 +9,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objfloat::{self, PyFloat};
+use super::objfloat::{self, IntoPyFloat, PyFloat};
 use super::objtype::{self, PyClassRef};
 
 /// Create a complex number from a real part and an optional imaginary part.
@@ -233,18 +233,18 @@ impl PyComplex {
     #[pymethod(name = "__new__")]
     fn complex_new(
         cls: PyClassRef,
-        real: OptionalArg<PyObjectRef>,
-        imag: OptionalArg<PyObjectRef>,
+        real: OptionalArg<IntoPyFloat>,
+        imag: OptionalArg<IntoPyFloat>,
         vm: &VirtualMachine,
     ) -> PyResult<PyComplexRef> {
         let real = match real {
             OptionalArg::Missing => 0.0,
-            OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
+            OptionalArg::Present(ref value) => value.to_f64(),
         };
 
         let imag = match imag {
             OptionalArg::Missing => 0.0,
-            OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
+            OptionalArg::Present(ref value) => value.to_f64(),
         };
 
         let value = Complex64::new(real, imag);

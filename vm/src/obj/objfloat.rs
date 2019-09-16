@@ -630,7 +630,7 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
     obj.payload::<PyFloat>().unwrap().value
 }
 
-pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
+fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     if objtype::isinstance(obj, &vm.ctx.float_type()) {
         Ok(get_value(obj))
     } else {
@@ -642,6 +642,25 @@ pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
         })?;
         let result = vm.invoke(&method, vec![])?;
         Ok(get_value(&result))
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct IntoPyFloat {
+    value: f64,
+}
+
+impl IntoPyFloat {
+    pub fn to_f64(self) -> f64 {
+        self.value
+    }
+}
+
+impl TryFromObject for IntoPyFloat {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        Ok(IntoPyFloat {
+            value: make_float(vm, &obj)?,
+        })
     }
 }
 
