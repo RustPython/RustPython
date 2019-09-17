@@ -1,10 +1,10 @@
 use num_cpus;
 use std::cell::RefCell;
+use std::convert::TryInto;
 use std::ffi::CStr;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Error, ErrorKind, Read, Write};
-use std::convert::TryInto;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 #[cfg(windows)]
@@ -122,20 +122,24 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let fname = &make_path(vm, name, &dir_fd).value;
 
     let mut options = OpenOptions::new();
-
-    if cfg!(unix) {
-        let flags = objint::get_value(flags).to_i32().unwrap();
-        options.custom_flags(flags);
-    } else {
-        let flags = objint::get_value(flags).to_u32().unwrap();
-        options.custom_flags(flags.try_into().unwrap_or_default());
-    };
-
+    let options = _set_file_model(&mut options, flags);
     let handle = options
         .open(&fname)
         .map_err(|err| convert_io_error(vm, err))?;
 
     Ok(vm.ctx.new_int(raw_file_number(handle)))
+}
+
+#[cfg(unix)]
+fn _set_file_model<'a>(options: &'a mut OpenOptions, flags: &PyObjectRef) -> &'a mut OpenOptions {
+    let flags = objint::get_value(flags).to_i32().unwrap();
+    options.custom_flags(flags)
+}
+
+#[cfg(windows)]
+fn _set_file_model<'a>(options: &'a mut OpenOptions, flags: &PyObjectRef) -> &'a mut OpenOptions {
+    let flags = objint::get_value(flags).to_u32().unwrap();
+    options.custom_flags(flags)
 }
 
 #[cfg(all(not(unix), not(windows)))]
