@@ -1,14 +1,13 @@
 use num_cpus;
 use std::cell::RefCell;
-use std::convert::TryInto;
-use std::io::{self, Error, ErrorKind, Read, Write};
+use std::ffi;
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::io::{self, ErrorKind, Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
-use std::ffi;
-use std::fs::File;
-use std::fs::OpenOptions;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
