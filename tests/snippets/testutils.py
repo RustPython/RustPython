@@ -20,7 +20,17 @@ def assert_raises(exc_type, expr, msg=None):
         assert False, failmsg
 
 
-class assertRaises:
+def assertRaises(expected, *args, **kw):
+    if not args:
+        assert not kw
+        return _assertRaises(expected)
+    else:
+        f, f_args = args[0], args[1:]
+        with _assertRaises(expected):
+            f(*f_args, **kw)
+
+
+class _assertRaises:
     def __init__(self, expected):
         self.expected = expected
         self.exception = None

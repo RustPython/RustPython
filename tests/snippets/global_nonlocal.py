@@ -15,8 +15,11 @@ assert a == 4
 
 def x():
     def y():
+        global a
         nonlocal b
+        assert a == 4, a
         b = 3
+    a = "no!" # a here shouldn't be seen by the global above.
     b = 2
     y()
     return b
@@ -53,6 +56,14 @@ c = 2
 with assertRaises(SyntaxError):
     exec(src)
 
+# Invalid syntax:
+src = """
+def a():
+    nonlocal a
+"""
+
+with assertRaises(SyntaxError):
+    exec(src)
 
 # class X:
 #     nonlocal c

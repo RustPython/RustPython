@@ -20,6 +20,7 @@ pub enum LexicalErrorType {
     StringError,
     UnicodeError,
     NestingError,
+    PositionalArgumentError,
     UnrecognizedToken { tok: char },
     FStringError(FStringErrorType),
     OtherError(String),
@@ -32,11 +33,20 @@ impl fmt::Display for LexicalErrorType {
             LexicalErrorType::FStringError(error) => write!(f, "Got error in f-string: {}", error),
             LexicalErrorType::UnicodeError => write!(f, "Got unexpected unicode"),
             LexicalErrorType::NestingError => write!(f, "Got unexpected nesting"),
+            LexicalErrorType::PositionalArgumentError => {
+                write!(f, "positional argument follows keyword argument")
+            }
             LexicalErrorType::UnrecognizedToken { tok } => {
                 write!(f, "Got unexpected token {}", tok)
             }
             LexicalErrorType::OtherError(msg) => write!(f, "{}", msg),
         }
+    }
+}
+
+impl From<LexicalError> for LalrpopError<Location, Tok, LexicalError> {
+    fn from(err: LexicalError) -> Self {
+        lalrpop_util::ParseError::User { error: err }
     }
 }
 
@@ -151,7 +161,7 @@ impl fmt::Display for ParseErrorType {
             ParseErrorType::ExtraToken(ref tok) => write!(f, "Got extraneous token: {:?}", tok),
             ParseErrorType::InvalidToken => write!(f, "Got invalid token"),
             ParseErrorType::UnrecognizedToken(ref tok, _) => {
-                write!(f, "Got unexpected token: {:?}", tok)
+                write!(f, "Got unexpected token {}", tok)
             }
             ParseErrorType::Lexical(ref error) => write!(f, "{}", error),
         }

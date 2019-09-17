@@ -1,14 +1,14 @@
 use num_cpus;
 use std::cell::RefCell;
 use std::convert::TryInto;
-use std::ffi::CStr;
-use std::fs::File;
-use std::fs::OpenOptions;
 use std::io::{self, Error, ErrorKind, Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
+use std::ffi;
+use std::fs::File;
+use std::fs::OpenOptions;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
@@ -17,7 +17,7 @@ use nix::errno::Errno;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::pty::openpty;
 #[cfg(unix)]
-use nix::unistd::{self, Gid, Pid, Uid};
+use nix::unistd::{self, Gid, Pid, Uid, Whence};
 use num_traits::cast::ToPrimitive;
 
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
@@ -29,7 +29,8 @@ use crate::obj::objset::PySet;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
+    Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -58,11 +59,10 @@ pub fn raw_file_number(handle: File) -> i64 {
 
 #[cfg(windows)]
 pub fn rust_file(raw_fileno: i64) -> File {
-    use std::ffi::c_void;
     use std::os::windows::io::FromRawHandle;
 
     //This seems to work as expected but further testing is required.
-    unsafe { File::from_raw_handle(raw_fileno as *mut c_void) }
+    unsafe { File::from_raw_handle(raw_fileno as *mut ffi::c_void) }
 }
 
 #[cfg(all(not(unix), not(windows)))]
@@ -249,7 +249,7 @@ fn get_right_permission(
     let others_permissions = get_permissions(others_mode);
 
     let user_id = nix::unistd::getuid();
-    let groups_ids = nix::unistd::getgroups()?;
+    let groups_ids = getgroups()?;
 
     if file_owner == user_id {
         Ok(owner_permissions)
@@ -258,6 +258,35 @@ fn get_right_permission(
     } else {
         Ok(others_permissions)
     }
+}
+
+#[cfg(target_os = "macos")]
+fn getgroups() -> nix::Result<Vec<Gid>> {
+    use libc::{c_int, gid_t};
+    use std::ptr;
+    let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
+    let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
+    loop {
+        let ret = unsafe {
+            libc::getgroups(
+                groups.capacity() as c_int,
+                groups.as_mut_ptr() as *mut gid_t,
+            )
+        };
+
+        return Errno::result(ret).map(|s| {
+            unsafe { groups.set_len(s as usize) };
+            groups
+        });
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use nix::unistd::getgroups;
+
+#[cfg(target_os = "redox")]
+fn getgroups() -> nix::Result<Vec<Gid>> {
+    unimplemented!("redox getgroups")
 }
 
 #[cfg(unix)]
@@ -375,12 +404,46 @@ fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-fn os_putenv(key: PyStringRef, value: PyStringRef, _vm: &VirtualMachine) {
-    env::set_var(&key.value, &value.value)
+fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsStr> {
+    let os_str = {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            Some(ffi::OsStr::from_bytes(b))
+        }
+        #[cfg(windows)]
+        {
+            std::str::from_utf8(b).ok().map(|s| s.as_ref())
+        }
+    };
+    os_str
+        .ok_or_else(|| vm.new_value_error("Can't convert bytes to str for env function".to_owned()))
 }
 
-fn os_unsetenv(key: PyStringRef, _vm: &VirtualMachine) {
-    env::remove_var(&key.value)
+fn os_putenv(
+    key: Either<PyStringRef, PyBytesRef>,
+    value: Either<PyStringRef, PyBytesRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let key: &ffi::OsStr = match key {
+        Either::A(ref s) => s.as_str().as_ref(),
+        Either::B(ref b) => bytes_as_osstr(b.get_value(), vm)?,
+    };
+    let value: &ffi::OsStr = match value {
+        Either::A(ref s) => s.as_str().as_ref(),
+        Either::B(ref b) => bytes_as_osstr(b.get_value(), vm)?,
+    };
+    env::set_var(key, value);
+    Ok(())
+}
+
+fn os_unsetenv(key: Either<PyStringRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
+    let key: &ffi::OsStr = match key {
+        Either::A(ref s) => s.as_str().as_ref(),
+        Either::B(ref b) => bytes_as_osstr(b.get_value(), vm)?,
+    };
+    env::remove_var(key);
+    Ok(())
 }
 
 fn _os_environ(vm: &VirtualMachine) -> PyDictRef {
@@ -823,6 +886,28 @@ fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     env::set_current_dir(&path.value).map_err(|err| convert_io_error(vm, err))
 }
 
+#[cfg(unix)]
+fn os_chmod(
+    path: PyStringRef,
+    dir_fd: DirFd,
+    mode: u32,
+    follow_symlinks: FollowSymlinks,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = make_path(vm, path, &dir_fd);
+    let metadata = if follow_symlinks.follow_symlinks {
+        fs::metadata(&path.value)
+    } else {
+        fs::symlink_metadata(&path.value)
+    };
+    let meta = metadata.map_err(|err| convert_io_error(vm, err))?;
+    let mut permissions = meta.permissions();
+    permissions.set_mode(mode);
+    fs::set_permissions(&path.value, permissions).map_err(|err| convert_io_error(vm, err))?;
+    Ok(())
+}
+
 fn os_fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if objtype::issubclass(&path.class(), &vm.ctx.str_type())
         || objtype::issubclass(&path.class(), &vm.ctx.bytes_type())
@@ -960,9 +1045,9 @@ pub fn os_ttyname(fd: PyIntRef, vm: &VirtualMachine) -> PyResult {
     if let Some(fd) = fd.as_bigint().to_i32() {
         let name = unsafe { ttyname(fd) };
         if name.is_null() {
-            Err(vm.new_os_error(Error::last_os_error().to_string()))
+            Err(vm.new_os_error(io::Error::last_os_error().to_string()))
         } else {
-            let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
+            let name = unsafe { ffi::CStr::from_ptr(name) }.to_str().unwrap();
             Ok(vm.ctx.new_str(name.to_owned()))
         }
     } else {
@@ -1035,12 +1120,12 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
             }
         }
     }
-    let support_funcs = vec![
+    #[allow(unused_mut)]
+    let mut support_funcs = vec![
         SupportFunc::new(vm, "open", os_open, None, Some(false), None),
         // access Some Some None
         SupportFunc::new(vm, "chdir", os_chdir, Some(false), None, None),
         // chflags Some, None Some
-        // chmod Some Some Some
         // chown Some Some Some
         // chroot Some None None
         SupportFunc::new(vm, "listdir", os_listdir, Some(false), None, None),
@@ -1060,6 +1145,15 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "unlink", os_remove, Some(false), Some(false), None),
         // utime Some Some Some
     ];
+    #[cfg(unix)]
+    support_funcs.extend(vec![SupportFunc::new(
+        vm,
+        "chmod",
+        os_chmod,
+        Some(false),
+        Some(false),
+        Some(false),
+    )]);
     let supports_fd = PySet::default().into_ref(vm);
     let supports_dir_fd = PySet::default().into_ref(vm);
     let supports_follow_symlinks = PySet::default().into_ref(vm);
@@ -1144,12 +1238,16 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
         "access" => ctx.new_rustfunc(os_access),
-
         "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
         "O_RSYNC" => ctx.new_int(libc::O_RSYNC),
         "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
         "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
         "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
+        "chmod" => ctx.new_rustfunc(os_chmod),
+        "ttyname" => ctx.new_rustfunc(os_ttyname),
+        "SEEK_SET" => ctx.new_int(Whence::SeekSet as i8),
+        "SEEK_CUR" => ctx.new_int(Whence::SeekCur as i8),
+        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8),
     });
 
     #[cfg(not(target_os = "redox"))]
@@ -1159,7 +1257,20 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setegid" => ctx.new_rustfunc(os_setegid),
         "seteuid" => ctx.new_rustfunc(os_seteuid),
         "openpty" => ctx.new_rustfunc(os_openpty),
-        "ttyname" => ctx.new_rustfunc(os_ttyname),
+    });
+
+    // cfg taken from nix
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        all(
+            target_os = "linux",
+            not(any(target_env = "musl", target_arch = "mips", target_arch = "mips64"))
+        )
+    ))]
+    extend_module!(vm, module, {
+        "SEEK_DATA" => ctx.new_int(Whence::SeekData as i8),
+        "SEEK_HOLE" => ctx.new_int(Whence::SeekHole as i8)
     });
 
     module

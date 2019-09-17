@@ -1,5 +1,8 @@
 from testutils import assert_raises
 
+assert -3 // 2 == -2
+assert -3 % 2 == 1
+
 a = 4
 
 #print(a ** 3)

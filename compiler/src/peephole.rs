@@ -1,7 +1,8 @@
-use crate::compile::Label;
 use crate::output_stream::OutputStream;
 use arrayvec::ArrayVec;
-use rustpython_bytecode::bytecode::{self, CodeObject, Instruction, Location};
+use rustpython_bytecode::bytecode::{CodeObject, Instruction, Label, Location};
+
+pub mod optimizations;
 
 const PEEPHOLE_BUFFER_SIZE: usize = 20;
 
@@ -48,6 +49,13 @@ impl<O: OutputStream> From<PeepholeOptimizer<O>> for CodeObject {
     }
 }
 
+#[macro_export]
+macro_rules! apply_optimizations {
+    ($buf:expr, $($opt:ident),*$(,)?) => {{
+        $($crate::peephole::optimizations::$opt($buf);)*
+    }};
+}
+
 impl<O: OutputStream> PeepholeOptimizer<O> {
     pub fn new(inner: O) -> Self {
         PeepholeOptimizer {
@@ -82,6 +90,10 @@ impl<O: OutputStream> PeepholeOptimizer<O> {
             Self::inner_emit(&mut self.inner, instruction, meta);
         }
     }
+
+    fn optimize(&mut self) {
+        apply_optimizations!(self, operator, unpack);
+    }
 }
 
 impl<O> OutputStream for PeepholeOptimizer<O>
@@ -90,9 +102,9 @@ where
 {
     fn emit(&mut self, instruction: Instruction, loc: Location) {
         self.push(instruction, loc.into());
-        optimize(self);
+        self.optimize();
     }
-    fn set_label(&mut self, label: crate::compile::Label) {
+    fn set_label(&mut self, label: Label) {
         if let Some(instr) = self.buffer.last_mut() {
             instr.1.labels.push(label)
         }
@@ -111,104 +123,7 @@ impl<O: OutputStream> OptimizationBuffer for PeepholeOptimizer<O> {
     }
 }
 
-// OPTIMIZATION
-
 pub trait OptimizationBuffer {
     fn emit(&mut self, instruction: Instruction, meta: InstructionMetadata);
     fn pop(&mut self) -> (Instruction, InstructionMetadata);
-}
-
-macro_rules! lc {
-    ($name:ident {$($field:tt)*}) => {
-        Instruction::LoadConst {
-            value: bytecode::Constant::$name {$($field)*},
-        }
-    };
-    ($name:ident, $($value:tt)*) => {
-        lc!($name { value: $($value)* })
-    };
-}
-macro_rules! emitconst {
-    ($buf:expr, [$($metas:expr),*], $($arg:tt)*) => {
-        $buf.emit(
-            lc!($($arg)*),
-            InstructionMetadata::from(vec![$($metas),*]),
-        )
-    };
-}
-
-pub fn optimize(buf: &mut impl OptimizationBuffer) {
-    optimize_operator(buf);
-    optimize_unpack(buf);
-}
-
-fn optimize_operator(buf: &mut impl OptimizationBuffer) {
-    let (instruction, meta) = buf.pop();
-    if let Instruction::BinaryOperation { op, inplace } = instruction {
-        let (rhs, rhs_meta) = buf.pop();
-        let (lhs, lhs_meta) = buf.pop();
-        macro_rules! op {
-            ($op:ident) => {
-                bytecode::BinaryOperator::$op
-            };
-        }
-        match (op, lhs, rhs) {
-            (op!(Add), lc!(Integer, lhs), lc!(Integer, rhs)) => {
-                emitconst!(buf, [lhs_meta, rhs_meta], Integer, lhs + rhs)
-            }
-            (op!(Subtract), lc!(Integer, lhs), lc!(Integer, rhs)) => {
-                emitconst!(buf, [lhs_meta, rhs_meta], Integer, lhs - rhs)
-            }
-            (op!(Add), lc!(Float, lhs), lc!(Float, rhs)) => {
-                emitconst!(buf, [lhs_meta, rhs_meta], Float, lhs + rhs)
-            }
-            (op!(Subtract), lc!(Float, lhs), lc!(Float, rhs)) => {
-                emitconst!(buf, [lhs_meta, rhs_meta], Float, lhs - rhs)
-            }
-            (op!(Multiply), lc!(Float, lhs), lc!(Float, rhs)) => {
-                emitconst!(buf, [lhs_meta, rhs_meta], Float, lhs * rhs)
-            }
-            (op!(Divide), lc!(Float, lhs), lc!(Float, rhs)) => {
-                emitconst!(buf, [lhs_meta, rhs_meta], Float, lhs / rhs)
-            }
-            (op!(Power), lc!(Float, lhs), lc!(Float, rhs)) => {
-                emitconst!(buf, [lhs_meta, rhs_meta], Float, lhs.powf(rhs))
-            }
-            (op!(Add), lc!(String, mut lhs), lc!(String, rhs)) => {
-                lhs.push_str(&rhs);
-                emitconst!(buf, [lhs_meta, rhs_meta], String, lhs);
-            }
-            (op, lhs, rhs) => {
-                buf.emit(lhs, lhs_meta);
-                buf.emit(rhs, rhs_meta);
-                buf.emit(Instruction::BinaryOperation { op, inplace }, meta);
-            }
-        }
-    } else {
-        buf.emit(instruction, meta)
-    }
-}
-
-fn optimize_unpack(buf: &mut impl OptimizationBuffer) {
-    let (instruction, meta) = buf.pop();
-    if let Instruction::UnpackSequence { size } = instruction {
-        let (arg, arg_meta) = buf.pop();
-        match arg {
-            Instruction::BuildTuple {
-                size: tup_size,
-                unpack,
-            } if !unpack && tup_size == size => {
-                buf.emit(
-                    Instruction::Reverse { amount: size },
-                    vec![arg_meta, meta].into(),
-                );
-            }
-            arg => {
-                buf.emit(arg, arg_meta);
-                buf.emit(instruction, meta);
-            }
-        }
-    } else {
-        buf.emit(instruction, meta)
-    }
 }

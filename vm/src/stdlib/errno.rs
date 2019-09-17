@@ -9,7 +9,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     for (name, code) in ERROR_CODES {
         let name = vm.new_str((*name).to_owned());
         let code = vm.ctx.new_int(*code);
-        errorcode.set_item(code.clone(), name.clone(), vm).unwrap();
+        errorcode.set_item(&code, name.clone(), vm).unwrap();
         vm.set_attr(&module, name, code).unwrap();
     }
     module
@@ -224,6 +224,7 @@ const ERROR_CODES: &[(&str, i32)] = &[
     ("ERANGE", libc::ERANGE),
     ("ECONNRESET", libc::ECONNRESET),
     ("EADDRINUSE", libc::EADDRINUSE),
+    #[cfg(not(target_os = "redox"))]
     ("ENOTSUP", libc::ENOTSUP),
     ("ENAMETOOLONG", libc::ENAMETOOLONG),
     ("ENOTTY", libc::ENOTTY),

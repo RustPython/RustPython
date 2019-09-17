@@ -26,11 +26,12 @@ print(t)
 
 shift = 3
 def print_node(node, indent=0):
+    indents = ' ' * indent
     if isinstance(node, ast.AST):
         lineno = 'row={}'.format(node.lineno) if hasattr(node, 'lineno') else ''
-        print(' '*indent, "NODE", node.__class__.__name__, lineno)
+        print(indents, "NODE", node.__class__.__name__, lineno)
         for field in node._fields:
-            print(' '*indent,'-', field)
+            print(indents,'-', field)
             f = getattr(node, field)
             if isinstance(f, list):
                 for f2 in f:
@@ -38,7 +39,7 @@ def print_node(node, indent=0):
             else:
                 print_node(f, indent=indent+shift)
     else:
-        print(' '*indent, 'OBJ', node)
+        print(indents, 'OBJ', node)
 
 print_node(t)
 
@@ -53,18 +54,24 @@ flag_names = [
 ]
 
 def print_table(table, indent=0):
-    print(' '*indent, 'table:', table.get_name())
-    print(' '*indent, ' ', 'Syms:')
+    indents = ' ' * indent
+    print(indents, 'table:', table.get_name())
+    print(indents, ' ', 'name:', table.get_name())
+    print(indents, ' ', 'type:', table.get_type())
+    print(indents, ' ', 'line:', table.get_lineno())
+    print(indents, ' ', 'identifiers:', table.get_identifiers())
+    print(indents, ' ', 'Syms:')
     for sym in table.get_symbols():
         flags = []
         for flag_name in flag_names:
             func = getattr(sym, flag_name)
             if func():
                 flags.append(flag_name)
-        print(' '*indent, '   sym:', sym.get_name(), 'flags:', ' '.join(flags))
-    print(' '*indent, ' ', 'Child tables:')
-    for child in table.get_children():
-        print_table(child, indent=indent+shift)
+        print(indents, '   sym:', sym.get_name(), 'flags:', ' '.join(flags))
+    if table.has_children():
+        print(indents, ' ', 'Child tables:')
+        for child in table.get_children():
+            print_table(child, indent=indent+shift)
 
 table = symtable.symtable(source, 'a', 'exec')
 print_table(table)
@@ -73,4 +80,4 @@ print()
 print('======== dis.dis ========')
 print()
 co = compile(source, filename, 'exec')
-print(dis.dis(co))
+dis.dis(co)

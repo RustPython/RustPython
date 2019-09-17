@@ -183,3 +183,55 @@ assert_matches_seq(it, [1, 2])
 
 it = i([1, 2, 3], None, None, 3)
 assert_matches_seq(it, [1])
+
+# itertools.filterfalse
+it = itertools.filterfalse(lambda x: x%2, range(10))
+assert 0 == next(it)
+assert 2 == next(it)
+assert 4 == next(it)
+assert 6 == next(it)
+assert 8 == next(it)
+with assertRaises(StopIteration):
+    next(it)
+
+l = [0, 1, None, False, True, [], {}]
+it = itertools.filterfalse(None, l)
+assert 0 == next(it)
+assert None == next(it)
+assert False == next(it)
+assert [] == next(it)
+assert {} == next(it)
+
+
+# itertools.dropwhile
+it = itertools.dropwhile(lambda x: x<5, [1,4,6,4,1])
+assert 6 == next(it)
+assert 4 == next(it)
+assert 1 == next(it)
+with assertRaises(StopIteration):
+    next(it)
+
+
+# itertools.accumulate
+it = itertools.accumulate([6, 3, 7, 1, 0, 9, 8, 8])
+assert 6 == next(it)
+assert 9 == next(it)
+assert 16 == next(it)
+assert 17 == next(it)
+assert 17 == next(it)
+assert 26 == next(it)
+assert 34 == next(it)
+assert 42 == next(it)
+with assertRaises(StopIteration):
+    next(it)
+
+it = itertools.accumulate([3, 2, 4, 1, 0, 5, 8], lambda a, v: a*v)
+assert 3 == next(it)
+assert 6 == next(it)
+assert 24 == next(it)
+assert 24 == next(it)
+assert 0 == next(it)
+assert 0 == next(it)
+assert 0 == next(it)
+with assertRaises(StopIteration):
+    next(it)

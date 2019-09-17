@@ -8,10 +8,8 @@ use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
-    import,
-    obj::objstr,
-    print_exception,
-    pyobject::{ItemProtocol, PyResult},
+    import, print_exception,
+    pyobject::{ItemProtocol, PyObjectRef, PyResult},
     scope::Scope,
     util, PySettings, VirtualMachine,
 };
@@ -317,7 +315,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     vm.get_attribute(vm.sys_module.clone(), "modules")?
         .set_item("__main__", main_module, vm)?;
 
-    let site_result = vm.import("site", &vm.ctx.new_tuple(vec![]), 0);
+    let site_result = vm.import("site", &[], 0);
 
     if site_result.is_err() {
         warn!(
@@ -366,7 +364,7 @@ fn run_command(vm: &VirtualMachine, scope: Scope, source: String) -> PyResult<()
 
 fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
-    let runpy = vm.import("runpy", &vm.ctx.new_tuple(vec![]), 0)?;
+    let runpy = vm.import("runpy", &[], 0)?;
     let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
     vm.invoke(&run_module_as_main, vec![vm.new_str(module.to_owned())])?;
     Ok(())
@@ -434,67 +432,35 @@ fn test_run_script() {
     assert!(r.is_ok());
 }
 
-fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), CompileError> {
+enum ShellExecResult {
+    Ok,
+    PyErr(PyObjectRef),
+    Continue,
+}
+
+fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResult {
     match vm.compile(source, compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => {
             match vm.run_code_obj(code, scope.clone()) {
                 Ok(value) => {
                     // Save non-None values as "_"
-
-                    use rustpython_vm::pyobject::{IdProtocol, IntoPyObject};
-
-                    if !value.is(&vm.get_none()) {
-                        let key = objstr::PyString::from("_").into_pyobject(vm);
+                    if !vm.is_none(&value) {
+                        let key = "_";
                         scope.globals.set_item(key, value, vm).unwrap();
                     }
+                    ShellExecResult::Ok
                 }
-
-                Err(err) => {
-                    print_exception(vm, &err);
-                }
+                Err(err) => ShellExecResult::PyErr(err),
             }
-
-            Ok(())
         }
-        // Don't inject syntax errors for line continuation
-        Err(
-            err @ CompileError {
-                error: CompileErrorType::Parse(ParseErrorType::EOF),
-                ..
-            },
-        ) => Err(err),
-        Err(err) => {
-            let exc = vm.new_syntax_error(&err);
-            print_exception(vm, &exc);
-            Err(err)
-        }
+        Err(CompileError {
+            error: CompileErrorType::Parse(ParseErrorType::EOF),
+            ..
+        }) => ShellExecResult::Continue,
+        Err(err) => ShellExecResult::PyErr(vm.new_syntax_error(&err)),
     }
 }
 
-#[cfg(not(unix))]
-fn get_history_path() -> PathBuf {
-    PathBuf::from(".repl_history.txt")
-}
-
-#[cfg(unix)]
-fn get_history_path() -> PathBuf {
-    //work around for windows dependent builds. The xdg crate is unix specific
-    //so access to the BaseDirectories struct breaks builds on python.
-    extern crate xdg;
-
-    let xdg_dirs = xdg::BaseDirectories::with_prefix("rustpython").unwrap();
-    xdg_dirs.place_cache_file("repl_history.txt").unwrap()
-}
-
-fn get_prompt(vm: &VirtualMachine, prompt_name: &str) -> String {
-    vm.get_attribute(vm.sys_module.clone(), prompt_name)
-        .ok()
-        .as_ref()
-        .map(objstr::get_value)
-        .unwrap_or_else(String::new)
-}
-
-#[cfg(not(target_os = "redox"))]
 fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     use rustyline::{error::ReadlineError, Editor};
 
@@ -508,28 +474,53 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     let mut repl = Editor::<()>::new();
 
     // Retrieve a `history_path_str` dependent on the OS
-    let repl_history_path_str = &get_history_path();
-    if repl.load_history(repl_history_path_str).is_err() {
+    let repl_history_path = match dirs::config_dir() {
+        Some(mut path) => {
+            path.push("rustpython");
+            path.push("repl_history.txt");
+            path
+        }
+        None => ".repl_history.txt".into(),
+    };
+
+    if !repl_history_path.exists() {
+        if let Some(parent) = repl_history_path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+    }
+
+    if repl.load_history(&repl_history_path).is_err() {
         println!("No previous history.");
     }
 
     let mut continuing = false;
 
     loop {
-        let prompt = if continuing {
-            get_prompt(vm, "ps2")
-        } else {
-            get_prompt(vm, "ps1")
+        let prompt_name = if continuing { "ps2" } else { "ps1" };
+        let prompt = vm
+            .get_attribute(vm.sys_module.clone(), prompt_name)
+            .and_then(|prompt| vm.to_str(&prompt));
+        let prompt = match prompt {
+            Ok(ref s) => s.as_str(),
+            Err(_) => "",
         };
-        match repl.readline(&prompt) {
+        let result = match repl.readline(prompt) {
             Ok(line) => {
                 debug!("You entered {:?}", line);
-                input.push_str(&line);
-                input.push('\n');
+
                 repl.add_history_entry(line.trim_end());
 
+                let stop_continuing = line.is_empty();
+
+                if input.is_empty() {
+                    input = line;
+                } else {
+                    input.push_str(&line);
+                }
+                input.push_str("\n");
+
                 if continuing {
-                    if line.is_empty() {
+                    if stop_continuing {
                         continuing = false;
                     } else {
                         continue;
@@ -537,60 +528,42 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 }
 
                 match shell_exec(vm, &input, scope.clone()) {
-                    Err(CompileError {
-                        error: CompileErrorType::Parse(ParseErrorType::EOF),
-                        ..
-                    }) => {
-                        continuing = true;
-                        continue;
+                    ShellExecResult::Ok => {
+                        input.clear();
+                        Ok(())
                     }
-                    _ => {
-                        input = String::new();
+                    ShellExecResult::Continue => {
+                        continuing = true;
+                        Ok(())
+                    }
+                    ShellExecResult::PyErr(err) => {
+                        input.clear();
+                        Err(err)
                     }
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                // TODO: Raise a real KeyboardInterrupt exception
-                println!("^C");
                 continuing = false;
-                continue;
+                input.clear();
+                let keyboard_interrupt = vm
+                    .new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())
+                    .unwrap();
+                Err(keyboard_interrupt)
             }
             Err(ReadlineError::Eof) => {
                 break;
             }
             Err(err) => {
-                println!("Error: {:?}", err);
+                eprintln!("Readline error: {:?}", err);
                 break;
             }
         };
+
+        if let Err(exc) = result {
+            print_exception(vm, &exc);
+        }
     }
-    repl.save_history(repl_history_path_str).unwrap();
-
-    Ok(())
-}
-
-#[cfg(target_os = "redox")]
-fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
-    use std::io::{self, BufRead, Write};
-
-    println!(
-        "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
-        crate_version!()
-    );
-
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
-
-    print!("{}", get_prompt(vm, "ps1"));
-    stdout.flush().expect("flush failed");
-    for line in stdin.lock().lines() {
-        let mut line = line.expect("line failed");
-        line.push('\n');
-        let _ = shell_exec(vm, &line, scope.clone());
-        print!("{}", get_prompt(vm, "ps1"));
-        stdout.flush().expect("flush failed");
-    }
+    repl.save_history(&repl_history_path).unwrap();
 
     Ok(())
 }

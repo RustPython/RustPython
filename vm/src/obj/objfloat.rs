@@ -8,7 +8,7 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use hexf_parse;
@@ -40,6 +40,11 @@ impl IntoPyObject for f64 {
         Ok(vm.ctx.new_float(self))
     }
 }
+impl IntoPyObject for f32 {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_float(f64::from(self)))
+    }
+}
 
 impl From<f64> for PyFloat {
     fn from(value: f64) -> Self {
@@ -56,6 +61,18 @@ pub fn try_float(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f6
         None
     })
 }
+
+macro_rules! impl_try_from_object_float {
+    ($($t:ty),*) => {
+        $(impl TryFromObject for $t {
+            fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+                PyFloatRef::try_from_object(vm, obj).map(|f| f.to_f64() as $t)
+            }
+        })*
+    };
+}
+
+impl_try_from_object_float!(f32, f64);
 
 fn inner_div(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
     if v2 != 0.0 {
@@ -613,7 +630,7 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
     obj.payload::<PyFloat>().unwrap().value
 }
 
-pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
+fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     if objtype::isinstance(obj, &vm.ctx.float_type()) {
         Ok(get_value(obj))
     } else {
@@ -625,6 +642,25 @@ pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
         })?;
         let result = vm.invoke(&method, vec![])?;
         Ok(get_value(&result))
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct IntoPyFloat {
+    value: f64,
+}
+
+impl IntoPyFloat {
+    pub fn to_f64(self) -> f64 {
+        self.value
+    }
+}
+
+impl TryFromObject for IntoPyFloat {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        Ok(IntoPyFloat {
+            value: make_float(vm, &obj)?,
+        })
     }
 }
 

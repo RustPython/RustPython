@@ -12,7 +12,7 @@ use crate::symboltable::{
     make_symbol_table, statements_to_symbol_table, Symbol, SymbolScope, SymbolTable,
 };
 use num_complex::Complex64;
-use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
+use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Label, Varargs};
 use rustpython_parser::{ast, parser};
 
 type BasicOutputStream = PeepholeOptimizer<CodeObjectStream>;
@@ -133,8 +133,6 @@ impl std::fmt::Display for ModeParseError {
         write!(f, r#"mode should be "exec", "eval", or "single""#)
     }
 }
-
-pub(crate) type Label = usize;
 
 impl<O> Default for Compiler<O>
 where
@@ -282,8 +280,8 @@ impl<O: OutputStream> Compiler<O> {
         match symbol.scope {
             SymbolScope::Global => bytecode::NameScope::Global,
             SymbolScope::Nonlocal => bytecode::NameScope::NonLocal,
-            SymbolScope::Unknown => bytecode::NameScope::Local,
-            SymbolScope::Local => bytecode::NameScope::Local,
+            SymbolScope::Unknown => bytecode::NameScope::Free,
+            SymbolScope::Local => bytecode::NameScope::Free,
         }
     }
 
@@ -500,7 +498,7 @@ impl<O: OutputStream> Compiler<O> {
                     self.compile_jump_if(test, true, end_label)?;
                     self.emit(Instruction::LoadName {
                         name: String::from("AssertionError"),
-                        scope: bytecode::NameScope::Local,
+                        scope: bytecode::NameScope::Global,
                     });
                     match msg {
                         Some(e) => {
@@ -586,7 +584,7 @@ impl<O: OutputStream> Compiler<O> {
                 }
             }
             Pass => {
-                self.emit(Instruction::Pass);
+                // No need to emit any code here :)
             }
         }
         Ok(())
@@ -708,12 +706,20 @@ impl<O: OutputStream> Compiler<O> {
         &mut self,
         body: &[ast::Statement],
         handlers: &[ast::ExceptHandler],
-        orelse: &Option<Vec<ast::Statement>>,
-        finalbody: &Option<Vec<ast::Statement>>,
+        orelse: &Option<ast::Suite>,
+        finalbody: &Option<ast::Suite>,
     ) -> Result<(), CompileError> {
         let mut handler_label = self.new_label();
-        let finally_label = self.new_label();
+        let finally_handler_label = self.new_label();
         let else_label = self.new_label();
+
+        // Setup a finally block if we have a finally statement.
+        if finalbody.is_some() {
+            self.emit(Instruction::SetupFinally {
+                handler: finally_handler_label,
+            });
+        }
+
         // try:
         self.emit(Instruction::SetupExcept {
             handler: handler_label,
@@ -736,7 +742,7 @@ impl<O: OutputStream> Compiler<O> {
                 // Check exception type:
                 self.emit(Instruction::LoadName {
                     name: String::from("isinstance"),
-                    scope: bytecode::NameScope::Local,
+                    scope: bytecode::NameScope::Global,
                 });
                 self.emit(Instruction::Rotate { amount: 2 });
                 self.compile_expression(exc_type)?;
@@ -765,26 +771,28 @@ impl<O: OutputStream> Compiler<O> {
             // Handler code:
             self.compile_statements(&handler.body)?;
             self.emit(Instruction::PopException);
+
+            if finalbody.is_some() {
+                self.emit(Instruction::PopBlock); // pop finally block
+                                                  // We enter the finally block, without exception.
+                self.emit(Instruction::EnterFinally);
+            }
+
             self.emit(Instruction::Jump {
-                target: finally_label,
+                target: finally_handler_label,
             });
 
             // Emit a new label for the next handler
             self.set_label(handler_label);
             handler_label = self.new_label();
         }
+
         self.emit(Instruction::Jump {
             target: handler_label,
         });
         self.set_label(handler_label);
         // If code flows here, we have an unhandled exception,
-        // emit finally code and raise again!
-        // Duplicate finally code here:
-        // TODO: this bytecode is now duplicate, could this be
-        // improved?
-        if let Some(statements) = finalbody {
-            self.compile_statements(statements)?;
-        }
+        // raise the exception again!
         self.emit(Instruction::Raise { argc: 0 });
 
         // We successfully ran the try block:
@@ -794,12 +802,20 @@ impl<O: OutputStream> Compiler<O> {
             self.compile_statements(statements)?;
         }
 
+        if finalbody.is_some() {
+            self.emit(Instruction::PopBlock); // pop finally block
+
+            // We enter the finally block, without return / exception.
+            self.emit(Instruction::EnterFinally);
+        }
+
         // finally:
-        self.set_label(finally_label);
+        self.set_label(finally_handler_label);
         if let Some(statements) = finalbody {
             self.compile_statements(statements)?;
+            self.emit(Instruction::EndFinally);
         }
-        // unimplemented!();
+
         Ok(())
     }
 
@@ -826,15 +842,23 @@ impl<O: OutputStream> Compiler<O> {
 
         let mut flags = self.enter_function(name, args)?;
 
-        let (new_body, doc_str) = get_doc(body);
+        let (body, doc_str) = get_doc(body);
 
-        self.compile_statements(new_body)?;
+        self.compile_statements(body)?;
 
         // Emit None at end:
-        self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::None,
-        });
-        self.emit(Instruction::ReturnValue);
+        match body.last().map(|s| &s.node) {
+            Some(ast::StatementType::Return { .. }) => {
+                // the last instruction is a ReturnValue already, we don't need to emit it
+            }
+            _ => {
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::None,
+                });
+                self.emit(Instruction::ReturnValue);
+            }
+        }
+
         let code = self.pop_code_object();
         self.leave_scope();
 
@@ -931,11 +955,11 @@ impl<O: OutputStream> Compiler<O> {
 
         self.emit(Instruction::LoadName {
             name: "__name__".to_string(),
-            scope: bytecode::NameScope::Local,
+            scope: bytecode::NameScope::Free,
         });
         self.emit(Instruction::StoreName {
             name: "__module__".to_string(),
-            scope: bytecode::NameScope::Local,
+            scope: bytecode::NameScope::Free,
         });
         self.compile_statements(new_body)?;
         self.emit(Instruction::LoadConst {
@@ -1427,10 +1451,7 @@ impl<O: OutputStream> Compiler<O> {
             Subscript { a, b } => {
                 self.compile_expression(a)?;
                 self.compile_expression(b)?;
-                self.emit(Instruction::BinaryOperation {
-                    op: bytecode::BinaryOperator::Subscript,
-                    inplace: false,
-                });
+                self.emit(Instruction::Subscript);
             }
             Unop { op, a } => {
                 self.compile_expression(a)?;
@@ -1603,10 +1624,13 @@ impl<O: OutputStream> Compiler<O> {
             Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
             }
-            Starred { value } => {
-                self.compile_expression(value)?;
-                self.emit(Instruction::Unpack);
-                panic!("We should not just unpack a starred args, since the size is unknown.");
+            Starred { .. } => {
+                return Err(CompileError {
+                    error: CompileErrorType::SyntaxError(std::string::String::from(
+                        "Invalid starred expression",
+                    )),
+                    location: self.current_source_location.clone(),
+                });
             }
             IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
@@ -1769,6 +1793,7 @@ impl<O: OutputStream> Compiler<O> {
             line_number,
             name.clone(),
         ));
+        self.enter_scope();
 
         // Create empty object of proper type:
         match kind {
@@ -1878,6 +1903,9 @@ impl<O: OutputStream> Compiler<O> {
         // Fetch code for listcomp function:
         let code = self.pop_code_object();
 
+        // Pop scope
+        self.leave_scope();
+
         // List comprehension code:
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
@@ -1986,7 +2014,7 @@ impl<O: OutputStream> Compiler<O> {
 
     // Generate a new label
     fn new_label(&mut self) -> Label {
-        let l = self.nxt_label;
+        let l = Label::new(self.nxt_label);
         self.nxt_label += 1;
         l
     }
@@ -2075,9 +2103,9 @@ fn compile_conversion_flag(conversion_flag: ast::ConversionFlag) -> bytecode::Co
 mod tests {
     use super::Compiler;
     use crate::symboltable::make_symbol_table;
-    use rustpython_bytecode::bytecode::CodeObject;
     use rustpython_bytecode::bytecode::Constant::*;
     use rustpython_bytecode::bytecode::Instruction::*;
+    use rustpython_bytecode::bytecode::{CodeObject, Label};
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {
@@ -2098,16 +2126,21 @@ mod tests {
                 LoadConst {
                     value: Boolean { value: true }
                 },
-                JumpIfTrue { target: 1 },
+                JumpIfTrue {
+                    target: Label::new(1)
+                },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIfTrue { target: 1 },
+                JumpIfTrue {
+                    target: Label::new(1)
+                },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIfFalse { target: 0 },
-                Pass,
+                JumpIfFalse {
+                    target: Label::new(0)
+                },
                 LoadConst { value: None },
                 ReturnValue
             ],
@@ -2123,16 +2156,21 @@ mod tests {
                 LoadConst {
                     value: Boolean { value: true }
                 },
-                JumpIfFalse { target: 0 },
+                JumpIfFalse {
+                    target: Label::new(0)
+                },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIfFalse { target: 0 },
+                JumpIfFalse {
+                    target: Label::new(0)
+                },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIfFalse { target: 0 },
-                Pass,
+                JumpIfFalse {
+                    target: Label::new(0)
+                },
                 LoadConst { value: None },
                 ReturnValue
             ],
@@ -2148,20 +2186,27 @@ mod tests {
                 LoadConst {
                     value: Boolean { value: true }
                 },
-                JumpIfFalse { target: 2 },
+                JumpIfFalse {
+                    target: Label::new(2)
+                },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIfTrue { target: 1 },
+                JumpIfTrue {
+                    target: Label::new(1)
+                },
                 LoadConst {
                     value: Boolean { value: false }
                 },
-                JumpIfFalse { target: 0 },
+                JumpIfFalse {
+                    target: Label::new(0)
+                },
                 LoadConst {
                     value: Boolean { value: true }
                 },
-                JumpIfFalse { target: 0 },
-                Pass,
+                JumpIfFalse {
+                    target: Label::new(0)
+                },
                 LoadConst { value: None },
                 ReturnValue
             ],

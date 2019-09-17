@@ -1,10 +1,7 @@
-use crate::obj::objint::PyIntRef;
-use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
-use crate::vm::VirtualMachine;
+use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
+use crate::vm::{VirtualMachine, NSIG};
 
 use std::sync::atomic::{AtomicBool, Ordering};
-
-use num_traits::cast::ToPrimitive;
 
 use arr_macro::arr;
 
@@ -23,56 +20,69 @@ const SIG_IGN: libc::sighandler_t = 1;
 #[cfg(windows)]
 const SIG_ERR: libc::sighandler_t = !0;
 
-const NSIG: usize = 64;
-
 // We cannot use the NSIG const in the arr macro. This will fail compilation if NSIG is different.
-static mut TRIGGERS: [AtomicBool; NSIG] = arr![AtomicBool::new(false); 64];
+static TRIGGERS: [AtomicBool; NSIG] = arr![AtomicBool::new(false); 64];
+
+static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn run_signal(signum: i32) {
-    unsafe {
-        TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
+    ANY_TRIGGERED.store(true, Ordering::Relaxed);
+    TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
+}
+
+fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
+    if (1..NSIG as i32).contains(&signum) {
+        Ok(())
+    } else {
+        Err(vm.new_value_error("signal number out of range".to_owned()))
     }
 }
 
-fn signal(
-    signalnum: PyIntRef,
-    handler: PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult<Option<PyObjectRef>> {
-    if !vm.isinstance(&handler, &vm.ctx.function_type())?
-        && !vm.isinstance(&handler, &vm.ctx.bound_method_type())?
-        && !vm.isinstance(&handler, &vm.ctx.builtin_function_or_method_type())?
-    {
-        return Err(vm.new_type_error("Hanlder must be callable".to_string()));
-    }
-    let signal_module = vm.import("signal", &vm.ctx.new_tuple(vec![]), 0)?;
-    let sig_dfl = vm.get_attribute(signal_module.clone(), "SIG_DFL")?;
-    let sig_ign = vm.get_attribute(signal_module, "SIG_IGN")?;
-    let signalnum = signalnum.as_bigint().to_i32().unwrap();
-    check_signals(vm);
-    let sig_handler = if handler.is(&sig_dfl) {
-        SIG_DFL
-    } else if handler.is(&sig_ign) {
-        SIG_IGN
-    } else {
-        run_signal as libc::sighandler_t
+fn signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    assert_in_range(signalnum, vm)?;
+
+    let sig_handler = match usize::try_from_object(vm, handler.clone()).ok() {
+        Some(SIG_DFL) => SIG_DFL,
+        Some(SIG_IGN) => SIG_IGN,
+        None if vm.is_callable(&handler) => run_signal as libc::sighandler_t,
+        _ => {
+            return Err(vm.new_type_error(
+                "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object"
+                    .to_owned(),
+            ))
+        }
     };
+    check_signals(vm)?;
+
     let old = unsafe { libc::signal(signalnum, sig_handler) };
     if old == SIG_ERR {
         return Err(vm.new_os_error("Failed to set signal".to_string()));
     }
-    let old_handler = vm.signal_handlers.borrow_mut().insert(signalnum, handler);
+    #[cfg(all(unix, not(target_os = "redox")))]
+    {
+        extern "C" {
+            fn siginterrupt(sig: i32, flag: i32);
+        }
+        unsafe {
+            siginterrupt(signalnum, 1);
+        }
+    }
+
+    let mut old_handler = handler;
+    std::mem::swap(
+        &mut vm.signal_handlers.borrow_mut()[signalnum as usize],
+        &mut old_handler,
+    );
     Ok(old_handler)
 }
 
-fn getsignal(signalnum: PyIntRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
-    let signalnum = signalnum.as_bigint().to_i32().unwrap();
-    Ok(vm.signal_handlers.borrow_mut().get(&signalnum).cloned())
+fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    assert_in_range(signalnum, vm)?;
+    Ok(vm.signal_handlers.borrow()[signalnum as usize].clone())
 }
 
 #[cfg(unix)]
-fn alarm(time: PyIntRef, _vm: &VirtualMachine) -> u32 {
-    let time = time.as_bigint().to_u32().unwrap();
+fn alarm(time: u32, _vm: &VirtualMachine) -> u32 {
     let prev_time = if time == 0 {
         sig_alarm::cancel()
     } else {
@@ -81,50 +91,72 @@ fn alarm(time: PyIntRef, _vm: &VirtualMachine) -> u32 {
     prev_time.unwrap_or(0)
 }
 
-#[allow(clippy::needless_range_loop)]
-pub fn check_signals(vm: &VirtualMachine) {
-    for signum in 1..NSIG {
-        let triggerd = unsafe { TRIGGERS[signum].swap(false, Ordering::Relaxed) };
+#[cfg_attr(feature = "flame-it", flame)]
+pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
+    if !ANY_TRIGGERED.swap(false, Ordering::Relaxed) {
+        return Ok(());
+    }
+    for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
+        let triggerd = trigger.swap(false, Ordering::Relaxed);
         if triggerd {
-            let handler = vm
-                .signal_handlers
-                .borrow()
-                .get(&(signum as i32))
-                .expect("Handler should be set")
-                .clone();
-            vm.invoke(&handler, vec![vm.new_int(signum), vm.get_none()])
-                .expect("Test");
+            let handler = &vm.signal_handlers.borrow()[signum];
+            if vm.is_callable(handler) {
+                vm.invoke(handler, vec![vm.new_int(signum), vm.get_none()])?;
+            }
         }
     }
+    Ok(())
 }
 
-fn stub_func(_vm: &VirtualMachine) -> PyResult {
-    panic!("Do not use directly");
+fn default_int_handler(_signum: PyObjectRef, _arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    Err(vm.new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())?)
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let sig_dfl = ctx.new_rustfunc(stub_func);
-    let sig_ign = ctx.new_rustfunc(stub_func);
+    let int_handler = ctx.new_rustfunc(default_int_handler);
+
+    let sig_dfl = ctx.new_int(SIG_DFL as u8);
+    let sig_ign = ctx.new_int(SIG_IGN as u8);
 
     let module = py_module!(vm, "signal", {
         "signal" => ctx.new_rustfunc(signal),
         "getsignal" => ctx.new_rustfunc(getsignal),
-        "SIG_DFL" => sig_dfl,
-        "SIG_IGN" => sig_ign,
+        "SIG_DFL" => sig_dfl.clone(),
+        "SIG_IGN" => sig_ign.clone(),
         "SIGABRT" => ctx.new_int(libc::SIGABRT as u8),
         "SIGFPE" => ctx.new_int(libc::SIGFPE as u8),
         "SIGILL" => ctx.new_int(libc::SIGILL as u8),
         "SIGINT" => ctx.new_int(libc::SIGINT as u8),
         "SIGSEGV" => ctx.new_int(libc::SIGSEGV as u8),
         "SIGTERM" => ctx.new_int(libc::SIGTERM as u8),
+        "default_int_handler" => int_handler.clone(),
     });
-    extend_module_platform_specific(vm, module)
+    extend_module_platform_specific(vm, &module);
+
+    for signum in 1..NSIG {
+        let handler = unsafe { libc::signal(signum as i32, SIG_IGN) };
+        if handler != SIG_ERR {
+            unsafe { libc::signal(signum as i32, handler) };
+        }
+        let py_handler = if handler == SIG_DFL {
+            sig_dfl.clone()
+        } else if handler == SIG_IGN {
+            sig_ign.clone()
+        } else {
+            vm.get_none()
+        };
+        vm.signal_handlers.borrow_mut()[signum] = py_handler;
+    }
+
+    signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
+
+    module
 }
 
 #[cfg(unix)]
-fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     let ctx = &vm.ctx;
 
     extend_module!(vm, module, {
@@ -161,11 +193,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
             "SIGSTKFLT" => ctx.new_int(libc::SIGSTKFLT as u8),
         });
     }
-
-    module
 }
 
 #[cfg(not(unix))]
-fn extend_module_platform_specific(_vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
-    module
-}
+fn extend_module_platform_specific(_vm: &VirtualMachine, _module: &PyObjectRef) {}

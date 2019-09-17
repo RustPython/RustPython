@@ -17,11 +17,14 @@ use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
 
 pub trait PySliceableSequence {
-    fn do_slice(&self, range: Range<usize>) -> Self;
-    fn do_slice_reverse(&self, range: Range<usize>) -> Self;
-    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self;
-    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self;
-    fn empty() -> Self;
+    type Sliced;
+
+    fn do_slice(&self, range: Range<usize>) -> Self::Sliced;
+    fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced;
+    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced;
+    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced;
+    fn empty() -> Self::Sliced;
+
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
     fn get_pos(&self, p: i32) -> Option<usize> {
@@ -63,7 +66,11 @@ pub trait PySliceableSequence {
         start..stop
     }
 
-    fn get_slice_items(&self, vm: &VirtualMachine, slice: &PyObjectRef) -> Result<Self, PyObjectRef>
+    fn get_slice_items(
+        &self,
+        vm: &VirtualMachine,
+        slice: &PyObjectRef,
+    ) -> Result<Self::Sliced, PyObjectRef>
     where
         Self: Sized,
     {
@@ -121,25 +128,27 @@ pub trait PySliceableSequence {
 }
 
 impl<T: Clone> PySliceableSequence for Vec<T> {
-    fn do_slice(&self, range: Range<usize>) -> Self {
+    type Sliced = Vec<T>;
+
+    fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
         self[range].to_vec()
     }
 
-    fn do_slice_reverse(&self, range: Range<usize>) -> Self {
+    fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
         let mut slice = self[range].to_vec();
         slice.reverse();
         slice
     }
 
-    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self {
+    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
         self[range].iter().step_by(step).cloned().collect()
     }
 
-    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self {
+    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
         self[range].iter().rev().step_by(step).cloned().collect()
     }
 
-    fn empty() -> Self {
+    fn empty() -> Self::Sliced {
         Vec::new()
     }
 
@@ -235,7 +244,7 @@ pub fn get_item(
         }
     } else {
         Err(vm.new_type_error(format!(
-            "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
+            "indexing type {:?} with index {:?} is not supported (yet?)",
             sequence, subscript
         )))
     }
@@ -462,7 +471,9 @@ pub fn is_valid_slice_arg(
         match_class!(value,
         i @ PyInt => Ok(Some(i.as_bigint().clone())),
         _obj @ PyNone => Ok(None),
-        _=> {return Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()));}
+        _=> {
+            Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()))
+        }
         // TODO: check for an __index__ method
         )
     } else {

@@ -7,6 +7,7 @@ x = time.gmtime(1000)
 assert x.tm_year == 1970
 assert x.tm_min == 16
 assert x.tm_sec == 40
+assert x.tm_isdst == 0
 
 s = time.strftime('%Y-%m-%d-%H-%M-%S', x)
 # print(s)

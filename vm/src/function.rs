@@ -131,7 +131,7 @@ impl PyFuncArgs {
     }
 
     pub fn take_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
-        self.kwargs.remove(name)
+        self.kwargs.swap_remove(name)
     }
 
     pub fn remaining_keywords<'a>(

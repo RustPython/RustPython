@@ -24,7 +24,7 @@ pub enum Top {
 
 #[derive(Debug, PartialEq)]
 pub struct Program {
-    pub statements: Vec<Statement>,
+    pub statements: Suite,
 }
 
 #[derive(Debug, PartialEq)]
@@ -40,6 +40,7 @@ pub struct Located<T> {
 }
 
 pub type Statement = Located<StatementType>;
+pub type Suite = Vec<Statement>;
 
 /// Abstract syntax tree nodes for python statements.
 #[derive(Debug, PartialEq)]
@@ -90,39 +91,39 @@ pub enum StatementType {
     },
     If {
         test: Expression,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
+        body: Suite,
+        orelse: Option<Suite>,
     },
     While {
         test: Expression,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
+        body: Suite,
+        orelse: Option<Suite>,
     },
     With {
         is_async: bool,
         items: Vec<WithItem>,
-        body: Vec<Statement>,
+        body: Suite,
     },
     For {
         is_async: bool,
         target: Box<Expression>,
         iter: Box<Expression>,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
+        body: Suite,
+        orelse: Option<Suite>,
     },
     Raise {
         exception: Option<Expression>,
         cause: Option<Expression>,
     },
     Try {
-        body: Vec<Statement>,
+        body: Suite,
         handlers: Vec<ExceptHandler>,
-        orelse: Option<Vec<Statement>>,
-        finalbody: Option<Vec<Statement>>,
+        orelse: Option<Suite>,
+        finalbody: Option<Suite>,
     },
     ClassDef {
         name: String,
-        body: Vec<Statement>,
+        body: Suite,
         bases: Vec<Expression>,
         keywords: Vec<Keyword>,
         decorator_list: Vec<Expression>,
@@ -131,7 +132,7 @@ pub enum StatementType {
         is_async: bool,
         name: String,
         args: Box<Parameters>,
-        body: Vec<Statement>,
+        body: Suite,
         decorator_list: Vec<Expression>,
         returns: Option<Expression>,
     },
@@ -321,6 +322,12 @@ pub struct Comprehension {
 }
 
 #[derive(Debug, PartialEq)]
+pub struct ArgumentList {
+    pub args: Vec<Expression>,
+    pub keywords: Vec<Keyword>,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Keyword {
     pub name: Option<String>,
     pub value: Expression,
@@ -331,7 +338,7 @@ pub struct ExceptHandler {
     pub location: Location,
     pub typ: Option<Expression>,
     pub name: Option<String>,
-    pub body: Vec<Statement>,
+    pub body: Suite,
 }
 
 #[derive(Debug, PartialEq)]

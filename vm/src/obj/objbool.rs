@@ -1,3 +1,4 @@
+use num_bigint::Sign;
 use num_traits::Zero;
 
 use crate::function::PyFuncArgs;
@@ -18,7 +19,11 @@ impl IntoPyObject for bool {
 
 impl TryFromObject for bool {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
-        boolval(vm, obj)
+        if objtype::isinstance(&obj, &vm.ctx.int_type()) {
+            Ok(get_value(&obj))
+        } else {
+            Err(vm.new_type_error(format!("Expected type bool, not {}", obj.class().name)))
+        }
     }
 }
 
@@ -29,22 +34,30 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
             // If descriptor returns Error, propagate it further
             let method = method_or_err?;
             let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
-            match bool_obj.payload::<PyInt>() {
-                Some(int_obj) => !int_obj.as_bigint().is_zero(),
-                None => {
-                    return Err(vm.new_type_error(format!(
-                        "__bool__ should return bool, returned type {}",
-                        bool_obj.class().name
-                    )))
-                }
+            if !objtype::isinstance(&bool_obj, &vm.ctx.bool_type()) {
+                return Err(vm.new_type_error(format!(
+                    "__bool__ should return bool, returned type {}",
+                    bool_obj.class().name
+                )));
             }
+
+            get_value(&bool_obj)
         }
         None => match vm.get_method(obj.clone(), "__len__") {
             Some(method_or_err) => {
                 let method = method_or_err?;
                 let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
                 match bool_obj.payload::<PyInt>() {
-                    Some(int_obj) => !int_obj.as_bigint().is_zero(),
+                    Some(int_obj) => {
+                        let len_val = int_obj.as_bigint();
+                        if len_val.sign() == Sign::Minus {
+                            return Err(
+                                vm.new_value_error("__len__() should return >= 0".to_string())
+                            );
+                        }
+
+                        !len_val.is_zero()
+                    }
                     None => {
                         return Err(vm.new_type_error(format!(
                             "{} object cannot be interpreted as integer",
@@ -77,7 +90,7 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
         "__rand__" => context.new_rustfunc(bool_rand),
         "__xor__" => context.new_rustfunc(bool_xor),
         "__rxor__" => context.new_rustfunc(bool_rxor),
-        "__doc__" => context.new_str(bool_doc.to_string())
+        "__doc__" => context.new_str(bool_doc.to_string()),
     });
 }
 
@@ -95,15 +108,12 @@ pub fn get_value(obj: &PyObjectRef) -> bool {
     !obj.payload::<PyInt>().unwrap().as_bigint().is_zero()
 }
 
-fn bool_repr(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
-    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bool_type()))]);
-    let v = get_value(obj);
-    let s = if v {
+fn bool_repr(obj: bool, _vm: &VirtualMachine) -> String {
+    if obj {
         "True".to_string()
     } else {
         "False".to_string()
-    };
-    Ok(vm.new_str(s))
+    }
 }
 
 fn bool_format(
@@ -130,14 +140,12 @@ fn do_bool_or(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyRe
     }
 }
 
-fn bool_or(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
-    do_bool_or(vm, lhs, rhs)
+fn bool_or(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    do_bool_or(vm, &lhs, &rhs)
 }
 
-fn bool_ror(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(rhs, None), (lhs, None)]);
-    do_bool_or(vm, lhs, rhs)
+fn bool_ror(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    do_bool_or(vm, &lhs, &rhs)
 }
 
 fn do_bool_and(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyResult {
@@ -152,14 +160,12 @@ fn do_bool_and(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyR
     }
 }
 
-fn bool_and(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
-    do_bool_and(vm, lhs, rhs)
+fn bool_and(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    do_bool_and(vm, &lhs, &rhs)
 }
 
-fn bool_rand(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(rhs, None), (lhs, None)]);
-    do_bool_and(vm, lhs, rhs)
+fn bool_rand(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    do_bool_and(vm, &lhs, &rhs)
 }
 
 fn do_bool_xor(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyResult {
@@ -174,14 +180,12 @@ fn do_bool_xor(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyR
     }
 }
 
-fn bool_xor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
-    do_bool_xor(vm, lhs, rhs)
+fn bool_xor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    do_bool_xor(vm, &lhs, &rhs)
 }
 
-fn bool_rxor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(rhs, None), (lhs, None)]);
-    do_bool_xor(vm, lhs, rhs)
+fn bool_rxor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    do_bool_xor(vm, &lhs, &rhs)
 }
 
 fn bool_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -198,4 +202,26 @@ fn bool_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
         None => vm.context().new_bool(false),
     })
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct IntoPyBool {
+    value: bool,
+}
+
+impl IntoPyBool {
+    pub const TRUE: IntoPyBool = IntoPyBool { value: true };
+    pub const FALSE: IntoPyBool = IntoPyBool { value: false };
+
+    pub fn to_bool(self) -> bool {
+        self.value
+    }
+}
+
+impl TryFromObject for IntoPyBool {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        Ok(IntoPyBool {
+            value: boolval(vm, obj)?,
+        })
+    }
 }

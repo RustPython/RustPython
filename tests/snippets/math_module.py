@@ -112,3 +112,9 @@ assert math.factorial(3) == 6
 assert math.factorial(10) == 3628800
 assert math.factorial(20) == 2432902008176640000
 assert_raises(ValueError, lambda: math.factorial(-1))
+
+assert math.modf(1.25) == (0.25, 1.0)
+assert math.modf(-1.25) == (-0.25, -1.0)
+assert math.modf(2.56) == (0.56, 2.0)
+assert math.modf(-2.56) == (-0.56, -2.0)
+assert math.modf(1) == (0.0, 1.0)

@@ -137,3 +137,13 @@ with assertRaises(OSError):
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 	pass
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+	listener.bind(("127.0.0.1", 0))
+	listener.listen(1)
+	connector = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	connector.connect(("127.0.0.1", listener.getsockname()[1]))
+	(connection, addr) = listener.accept()
+	connection.settimeout(1.0)
+	with assertRaises(OSError):
+		connection.recv(len(MESSAGE_A))

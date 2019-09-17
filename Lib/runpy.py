@@ -11,15 +11,10 @@ importers when locating support scripts as well as when importing modules.
 
 
 import sys
-try:
-    import __importlib_util
-except ImportError:
-# FIXME replace above with below once we can import importlib
-    import importlib.machinery # importlib first so we can test #15386 via -m
-    import importlib.util as __importlib_util
+import importlib.machinery # importlib first so we can test #15386 via -m
+import importlib.util
 import types
-# FIXME uncomment line below once we can import pkgutil
-# from pkgutil import read_code, get_importer
+from pkgutil import read_code, get_importer
 
 __all__ = [
     "run_module", "run_path",
@@ -130,8 +125,7 @@ def _get_module_details(mod_name, error=ImportError):
             warn(RuntimeWarning(msg))
 
     try:
-        # FIXME replace with importlib.util.find_spec() once we can import importlib
-        spec = __importlib_util.find_spec(mod_name)
+        spec = importlib.util.find_spec(mod_name)
     except (ImportError, AttributeError, TypeError, ValueError) as ex:
         # This hack fixes an impedance mismatch between pkgutil and
         # importlib, where the latter raises other errors for cases where

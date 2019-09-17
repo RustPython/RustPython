@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::{env, mem};
 
 use crate::frame::FrameRef;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, TypeProtocol,
@@ -97,17 +97,13 @@ impl SysFlags {
     }
 }
 
-fn sys_getrefcount(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(object, None)]);
-    let size = Rc::strong_count(&object);
-    Ok(vm.ctx.new_int(size))
+fn sys_getrefcount(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
+    Rc::strong_count(&obj)
 }
 
-fn sys_getsizeof(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(object, None)]);
+fn sys_getsizeof(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
     // TODO: implement default optional argument.
-    let size = mem::size_of_val(&object);
-    Ok(vm.ctx.new_int(size))
+    mem::size_of_val(&obj)
 }
 
 fn sys_getfilesystemencoding(_vm: &VirtualMachine) -> String {
@@ -229,6 +225,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         "unknown".to_string()
     };
 
+    let framework = "".to_string();
+
     // https://doc.rust-lang.org/reference/conditional-compilation.html#target_endian
     let bytorder = if cfg!(target_endian = "little") {
         "little".to_string()
@@ -324,6 +322,7 @@ settrace() -- set the global debug tracing function
     let prefix = option_env!("RUSTPYTHON_PREFIX").unwrap_or("/usr/local");
     let base_prefix = option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or(prefix);
     let exec_prefix = option_env!("RUSTPYTHON_EXECPREFIX").unwrap_or(prefix);
+    let base_exec_prefix = option_env!("RUSTPYTHON_BASEEXECPREFIX").unwrap_or(exec_prefix);
 
     extend_module!(vm, module, {
       "__name__" => ctx.new_str(String::from("sys")),
@@ -351,6 +350,7 @@ settrace() -- set the global debug tracing function
       "modules" => modules.clone(),
       "warnoptions" => ctx.new_list(vec![]),
       "platform" => ctx.new_str(platform),
+      "_framework" => ctx.new_str(framework),
       "meta_path" => ctx.new_list(vec![]),
       "path_hooks" => ctx.new_list(vec![]),
       "path_importer_cache" => ctx.new_dict(),
@@ -364,6 +364,7 @@ settrace() -- set the global debug tracing function
       "prefix" => ctx.new_str(prefix.to_string()),
       "base_prefix" => ctx.new_str(base_prefix.to_string()),
       "exec_prefix" => ctx.new_str(exec_prefix.to_string()),
+      "base_exec_prefix" => ctx.new_str(base_exec_prefix.to_string()),
       "exit" => ctx.new_rustfunc(sys_exit),
     });
 

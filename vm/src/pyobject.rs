@@ -11,6 +11,7 @@ use num_complex::Complex64;
 use num_traits::{One, Zero};
 
 use crate::bytecode;
+use crate::dictdatatype::DictKey;
 use crate::exceptions;
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
@@ -669,7 +670,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PyCallable {
     obj: PyObjectRef,
 }
@@ -764,15 +765,17 @@ impl<T> TypeProtocol for PyRef<T> {
     }
 }
 
+/// The python item protocol. Mostly applies to dictionaries.
+/// Allows getting, setting and deletion of keys-value pairs.
 pub trait ItemProtocol {
-    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
-    fn set_item<T: IntoPyObject>(
+    fn get_item<T: IntoPyObject + DictKey + Copy>(&self, key: T, vm: &VirtualMachine) -> PyResult;
+    fn set_item<T: IntoPyObject + DictKey + Copy>(
         &self,
         key: T,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult;
-    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
+    fn del_item<T: IntoPyObject + DictKey + Copy>(&self, key: T, vm: &VirtualMachine) -> PyResult;
 }
 
 impl ItemProtocol for PyObjectRef {
@@ -962,6 +965,12 @@ pub trait IntoPyObject {
 impl IntoPyObject for PyObjectRef {
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
         Ok(self)
+    }
+}
+
+impl IntoPyObject for &PyObjectRef {
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
+        Ok(self.clone())
     }
 }
 
