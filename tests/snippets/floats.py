@@ -198,6 +198,7 @@ assert_raises(ValueError, float('nan').as_integer_ratio)
 
 assert str(1.0) == '1.0'
 assert str(0.0) == '0.0'
+assert str(-0.0) == '-0.0'
 assert str(1.123456789) == '1.123456789'
 
 # Test special case for lexer, float starts with a dot:

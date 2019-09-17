@@ -411,7 +411,7 @@ impl PyFloat {
     #[pymethod(name = "__repr__")]
     fn repr(&self, vm: &VirtualMachine) -> String {
         if self.is_integer(vm) {
-            format!("{:.1}", self.value)
+            format!("{:.1?}", self.value)
         } else {
             self.value.to_string()
         }
