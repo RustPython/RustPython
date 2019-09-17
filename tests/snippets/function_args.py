@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 
 def sum(x, y):
@@ -55,10 +55,10 @@ def va3(x, *, a, b=2, c=9):
 
 assert va3(1, a=1, b=10) == 20
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     va3(1, 2, 3, a=1, b=10)
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     va3(1, b=10)
 
 

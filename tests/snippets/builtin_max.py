@@ -16,17 +16,17 @@ assert max({
 }) == "b"
 assert max([1, 2], default=0) == 2
 assert max([], default=0) == 0
-assert_raises(ValueError, lambda: max([]))
+assert_raises(ValueError, max, [])
 
 # key parameter
 assert max(1, 2, -3, key=abs) == -3
 assert max([1, 2, -3], key=abs) == -3
 
 # no argument
-assert_raises(TypeError, lambda: max())
+assert_raises(TypeError, max)
 
 # one non-iterable argument
-assert_raises(TypeError, lambda: max(1))
+assert_raises(TypeError, max, 1)
 
 
 # custom class
@@ -51,4 +51,4 @@ class MyNotComparable():
     pass
 
 
-assert_raises(TypeError, lambda: max(MyNotComparable(), MyNotComparable()))
+assert_raises(TypeError, max, MyNotComparable(), MyNotComparable())

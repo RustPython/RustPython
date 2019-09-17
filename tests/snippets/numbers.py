@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 x = 5
 x.__init__(6)
@@ -70,5 +70,5 @@ assert 1_2_3 == 123
 assert 1_2.3_4 == 12.34
 assert 1_2.3_4e0_0 == 12.34
 
-with assertRaises(SyntaxError):
+with assert_raises(SyntaxError):
     eval('1__2')

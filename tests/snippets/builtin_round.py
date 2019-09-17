@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 assert round(0) == 0
 assert isinstance(round(0), int)
@@ -15,7 +15,7 @@ assert isinstance(round(0, 0), int)
 assert round(0.0, 0) == 0.0  # Cannot check the type
 assert isinstance(round(0.0, 0), float)
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     round(0, 0.0)
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     round(0.0, 0.0)

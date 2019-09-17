@@ -1,5 +1,5 @@
 import math
-from testutils import assertRaises, assert_raises
+from testutils import assert_raises
 
 # assert(math.exp(2) == math.exp(2.0))
 # assert(math.exp(True) == math.exp(1.0))
@@ -17,9 +17,9 @@ assert int.__floor__
 assert int.__ceil__
 
 # assert float.__trunc__
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     assert float.__floor__
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     assert float.__ceil__
 
 assert math.trunc(2) == 2
@@ -72,11 +72,11 @@ assert math.trunc(A()) == 'trunc'
 assert math.ceil(A()) == 'ceil'
 assert math.floor(A()) == 'floor'
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     math.trunc(object())
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     math.ceil(object())
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     math.floor(object())
 
 assert str(math.frexp(0.0)) == str((+0.0, 0))

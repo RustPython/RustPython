@@ -1,5 +1,5 @@
 import binascii
-from testutils import assertRaises
+from testutils import assert_raises
 
 
 # hexlify tests
@@ -11,7 +11,7 @@ assert h(1000 * b"x") == 1000 * b"78"
 # assert h(bytearray(b"a")) = b"61"
 assert binascii.b2a_hex(b"aa") == b"6161"
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     h("a")
 
 
@@ -28,10 +28,10 @@ assert binascii.a2b_hex(b"6161") == b"aa"
 # unhexlify on strings not supported yet
 # assert uh("abcd") == b"\xab\xcd"
 
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     uh(b"a")  # Odd-length string
 
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     uh(b"nn")  # Non-hexadecimal digit found
 
 assert binascii.crc32(b"hello world") == 222957957

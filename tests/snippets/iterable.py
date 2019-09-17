@@ -29,4 +29,4 @@ test_container(C())
 
 class C: pass
 assert_raises(TypeError, lambda: 5 in C())
-assert_raises(TypeError, lambda: iter(C))
+assert_raises(TypeError, iter, C)

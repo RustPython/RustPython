@@ -13,18 +13,18 @@ assert range(4, 10).index(6) == 2
 assert range(4, 10, 2).index(6) == 1
 assert range(10, 4, -2).index(8) == 1
 
-assert_raises(ValueError, lambda: range(10).index(-1), 'out of bounds')
-assert_raises(ValueError, lambda: range(10).index(10), 'out of bounds')
-assert_raises(ValueError, lambda: range(4, 10, 2).index(5), 'out of step')
-assert_raises(ValueError, lambda: range(10).index('foo'), 'not an int')
-assert_raises(ValueError, lambda: range(1, 10, 0), 'step is zero')
+assert_raises(ValueError, lambda: range(10).index(-1), _msg='out of bounds')
+assert_raises(ValueError, lambda: range(10).index(10), _msg='out of bounds')
+assert_raises(ValueError, lambda: range(4, 10, 2).index(5), _msg='out of step')
+assert_raises(ValueError, lambda: range(10).index('foo'), _msg='not an int')
+assert_raises(ValueError, lambda: range(1, 10, 0), _msg='step is zero')
 
 # get tests
 assert range(10)[0] == 0
 assert range(10)[9] == 9
 assert range(10, 0, -1)[0] == 10
 assert range(10, 0, -1)[9] == 1
-assert_raises(IndexError, lambda: range(10)[10], 'out of bound')
+assert_raises(IndexError, lambda: range(10)[10], _msg='out of bound')
 
 # slice tests
 assert range(10)[0:3] == range(3)
@@ -100,7 +100,7 @@ assert range(i).stop is i
 
 # negative index
 assert range(10)[-1] == 9
-assert_raises(IndexError, lambda: range(10)[-11], 'out of bound')
+assert_raises(IndexError, lambda: range(10)[-11], _msg='out of bound')
 assert range(10)[-2:4] == range(8, 4)
 assert range(10)[-6:-2] == range(4, 8)
 assert range(50, 0, -2)[-5] == 10

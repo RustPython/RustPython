@@ -1,6 +1,6 @@
 from io import BufferedReader, FileIO, StringIO, BytesIO
 import os
-from testutils import assertRaises
+from testutils import assert_raises
 
 fi = FileIO('README.md')
 assert fi.seekable()
@@ -31,7 +31,7 @@ fi.close()
 assert fi.closefd
 assert fi.closed
 
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     fi.read()
 
 with FileIO('README.md') as fio:

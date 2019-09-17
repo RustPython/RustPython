@@ -5,8 +5,8 @@ def no_args():
 
 no_args()
 
-assert_raises(TypeError, lambda: no_args('one_arg'), '1 arg to no_args')
-assert_raises(TypeError, lambda: no_args(kw='should fail'), 'kwarg to no_args')
+assert_raises(TypeError, no_args, 'one_arg', _msg='1 arg to no_args')
+assert_raises(TypeError, no_args, kw='should fail', _msg='kwarg to no_args')
 
 
 def one_arg(arg):
@@ -15,7 +15,7 @@ def one_arg(arg):
 one_arg('one_arg')
 assert "arg" == one_arg(arg="arg")
 
-assert_raises(TypeError, lambda: one_arg(), 'no args to one_arg')
+assert_raises(TypeError, one_arg, _msg='no args to one_arg')
 assert_raises(TypeError,
               lambda: one_arg(wrong_arg='wont work'),
               'incorrect kwarg to one_arg')

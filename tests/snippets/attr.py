@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 
 class A:
@@ -16,10 +16,10 @@ assert a.b == 12
 assert getattr(a, 'b') == 12
 
 # test non-existent attribute
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     _ = a.c
 
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     getattr(a, 'c')
 
 assert getattr(a, 'c', 21) == 21
@@ -32,21 +32,21 @@ assert a.c == 20
 # test delete attribute
 delattr(a, 'c')
 assert not hasattr(a, 'c')
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     _ = a.c
 
 
 # test setting attribute on builtin
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     object().a = 1
 
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     del object().a
 
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     setattr(object(), 'a', 2)
 
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     delattr(object(), 'a')
 
 attrs = {}
@@ -79,13 +79,13 @@ class GetRaise:
 
 
 assert not hasattr(GetRaise(AttributeError()), 'a')
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     getattr(GetRaise(AttributeError()), 'a')
 assert getattr(GetRaise(AttributeError()), 'a', 11) == 11
 
-with assertRaises(KeyError):
+with assert_raises(KeyError):
     hasattr(GetRaise(KeyError()), 'a')
-with assertRaises(KeyError):
+with assert_raises(KeyError):
     getattr(GetRaise(KeyError()), 'a')
-with assertRaises(KeyError):
+with assert_raises(KeyError):
     getattr(GetRaise(KeyError()), 'a', 11)

@@ -29,18 +29,12 @@ assert round(1.5) == 2
 assert round(-0.5) == 0
 assert round(-1.5) == -2
 
-assert_raises(
-    ValueError,
-    lambda: round(float('nan')),
-    'ValueError: cannot convert float NaN to integer')
-assert_raises(
-    OverflowError,
-    lambda: round(float('inf')),
-    'OverflowError: cannot convert float infinity to integer')
-assert_raises(
-    OverflowError,
-    lambda: round(-float('inf')),
-    'OverflowError: cannot convert float infinity to integer')
+# ValueError: cannot convert float NaN to integer
+assert_raises(ValueError, round, float('nan'))
+# OverflowError: cannot convert float infinity to integer
+assert_raises(OverflowError, round, float('inf'))
+# OverflowError: cannot convert float infinity to integer
+assert_raises(OverflowError, round, -float('inf'))
 
 assert pow(0, 0) == 1
 assert pow(2, 2) == 4
@@ -52,23 +46,8 @@ assert pow(-1, 10**1000+1) == -1
 assert pow(-1, 10**1000) == 1
 
 assert pow(2, 4, 5) == 1
-assert_raises(
-    TypeError,
-    lambda: pow(2, 4, 5.0),
-    'pow() 3rd argument not allowed unless all arguments are integers')
-assert_raises(
-    TypeError,
-    lambda: pow(2, 4.0, 5),
-    'pow() 3rd argument not allowed unless all arguments are integers')
-assert_raises(
-    TypeError,
-    lambda: pow(2.0, 4, 5),
-    'pow() 3rd argument not allowed unless all arguments are integers')
-assert_raises(
-    ValueError,
-    lambda: pow(2, -1, 5),
-    'pow() 2nd argument cannot be negative when 3rd argument specified')
-assert_raises(
-    ValueError,
-    lambda: pow(2, 2, 0),
-    'pow() 3rd argument cannot be 0')
+assert_raises(TypeError, pow, 2, 4, 5.0)
+assert_raises(TypeError, pow, 2, 4.0, 5)
+assert_raises(TypeError, pow, 2.0, 4, 5)
+assert_raises(ValueError, pow, 2, -1, 5)
+assert_raises(ValueError, pow, 2, 2, 0)

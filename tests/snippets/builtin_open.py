@@ -3,7 +3,7 @@ from testutils import assert_raises
 fd = open('README.md')
 assert 'RustPython' in fd.read()
 
-assert_raises(FileNotFoundError, lambda: open('DoesNotExist'))
+assert_raises(FileNotFoundError, open, 'DoesNotExist')
 
 # Use open as a context manager
 with open('README.md', 'rt') as fp:
