@@ -1225,7 +1225,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[cfg(unix)]
 fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
     let ctx = &vm.ctx;
-
     extend_module!(vm, module, {
         "getppid" => ctx.new_rustfunc(os_getppid),
         "getgid" => ctx.new_rustfunc(os_getgid),
@@ -1238,7 +1237,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setuid" => ctx.new_rustfunc(os_setuid),
         "access" => ctx.new_rustfunc(os_access),
         "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
-        "O_RSYNC" => ctx.new_int(libc::O_RSYNC),
+        "O_RSYNC" => ctx.new_int(1052672),
         "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
         "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
         "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
