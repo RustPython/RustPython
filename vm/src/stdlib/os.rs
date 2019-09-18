@@ -4,6 +4,10 @@ use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind, Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
@@ -14,8 +18,6 @@ use nix::pty::openpty;
 #[cfg(unix)]
 use nix::unistd::{self, Gid, Pid, Uid, Whence};
 use num_traits::cast::ToPrimitive;
-
-use bitflags::bitflags;
 
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
@@ -30,6 +32,8 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+
+use bitflags::bitflags;
 
 #[cfg(unix)]
 pub fn raw_file_number(handle: File) -> i64 {
@@ -91,19 +95,7 @@ pub fn os_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-bitflags! {
-     pub struct FileCreationFlags: u32 {
-        // https://elixir.bootlin.com/linux/v4.8/source/include/uapi/asm-generic/fcntl.h
-        const O_RDONLY = 0o0000_0000;
-        const O_WRONLY = 0o0000_0001;
-        const O_RDWR = 0o0000_0002;
-        const O_CREAT = 0o0000_0100;
-        const O_EXCL = 0o0000_0200;
-        const O_APPEND = 0o0000_2000;
-        const O_NONBLOCK = 0o0000_4000;
-    }
-}
-
+#[cfg(any(unix, windows))]
 pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -128,36 +120,39 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
     let fname = &make_path(vm, name, &dir_fd).value;
 
-    let flags = FileCreationFlags::from_bits(objint::get_value(flags).to_u32().unwrap())
-        .ok_or_else(|| vm.new_value_error("Unsupported flag".to_string()))?;
-
-    let mut options = &mut OpenOptions::new();
-
-    if flags.contains(FileCreationFlags::O_WRONLY) {
-        options = options.write(true);
-    } else if flags.contains(FileCreationFlags::O_RDWR) {
-        options = options.read(true).write(true);
-    } else {
-        options = options.read(true);
-    }
-
-    if flags.contains(FileCreationFlags::O_APPEND) {
-        options = options.append(true);
-    }
-
-    if flags.contains(FileCreationFlags::O_CREAT) {
-        if flags.contains(FileCreationFlags::O_EXCL) {
-            options = options.create_new(true);
-        } else {
-            options = options.create(true);
-        }
-    }
-
+    let options = _set_file_model(&flags);
     let handle = options
         .open(&fname)
         .map_err(|err| convert_io_error(vm, err))?;
 
     Ok(vm.ctx.new_int(raw_file_number(handle)))
+}
+
+#[cfg(unix)]
+fn _set_file_model(flags: &PyObjectRef) -> OpenOptions {
+    let flags = objint::get_value(flags).to_i32().unwrap();
+    let mut options = OpenOptions::new();
+    options.read(flags == libc::O_RDONLY);
+    options.write(flags & libc::O_WRONLY != 0);
+    options.append(flags & libc::O_APPEND != 0);
+    options.custom_flags(flags);
+    options
+}
+
+#[cfg(windows)]
+fn _set_file_model(flags: &PyObjectRef) -> OpenOptions {
+    let flags = objint::get_value(flags).to_u32().unwrap();
+    let mut options = OpenOptions::new();
+    options.read((flags as i32) == libc::O_RDONLY);
+    options.write((flags as i32) & libc::O_WRONLY != 0);
+    options.append((flags as i32) & libc::O_APPEND != 0);
+    options.custom_flags(flags);
+    options
+}
+
+#[cfg(all(not(unix), not(windows)))]
+pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    unimplemented!()
 }
 
 pub fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
@@ -1187,19 +1182,19 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getcwd" => ctx.new_rustfunc(os_getcwd),
         "chdir" => ctx.new_rustfunc(os_chdir),
         "fspath" => ctx.new_rustfunc(os_fspath),
-        "O_RDONLY" => ctx.new_int(FileCreationFlags::O_RDONLY.bits()),
-        "O_WRONLY" => ctx.new_int(FileCreationFlags::O_WRONLY.bits()),
-        "O_RDWR" => ctx.new_int(FileCreationFlags::O_RDWR.bits()),
-        "O_NONBLOCK" => ctx.new_int(FileCreationFlags::O_NONBLOCK.bits()),
-        "O_APPEND" => ctx.new_int(FileCreationFlags::O_APPEND.bits()),
-        "O_EXCL" => ctx.new_int(FileCreationFlags::O_EXCL.bits()),
-        "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits()),
-        "F_OK" => ctx.new_int(AccessFlags::F_OK.bits()),
-        "R_OK" => ctx.new_int(AccessFlags::R_OK.bits()),
-        "W_OK" => ctx.new_int(AccessFlags::W_OK.bits()),
-        "X_OK" => ctx.new_int(AccessFlags::X_OK.bits()),
-        "getpid" => ctx.new_rustfunc(os_getpid),
-        "cpu_count" => ctx.new_rustfunc(os_cpu_count)
+         "getpid" => ctx.new_rustfunc(os_getpid),
+        "cpu_count" => ctx.new_rustfunc(os_cpu_count),
+
+        "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
+        "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
+        "O_RDWR" => ctx.new_int(libc::O_RDWR),
+        "O_APPEND" => ctx.new_int(libc::O_APPEND),
+        "O_EXCL" => ctx.new_int(libc::O_EXCL),
+        "O_CREAT" => ctx.new_int(libc::O_CREAT),
+        "F_OK" => ctx.new_int(0),
+        "R_OK" => ctx.new_int(4),
+        "W_OK" => ctx.new_int(2),
+        "X_OK" => ctx.new_int(1),
     });
 
     for support in support_funcs {
@@ -1237,7 +1232,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[cfg(unix)]
 fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
     let ctx = &vm.ctx;
-
     extend_module!(vm, module, {
         "getppid" => ctx.new_rustfunc(os_getppid),
         "getgid" => ctx.new_rustfunc(os_getgid),
@@ -1249,11 +1243,15 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
         "access" => ctx.new_rustfunc(os_access),
+        "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
+        "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
+        "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
+        "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
         "chmod" => ctx.new_rustfunc(os_chmod),
         "ttyname" => ctx.new_rustfunc(os_ttyname),
         "SEEK_SET" => ctx.new_int(Whence::SeekSet as i8),
         "SEEK_CUR" => ctx.new_int(Whence::SeekCur as i8),
-        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8)
+        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8),
     });
 
     #[cfg(not(target_os = "redox"))]
