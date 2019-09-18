@@ -120,8 +120,7 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
     let fname = &make_path(vm, name, &dir_fd).value;
 
-    let mut options = OpenOptions::new();
-    let options = _set_file_model(&mut options, flags);
+    let options = _set_file_model(&flags);
     let handle = options
         .open(&fname)
         .map_err(|err| convert_io_error(vm, err))?;
@@ -130,15 +129,25 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 #[cfg(unix)]
-fn _set_file_model<'a>(options: &'a mut OpenOptions, flags: &PyObjectRef) -> &'a mut OpenOptions {
+fn _set_file_model(flags: &PyObjectRef) -> OpenOptions {
     let flags = objint::get_value(flags).to_i32().unwrap();
-    options.custom_flags(flags)
+    let mut options = OpenOptions::new();
+    options.read(flags & libc::O_RDONLY != 0);
+    options.write(flags & libc::O_WRONLY != 0);
+    options.append(flags & libc::O_APPEND != 0);
+    options.custom_flags(flags);
+    options
 }
 
 #[cfg(windows)]
-fn _set_file_model<'a>(options: &'a mut OpenOptions, flags: &PyObjectRef) -> &'a mut OpenOptions {
+fn _set_file_model(flags: &PyObjectRef) -> OpenOptions {
     let flags = objint::get_value(flags).to_u32().unwrap();
-    options.custom_flags(flags)
+    let mut options = OpenOptions::new();
+    options.read((flags as i32) & libc::O_RDONLY != 0);
+    options.write((flags as i32) & libc::O_WRONLY != 0);
+    options.append((flags as i32) & libc::O_APPEND != 0);
+    options.custom_flags(flags);
+    options
 }
 
 #[cfg(all(not(unix), not(windows)))]
@@ -1237,7 +1246,6 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setuid" => ctx.new_rustfunc(os_setuid),
         "access" => ctx.new_rustfunc(os_access),
         "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
-        "O_RSYNC" => ctx.new_int(1052672),
         "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
         "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
         "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
