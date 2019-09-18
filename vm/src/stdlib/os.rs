@@ -143,7 +143,7 @@ fn _set_file_model(flags: &PyObjectRef) -> OpenOptions {
 fn _set_file_model(flags: &PyObjectRef) -> OpenOptions {
     let flags = objint::get_value(flags).to_u32().unwrap();
     let mut options = OpenOptions::new();
-    options.read((flags as i32) & libc::O_RDONLY != 0);
+    options.read((flags as i32) & libc::O_RDONLY != libc::O_RDONLY);
     options.write((flags as i32) & libc::O_WRONLY != 0);
     options.append((flags as i32) & libc::O_APPEND != 0);
     options.custom_flags(flags);
