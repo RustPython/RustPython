@@ -1069,6 +1069,15 @@ pub enum Either<A, B> {
     B(B),
 }
 
+impl<A: PyValue, B: PyValue> Either<PyRef<A>, PyRef<B>> {
+    pub fn into_object(self) -> PyObjectRef {
+        match self {
+            Either::A(a) => a.into_object(),
+            Either::B(b) => b.into_object(),
+        }
+    }
+}
+
 /// This allows a builtin method to accept arguments that may be one of two
 /// types, raising a `TypeError` if it is neither.
 ///

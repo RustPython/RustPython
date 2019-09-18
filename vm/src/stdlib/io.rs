@@ -6,7 +6,6 @@ use std::io::prelude::*;
 use std::io::Cursor;
 use std::io::SeekFrom;
 
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 use super::os;
@@ -14,12 +13,12 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
 use crate::obj::objbytes::PyBytes;
-use crate::obj::objint;
-use crate::obj::objstr;
+use crate::obj::objint::{self, PyIntRef};
+use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::TypeProtocol;
-use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 fn byte_count(bytes: OptionalArg<Option<PyObjectRef>>) -> i64 {
@@ -102,7 +101,7 @@ impl PyValue for PyStringIO {
 
 impl PyStringIORef {
     //write string to underlying vector
-    fn write(self, data: objstr::PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn write(self, data: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let bytes = &data.value.clone().into_bytes();
 
         match self.buffer.borrow_mut().write(bytes.to_vec()) {
@@ -312,32 +311,34 @@ fn compute_c_flag(mode: &str) -> u32 {
     flag as u32
 }
 
-fn file_io_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(file_io, None), (name, None)],
-        optional = [(mode, Some(vm.ctx.str_type()))]
-    );
-
-    let file_no = if objtype::isinstance(&name, &vm.ctx.str_type()) {
-        let rust_mode = mode.map_or("r".to_string(), objstr::get_value);
-        let args = vec![
-            name.clone(),
-            vm.ctx
-                .new_int(compute_c_flag(&rust_mode).to_bigint().unwrap()),
-        ];
-        os::os_open(vm, PyFuncArgs::new(args, vec![]))?
-    } else if objtype::isinstance(&name, &vm.ctx.int_type()) {
-        name.clone()
-    } else {
-        return Err(vm.new_type_error("name parameter must be string or int".to_string()));
+fn file_io_init(
+    file_io: PyObjectRef,
+    name: Either<PyStringRef, PyIntRef>,
+    mode: OptionalArg<PyStringRef>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let file_no = match &name {
+        Either::A(name) => {
+            let mode = match mode {
+                OptionalArg::Present(mode) => compute_c_flag(mode.as_str()),
+                OptionalArg::Missing => libc::O_RDONLY as _,
+            };
+            let fno = os::os_open(
+                name.clone(),
+                mode as _,
+                OptionalArg::Missing,
+                OptionalArg::Missing,
+                vm,
+            )?;
+            vm.new_int(fno)
+        }
+        Either::B(fno) => fno.clone().into_object(),
     };
 
-    vm.set_attr(file_io, "name", name.clone())?;
-    vm.set_attr(file_io, "fileno", file_no)?;
-    vm.set_attr(file_io, "closefd", vm.new_bool(false))?;
-    vm.set_attr(file_io, "closed", vm.new_bool(false))?;
+    vm.set_attr(&file_io, "name", name.into_object())?;
+    vm.set_attr(&file_io, "fileno", file_no)?;
+    vm.set_attr(&file_io, "closefd", vm.new_bool(false))?;
+    vm.set_attr(&file_io, "closed", vm.new_bool(false))?;
     Ok(vm.get_none())
 }
 

@@ -19,13 +19,13 @@ use nix::pty::openpty;
 use nix::unistd::{self, Gid, Pid, Uid, Whence};
 use num_traits::cast::ToPrimitive;
 
-use crate::function::{IntoPyNativeFunc, PyFuncArgs};
+use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::{self, PyInt, PyIntRef};
+use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
-use crate::obj::objstr::{self, PyString, PyStringRef};
+use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
@@ -95,59 +95,58 @@ pub fn os_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+#[cfg(unix)]
+type OpenFlags = i32;
+#[cfg(windows)]
+type OpenFlags = u32;
+
 #[cfg(any(unix, windows))]
-pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (name, Some(vm.ctx.str_type())),
-            (flags, Some(vm.ctx.int_type()))
-        ],
-        optional = [
-            (_mode, Some(vm.ctx.int_type())),
-            (dir_fd, Some(vm.ctx.int_type()))
-        ]
-    );
-
-    let name = name.clone().downcast::<PyString>().unwrap();
-    let dir_fd = if let Some(obj) = dir_fd {
-        DirFd {
-            dir_fd: Some(obj.clone().downcast::<PyInt>().unwrap()),
-        }
-    } else {
-        DirFd::default()
+pub fn os_open(
+    name: PyStringRef,
+    flags: OpenFlags,
+    _mode: OptionalArg<PyIntRef>,
+    dir_fd: OptionalArg<PyIntRef>,
+    vm: &VirtualMachine,
+) -> PyResult<i64> {
+    let dir_fd = DirFd {
+        dir_fd: dir_fd.into_option(),
     };
-    let fname = &make_path(vm, name, &dir_fd).value;
+    let fname = make_path(vm, name, &dir_fd);
 
-    let options = _set_file_model(&flags);
+    let mut options = OpenOptions::new();
+
+    macro_rules! bit_contains {
+        ($c:expr) => {
+            flags & $c as OpenFlags == $c as OpenFlags
+        };
+    }
+
+    if bit_contains!(libc::O_RDWR) {
+        options.read(true).write(true);
+    } else if bit_contains!(libc::O_WRONLY) {
+        options.write(true);
+    } else if bit_contains!(libc::O_RDONLY) {
+        options.read(true);
+    }
+
+    if bit_contains!(libc::O_APPEND) {
+        options.append(true);
+    }
+
+    if bit_contains!(libc::O_CREAT) {
+        if bit_contains!(libc::O_EXCL) {
+            options.create_new(true);
+        } else {
+            options.create(true);
+        }
+    }
+
+    options.custom_flags(flags);
     let handle = options
-        .open(&fname)
+        .open(fname.as_str())
         .map_err(|err| convert_io_error(vm, err))?;
 
-    Ok(vm.ctx.new_int(raw_file_number(handle)))
-}
-
-#[cfg(unix)]
-fn _set_file_model(flags: &PyObjectRef) -> OpenOptions {
-    let flags = objint::get_value(flags).to_i32().unwrap();
-    let mut options = OpenOptions::new();
-    options.read(flags == libc::O_RDONLY);
-    options.write(flags & libc::O_WRONLY != 0);
-    options.append(flags & libc::O_APPEND != 0);
-    options.custom_flags(flags);
-    options
-}
-
-#[cfg(windows)]
-fn _set_file_model(flags: &PyObjectRef) -> OpenOptions {
-    let flags = objint::get_value(flags).to_u32().unwrap();
-    let mut options = OpenOptions::new();
-    options.read((flags as i32) == libc::O_RDONLY);
-    options.write((flags as i32) & libc::O_WRONLY != 0);
-    options.append((flags as i32) & libc::O_APPEND != 0);
-    options.custom_flags(flags);
-    options
+    Ok(raw_file_number(handle))
 }
 
 #[cfg(all(not(unix), not(windows)))]
