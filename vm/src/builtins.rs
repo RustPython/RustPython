@@ -250,12 +250,9 @@ fn builtin_format(
     format_spec: OptionalArg<PyStringRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyStringRef> {
-    let format_spec = format_spec.into_option().unwrap_or_else(|| {
-        PyString {
-            value: "".to_string(),
-        }
-        .into_ref(vm)
-    });
+    let format_spec = format_spec
+        .into_option()
+        .unwrap_or_else(|| PyString::from("").into_ref(vm));
 
     vm.call_method(&value, "__format__", vec![format_spec.into_object()])?
         .downcast()
