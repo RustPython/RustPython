@@ -392,7 +392,7 @@ impl PyMatch {
     }
 
     fn get_bounds(&self, id: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<(usize, usize)>> {
-        match_class!(match (id) {
+        match_class!(match id {
             i @ PyInt => {
                 let i = usize::try_from_object(vm, i.into_object())?;
                 match self.captures.get(i) {

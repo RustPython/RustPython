@@ -168,7 +168,7 @@ pub enum SequenceIndex {
 
 impl TryFromObject for SequenceIndex {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match_class!(match (obj) {
+        match_class!(match obj {
             i @ PyInt => Ok(SequenceIndex::Int(i32::try_from_object(
                 vm,
                 i.into_object()
@@ -471,7 +471,7 @@ pub fn is_valid_slice_arg(
     vm: &VirtualMachine,
 ) -> Result<Option<BigInt>, PyObjectRef> {
     if let OptionalArg::Present(value) = arg {
-        match_class!(match (value) {
+        match_class!(match value {
             i @ PyInt => Ok(Some(i.as_bigint().clone())),
             _obj @ PyNone => Ok(None),
             _ => Err(vm.new_type_error(

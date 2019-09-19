@@ -587,7 +587,7 @@ impl PyInt {
         let mut signed = false;
         for (key, value) in kwargs.into_iter() {
             if key == "signed" {
-                signed = match_class!(match (value) {
+                signed = match_class!(match value {
                     b @ PyInt => !b.as_bigint().is_zero(),
                     _ => false,
                 });
@@ -624,7 +624,7 @@ impl PyInt {
         let value = self.as_bigint();
         for (key, value) in kwargs.into_iter() {
             if key == "signed" {
-                signed = match_class!(match (value) {
+                signed = match_class!(match value {
                     b @ PyInt => !b.as_bigint().is_zero(),
                     _ => false,
                 });
@@ -742,7 +742,7 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
         return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()));
     }
 
-    match_class!(match (obj.clone()) {
+    match_class!(match obj.clone() {
         string @ PyString => {
             let s = string.value.as_str().trim();
             str_to_int(vm, s, base)

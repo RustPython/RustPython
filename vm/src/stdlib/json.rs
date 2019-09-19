@@ -21,7 +21,7 @@ pub fn json_dump(obj: PyObjectRef, fs: PyObjectRef, vm: &VirtualMachine) -> PyRe
 
 /// Implement json.loads
 pub fn json_loads(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    let de_result = match_class!(match (obj) {
+    let de_result = match_class!(match obj {
         s @ PyString => {
             py_serde::deserialize(vm, &mut serde_json::Deserializer::from_str(s.as_str()))
         }

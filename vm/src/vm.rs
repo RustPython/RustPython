@@ -974,7 +974,7 @@ impl VirtualMachine {
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
-        match_class!(match (obj) {
+        match_class!(match obj {
             PyFunction => true,
             PyMethod => true,
             PyBuiltinFunction => true,

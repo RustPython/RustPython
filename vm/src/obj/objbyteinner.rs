@@ -37,7 +37,7 @@ pub struct PyByteInner {
 
 impl TryFromObject for PyByteInner {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match_class!(match (obj) {
+        match_class!(match obj {
             i @ PyBytes => Ok(PyByteInner {
                 elements: i.get_value().to_vec()
             }),
@@ -115,7 +115,7 @@ impl ByteInnerNewOptions {
         // Only one argument
         } else {
             let value = if let OptionalArg::Present(ival) = self.val_option {
-                match_class!(match (ival.clone()) {
+                match_class!(match ival.clone() {
                     i @ PyInt => {
                         let size = objint::get_value(&i.into_object()).to_usize().unwrap();
                         Ok(vec![0; size])
@@ -466,7 +466,7 @@ impl PyByteInner {
 
     fn setindex(&mut self, int: PyIntRef, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(idx) = self.elements.get_pos(int.as_bigint().to_i32().unwrap()) {
-            let result = match_class!(match (object) {
+            let result = match_class!(match object {
                 i @ PyInt => {
                     if let Some(value) = i.as_bigint().to_u8() {
                         Ok(value)
@@ -498,7 +498,7 @@ impl PyByteInner {
                     .map(|obj| u8::try_from_object(vm, obj))
                     .collect::<PyResult<Vec<_>>>()?)
             }
-            _ => match_class!(match (object) {
+            _ => match_class!(match object {
                 i @ PyMemoryView => Ok(i.get_obj_value().unwrap()),
                 _ => Err(vm.new_index_error(
                     "can assign only bytes, buffers, or iterables of ints in range(0, 256)"
@@ -1149,7 +1149,7 @@ impl PyByteInner {
 }
 
 pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
-    match_class!(match (obj.clone()) {
+    match_class!(match obj.clone() {
         i @ PyBytes => Some(i.get_value().to_vec()),
         j @ PyByteArray => Some(j.inner.borrow().elements.to_vec()),
         _ => None,

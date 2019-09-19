@@ -424,7 +424,7 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     //to support windows - i.e. raw file_handles
     let mut handle = os::rust_file(raw_fd);
 
-    let bytes = match_class!(match (obj.clone()) {
+    let bytes = match_class!(match obj.clone() {
         i @ PyBytes => Ok(i.get_value().to_vec()),
         j @ PyByteArray => Ok(j.inner.borrow().elements.to_vec()),
         obj => Err(vm.new_type_error(format!(

@@ -233,7 +233,7 @@ impl PyDeque {
             return Ok(vm.new_bool(true));
         }
 
-        let other = match_class!(match (other) {
+        let other = match_class!(match other {
             other @ Self => other,
             _ => return Ok(vm.ctx.not_implemented()),
         });
@@ -251,7 +251,7 @@ impl PyDeque {
             return Ok(vm.new_bool(true));
         }
 
-        let other = match_class!(match (other) {
+        let other = match_class!(match other {
             other @ Self => other,
             _ => return Ok(vm.ctx.not_implemented()),
         });
@@ -269,7 +269,7 @@ impl PyDeque {
             return Ok(vm.new_bool(true));
         }
 
-        let other = match_class!(match (other) {
+        let other = match_class!(match other {
             other @ Self => other,
             _ => return Ok(vm.ctx.not_implemented()),
         });
@@ -287,7 +287,7 @@ impl PyDeque {
             return Ok(vm.new_bool(true));
         }
 
-        let other = match_class!(match (other) {
+        let other = match_class!(match other {
             other @ Self => other,
             _ => return Ok(vm.ctx.not_implemented()),
         });
@@ -305,7 +305,7 @@ impl PyDeque {
             return Ok(vm.new_bool(true));
         }
 
-        let other = match_class!(match (other) {
+        let other = match_class!(match other {
             other @ Self => other,
             _ => return Ok(vm.ctx.not_implemented()),
         });

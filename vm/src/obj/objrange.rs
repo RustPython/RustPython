@@ -425,7 +425,7 @@ pub enum RangeIndex {
 
 impl TryFromObject for RangeIndex {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match_class!(match (obj) {
+        match_class!(match obj {
             i @ PyInt => Ok(RangeIndex::Int(i)),
             s @ PySlice => Ok(RangeIndex::Slice(s)),
             obj => Err(vm.new_type_error(format!(

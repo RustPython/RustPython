@@ -237,6 +237,9 @@ macro_rules! match_class {
         $default
     }};
 
+    // An arm taken when the object is an instance of the specified built-in
+    // class and binding the downcasted object to the specified identifier and
+    // the target expression is a block.
     (match ($obj:expr) { $binding:ident @ $class:ty => $expr:block $($rest:tt)* }) => {
         $crate::match_class!(match ($obj) { $binding @ $class => ($expr), $($rest)* })
     };
@@ -250,7 +253,9 @@ macro_rules! match_class {
         }
     };
 
-    (match ($obj:expr) { $class:ty => $expr:block, $($rest:tt)* }) => {
+    // An arm taken when the object is an instance of the specified built-in
+    // class and the target expression is a block.
+    (match ($obj:expr) { $class:ty => $expr:block $($rest:tt)* }) => {
         $crate::match_class!(match ($obj) { $class => ($expr), $($rest)* })
     };
 
@@ -262,6 +267,17 @@ macro_rules! match_class {
         } else {
             $crate::match_class!(match ($obj) { $($rest)* })
         }
+    };
+
+    // To allow match expressions without parens around the match target
+    (match $($rest:tt)*) => {
+        $crate::match_class!(@parse_match () ($($rest)*))
+    };
+    (@parse_match ($($target:tt)*) ({ $($inner:tt)* })) => {
+        $crate::match_class!(match ($($target)*) { $($inner)* })
+    };
+    (@parse_match ($($target:tt)*) ($next:tt $($rest:tt)*)) => {
+        $crate::match_class!(@parse_match ($($target)* $next) ($($rest)*))
     };
 }
 
