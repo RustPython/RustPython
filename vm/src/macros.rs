@@ -227,32 +227,40 @@ macro_rules! py_namespace {
 #[macro_export]
 macro_rules! match_class {
     // The default arm.
-    ($obj:expr, _ => $default:expr $(,)?) => {
+    (match ($obj:expr) { _ => $default:expr $(,)? }) => {
         $default
     };
 
     // The default arm, binding the original object to the specified identifier.
-    ($obj:expr, $binding:ident => $default:expr $(,)?) => {{
+    (match ($obj:expr) { $binding:ident => $default:expr $(,)? }) => {{
         let $binding = $obj;
         $default
     }};
 
+    (match ($obj:expr) { $binding:ident @ $class:ty => $expr:block $($rest:tt)* }) => {
+        $crate::match_class!(match ($obj) { $binding @ $class => ($expr), $($rest)* })
+    };
+
     // An arm taken when the object is an instance of the specified built-in
     // class and binding the downcasted object to the specified identifier.
-    ($obj:expr, $binding:ident @ $class:ty => $expr:expr, $($rest:tt)*) => {
+    (match ($obj:expr) { $binding:ident @ $class:ty => $expr:expr, $($rest:tt)* }) => {
         match $obj.downcast::<$class>() {
             Ok($binding) => $expr,
-            Err(_obj) => $crate::match_class!(_obj, $($rest)*),
+            Err(_obj) => $crate::match_class!(match (_obj) { $($rest)* }),
         }
+    };
+
+    (match ($obj:expr) { $class:ty => $expr:block, $($rest:tt)* }) => {
+        $crate::match_class!(match ($obj) { $class => ($expr), $($rest)* })
     };
 
     // An arm taken when the object is an instance of the specified built-in
     // class.
-    ($obj:expr, $class:ty => $expr:expr, $($rest:tt)*) => {
+    (match ($obj:expr) { $class:ty => $expr:expr, $($rest:tt)* }) => {
         if $obj.payload_is::<$class>() {
             $expr
         } else {
-            $crate::match_class!($obj, $($rest)*)
+            $crate::match_class!(match ($obj) { $($rest)* })
         }
     };
 }

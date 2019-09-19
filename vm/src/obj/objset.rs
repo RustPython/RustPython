@@ -314,11 +314,11 @@ impl PySetInner {
 
 macro_rules! try_set_inner {
     ($vm:expr, $other:expr, $op:expr) => {
-        match_class!($other,
-            set @ PySet => $op(&*set.inner.borrow()),
-            frozen @ PyFrozenSet => $op(&frozen.inner),
+        match_class!(match ($other) {
+            set @ PySet => ($op(&*set.inner.borrow())),
+            frozen @ PyFrozenSet => ($op(&frozen.inner)),
             _ => Ok($vm.ctx.not_implemented()),
-        );
+        });
     };
 }
 

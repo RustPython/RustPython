@@ -392,18 +392,18 @@ impl PyMatch {
     }
 
     fn get_bounds(&self, id: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<(usize, usize)>> {
-        match_class!(id,
+        match_class!(match (id) {
             i @ PyInt => {
-                let i = usize::try_from_object(vm,i.into_object())?;
+                let i = usize::try_from_object(vm, i.into_object())?;
                 match self.captures.get(i) {
                     None => Err(vm.new_index_error("No such group".to_owned())),
                     Some(None) => Ok(None),
                     Some(Some(bounds)) => Ok(Some(*bounds)),
                 }
-            },
+            }
             _s @ PyString => unimplemented!(),
             _ => Err(vm.new_index_error("No such group".to_owned())),
-        )
+        })
     }
 
     fn get_group(&self, id: PyObjectRef, vm: &VirtualMachine) -> PyResult {

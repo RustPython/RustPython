@@ -233,10 +233,10 @@ impl PyDeque {
             return Ok(vm.new_bool(true));
         }
 
-        let other = match_class!(other,
+        let other = match_class!(match (other) {
             other @ Self => other,
             _ => return Ok(vm.ctx.not_implemented()),
-        );
+        });
 
         let lhs: &VecDeque<_> = &zelf.deque.borrow();
         let rhs: &VecDeque<_> = &other.deque.borrow();
@@ -251,10 +251,10 @@ impl PyDeque {
             return Ok(vm.new_bool(true));
         }
 
-        let other = match_class!(other,
+        let other = match_class!(match (other) {
             other @ Self => other,
             _ => return Ok(vm.ctx.not_implemented()),
-        );
+        });
 
         let lhs: &VecDeque<_> = &zelf.deque.borrow();
         let rhs: &VecDeque<_> = &other.deque.borrow();
@@ -269,10 +269,10 @@ impl PyDeque {
             return Ok(vm.new_bool(true));
         }
 
-        let other = match_class!(other,
+        let other = match_class!(match (other) {
             other @ Self => other,
             _ => return Ok(vm.ctx.not_implemented()),
-        );
+        });
 
         let lhs: &VecDeque<_> = &zelf.deque.borrow();
         let rhs: &VecDeque<_> = &other.deque.borrow();
@@ -287,10 +287,10 @@ impl PyDeque {
             return Ok(vm.new_bool(true));
         }
 
-        let other = match_class!(other,
+        let other = match_class!(match (other) {
             other @ Self => other,
             _ => return Ok(vm.ctx.not_implemented()),
-        );
+        });
 
         let lhs: &VecDeque<_> = &zelf.deque.borrow();
         let rhs: &VecDeque<_> = &other.deque.borrow();
@@ -305,10 +305,10 @@ impl PyDeque {
             return Ok(vm.new_bool(true));
         }
 
-        let other = match_class!(other,
+        let other = match_class!(match (other) {
             other @ Self => other,
             _ => return Ok(vm.ctx.not_implemented()),
-        );
+        });
 
         let lhs: &VecDeque<_> = &zelf.deque.borrow();
         let rhs: &VecDeque<_> = &other.deque.borrow();
