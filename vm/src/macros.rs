@@ -192,11 +192,11 @@ macro_rules! py_namespace {
 /// let obj = PyInt::new(0).into_ref(&vm).into_object();
 /// assert_eq!(
 ///     "int",
-///     match_class!(obj.clone(),
+///     match_class!(match obj.clone() {
 ///         PyInt => "int",
 ///         PyFloat => "float",
 ///         _ => "neither",
-///     )
+///     })
 /// );
 ///
 /// ```
@@ -216,11 +216,11 @@ macro_rules! py_namespace {
 /// let vm: VirtualMachine = Default::default();
 /// let obj = PyInt::new(0).into_ref(&vm).into_object();
 ///
-/// let int_value = match_class!(obj,
+/// let int_value = match_class!(match obj {
 ///     i @ PyInt => i.as_bigint().clone(),
 ///     f @ PyFloat => f.to_f64().to_bigint().unwrap(),
 ///     obj => panic!("non-numeric object {}", obj),
-/// );
+/// });
 ///
 /// assert!(int_value.is_zero());
 /// ```
