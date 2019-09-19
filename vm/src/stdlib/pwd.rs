@@ -44,7 +44,7 @@ impl PasswdRef {
 }
 
 fn pwd_getpwnam(name: PyStringRef, vm: &VirtualMachine) -> PyResult<Passwd> {
-    match Passwd::from_name(&name.value) {
+    match Passwd::from_name(name.as_str()) {
         Ok(Some(passwd)) => Ok(passwd),
         _ => {
             let name_repr = vm.to_repr(name.as_object())?;

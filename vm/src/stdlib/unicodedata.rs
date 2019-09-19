@@ -35,7 +35,7 @@ fn category(character: PyStringRef, vm: &VirtualMachine) -> PyResult {
 
 fn lookup(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
     // TODO: we might want to use unic_ucd instead of unicode_names2 for this too, if possible:
-    if let Some(character) = unicode_names2::character(&name.value) {
+    if let Some(character) = unicode_names2::character(name.as_str()) {
         Ok(vm.new_str(character.to_string()))
     } else {
         Err(vm.new_key_error(vm.new_str(format!("undefined character name '{}'", name))))
@@ -70,8 +70,8 @@ fn bidirectional(character: PyStringRef, vm: &VirtualMachine) -> PyResult {
 
 fn normalize(form: PyStringRef, unistr: PyStringRef, vm: &VirtualMachine) -> PyResult {
     use unic::normal::StrNormalForm;
-    let text = &unistr.value;
-    let normalized_text = match form.value.as_ref() {
+    let text = unistr.as_str();
+    let normalized_text = match form.as_str() {
         "NFC" => text.nfc().collect::<String>(),
         "NFKC" => text.nfkc().collect::<String>(),
         "NFD" => text.nfd().collect::<String>(),
@@ -85,10 +85,10 @@ fn normalize(form: PyStringRef, unistr: PyStringRef, vm: &VirtualMachine) -> PyR
 }
 
 fn extract_char(character: PyStringRef, vm: &VirtualMachine) -> PyResult<char> {
-    if character.value.len() != 1 {
+    if character.as_str().len() != 1 {
         return Err(vm.new_type_error("argument must be an unicode character, not str".to_string()));
     }
 
-    let my_char: char = character.value.chars().next().unwrap();
+    let my_char: char = character.as_str().chars().next().unwrap();
     Ok(my_char)
 }

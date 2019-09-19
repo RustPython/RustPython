@@ -560,7 +560,7 @@ impl PyFloat {
 
     #[pymethod]
     fn fromhex(repr: PyStringRef, vm: &VirtualMachine) -> PyResult<f64> {
-        hexf_parse::parse_hexf64(&repr.value, false).or_else(|_| match repr.value.as_ref() {
+        hexf_parse::parse_hexf64(repr.as_str(), false).or_else(|_| match repr.as_str() {
             "nan" => Ok(std::f64::NAN),
             "inf" => Ok(std::f64::INFINITY),
             "-inf" => Ok(std::f64::NEG_INFINITY),

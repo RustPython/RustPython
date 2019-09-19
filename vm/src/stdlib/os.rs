@@ -377,25 +377,25 @@ fn os_write(fd: PyIntRef, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
 
 fn os_remove(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
     let path = make_path(vm, path, &dir_fd);
-    fs::remove_file(&path.value).map_err(|err| convert_io_error(vm, err))
+    fs::remove_file(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_mkdir(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
     let path = make_path(vm, path, &dir_fd);
-    fs::create_dir(&path.value).map_err(|err| convert_io_error(vm, err))
+    fs::create_dir(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_mkdirs(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    fs::create_dir_all(&path.value).map_err(|err| convert_io_error(vm, err))
+    fs::create_dir_all(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_rmdir(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
     let path = make_path(vm, path, &dir_fd);
-    fs::remove_dir(&path.value).map_err(|err| convert_io_error(vm, err))
+    fs::remove_dir(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match fs::read_dir(&path.value) {
+    match fs::read_dir(path.as_str()) {
         Ok(iter) => {
             let res: PyResult<Vec<PyObjectRef>> = iter
                 .map(|entry| match entry {
@@ -583,7 +583,7 @@ impl ScandirIterator {
 }
 
 fn os_scandir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match fs::read_dir(&path.value) {
+    match fs::read_dir(path.as_str()) {
         Ok(iter) => Ok(ScandirIterator {
             entries: RefCell::new(iter),
         }
@@ -699,7 +699,7 @@ macro_rules! os_unix_stat_inner {
             })
         }
 
-        get_stats(&$path.value, $follow_symlinks.follow_symlinks)
+        get_stats($path.as_str(), $follow_symlinks.follow_symlinks)
             .map_err(|err| convert_io_error($vm, err))
     }};
 }
@@ -802,7 +802,7 @@ fn os_stat(
         })
     }
 
-    get_stats(&path.value, follow_symlinks.follow_symlinks)
+    get_stats(path.as_str(), follow_symlinks.follow_symlinks)
         .map_err(|s| vm.new_os_error(s.to_string()))
 }
 
@@ -842,7 +842,7 @@ fn os_symlink(
 ) -> PyResult<()> {
     use std::os::unix::fs as unix_fs;
     let dst = make_path(vm, dst, &dir_fd);
-    unix_fs::symlink(&src.value, &dst.value).map_err(|err| convert_io_error(vm, err))
+    unix_fs::symlink(src.as_str(), dst.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 #[cfg(windows)]
@@ -888,7 +888,7 @@ fn os_getcwd(vm: &VirtualMachine) -> PyResult<String> {
 }
 
 fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    env::set_current_dir(&path.value).map_err(|err| convert_io_error(vm, err))
+    env::set_current_dir(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 #[cfg(unix)]
@@ -902,14 +902,14 @@ fn os_chmod(
     use std::os::unix::fs::PermissionsExt;
     let path = make_path(vm, path, &dir_fd);
     let metadata = if follow_symlinks.follow_symlinks {
-        fs::metadata(&path.value)
+        fs::metadata(path.as_str())
     } else {
-        fs::symlink_metadata(&path.value)
+        fs::symlink_metadata(path.as_str())
     };
     let meta = metadata.map_err(|err| convert_io_error(vm, err))?;
     let mut permissions = meta.permissions();
     permissions.set_mode(mode);
-    fs::set_permissions(&path.value, permissions).map_err(|err| convert_io_error(vm, err))?;
+    fs::set_permissions(path.as_str(), permissions).map_err(|err| convert_io_error(vm, err))?;
     Ok(())
 }
 
@@ -927,7 +927,7 @@ fn os_fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn os_rename(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    fs::rename(&src.value, &dst.value).map_err(|err| convert_io_error(vm, err))
+    fs::rename(src.as_str(), dst.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_getpid(vm: &VirtualMachine) -> PyObjectRef {

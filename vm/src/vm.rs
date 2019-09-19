@@ -446,7 +446,7 @@ impl VirtualMachine {
 
     pub fn to_pystr<'a, T: Into<&'a PyObjectRef>>(&'a self, obj: T) -> Result<String, PyObjectRef> {
         let py_str_obj = self.to_str(obj.into())?;
-        Ok(py_str_obj.value.clone())
+        Ok(py_str_obj.as_str().to_owned())
     }
 
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStringRef> {
@@ -457,7 +457,7 @@ impl VirtualMachine {
     pub fn to_ascii(&self, obj: &PyObjectRef) -> PyResult {
         let repr = self.call_method(obj, "__repr__", vec![])?;
         let repr: PyStringRef = TryFromObject::try_from_object(self, repr)?;
-        let ascii = to_ascii(&repr.value);
+        let ascii = to_ascii(repr.as_str());
         Ok(self.new_str(ascii))
     }
 
@@ -956,7 +956,7 @@ impl VirtualMachine {
         }
 
         let attr = if let Some(ref dict) = obj.dict {
-            dict.get_item_option(&name_str.value, self)?
+            dict.get_item_option(name_str.as_str(), self)?
         } else {
             None
         };

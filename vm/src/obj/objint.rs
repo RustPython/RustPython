@@ -554,7 +554,7 @@ impl PyInt {
 
     #[pymethod(name = "__format__")]
     fn format(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
-        let format_spec = FormatSpec::parse(&spec.value);
+        let format_spec = FormatSpec::parse(spec.as_str());
         match format_spec.format_int(&self.value) {
             Ok(string) => Ok(string),
             Err(err) => Err(vm.new_value_error(err.to_string())),
@@ -594,22 +594,21 @@ impl PyInt {
                 );
             }
         }
-        let x;
-        if byteorder.value == "big" {
-            x = match signed {
+        let x = match byteorder.as_str() {
+            "big" => match signed {
                 true => BigInt::from_signed_bytes_be(&bytes.elements),
                 false => BigInt::from_bytes_be(Sign::Plus, &bytes.elements),
-            }
-        } else if byteorder.value == "little" {
-            x = match signed {
+            },
+            "little" => match signed {
                 true => BigInt::from_signed_bytes_le(&bytes.elements),
                 false => BigInt::from_bytes_le(Sign::Plus, &bytes.elements),
+            },
+            _ => {
+                return Err(
+                    vm.new_value_error("byteorder must be either 'little' or 'big'".to_string())
+                )
             }
-        } else {
-            return Err(
-                vm.new_value_error("byteorder must be either 'little' or 'big'".to_string())
-            );
-        }
+        };
         Ok(x)
     }
     #[pymethod]
@@ -642,7 +641,7 @@ impl PyInt {
             return Err(vm.new_value_error("length parameter is illegal".to_string()));
         }
 
-        let mut origin_bytes = match byteorder.value.as_str() {
+        let mut origin_bytes = match byteorder.as_str() {
             "big" => match signed {
                 true => value.to_signed_bytes_be(),
                 false => value.to_bytes_be().1,
@@ -667,7 +666,7 @@ impl PyInt {
             _ => vec![0u8; byte_len - origin_len],
         };
         let mut bytes = vec![];
-        match byteorder.value.as_str() {
+        match byteorder.as_str() {
             "big" => {
                 bytes = append_bytes;
                 bytes.append(&mut origin_bytes);
@@ -746,7 +745,7 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
 
     match_class!(obj.clone(),
         string @ PyString => {
-            let s = string.value.as_str().trim();
+            let s = string.as_str().trim();
             str_to_int(vm, s, base)
         },
         bytes @ PyBytes => {

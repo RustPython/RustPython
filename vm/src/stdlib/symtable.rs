@@ -32,7 +32,7 @@ fn symtable_symtable(
         .parse::<compile::Mode>()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
     let symtable =
-        source_to_symtable(&source.value, mode).map_err(|err| vm.new_syntax_error(&err))?;
+        source_to_symtable(source.as_str(), mode).map_err(|err| vm.new_syntax_error(&err))?;
 
     let py_symbol_table = to_py_symbol_table(symtable);
     Ok(py_symbol_table.into_ref(vm))
@@ -99,7 +99,7 @@ impl PySymbolTable {
 
     #[pymethod(name = "lookup")]
     fn lookup(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
-        let name = &name.value;
+        let name = name.as_str();
         if let Some(symbol) = self.symtable.symbols.get(name) {
             Ok(PySymbol {
                 symbol: symbol.clone(),

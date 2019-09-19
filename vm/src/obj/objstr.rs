@@ -52,12 +52,12 @@ use unicode_categories::UnicodeCategories;
 #[pyclass(name = "str")]
 #[derive(Clone, Debug)]
 pub struct PyString {
-    // TODO: shouldn't be public
-    pub value: String,
+    value: String,
     hash: Cell<Option<pyhash::PyHash>>,
 }
 
 impl PyString {
+    #[inline]
     pub fn as_str(&self) -> &str {
         &self.value
     }

@@ -502,9 +502,7 @@ impl TryFromObject for Address {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_string()))
         } else {
             Ok(Address {
-                host: PyStringRef::try_from_object(vm, tuple.elements[0].clone())?
-                    .value
-                    .to_string(),
+                host: vm.to_pystr(&tuple.elements[0])?,
                 port: PyIntRef::try_from_object(vm, tuple.elements[1].clone())?
                     .as_bigint()
                     .to_usize()
@@ -530,7 +528,7 @@ fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
 
 #[cfg(all(unix, not(target_os = "redox")))]
 fn socket_sethostname(hostname: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    sethostname(hostname.value.as_str()).map_err(|err| convert_nix_error(vm, err))
+    sethostname(hostname.as_str()).map_err(|err| convert_nix_error(vm, err))
 }
 
 fn socket_inet_aton(ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {

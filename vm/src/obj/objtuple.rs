@@ -169,10 +169,10 @@ impl PyTupleRef {
 
     fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
-            let mut str_parts = vec![];
+            let mut str_parts = Vec::with_capacity(self.elements.len());
             for elem in self.elements.iter() {
                 let s = vm.to_repr(elem)?;
-                str_parts.push(s.value.clone());
+                str_parts.push(s.as_str().to_owned());
             }
 
             if str_parts.len() == 1 {

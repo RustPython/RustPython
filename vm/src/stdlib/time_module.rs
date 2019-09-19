@@ -175,7 +175,7 @@ fn time_strftime(
         OptionalArg::Present(t) => t.get_date_time(),
         OptionalArg::Missing => default,
     };
-    let formatted_time = instant.format(&format.value).to_string();
+    let formatted_time = instant.format(format.as_str()).to_string();
     Ok(vm.ctx.new_str(formatted_time))
 }
 
@@ -184,11 +184,11 @@ fn time_strptime(
     format: OptionalArg<PyStringRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyStructTime> {
-    let format: String = match format {
-        OptionalArg::Present(format) => format.value.clone(),
-        OptionalArg::Missing => "%a %b %H:%M:%S %Y".to_string(),
+    let format = match format {
+        OptionalArg::Present(ref format) => format.as_str(),
+        OptionalArg::Missing => "%a %b %H:%M:%S %Y",
     };
-    let instant = NaiveDateTime::parse_from_str(&string.value, &format)
+    let instant = NaiveDateTime::parse_from_str(string.as_str(), format)
         .map_err(|e| vm.new_value_error(format!("Parse error: {:?}", e)))?;
     let struct_time = PyStructTime::new(instant, -1);
     Ok(struct_time)
