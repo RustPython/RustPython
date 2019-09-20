@@ -157,7 +157,7 @@ class EnumMeta(type):
 
         # save attributes from super classes so we know if we can take
         # the shortcut of storing members in the class dict
-        base_attributes = {a for b in enum_class.mro() for a in b.__dict__}
+        base_attributes = {a for b in enum_class.mro() for a in dir(b)} # XXX modified for rustpython
 
         # Reverse value->name map for hashable values.
         enum_class._value2member_map_ = {}
