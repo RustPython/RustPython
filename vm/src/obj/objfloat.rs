@@ -323,7 +323,7 @@ impl PyFloat {
         } else if objtype::isinstance(&arg, &vm.ctx.int_type()) {
             objint::get_float_value(&arg, vm)?
         } else if objtype::isinstance(&arg, &vm.ctx.str_type()) {
-            match lexical::try_parse(objstr::get_value(&arg)) {
+            match lexical::try_parse(objstr::get_value(&arg).trim()) {
                 Ok(f) => f,
                 Err(_) => {
                     let arg_repr = vm.to_pystr(&arg)?;
