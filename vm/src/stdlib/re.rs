@@ -97,7 +97,7 @@ fn re_match(
     vm: &VirtualMachine,
 ) -> PyResult {
     let flags = extract_flags(flags);
-    let regex = make_regex(vm, &pattern.value, flags)?;
+    let regex = make_regex(vm, pattern.as_str(), flags)?;
     do_match(vm, &regex, string)
 }
 
@@ -108,7 +108,7 @@ fn re_search(
     vm: &VirtualMachine,
 ) -> PyResult {
     let flags = extract_flags(flags);
-    let regex = make_regex(vm, &pattern.value, flags)?;
+    let regex = make_regex(vm, pattern.as_str(), flags)?;
     do_search(vm, &regex, string)
 }
 
@@ -311,11 +311,11 @@ fn re_compile(
     vm: &VirtualMachine,
 ) -> PyResult<PyPattern> {
     let flags = extract_flags(flags);
-    make_regex(vm, &pattern.value, flags)
+    make_regex(vm, pattern.as_str(), flags)
 }
 
 fn re_escape(pattern: PyStringRef, _vm: &VirtualMachine) -> String {
-    regex::escape(&pattern.value)
+    regex::escape(pattern.as_str())
 }
 
 fn re_purge(_vm: &VirtualMachine) {}
@@ -336,7 +336,7 @@ impl PyPattern {
     fn sub(&self, repl: PyStringRef, text: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let replaced_text = self
             .regex
-            .replace_all(text.value.as_bytes(), repl.as_str().as_bytes());
+            .replace_all(text.as_str().as_bytes(), repl.as_str().as_bytes());
         let replaced_text = String::from_utf8_lossy(&replaced_text).into_owned();
         Ok(vm.ctx.new_str(replaced_text))
     }

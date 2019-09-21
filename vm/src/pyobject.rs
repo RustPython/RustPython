@@ -380,7 +380,7 @@ impl PyContext {
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
-        PyObject::new(objstr::PyString { value: s }, self.str_type(), None)
+        PyObject::new(objstr::PyString::from(s), self.str_type(), None)
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {

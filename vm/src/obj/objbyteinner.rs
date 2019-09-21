@@ -104,7 +104,7 @@ impl ByteInnerNewOptions {
         if let OptionalArg::Present(enc) = self.encoding {
             if let OptionalArg::Present(eval) = self.val_option {
                 if let Ok(input) = eval.downcast::<PyString>() {
-                    let inner = PyByteInner::from_string(&input.value, enc.as_str(), vm)?;
+                    let inner = PyByteInner::from_string(input.as_str(), enc.as_str(), vm)?;
                     Ok(inner)
                 } else {
                     Err(vm.new_type_error("encoding without a string argument".to_string()))

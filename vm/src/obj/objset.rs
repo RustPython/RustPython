@@ -240,10 +240,10 @@ impl PySetInner {
     }
 
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let mut str_parts = vec![];
+        let mut str_parts = Vec::with_capacity(self.content.len());
         for key in self.content.keys() {
             let part = vm.to_repr(&key)?;
-            str_parts.push(part.value.clone());
+            str_parts.push(part.as_str().to_owned());
         }
 
         Ok(format!("{{{}}}", str_parts.join(", ")))

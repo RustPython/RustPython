@@ -38,10 +38,10 @@ impl BufferedIO {
         BufferedIO { cursor }
     }
 
-    fn write(&mut self, data: Vec<u8>) -> Option<u64> {
+    fn write(&mut self, data: &[u8]) -> Option<u64> {
         let length = data.len();
 
-        match self.cursor.write_all(&data) {
+        match self.cursor.write_all(data) {
             Ok(_) => Some(length as u64),
             Err(_) => None,
         }
@@ -102,9 +102,9 @@ impl PyValue for PyStringIO {
 impl PyStringIORef {
     //write string to underlying vector
     fn write(self, data: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        let bytes = &data.value.clone().into_bytes();
+        let bytes = data.as_str().as_bytes();
 
-        match self.buffer.borrow_mut().write(bytes.to_vec()) {
+        match self.buffer.borrow_mut().write(bytes) {
             Some(value) => Ok(vm.ctx.new_int(value)),
             None => Err(vm.new_type_error("Error Writing String".to_string())),
         }
@@ -180,7 +180,7 @@ impl PyBytesIORef {
     fn write(self, data: objbytes::PyBytesRef, vm: &VirtualMachine) -> PyResult {
         let bytes = data.get_value();
 
-        match self.buffer.borrow_mut().write(bytes.to_vec()) {
+        match self.buffer.borrow_mut().write(bytes) {
             Some(value) => Ok(vm.ctx.new_int(value)),
             None => Err(vm.new_type_error("Error Writing Bytes".to_string())),
         }

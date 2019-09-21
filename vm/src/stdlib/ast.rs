@@ -635,7 +635,7 @@ fn string_to_ast(vm: &VirtualMachine, string: &ast::StringGroup) -> PyResult<Ast
 }
 
 fn ast_parse(source: PyStringRef, vm: &VirtualMachine) -> PyResult<AstNodeRef> {
-    let internal_ast = parser::parse_program(&source.value)
+    let internal_ast = parser::parse_program(source.as_str())
         .map_err(|err| vm.new_value_error(format!("{}", err)))?;
     // source.clone();
     program_to_ast(&vm, &internal_ast)

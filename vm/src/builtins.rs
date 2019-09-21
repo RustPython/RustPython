@@ -60,7 +60,7 @@ fn builtin_any(iterable: PyIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResul
 
 fn builtin_ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
     let repr = vm.to_repr(&obj)?;
-    let ascii = to_ascii(&repr.value);
+    let ascii = to_ascii(repr.as_str());
     Ok(ascii)
 }
 
@@ -126,9 +126,9 @@ struct CompileArgs {
 #[cfg(feature = "rustpython-compiler")]
 fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef> {
     // TODO: compile::compile should probably get bytes
-    let source = match args.source {
-        Either::A(string) => string.value.to_string(),
-        Either::B(bytes) => str::from_utf8(&bytes).unwrap().to_string(),
+    let source = match &args.source {
+        Either::A(string) => string.as_str(),
+        Either::B(bytes) => str::from_utf8(bytes).unwrap(),
     };
 
     let mode = args
@@ -137,7 +137,7 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef
         .parse::<compile::Mode>()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-    vm.compile(&source, mode, args.filename.value.to_string())
+    vm.compile(source, mode, args.filename.as_str().to_string())
         .map_err(|err| vm.new_syntax_error(&err))
 }
 
@@ -250,12 +250,9 @@ fn builtin_format(
     format_spec: OptionalArg<PyStringRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyStringRef> {
-    let format_spec = format_spec.into_option().unwrap_or_else(|| {
-        PyString {
-            value: "".to_string(),
-        }
-        .into_ref(vm)
-    });
+    let format_spec = format_spec
+        .into_option()
+        .unwrap_or_else(|| PyString::from("").into_ref(vm));
 
     vm.call_method(&value, "__format__", vec![format_spec.into_object()])?
         .downcast()
@@ -598,8 +595,8 @@ impl Printer for &'_ PyObjectRef {
 
 impl Printer for std::io::StdoutLock<'_> {
     fn write(&mut self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
-        let s = &vm.to_str(&obj)?.value;
-        write!(self, "{}", s).unwrap();
+        let s = vm.to_str(&obj)?;
+        write!(self, "{}", s.as_str()).unwrap();
         Ok(())
     }
 
@@ -631,7 +628,7 @@ pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) 
     let sep = options
         .sep
         .as_ref()
-        .map_or(" ", |sep| &sep.value)
+        .map_or(" ", |sep| sep.as_str())
         .into_pyobject(vm)
         .unwrap();
 
@@ -649,7 +646,7 @@ pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) 
     let end = options
         .end
         .as_ref()
-        .map_or("\n", |end| &end.value)
+        .map_or("\n", |end| end.as_str())
         .into_pyobject(vm)
         .unwrap();
     printer.write(vm, end)?;
@@ -902,7 +899,7 @@ pub fn builtin_build_class_(
     mut kwargs: KwArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
-    let name = qualified_name.value.split('.').next_back().unwrap();
+    let name = qualified_name.as_str().split('.').next_back().unwrap();
     let name_obj = vm.new_str(name.to_string());
 
     let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {

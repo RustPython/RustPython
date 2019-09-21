@@ -52,11 +52,12 @@ use unicode_categories::UnicodeCategories;
 #[pyclass(name = "str")]
 #[derive(Clone, Debug)]
 pub struct PyString {
-    // TODO: shouldn't be public
-    pub value: String,
+    value: String,
+    hash: Cell<Option<pyhash::PyHash>>,
 }
 
 impl PyString {
+    #[inline]
     pub fn as_str(&self) -> &str {
         &self.value
     }
@@ -64,8 +65,15 @@ impl PyString {
 
 impl From<&str> for PyString {
     fn from(s: &str) -> PyString {
+        s.to_string().into()
+    }
+}
+
+impl From<String> for PyString {
+    fn from(s: String) -> PyString {
         PyString {
-            value: s.to_string(),
+            value: s,
+            hash: Cell::default(),
         }
     }
 }
@@ -80,16 +88,13 @@ impl fmt::Display for PyString {
 
 impl TryIntoRef<PyString> for String {
     fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyString>> {
-        Ok(PyString { value: self }.into_ref(vm))
+        Ok(PyString::from(self).into_ref(vm))
     }
 }
 
 impl TryIntoRef<PyString> for &str {
     fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyString>> {
-        Ok(PyString {
-            value: self.to_string(),
-        }
-        .into_ref(vm))
+        Ok(PyString::from(self).into_ref(vm))
     }
 }
 
@@ -259,7 +264,14 @@ impl PyString {
 
     #[pymethod(name = "__hash__")]
     fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
-        pyhash::hash_value(&self.value)
+        match self.hash.get() {
+            Some(hash) => hash,
+            None => {
+                let hash = pyhash::hash_value(&self.value);
+                self.hash.set(Some(hash));
+                hash
+            }
+        }
     }
 
     #[pymethod(name = "__len__")]

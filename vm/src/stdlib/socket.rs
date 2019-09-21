@@ -503,8 +503,8 @@ impl TryFromObject for Address {
         } else {
             Ok(Address {
                 host: PyStringRef::try_from_object(vm, tuple.elements[0].clone())?
-                    .value
-                    .to_string(),
+                    .as_str()
+                    .to_owned(),
                 port: PyIntRef::try_from_object(vm, tuple.elements[1].clone())?
                     .as_bigint()
                     .to_usize()
@@ -530,7 +530,7 @@ fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
 
 #[cfg(all(unix, not(target_os = "redox")))]
 fn socket_sethostname(hostname: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    sethostname(hostname.value.as_str()).map_err(|err| convert_nix_error(vm, err))
+    sethostname(hostname.as_str()).map_err(|err| convert_nix_error(vm, err))
 }
 
 fn socket_inet_aton(ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
