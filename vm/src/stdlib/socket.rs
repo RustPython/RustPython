@@ -502,7 +502,9 @@ impl TryFromObject for Address {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_string()))
         } else {
             Ok(Address {
-                host: vm.to_pystr(&tuple.elements[0])?,
+                host: PyStringRef::try_from_object(vm, tuple.elements[0].clone())?
+                    .as_str()
+                    .to_owned(),
                 port: PyIntRef::try_from_object(vm, tuple.elements[1].clone())?
                     .as_bigint()
                     .to_usize()
