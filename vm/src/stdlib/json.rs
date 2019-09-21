@@ -21,10 +21,15 @@ pub fn json_dump(obj: PyObjectRef, fs: PyObjectRef, vm: &VirtualMachine) -> PyRe
 
 /// Implement json.loads
 pub fn json_loads(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    let de_result = match_class!(obj,
-        s @ PyString => py_serde::deserialize(vm, &mut serde_json::Deserializer::from_str(s.as_str())),
+    let de_result = match_class!(match obj {
+        s @ PyString => {
+            py_serde::deserialize(vm, &mut serde_json::Deserializer::from_str(s.as_str()))
+        }
         b @ PyBytes => py_serde::deserialize(vm, &mut serde_json::Deserializer::from_slice(&b)),
-        ba @ PyByteArray => py_serde::deserialize(vm, &mut serde_json::Deserializer::from_slice(&ba.inner.borrow().elements)),
+        ba @ PyByteArray => py_serde::deserialize(
+            vm,
+            &mut serde_json::Deserializer::from_slice(&ba.inner.borrow().elements)
+        ),
         obj => {
             let msg = format!(
                 "the JSON object must be str, bytes or bytearray, not {}",
@@ -32,7 +37,7 @@ pub fn json_loads(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             );
             return Err(vm.new_type_error(msg));
         }
-    );
+    });
     de_result.map_err(|err| {
         let module = vm
             .get_attribute(vm.sys_module.clone(), "modules")

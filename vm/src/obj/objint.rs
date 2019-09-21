@@ -587,11 +587,10 @@ impl PyInt {
         let mut signed = false;
         for (key, value) in kwargs.into_iter() {
             if key == "signed" {
-                signed = match_class!(value,
-
+                signed = match_class!(match value {
                     b @ PyInt => !b.as_bigint().is_zero(),
                     _ => false,
-                );
+                });
             }
         }
         let x;
@@ -625,11 +624,10 @@ impl PyInt {
         let value = self.as_bigint();
         for (key, value) in kwargs.into_iter() {
             if key == "signed" {
-                signed = match_class!(value,
-
+                signed = match_class!(match value {
                     b @ PyInt => !b.as_bigint().is_zero(),
                     _ => false,
-                );
+                });
             }
         }
         if value.sign() == Sign::Minus && !signed {
@@ -744,30 +742,35 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
         return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()));
     }
 
-    match_class!(obj.clone(),
+    match_class!(match obj.clone() {
         string @ PyString => {
             let s = string.value.as_str().trim();
             str_to_int(vm, s, base)
-        },
+        }
         bytes @ PyBytes => {
             let bytes = bytes.get_value();
             let s = std::str::from_utf8(bytes)
                 .map(|s| s.trim())
                 .map_err(|e| vm.new_value_error(format!("utf8 decode error: {}", e)))?;
             str_to_int(vm, s, base)
-        },
+        }
         obj => {
             let method = vm.get_method_or_type_error(obj.clone(), "__int__", || {
-                format!("int() argument must be a string or a number, not '{}'", obj.class().name)
+                format!(
+                    "int() argument must be a string or a number, not '{}'",
+                    obj.class().name
+                )
             })?;
             let result = vm.invoke(&method, PyFuncArgs::default())?;
             match result.payload::<PyInt>() {
                 Some(int_obj) => Ok(int_obj.as_bigint().clone()),
                 None => Err(vm.new_type_error(format!(
-                    "TypeError: __int__ returned non-int (type '{}')", result.class().name))),
+                    "TypeError: __int__ returned non-int (type '{}')",
+                    result.class().name
+                ))),
             }
         }
-    )
+    })
 }
 
 fn str_to_int(vm: &VirtualMachine, literal: &str, mut base: u32) -> PyResult<BigInt> {

@@ -974,12 +974,12 @@ impl VirtualMachine {
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
-        match_class!(obj,
+        match_class!(match obj {
             PyFunction => true,
             PyMethod => true,
             PyBuiltinFunction => true,
             obj => objtype::class_has_attr(&obj.class(), "__call__"),
-        )
+        })
     }
 
     #[cfg(feature = "rustpython-compiler")]
