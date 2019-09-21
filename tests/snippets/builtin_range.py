@@ -49,6 +49,8 @@ assert range(10).count("foo") == 0
 assert range(1, 2, 3) == range(1, 2, 3)
 assert range(1, 2, 1) == range(1, 2)
 assert range(2) == range(0, 2)
+assert range(0, 10, 3) == range(0, 12, 3)
+assert range(20, 10, 3) == range(20, 12, 3)
 
 #__lt__
 assert range(1, 2, 3).__lt__(range(1, 2, 3)) == NotImplemented
