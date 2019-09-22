@@ -363,7 +363,7 @@ impl PyRange {
                 };
 
                 let new_step = if let Some(int) = slice.step_index(vm)? {
-                    if step.is_zero() {
+                    if int.is_zero() {
                         return Err(vm.new_value_error("slice step cannot be zero".to_string()));
                     } else {
                         PyInt::new(int * self.step.as_bigint()).into_ref(vm)
