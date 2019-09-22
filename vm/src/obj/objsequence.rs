@@ -465,7 +465,7 @@ pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<
     panic!("Cannot extract elements from non-sequence");
 }
 
-//Check if given arg could be used with PySciceableSequance.get_slice_range()
+//Check if given arg could be used with PySliceableSequence.get_slice_range()
 pub fn is_valid_slice_arg(
     arg: OptionalArg<PyObjectRef>,
     vm: &VirtualMachine,
