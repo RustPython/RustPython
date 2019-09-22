@@ -35,6 +35,12 @@ assert range(10, 100, 3)[4:1000:5] == range(22, 100, 15)
 assert range(10)[:] == range(10)
 assert range(10, 0, -2)[0:5:2] == range(10, 0, -4)
 assert range(10)[10:11] == range(10,10)
+assert range(0, 10, -1)[::-1] == range(1, 1)
+assert range(0, 10)[::-1] == range(9, -1, -1)
+assert range(0, -10)[::-1] == range(-1, -1, -1)
+assert range(0, -10)[::-1][::-1] == range(0, 0)
+assert_raises(ValueError, lambda: range(0, 10)[::0], _msg='slice step cannot be zero')
+assert_raises(TypeError, lambda: range(0, 10)['a':], _msg='slice indices must be integers or None or have an __index__ method')
 
 # count tests
 assert range(10).count(2) == 1
