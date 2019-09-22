@@ -121,10 +121,10 @@ pub fn os_open(
         };
     }
 
-    if bit_contains!(libc::O_RDWR) {
-        options.read(true).write(true);
-    } else if bit_contains!(libc::O_WRONLY) {
+    if bit_contains!(libc::O_WRONLY) {
         options.write(true);
+    } else if bit_contains!(libc::O_RDWR) {
+        options.read(true).write(true);
     } else if bit_contains!(libc::O_RDONLY) {
         options.read(true);
     }
