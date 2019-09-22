@@ -47,3 +47,14 @@ pub fn get_git_branch() -> String {
         .unwrap_or("")
         .to_string()
 }
+
+pub fn get_git_identifier() -> String {
+    let git_tag = get_git_tag();
+    let git_branch = get_git_branch();
+
+    if git_tag.is_empty() || git_tag == "undefined" {
+        git_branch
+    } else {
+        git_tag
+    }
+}

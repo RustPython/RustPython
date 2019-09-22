@@ -166,7 +166,7 @@ fn sys_exc_info(vm: &VirtualMachine) -> PyResult {
 fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
     vm.ctx.new_tuple(vec![
         vm.ctx.new_str("RustPython".to_string()),
-        vm.ctx.new_str(version::get_version_number()),
+        vm.ctx.new_str(version::get_git_identifier()),
         vm.ctx.new_str(version::get_git_revision()),
     ])
 }
