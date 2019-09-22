@@ -10,7 +10,7 @@ fn main() {
 }
 
 fn git_hash() -> String {
-    git(&["rev-parse", "HEAD"])
+    git(&["rev-parse", "--short", "HEAD"])
 }
 
 fn git_timestamp() -> String {
