@@ -38,6 +38,10 @@ pub fn get_git_revision() -> String {
     option_env!("RUSTPYTHON_GIT_HASH").unwrap_or("").to_string()
 }
 
+pub fn get_git_tag() -> String {
+    option_env!("RUSTPYTHON_GIT_TAG").unwrap_or("").to_string()
+}
+
 pub fn get_git_branch() -> String {
     option_env!("RUSTPYTHON_GIT_BRANCH")
         .unwrap_or("")

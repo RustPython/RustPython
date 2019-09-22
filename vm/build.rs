@@ -6,6 +6,7 @@ fn main() {
         "cargo:rustc-env=RUSTPYTHON_GIT_TIMESTAMP={}",
         git_timestamp()
     );
+    println!("cargo:rustc-env=RUSTPYTHON_GIT_TAG={}", git_tag());
     println!("cargo:rustc-env=RUSTPYTHON_GIT_BRANCH={}", git_branch());
 }
 
@@ -15,6 +16,10 @@ fn git_hash() -> String {
 
 fn git_timestamp() -> String {
     git(&["log", "-1", "--format=%cd"])
+}
+
+fn git_tag() -> String {
+    git(&["describe", "--all", "--always", "--dirty"])
 }
 
 fn git_branch() -> String {
