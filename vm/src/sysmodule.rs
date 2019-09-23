@@ -200,7 +200,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
 
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {
-        "name" => ctx.new_str("RustPython".to_string()),
+        "name" => ctx.new_str("rustpython".to_string()),
         "cache_tag" => ctx.new_str("rustpython-01".to_string()),
     });
 
