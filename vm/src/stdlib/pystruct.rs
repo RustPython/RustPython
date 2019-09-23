@@ -105,7 +105,7 @@ where
 }
 
 fn get_int(vm: &VirtualMachine, arg: &PyObjectRef) -> PyResult<BigInt> {
-    objint::to_int(vm, arg, 10)
+    objint::to_int(vm, arg, &BigInt::from(10))
 }
 
 fn pack_i8(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {

@@ -167,6 +167,15 @@ with assert_raises(ValueError):
 with assert_raises(ValueError):
     int(' 1 ', base=37)
 
+with assert_raises(ValueError):
+    int(' 1 ', base=-1)
+
+with assert_raises(ValueError):
+    int(' 1 ', base=1000000000000000)
+
+with assert_raises(ValueError):
+    int(' 1 ', base=-1000000000000000)
+
 with assert_raises(TypeError):
     int(base=2)
 
