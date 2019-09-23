@@ -40,6 +40,16 @@ make_math_func_bool!(math_isfinite, is_finite);
 make_math_func_bool!(math_isinf, is_infinite);
 make_math_func_bool!(math_isnan, is_nan);
 
+fn math_copysign(a: IntoPyFloat, b: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+    let a = a.to_f64();
+    let b = b.to_f64();
+    if a.is_nan() || b.is_nan() {
+        a
+    } else {
+        a.copysign(b)
+    }
+}
+
 // Power and logarithmic functions:
 make_math_func!(math_exp, exp);
 make_math_func!(math_expm1, exp_m1);
@@ -213,6 +223,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "isfinite" => ctx.new_rustfunc(math_isfinite),
         "isinf" => ctx.new_rustfunc(math_isinf),
         "isnan" => ctx.new_rustfunc(math_isnan),
+        "copysign" => ctx.new_rustfunc(math_copysign),
 
         // Power and logarithmic functions:
         "exp" => ctx.new_rustfunc(math_exp),
