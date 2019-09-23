@@ -141,6 +141,9 @@ pub fn os_open(
         }
     }
 
+    #[cfg(windows)]
+    let flags = flags & !(libc::O_WRONLY as u32);
+
     options.custom_flags(flags);
     let handle = options
         .open(fname.as_str())
