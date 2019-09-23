@@ -82,15 +82,15 @@ impl PyRange {
             return None;
         }
 
-        let length = if start < stop {
+        let length: BigInt = if start < stop {
             (stop - start - 1) / step + 1
         } else {
             (start - stop - 1) / (-step) + 1
         };
 
-        let index = if index < BigInt::zero() {
-            let new_index = &length + &index;
-            if new_index < BigInt::zero() {
+        let index = if index.is_negative() {
+            let new_index: BigInt = &length + &index;
+            if new_index.is_negative() {
                 return None;
             }
             length + index
