@@ -21,6 +21,7 @@ pub enum LexicalErrorType {
     UnicodeError,
     NestingError,
     PositionalArgumentError,
+    DuplicateKeywordArgumentError,
     UnrecognizedToken { tok: char },
     FStringError(FStringErrorType),
     OtherError(String),
@@ -33,6 +34,9 @@ impl fmt::Display for LexicalErrorType {
             LexicalErrorType::FStringError(error) => write!(f, "Got error in f-string: {}", error),
             LexicalErrorType::UnicodeError => write!(f, "Got unexpected unicode"),
             LexicalErrorType::NestingError => write!(f, "Got unexpected nesting"),
+            LexicalErrorType::DuplicateKeywordArgumentError => {
+                write!(f, "keyword argument repeated")
+            }
             LexicalErrorType::PositionalArgumentError => {
                 write!(f, "positional argument follows keyword argument")
             }
