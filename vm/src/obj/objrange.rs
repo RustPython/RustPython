@@ -381,10 +381,9 @@ impl PyRange {
                 .into_object())
             }
             RangeIndex::Int(index) => {
-                if let Some(value) = self.get(index.as_bigint()) {
-                    Ok(PyInt::new(value).into_ref(vm).into_object())
-                } else {
-                    Err(vm.new_index_error("range object index out of range".to_string()))
+                match self.get(index.as_bigint()) {
+                    Some(value) => Ok(PyInt::new(value).into_ref(vm).into_object()),
+                    None => Err(vm.new_index_error("range object index out of range".to_string()))
                 }
             }
         }
