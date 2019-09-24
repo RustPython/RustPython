@@ -204,8 +204,7 @@ struct HashWrapper {
 impl HashWrapper {
     fn new<D: 'static>(d: D) -> Self
     where
-        D: DynDigest,
-        D: Sized,
+        D: DynDigest + Sized,
     {
         HashWrapper { inner: Box::new(d) }
     }
