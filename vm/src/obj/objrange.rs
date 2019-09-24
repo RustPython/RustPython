@@ -335,8 +335,16 @@ impl PyRange {
                 };
 
                 let negative_step = substep.is_negative();
-                let lower_bound = if negative_step { -BigInt::one() } else { BigInt::zero() };
-                let upper_bound = if negative_step { &lower_bound + range_length } else { range_length.clone() };
+                let lower_bound = if negative_step {
+                    -BigInt::one()
+                } else {
+                    BigInt::zero()
+                };
+                let upper_bound = if negative_step {
+                    &lower_bound + range_length
+                } else {
+                    range_length.clone()
+                };
 
                 let substart = if let Some(slice_start) = slice.start_index(vm)? {
                     if slice_start.is_negative() {
@@ -354,7 +362,11 @@ impl PyRange {
                         }
                     }
                 } else {
-                    if negative_step { upper_bound.clone() } else { lower_bound.clone() }
+                    if negative_step {
+                        upper_bound.clone()
+                    } else {
+                        lower_bound.clone()
+                    }
                 };
 
                 let substop = if let Some(slice_stop) = slice.stop_index(vm)? {
@@ -373,7 +385,11 @@ impl PyRange {
                         }
                     }
                 } else {
-                    if negative_step { lower_bound.clone() } else { upper_bound.clone() }
+                    if negative_step {
+                        lower_bound.clone()
+                    } else {
+                        upper_bound.clone()
+                    }
                 };
 
                 let step = range_step * &substep;
@@ -388,12 +404,10 @@ impl PyRange {
                 .into_ref(vm)
                 .into_object())
             }
-            RangeIndex::Int(index) => {
-                match self.get(index.as_bigint()) {
-                    Some(value) => Ok(PyInt::new(value).into_ref(vm).into_object()),
-                    None => Err(vm.new_index_error("range object index out of range".to_string()))
-                }
-            }
+            RangeIndex::Int(index) => match self.get(index.as_bigint()) {
+                Some(value) => Ok(PyInt::new(value).into_ref(vm).into_object()),
+                None => Err(vm.new_index_error("range object index out of range".to_string())),
+            },
         }
     }
 
