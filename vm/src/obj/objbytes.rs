@@ -509,7 +509,7 @@ impl PyBytesRef {
                                     }
                                 }
                                 None => {
-                                    if replacing_char.is_none() {
+                                    if replacing_char.is_some() {
                                         decode_content.push(replacing_char.unwrap())
                                     }
                                 }
