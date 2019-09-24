@@ -354,19 +354,15 @@ impl PyRange {
                         } else {
                             tmp.clone()
                         }
-                    } else {
-                        if slice_start > upper_bound {
-                            upper_bound.clone()
-                        } else {
-                            slice_start.clone()
-                        }
-                    }
-                } else {
-                    if negative_step {
+                    } else if slice_start > upper_bound {
                         upper_bound.clone()
                     } else {
-                        lower_bound.clone()
+                        slice_start.clone()
                     }
+                } else if negative_step {
+                    upper_bound.clone()
+                } else {
+                    lower_bound.clone()
                 };
 
                 let substop = if let Some(slice_stop) = slice.stop_index(vm)? {
@@ -377,19 +373,15 @@ impl PyRange {
                         } else {
                             tmp.clone()
                         }
-                    } else {
-                        if slice_stop > upper_bound {
-                            upper_bound.clone()
-                        } else {
-                            slice_stop.clone()
-                        }
-                    }
-                } else {
-                    if negative_step {
-                        lower_bound.clone()
-                    } else {
+                    } else if slice_stop > upper_bound {
                         upper_bound.clone()
+                    } else {
+                        slice_stop.clone()
                     }
+                } else if negative_step {
+                    lower_bound.clone()
+                } else {
+                    upper_bound.clone()
                 };
 
                 let step = range_step * &substep;

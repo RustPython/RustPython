@@ -380,11 +380,8 @@ fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
-        if default.is_none() {
-            return Err(vm.new_value_error("max() arg is an empty sequence".to_string()));
-        } else {
-            return Ok(default.unwrap());
-        }
+        return default
+            .ok_or_else(|| vm.new_value_error("max() arg is an empty sequence".to_string()));
     }
 
     let key_func = args.get_optional_kwarg("key");
@@ -429,11 +426,8 @@ fn builtin_min(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
-        if default.is_none() {
-            return Err(vm.new_value_error("min() arg is an empty sequence".to_string()));
-        } else {
-            return Ok(default.unwrap());
-        }
+        return default
+            .ok_or_else(|| vm.new_value_error("min() arg is an empty sequence".to_string()));
     }
 
     let key_func = args.get_optional_kwarg("key");
