@@ -889,6 +889,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "UserWarning" => ctx.exceptions.user_warning.clone(),
 
         "KeyboardInterrupt" => ctx.exceptions.keyboard_interrupt.clone(),
+        "SystemExit" => ctx.exceptions.system_exit.clone(),
     });
 }
 
