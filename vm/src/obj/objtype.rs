@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::function::PyFuncArgs;
+use crate::function::{PyFuncArgs, PyNativeFunc};
 use crate::pyobject::{
     IdProtocol, PyAttributes, PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult,
     PyValue, TypeProtocol,
@@ -23,6 +23,17 @@ pub struct PyClass {
     pub mro: Vec<PyClassRef>,
     pub subclasses: RefCell<Vec<PyWeak>>,
     pub attributes: RefCell<PyAttributes>,
+    pub slots: RefCell<PyClassSlots>,
+}
+
+#[derive(Default)]
+pub struct PyClassSlots {
+    pub new: Option<PyNativeFunc>,
+}
+impl fmt::Debug for PyClassSlots {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("PyClassSlots")
+    }
 }
 
 impl fmt::Display for PyClass {
@@ -149,8 +160,7 @@ impl PyClassRef {
         if let Some(attr) = class_get_attr(&self, &name) {
             let attr_class = attr.class();
             if let Some(ref descriptor) = class_get_attr(&attr_class, "__get__") {
-                let none = vm.get_none();
-                return vm.invoke(descriptor, vec![attr, none, self.into_object()]);
+                return vm.invoke(descriptor, vec![attr, vm.get_none(), self.into_object()]);
             }
         }
 
@@ -226,6 +236,7 @@ pub fn init(ctx: &PyContext) {
                 .add_setter(type_dict_setter)
                 .create(),
         "__new__" => ctx.new_classmethod(type_new),
+        (slot new) => type_new_slot,
         "__mro__" =>
             PropertyBuilder::new(ctx)
                 .add_getter(PyClassRef::mro)
@@ -266,14 +277,55 @@ pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
     subclass.is(cls) || mro.iter().any(|c| c.is(cls.as_object()))
 }
 
+fn type_new_slot(metatype: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    vm_trace!("type.__new__ {:?}", args);
+
+    if metatype.is(&vm.ctx.types.type_type) {
+        if args.args.len() == 1 && args.kwargs.len() == 0 {
+            return Ok(args.args[0].class().into_object());
+        }
+        if args.args.len() != 3 {
+            return Err(vm.new_type_error("type() takes 1 or 3 arguments".to_string()));
+        }
+    }
+
+    let (name, bases, dict): (PyStringRef, PyIterable<PyClassRef>, PyDictRef) = args.bind(vm)?;
+
+    let mut bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
+    bases.push(vm.ctx.object());
+
+    let mut attributes = dict.to_attributes();
+
+    attributes
+        .entry("__new__".into())
+        .or_insert_with(|| vm.ctx.new_classmethod(type_new));
+
+    let mut winner = metatype.clone();
+    for base in &bases {
+        let base_type = base.class();
+        if issubclass(&winner, &base_type) {
+            continue;
+        } else if issubclass(&base_type, &winner) {
+            winner = base_type.clone();
+            continue;
+        }
+
+        return Err(vm.new_type_error(
+            "metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass \
+             of the metaclasses of all its bases"
+                .to_string(),
+        ));
+    }
+
+    new(winner, name.as_str(), bases, attributes).map(Into::into)
+}
+
 pub fn type_new(
     zelf: PyClassRef,
     cls: PyClassRef,
     args: PyFuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
-    vm_trace!("type.__new__ {:?}", args);
-
     if !issubclass(&cls, &zelf) {
         return Err(vm.new_type_error(format!(
             "{zelf}.__new__({cls}): {cls} is not a subtype of {zelf}",
@@ -282,42 +334,27 @@ pub fn type_new(
         )));
     }
 
-    // let new = class_get_super_attr(&zelf, "__new__").expect("Couldn't find __new__");
-
-    // vm.invoke(&new, args.insert(cls.into_object()));
-    if args.args.len() == 1 {
-        Ok(args.args[0].class().into_object())
-    } else if args.args.len() == 3 {
-        let (name, bases, dict) = args.bind(vm)?;
-        type_new_class(vm, cls, name, bases, dict).map(PyRef::into_object)
+    let class_with_new_slot = if cls.slots.borrow().new.is_some() {
+        cls.clone()
     } else {
-        Err(vm.new_type_error("type() takes 1 or 3 arguments".to_string()))
-    }
-}
+        cls.mro
+            .iter()
+            .cloned()
+            .find(|cls| cls.slots.borrow().new.is_some())
+            .expect("Should be able to find a new slot somewhere in the mro")
+    };
 
-pub fn type_new_class(
-    vm: &VirtualMachine,
-    typ: PyClassRef,
-    name: PyStringRef,
-    bases: PyIterable<PyClassRef>,
-    dict: PyDictRef,
-) -> PyResult<PyClassRef> {
-    let mut bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
-    bases.push(vm.ctx.object());
-    new(typ.clone(), name.as_str(), bases, dict.to_attributes())
+    let slots = class_with_new_slot.slots.borrow();
+    let new = slots.new.as_ref().unwrap();
+
+    new(vm, args.insert(cls.into_object()))
 }
 
 pub fn type_call(class: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
     vm_trace!("type_call: {:?}", class);
-    let new = class_get_attr(&class, "__new__").expect("All types should have a __new__.");
-    let new_wrapped = vm.call_get_descriptor(new, class.clone().into_object())?;
-    // TODO: don't do this, init __new__ based on tp_new
-    let new_args = if class.is(&vm.ctx.types.type_type) {
-        args.insert(class.into_object())
-    } else {
-        args.clone()
-    };
-    let obj = vm.invoke(&new_wrapped, new_args)?;
+    let new = vm.get_attribute(class.as_object().clone(), "__new__")?;
+    let new_args = args.insert(class.into_object());
+    let obj = vm.invoke(&new, new_args)?;
 
     if let Some(init_method_or_err) = vm.get_method(obj.clone(), "__init__") {
         let init_method = init_method_or_err?;
@@ -437,8 +474,9 @@ pub fn new(
         payload: PyClass {
             name: String::from(name),
             mro,
-            subclasses: RefCell::new(vec![]),
+            subclasses: RefCell::default(),
             attributes: RefCell::new(dict),
+            slots: RefCell::default(),
         },
         dict: None,
         typ,

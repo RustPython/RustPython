@@ -881,7 +881,7 @@ pub fn init(context: &PyContext) {
         "__rmul__" => context.new_rustfunc(PyListRef::rmul),
         "__imul__" => context.new_rustfunc(PyListRef::imul),
         "__len__" => context.new_rustfunc(PyListRef::len),
-        "__new__" => context.new_rustfunc(list_new),
+        (slot new) => list_new,
         "__repr__" => context.new_rustfunc(PyListRef::repr),
         "__hash__" => context.new_rustfunc(PyListRef::hash),
         "__doc__" => context.new_str(list_doc.to_string()),

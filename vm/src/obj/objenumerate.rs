@@ -70,6 +70,6 @@ impl PyEnumerate {
 pub fn init(context: &PyContext) {
     PyEnumerate::extend_class(context, &context.types.enumerate_type);
     extend_class!(context, &context.types.enumerate_type, {
-        "__new__" => context.new_rustfunc(enumerate_new),
+        (slot new) => enumerate_new,
     });
 }

@@ -28,7 +28,7 @@ struct PyDequeOptions {
 
 #[pyimpl]
 impl PyDeque {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     fn new(
         cls: PyClassRef,
         iter: OptionalArg<PyIterable>,

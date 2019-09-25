@@ -90,7 +90,7 @@ pub fn init(context: &PyContext) {
 
 #[pyimpl]
 impl PyByteArrayRef {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     fn bytearray_new(
         cls: PyClassRef,
         options: ByteInnerNewOptions,

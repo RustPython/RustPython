@@ -30,7 +30,7 @@ impl PyValue for PyItertoolsChain {
 
 #[pyimpl]
 impl PyItertoolsChain {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     #[allow(clippy::new_ret_no_self)]
     fn new(_cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(PyItertoolsChain {
@@ -141,7 +141,7 @@ impl PyValue for PyItertoolsCount {
 
 #[pyimpl]
 impl PyItertoolsCount {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     #[allow(clippy::new_ret_no_self)]
     fn new(
         _cls: PyClassRef,
@@ -194,7 +194,7 @@ impl PyValue for PyItertoolsRepeat {
 
 #[pyimpl]
 impl PyItertoolsRepeat {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     #[allow(clippy::new_ret_no_self)]
     fn new(
         _cls: PyClassRef,
@@ -253,7 +253,7 @@ impl PyValue for PyItertoolsStarmap {
 
 #[pyimpl]
 impl PyItertoolsStarmap {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     #[allow(clippy::new_ret_no_self)]
     fn new(
         _cls: PyClassRef,
@@ -298,7 +298,7 @@ impl PyValue for PyItertoolsTakewhile {
 
 #[pyimpl]
 impl PyItertoolsTakewhile {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     #[allow(clippy::new_ret_no_self)]
     fn new(
         _cls: PyClassRef,
@@ -361,7 +361,7 @@ type PyItertoolsDropwhileRef = PyRef<PyItertoolsDropwhile>;
 
 #[pyimpl]
 impl PyItertoolsDropwhile {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     #[allow(clippy::new_ret_no_self)]
     fn new(
         cls: PyClassRef,
@@ -431,7 +431,7 @@ fn pyobject_to_opt_usize(obj: PyObjectRef, vm: &VirtualMachine) -> Option<usize>
 
 #[pyimpl]
 impl PyItertoolsIslice {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     #[allow(clippy::new_ret_no_self)]
     fn new(_cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         let (iter, start, stop, step) = match args.args.len() {
@@ -547,7 +547,7 @@ impl PyValue for PyItertoolsFilterFalse {
 
 #[pyimpl]
 impl PyItertoolsFilterFalse {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     #[allow(clippy::new_ret_no_self)]
     fn new(
         _cls: PyClassRef,
@@ -606,7 +606,7 @@ impl PyValue for PyItertoolsAccumulate {
 
 #[pyimpl]
 impl PyItertoolsAccumulate {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     #[allow(clippy::new_ret_no_self)]
     fn new(
         cls: PyClassRef,

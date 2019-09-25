@@ -324,7 +324,7 @@ macro_rules! try_set_inner {
 
 #[pyimpl]
 impl PySet {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     fn new(
         cls: PyClassRef,
         iterable: OptionalArg<PyIterable>,
@@ -570,7 +570,7 @@ impl PySet {
 
 #[pyimpl]
 impl PyFrozenSet {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     fn new(
         cls: PyClassRef,
         iterable: OptionalArg<PyIterable>,

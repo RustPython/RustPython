@@ -53,6 +53,6 @@ impl PyZip {
 pub fn init(context: &PyContext) {
     PyZip::extend_class(context, &context.types.zip_type);
     extend_class!(context, &context.types.zip_type, {
-        "__new__" => context.new_rustfunc(zip_new),
+        (slot new) => zip_new,
     });
 }

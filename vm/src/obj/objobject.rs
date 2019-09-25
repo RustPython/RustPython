@@ -157,7 +157,7 @@ pub fn init(context: &PyContext) {
     let object_doc = "The most base type";
 
     extend_class!(context, object, {
-        "__new__" => context.new_rustfunc(new_instance),
+        (slot new) => new_instance,
         "__init__" => context.new_rustfunc(object_init),
         "__class__" =>
         PropertyBuilder::new(context)

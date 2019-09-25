@@ -230,7 +230,7 @@ impl PyComplex {
         !Complex64::is_zero(&self.value)
     }
 
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     fn complex_new(
         cls: PyClassRef,
         real: OptionalArg<IntoPyFloat>,

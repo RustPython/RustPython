@@ -577,7 +577,7 @@ pub fn init(context: &PyContext) {
         "__eq__" => context.new_rustfunc(PyDictRef::eq),
         "__getitem__" => context.new_rustfunc(PyDictRef::inner_getitem),
         "__iter__" => context.new_rustfunc(PyDictRef::iter),
-        "__new__" => context.new_rustfunc(PyDictRef::new),
+        (slot new) => PyDictRef::new,
         "__repr__" => context.new_rustfunc(PyDictRef::repr),
         "__setitem__" => context.new_rustfunc(PyDictRef::inner_setitem),
         "__hash__" => context.new_rustfunc(PyDictRef::hash),

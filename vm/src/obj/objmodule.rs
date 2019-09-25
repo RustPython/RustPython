@@ -82,7 +82,7 @@ impl PyModuleRef {
 
 pub fn init(context: &PyContext) {
     extend_class!(&context, &context.types.module_type, {
-        "__new__" => context.new_rustfunc(PyModuleRef::new),
+        (slot new) => PyModuleRef::new,
         "__getattribute__" => context.new_rustfunc(PyModuleRef::getattribute),
         "__repr__" => context.new_rustfunc(PyModuleRef::repr),
     });

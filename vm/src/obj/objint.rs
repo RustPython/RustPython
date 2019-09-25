@@ -88,7 +88,8 @@ macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
         impl TryFromObject for $t {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                match PyRef::<PyInt>::try_from_object(vm, obj)?.value.$to_prim() {
+                let int = PyIntRef::try_from_object(vm, obj)?;
+                match int.value.$to_prim() {
                     Some(value) => Ok(value),
                     None => Err(
                         vm.new_overflow_error(concat!(
@@ -923,6 +924,6 @@ fn get_py_int(obj: &PyObjectRef) -> &PyInt {
 pub fn init(context: &PyContext) {
     PyInt::extend_class(context, &context.types.int_type);
     extend_class!(context, &context.types.int_type, {
-        "__new__" => context.new_rustfunc(int_new),
+        (slot new) => int_new,
     });
 }

@@ -39,7 +39,7 @@ impl PyValue for PyClassMethod {
 
 #[pyimpl]
 impl PyClassMethod {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     fn new(
         cls: PyClassRef,
         callable: PyObjectRef,

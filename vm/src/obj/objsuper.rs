@@ -78,7 +78,7 @@ impl PySuper {
         }
     }
 
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     fn new(
         cls: PyClassRef,
         py_type: OptionalArg<PyClassRef>,

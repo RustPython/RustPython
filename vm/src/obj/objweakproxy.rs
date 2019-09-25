@@ -21,7 +21,7 @@ pub type PyWeakProxyRef = PyRef<PyWeakProxy>;
 #[pyimpl]
 impl PyWeakProxy {
     // TODO: callbacks
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     fn create(
         cls: PyClassRef,
         referent: PyObjectRef,

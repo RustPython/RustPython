@@ -97,7 +97,7 @@ pub fn init(context: &PyContext) {
 
 #[pyimpl]
 impl PyBytesRef {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     fn bytes_new(
         cls: PyClassRef,
         options: ByteInnerNewOptions,

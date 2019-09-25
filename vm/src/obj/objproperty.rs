@@ -105,7 +105,7 @@ struct PropertyArgs {
 
 #[pyimpl]
 impl PyProperty {
-    #[pymethod(name = "__new__")]
+    #[pyslot(new)]
     fn new_property(
         cls: PyClassRef,
         args: PropertyArgs,
