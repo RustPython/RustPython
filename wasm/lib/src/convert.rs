@@ -9,6 +9,8 @@ use rustpython_vm::py_serde;
 use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
 
+use num_bigint::BigInt;
+
 use crate::browser_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 
@@ -43,7 +45,7 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
                 if objtype::isinstance(&top, &vm.ctx.tuple_type()) {
                     let element = objsequence::get_elements_tuple(&top);
 
-                    if let Some(lineno) = objint::to_int(vm, &element[1], 10)
+                    if let Some(lineno) = objint::to_int(vm, &element[1], &BigInt::from(10))
                         .ok()
                         .and_then(|lineno| lineno.to_u32())
                     {

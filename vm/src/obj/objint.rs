@@ -704,7 +704,7 @@ struct IntOptions {
     #[pyarg(positional_only, optional = true)]
     val_options: OptionalArg<PyObjectRef>,
     #[pyarg(positional_or_keyword, optional = true)]
-    base: OptionalArg<u32>,
+    base: OptionalArg<PyIntRef>,
 }
 
 impl IntOptions {
@@ -720,9 +720,9 @@ impl IntOptions {
                 }
                 base
             } else {
-                10
+                PyInt::new(10).into_ref(vm)
             };
-            to_int(vm, &val, base)
+            to_int(vm, &val, base.as_bigint())
         } else if let OptionalArg::Present(_) = self.base {
             Err(vm.new_type_error("int() missing string argument".to_string()))
         } else {
@@ -736,8 +736,14 @@ fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResul
 }
 
 // Casting function:
-pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
-    if base != 0 && (base < 2 || base > 36) {
+pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult<BigInt> {
+    let base_u32 = match base.to_u32() {
+        Some(base_u32) => base_u32,
+        None => {
+            return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()))
+        }
+    };
+    if base_u32 != 0 && (base_u32 < 2 || base_u32 > 36) {
         return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()));
     }
 
@@ -772,19 +778,24 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
     })
 }
 
-fn str_to_int(vm: &VirtualMachine, literal: &str, mut base: u32) -> PyResult<BigInt> {
+fn str_to_int(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<BigInt> {
     let mut buf = validate_literal(vm, literal, base)?;
     let is_signed = buf.starts_with('+') || buf.starts_with('-');
     let radix_range = if is_signed { 1..3 } else { 0..2 };
     let radix_candidate = buf.get(radix_range.clone());
 
+    let mut base_u32 = match base.to_u32() {
+        Some(base_u32) => base_u32,
+        None => return Err(invalid_literal(vm, literal, base)),
+    };
+
     // try to find base
     if let Some(radix_candidate) = radix_candidate {
         if let Some(matched_radix) = detect_base(&radix_candidate) {
-            if base != 0 && base != matched_radix {
+            if base_u32 != 0 && base_u32 != matched_radix {
                 return Err(invalid_literal(vm, literal, base));
             } else {
-                base = matched_radix;
+                base_u32 = matched_radix;
             }
 
             buf.drain(radix_range);
@@ -792,18 +803,18 @@ fn str_to_int(vm: &VirtualMachine, literal: &str, mut base: u32) -> PyResult<Big
     }
 
     // base still not found, try to use default
-    if base == 0 {
+    if base_u32 == 0 {
         if buf.starts_with('0') {
             return Err(invalid_literal(vm, literal, base));
         }
 
-        base = 10;
+        base_u32 = 10;
     }
 
-    BigInt::from_str_radix(&buf, base).map_err(|_err| invalid_literal(vm, literal, base))
+    BigInt::from_str_radix(&buf, base_u32).map_err(|_err| invalid_literal(vm, literal, base))
 }
 
-fn validate_literal(vm: &VirtualMachine, literal: &str, base: u32) -> PyResult<String> {
+fn validate_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<String> {
     if literal.starts_with('_') || literal.ends_with('_') {
         return Err(invalid_literal(vm, literal, base));
     }
@@ -835,7 +846,7 @@ fn detect_base(literal: &str) -> Option<u32> {
     }
 }
 
-fn invalid_literal(vm: &VirtualMachine, literal: &str, base: u32) -> PyObjectRef {
+fn invalid_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyObjectRef {
     vm.new_value_error(format!(
         "invalid literal for int() with base {}: '{}'",
         base, literal
