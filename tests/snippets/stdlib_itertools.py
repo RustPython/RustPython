@@ -235,3 +235,11 @@ assert 0 == next(it)
 assert 0 == next(it)
 with assert_raises(StopIteration):
     next(it)
+
+# itertools.compress
+assert list(itertools.compress("ABCDEF", [1,0,1,0,1,1])) == list("ACEF")
+assert list(itertools.compress("ABCDEF", [0,0,0,0,0,0])) == list("")
+assert list(itertools.compress("ABCDEF", [1,1,1,1,1,1])) == list("ABCDEF")
+assert list(itertools.compress("ABCDEF", [1,0,1])) == list("AC")
+assert list(itertools.compress("ABC", [0,1,1,1,1,1])) == list("BC")
+assert list(itertools.compress("ABCDEF", [True,False,"t","",1,9])) == list("ACEF")

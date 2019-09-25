@@ -73,6 +73,59 @@ impl PyItertoolsChain {
     }
 }
 
+#[pyclass(name = "compress")]
+#[derive(Debug)]
+struct PyItertoolsCompress {
+    data: PyObjectRef,
+    selector: PyObjectRef,
+}
+
+impl PyValue for PyItertoolsCompress {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "compress")
+    }
+}
+
+#[pyimpl]
+impl PyItertoolsCompress {
+    #[pymethod(name = "__new__")]
+    #[allow(clippy::new_ret_no_self)]
+    fn new(
+        _cls: PyClassRef,
+        data: PyObjectRef,
+        selector: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let data_iter = get_iter(vm, &data)?;
+        let selector_iter = get_iter(vm, &selector)?;
+
+        Ok(PyItertoolsCompress {
+            data: data_iter,
+            selector: selector_iter,
+        }
+        .into_ref(vm)
+        .into_object())
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        loop {
+            let sel_obj = call_next(vm, &self.selector)?;
+            let verdict = objbool::boolval(vm, sel_obj.clone())?;
+            let data_obj = call_next(vm, &self.data)?;
+
+            if verdict {
+                return Ok(data_obj);
+            }
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
 #[pyclass]
 #[derive(Debug)]
 struct PyItertoolsCount {
@@ -577,8 +630,8 @@ impl PyItertoolsAccumulate {
         let obj = call_next(vm, iterable)?;
 
         let next_acc_value = match &*self.acc_value.borrow() {
-            Option::None => obj.clone(),
-            Option::Some(value) => {
+            None => obj.clone(),
+            Some(value) => {
                 if self.binop.is(&vm.get_none()) {
                     vm._add(value.clone(), obj.clone())?
                 } else {
@@ -601,6 +654,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let chain = PyItertoolsChain::make_class(ctx);
+
+    let compress = PyItertoolsCompress::make_class(ctx);
 
     let count = ctx.new_class("count", ctx.object());
     PyItertoolsCount::extend_class(ctx, &count);
@@ -626,6 +681,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     py_module!(vm, "itertools", {
         "chain" => chain,
+        "compress" => compress,
         "count" => count,
         "dropwhile" => dropwhile,
         "repeat" => repeat,
