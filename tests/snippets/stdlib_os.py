@@ -70,23 +70,16 @@ class TestWithTempDir():
             base_folder = "/tmp"
 
         name = os.path.join(base_folder, "rustpython_test_os_" + str(int(time.time())))
+
+        while os.path.isdir(name):
+            name = name + "_"
+
         os.mkdir(name)
         self.name = name
         return name
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        for root, dirs, files in os.walk(self.name, topdown=False):
-            for name in files:
-                os.remove(os.path.join(root, name))
-            for name in dirs:
-                to_remove = os.path.join(root, name)
-                if os.path.islink(to_remove):
-                    os.unlink(to_remove)
-                else:
-                    os.rmdir(to_remove)
-
-        os.rmdir(self.name)
-
+        pass
 
 class TestWithTempCurrentDir():
     def __enter__(self):
