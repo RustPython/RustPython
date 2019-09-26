@@ -139,6 +139,8 @@ with assert_raises(ValueError):
 with assert_raises(ValueError):
     int("1__23")
 
+assert int('0x_10', base=0) == 16
+
 # signed
 assert int('-123') == -123
 assert int('+0b101', base=2) == +5

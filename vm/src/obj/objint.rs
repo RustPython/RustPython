@@ -793,9 +793,18 @@ fn str_to_int(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<Big
     if let Some(radix_candidate) = radix_candidate {
         if let Some(matched_radix) = detect_base(&radix_candidate) {
             if base_u32 == 0 || base_u32 == matched_radix {
+                /* If base is 0 or equal radix number, it means radix is validate
+                 * So change base to radix number and remove radix from literal
+                 */
                 base_u32 = matched_radix;
                 buf.drain(radix_range);
 
+                /* first underscore with radix is validate
+                 * e.g : int(`0x_1`, base=0) = int('1', base=16)
+                 */
+                if buf.starts_with('_') {
+                    buf.remove(0);
+                }
             } else if (matched_radix == 2 && base_u32 < 12)
                 || (matched_radix == 8 && base_u32 < 25)
                 || (matched_radix == 16 && base_u32 < 34)
