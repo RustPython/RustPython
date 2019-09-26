@@ -117,7 +117,9 @@ impl ByteInnerNewOptions {
             let value = if let OptionalArg::Present(ival) = self.val_option {
                 match_class!(match ival.clone() {
                     i @ PyInt => {
-                        let size = objint::get_value(&i.into_object()).to_usize().unwrap();
+                        let size = objint::get_value(&i.into_object())
+                            .to_usize()
+                            .ok_or_else(|| vm.new_value_error("negative count".to_string()))?;
                         Ok(vec![0; size])
                     }
                     _l @ PyString => {
