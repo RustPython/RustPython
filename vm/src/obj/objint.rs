@@ -792,13 +792,16 @@ fn str_to_int(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<Big
     // try to find base
     if let Some(radix_candidate) = radix_candidate {
         if let Some(matched_radix) = detect_base(&radix_candidate) {
-            if base_u32 != 0 && base_u32 != matched_radix {
-                return Err(invalid_literal(vm, literal, base));
-            } else {
+            if base_u32 == 0 || base_u32 == matched_radix {
                 base_u32 = matched_radix;
-            }
+                buf.drain(radix_range);
 
-            buf.drain(radix_range);
+            } else if (matched_radix == 2 && base_u32 < 12)
+                || (matched_radix == 8 && base_u32 < 25)
+                || (matched_radix == 16 && base_u32 < 34)
+            {
+                return Err(invalid_literal(vm, literal, base));
+            }
         }
     }
 
