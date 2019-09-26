@@ -637,6 +637,7 @@ fn ast_parse(source: PyStringRef, vm: &VirtualMachine) -> PyResult<AstNodeRef> {
     program_to_ast(&vm, &internal_ast)
 }
 
+#[allow(clippy::cognitive_complexity)]
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 

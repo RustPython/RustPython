@@ -281,7 +281,7 @@ fn type_new_slot(metatype: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) ->
     vm_trace!("type.__new__ {:?}", args);
 
     if metatype.is(&vm.ctx.types.type_type) {
-        if args.args.len() == 1 && args.kwargs.len() == 0 {
+        if args.args.len() == 1 && args.kwargs.is_empty() {
             return Ok(args.args[0].class().into_object());
         }
         if args.args.len() != 3 {
