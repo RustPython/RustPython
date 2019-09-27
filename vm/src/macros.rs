@@ -152,11 +152,6 @@ macro_rules! extend_class {
         $(
             $crate::extend_class!(@set_attr($ctx, $class, $name, $value));
         )*
-        if $class.slots.borrow().new.is_some() {
-            $class.attributes.borrow_mut().entry("__new__".into()).or_insert_with(|| {
-                $ctx.new_classmethod($crate::obj::objtype::type_new)
-            });
-        }
     };
 
     (@set_attr($ctx:expr, $class:expr, (slot $slot_name:ident), $value:expr)) => {

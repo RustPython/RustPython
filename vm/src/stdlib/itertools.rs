@@ -88,23 +88,21 @@ impl PyValue for PyItertoolsCompress {
 
 #[pyimpl]
 impl PyItertoolsCompress {
-    #[pymethod(name = "__new__")]
-    #[allow(clippy::new_ret_no_self)]
+    #[pyslot(new)]
     fn new(
-        _cls: PyClassRef,
+        cls: PyClassRef,
         data: PyObjectRef,
         selector: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<PyRef<Self>> {
         let data_iter = get_iter(vm, &data)?;
         let selector_iter = get_iter(vm, &selector)?;
 
-        Ok(PyItertoolsCompress {
+        PyItertoolsCompress {
             data: data_iter,
             selector: selector_iter,
         }
-        .into_ref(vm)
-        .into_object())
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]

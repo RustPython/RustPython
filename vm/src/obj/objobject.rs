@@ -158,6 +158,7 @@ pub fn init(context: &PyContext) {
 
     extend_class!(context, object, {
         (slot new) => new_instance,
+        "__new__" => context.new_classmethod(objtype::type_new),
         "__init__" => context.new_rustfunc(object_init),
         "__class__" =>
         PropertyBuilder::new(context)

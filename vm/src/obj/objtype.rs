@@ -294,11 +294,7 @@ fn type_new_slot(metatype: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) ->
     let mut bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
     bases.push(vm.ctx.object());
 
-    let mut attributes = dict.to_attributes();
-
-    attributes
-        .entry("__new__".into())
-        .or_insert_with(|| vm.ctx.new_classmethod(type_new));
+    let attributes = dict.to_attributes();
 
     let mut winner = metatype.clone();
     for base in &bases {
