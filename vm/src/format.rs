@@ -181,11 +181,11 @@ fn parse_alternate_form(text: &str) -> (bool, &str) {
     }
 }
 
-fn parse_zero(text: &str) -> &str {
+fn parse_zero(text: &str) -> (bool, &str) {
     let mut chars = text.chars();
     match chars.next() {
-        Some('0') => chars.as_str(),
-        _ => text,
+        Some('0') => (true, chars.as_str()),
+        _ => (false, text),
     }
 }
 
@@ -235,14 +235,19 @@ fn parse_format_type(text: &str) -> (Option<FormatType>, &str) {
 
 fn parse_format_spec(text: &str) -> FormatSpec {
     let (preconversor, after_preconversor) = parse_preconversor(text);
-    let (fill, align, after_align) = parse_fill_and_align(after_preconversor);
+    let (mut fill, mut align, after_align) = parse_fill_and_align(after_preconversor);
     let (sign, after_sign) = parse_sign(after_align);
     let (alternate_form, after_alternate_form) = parse_alternate_form(after_sign);
-    let after_zero = parse_zero(after_alternate_form);
+    let (zero, after_zero) = parse_zero(after_alternate_form);
     let (width, after_width) = parse_number(after_zero);
     let (grouping_option, after_grouping_option) = parse_grouping_option(after_width);
     let (precision, after_precision) = parse_precision(after_grouping_option);
     let (format_type, _) = parse_format_type(after_precision);
+
+    if zero && fill.is_none() {
+        fill.replace('0');
+        align = align.or(Some(FormatAlign::AfterSign));
+    }
 
     FormatSpec {
         preconversor,
