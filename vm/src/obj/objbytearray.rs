@@ -1,5 +1,4 @@
 //! Implementation of the python bytearray object.
-
 use crate::function::OptionalArg;
 use crate::obj::objbyteinner::{
     ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -18,6 +17,7 @@ use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
 use std::cell::{Cell, RefCell};
 use std::convert::TryFrom;
+use std::mem::size_of;
 
 use super::objiter;
 use super::objtype::PyClassRef;
@@ -107,6 +107,11 @@ impl PyByteArrayRef {
     #[pymethod(name = "__len__")]
     fn len(self, _vm: &VirtualMachine) -> usize {
         self.inner.borrow().len()
+    }
+
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(self, _vm: &VirtualMachine) -> usize {
+        size_of::<Self>() + self.inner.borrow().len() * size_of::<u8>()
     }
 
     #[pymethod(name = "__eq__")]
