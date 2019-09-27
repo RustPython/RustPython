@@ -12,3 +12,9 @@ class BadFormat:
     def __format__(self, spec):
         return 42
 assert_raises(TypeError, format, BadFormat())
+
+def test_zero_padding():
+    i = 1
+    assert f'{i:04d}' == '0001'
+
+test_zero_padding()
