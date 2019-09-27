@@ -98,7 +98,7 @@ pub fn init(context: &PyContext) {
 #[pyimpl]
 impl PyBytesRef {
     #[pyslot(new)]
-    fn bytes_new(
+    fn tp_new(
         cls: PyClassRef,
         options: ByteInnerNewOptions,
         vm: &VirtualMachine,

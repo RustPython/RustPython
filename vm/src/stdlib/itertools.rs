@@ -31,14 +31,12 @@ impl PyValue for PyItertoolsChain {
 #[pyimpl]
 impl PyItertoolsChain {
     #[pyslot(new)]
-    #[allow(clippy::new_ret_no_self)]
-    fn new(_cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(PyItertoolsChain {
+    fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        PyItertoolsChain {
             iterables: args.args,
             cur: RefCell::new((0, None)),
         }
-        .into_ref(vm)
-        .into_object())
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]
@@ -89,7 +87,7 @@ impl PyValue for PyItertoolsCompress {
 #[pyimpl]
 impl PyItertoolsCompress {
     #[pyslot(new)]
-    fn new(
+    fn tp_new(
         cls: PyClassRef,
         data: PyObjectRef,
         selector: PyObjectRef,
@@ -140,13 +138,12 @@ impl PyValue for PyItertoolsCount {
 #[pyimpl]
 impl PyItertoolsCount {
     #[pyslot(new)]
-    #[allow(clippy::new_ret_no_self)]
-    fn new(
-        _cls: PyClassRef,
+    fn tp_new(
+        cls: PyClassRef,
         start: OptionalArg<PyIntRef>,
         step: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<PyRef<Self>> {
         let start = match start.into_option() {
             Some(int) => int.as_bigint().clone(),
             None => BigInt::from(0),
@@ -156,12 +153,11 @@ impl PyItertoolsCount {
             None => BigInt::from(1),
         };
 
-        Ok(PyItertoolsCount {
+        PyItertoolsCount {
             cur: RefCell::new(start),
             step,
         }
-        .into_ref(vm)
-        .into_object())
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]
@@ -193,24 +189,22 @@ impl PyValue for PyItertoolsRepeat {
 #[pyimpl]
 impl PyItertoolsRepeat {
     #[pyslot(new)]
-    #[allow(clippy::new_ret_no_self)]
-    fn new(
-        _cls: PyClassRef,
+    fn tp_new(
+        cls: PyClassRef,
         object: PyObjectRef,
         times: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<PyRef<Self>> {
         let times = match times.into_option() {
             Some(int) => Some(RefCell::new(int.as_bigint().clone())),
             None => None,
         };
 
-        Ok(PyItertoolsRepeat {
+        PyItertoolsRepeat {
             object: object.clone(),
             times,
         }
-        .into_ref(vm)
-        .into_object())
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]
@@ -252,18 +246,15 @@ impl PyValue for PyItertoolsStarmap {
 #[pyimpl]
 impl PyItertoolsStarmap {
     #[pyslot(new)]
-    #[allow(clippy::new_ret_no_self)]
-    fn new(
-        _cls: PyClassRef,
+    fn tp_new(
+        cls: PyClassRef,
         function: PyObjectRef,
         iterable: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<PyRef<Self>> {
         let iter = get_iter(vm, &iterable)?;
 
-        Ok(PyItertoolsStarmap { function, iter }
-            .into_ref(vm)
-            .into_object())
+        PyItertoolsStarmap { function, iter }.into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]
@@ -297,22 +288,20 @@ impl PyValue for PyItertoolsTakewhile {
 #[pyimpl]
 impl PyItertoolsTakewhile {
     #[pyslot(new)]
-    #[allow(clippy::new_ret_no_self)]
-    fn new(
-        _cls: PyClassRef,
+    fn tp_new(
+        cls: PyClassRef,
         predicate: PyObjectRef,
         iterable: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<PyRef<Self>> {
         let iter = get_iter(vm, &iterable)?;
 
-        Ok(PyItertoolsTakewhile {
+        PyItertoolsTakewhile {
             predicate,
             iterable: iter,
             stop_flag: RefCell::new(false),
         }
-        .into_ref(vm)
-        .into_object())
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]
@@ -355,18 +344,15 @@ impl PyValue for PyItertoolsDropwhile {
     }
 }
 
-type PyItertoolsDropwhileRef = PyRef<PyItertoolsDropwhile>;
-
 #[pyimpl]
 impl PyItertoolsDropwhile {
     #[pyslot(new)]
-    #[allow(clippy::new_ret_no_self)]
-    fn new(
+    fn tp_new(
         cls: PyClassRef,
         predicate: PyCallable,
         iterable: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyItertoolsDropwhileRef> {
+    ) -> PyResult<PyRef<Self>> {
         let iter = get_iter(vm, &iterable)?;
 
         PyItertoolsDropwhile {
@@ -430,8 +416,7 @@ fn pyobject_to_opt_usize(obj: PyObjectRef, vm: &VirtualMachine) -> Option<usize>
 #[pyimpl]
 impl PyItertoolsIslice {
     #[pyslot(new)]
-    #[allow(clippy::new_ret_no_self)]
-    fn new(_cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let (iter, start, stop, step) = match args.args.len() {
             0 | 1 => {
                 return Err(vm.new_type_error(format!(
@@ -490,15 +475,14 @@ impl PyItertoolsIslice {
 
         let iter = get_iter(vm, &iter)?;
 
-        Ok(PyItertoolsIslice {
+        PyItertoolsIslice {
             iterable: iter,
             cur: RefCell::new(0),
             next: RefCell::new(start),
             stop,
             step,
         }
-        .into_ref(vm)
-        .into_object())
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]
@@ -546,21 +530,19 @@ impl PyValue for PyItertoolsFilterFalse {
 #[pyimpl]
 impl PyItertoolsFilterFalse {
     #[pyslot(new)]
-    #[allow(clippy::new_ret_no_self)]
-    fn new(
-        _cls: PyClassRef,
+    fn tp_new(
+        cls: PyClassRef,
         predicate: PyObjectRef,
         iterable: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<PyRef<Self>> {
         let iter = get_iter(vm, &iterable)?;
 
-        Ok(PyItertoolsFilterFalse {
+        PyItertoolsFilterFalse {
             predicate,
             iterable: iter,
         }
-        .into_ref(vm)
-        .into_object())
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]
@@ -605,13 +587,12 @@ impl PyValue for PyItertoolsAccumulate {
 #[pyimpl]
 impl PyItertoolsAccumulate {
     #[pyslot(new)]
-    #[allow(clippy::new_ret_no_self)]
-    fn new(
+    fn tp_new(
         cls: PyClassRef,
         iterable: PyObjectRef,
         binop: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyItertoolsAccumulate>> {
+    ) -> PyResult<PyRef<Self>> {
         let iter = get_iter(vm, &iterable)?;
 
         PyItertoolsAccumulate {

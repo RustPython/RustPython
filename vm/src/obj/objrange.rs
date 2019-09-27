@@ -133,7 +133,6 @@ type PyRangeRef = PyRef<PyRange>;
 
 #[pyimpl]
 impl PyRange {
-    #[pyslot(new)]
     fn new(cls: PyClassRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
         PyRange {
             start: PyInt::new(BigInt::zero()).into_ref(vm),
@@ -404,7 +403,7 @@ impl PyRange {
     }
 
     #[pyslot(new)]
-    fn range_new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn tp_new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         let range = if args.args.len() <= 2 {
             let (cls, stop) = args.bind(vm)?;
             PyRange::new(cls, stop, vm)

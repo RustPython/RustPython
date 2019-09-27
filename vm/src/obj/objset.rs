@@ -325,7 +325,7 @@ macro_rules! try_set_inner {
 #[pyimpl]
 impl PySet {
     #[pyslot(new)]
-    fn new(
+    fn tp_new(
         cls: PyClassRef,
         iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
@@ -571,7 +571,7 @@ impl PySet {
 #[pyimpl]
 impl PyFrozenSet {
     #[pyslot(new)]
-    fn new(
+    fn tp_new(
         cls: PyClassRef,
         iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,

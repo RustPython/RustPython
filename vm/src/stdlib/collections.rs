@@ -29,7 +29,7 @@ struct PyDequeOptions {
 #[pyimpl]
 impl PyDeque {
     #[pyslot(new)]
-    fn new(
+    fn tp_new(
         cls: PyClassRef,
         iter: OptionalArg<PyIterable>,
         PyDequeOptions { maxlen }: PyDequeOptions,

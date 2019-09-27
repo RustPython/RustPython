@@ -40,7 +40,7 @@ impl PyValue for PyClassMethod {
 #[pyimpl]
 impl PyClassMethod {
     #[pyslot(new)]
-    fn new(
+    fn tp_new(
         cls: PyClassRef,
         callable: PyObjectRef,
         vm: &VirtualMachine,

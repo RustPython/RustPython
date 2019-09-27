@@ -177,7 +177,7 @@ impl PyString {
     // class str(object='')
     // class str(object=b'', encoding='utf-8', errors='strict')
     #[pyslot(new)]
-    fn new(
+    fn tp_new(
         cls: PyClassRef,
         object: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,

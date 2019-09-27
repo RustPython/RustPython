@@ -18,7 +18,7 @@ impl PyMemoryView {
     }
 
     #[pyslot(new)]
-    fn new(
+    fn tp_new(
         cls: PyClassRef,
         bytes_object: PyObjectRef,
         vm: &VirtualMachine,

@@ -231,7 +231,7 @@ impl PyComplex {
     }
 
     #[pyslot(new)]
-    fn complex_new(
+    fn tp_new(
         cls: PyClassRef,
         real: OptionalArg<IntoPyFloat>,
         imag: OptionalArg<IntoPyFloat>,

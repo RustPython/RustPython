@@ -191,7 +191,7 @@ impl PyValue for PyArray {
 #[pyimpl]
 impl PyArray {
     #[pyslot(new)]
-    fn new(
+    fn tp_new(
         cls: PyClassRef,
         spec: PyStringRef,
         init: OptionalArg<PyIterable>,
