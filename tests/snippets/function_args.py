@@ -95,3 +95,10 @@ assert kwargs == [('a', 1), ('b', 2)]
 
 kwargs = func(a=1, b=2, c=3)
 assert kwargs == [('a', 1), ('b', 2), ('c', 3)]
+
+
+def inc(n):
+    return n + 1
+
+with assert_raises(SyntaxError):
+    exec("inc(n=1, n=2)")
