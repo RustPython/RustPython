@@ -45,8 +45,8 @@ fn binascii_unhexlify(hexstr: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     for i in (0..hex_bytes.len()).step_by(2) {
         let n1 = unhex_nibble(hex_bytes[i]);
         let n2 = unhex_nibble(hex_bytes[i + 1]);
-        if n1.is_some() && n2.is_some() {
-            unhex.push(n1.unwrap() << 4 | n2.unwrap());
+        if let (Some(n1), Some(n2)) = (n1, n2) {
+            unhex.push(n1 << 4 | n2);
         } else {
             return Err(vm.new_value_error("Non-hexadecimal digit found".to_string()));
         }

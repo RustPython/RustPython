@@ -56,8 +56,7 @@ fn parse_format_string(fmt: String) -> Result<FormatSpec, String> {
 /// See also: https://docs.python.org/3/library/struct.html?highlight=struct#byte-order-size-and-alignment
 fn parse_endiannes<I>(chars: &mut Peekable<I>) -> Endianness
 where
-    I: Sized,
-    I: Iterator<Item = char>,
+    I: Sized + Iterator<Item = char>,
 {
     match chars.peek() {
         Some('@') => {
@@ -86,8 +85,7 @@ where
 
 fn parse_format_codes<I>(chars: &mut Peekable<I>) -> Result<Vec<FormatCode>, String>
 where
-    I: Sized,
-    I: Iterator<Item = char>,
+    I: Sized + Iterator<Item = char>,
 {
     let mut codes = vec![];
     for c in chars {
