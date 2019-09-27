@@ -262,7 +262,7 @@ assert "abcdefg".isprintable()
 assert not "abcdefg\n".isprintable()
 assert "ʹ".isprintable()
 
-# test unicode iterals
+# test unicode literals
 assert "\xac" == "¬"
 assert "\u0037" == "7"
 assert "\u0040" == "@"
