@@ -86,6 +86,8 @@ assert math.isinf(float('Inf'))
 assert math.isinf(float('+Inf'))
 assert math.isinf(float('-Inf'))
 
+assert float() == 0
+
 assert float('+Inf') > 0
 assert float('-Inf') < 0
 
