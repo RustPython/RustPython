@@ -1,11 +1,26 @@
 use super::Diagnostic;
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use syn::{
-    Attribute, AttributeArgs, Ident, ImplItem, Index, Item, Lit, Meta, MethodSig, NestedMeta,
+    spanned::Spanned, Attribute, AttributeArgs, Ident, ImplItem, Index, Item, Lit, Meta, MethodSig,
+    NestedMeta,
 };
 
+fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
+    match meta {
+        Meta::Word(_) => Ok(Vec::new()),
+        Meta::List(list) => Ok(list.nested.into_iter().collect()),
+        Meta::NameValue(_) => Err(meta),
+    }
+}
+
+#[derive(Default)]
+struct Class {
+    items: HashSet<ClassItem>,
+}
+
+#[derive(PartialEq, Eq, Hash)]
 enum ClassItem {
     Method {
         item_ident: Ident,
@@ -26,34 +41,32 @@ enum ClassItem {
     },
 }
 
-fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
-    match meta {
-        Meta::Word(_) => Ok(Vec::new()),
-        Meta::List(list) => Ok(list.nested.into_iter().collect()),
-        Meta::NameValue(_) => Err(meta),
+impl Class {
+    fn add_item(&mut self, item: ClassItem, span: Span) -> Result<(), Diagnostic> {
+        if self.items.insert(item) {
+            Ok(())
+        } else {
+            Err(Diagnostic::span_error(
+                span,
+                "Duplicate #[py*] attribute on pyimpl".to_string(),
+            ))
+        }
     }
-}
 
-impl ClassItem {
-    fn extract_from_syn(
+    fn extract_item_from_syn(
+        &mut self,
         attrs: &mut Vec<Attribute>,
         sig: &MethodSig,
-    ) -> Result<Option<ClassItem>, Diagnostic> {
-        let mut item = None;
-        let mut attr_idx = None;
+    ) -> Result<(), Diagnostic> {
+        let mut attr_idxs = Vec::new();
         for (i, meta) in attrs
             .iter()
             .filter_map(|attr| attr.parse_meta().ok())
             .enumerate()
         {
+            let meta_span = meta.span();
             let name = meta.name();
             if name == "pymethod" {
-                if item.is_some() {
-                    bail_span!(
-                        sig.ident,
-                        "You can only have one #[py*] attribute on an impl item"
-                    )
-                }
                 let nesteds = meta_to_vec(meta).map_err(|meta| {
                     err_span!(
                         meta,
@@ -77,18 +90,15 @@ impl ClassItem {
                         }
                     }
                 }
-                item = Some(ClassItem::Method {
-                    item_ident: sig.ident.clone(),
-                    py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
-                });
-                attr_idx = Some(i);
+                self.add_item(
+                    ClassItem::Method {
+                        item_ident: sig.ident.clone(),
+                        py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
+                    },
+                    meta_span,
+                )?;
+                attr_idxs.push(i);
             } else if name == "pyclassmethod" {
-                if item.is_some() {
-                    bail_span!(
-                        sig.ident,
-                        "You can only have one #[py*] attribute on an impl item"
-                    )
-                }
                 let nesteds = meta_to_vec(meta).map_err(|meta| {
                     err_span!(
                         meta,
@@ -115,18 +125,15 @@ impl ClassItem {
                         }
                     }
                 }
-                item = Some(ClassItem::ClassMethod {
-                    item_ident: sig.ident.clone(),
-                    py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
-                });
-                attr_idx = Some(i);
+                self.add_item(
+                    ClassItem::ClassMethod {
+                        item_ident: sig.ident.clone(),
+                        py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
+                    },
+                    meta_span,
+                )?;
+                attr_idxs.push(i);
             } else if name == "pyproperty" {
-                if item.is_some() {
-                    bail_span!(
-                        sig.ident,
-                        "You can only have one #[py*] attribute on an impl item"
-                    )
-                }
                 let nesteds = meta_to_vec(meta).map_err(|meta| {
                     err_span!(
                         meta,
@@ -190,19 +197,16 @@ impl ClassItem {
                         }
                     }
                 };
-                item = Some(ClassItem::Property {
-                    py_name,
-                    item_ident: sig.ident.clone(),
-                    setter,
-                });
-                attr_idx = Some(i);
+                self.add_item(
+                    ClassItem::Property {
+                        py_name,
+                        item_ident: sig.ident.clone(),
+                        setter,
+                    },
+                    meta_span,
+                )?;
+                attr_idxs.push(i);
             } else if name == "pyslot" {
-                if item.is_some() {
-                    bail_span!(
-                        sig.ident,
-                        "You can only have one #[py*] attribute on an impl item"
-                    )
-                }
                 let pyslot_err = "#[pyslot] must be of the form #[pyslot(slotname)]";
                 let nesteds =
                     meta_to_vec(meta).map_err(|meta| err_span!(meta, "{}", pyslot_err))?;
@@ -213,17 +217,20 @@ impl ClassItem {
                     NestedMeta::Meta(Meta::Word(ident)) => ident,
                     bad => bail_span!(bad, "{}", pyslot_err),
                 };
-                item = Some(ClassItem::Slot {
-                    slot_ident,
-                    item_ident: sig.ident.clone(),
-                });
-                attr_idx = Some(i);
+                self.add_item(
+                    ClassItem::Slot {
+                        slot_ident,
+                        item_ident: sig.ident.clone(),
+                    },
+                    meta_span,
+                )?;
+                attr_idxs.push(i);
             }
         }
-        if let Some(attr_idx) = attr_idx {
-            attrs.remove(attr_idx);
+        for idx in attr_idxs {
+            attrs.remove(idx);
         }
-        Ok(item)
+        Ok(())
     }
 }
 
@@ -236,22 +243,19 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
 
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
-    let items = imp
-        .items
-        .iter_mut()
-        .filter_map(|item| {
-            if let ImplItem::Method(meth) = item {
-                ClassItem::extract_from_syn(&mut meth.attrs, &meth.sig)
-                    .map_err(|err| diagnostics.push(err))
-                    .unwrap_or_default()
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
+    let mut class = Class::default();
+
+    for item in imp.items.iter_mut() {
+        if let ImplItem::Method(meth) = item {
+            push_diag_result!(
+                diagnostics,
+                class.extract_item_from_syn(&mut meth.attrs, &meth.sig),
+            );
+        }
+    }
     let ty = &imp.self_ty;
     let mut properties: HashMap<&str, (Option<&Ident>, Option<&Ident>)> = HashMap::new();
-    for item in items.iter() {
+    for item in class.items.iter() {
         if let ClassItem::Property {
             ref item_ident,
             ref py_name,
@@ -270,31 +274,8 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
             *func = Some(item_ident);
         }
     }
-    let methods = items.iter().filter_map(|item| match item {
-        ClassItem::Method {
-            item_ident,
-            py_name,
-        } => Some(quote! {
-            class.set_str_attr(#py_name, ctx.new_rustfunc(Self::#item_ident));
-        }),
-        ClassItem::ClassMethod {
-            item_ident,
-            py_name,
-        } => Some(quote! {
-            class.set_str_attr(#py_name, ctx.new_classmethod(Self::#item_ident));
-        }),
-        ClassItem::Slot {
-            slot_ident,
-            item_ident,
-        } => Some(quote! {
-            class.slots.borrow_mut().#slot_ident = Some(
-                ::rustpython_vm::function::IntoPyNativeFunc::into_func(Self::#item_ident)
-            );
-        }),
-        _ => None,
-    });
     let properties = properties
-        .iter()
+        .into_iter()
         .map(|(name, prop)| {
             let getter = match prop.0 {
                 Some(getter) => getter,
@@ -320,6 +301,29 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
             }
         })
         .collect::<Vec<_>>();
+    let methods = class.items.into_iter().filter_map(|item| match item {
+        ClassItem::Method {
+            item_ident,
+            py_name,
+        } => Some(quote! {
+            class.set_str_attr(#py_name, ctx.new_rustfunc(Self::#item_ident));
+        }),
+        ClassItem::ClassMethod {
+            item_ident,
+            py_name,
+        } => Some(quote! {
+            class.set_str_attr(#py_name, ctx.new_classmethod(Self::#item_ident));
+        }),
+        ClassItem::Slot {
+            slot_ident,
+            item_ident,
+        } => Some(quote! {
+            class.slots.borrow_mut().#slot_ident = Some(
+                ::rustpython_vm::function::IntoPyNativeFunc::into_func(Self::#item_ident)
+            );
+        }),
+        _ => None,
+    });
 
     Diagnostic::from_vec(diagnostics)?;
 
