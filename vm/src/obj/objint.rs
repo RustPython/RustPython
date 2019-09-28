@@ -15,6 +15,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
+use super::objbool::IntoPyBool;
 use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
 use super::objint;
@@ -578,29 +579,21 @@ impl PyInt {
 
     #[pymethod]
     #[allow(clippy::match_bool)]
-    fn from_bytes(
-        bytes: PyByteInner,
-        byteorder: PyStringRef,
-        kwargs: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<BigInt> {
-        let mut signed = false;
-        for (key, value) in kwargs.into_iter() {
-            if key == "signed" {
-                signed = match_class!(match value {
-                    b @ PyInt => !b.as_bigint().is_zero(),
-                    _ => false,
-                });
-            }
-        }
-        let x = match byteorder.as_str() {
+    fn from_bytes(options: IntFromByteOptions, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let signed = if let OptionalArg::Present(signed) = options.signed {
+            signed.to_bool()
+        } else {
+            false
+        };
+
+        let x = match options.byteorder.as_str() {
             "big" => match signed {
-                true => BigInt::from_signed_bytes_be(&bytes.elements),
-                false => BigInt::from_bytes_be(Sign::Plus, &bytes.elements),
+                true => BigInt::from_signed_bytes_be(&options.bytes.elements),
+                false => BigInt::from_bytes_be(Sign::Plus, &options.bytes.elements),
             },
             "little" => match signed {
-                true => BigInt::from_signed_bytes_le(&bytes.elements),
-                false => BigInt::from_bytes_le(Sign::Plus, &bytes.elements),
+                true => BigInt::from_signed_bytes_le(&options.bytes.elements),
+                false => BigInt::from_bytes_le(Sign::Plus, &options.bytes.elements),
             },
             _ => {
                 return Err(
@@ -733,6 +726,16 @@ impl IntOptions {
 
 fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
     PyInt::new(options.get_int_value(vm)?).into_ref_with_type(vm, cls)
+}
+
+#[derive(FromArgs)]
+struct IntFromByteOptions {
+    #[pyarg(positional_or_keyword)]
+    bytes: PyByteInner,
+    #[pyarg(positional_or_keyword)]
+    byteorder: PyStringRef,
+    #[pyarg(keyword_only, optional = true)]
+    signed: OptionalArg<IntoPyBool>,
 }
 
 // Casting function:
