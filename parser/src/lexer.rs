@@ -8,6 +8,7 @@ pub use super::token::Tok;
 use crate::error::{LexicalError, LexicalErrorType};
 use crate::location::Location;
 use num_bigint::BigInt;
+use num_traits::identities::Zero;
 use num_traits::Num;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -352,7 +353,7 @@ where
     /// Lex a normal number, that is, no octal, hex or binary number.
     fn lex_normal_number(&mut self) -> LexResult {
         let start_pos = self.get_pos();
-
+        let start_is_zero = self.chr0 == Some('0');
         // Normal number:
         let mut value_text = self.radix_run(10);
 
@@ -403,6 +404,12 @@ where
             } else {
                 let end_pos = self.get_pos();
                 let value = value_text.parse::<BigInt>().unwrap();
+                if start_is_zero && !value.is_zero() {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::OtherError("Invalid Token".to_string()),
+                        location: self.get_pos(),
+                    });
+                }
                 Ok((start_pos, Tok::Int { value }, end_pos))
             }
         }
