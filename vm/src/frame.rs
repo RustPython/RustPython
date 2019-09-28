@@ -1058,7 +1058,7 @@ impl Frame {
             scope,
             defaults,
             kw_only_defaults,
-            !flags.contains(bytecode::FunctionOpArg::NO_NEW_LOCALS),
+            flags.contains(bytecode::FunctionOpArg::NEW_LOCALS),
         );
 
         let name = qualified_name.as_str().split('.').next_back().unwrap();
