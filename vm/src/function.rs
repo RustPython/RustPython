@@ -131,7 +131,7 @@ impl PyFuncArgs {
     }
 
     pub fn take_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
-        self.kwargs.remove(name)
+        self.kwargs.swap_remove(name)
     }
 
     pub fn remaining_keywords<'a>(
@@ -559,7 +559,7 @@ pub fn single_or_tuple_any<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>>(
     message: fn(&PyObjectRef) -> String,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
-    match_class!(obj,
+    match_class!(match obj {
         obj @ T => predicate(obj),
         tuple @ PyTuple => {
             for obj in tuple.elements.iter() {
@@ -569,7 +569,7 @@ pub fn single_or_tuple_any<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>>(
                 }
             }
             Ok(false)
-        },
-        obj => Err(vm.new_type_error(message(&obj)))
-    )
+        }
+        obj => Err(vm.new_type_error(message(&obj))),
+    })
 }

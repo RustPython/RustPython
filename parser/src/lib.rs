@@ -8,6 +8,7 @@ use lalrpop_util::lalrpop_mod;
 pub mod ast;
 pub mod error;
 mod fstring;
+mod function;
 pub mod lexer;
 pub mod location;
 pub mod parser;

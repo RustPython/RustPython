@@ -168,14 +168,17 @@ pub enum SequenceIndex {
 
 impl TryFromObject for SequenceIndex {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match_class!(obj,
-            i @ PyInt => Ok(SequenceIndex::Int(i32::try_from_object(vm, i.into_object())?)),
+        match_class!(match obj {
+            i @ PyInt => Ok(SequenceIndex::Int(i32::try_from_object(
+                vm,
+                i.into_object()
+            )?)),
             s @ PySlice => Ok(SequenceIndex::Slice(s)),
             obj => Err(vm.new_type_error(format!(
                 "sequence indices be integers or slices, not {}",
                 obj.class(),
-            )))
-        )
+            ))),
+        })
     }
 }
 
@@ -462,20 +465,19 @@ pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<
     panic!("Cannot extract elements from non-sequence");
 }
 
-//Check if given arg could be used with PySciceableSequance.get_slice_range()
+//Check if given arg could be used with PySliceableSequence.get_slice_range()
 pub fn is_valid_slice_arg(
     arg: OptionalArg<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> Result<Option<BigInt>, PyObjectRef> {
     if let OptionalArg::Present(value) = arg {
-        match_class!(value,
-        i @ PyInt => Ok(Some(i.as_bigint().clone())),
-        _obj @ PyNone => Ok(None),
-        _=> {
-            Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()))
-        }
-        // TODO: check for an __index__ method
-        )
+        match_class!(match value {
+            i @ PyInt => Ok(Some(i.as_bigint().clone())),
+            _obj @ PyNone => Ok(None),
+            _ => Err(vm.new_type_error(
+                "slice indices must be integers or None or have an __index__ method".to_string()
+            )), // TODO: check for an __index__ method
+        })
     } else {
         Ok(None)
     }

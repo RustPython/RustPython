@@ -211,7 +211,8 @@ impl<'a> SymbolTableAnalyzer<'a> {
                 // symbol.table.borrow().parent.clone();
 
                 if let Some((symbols, _)) = parent_symbol_table {
-                    if !symbols.contains_key(&symbol.name) {
+                    let scope_depth = self.tables.len();
+                    if !symbols.contains_key(&symbol.name) || scope_depth < 2 {
                         return Err(SymbolTableError {
                             error: format!("no binding for nonlocal '{}' found", symbol.name),
                             location: Default::default(),
@@ -745,10 +746,15 @@ impl SymbolTableBuilder {
             // Role already set..
             match role {
                 SymbolUsage::Global => {
-                    return Err(SymbolTableError {
-                        error: format!("name '{}' is used prior to global declaration", name),
-                        location,
-                    })
+                    let symbol = table.symbols.get(name).unwrap();
+                    if let SymbolScope::Global = symbol.scope {
+                        // Ok
+                    } else {
+                        return Err(SymbolTableError {
+                            error: format!("name '{}' is used prior to global declaration", name),
+                            location,
+                        });
+                    }
                 }
                 SymbolUsage::Nonlocal => {
                     return Err(SymbolTableError {
@@ -805,6 +811,8 @@ impl SymbolTableBuilder {
             SymbolUsage::Global => {
                 if let SymbolScope::Unknown = symbol.scope {
                     symbol.scope = SymbolScope::Global;
+                } else if let SymbolScope::Global = symbol.scope {
+                    // Global scope can be set to global
                 } else {
                     return Err(SymbolTableError {
                         error: format!("Symbol {} scope cannot be set to global, since its scope was already determined otherwise.", name),

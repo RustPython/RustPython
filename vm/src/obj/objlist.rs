@@ -388,10 +388,10 @@ impl PyListRef {
 
     fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
-            let mut str_parts = vec![];
+            let mut str_parts = Vec::with_capacity(self.elements.borrow().len());
             for elem in self.elements.borrow().iter() {
                 let s = vm.to_repr(elem)?;
-                str_parts.push(s.value.clone());
+                str_parts.push(s.as_str().to_string());
             }
             format!("[{}]", str_parts.join(", "))
         } else {
@@ -462,8 +462,8 @@ impl PyListRef {
                 return Ok(index);
             }
         }
-        let needle_str = &vm.to_str(&needle)?.value;
-        Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
+        let needle_str = vm.to_str(&needle)?;
+        Err(vm.new_value_error(format!("'{}' is not in list", needle_str.as_str())))
     }
 
     fn pop(self, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
@@ -499,8 +499,8 @@ impl PyListRef {
             self.elements.borrow_mut().remove(index);
             Ok(())
         } else {
-            let needle_str = &vm.to_str(&needle)?.value;
-            Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
+            let needle_str = vm.to_str(&needle)?;
+            Err(vm.new_value_error(format!("'{}' is not in list", needle_str.as_str())))
         }
     }
 

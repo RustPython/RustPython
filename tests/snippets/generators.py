@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 
 r = []
@@ -63,7 +63,7 @@ assert next(g) == 3
 g = catch_exception()
 assert next(g) == 1
 
-with assertRaises(KeyError):
+with assert_raises(KeyError):
     assert g.throw(KeyError, KeyError(), None) == 2
 
 

@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 try:
     raise BaseException()
@@ -118,7 +118,7 @@ try:
 except ZeroDivisionError as ex:
     assert ex.__cause__ == None
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     raise ZeroDivisionError from 5
 
 try:
@@ -126,13 +126,13 @@ try:
 except ZeroDivisionError as ex:
     assert type(ex.__cause__) == NameError
 
-with assertRaises(NameError):
+with assert_raises(NameError):
     try:
         raise NameError
     except:
         raise
 
-with assertRaises(RuntimeError):
+with assert_raises(RuntimeError):
     raise
 
 context = None
@@ -171,13 +171,13 @@ except NameError as ex2:
 def f():
     raise
 
-with assertRaises(ZeroDivisionError):
+with assert_raises(ZeroDivisionError):
     try:
         1/0
     except:
         f()
 
-with assertRaises(ZeroDivisionError):
+with assert_raises(ZeroDivisionError):
     try:
         1/0
     except ZeroDivisionError:
@@ -254,7 +254,7 @@ except NameError as ex2:
 
 
 # the else clause requires at least one except clause:
-with assertRaises(SyntaxError):
+with assert_raises(SyntaxError):
     exec("""
 try:
     pass
@@ -264,7 +264,7 @@ else:
 
 
 # Try requires at least except or finally (or both)
-with assertRaises(SyntaxError):
+with assert_raises(SyntaxError):
     exec("""
 try:
     pass

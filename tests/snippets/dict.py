@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 assert dict(a=2, b=3) == {'a': 2, 'b': 3}
 assert dict({'a': 2, 'b': 3}, b=4) == {'a': 2, 'b': 4}
@@ -49,10 +49,10 @@ it = iter(x.items())
 assert ('a', 1) == next(it)
 assert ('b', 2) == next(it)
 assert ('d', 3) == next(it)
-with assertRaises(StopIteration):
+with assert_raises(StopIteration):
     next(it)
 
-with assertRaises(KeyError) as cm:
+with assert_raises(KeyError) as cm:
     del x[10]
 assert cm.exception.args[0] == 10
 
@@ -79,14 +79,14 @@ a = iter(d.items())
 d['a'] = 2
 b = iter(d.items())
 assert ('a', 2) == next(b)
-with assertRaises(RuntimeError):
+with assert_raises(RuntimeError):
     next(a)
 del d['a']
-with assertRaises(RuntimeError):
+with assert_raises(RuntimeError):
     next(b)
 
 # View isn't itself an iterator.
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     next(data.keys())
 
 assert len(data.keys()) == 2
@@ -99,7 +99,7 @@ x[7] = 7
 x[2] = 2
 x[(5, 6)] = 5
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     x[[]] # Unhashable type.
 
 x["here"] = "here"
@@ -169,27 +169,27 @@ y.update(y)
 assert y == {'a': 2, 'b': 12, 'c': 19, 'd': -1}  # hasn't changed
 
 # KeyError has object that used as key as an .args[0]
-with assertRaises(KeyError) as cm:
+with assert_raises(KeyError) as cm:
     x['not here']
 assert cm.exception.args[0] == "not here"
-with assertRaises(KeyError) as cm:
+with assert_raises(KeyError) as cm:
     x.pop('not here')
 assert cm.exception.args[0] == "not here"
 
-with assertRaises(KeyError) as cm:
+with assert_raises(KeyError) as cm:
     x[10]
 assert cm.exception.args[0] == 10
-with assertRaises(KeyError) as cm:
+with assert_raises(KeyError) as cm:
     x.pop(10)
 assert cm.exception.args[0] == 10
 
 class MyClass: pass
 obj = MyClass()
 
-with assertRaises(KeyError) as cm:
+with assert_raises(KeyError) as cm:
     x[obj]
 assert cm.exception.args[0] == obj
-with assertRaises(KeyError) as cm:
+with assert_raises(KeyError) as cm:
     x.pop(obj)
 assert cm.exception.args[0] == obj
 
@@ -201,7 +201,7 @@ assert x == {}
 x = {1: 'a'}
 assert (1, 'a') == x.popitem()
 assert x == {}
-with assertRaises(KeyError) as cm:
+with assert_raises(KeyError) as cm:
     x.popitem()
 assert cm.exception.args == ('popitem(): dictionary is empty',)
 

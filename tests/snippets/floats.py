@@ -86,6 +86,8 @@ assert math.isinf(float('Inf'))
 assert math.isinf(float('+Inf'))
 assert math.isinf(float('-Inf'))
 
+assert float() == 0
+
 assert float('+Inf') > 0
 assert float('-Inf') < 0
 
@@ -95,8 +97,8 @@ assert float('2.99e-23') == 2.99e-23
 assert float(b'3.14') == 3.14
 assert float(b'2.99e-23') == 2.99e-23
 
-assert_raises(ValueError, lambda: float('foo'))
-assert_raises(OverflowError, lambda: float(2**10000))
+assert_raises(ValueError, float, 'foo')
+assert_raises(OverflowError, float, 2**10000)
 
 # check eq and hash for small numbers
 
@@ -137,11 +139,11 @@ assert 2.0.__rmod__(2) == 0.0
 assert_raises(ZeroDivisionError, lambda: 2.0 / 0)
 assert_raises(ZeroDivisionError, lambda: 2.0 // 0)
 assert_raises(ZeroDivisionError, lambda: 2.0 % 0)
-assert_raises(ZeroDivisionError, lambda: divmod(2.0, 0))
+assert_raises(ZeroDivisionError, divmod, 2.0, 0)
 assert_raises(ZeroDivisionError, lambda: 2 / 0.0)
 assert_raises(ZeroDivisionError, lambda: 2 // 0.0)
 assert_raises(ZeroDivisionError, lambda: 2 % 0.0)
-# assert_raises(ZeroDivisionError, lambda: divmod(2, 0.0))
+# assert_raises(ZeroDivisionError, divmod, 2, 0.0)
 
 assert 1.2.__int__() == 1
 assert 1.2.__float__() == 1.2
@@ -198,6 +200,7 @@ assert_raises(ValueError, float('nan').as_integer_ratio)
 
 assert str(1.0) == '1.0'
 assert str(0.0) == '0.0'
+assert str(-0.0) == '-0.0'
 assert str(1.123456789) == '1.123456789'
 
 # Test special case for lexer, float starts with a dot:

@@ -1,6 +1,6 @@
 [package]
 name = "rustpython"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["RustPython Team"]
 edition = "2018"
 description = "A python interpreter written in rust."
@@ -23,16 +23,15 @@ freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 log = "0.4"
 env_logger = "0.6"
 clap = "2.33"
-rustpython-compiler = {path = "compiler", version = "0.1.0"}
-rustpython-parser = {path = "parser", version = "0.1.0"}
-rustpython-vm = {path = "vm", version = "0.1.0"}
+rustpython-compiler = {path = "compiler", version = "0.1.1"}
+rustpython-parser = {path = "parser", version = "0.1.1"}
+rustpython-vm = {path = "vm", version = "0.1.1"}
 dirs = "2.0"
 
 flame = { version = "0.2", optional = true }
 flamescope = { version = "0.1", optional = true }
 
-[target.'cfg(not(target_os = "redox"))'.dependencies]
-rustyline = "4.1.0"
+rustyline = "=5.0.1"
 
 
 [dev-dependencies.cpython]
@@ -45,6 +44,5 @@ path = "src/main.rs"
 [patch.crates-io]
 # REDOX START, Uncommment when you want to compile/check with redoxer
 # time = { git = "https://gitlab.redox-os.org/redox-os/time.git", branch = "redox-unix" }
-# libc = { git = "https://github.com/AdminXVII/libc",	branch = "extra-traits-redox" }
 # nix = { git = "https://github.com/AdminXVII/nix",	branch = "add-redox-support" }
 # REDOX END

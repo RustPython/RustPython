@@ -86,7 +86,7 @@ fn hashlib_new(
     data: OptionalArg<PyBytesRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyHasher> {
-    let hasher = match name.value.as_ref() {
+    let hasher = match name.as_str() {
         "md5" => Ok(PyHasher::new("md5", HashWrapper::md5())),
         "sha1" => Ok(PyHasher::new("sha1", HashWrapper::sha1())),
         "sha224" => Ok(PyHasher::new("sha224", HashWrapper::sha224())),
@@ -204,8 +204,7 @@ struct HashWrapper {
 impl HashWrapper {
     fn new<D: 'static>(d: D) -> Self
     where
-        D: DynDigest,
-        D: Sized,
+        D: DynDigest + Sized,
     {
         HashWrapper { inner: Box::new(d) }
     }

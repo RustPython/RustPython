@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 x = "An interesting piece of text"
 assert x is str(x)
@@ -18,5 +18,5 @@ assert y + " other" == "1 other"
 assert y.x == "substr"
 
 ## Base strings currently get an attribute dict, but shouldn't.
-# with assertRaises(AttributeError):
+# with assert_raises(AttributeError):
 #     "hello".x = 5

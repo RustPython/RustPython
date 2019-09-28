@@ -4,6 +4,10 @@ use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind, Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
@@ -15,20 +19,21 @@ use nix::pty::openpty;
 use nix::unistd::{self, Gid, Pid, Uid, Whence};
 use num_traits::cast::ToPrimitive;
 
-use bitflags::bitflags;
-
-use crate::function::{IntoPyNativeFunc, PyFuncArgs};
+use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::{self, PyInt, PyIntRef};
+use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
-use crate::obj::objstr::{self, PyString, PyStringRef};
+use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
+    Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+
+use bitflags::bitflags;
 
 #[cfg(unix)]
 pub fn raw_file_number(handle: File) -> i64 {
@@ -90,73 +95,66 @@ pub fn os_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-bitflags! {
-     pub struct FileCreationFlags: u32 {
-        // https://elixir.bootlin.com/linux/v4.8/source/include/uapi/asm-generic/fcntl.h
-        const O_RDONLY = 0o0000_0000;
-        const O_WRONLY = 0o0000_0001;
-        const O_RDWR = 0o0000_0002;
-        const O_CREAT = 0o0000_0100;
-        const O_EXCL = 0o0000_0200;
-        const O_APPEND = 0o0000_2000;
-        const O_NONBLOCK = 0o0000_4000;
-    }
-}
+#[cfg(unix)]
+type OpenFlags = i32;
+#[cfg(windows)]
+type OpenFlags = u32;
 
-pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (name, Some(vm.ctx.str_type())),
-            (flags, Some(vm.ctx.int_type()))
-        ],
-        optional = [
-            (_mode, Some(vm.ctx.int_type())),
-            (dir_fd, Some(vm.ctx.int_type()))
-        ]
-    );
-
-    let name = name.clone().downcast::<PyString>().unwrap();
-    let dir_fd = if let Some(obj) = dir_fd {
-        DirFd {
-            dir_fd: Some(obj.clone().downcast::<PyInt>().unwrap()),
-        }
-    } else {
-        DirFd::default()
+#[cfg(any(unix, windows))]
+pub fn os_open(
+    name: PyStringRef,
+    flags: OpenFlags,
+    _mode: OptionalArg<PyIntRef>,
+    dir_fd: OptionalArg<PyIntRef>,
+    vm: &VirtualMachine,
+) -> PyResult<i64> {
+    let dir_fd = DirFd {
+        dir_fd: dir_fd.into_option(),
     };
-    let fname = &make_path(vm, name, &dir_fd).value;
+    let fname = make_path(vm, name, &dir_fd);
 
-    let flags = FileCreationFlags::from_bits(objint::get_value(flags).to_u32().unwrap())
-        .ok_or_else(|| vm.new_value_error("Unsupported flag".to_string()))?;
+    let mut options = OpenOptions::new();
 
-    let mut options = &mut OpenOptions::new();
-
-    if flags.contains(FileCreationFlags::O_WRONLY) {
-        options = options.write(true);
-    } else if flags.contains(FileCreationFlags::O_RDWR) {
-        options = options.read(true).write(true);
-    } else {
-        options = options.read(true);
+    macro_rules! bit_contains {
+        ($c:expr) => {
+            flags & $c as OpenFlags == $c as OpenFlags
+        };
     }
 
-    if flags.contains(FileCreationFlags::O_APPEND) {
-        options = options.append(true);
+    if bit_contains!(libc::O_WRONLY) {
+        options.write(true);
+    } else if bit_contains!(libc::O_RDWR) {
+        options.read(true).write(true);
+    } else if bit_contains!(libc::O_RDONLY) {
+        options.read(true);
     }
 
-    if flags.contains(FileCreationFlags::O_CREAT) {
-        if flags.contains(FileCreationFlags::O_EXCL) {
-            options = options.create_new(true);
+    if bit_contains!(libc::O_APPEND) {
+        options.append(true);
+    }
+
+    if bit_contains!(libc::O_CREAT) {
+        if bit_contains!(libc::O_EXCL) {
+            options.create_new(true);
         } else {
-            options = options.create(true);
+            options.create(true);
         }
     }
 
+    #[cfg(windows)]
+    let flags = flags & !(libc::O_WRONLY as u32);
+
+    options.custom_flags(flags);
     let handle = options
-        .open(&fname)
+        .open(fname.as_str())
         .map_err(|err| convert_io_error(vm, err))?;
 
-    Ok(vm.ctx.new_int(raw_file_number(handle)))
+    Ok(raw_file_number(handle))
+}
+
+#[cfg(all(not(unix), not(windows)))]
+pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    unimplemented!()
 }
 
 pub fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
@@ -278,24 +276,25 @@ fn getgroups() -> nix::Result<Vec<Gid>> {
     use std::ptr;
     let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
     let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
-    loop {
-        let ret = unsafe {
-            libc::getgroups(
-                groups.capacity() as c_int,
-                groups.as_mut_ptr() as *mut gid_t,
-            )
-        };
+    let ret = unsafe {
+        libc::getgroups(
+            groups.capacity() as c_int,
+            groups.as_mut_ptr() as *mut gid_t,
+        )
+    };
 
-        return Errno::result(ret).map(|s| {
-            unsafe { groups.set_len(s as usize) };
-            groups
-        });
-    }
+    Errno::result(ret).map(|s| {
+        unsafe { groups.set_len(s as usize) };
+        groups
+    })
 }
 
-#[cfg(any(target_os = "linux", target_os = "redox", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use nix::unistd::getgroups;
+
+#[cfg(target_os = "redox")]
 fn getgroups() -> nix::Result<Vec<Gid>> {
-    nix::unistd::getgroups()
+    unimplemented!("redox getgroups")
 }
 
 #[cfg(unix)]
@@ -381,25 +380,25 @@ fn os_write(fd: PyIntRef, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
 
 fn os_remove(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
     let path = make_path(vm, path, &dir_fd);
-    fs::remove_file(&path.value).map_err(|err| convert_io_error(vm, err))
+    fs::remove_file(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_mkdir(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
     let path = make_path(vm, path, &dir_fd);
-    fs::create_dir(&path.value).map_err(|err| convert_io_error(vm, err))
+    fs::create_dir(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_mkdirs(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    fs::create_dir_all(&path.value).map_err(|err| convert_io_error(vm, err))
+    fs::create_dir_all(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_rmdir(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
     let path = make_path(vm, path, &dir_fd);
-    fs::remove_dir(&path.value).map_err(|err| convert_io_error(vm, err))
+    fs::remove_dir(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match fs::read_dir(&path.value) {
+    match fs::read_dir(path.as_str()) {
         Ok(iter) => {
             let res: PyResult<Vec<PyObjectRef>> = iter
                 .map(|entry| match entry {
@@ -413,12 +412,46 @@ fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-fn os_putenv(key: PyStringRef, value: PyStringRef, _vm: &VirtualMachine) {
-    env::set_var(&key.value, &value.value)
+fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsStr> {
+    let os_str = {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            Some(ffi::OsStr::from_bytes(b))
+        }
+        #[cfg(windows)]
+        {
+            std::str::from_utf8(b).ok().map(|s| s.as_ref())
+        }
+    };
+    os_str
+        .ok_or_else(|| vm.new_value_error("Can't convert bytes to str for env function".to_owned()))
 }
 
-fn os_unsetenv(key: PyStringRef, _vm: &VirtualMachine) {
-    env::remove_var(&key.value)
+fn os_putenv(
+    key: Either<PyStringRef, PyBytesRef>,
+    value: Either<PyStringRef, PyBytesRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let key: &ffi::OsStr = match key {
+        Either::A(ref s) => s.as_str().as_ref(),
+        Either::B(ref b) => bytes_as_osstr(b.get_value(), vm)?,
+    };
+    let value: &ffi::OsStr = match value {
+        Either::A(ref s) => s.as_str().as_ref(),
+        Either::B(ref b) => bytes_as_osstr(b.get_value(), vm)?,
+    };
+    env::set_var(key, value);
+    Ok(())
+}
+
+fn os_unsetenv(key: Either<PyStringRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
+    let key: &ffi::OsStr = match key {
+        Either::A(ref s) => s.as_str().as_ref(),
+        Either::B(ref b) => bytes_as_osstr(b.get_value(), vm)?,
+    };
+    env::remove_var(key);
+    Ok(())
 }
 
 fn _os_environ(vm: &VirtualMachine) -> PyDictRef {
@@ -553,7 +586,7 @@ impl ScandirIterator {
 }
 
 fn os_scandir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match fs::read_dir(&path.value) {
+    match fs::read_dir(path.as_str()) {
         Ok(iter) => Ok(ScandirIterator {
             entries: RefCell::new(iter),
         }
@@ -669,7 +702,7 @@ macro_rules! os_unix_stat_inner {
             })
         }
 
-        get_stats(&$path.value, $follow_symlinks.follow_symlinks)
+        get_stats($path.as_str(), $follow_symlinks.follow_symlinks)
             .map_err(|err| convert_io_error($vm, err))
     }};
 }
@@ -772,7 +805,7 @@ fn os_stat(
         })
     }
 
-    get_stats(&path.value, follow_symlinks.follow_symlinks)
+    get_stats(path.as_str(), follow_symlinks.follow_symlinks)
         .map_err(|s| vm.new_os_error(s.to_string()))
 }
 
@@ -812,7 +845,7 @@ fn os_symlink(
 ) -> PyResult<()> {
     use std::os::unix::fs as unix_fs;
     let dst = make_path(vm, dst, &dir_fd);
-    unix_fs::symlink(&src.value, &dst.value).map_err(|err| convert_io_error(vm, err))
+    unix_fs::symlink(src.as_str(), dst.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 #[cfg(windows)]
@@ -823,17 +856,17 @@ fn os_symlink(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     use std::os::windows::fs as win_fs;
-    let ret = match fs::metadata(&dst.value) {
+    let ret = match fs::metadata(dst.as_str()) {
         Ok(meta) => {
             if meta.is_file() {
-                win_fs::symlink_file(&src.value, &dst.value)
+                win_fs::symlink_file(src.as_str(), dst.as_str())
             } else if meta.is_dir() {
-                win_fs::symlink_dir(&src.value, &dst.value)
+                win_fs::symlink_dir(src.as_str(), dst.as_str())
             } else {
                 panic!("Uknown file type");
             }
         }
-        Err(_) => win_fs::symlink_file(&src.value, &dst.value),
+        Err(_) => win_fs::symlink_file(src.as_str(), dst.as_str()),
     };
     ret.map_err(|err| convert_io_error(vm, err))
 }
@@ -858,7 +891,7 @@ fn os_getcwd(vm: &VirtualMachine) -> PyResult<String> {
 }
 
 fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    env::set_current_dir(&path.value).map_err(|err| convert_io_error(vm, err))
+    env::set_current_dir(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 #[cfg(unix)]
@@ -872,14 +905,14 @@ fn os_chmod(
     use std::os::unix::fs::PermissionsExt;
     let path = make_path(vm, path, &dir_fd);
     let metadata = if follow_symlinks.follow_symlinks {
-        fs::metadata(&path.value)
+        fs::metadata(path.as_str())
     } else {
-        fs::symlink_metadata(&path.value)
+        fs::symlink_metadata(path.as_str())
     };
     let meta = metadata.map_err(|err| convert_io_error(vm, err))?;
     let mut permissions = meta.permissions();
     permissions.set_mode(mode);
-    fs::set_permissions(&path.value, permissions).map_err(|err| convert_io_error(vm, err))?;
+    fs::set_permissions(path.as_str(), permissions).map_err(|err| convert_io_error(vm, err))?;
     Ok(())
 }
 
@@ -897,7 +930,7 @@ fn os_fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn os_rename(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    fs::rename(&src.value, &dst.value).map_err(|err| convert_io_error(vm, err))
+    fs::rename(src.as_str(), dst.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_getpid(vm: &VirtualMachine) -> PyObjectRef {
@@ -1151,19 +1184,19 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getcwd" => ctx.new_rustfunc(os_getcwd),
         "chdir" => ctx.new_rustfunc(os_chdir),
         "fspath" => ctx.new_rustfunc(os_fspath),
-        "O_RDONLY" => ctx.new_int(FileCreationFlags::O_RDONLY.bits()),
-        "O_WRONLY" => ctx.new_int(FileCreationFlags::O_WRONLY.bits()),
-        "O_RDWR" => ctx.new_int(FileCreationFlags::O_RDWR.bits()),
-        "O_NONBLOCK" => ctx.new_int(FileCreationFlags::O_NONBLOCK.bits()),
-        "O_APPEND" => ctx.new_int(FileCreationFlags::O_APPEND.bits()),
-        "O_EXCL" => ctx.new_int(FileCreationFlags::O_EXCL.bits()),
-        "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits()),
-        "F_OK" => ctx.new_int(AccessFlags::F_OK.bits()),
-        "R_OK" => ctx.new_int(AccessFlags::R_OK.bits()),
-        "W_OK" => ctx.new_int(AccessFlags::W_OK.bits()),
-        "X_OK" => ctx.new_int(AccessFlags::X_OK.bits()),
-        "getpid" => ctx.new_rustfunc(os_getpid),
-        "cpu_count" => ctx.new_rustfunc(os_cpu_count)
+         "getpid" => ctx.new_rustfunc(os_getpid),
+        "cpu_count" => ctx.new_rustfunc(os_cpu_count),
+
+        "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
+        "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
+        "O_RDWR" => ctx.new_int(libc::O_RDWR),
+        "O_APPEND" => ctx.new_int(libc::O_APPEND),
+        "O_EXCL" => ctx.new_int(libc::O_EXCL),
+        "O_CREAT" => ctx.new_int(libc::O_CREAT),
+        "F_OK" => ctx.new_int(0),
+        "R_OK" => ctx.new_int(4),
+        "W_OK" => ctx.new_int(2),
+        "X_OK" => ctx.new_int(1),
     });
 
     for support in support_funcs {
@@ -1201,7 +1234,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[cfg(unix)]
 fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
     let ctx = &vm.ctx;
-
     extend_module!(vm, module, {
         "getppid" => ctx.new_rustfunc(os_getppid),
         "getgid" => ctx.new_rustfunc(os_getgid),
@@ -1213,11 +1245,15 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
         "access" => ctx.new_rustfunc(os_access),
+        "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
+        "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
+        "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
+        "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
         "chmod" => ctx.new_rustfunc(os_chmod),
         "ttyname" => ctx.new_rustfunc(os_ttyname),
         "SEEK_SET" => ctx.new_int(Whence::SeekSet as i8),
         "SEEK_CUR" => ctx.new_int(Whence::SeekCur as i8),
-        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8)
+        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8),
     });
 
     #[cfg(not(target_os = "redox"))]
@@ -1229,7 +1265,15 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "openpty" => ctx.new_rustfunc(os_openpty),
     });
 
-    #[cfg(not(target_os = "macos"))]
+    // cfg taken from nix
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        all(
+            target_os = "linux",
+            not(any(target_env = "musl", target_arch = "mips", target_arch = "mips64"))
+        )
+    ))]
     extend_module!(vm, module, {
         "SEEK_DATA" => ctx.new_int(Whence::SeekData as i8),
         "SEEK_HOLE" => ctx.new_int(Whence::SeekHole as i8)

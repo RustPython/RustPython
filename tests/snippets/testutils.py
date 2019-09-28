@@ -1,46 +1,26 @@
-def assert_raises(exc_type, expr, msg=None):
-    """
-    Helper function to assert `expr` raises an exception of type `exc_type`.
-    Args:
-        expr: Callable
-        exec_type: Exception
-    Returns:
-        None
-    Raises:
-        Assertion error on failure
-    """
-    try:
-        expr()
-    except exc_type:
-        pass
-    else:
-        failmsg = '{} was not raised'.format(exc_type.__name__)
-        if msg is not None:
-            failmsg += ': {}'.format(msg)
-        assert False, failmsg
-
-
-def assertRaises(expected, *args, **kw):
-    if not args:
-        assert not kw
-        return _assertRaises(expected)
-    else:
+def assert_raises(expected, *args, _msg=None, **kw):
+    if args:
         f, f_args = args[0], args[1:]
-        with _assertRaises(expected):
+        with AssertRaises(expected, _msg):
             f(*f_args, **kw)
+    else:
+        assert not kw
+        return AssertRaises(expected, _msg)
 
 
-class _assertRaises:
-    def __init__(self, expected):
+class AssertRaises:
+    def __init__(self, expected, msg):
         self.expected = expected
         self.exception = None
+        self.failmsg = msg
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
-            failmsg = '{} was not raised'.format(self.expected.__name__)
+            failmsg = self.failmsg or \
+                '{} was not raised'.format(self.expected.__name__)
             assert False, failmsg
         if not issubclass(exc_type, self.expected):
             return False
@@ -56,3 +36,34 @@ class TestFailingBool:
 class TestFailingIter:
     def __iter__(self):
         raise RuntimeError
+
+
+def _assert_print(f, args):
+    raised = True
+    try:
+        f()
+        raised = False
+    finally:
+        if raised:
+            print('Assertion Failure:', *args)
+
+def _typed(obj):
+    return '{}({})'.format(type(obj), obj)
+
+
+def assert_equal(a, b):
+    _assert_print(lambda: a == b, [_typed(a), '==', _typed(b)])
+
+
+def assert_true(e):
+    _assert_print(lambda: e is True, [_typed(e), 'is True'])
+
+
+def assert_false(e):
+    _assert_print(lambda: e is False, [_typed(e), 'is False'])
+
+def assert_isinstance(obj, klass):
+    _assert_print(lambda: isinstance(obj, klass), ['isisntance(', _typed(obj), ',', klass, ')'])
+
+def assert_in(a, b):
+    _assert_print(lambda: a in b, [a, 'in', b])

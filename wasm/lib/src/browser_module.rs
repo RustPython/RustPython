@@ -137,7 +137,7 @@ fn browser_request_animation_frame(func: PyCallable, vm: &VirtualMachine) -> PyR
 
         let closure = f.borrow_mut().take();
         drop(closure);
-    }) as Box<Fn(f64)>));
+    }) as Box<dyn Fn(f64)>));
 
     let id = window()
         .request_animation_frame(&js_sys::Function::from(
@@ -267,7 +267,7 @@ impl Document {
     fn query(&self, query: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let elem = self
             .doc
-            .query_selector(&query.value)
+            .query_selector(query.as_str())
             .map_err(|err| convert::js_py_typeerror(vm, err))?;
         let elem = match elem {
             Some(elem) => Element { elem }.into_ref(vm).into_object(),
@@ -298,7 +298,7 @@ impl Element {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
-        match self.elem.get_attribute(&attr.value) {
+        match self.elem.get_attribute(attr.as_str()) {
             Some(s) => vm.new_str(s),
             None => default.into_option().unwrap_or_else(|| vm.get_none()),
         }
@@ -307,7 +307,7 @@ impl Element {
     #[pymethod]
     fn set_attr(&self, attr: PyStringRef, value: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
         self.elem
-            .set_attribute(&attr.value, &value.value)
+            .set_attribute(attr.as_str(), value.as_str())
             .map_err(|err| convert::js_to_py(vm, err))
     }
 }

@@ -69,7 +69,7 @@ fn object_setattr(
     vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
     let cls = obj.class();
 
-    if let Some(attr) = objtype::class_get_attr(&cls, &attr_name.value) {
+    if let Some(attr) = objtype::class_get_attr(&cls, attr_name.as_str()) {
         if let Some(descriptor) = objtype::class_get_attr(&attr.class(), "__set__") {
             return vm
                 .invoke(&descriptor, vec![attr, obj.clone(), value])
@@ -78,13 +78,13 @@ fn object_setattr(
     }
 
     if let Some(ref dict) = obj.clone().dict {
-        dict.set_item(&attr_name.value, value, vm)?;
+        dict.set_item(attr_name.as_str(), value, vm)?;
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
             obj.class().name,
-            &attr_name.value
+            attr_name.as_str()
         )))
     }
 }
@@ -92,20 +92,20 @@ fn object_setattr(
 fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     let cls = obj.class();
 
-    if let Some(attr) = objtype::class_get_attr(&cls, &attr_name.value) {
+    if let Some(attr) = objtype::class_get_attr(&cls, attr_name.as_str()) {
         if let Some(descriptor) = objtype::class_get_attr(&attr.class(), "__delete__") {
             return vm.invoke(&descriptor, vec![attr, obj.clone()]).map(|_| ());
         }
     }
 
     if let Some(ref dict) = obj.dict {
-        dict.del_item(&attr_name.value, vm)?;
+        dict.del_item(attr_name.as_str(), vm)?;
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
             obj.class().name,
-            &attr_name.value
+            attr_name.as_str()
         )))
     }
 }
@@ -145,7 +145,7 @@ fn object_format(
     format_spec: PyStringRef,
     vm: &VirtualMachine,
 ) -> PyResult<PyStringRef> {
-    if format_spec.value.is_empty() {
+    if format_spec.as_str().is_empty() {
         vm.to_str(&obj)
     } else {
         Err(vm.new_type_error("unsupported format string passed to object.__format__".to_string()))

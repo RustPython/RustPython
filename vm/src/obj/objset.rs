@@ -240,10 +240,10 @@ impl PySetInner {
     }
 
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let mut str_parts = vec![];
+        let mut str_parts = Vec::with_capacity(self.content.len());
         for key in self.content.keys() {
             let part = vm.to_repr(&key)?;
-            str_parts.push(part.value.clone());
+            str_parts.push(part.as_str().to_owned());
         }
 
         Ok(format!("{{{}}}", str_parts.join(", ")))
@@ -314,11 +314,11 @@ impl PySetInner {
 
 macro_rules! try_set_inner {
     ($vm:expr, $other:expr, $op:expr) => {
-        match_class!($other,
-            set @ PySet => $op(&*set.inner.borrow()),
-            frozen @ PyFrozenSet => $op(&frozen.inner),
+        match_class!(match ($other) {
+            set @ PySet => ($op(&*set.inner.borrow())),
+            frozen @ PyFrozenSet => ($op(&frozen.inner)),
             _ => Ok($vm.ctx.not_implemented()),
-        );
+        });
     };
 }
 

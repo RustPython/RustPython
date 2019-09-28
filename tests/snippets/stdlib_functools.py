@@ -1,5 +1,5 @@
 from functools import reduce
-from testutils import assertRaises
+from testutils import assert_raises
 
 class Squares:
     def __init__(self, max):
@@ -31,20 +31,20 @@ assert reduce(add, Squares(0), 0) == 0
 assert reduce(42, "1") == "1"
 assert reduce(42, "", "1") == "1"
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     reduce()
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     reduce(42, 42)
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     reduce(42, 42, 42)
 
 class TestFailingIter:
     def __iter__(self):
         raise RuntimeError
 
-with assertRaises(RuntimeError):
+with assert_raises(RuntimeError):
     reduce(add, TestFailingIter())
 
 assert reduce(add, [], None) == None
@@ -53,7 +53,7 @@ assert reduce(add, [], 42) == 42
 class BadSeq:
     def __getitem__(self, index):
         raise ValueError
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     reduce(42, BadSeq())
 
 # Test reduce()'s use of iterators.
@@ -68,7 +68,7 @@ class SequenceClass:
 
 assert reduce(add, SequenceClass(5)) == 10
 assert reduce(add, SequenceClass(5), 42) == 52
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     reduce(add, SequenceClass(0))
 
 assert reduce(add, SequenceClass(0), 42) == 42

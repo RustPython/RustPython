@@ -842,15 +842,23 @@ impl<O: OutputStream> Compiler<O> {
 
         let mut flags = self.enter_function(name, args)?;
 
-        let (new_body, doc_str) = get_doc(body);
+        let (body, doc_str) = get_doc(body);
 
-        self.compile_statements(new_body)?;
+        self.compile_statements(body)?;
 
         // Emit None at end:
-        self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::None,
-        });
-        self.emit(Instruction::ReturnValue);
+        match body.last().map(|s| &s.node) {
+            Some(ast::StatementType::Return { .. }) => {
+                // the last instruction is a ReturnValue already, we don't need to emit it
+            }
+            _ => {
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::None,
+                });
+                self.emit(Instruction::ReturnValue);
+            }
+        }
+
         let code = self.pop_code_object();
         self.leave_scope();
 
@@ -1616,10 +1624,13 @@ impl<O: OutputStream> Compiler<O> {
             Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
             }
-            Starred { value } => {
-                self.compile_expression(value)?;
-                self.emit(Instruction::Unpack);
-                panic!("We should not just unpack a starred args, since the size is unknown.");
+            Starred { .. } => {
+                return Err(CompileError {
+                    error: CompileErrorType::SyntaxError(std::string::String::from(
+                        "Invalid starred expression",
+                    )),
+                    location: self.current_source_location.clone(),
+                });
             }
             IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();

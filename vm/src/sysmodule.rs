@@ -200,7 +200,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
 
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {
-        "name" => ctx.new_str("RustPython".to_string()),
+        "name" => ctx.new_str("rustpython".to_string()),
         "cache_tag" => ctx.new_str("rustpython-01".to_string()),
     });
 
@@ -224,6 +224,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
     } else {
         "unknown".to_string()
     };
+
+    let framework = "".to_string();
 
     // https://doc.rust-lang.org/reference/conditional-compilation.html#target_endian
     let bytorder = if cfg!(target_endian = "little") {
@@ -320,6 +322,7 @@ settrace() -- set the global debug tracing function
     let prefix = option_env!("RUSTPYTHON_PREFIX").unwrap_or("/usr/local");
     let base_prefix = option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or(prefix);
     let exec_prefix = option_env!("RUSTPYTHON_EXECPREFIX").unwrap_or(prefix);
+    let base_exec_prefix = option_env!("RUSTPYTHON_BASEEXECPREFIX").unwrap_or(exec_prefix);
 
     extend_module!(vm, module, {
       "__name__" => ctx.new_str(String::from("sys")),
@@ -347,6 +350,7 @@ settrace() -- set the global debug tracing function
       "modules" => modules.clone(),
       "warnoptions" => ctx.new_list(vec![]),
       "platform" => ctx.new_str(platform),
+      "_framework" => ctx.new_str(framework),
       "meta_path" => ctx.new_list(vec![]),
       "path_hooks" => ctx.new_list(vec![]),
       "path_importer_cache" => ctx.new_dict(),
@@ -360,6 +364,7 @@ settrace() -- set the global debug tracing function
       "prefix" => ctx.new_str(prefix.to_string()),
       "base_prefix" => ctx.new_str(base_prefix.to_string()),
       "exec_prefix" => ctx.new_str(exec_prefix.to_string()),
+      "base_exec_prefix" => ctx.new_str(base_exec_prefix.to_string()),
       "exit" => ctx.new_rustfunc(sys_exit),
     });
 

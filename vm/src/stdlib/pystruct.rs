@@ -56,8 +56,7 @@ fn parse_format_string(fmt: String) -> Result<FormatSpec, String> {
 /// See also: https://docs.python.org/3/library/struct.html?highlight=struct#byte-order-size-and-alignment
 fn parse_endiannes<I>(chars: &mut Peekable<I>) -> Endianness
 where
-    I: Sized,
-    I: Iterator<Item = char>,
+    I: Sized + Iterator<Item = char>,
 {
     match chars.peek() {
         Some('@') => {
@@ -86,8 +85,7 @@ where
 
 fn parse_format_codes<I>(chars: &mut Peekable<I>) -> Result<Vec<FormatCode>, String>
 where
-    I: Sized,
-    I: Iterator<Item = char>,
+    I: Sized + Iterator<Item = char>,
 {
     let mut codes = vec![];
     for c in chars {
@@ -105,7 +103,7 @@ where
 }
 
 fn get_int(vm: &VirtualMachine, arg: &PyObjectRef) -> PyResult<BigInt> {
-    objint::to_int(vm, arg, 10)
+    objint::to_int(vm, arg, &BigInt::from(10))
 }
 
 fn pack_i8(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
@@ -281,7 +279,7 @@ fn struct_pack(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         if objtype::isinstance(&fmt_arg, &vm.ctx.str_type()) {
             let fmt_str = objstr::get_value(&fmt_arg);
 
-            let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;;
+            let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;
 
             if format_spec.codes.len() + 1 == args.args.len() {
                 // Create data vector:

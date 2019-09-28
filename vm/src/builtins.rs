@@ -10,7 +10,7 @@ use std::str;
 use num_bigint::Sign;
 use num_traits::{Signed, ToPrimitive, Zero};
 
-use crate::obj::objbool;
+use crate::obj::objbool::{self, IntoPyBool};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
@@ -40,18 +40,18 @@ fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     vm.invoke(&method, PyFuncArgs::new(vec![], vec![]))
 }
 
-fn builtin_all(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool> {
+fn builtin_all(iterable: PyIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
     for item in iterable.iter(vm)? {
-        if !item? {
+        if !item?.to_bool() {
             return Ok(false);
         }
     }
     Ok(true)
 }
 
-fn builtin_any(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool> {
+fn builtin_any(iterable: PyIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
     for item in iterable.iter(vm)? {
-        if item? {
+        if item?.to_bool() {
             return Ok(true);
         }
     }
@@ -60,7 +60,7 @@ fn builtin_any(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool
 
 fn builtin_ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
     let repr = vm.to_repr(&obj)?;
-    let ascii = to_ascii(&repr.value);
+    let ascii = to_ascii(repr.as_str());
     Ok(ascii)
 }
 
@@ -126,9 +126,9 @@ struct CompileArgs {
 #[cfg(feature = "rustpython-compiler")]
 fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef> {
     // TODO: compile::compile should probably get bytes
-    let source = match args.source {
-        Either::A(string) => string.value.to_string(),
-        Either::B(bytes) => str::from_utf8(&bytes).unwrap().to_string(),
+    let source = match &args.source {
+        Either::A(string) => string.as_str(),
+        Either::B(bytes) => str::from_utf8(bytes).unwrap(),
     };
 
     let mode = args
@@ -137,7 +137,7 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef
         .parse::<compile::Mode>()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-    vm.compile(&source, mode, args.filename.value.to_string())
+    vm.compile(source, mode, args.filename.as_str().to_string())
         .map_err(|err| vm.new_syntax_error(&err))
 }
 
@@ -250,12 +250,9 @@ fn builtin_format(
     format_spec: OptionalArg<PyStringRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyStringRef> {
-    let format_spec = format_spec.into_option().unwrap_or_else(|| {
-        PyString {
-            value: "".to_string(),
-        }
-        .into_ref(vm)
-    });
+    let format_spec = format_spec
+        .into_option()
+        .unwrap_or_else(|| PyString::from("").into_ref(vm));
 
     vm.call_method(&value, "__format__", vec![format_spec.into_object()])?
         .downcast()
@@ -383,11 +380,8 @@ fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
-        if default.is_none() {
-            return Err(vm.new_value_error("max() arg is an empty sequence".to_string()));
-        } else {
-            return Ok(default.unwrap());
-        }
+        return default
+            .ok_or_else(|| vm.new_value_error("max() arg is an empty sequence".to_string()));
     }
 
     let key_func = args.get_optional_kwarg("key");
@@ -432,11 +426,8 @@ fn builtin_min(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
-        if default.is_none() {
-            return Err(vm.new_value_error("min() arg is an empty sequence".to_string()));
-        } else {
-            return Ok(default.unwrap());
-        }
+        return default
+            .ok_or_else(|| vm.new_value_error("min() arg is an empty sequence".to_string()));
     }
 
     let key_func = args.get_optional_kwarg("key");
@@ -573,8 +564,8 @@ pub struct PrintOptions {
     sep: Option<PyStringRef>,
     #[pyarg(keyword_only, default = "None")]
     end: Option<PyStringRef>,
-    #[pyarg(keyword_only, default = "false")]
-    flush: bool,
+    #[pyarg(keyword_only, default = "IntoPyBool::FALSE")]
+    flush: IntoPyBool,
     #[pyarg(keyword_only, default = "None")]
     file: Option<PyObjectRef>,
 }
@@ -598,8 +589,8 @@ impl Printer for &'_ PyObjectRef {
 
 impl Printer for std::io::StdoutLock<'_> {
     fn write(&mut self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
-        let s = &vm.to_str(&obj)?.value;
-        write!(self, "{}", s).unwrap();
+        let s = vm.to_str(&obj)?;
+        write!(self, "{}", s.as_str()).unwrap();
         Ok(())
     }
 
@@ -631,7 +622,7 @@ pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) 
     let sep = options
         .sep
         .as_ref()
-        .map_or(" ", |sep| &sep.value)
+        .map_or(" ", |sep| sep.as_str())
         .into_pyobject(vm)
         .unwrap();
 
@@ -649,12 +640,12 @@ pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) 
     let end = options
         .end
         .as_ref()
-        .map_or("\n", |end| &end.value)
+        .map_or("\n", |end| end.as_str())
         .into_pyobject(vm)
         .unwrap();
     printer.write(vm, end)?;
 
-    if options.flush {
+    if options.flush.to_bool() {
         printer.flush(vm)?;
     }
 
@@ -892,6 +883,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "UserWarning" => ctx.exceptions.user_warning.clone(),
 
         "KeyboardInterrupt" => ctx.exceptions.keyboard_interrupt.clone(),
+        "SystemExit" => ctx.exceptions.system_exit.clone(),
     });
 }
 
@@ -902,7 +894,7 @@ pub fn builtin_build_class_(
     mut kwargs: KwArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
-    let name = qualified_name.value.split('.').next_back().unwrap();
+    let name = qualified_name.as_str().split('.').next_back().unwrap();
     let name_obj = vm.new_str(name.to_string());
 
     let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {

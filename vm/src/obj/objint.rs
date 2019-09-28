@@ -554,7 +554,7 @@ impl PyInt {
 
     #[pymethod(name = "__format__")]
     fn format(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
-        let format_spec = FormatSpec::parse(&spec.value);
+        let format_spec = FormatSpec::parse(spec.as_str());
         match format_spec.format_int(&self.value) {
             Ok(string) => Ok(string),
             Err(err) => Err(vm.new_value_error(err.to_string())),
@@ -587,29 +587,27 @@ impl PyInt {
         let mut signed = false;
         for (key, value) in kwargs.into_iter() {
             if key == "signed" {
-                signed = match_class!(value,
-
+                signed = match_class!(match value {
                     b @ PyInt => !b.as_bigint().is_zero(),
                     _ => false,
-                );
+                });
             }
         }
-        let x;
-        if byteorder.value == "big" {
-            x = match signed {
+        let x = match byteorder.as_str() {
+            "big" => match signed {
                 true => BigInt::from_signed_bytes_be(&bytes.elements),
                 false => BigInt::from_bytes_be(Sign::Plus, &bytes.elements),
-            }
-        } else if byteorder.value == "little" {
-            x = match signed {
+            },
+            "little" => match signed {
                 true => BigInt::from_signed_bytes_le(&bytes.elements),
                 false => BigInt::from_bytes_le(Sign::Plus, &bytes.elements),
+            },
+            _ => {
+                return Err(
+                    vm.new_value_error("byteorder must be either 'little' or 'big'".to_string())
+                )
             }
-        } else {
-            return Err(
-                vm.new_value_error("byteorder must be either 'little' or 'big'".to_string())
-            );
-        }
+        };
         Ok(x)
     }
     #[pymethod]
@@ -625,11 +623,10 @@ impl PyInt {
         let value = self.as_bigint();
         for (key, value) in kwargs.into_iter() {
             if key == "signed" {
-                signed = match_class!(value,
-
+                signed = match_class!(match value {
                     b @ PyInt => !b.as_bigint().is_zero(),
                     _ => false,
-                );
+                });
             }
         }
         if value.sign() == Sign::Minus && !signed {
@@ -642,7 +639,7 @@ impl PyInt {
             return Err(vm.new_value_error("length parameter is illegal".to_string()));
         }
 
-        let mut origin_bytes = match byteorder.value.as_str() {
+        let mut origin_bytes = match byteorder.as_str() {
             "big" => match signed {
                 true => value.to_signed_bytes_be(),
                 false => value.to_bytes_be().1,
@@ -667,7 +664,7 @@ impl PyInt {
             _ => vec![0u8; byte_len - origin_len],
         };
         let mut bytes = vec![];
-        match byteorder.value.as_str() {
+        match byteorder.as_str() {
             "big" => {
                 bytes = append_bytes;
                 bytes.append(&mut origin_bytes);
@@ -707,7 +704,7 @@ struct IntOptions {
     #[pyarg(positional_only, optional = true)]
     val_options: OptionalArg<PyObjectRef>,
     #[pyarg(positional_or_keyword, optional = true)]
-    base: OptionalArg<u32>,
+    base: OptionalArg<PyIntRef>,
 }
 
 impl IntOptions {
@@ -723,9 +720,9 @@ impl IntOptions {
                 }
                 base
             } else {
-                10
+                PyInt::new(10).into_ref(vm)
             };
-            to_int(vm, &val, base)
+            to_int(vm, &val, base.as_bigint())
         } else if let OptionalArg::Present(_) = self.base {
             Err(vm.new_type_error("int() missing string argument".to_string()))
         } else {
@@ -739,50 +736,66 @@ fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResul
 }
 
 // Casting function:
-pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
-    if base != 0 && (base < 2 || base > 36) {
+pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult<BigInt> {
+    let base_u32 = match base.to_u32() {
+        Some(base_u32) => base_u32,
+        None => {
+            return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()))
+        }
+    };
+    if base_u32 != 0 && (base_u32 < 2 || base_u32 > 36) {
         return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()));
     }
 
-    match_class!(obj.clone(),
+    match_class!(match obj.clone() {
         string @ PyString => {
-            let s = string.value.as_str().trim();
+            let s = string.as_str().trim();
             str_to_int(vm, s, base)
-        },
+        }
         bytes @ PyBytes => {
             let bytes = bytes.get_value();
             let s = std::str::from_utf8(bytes)
                 .map(|s| s.trim())
                 .map_err(|e| vm.new_value_error(format!("utf8 decode error: {}", e)))?;
             str_to_int(vm, s, base)
-        },
+        }
         obj => {
             let method = vm.get_method_or_type_error(obj.clone(), "__int__", || {
-                format!("int() argument must be a string or a number, not '{}'", obj.class().name)
+                format!(
+                    "int() argument must be a string or a number, not '{}'",
+                    obj.class().name
+                )
             })?;
             let result = vm.invoke(&method, PyFuncArgs::default())?;
             match result.payload::<PyInt>() {
                 Some(int_obj) => Ok(int_obj.as_bigint().clone()),
                 None => Err(vm.new_type_error(format!(
-                    "TypeError: __int__ returned non-int (type '{}')", result.class().name))),
+                    "TypeError: __int__ returned non-int (type '{}')",
+                    result.class().name
+                ))),
             }
         }
-    )
+    })
 }
 
-fn str_to_int(vm: &VirtualMachine, literal: &str, mut base: u32) -> PyResult<BigInt> {
+fn str_to_int(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<BigInt> {
     let mut buf = validate_literal(vm, literal, base)?;
     let is_signed = buf.starts_with('+') || buf.starts_with('-');
     let radix_range = if is_signed { 1..3 } else { 0..2 };
     let radix_candidate = buf.get(radix_range.clone());
 
+    let mut base_u32 = match base.to_u32() {
+        Some(base_u32) => base_u32,
+        None => return Err(invalid_literal(vm, literal, base)),
+    };
+
     // try to find base
     if let Some(radix_candidate) = radix_candidate {
         if let Some(matched_radix) = detect_base(&radix_candidate) {
-            if base != 0 && base != matched_radix {
+            if base_u32 != 0 && base_u32 != matched_radix {
                 return Err(invalid_literal(vm, literal, base));
             } else {
-                base = matched_radix;
+                base_u32 = matched_radix;
             }
 
             buf.drain(radix_range);
@@ -790,18 +803,18 @@ fn str_to_int(vm: &VirtualMachine, literal: &str, mut base: u32) -> PyResult<Big
     }
 
     // base still not found, try to use default
-    if base == 0 {
+    if base_u32 == 0 {
         if buf.starts_with('0') {
             return Err(invalid_literal(vm, literal, base));
         }
 
-        base = 10;
+        base_u32 = 10;
     }
 
-    BigInt::from_str_radix(&buf, base).map_err(|_err| invalid_literal(vm, literal, base))
+    BigInt::from_str_radix(&buf, base_u32).map_err(|_err| invalid_literal(vm, literal, base))
 }
 
-fn validate_literal(vm: &VirtualMachine, literal: &str, base: u32) -> PyResult<String> {
+fn validate_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<String> {
     if literal.starts_with('_') || literal.ends_with('_') {
         return Err(invalid_literal(vm, literal, base));
     }
@@ -833,7 +846,7 @@ fn detect_base(literal: &str) -> Option<u32> {
     }
 }
 
-fn invalid_literal(vm: &VirtualMachine, literal: &str, base: u32) -> PyObjectRef {
+fn invalid_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyObjectRef {
     vm.new_value_error(format!(
         "invalid literal for int() with base {}: '{}'",
         base, literal

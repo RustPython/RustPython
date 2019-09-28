@@ -1,5 +1,9 @@
 import math
-from testutils import assertRaises, assert_raises
+from testutils import assert_raises
+
+NAN = float('nan')
+INF = float('inf')
+NINF = float('-inf')
 
 # assert(math.exp(2) == math.exp(2.0))
 # assert(math.exp(True) == math.exp(1.0))
@@ -17,9 +21,9 @@ assert int.__floor__
 assert int.__ceil__
 
 # assert float.__trunc__
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     assert float.__floor__
-with assertRaises(AttributeError):
+with assert_raises(AttributeError):
     assert float.__ceil__
 
 assert math.trunc(2) == 2
@@ -29,6 +33,37 @@ assert math.floor(4) == 4
 assert math.trunc(2.2) == 2
 assert math.ceil(3.3) == 4
 assert math.floor(4.4) == 4
+
+assert math.copysign(1, 42) == 1.0
+assert math.copysign(0., 42) == 0.0
+assert math.copysign(1., -42) == -1.0
+assert math.copysign(3, 0.) == 3.0
+assert math.copysign(4., -0.) == -4.0
+assert_raises(TypeError, math.copysign)
+# copysign should let us distinguish signs of zeros
+assert math.copysign(1., 0.) == 1.
+assert math.copysign(1., -0.) == -1.
+assert math.copysign(INF, 0.) == INF
+assert math.copysign(INF, -0.) == NINF
+assert math.copysign(NINF, 0.) == INF
+assert math.copysign(NINF, -0.) == NINF
+# and of infinities
+assert math.copysign(1., INF) == 1.
+assert math.copysign(1., NINF) == -1.
+assert math.copysign(INF, INF) == INF
+assert math.copysign(INF, NINF) == NINF
+assert math.copysign(NINF, INF) == INF
+assert math.copysign(NINF, NINF) == NINF
+assert math.isnan(math.copysign(NAN, 1.))
+assert math.isnan(math.copysign(NAN, INF))
+assert math.isnan(math.copysign(NAN, NINF))
+assert math.isnan(math.copysign(NAN, NAN))
+# copysign(INF, NAN) may be INF or it may be NINF, since
+# we don't know whether the sign bit of NAN is set on any
+# given platform.
+assert math.isinf(math.copysign(INF, NAN))
+# similarly, copysign(2., NAN) could be 2. or -2.
+assert abs(math.copysign(2., NAN)) == 2.
 
 class A(object):
     def __trunc__(self):
@@ -72,11 +107,11 @@ assert math.trunc(A()) == 'trunc'
 assert math.ceil(A()) == 'ceil'
 assert math.floor(A()) == 'floor'
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     math.trunc(object())
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     math.ceil(object())
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     math.floor(object())
 
 assert str(math.frexp(0.0)) == str((+0.0, 0))
@@ -91,8 +126,8 @@ assert math.ldexp(0.5, 1) == 1
 assert math.ldexp(0.75, 1) == 1.5
 assert_raises(TypeError, lambda: math.ldexp(None, None))
 
-assert math.frexp(float('inf')) == (float('inf'), 0)
-assert str(math.frexp(float('nan'))) == str((float('nan'), 0))
+assert math.frexp(INF) == (INF, 0)
+assert str(math.frexp(NAN)) == str((NAN, 0))
 assert_raises(TypeError, lambda: math.frexp(None))
 
 assert math.gcd(0, 0) == 0

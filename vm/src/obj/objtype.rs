@@ -130,7 +130,7 @@ impl PyClassRef {
     }
 
     fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        let name = &name_ref.value;
+        let name = name_ref.as_str();
         vm_trace!("type.__getattribute__({:?}, {:?})", self, name);
         let mcl = self.class();
 
@@ -171,7 +171,7 @@ impl PyClassRef {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(attr) = class_get_attr(&self.class(), &attr_name.value) {
+        if let Some(attr) = class_get_attr(&self.class(), attr_name.as_str()) {
             if let Some(ref descriptor) = class_get_attr(&attr.class(), "__set__") {
                 vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
                 return Ok(());
@@ -281,7 +281,7 @@ pub fn type_new_class(
 ) -> PyResult<PyClassRef> {
     let mut bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
     bases.push(vm.ctx.object());
-    new(typ.clone(), &name.value, bases, dict.to_attributes())
+    new(typ.clone(), name.as_str(), bases, dict.to_attributes())
 }
 
 pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult {

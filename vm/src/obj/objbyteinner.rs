@@ -37,16 +37,21 @@ pub struct PyByteInner {
 
 impl TryFromObject for PyByteInner {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match_class!(obj,
-
-            i @ PyBytes => Ok(PyByteInner{elements: i.get_value().to_vec()}),
-            j @ PyByteArray => Ok(PyByteInner{elements: j.inner.borrow().elements.to_vec()}),
-            k @ PyMemoryView => Ok(PyByteInner{elements: k.get_obj_value().unwrap()}),
+        match_class!(match obj {
+            i @ PyBytes => Ok(PyByteInner {
+                elements: i.get_value().to_vec()
+            }),
+            j @ PyByteArray => Ok(PyByteInner {
+                elements: j.inner.borrow().elements.to_vec()
+            }),
+            k @ PyMemoryView => Ok(PyByteInner {
+                elements: k.get_obj_value().unwrap()
+            }),
             obj => Err(vm.new_type_error(format!(
-                        "a bytes-like object is required, not {}",
-                        obj.class()
-                    )))
-        )
+                "a bytes-like object is required, not {}",
+                obj.class()
+            ))),
+        })
     }
 }
 
@@ -99,7 +104,7 @@ impl ByteInnerNewOptions {
         if let OptionalArg::Present(enc) = self.encoding {
             if let OptionalArg::Present(eval) = self.val_option {
                 if let Ok(input) = eval.downcast::<PyString>() {
-                    let inner = PyByteInner::from_string(&input.value, enc.as_str(), vm)?;
+                    let inner = PyByteInner::from_string(input.as_str(), enc.as_str(), vm)?;
                     Ok(inner)
                 } else {
                     Err(vm.new_type_error("encoding without a string argument".to_string()))
@@ -110,28 +115,40 @@ impl ByteInnerNewOptions {
         // Only one argument
         } else {
             let value = if let OptionalArg::Present(ival) = self.val_option {
-                match_class!(ival.clone(),
+                match_class!(match ival.clone() {
                     i @ PyInt => {
-                            let size = objint::get_value(&i.into_object()).to_usize().unwrap();
-                            Ok(vec![0; size])},
-                    _l @ PyString=> {return Err(vm.new_type_error("string argument without an encoding".to_string()));},
+                        let size = objint::get_value(&i.into_object())
+                            .to_usize()
+                            .ok_or_else(|| vm.new_value_error("negative count".to_string()))?;
+                        Ok(vec![0; size])
+                    }
+                    _l @ PyString => {
+                        return Err(
+                            vm.new_type_error("string argument without an encoding".to_string())
+                        );
+                    }
                     obj => {
-                        let elements = vm.extract_elements(&obj).or_else(|_| {Err(vm.new_type_error(format!(
-                        "cannot convert {} object to bytes", obj.class().name)))});
+                        let elements = vm.extract_elements(&obj).or_else(|_| {
+                            Err(vm.new_type_error(format!(
+                                "cannot convert {} object to bytes",
+                                obj.class().name
+                            )))
+                        });
 
                         let mut data_bytes = vec![];
-                        for elem in elements.unwrap(){
-                            let v = objint::to_int(vm, &elem, 10)?;
+                        for elem in elements.unwrap() {
+                            let v = objint::to_int(vm, &elem, &BigInt::from(10))?;
                             if let Some(i) = v.to_u8() {
                                 data_bytes.push(i);
                             } else {
-                                return Err(vm.new_value_error("bytes must be in range(0, 256)".to_string()));
-                                }
-
+                                return Err(vm.new_value_error(
+                                    "bytes must be in range(0, 256)".to_string(),
+                                ));
                             }
-                        Ok(data_bytes)
                         }
-                )
+                        Ok(data_bytes)
+                    }
+                })
             } else {
                 Ok(vec![])
             };
@@ -451,16 +468,16 @@ impl PyByteInner {
 
     fn setindex(&mut self, int: PyIntRef, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(idx) = self.elements.get_pos(int.as_bigint().to_i32().unwrap()) {
-            let result = match_class!(object,
-            i @ PyInt => {
-                if let Some(value) = i.as_bigint().to_u8() {
-                    Ok(value)
-                }else{
-                    Err(vm.new_value_error("byte must be in range(0, 256)".to_string()))
+            let result = match_class!(match object {
+                i @ PyInt => {
+                    if let Some(value) = i.as_bigint().to_u8() {
+                        Ok(value)
+                    } else {
+                        Err(vm.new_value_error("byte must be in range(0, 256)".to_string()))
+                    }
                 }
-            },
-            _ => {Err(vm.new_type_error("an integer is required".to_string()))}
-            );
+                _ => Err(vm.new_type_error("an integer is required".to_string())),
+            });
             let value = result?;
             self.elements[idx] = value;
             Ok(vm.new_int(value))
@@ -483,13 +500,13 @@ impl PyByteInner {
                     .map(|obj| u8::try_from_object(vm, obj))
                     .collect::<PyResult<Vec<_>>>()?)
             }
-            _ => match_class!(object,
-                        i @ PyMemoryView => {
-                            Ok(i.get_obj_value().unwrap())
-                        },
-                        _ => Err(vm.new_index_error(
-                        "can assign only bytes, buffers, or iterables of ints in range(0, 256)"
-                            .to_string()))),
+            _ => match_class!(match object {
+                i @ PyMemoryView => Ok(i.get_obj_value().unwrap()),
+                _ => Err(vm.new_index_error(
+                    "can assign only bytes, buffers, or iterables of ints in range(0, 256)"
+                        .to_string()
+                )),
+            }),
         };
         let items = sec?;
         let range = self
@@ -1134,11 +1151,11 @@ impl PyByteInner {
 }
 
 pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
-    match_class!(obj.clone(),
-
-    i @ PyBytes => Some(i.get_value().to_vec()),
-    j @ PyByteArray => Some(j.inner.borrow().elements.to_vec()),
-    _ => None)
+    match_class!(match obj.clone() {
+        i @ PyBytes => Some(i.get_value().to_vec()),
+        j @ PyByteArray => Some(j.inner.borrow().elements.to_vec()),
+        _ => None,
+    })
 }
 
 pub trait ByteOr: ToPrimitive {

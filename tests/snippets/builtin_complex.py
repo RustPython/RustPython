@@ -37,37 +37,19 @@ assert complex(2, -3) / 2 == complex(1, -1.5)
 assert 5 / complex(3, -4) == complex(0.6, 0.8)
 
 # __mod__, __rmod__
-
-assert_raises(
-    TypeError,
-    lambda: complex(2, -3) % 2,
-    "can't mod complex numbers.")
-assert_raises(
-    TypeError,
-    lambda: 2 % complex(2, -3),
-    "can't mod complex numbers.")
+# "can't mod complex numbers.
+assert_raises(TypeError, lambda: complex(2, -3) % 2)
+assert_raises(TypeError, lambda: 2 % complex(2, -3))
 
 # __floordiv__, __rfloordiv__
-
-assert_raises(
-    TypeError,
-    lambda: complex(2, -3) // 2,
-    "can't take floor of complex number.")
-assert_raises(
-    TypeError,
-    lambda: 2 // complex(2, -3),
-    "can't take floor of complex number.")
+# can't take floor of complex number.
+assert_raises(TypeError, lambda: complex(2, -3) // 2)
+assert_raises(TypeError, lambda: 2 // complex(2, -3))
 
 # __divmod__, __rdivmod__
-
-assert_raises(
-    TypeError,
-    lambda: divmod(complex(2, -3), 2),
-    "can't take floor or mod of complex number.")
-assert_raises(
-    TypeError,
-    lambda: divmod(2, complex(2, -3)),
-    "can't take floor or mod of complex number.")
+# "can't take floor or mod of complex number."
+assert_raises(TypeError, lambda: divmod(complex(2, -3), 2))
+assert_raises(TypeError, lambda: divmod(2, complex(2, -3)))
 
 # __pow__, __rpow__
 
@@ -135,10 +117,9 @@ assert_raises(TypeError, lambda: 'str' + 1j)
 assert_raises(TypeError, lambda: 'str' - 1j)
 
 # overflow
-msg = 'int too large to convert to float'
-assert_raises(OverflowError, lambda: complex(10 ** 1000, 0), msg)
-assert_raises(OverflowError, lambda: complex(0, 10 ** 1000), msg)
-assert_raises(OverflowError, lambda: 0j + 10 ** 1000, msg)
+assert_raises(OverflowError, lambda: complex(10 ** 1000, 0))
+assert_raises(OverflowError, lambda: complex(0, 10 ** 1000))
+assert_raises(OverflowError, lambda: 0j + 10 ** 1000)
 
 # str/repr
 assert '(1+1j)' == str(1+1j)

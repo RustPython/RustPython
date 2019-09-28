@@ -58,7 +58,7 @@ fn signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult
     if old == SIG_ERR {
         return Err(vm.new_os_error("Failed to set signal".to_string()));
     }
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "redox")))]
     {
         extern "C" {
             fn siginterrupt(sig: i32, flag: i32);

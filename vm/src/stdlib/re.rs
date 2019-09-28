@@ -97,7 +97,7 @@ fn re_match(
     vm: &VirtualMachine,
 ) -> PyResult {
     let flags = extract_flags(flags);
-    let regex = make_regex(vm, &pattern.value, flags)?;
+    let regex = make_regex(vm, pattern.as_str(), flags)?;
     do_match(vm, &regex, string)
 }
 
@@ -108,7 +108,7 @@ fn re_search(
     vm: &VirtualMachine,
 ) -> PyResult {
     let flags = extract_flags(flags);
-    let regex = make_regex(vm, &pattern.value, flags)?;
+    let regex = make_regex(vm, pattern.as_str(), flags)?;
     do_search(vm, &regex, string)
 }
 
@@ -311,11 +311,11 @@ fn re_compile(
     vm: &VirtualMachine,
 ) -> PyResult<PyPattern> {
     let flags = extract_flags(flags);
-    make_regex(vm, &pattern.value, flags)
+    make_regex(vm, pattern.as_str(), flags)
 }
 
 fn re_escape(pattern: PyStringRef, _vm: &VirtualMachine) -> String {
-    regex::escape(&pattern.value)
+    regex::escape(pattern.as_str())
 }
 
 fn re_purge(_vm: &VirtualMachine) {}
@@ -336,7 +336,7 @@ impl PyPattern {
     fn sub(&self, repl: PyStringRef, text: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let replaced_text = self
             .regex
-            .replace_all(text.value.as_bytes(), repl.as_str().as_bytes());
+            .replace_all(text.as_str().as_bytes(), repl.as_str().as_bytes());
         let replaced_text = String::from_utf8_lossy(&replaced_text).into_owned();
         Ok(vm.ctx.new_str(replaced_text))
     }
@@ -392,18 +392,18 @@ impl PyMatch {
     }
 
     fn get_bounds(&self, id: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<(usize, usize)>> {
-        match_class!(id,
+        match_class!(match id {
             i @ PyInt => {
-                let i = usize::try_from_object(vm,i.into_object())?;
+                let i = usize::try_from_object(vm, i.into_object())?;
                 match self.captures.get(i) {
                     None => Err(vm.new_index_error("No such group".to_owned())),
                     Some(None) => Ok(None),
                     Some(Some(bounds)) => Ok(Some(*bounds)),
                 }
-            },
+            }
             _s @ PyString => unimplemented!(),
             _ => Err(vm.new_index_error("No such group".to_owned())),
-        )
+        })
     }
 
     fn get_group(&self, id: PyObjectRef, vm: &VirtualMachine) -> PyResult {

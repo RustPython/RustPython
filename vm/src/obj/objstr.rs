@@ -52,11 +52,12 @@ use unicode_categories::UnicodeCategories;
 #[pyclass(name = "str")]
 #[derive(Clone, Debug)]
 pub struct PyString {
-    // TODO: shouldn't be public
-    pub value: String,
+    value: String,
+    hash: Cell<Option<pyhash::PyHash>>,
 }
 
 impl PyString {
+    #[inline]
     pub fn as_str(&self) -> &str {
         &self.value
     }
@@ -64,8 +65,15 @@ impl PyString {
 
 impl From<&str> for PyString {
     fn from(s: &str) -> PyString {
+        s.to_string().into()
+    }
+}
+
+impl From<String> for PyString {
+    fn from(s: String) -> PyString {
         PyString {
-            value: s.to_string(),
+            value: s,
+            hash: Cell::default(),
         }
     }
 }
@@ -80,16 +88,13 @@ impl fmt::Display for PyString {
 
 impl TryIntoRef<PyString> for String {
     fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyString>> {
-        Ok(PyString { value: self }.into_ref(vm))
+        Ok(PyString::from(self).into_ref(vm))
     }
 }
 
 impl TryIntoRef<PyString> for &str {
     fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyString>> {
-        Ok(PyString {
-            value: self.to_string(),
-        }
-        .into_ref(vm))
+        Ok(PyString::from(self).into_ref(vm))
     }
 }
 
@@ -259,7 +264,14 @@ impl PyString {
 
     #[pymethod(name = "__hash__")]
     fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
-        pyhash::hash_value(&self.value)
+        match self.hash.get() {
+            Some(hash) => hash,
+            None => {
+                let hash = pyhash::hash_value(&self.value);
+                self.hash.set(Some(hash));
+                hash
+            }
+        }
     }
 
     #[pymethod(name = "__len__")]
@@ -346,18 +358,10 @@ impl PyString {
     }
 
     #[pymethod]
-    fn split(
-        &self,
-        pattern: OptionalArg<PyStringRef>,
-        num: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyObjectRef {
+    fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyObjectRef {
         let value = &self.value;
-        let pattern = match pattern {
-            OptionalArg::Present(ref s) => Some(s.as_str()),
-            OptionalArg::Missing => None,
-        };
-        let num_splits = num.into_option().unwrap_or(-1);
+        let pattern = args.sep.as_ref().map(|s| s.as_str());
+        let num_splits = args.maxsplit;
         let elements: Vec<_> = match (pattern, num_splits.is_negative()) {
             (Some(pattern), true) => value
                 .split(pattern)
@@ -382,18 +386,10 @@ impl PyString {
     }
 
     #[pymethod]
-    fn rsplit(
-        &self,
-        pattern: OptionalArg<PyStringRef>,
-        num: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyObjectRef {
+    fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyObjectRef {
         let value = &self.value;
-        let pattern = match pattern {
-            OptionalArg::Present(ref s) => Some(s.as_str()),
-            OptionalArg::Missing => None,
-        };
-        let num_splits = num.into_option().unwrap_or(-1);
+        let pattern = args.sep.as_ref().map(|s| s.as_str());
+        let num_splits = args.maxsplit;
         let mut elements: Vec<_> = match (pattern, num_splits.is_negative()) {
             (Some(pattern), true) => value
                 .rsplit(pattern)
@@ -1182,6 +1178,14 @@ impl IntoPyObject for &String {
     }
 }
 
+#[derive(FromArgs)]
+struct SplitArgs {
+    #[pyarg(positional_or_keyword, default = "None")]
+    sep: Option<PyStringRef>,
+    #[pyarg(positional_or_keyword, default = "-1")]
+    maxsplit: isize,
+}
+
 pub fn init(ctx: &PyContext) {
     PyString::extend_class(ctx, &ctx.types.str_type);
 
@@ -1322,9 +1326,7 @@ fn try_update_quantity_from_tuple(
                         Ok(tuple_index)
                     }
                 }
-                None => {
-                    Err(vm.new_type_error("not enough arguments for format string".to_string()))
-                }
+                None => Err(vm.new_type_error("not enough arguments for format string".to_string())),
             }
         }
         _ => Ok(tuple_index),
@@ -1572,10 +1574,10 @@ pub fn subscript(vm: &VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
         let string = value.to_string().get_slice_items(vm, &b)?;
         Ok(vm.new_str(string))
     } else {
-        panic!(
-            "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
+        Err(vm.new_type_error(format!(
+            "indexing type {:?} with index {:?} is not supported",
             value, b
-        )
+        )))
     }
 }
 

@@ -509,8 +509,8 @@ impl PyBytesRef {
                                     }
                                 }
                                 None => {
-                                    if replacing_char.is_none() {
-                                        decode_content.push(replacing_char.unwrap())
+                                    if let Some(replacing_char) = replacing_char {
+                                        decode_content.push(replacing_char)
                                     }
                                 }
                             }

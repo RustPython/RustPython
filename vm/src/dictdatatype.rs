@@ -330,7 +330,7 @@ impl DictKey for &str {
 
     fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         if let Some(py_str_value) = other_key.payload::<PyString>() {
-            Ok(py_str_value.value == self)
+            Ok(py_str_value.as_str() == self)
         } else {
             // Fall back to PyString implementation.
             let s = vm.new_str(self.to_string());
@@ -357,7 +357,7 @@ impl DictKey for &String {
 
     fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         if let Some(py_str_value) = other_key.payload::<PyString>() {
-            Ok(&py_str_value.value == self)
+            Ok(py_str_value.as_str() == self)
         } else {
             // Fall back to PyString implementation.
             let s = vm.new_str(self.to_string());

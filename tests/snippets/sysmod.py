@@ -6,6 +6,9 @@ assert sys.argv[0].endswith('.py')
 
 assert sys.platform == "linux" or sys.platform == "darwin" or sys.platform == "win32" or sys.platform == "unknown"
 
+if hasattr(sys, "_framework"):
+    assert type(sys._framework) is str
+
 assert isinstance(sys.builtin_module_names, tuple)
 assert 'sys' in sys.builtin_module_names
 

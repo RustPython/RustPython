@@ -480,7 +480,6 @@ impl Frame {
             bytecode::Instruction::UnpackEx { before, after } => {
                 self.execute_unpack_ex(vm, *before, *after)
             }
-            bytecode::Instruction::Unpack => self.execute_unpack(vm),
             bytecode::Instruction::FormatValue { conversion, spec } => {
                 use bytecode::ConversionFlag::*;
                 let value = match conversion {
@@ -990,15 +989,6 @@ impl Frame {
         }
     }
 
-    fn execute_unpack(&self, vm: &VirtualMachine) -> FrameResult {
-        let value = self.pop_value();
-        let elements = vm.extract_elements(&value)?;
-        for element in elements.into_iter().rev() {
-            self.push_value(element);
-        }
-        Ok(None)
-    }
-
     fn jump(&self, label: bytecode::Label) {
         let target_pc = self.code.label_map[&label];
         #[cfg(feature = "vm-tracing-logging")]
@@ -1084,7 +1074,7 @@ impl Frame {
             .ctx
             .new_function(code_obj, scope, defaults, kw_only_defaults);
 
-        let name = qualified_name.value.split('.').next_back().unwrap();
+        let name = qualified_name.as_str().split('.').next_back().unwrap();
         vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_string()))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
         let module = self

@@ -380,7 +380,7 @@ impl PyContext {
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
-        PyObject::new(objstr::PyString { value: s }, self.str_type(), None)
+        PyObject::new(objstr::PyString::from(s), self.str_type(), None)
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
@@ -1067,6 +1067,15 @@ impl<T: PyValue + 'static> PyObjectPayload for T {
 pub enum Either<A, B> {
     A(A),
     B(B),
+}
+
+impl<A: PyValue, B: PyValue> Either<PyRef<A>, PyRef<B>> {
+    pub fn into_object(self) -> PyObjectRef {
+        match self {
+            Either::A(a) => a.into_object(),
+            Either::B(b) => b.into_object(),
+        }
+    }
 }
 
 /// This allows a builtin method to accept arguments that may be one of two

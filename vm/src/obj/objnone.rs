@@ -68,7 +68,7 @@ impl PyNoneRef {
             }
         }
 
-        if let Some(attr) = class_get_attr(&cls, &name.value) {
+        if let Some(attr) = class_get_attr(&cls, name.as_str()) {
             let attr_class = attr.class();
             if class_has_attr(&attr_class, "__set__") {
                 if let Some(get_func) = class_get_attr(&attr_class, "__get__") {
@@ -84,10 +84,10 @@ impl PyNoneRef {
         }
 
         // None has no attributes and cannot have attributes set on it.
-        // if let Some(obj_attr) = self.as_object().get_attr(&name.value) {
+        // if let Some(obj_attr) = self.as_object().get_attr(name.as_str()) {
         //     Ok(obj_attr)
         // } else
-        if let Some(attr) = class_get_attr(&cls, &name.value) {
+        if let Some(attr) = class_get_attr(&cls, name.as_str()) {
             let attr_class = attr.class();
             if let Some(get_func) = class_get_attr(&attr_class, "__get__") {
                 call_descriptor(attr, get_func, self.into_object(), cls.into_object(), vm)

@@ -44,7 +44,7 @@ pub fn print_exception(vm: &VirtualMachine, exc: &PyObjectRef) {
     print_exception_inner(vm, exc)
 }
 
-fn print_source_line(filename: String, lineno: usize) {
+fn print_source_line(filename: &str, lineno: usize) {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/master/Python/traceback.c#L393
     // TODO: support different encodings
     let file = match File::open(filename) {
@@ -70,22 +70,26 @@ fn print_source_line(filename: String, lineno: usize) {
 fn print_traceback_entry(vm: &VirtualMachine, tb_entry: &PyObjectRef) {
     if objtype::isinstance(&tb_entry, &vm.ctx.tuple_type()) {
         let location_attrs = objsequence::get_elements_tuple(&tb_entry);
-        let filename = if let Ok(x) = vm.to_str(&location_attrs[0]) {
-            x.value.clone()
+
+        let filename = vm.to_str(&location_attrs[0]);
+        let filename = if let Ok(ref x) = filename {
+            x.as_str()
         } else {
-            "<error>".to_string()
+            "<error>"
         };
 
-        let lineno = if let Ok(x) = vm.to_str(&location_attrs[1]) {
-            x.value.clone()
+        let lineno = vm.to_str(&location_attrs[1]);
+        let lineno = if let Ok(ref x) = lineno {
+            x.as_str()
         } else {
-            "<error>".to_string()
+            "<error>"
         };
 
-        let obj_name = if let Ok(x) = vm.to_str(&location_attrs[2]) {
-            x.value.clone()
+        let obj_name = vm.to_str(&location_attrs[2]);
+        let obj_name = if let Ok(ref x) = obj_name {
+            x.as_str()
         } else {
-            "<error>".to_string()
+            "<error>"
         };
 
         println!(
@@ -149,17 +153,14 @@ fn exception_args_as_string(
             };
             vec![args0_repr]
         }
-        _ => {
-            let mut args_vec = Vec::with_capacity(varargs.elements.len());
-            for vararg in &varargs.elements {
-                let arg_repr = match vm.to_repr(vararg) {
-                    Ok(arg_repr) => arg_repr.value.clone(),
-                    Err(_) => "<element repr() failed>".to_string(),
-                };
-                args_vec.push(arg_repr);
-            }
-            args_vec
-        }
+        _ => varargs
+            .elements
+            .iter()
+            .map(|vararg| match vm.to_repr(vararg) {
+                Ok(arg_repr) => arg_repr.as_str().to_string(),
+                Err(_) => "<element repr() failed>".to_string(),
+            })
+            .collect(),
     }
 }
 
@@ -251,6 +252,7 @@ pub struct ExceptionZoo {
     pub user_warning: PyClassRef,
 
     pub keyboard_interrupt: PyClassRef,
+    pub system_exit: PyClassRef,
 }
 
 impl ExceptionZoo {
@@ -302,6 +304,7 @@ impl ExceptionZoo {
         let user_warning = create_type("UserWarning", &type_type, &warning);
 
         let keyboard_interrupt = create_type("KeyboardInterrupt", &type_type, &base_exception_type);
+        let system_exit = create_type("SystemExit", &type_type, &base_exception_type);
 
         ExceptionZoo {
             arithmetic_error,
@@ -346,6 +349,7 @@ impl ExceptionZoo {
             reference_error,
             user_warning,
             keyboard_interrupt,
+            system_exit,
         }
     }
 }

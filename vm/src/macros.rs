@@ -192,11 +192,11 @@ macro_rules! py_namespace {
 /// let obj = PyInt::new(0).into_ref(&vm).into_object();
 /// assert_eq!(
 ///     "int",
-///     match_class!(obj.clone(),
+///     match_class!(match obj.clone() {
 ///         PyInt => "int",
 ///         PyFloat => "float",
 ///         _ => "neither",
-///     )
+///     })
 /// );
 ///
 /// ```
@@ -216,44 +216,68 @@ macro_rules! py_namespace {
 /// let vm: VirtualMachine = Default::default();
 /// let obj = PyInt::new(0).into_ref(&vm).into_object();
 ///
-/// let int_value = match_class!(obj,
+/// let int_value = match_class!(match obj {
 ///     i @ PyInt => i.as_bigint().clone(),
 ///     f @ PyFloat => f.to_f64().to_bigint().unwrap(),
 ///     obj => panic!("non-numeric object {}", obj),
-/// );
+/// });
 ///
 /// assert!(int_value.is_zero());
 /// ```
 #[macro_export]
 macro_rules! match_class {
     // The default arm.
-    ($obj:expr, _ => $default:expr $(,)?) => {
+    (match ($obj:expr) { _ => $default:expr $(,)? }) => {
         $default
     };
 
     // The default arm, binding the original object to the specified identifier.
-    ($obj:expr, $binding:ident => $default:expr $(,)?) => {{
+    (match ($obj:expr) { $binding:ident => $default:expr $(,)? }) => {{
         let $binding = $obj;
         $default
     }};
 
     // An arm taken when the object is an instance of the specified built-in
+    // class and binding the downcasted object to the specified identifier and
+    // the target expression is a block.
+    (match ($obj:expr) { $binding:ident @ $class:ty => $expr:block $($rest:tt)* }) => {
+        $crate::match_class!(match ($obj) { $binding @ $class => ($expr), $($rest)* })
+    };
+
+    // An arm taken when the object is an instance of the specified built-in
     // class and binding the downcasted object to the specified identifier.
-    ($obj:expr, $binding:ident @ $class:ty => $expr:expr, $($rest:tt)*) => {
+    (match ($obj:expr) { $binding:ident @ $class:ty => $expr:expr, $($rest:tt)* }) => {
         match $obj.downcast::<$class>() {
             Ok($binding) => $expr,
-            Err(_obj) => $crate::match_class!(_obj, $($rest)*),
+            Err(_obj) => $crate::match_class!(match (_obj) { $($rest)* }),
         }
     };
 
     // An arm taken when the object is an instance of the specified built-in
+    // class and the target expression is a block.
+    (match ($obj:expr) { $class:ty => $expr:block $($rest:tt)* }) => {
+        $crate::match_class!(match ($obj) { $class => ($expr), $($rest)* })
+    };
+
+    // An arm taken when the object is an instance of the specified built-in
     // class.
-    ($obj:expr, $class:ty => $expr:expr, $($rest:tt)*) => {
+    (match ($obj:expr) { $class:ty => $expr:expr, $($rest:tt)* }) => {
         if $obj.payload_is::<$class>() {
             $expr
         } else {
-            $crate::match_class!($obj, $($rest)*)
+            $crate::match_class!(match ($obj) { $($rest)* })
         }
+    };
+
+    // To allow match expressions without parens around the match target
+    (match $($rest:tt)*) => {
+        $crate::match_class!(@parse_match () ($($rest)*))
+    };
+    (@parse_match ($($target:tt)*) ({ $($inner:tt)* })) => {
+        $crate::match_class!(match ($($target)*) { $($inner)* })
+    };
+    (@parse_match ($($target:tt)*) ($next:tt $($rest:tt)*)) => {
+        $crate::match_class!(@parse_match ($($target)* $next) ($($rest)*))
     };
 }
 
