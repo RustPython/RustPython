@@ -165,11 +165,33 @@ with assert_raises(ValueError):
     int.from_bytes(b'\x00\x10', 'something')
 
 assert (1024).to_bytes(4, 'big') == b'\x00\x00\x04\x00'
-assert (1024).to_bytes(2, 'little', signed=True) == b'\x00\x04'
+assert (1024).to_bytes(2, 'little') == b'\x00\x04'
+assert (1024).to_bytes(4, byteorder='big') == b'\x00\x00\x04\x00'
+assert (1024).to_bytes(2, byteorder='little') == b'\x00\x04'
+assert (1024).to_bytes(length=4, byteorder='big') == b'\x00\x00\x04\x00'
+assert (1024).to_bytes(length=2, byteorder='little') == b'\x00\x04'
+
 assert (-1024).to_bytes(4, 'big', signed=True) == b'\xff\xff\xfc\x00'
 assert (-1024).to_bytes(4, 'little', signed=True) == b'\x00\xfc\xff\xff'
+
 assert (2147483647).to_bytes(8, 'big', signed=False) == b'\x00\x00\x00\x00\x7f\xff\xff\xff'
 assert (-2147483648).to_bytes(8, 'little', signed=True) == b'\x00\x00\x00\x80\xff\xff\xff\xff'
+assert (2147483647).to_bytes(8, byteorder='big', signed=False) == b'\x00\x00\x00\x00\x7f\xff\xff\xff'
+assert (-2147483648).to_bytes(8, byteorder='little', signed=True) == b'\x00\x00\x00\x80\xff\xff\xff\xff'
+assert (2147483647).to_bytes(length=8, byteorder='big', signed=False) == b'\x00\x00\x00\x00\x7f\xff\xff\xff'
+assert (-2147483648).to_bytes(length=8, byteorder='little', signed=True) == b'\x00\x00\x00\x80\xff\xff\xff\xff'
+
+with assert_raises(ValueError):
+    (1024).to_bytes(4, 'something')
+
+with assert_raises(OverflowError):
+    (-1024).to_bytes(4, 'big')
+
+with assert_raises(OverflowError):
+    (1024).to_bytes(10000000000000000000000, 'big')
+
+with assert_raises(OverflowError):
+    (1024).to_bytes(1, 'big')
 
 with assert_raises(ValueError):
     # check base first
