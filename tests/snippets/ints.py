@@ -147,11 +147,22 @@ assert int('10', base=0) == 10
 # type byte, signed, implied base
 assert int(b'     -0XFF ', base=0) == -255
 
-
 assert int.from_bytes(b'\x00\x10', 'big') == 16
 assert int.from_bytes(b'\x00\x10', 'little') == 4096
+assert int.from_bytes(b'\x00\x10', byteorder='big') == 16
+assert int.from_bytes(b'\x00\x10', byteorder='little') == 4096
+assert int.from_bytes(bytes=b'\x00\x10', byteorder='big') == 16
+assert int.from_bytes(bytes=b'\x00\x10', byteorder='little') == 4096
+
 assert int.from_bytes(b'\xfc\x00', 'big', signed=True) == -1024
 assert int.from_bytes(b'\xfc\x00', 'big', signed=False) == 64512
+assert int.from_bytes(b'\xfc\x00', byteorder='big', signed=True) == -1024
+assert int.from_bytes(b'\xfc\x00', byteorder='big', signed=False) == 64512
+assert int.from_bytes(bytes=b'\xfc\x00', byteorder='big', signed=True) == -1024
+assert int.from_bytes(bytes=b'\xfc\x00', byteorder='big', signed=False) == 64512
+
+with assert_raises(ValueError):
+    int.from_bytes(b'\x00\x10', 'something')
 
 assert (1024).to_bytes(4, 'big') == b'\x00\x00\x04\x00'
 assert (1024).to_bytes(2, 'little', signed=True) == b'\x00\x04'
