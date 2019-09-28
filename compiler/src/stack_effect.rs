@@ -70,9 +70,6 @@ pub fn stack_effect(instruction: &Instruction) -> isize {
         ListAppend { .. } => -1,
         SetAdd { .. } => -1,
         MapAdd { .. } => -2,
-        Unpack => {
-            unimplemented!("we cannot know the effect of this instruction on the stack :(");
-        }
         UnpackEx { before, after } => -1 + (*before as isize) + (*after as isize) + 1,
         UnpackSequence { size } => -1 + (*size as isize),
         SetupLoop { .. } => 0,

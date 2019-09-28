@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fmt;
 
 use crate::builtins;
@@ -85,7 +85,7 @@ pub struct Frame {
     stack: RefCell<Vec<PyObjectRef>>, // The main data frame of the stack machine
     blocks: RefCell<Vec<Block>>,      // Block frames, for controlling loops and exceptions
     pub scope: Scope,                 // Variables
-    lasti: RefCell<usize>,            // index of last instruction ran
+    lasti: Cell<usize>,               // index of last instruction ran
 }
 
 impl PyValue for Frame {
@@ -105,27 +105,15 @@ pub type FrameResult = PyResult<Option<ExecutionResult>>;
 
 impl Frame {
     pub fn new(code: PyCodeRef, scope: Scope) -> Frame {
-        //populate the globals and locals
-        //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
-        /*
-        let globals = match globals {
-            Some(g) => g,
-            None => HashMap::new(),
-        };
-        */
-        // let locals = globals;
-        // locals.extend(callargs);
         let code = code.code.clone();
-        let max_stack_size = 32; // code.max_stack_size;
+        let max_stack_size = code.max_stack_size;
 
         Frame {
             code,
             stack: RefCell::new(Vec::with_capacity(max_stack_size)),
             blocks: RefCell::new(vec![]),
-            // save the callargs as locals
-            // globals: locals.clone(),
             scope,
-            lasti: RefCell::new(0),
+            lasti: Cell::new(0),
         }
     }
 
@@ -191,8 +179,8 @@ impl Frame {
     }
 
     pub fn fetch_instruction(&self) -> &bytecode::Instruction {
-        let ins2 = &self.code.instructions[*self.lasti.borrow()];
-        *self.lasti.borrow_mut() += 1;
+        let ins2 = &self.code.instructions[self.get_lasti()];
+        self.lasti.set(self.lasti.get() + 1);
         ins2
     }
 
@@ -951,7 +939,7 @@ impl Frame {
         match next_obj {
             Some(value) => {
                 // Set back program counter:
-                *self.lasti.borrow_mut() -= 1;
+                self.lasti.set(self.get_lasti() - 1);
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             None => Ok(None),
@@ -1024,7 +1012,7 @@ impl Frame {
     }
 
     pub fn get_lasti(&self) -> usize {
-        *self.lasti.borrow()
+        self.lasti.get()
     }
 
     fn execute_make_function(
@@ -1225,7 +1213,7 @@ impl Frame {
     }
 
     pub fn get_lineno(&self) -> bytecode::Location {
-        self.code.locations[*self.lasti.borrow()].clone()
+        self.code.locations[self.get_lasti()].clone()
     }
 
     fn push_block(&self, typ: BlockType) {
@@ -1251,7 +1239,6 @@ impl Frame {
 
     pub fn push_value(&self, obj: PyObjectRef) {
         self.stack.borrow_mut().push(obj);
-        // println!("Stack size: {}, capa: {}", self.stack.borrow().len(), self.stack.borrow().capacity());
     }
 
     fn pop_value(&self) -> PyObjectRef {
