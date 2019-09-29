@@ -49,6 +49,24 @@ impl PySlice {
         get_property_value(vm, &self.step)
     }
 
+    #[pymethod(name = "__repr__")]
+    fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
+        let start = self.start(_vm);
+        let stop = self.stop(_vm);
+        let step = self.step(_vm);
+
+        let start_repr = _vm.to_repr(&start)?;
+        let stop_repr = _vm.to_repr(&stop)?;
+        let step_repr = _vm.to_repr(&step)?;
+
+        Ok(format!(
+            "slice({}, {}, {})",
+            start_repr.as_str(),
+            stop_repr.as_str(),
+            step_repr.as_str()
+        ))
+    }
+
     pub fn start_index(&self, vm: &VirtualMachine) -> PyResult<Option<BigInt>> {
         if let Some(obj) = &self.start {
             to_index_value(vm, obj)
