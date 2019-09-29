@@ -282,7 +282,7 @@ impl PyString {
 
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self, _vm: &VirtualMachine) -> usize {
-        size_of::<Self>() + self.value.chars().count() * size_of::<u8>()
+        size_of::<Self>() + self.value.capacity() * size_of::<u8>()
     }
 
     #[pymethod(name = "__mul__")]

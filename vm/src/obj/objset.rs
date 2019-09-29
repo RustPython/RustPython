@@ -93,6 +93,10 @@ impl PySetInner {
         self.content.len()
     }
 
+    fn sizeof(&self) -> usize {
+        self.content.sizeof()
+    }
+
     fn copy(&self) -> PySetInner {
         PySetInner {
             content: self.content.clone(),
@@ -341,6 +345,11 @@ impl PySet {
         self.inner.borrow().len()
     }
 
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+        std::mem::size_of::<Self>() + self.inner.borrow().sizeof()
+    }
+
     #[pymethod]
     fn copy(&self, _vm: &VirtualMachine) -> Self {
         Self {
@@ -585,6 +594,11 @@ impl PyFrozenSet {
     #[pymethod(name = "__len__")]
     fn len(&self, _vm: &VirtualMachine) -> usize {
         self.inner.len()
+    }
+
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+        std::mem::size_of::<Self>() + self.inner.sizeof()
     }
 
     #[pymethod]
