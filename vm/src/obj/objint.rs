@@ -6,7 +6,7 @@ use num_integer::Integer;
 use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
-use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objtype::PyClassRef;
 use crate::pyhash;
 use crate::pyobject::{
@@ -15,6 +15,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
+use super::objbool::IntoPyBool;
 use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
 use super::objint;
@@ -578,29 +579,21 @@ impl PyInt {
 
     #[pymethod]
     #[allow(clippy::match_bool)]
-    fn from_bytes(
-        bytes: PyByteInner,
-        byteorder: PyStringRef,
-        kwargs: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<BigInt> {
-        let mut signed = false;
-        for (key, value) in kwargs.into_iter() {
-            if key == "signed" {
-                signed = match_class!(match value {
-                    b @ PyInt => !b.as_bigint().is_zero(),
-                    _ => false,
-                });
-            }
-        }
-        let x = match byteorder.as_str() {
+    fn from_bytes(args: IntFromByteArgs, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let signed = if let OptionalArg::Present(signed) = args.signed {
+            signed.to_bool()
+        } else {
+            false
+        };
+
+        let x = match args.byteorder.as_str() {
             "big" => match signed {
-                true => BigInt::from_signed_bytes_be(&bytes.elements),
-                false => BigInt::from_bytes_be(Sign::Plus, &bytes.elements),
+                true => BigInt::from_signed_bytes_be(&args.bytes.elements),
+                false => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
             },
             "little" => match signed {
-                true => BigInt::from_signed_bytes_le(&bytes.elements),
-                false => BigInt::from_bytes_le(Sign::Plus, &bytes.elements),
+                true => BigInt::from_signed_bytes_le(&args.bytes.elements),
+                false => BigInt::from_bytes_le(Sign::Plus, &args.bytes.elements),
             },
             _ => {
                 return Err(
@@ -610,36 +603,30 @@ impl PyInt {
         };
         Ok(x)
     }
+
     #[pymethod]
     #[allow(clippy::match_bool)]
-    fn to_bytes(
-        &self,
-        length: PyIntRef,
-        byteorder: PyStringRef,
-        kwargs: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyBytes> {
-        let mut signed = false;
+    fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        let signed = if let OptionalArg::Present(signed) = args.signed {
+            signed.to_bool()
+        } else {
+            false
+        };
+
         let value = self.as_bigint();
-        for (key, value) in kwargs.into_iter() {
-            if key == "signed" {
-                signed = match_class!(match value {
-                    b @ PyInt => !b.as_bigint().is_zero(),
-                    _ => false,
-                });
-            }
-        }
         if value.sign() == Sign::Minus && !signed {
             return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_string()));
         }
-        let byte_len;
-        if let Some(temp) = length.as_bigint().to_usize() {
-            byte_len = temp;
-        } else {
-            return Err(vm.new_value_error("length parameter is illegal".to_string()));
-        }
 
-        let mut origin_bytes = match byteorder.as_str() {
+        let byte_len = if let Some(byte_len) = args.length.as_bigint().to_usize() {
+            byte_len
+        } else {
+            return Err(
+                vm.new_overflow_error("Python int too large to convert to C ssize_t".to_string())
+            );
+        };
+
+        let mut origin_bytes = match args.byteorder.as_str() {
             "big" => match signed {
                 true => value.to_signed_bytes_be(),
                 false => value.to_bytes_be().1,
@@ -654,17 +641,19 @@ impl PyInt {
                 );
             }
         };
+
         let origin_len = origin_bytes.len();
         if origin_len > byte_len {
-            return Err(vm.new_value_error("int too big to convert".to_string()));
+            return Err(vm.new_overflow_error("int too big to convert".to_string()));
         }
 
         let mut append_bytes = match value.sign() {
             Sign::Minus => vec![255u8; byte_len - origin_len],
             _ => vec![0u8; byte_len - origin_len],
         };
+
         let mut bytes = vec![];
-        match byteorder.as_str() {
+        match args.byteorder.as_str() {
             "big" => {
                 bytes = append_bytes;
                 bytes.append(&mut origin_bytes);
@@ -675,7 +664,6 @@ impl PyInt {
             }
             _ => (),
         }
-
         Ok(PyBytes::new(bytes))
     }
     #[pyproperty]
@@ -733,6 +721,26 @@ impl IntOptions {
 
 fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
     PyInt::new(options.get_int_value(vm)?).into_ref_with_type(vm, cls)
+}
+
+#[derive(FromArgs)]
+struct IntFromByteArgs {
+    #[pyarg(positional_or_keyword)]
+    bytes: PyByteInner,
+    #[pyarg(positional_or_keyword)]
+    byteorder: PyStringRef,
+    #[pyarg(keyword_only, optional = true)]
+    signed: OptionalArg<IntoPyBool>,
+}
+
+#[derive(FromArgs)]
+struct IntToByteArgs {
+    #[pyarg(positional_or_keyword)]
+    length: PyIntRef,
+    #[pyarg(positional_or_keyword)]
+    byteorder: PyStringRef,
+    #[pyarg(keyword_only, optional = true)]
+    signed: OptionalArg<IntoPyBool>,
 }
 
 // Casting function:
