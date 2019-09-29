@@ -2,7 +2,8 @@ use crate::obj::objproperty::PyPropertyRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::{class_get_attr, class_has_attr, PyClassRef};
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
