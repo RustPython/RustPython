@@ -387,6 +387,8 @@ impl SymbolTableBuilder {
                 decorator_list,
             } => {
                 self.enter_scope(name, SymbolTableType::Class, statement.location.row());
+                self.register_name("__module__", SymbolUsage::Assigned)?;
+                self.register_name("__qualname__", SymbolUsage::Assigned)?;
                 self.scan_statements(body)?;
                 self.leave_scope();
                 self.scan_expressions(bases, &ExpressionContext::Load)?;

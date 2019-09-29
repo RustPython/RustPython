@@ -53,6 +53,13 @@ bitflags! {
         const HAS_DEFAULTS = 0x01;
         const HAS_KW_ONLY_DEFAULTS = 0x02;
         const HAS_ANNOTATIONS = 0x04;
+        const NEW_LOCALS = 0x08;
+    }
+}
+
+impl Default for FunctionOpArg {
+    fn default() -> Self {
+        Self::NEW_LOCALS
     }
 }
 

@@ -672,7 +672,7 @@ impl<O: OutputStream> Compiler<O> {
         ));
         self.enter_scope();
 
-        let mut flags = bytecode::FunctionOpArg::empty();
+        let mut flags = bytecode::FunctionOpArg::default();
         if have_defaults {
             flags |= bytecode::FunctionOpArg::HAS_DEFAULTS;
         }
@@ -955,10 +955,19 @@ impl<O: OutputStream> Compiler<O> {
 
         self.emit(Instruction::LoadName {
             name: "__name__".to_string(),
-            scope: bytecode::NameScope::Free,
+            scope: bytecode::NameScope::Global,
         });
         self.emit(Instruction::StoreName {
             name: "__module__".to_string(),
+            scope: bytecode::NameScope::Free,
+        });
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::String {
+                value: qualified_name.clone(),
+            },
+        });
+        self.emit(Instruction::StoreName {
+            name: "__qualname__".to_string(),
             scope: bytecode::NameScope::Free,
         });
         self.compile_statements(new_body)?;
@@ -983,7 +992,7 @@ impl<O: OutputStream> Compiler<O> {
 
         // Turn code object into function object:
         self.emit(Instruction::MakeFunction {
-            flags: bytecode::FunctionOpArg::empty(),
+            flags: bytecode::FunctionOpArg::default() & !bytecode::FunctionOpArg::NEW_LOCALS,
         });
 
         self.emit(Instruction::LoadConst {
@@ -1920,7 +1929,7 @@ impl<O: OutputStream> Compiler<O> {
 
         // Turn code object into function object:
         self.emit(Instruction::MakeFunction {
-            flags: bytecode::FunctionOpArg::empty(),
+            flags: bytecode::FunctionOpArg::default(),
         });
 
         // Evaluate iterated item:

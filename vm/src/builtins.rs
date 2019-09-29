@@ -14,6 +14,7 @@ use crate::obj::objbool::{self, IntoPyBool};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
+use crate::obj::objfunction::PyFunctionRef;
 use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objstr::{PyString, PyStringRef};
@@ -832,6 +833,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "exit" => ctx.new_rustfunc(builtin_exit),
         "quit" => ctx.new_rustfunc(builtin_exit),
         "__import__" => ctx.new_rustfunc(builtin_import),
+        "__build_class__" => ctx.new_rustfunc(builtin_build_class_),
 
         // Constants
         "NotImplemented" => ctx.not_implemented(),
@@ -888,7 +890,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
 }
 
 pub fn builtin_build_class_(
-    function: PyObjectRef,
+    function: PyFunctionRef,
     qualified_name: PyStringRef,
     bases: Args<PyClassRef>,
     mut kwargs: KwArgs,
@@ -925,10 +927,12 @@ pub fn builtin_build_class_(
 
     let cells = vm.ctx.new_dict();
 
-    vm.invoke_with_locals(&function, cells.clone(), namespace.clone())?;
+    let scope = function
+        .scope
+        .new_child_scope_with_locals(cells.clone())
+        .new_child_scope_with_locals(namespace.clone());
 
-    namespace.set_item("__name__", name_obj.clone(), vm)?;
-    namespace.set_item("__qualname__", qualified_name.into_object(), vm)?;
+    vm.invoke_python_function_with_scope(&function, vec![].into(), &scope)?;
 
     let class = vm.call_method(
         metaclass.as_object(),

@@ -570,15 +570,9 @@ impl VirtualMachine {
     fn _invoke(&self, func_ref: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", func_ref, args);
 
-        if let Some(PyFunction {
-            ref code,
-            ref scope,
-            ref defaults,
-            ref kw_only_defaults,
-        }) = func_ref.payload()
-        {
+        if let Some(py_func) = func_ref.payload() {
             self.trace_event(TraceEvent::Call)?;
-            let res = self.invoke_python_function(code, scope, defaults, kw_only_defaults, args);
+            let res = self.invoke_python_function(py_func, args);
             self.trace_event(TraceEvent::Return)?;
             res
         } else if let Some(PyMethod {
@@ -634,21 +628,30 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn invoke_python_function(
+    pub fn invoke_python_function(&self, func: &PyFunction, func_args: PyFuncArgs) -> PyResult {
+        self.invoke_python_function_with_scope(func, func_args, &func.scope)
+    }
+
+    pub fn invoke_python_function_with_scope(
         &self,
-        code: &PyCodeRef,
-        scope: &Scope,
-        defaults: &Option<PyTupleRef>,
-        kw_only_defaults: &Option<PyDictRef>,
+        func: &PyFunction,
         func_args: PyFuncArgs,
+        scope: &Scope,
     ) -> PyResult {
-        let scope = scope.new_child_scope(&self.ctx);
+        let code = &func.code;
+
+        let scope = if func.new_locals {
+            scope.new_child_scope(&self.ctx)
+        } else {
+            scope.clone()
+        };
+
         self.fill_locals_from_args(
             &code.code,
             &scope.get_locals(),
             func_args,
-            defaults,
-            kw_only_defaults,
+            &func.defaults,
+            &func.kw_only_defaults,
         )?;
 
         // Construct frame:
@@ -660,25 +663,6 @@ impl VirtualMachine {
         } else {
             self.run_frame_full(frame)
         }
-    }
-
-    pub fn invoke_with_locals(
-        &self,
-        function: &PyObjectRef,
-        cells: PyDictRef,
-        locals: PyDictRef,
-    ) -> PyResult {
-        if let Some(PyFunction { code, scope, .. }) = &function.payload() {
-            let scope = scope
-                .new_child_scope_with_locals(cells)
-                .new_child_scope_with_locals(locals);
-            let frame = Frame::new(code.clone(), scope).into_ref(self);
-            return self.run_frame_full(frame);
-        }
-        panic!(
-            "invoke_with_locals: expected python function, got: {:?}",
-            *function
-        );
     }
 
     fn fill_locals_from_args(
