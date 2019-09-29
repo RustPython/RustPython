@@ -579,21 +579,21 @@ impl PyInt {
 
     #[pymethod]
     #[allow(clippy::match_bool)]
-    fn from_bytes(options: IntFromByteOptions, vm: &VirtualMachine) -> PyResult<BigInt> {
-        let signed = if let OptionalArg::Present(signed) = options.signed {
+    fn from_bytes(args: IntFromByteArgs, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let signed = if let OptionalArg::Present(signed) = args.signed {
             signed.to_bool()
         } else {
             false
         };
 
-        let x = match options.byteorder.as_str() {
+        let x = match args.byteorder.as_str() {
             "big" => match signed {
-                true => BigInt::from_signed_bytes_be(&options.bytes.elements),
-                false => BigInt::from_bytes_be(Sign::Plus, &options.bytes.elements),
+                true => BigInt::from_signed_bytes_be(&args.bytes.elements),
+                false => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
             },
             "little" => match signed {
-                true => BigInt::from_signed_bytes_le(&options.bytes.elements),
-                false => BigInt::from_bytes_le(Sign::Plus, &options.bytes.elements),
+                true => BigInt::from_signed_bytes_le(&args.bytes.elements),
+                false => BigInt::from_bytes_le(Sign::Plus, &args.bytes.elements),
             },
             _ => {
                 return Err(
@@ -606,8 +606,8 @@ impl PyInt {
 
     #[pymethod]
     #[allow(clippy::match_bool)]
-    fn to_bytes(&self, options: IntToByteOptions, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        let signed = if let OptionalArg::Present(signed) = options.signed {
+    fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        let signed = if let OptionalArg::Present(signed) = args.signed {
             signed.to_bool()
         } else {
             false
@@ -618,7 +618,7 @@ impl PyInt {
             return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_string()));
         }
 
-        let byte_len = if let Some(byte_len) = options.length.as_bigint().to_usize() {
+        let byte_len = if let Some(byte_len) = args.length.as_bigint().to_usize() {
             byte_len
         } else {
             return Err(
@@ -626,7 +626,7 @@ impl PyInt {
             );
         };
 
-        let mut origin_bytes = match options.byteorder.as_str() {
+        let mut origin_bytes = match args.byteorder.as_str() {
             "big" => match signed {
                 true => value.to_signed_bytes_be(),
                 false => value.to_bytes_be().1,
@@ -653,7 +653,7 @@ impl PyInt {
         };
 
         let mut bytes = vec![];
-        match options.byteorder.as_str() {
+        match args.byteorder.as_str() {
             "big" => {
                 bytes = append_bytes;
                 bytes.append(&mut origin_bytes);
@@ -724,7 +724,7 @@ fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResul
 }
 
 #[derive(FromArgs)]
-struct IntFromByteOptions {
+struct IntFromByteArgs {
     #[pyarg(positional_or_keyword)]
     bytes: PyByteInner,
     #[pyarg(positional_or_keyword)]
@@ -734,7 +734,7 @@ struct IntFromByteOptions {
 }
 
 #[derive(FromArgs)]
-struct IntToByteOptions {
+struct IntToByteArgs {
     #[pyarg(positional_or_keyword)]
     length: PyIntRef,
     #[pyarg(positional_or_keyword)]
