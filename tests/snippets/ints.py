@@ -161,8 +161,19 @@ assert int.from_bytes(b'\xfc\x00', byteorder='big', signed=False) == 64512
 assert int.from_bytes(bytes=b'\xfc\x00', byteorder='big', signed=True) == -1024
 assert int.from_bytes(bytes=b'\xfc\x00', byteorder='big', signed=False) == 64512
 
+assert int.from_bytes([255, 0, 0], 'big') == 16711680
+assert int.from_bytes([255, 0, 0], 'little') == 255
+assert int.from_bytes([255, 0, 0], 'big', signed=False) == 16711680
+assert int.from_bytes([255, 0, 0], 'big', signed=True) == -65536
+
 with assert_raises(ValueError):
     int.from_bytes(b'\x00\x10', 'something')
+
+with assert_raises(ValueError):
+    int.from_bytes([256, 0, 0], 'big')
+
+with assert_raises(TypeError):
+    int.from_bytes(['something', 0, 0], 'big')
 
 assert (1024).to_bytes(4, 'big') == b'\x00\x00\x04\x00'
 assert (1024).to_bytes(2, 'little') == b'\x00\x04'
