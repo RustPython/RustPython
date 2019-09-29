@@ -604,9 +604,14 @@ impl VirtualMachine {
         } else if let Some(PyBuiltinFunction { ref value }) = func_ref.payload() {
             value(self, args)
         } else {
-            // TODO: is it safe to just invoke __call__ otherwise?
-            vm_trace!("invoke __call__ for: {:?}", &func_ref.payload);
-            self.call_method(&func_ref, "__call__", args)
+            if self.is_callable(&func_ref) {
+                self.call_method(&func_ref, "__call__", args)
+            } else {
+                Err(self.new_type_error(format!(
+                    "'{}' object is not callable",
+                    func_ref.class().name
+                )))
+            }
         }
     }
 
