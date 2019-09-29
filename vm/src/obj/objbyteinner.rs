@@ -26,6 +26,7 @@ use num_traits::ToPrimitive;
 
 use super::objbytearray::PyByteArray;
 use super::objbytes::PyBytes;
+use super::objlist::PyList;
 use super::objmemory::PyMemoryView;
 
 use super::objsequence;
@@ -47,6 +48,7 @@ impl TryFromObject for PyByteInner {
             k @ PyMemoryView => Ok(PyByteInner {
                 elements: k.get_obj_value().unwrap()
             }),
+            l @ PyList => l.get_byte_inner(vm),
             obj => Err(vm.new_type_error(format!(
                 "a bytes-like object is required, not {}",
                 obj.class()

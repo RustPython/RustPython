@@ -9,12 +9,13 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
-//use super::objint;
+use super::objbyteinner;
+use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::{
     get_elements_list, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul, SequenceIndex,
@@ -95,6 +96,29 @@ impl PyList {
             .unwrap_or_else(|| self.get_len());
 
         start..stop
+    }
+
+    pub fn get_byte_inner(&self, vm: &VirtualMachine) -> PyResult<objbyteinner::PyByteInner> {
+        let mut elements = Vec::<u8>::with_capacity(self.get_len());
+        for elem in self.elements.borrow().iter() {
+            match PyIntRef::try_from_object(vm, elem.clone()) {
+                Ok(result) => match result.as_bigint().to_u8() {
+                    Some(result) => elements.push(result),
+                    None => {
+                        return Err(
+                            vm.new_value_error("bytes must be in range (0, 256)".to_string())
+                        )
+                    }
+                },
+                _ => {
+                    return Err(vm.new_type_error(format!(
+                        "'{}' object cannot be interpreted as an integer",
+                        elem.class().name
+                    )))
+                }
+            }
+        }
+        Ok(objbyteinner::PyByteInner { elements })
     }
 }
 
