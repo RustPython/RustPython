@@ -163,6 +163,14 @@ fn sys_exc_info(vm: &VirtualMachine) -> PyResult {
     }))
 }
 
+fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
+    vm.ctx.new_tuple(vec![
+        vm.ctx.new_str("RustPython".to_string()),
+        vm.ctx.new_str(version::get_git_identifier()),
+        vm.ctx.new_str(version::get_git_revision()),
+    ])
+}
+
 // TODO: raise a SystemExit here
 fn sys_exit(code: OptionalArg<i32>, _vm: &VirtualMachine) -> PyResult<()> {
     let code = code.unwrap_or(0);
@@ -360,6 +368,7 @@ settrace() -- set the global debug tracing function
       "settrace" => ctx.new_rustfunc(sys_settrace),
       "version" => vm.new_str(version::get_version()),
       "version_info" => version_info,
+      "_git" => sys_git_info(vm),
       "exc_info" => ctx.new_rustfunc(sys_exc_info),
       "prefix" => ctx.new_str(prefix.to_string()),
       "base_prefix" => ctx.new_str(base_prefix.to_string()),
