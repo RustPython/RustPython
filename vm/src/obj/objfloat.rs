@@ -154,16 +154,18 @@ fn inner_gt_int(value: f64, other_int: &BigInt) -> bool {
     }
 }
 
+#[derive(FromArgs)]
+struct FloatArgs {
+    #[pyarg(positional_or_keyword, optional = true)]
+    x: OptionalArg<PyObjectRef>,
+}
+
 #[pyimpl]
 #[allow(clippy::trivially_copy_pass_by_ref)]
 impl PyFloat {
     #[pymethod(name = "__new__")]
-    fn float_new(
-        cls: PyClassRef,
-        arg: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyFloatRef> {
-        let float_val = match arg {
+    fn float_new(cls: PyClassRef, arg: FloatArgs, vm: &VirtualMachine) -> PyResult<PyFloatRef> {
+        let float_val = match arg.x {
             OptionalArg::Present(val) => to_float(vm, &val),
             OptionalArg::Missing => Ok(0f64),
         };
