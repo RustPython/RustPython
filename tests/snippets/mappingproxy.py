@@ -18,3 +18,7 @@ assert 'b' in A.__dict__
 assert 'c' not in A.__dict__
 
 assert '__dict__' in A.__dict__
+
+assert A.__dict__.get("not here", "default") == "default"
+assert A.__dict__.get("a", "default") is A.a
+assert A.__dict__.get("not here") is None
