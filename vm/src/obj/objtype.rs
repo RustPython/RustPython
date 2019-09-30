@@ -235,7 +235,6 @@ pub fn init(ctx: &PyContext) {
                 .add_getter(type_dict)
                 .add_setter(type_dict_setter)
                 .create(),
-        "__new__" => ctx.new_classmethod(type_new),
         (slot new) => type_new_slot,
         "__mro__" =>
             PropertyBuilder::new(ctx)
