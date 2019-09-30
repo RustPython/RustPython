@@ -1,5 +1,5 @@
 use num_cpus;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -558,6 +558,7 @@ impl DirEntryRef {
 #[derive(Debug)]
 struct ScandirIterator {
     entries: RefCell<fs::ReadDir>,
+    exhausted: Cell<bool>,
 }
 
 impl PyValue for ScandirIterator {
@@ -570,25 +571,53 @@ impl PyValue for ScandirIterator {
 impl ScandirIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
+        if self.exhausted.get() {
+            return Err(objiter::new_stop_iteration(vm));
+        }
+
         match self.entries.borrow_mut().next() {
             Some(entry) => match entry {
                 Ok(entry) => Ok(DirEntry { entry }.into_ref(vm).into_object()),
                 Err(s) => Err(convert_io_error(vm, s)),
             },
-            None => Err(objiter::new_stop_iteration(vm)),
+            None => {
+                self.exhausted.set(true);
+                Err(objiter::new_stop_iteration(vm))
+            }
         }
+    }
+
+    #[pymethod]
+    fn close(&self, _vm: &VirtualMachine) {
+        self.exhausted.set(true);
     }
 
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
     }
+
+    #[pymethod(name = "__enter__")]
+    fn enter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+
+    #[pymethod(name = "__exit__")]
+    fn exit(zelf: PyRef<Self>, _args: PyFuncArgs, vm: &VirtualMachine) {
+        zelf.close(vm)
+    }
 }
 
-fn os_scandir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match fs::read_dir(path.as_str()) {
+fn os_scandir(path: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
+    let path = match path {
+        OptionalArg::Present(ref path) => path.as_str(),
+        OptionalArg::Missing => ".",
+    };
+
+    match fs::read_dir(path) {
         Ok(iter) => Ok(ScandirIterator {
             entries: RefCell::new(iter),
+            exhausted: Cell::new(false),
         }
         .into_ref(vm)
         .into_object()),
