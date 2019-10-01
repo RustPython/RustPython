@@ -2,10 +2,10 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
-use crate::vm::VirtualMachine;
 
 use crate::obj::objint::PyInt;
 use crate::obj::objtype::{class_has_attr, PyClassRef};
+use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 
 #[pyclass]
@@ -114,6 +114,39 @@ impl PySlice {
             }
         };
         slice.into_ref_with_type(vm, cls)
+    }
+
+    fn inner_eq(&self, other: &PySlice, vm: &VirtualMachine) -> PyResult<bool> {
+        if !vm.bool_eq(self.start(vm), other.start(vm))? {
+            return Ok(false);
+        }
+        if !vm.bool_eq(self.stop(vm), other.stop(vm))? {
+            return Ok(false);
+        }
+        if !vm.bool_eq(self.step(vm), other.step(vm))? {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    #[pymethod(name = "__eq__")]
+    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(rhs) = rhs.payload::<PySlice>() {
+            let eq = self.inner_eq(rhs, vm)?;
+            Ok(vm.ctx.new_bool(eq))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(rhs) = rhs.payload::<PySlice>() {
+            let eq = self.inner_eq(rhs, vm)?;
+            Ok(vm.ctx.new_bool(!eq))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
     }
 }
 
