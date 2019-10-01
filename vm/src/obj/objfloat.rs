@@ -157,8 +157,8 @@ fn inner_gt_int(value: f64, other_int: &BigInt) -> bool {
 #[pyimpl]
 #[allow(clippy::trivially_copy_pass_by_ref)]
 impl PyFloat {
-    #[pymethod(name = "__new__")]
-    fn float_new(
+    #[pyslot(new)]
+    fn tp_new(
         cls: PyClassRef,
         arg: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,

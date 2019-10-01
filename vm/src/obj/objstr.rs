@@ -176,8 +176,8 @@ impl PyString {
     // TODO: should with following format
     // class str(object='')
     // class str(object=b'', encoding='utf-8', errors='strict')
-    #[pymethod(name = "__new__")]
-    fn new(
+    #[pyslot(new)]
+    fn tp_new(
         cls: PyClassRef,
         object: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,

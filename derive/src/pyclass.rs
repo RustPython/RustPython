@@ -20,6 +20,10 @@ enum ClassItem {
         py_name: String,
         setter: bool,
     },
+    Slot {
+        slot_ident: Ident,
+        item_ident: Ident,
+    },
 }
 
 fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
@@ -192,6 +196,28 @@ impl ClassItem {
                     setter,
                 });
                 attr_idx = Some(i);
+            } else if name == "pyslot" {
+                if item.is_some() {
+                    bail_span!(
+                        sig.ident,
+                        "You can only have one #[py*] attribute on an impl item"
+                    )
+                }
+                let pyslot_err = "#[pyslot] must be of the form #[pyslot(slotname)]";
+                let nesteds =
+                    meta_to_vec(meta).map_err(|meta| err_span!(meta, "{}", pyslot_err))?;
+                if nesteds.len() != 1 {
+                    return Err(Diagnostic::spanned_error(&quote!(#(#nesteds)*), pyslot_err));
+                }
+                let slot_ident = match nesteds.into_iter().next().unwrap() {
+                    NestedMeta::Meta(Meta::Word(ident)) => ident,
+                    bad => bail_span!(bad, "{}", pyslot_err),
+                };
+                item = Some(ClassItem::Slot {
+                    slot_ident,
+                    item_ident: sig.ident.clone(),
+                });
+                attr_idx = Some(i);
             }
         }
         if let Some(attr_idx) = attr_idx {
@@ -256,6 +282,14 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
             py_name,
         } => Some(quote! {
             class.set_str_attr(#py_name, ctx.new_classmethod(Self::#item_ident));
+        }),
+        ClassItem::Slot {
+            slot_ident,
+            item_ident,
+        } => Some(quote! {
+            class.slots.borrow_mut().#slot_ident = Some(
+                ::rustpython_vm::function::IntoPyNativeFunc::into_func(Self::#item_ident)
+            );
         }),
         _ => None,
     });

@@ -17,8 +17,8 @@ impl PyMemoryView {
         try_as_byte(&self.obj_ref)
     }
 
-    #[pymethod(name = "__new__")]
-    fn new(
+    #[pyslot(new)]
+    fn tp_new(
         cls: PyClassRef,
         bytes_object: PyObjectRef,
         vm: &VirtualMachine,

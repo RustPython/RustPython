@@ -82,7 +82,7 @@ impl PyCodeRef {
 
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.types.code_type, {
-        "__new__" => context.new_rustfunc(PyCodeRef::new),
+        (slot new) => PyCodeRef::new,
         "__repr__" => context.new_rustfunc(PyCodeRef::repr),
 
         "co_argcount" => context.new_property(PyCodeRef::co_argcount),

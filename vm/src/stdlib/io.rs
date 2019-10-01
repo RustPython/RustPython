@@ -753,7 +753,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     //StringIO: in-memory text
     let string_io = py_class!(ctx, "StringIO", text_io_base.clone(), {
-        "__new__" => ctx.new_rustfunc(string_io_new),
+        (slot new) => string_io_new,
         "seek" => ctx.new_rustfunc(PyStringIORef::seek),
         "seekable" => ctx.new_rustfunc(PyStringIORef::seekable),
         "read" => ctx.new_rustfunc(PyStringIORef::read),
@@ -763,7 +763,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     //BytesIO: in-memory bytes
     let bytes_io = py_class!(ctx, "BytesIO", buffered_io_base.clone(), {
-        "__new__" => ctx.new_rustfunc(bytes_io_new),
+        (slot new) => bytes_io_new,
         "read" => ctx.new_rustfunc(PyBytesIORef::read),
         "read1" => ctx.new_rustfunc(PyBytesIORef::read),
         "seek" => ctx.new_rustfunc(PyBytesIORef::seek),
