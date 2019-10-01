@@ -508,15 +508,28 @@ impl PyListRef {
         if self.as_object().is(&other) {
             return Ok(vm.new_bool(true));
         }
-
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements_list(&other);
-            let res = seq_equal(vm, &zelf.as_slice(), &other.as_slice())?;
-            Ok(vm.new_bool(res))
+            Ok(vm.new_bool(self.inner_eq(&other, vm)?))
         } else {
             Ok(vm.ctx.not_implemented())
         }
+    }
+
+    fn ne(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if self.as_object().is(&other) {
+            return Ok(vm.new_bool(false));
+        }
+        if objtype::isinstance(&other, &vm.ctx.list_type()) {
+            Ok(vm.new_bool(!self.inner_eq(&other, vm)?))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    fn inner_eq(self, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let zelf = self.elements.borrow();
+        let other = get_elements_list(other);
+        seq_equal(vm, &zelf.as_slice(), &other.as_slice())
     }
 
     fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -869,6 +882,7 @@ pub fn init(context: &PyContext) {
         "__contains__" => context.new_rustfunc(PyListRef::contains),
         "__delitem__" => context.new_rustfunc(PyListRef::delitem),
         "__eq__" => context.new_rustfunc(PyListRef::eq),
+        "__ne__" => context.new_rustfunc(PyListRef::ne),
         "__lt__" => context.new_rustfunc(PyListRef::lt),
         "__gt__" => context.new_rustfunc(PyListRef::gt),
         "__le__" => context.new_rustfunc(PyListRef::le),

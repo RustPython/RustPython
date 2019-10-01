@@ -488,3 +488,8 @@ del x[-1:-5:-1]
 assert x == [0, 1, 2, 3, 4, 5]
 x = list(range(10))
 del x[-5:-1:-1]
+
+assert [1, 2].__ne__([])
+assert [2, 1].__ne__([1, 2])
+assert not [1, 2].__ne__([1, 2])
+assert [1, 2].__ne__(1) == NotImplemented

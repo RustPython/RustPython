@@ -47,3 +47,6 @@ assert () is ()
 a = ()
 b = ()
 assert a is b
+
+assert (1,).__ne__((2,))
+assert not (1,).__ne__((1,))

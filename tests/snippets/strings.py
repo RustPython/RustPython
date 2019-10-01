@@ -311,3 +311,8 @@ assert index_str[0] == 'R'
 assert index_str[-1] == 'n'
 
 assert_raises(TypeError, lambda: index_str['a'])
+
+
+assert "a".__ne__("b")
+assert not "a".__ne__("a")
+assert not "".__ne__("")

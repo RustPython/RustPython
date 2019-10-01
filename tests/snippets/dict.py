@@ -251,3 +251,6 @@ c = {*a, *b, *x}
 assert isinstance(c, set)
 assert c == {'bla', 'c', 'd', 'f'}
 
+assert not {}.__ne__({})
+assert {}.__ne__({'a':'b'})
+assert {}.__ne__(1) == NotImplemented

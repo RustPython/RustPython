@@ -144,12 +144,23 @@ impl PyTupleRef {
 
     fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let other = get_elements_tuple(&other);
-            let res = seq_equal(vm, &self.elements.as_slice(), &other.as_slice())?;
-            Ok(vm.new_bool(res))
+            Ok(vm.new_bool(self.inner_eq(&other, vm)?))
         } else {
             Ok(vm.ctx.not_implemented())
         }
+    }
+
+    fn ne(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
+            Ok(vm.new_bool(!self.inner_eq(&other, vm)?))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    fn inner_eq(&self, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let other = get_elements_tuple(other);
+        seq_equal(vm, &self.elements.as_slice(), &other.as_slice())
     }
 
     fn hash(self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
@@ -285,6 +296,7 @@ If the argument is a tuple, the return value is the same object.";
         "__add__" => context.new_rustfunc(PyTupleRef::add),
         "__bool__" => context.new_rustfunc(PyTupleRef::bool),
         "__eq__" => context.new_rustfunc(PyTupleRef::eq),
+        "__ne__" => context.new_rustfunc(PyTupleRef::ne),
         "__contains__" => context.new_rustfunc(PyTupleRef::contains),
         "__getitem__" => context.new_rustfunc(PyTupleRef::getitem),
         "__hash__" => context.new_rustfunc(PyTupleRef::hash),

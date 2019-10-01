@@ -216,6 +216,11 @@ impl PyString {
         }
     }
 
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> bool {
+        !self.eq(rhs, vm)
+    }
+
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyStringRef, _vm: &VirtualMachine) -> bool {
         self.value.contains(&needle.value)
