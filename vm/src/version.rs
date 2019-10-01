@@ -1,6 +1,22 @@
 /* Several function to retrieve version information.
  */
 
+const MAJOR: usize = 3;
+const MINOR: usize = 5;
+const MICRO: usize = 0;
+const RELEASELEVEL: &str = "alpha";
+const SERIAL: usize = 0;
+
+#[pystruct_sequence(name = "version_info")]
+#[derive(Default, Debug)]
+pub struct VersionInfo {
+    major: usize,
+    minor: usize,
+    micro: usize,
+    releaselevel: &'static str,
+    serial: usize,
+}
+
 pub fn get_version() -> String {
     format!(
         "{} {:?} {}",
@@ -10,14 +26,18 @@ pub fn get_version() -> String {
     )
 }
 
+pub fn get_version_info() -> VersionInfo {
+    VersionInfo {
+        major: MAJOR,
+        minor: MINOR,
+        micro: MICRO,
+        releaselevel: RELEASELEVEL,
+        serial: SERIAL,
+    }
+}
+
 pub fn get_version_number() -> String {
-    format!(
-        "{}.{}.{}{}",
-        env!("CARGO_PKG_VERSION_MAJOR"),
-        env!("CARGO_PKG_VERSION_MINOR"),
-        env!("CARGO_PKG_VERSION_PATCH"),
-        option_env!("CARGO_PKG_VERSION_PRE").unwrap_or("")
-    )
+    format!("{}.{}.{}{}", MAJOR, MINOR, MICRO, RELEASELEVEL)
 }
 
 pub fn get_compiler() -> String {

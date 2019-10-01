@@ -454,7 +454,7 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
         #struc
         #class_def
         impl #ty {
-            fn into_struct_sequence(&self,
+            pub fn into_struct_sequence(&self,
                 vm: &::rustpython_vm::vm::VirtualMachine,
                 cls: ::rustpython_vm::obj::objtype::PyClassRef,
             ) -> ::rustpython_vm::pyobject::PyResult<::rustpython_vm::obj::objtuple::PyTupleRef> {

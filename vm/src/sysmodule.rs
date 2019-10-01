@@ -177,16 +177,6 @@ fn sys_exit(code: OptionalArg<i32>, _vm: &VirtualMachine) -> PyResult<()> {
     std::process::exit(code)
 }
 
-#[pystruct_sequence(name = "version_info")]
-#[derive(Default, Debug)]
-struct VersionInfo {
-    major: usize,
-    minor: usize,
-    micro: usize,
-    releaselevel: String,
-    serial: usize,
-}
-
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
     let ctx = &vm.ctx;
 
@@ -195,16 +185,10 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         .into_struct_sequence(vm, flags_type)
         .unwrap();
 
-    let version_info_type = VersionInfo::make_class(ctx);
-    let version_info = VersionInfo {
-        major: env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap(),
-        minor: env!("CARGO_PKG_VERSION_MINOR").parse().unwrap(),
-        micro: env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
-        releaselevel: "alpha".to_owned(),
-        serial: 0,
-    }
-    .into_struct_sequence(vm, version_info_type)
-    .unwrap();
+    let version_info_type = version::VersionInfo::make_class(ctx);
+    let version_info = version::get_version_info()
+        .into_struct_sequence(vm, version_info_type)
+        .unwrap();
 
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {
