@@ -1242,6 +1242,12 @@ impl VirtualMachine {
     pub fn current_exception(&self) -> Option<PyObjectRef> {
         self.exceptions.borrow().last().cloned()
     }
+
+    pub fn bool_eq(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
+        let eq = self._eq(a.clone(), b.clone())?;
+        let value = objbool::boolval(self, eq)?;
+        Ok(value)
+    }
 }
 
 impl Default for VirtualMachine {
