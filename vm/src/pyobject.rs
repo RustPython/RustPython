@@ -135,11 +135,8 @@ impl PyContext {
         let types = TypeZoo::new();
         let exceptions = exceptions::ExceptionZoo::new(&types.type_type, &types.object_type);
 
-        fn create_object<T: PyObjectPayload>(payload: T, cls: &PyClassRef) -> PyRef<T> {
-            PyRef {
-                obj: PyObject::new(payload, cls.clone(), None),
-                _payload: PhantomData,
-            }
+        fn create_object<T: PyObjectPayload + PyValue>(payload: T, cls: &PyClassRef) -> PyRef<T> {
+            PyRef::new_ref_unchecked(PyObject::new(payload, cls.clone(), None))
         }
 
         let none_type = create_type("NoneType", &types.type_type, &types.object_type);
@@ -594,6 +591,24 @@ impl<T> Clone for PyRef<T> {
 }
 
 impl<T: PyValue> PyRef<T> {
+    fn new_ref(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        if obj.payload_is::<T>() {
+            Ok(Self::new_ref_unchecked(obj))
+        } else {
+            Err(vm.new_exception(
+                vm.ctx.exceptions.runtime_error.clone(),
+                format!("Unexpected payload for type {:?}", obj.class().name),
+            ))
+        }
+    }
+
+    fn new_ref_unchecked(obj: PyObjectRef) -> Self {
+        PyRef {
+            obj,
+            _payload: PhantomData,
+        }
+    }
+
     pub fn as_object(&self) -> &PyObjectRef {
         &self.obj
     }
@@ -603,10 +618,7 @@ impl<T: PyValue> PyRef<T> {
     }
 
     pub fn typ(&self) -> PyClassRef {
-        PyRef {
-            obj: self.obj.class().into_object(),
-            _payload: PhantomData,
-        }
+        self.obj.class()
     }
 }
 
@@ -627,10 +639,7 @@ where
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if objtype::isinstance(&obj, &T::class(vm)) {
-            Ok(PyRef {
-                obj,
-                _payload: PhantomData,
-            })
+            PyRef::new_ref(obj, vm)
         } else {
             let class = T::class(vm);
             let expected_type = vm.to_pystr(&class)?;
@@ -1028,10 +1037,7 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
     fn class(vm: &VirtualMachine) -> PyClassRef;
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        PyRef {
-            obj: PyObject::new(self, Self::class(vm), None),
-            _payload: PhantomData,
-        }
+        PyRef::new_ref_unchecked(PyObject::new(self, Self::class(vm), None))
     }
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
@@ -1042,10 +1048,7 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
             } else {
                 Some(vm.ctx.new_dict())
             };
-            Ok(PyRef {
-                obj: PyObject::new(self, cls, dict),
-                _payload: PhantomData,
-            })
+            PyRef::new_ref(PyObject::new(self, cls, dict), vm)
         } else {
             let subtype = vm.to_pystr(&cls.obj)?;
             let basetype = vm.to_pystr(&class.obj)?;
