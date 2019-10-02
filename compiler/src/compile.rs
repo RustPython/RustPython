@@ -11,6 +11,7 @@ use crate::peephole::PeepholeOptimizer;
 use crate::symboltable::{
     make_symbol_table, statements_to_symbol_table, Symbol, SymbolScope, SymbolTable,
 };
+use itertools::Itertools;
 use num_complex::Complex64;
 use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Label, Varargs};
 use rustpython_parser::{ast, parser};
@@ -1438,6 +1439,47 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
+    fn compile_dict(
+        &mut self,
+        pairs: &[(Option<ast::Expression>, ast::Expression)],
+    ) -> Result<(), CompileError> {
+        let mut size = 0;
+        let mut has_unpacking = false;
+        for (is_unpacking, subpairs) in &pairs.iter().group_by(|e| e.0.is_none()) {
+            if is_unpacking {
+                for (_, value) in subpairs {
+                    self.compile_expression(value)?;
+                    size += 1;
+                }
+                has_unpacking = true;
+            } else {
+                let mut subsize = 0;
+                for (key, value) in subpairs {
+                    if let Some(key) = key {
+                        self.compile_expression(key)?;
+                        self.compile_expression(value)?;
+                        subsize += 1;
+                    }
+                }
+                self.emit(Instruction::BuildMap {
+                    size: subsize,
+                    unpack: false,
+                });
+                size += 1;
+            }
+        }
+        if size == 0 {
+            self.emit(Instruction::BuildMap {
+                size,
+                unpack: false,
+            });
+        }
+        if size > 1 || has_unpacking {
+            self.emit(Instruction::BuildMap { size, unpack: true });
+        }
+        Ok(())
+    }
+
     fn compile_expression(&mut self, expression: &ast::Expression) -> Result<(), CompileError> {
         trace!("Compiling {:?}", expression);
         self.set_source_location(&expression.location);
@@ -1521,27 +1563,7 @@ impl<O: OutputStream> Compiler<O> {
                 });
             }
             Dict { elements } => {
-                let size = elements.len();
-                let has_double_star = elements.iter().any(|e| e.0.is_none());
-                for (key, value) in elements {
-                    if let Some(key) = key {
-                        self.compile_expression(key)?;
-                        self.compile_expression(value)?;
-                        if has_double_star {
-                            self.emit(Instruction::BuildMap {
-                                size: 1,
-                                unpack: false,
-                            });
-                        }
-                    } else {
-                        // dict unpacking
-                        self.compile_expression(value)?;
-                    }
-                }
-                self.emit(Instruction::BuildMap {
-                    size,
-                    unpack: has_double_star,
-                });
+                self.compile_dict(elements)?;
             }
             Slice { elements } => {
                 let size = elements.len();
@@ -1658,6 +1680,40 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
+    fn compile_keywords(&mut self, keywords: &[ast::Keyword]) -> Result<(), CompileError> {
+        let mut size = 0;
+        for (is_unpacking, subkeywords) in &keywords.iter().group_by(|e| e.name.is_none()) {
+            if is_unpacking {
+                for keyword in subkeywords {
+                    self.compile_expression(&keyword.value)?;
+                    size += 1;
+                }
+            } else {
+                let mut subsize = 0;
+                for keyword in subkeywords {
+                    if let Some(name) = &keyword.name {
+                        self.emit(Instruction::LoadConst {
+                            value: bytecode::Constant::String {
+                                value: name.to_string(),
+                            },
+                        });
+                        self.compile_expression(&keyword.value)?;
+                        subsize += 1;
+                    }
+                }
+                self.emit(Instruction::BuildMap {
+                    size: subsize,
+                    unpack: false,
+                });
+                size += 1;
+            }
+        }
+        if size > 1 {
+            self.emit(Instruction::BuildMap { size, unpack: true });
+        }
+        Ok(())
+    }
+
     fn compile_call(
         &mut self,
         function: &ast::Expression,
@@ -1680,31 +1736,7 @@ impl<O: OutputStream> Compiler<O> {
 
             // Create an optional map with kw-args:
             if !keywords.is_empty() {
-                for keyword in keywords {
-                    if let Some(name) = &keyword.name {
-                        self.emit(Instruction::LoadConst {
-                            value: bytecode::Constant::String {
-                                value: name.to_string(),
-                            },
-                        });
-                        self.compile_expression(&keyword.value)?;
-                        if has_double_star {
-                            self.emit(Instruction::BuildMap {
-                                size: 1,
-                                unpack: false,
-                            });
-                        }
-                    } else {
-                        // This means **kwargs!
-                        self.compile_expression(&keyword.value)?;
-                    }
-                }
-
-                self.emit(Instruction::BuildMap {
-                    size: keywords.len(),
-                    unpack: has_double_star,
-                });
-
+                self.compile_keywords(keywords)?;
                 self.emit(Instruction::CallFunction {
                     typ: CallType::Ex(true),
                 });
