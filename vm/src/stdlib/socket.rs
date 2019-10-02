@@ -566,7 +566,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let socket_gaierror = ctx.new_class("socket.gaierror", vm.ctx.exceptions.os_error.clone());
 
     let socket = py_class!(ctx, "socket", ctx.object(), {
-        "__new__" => ctx.new_rustfunc(SocketRef::new),
+        (slot new) => SocketRef::new,
         "__enter__" => ctx.new_rustfunc(SocketRef::enter),
         "__exit__" => ctx.new_rustfunc(SocketRef::exit),
         "connect" => ctx.new_rustfunc(SocketRef::connect),

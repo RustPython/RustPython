@@ -63,6 +63,6 @@ impl PyMap {
 pub fn init(context: &PyContext) {
     PyMap::extend_class(context, &context.types.map_type);
     extend_class!(context, &context.types.map_type, {
-        "__new__" => context.new_rustfunc(map_new),
+        (slot new) => map_new,
     });
 }

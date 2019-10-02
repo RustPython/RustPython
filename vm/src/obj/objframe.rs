@@ -10,7 +10,7 @@ use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.types.frame_type, {
-        "__new__" => context.new_rustfunc(FrameRef::new),
+        (slot new) => FrameRef::new,
         "__repr__" => context.new_rustfunc(FrameRef::repr),
         "f_locals" => context.new_property(FrameRef::flocals),
         "f_globals" => context.new_property(FrameRef::f_globals),

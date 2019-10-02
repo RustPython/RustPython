@@ -194,7 +194,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let timeout_expired = ctx.new_class("TimeoutExpired", subprocess_error.clone());
 
     let popen = py_class!(ctx, "Popen", ctx.object(), {
-        "__new__" => ctx.new_rustfunc(PopenRef::new),
+        (slot new) => PopenRef::new,
         "poll" => ctx.new_rustfunc(PopenRef::poll),
         "returncode" => ctx.new_property(PopenRef::return_code),
         "wait" => ctx.new_rustfunc(PopenRef::wait),

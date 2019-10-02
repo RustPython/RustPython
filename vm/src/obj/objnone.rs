@@ -7,7 +7,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-#[pyclass(name = "none")]
+#[pyclass(name = "NoneType")]
 #[derive(Debug)]
 pub struct PyNone;
 pub type PyNoneRef = PyRef<PyNone>;
@@ -37,8 +37,8 @@ impl<T: IntoPyObject> IntoPyObject for Option<T> {
 
 #[pyimpl]
 impl PyNoneRef {
-    #[pymethod(name = "__new__")]
-    fn none_new(_: PyClassRef, vm: &VirtualMachine) -> PyNoneRef {
+    #[pyslot(new)]
+    fn tp_new(_: PyClassRef, vm: &VirtualMachine) -> PyNoneRef {
         vm.ctx.none.clone()
     }
 

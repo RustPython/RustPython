@@ -290,7 +290,7 @@ If the argument is a tuple, the return value is the same object.";
         "__hash__" => context.new_rustfunc(PyTupleRef::hash),
         "__iter__" => context.new_rustfunc(PyTupleRef::iter),
         "__len__" => context.new_rustfunc(PyTupleRef::len),
-        "__new__" => context.new_rustfunc(tuple_new),
+        (slot new) => tuple_new,
         "__mul__" => context.new_rustfunc(PyTupleRef::mul),
         "__rmul__" => context.new_rustfunc(PyTupleRef::rmul),
         "__repr__" => context.new_rustfunc(PyTupleRef::repr),

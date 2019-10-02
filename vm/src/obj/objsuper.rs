@@ -78,8 +78,8 @@ impl PySuper {
         }
     }
 
-    #[pymethod(name = "__new__")]
-    fn new(
+    #[pyslot(new)]
+    fn tp_new(
         cls: PyClassRef,
         py_type: OptionalArg<PyClassRef>,
         py_obj: OptionalArg<PyObjectRef>,

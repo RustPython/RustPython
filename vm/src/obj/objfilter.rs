@@ -69,6 +69,6 @@ impl PyFilter {
 pub fn init(context: &PyContext) {
     PyFilter::extend_class(context, &context.types.filter_type);
     extend_class!(context, &context.types.filter_type, {
-        "__new__" => context.new_rustfunc(filter_new),
+        (slot new) => filter_new,
     });
 }

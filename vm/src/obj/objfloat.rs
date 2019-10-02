@@ -163,8 +163,8 @@ struct FloatArgs {
 #[pyimpl]
 #[allow(clippy::trivially_copy_pass_by_ref)]
 impl PyFloat {
-    #[pymethod(name = "__new__")]
-    fn float_new(cls: PyClassRef, arg: FloatArgs, vm: &VirtualMachine) -> PyResult<PyFloatRef> {
+    #[pyslot(new)]
+    fn tp_new(cls: PyClassRef, arg: FloatArgs, vm: &VirtualMachine) -> PyResult<PyFloatRef> {
         let float_val = match arg.x {
             OptionalArg::Present(val) => to_float(vm, &val),
             OptionalArg::Missing => Ok(0f64),

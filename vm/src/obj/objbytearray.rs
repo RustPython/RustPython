@@ -90,8 +90,8 @@ pub fn init(context: &PyContext) {
 
 #[pyimpl]
 impl PyByteArrayRef {
-    #[pymethod(name = "__new__")]
-    fn bytearray_new(
+    #[pyslot(new)]
+    fn tp_new(
         cls: PyClassRef,
         options: ByteInnerNewOptions,
         vm: &VirtualMachine,
