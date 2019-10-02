@@ -123,6 +123,11 @@ with assert_raises(ValueError):
 with assert_raises(ValueError):
     int(b"F\xc3\xb8\xc3\xb6\xbbB\xc3\xa5r")
 
+# string looks like radix
+assert int('0b1', base=12) == 133
+assert int('0o1', base=25) == 601
+assert int('0x1', base=34) == 1123
+
 # underscore
 assert int('0xFF_FF_FF', base=16) == 16_777_215
 with assert_raises(ValueError):
@@ -133,6 +138,8 @@ with assert_raises(ValueError):
     int("_123")
 with assert_raises(ValueError):
     int("1__23")
+
+assert int('0x_10', base=0) == 16
 
 # signed
 assert int('-123') == -123
