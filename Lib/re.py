@@ -69,8 +69,11 @@ resulting RE will match the second character.
              In string patterns without the ASCII flag, it will match the whole
              range of Unicode digits.
     \D       Matches any non-digit character; equivalent to [^\d].
-    \s       Matches any whitespace character; equivalent to [ \t\n\r\f\v].
-    \S       Matches any non-whitespace character; equiv. to [^ \t\n\r\f\v].
+    \s       Matches any whitespace character; equivalent to [ \t\n\r\f\v] in
+             bytes patterns or string patterns with the ASCII flag.
+             In string patterns without the ASCII flag, it will match the whole
+             range of Unicode whitespace characters.
+    \S       Matches any non-whitespace character; equivalent to [^\s].
     \w       Matches any alphanumeric character; equivalent to [a-zA-Z0-9_]
              in bytes patterns or string patterns with the ASCII flag.
              In string patterns without the ASCII flag, it will match the
@@ -82,16 +85,17 @@ resulting RE will match the second character.
     \\       Matches a literal backslash.
 
 This module exports the following functions:
-    match    Match a regular expression pattern to the beginning of a string.
-    search   Search a string for the presence of a pattern.
-    sub      Substitute occurrences of a pattern found in a string.
-    subn     Same as sub, but also return the number of substitutions made.
-    split    Split a string by the occurrences of a pattern.
-    findall  Find all occurrences of a pattern in a string.
-    finditer Return an iterator yielding a match object for each match.
-    compile  Compile a pattern into a RegexObject.
-    purge    Clear the regular expression cache.
-    escape   Backslash all non-alphanumerics in a string.
+    match     Match a regular expression pattern to the beginning of a string.
+    fullmatch Match a regular expression pattern to all of a string.
+    search    Search a string for the presence of a pattern.
+    sub       Substitute occurrences of a pattern found in a string.
+    subn      Same as sub, but also return the number of substitutions made.
+    split     Split a string by the occurrences of a pattern.
+    findall   Find all occurrences of a pattern in a string.
+    finditer  Return an iterator yielding a match object for each match.
+    compile   Compile a pattern into a RegexObject.
+    purge     Clear the regular expression cache.
+    escape    Backslash all non-alphanumerics in a string.
 
 Some of the functions in this module takes flags as optional parameters:
     A  ASCII       For string patterns, make \w, \W, \b, \B, \d, \D
@@ -115,30 +119,46 @@ This module also defines an exception 'error'.
 
 """
 
-import sys
+import enum
 import sre_compile
 import sre_parse
+import functools
+try:
+    import _locale
+except ImportError:
+    _locale = None
 
 # public symbols
-__all__ = [ "match", "search", "sub", "subn", "split", "findall",
-    "compile", "purge", "template", "escape", "A", "I", "L", "M", "S", "X",
-    "U", "ASCII", "IGNORECASE", "LOCALE", "MULTILINE", "DOTALL", "VERBOSE",
-    "UNICODE", "error" ]
+__all__ = [
+    "match", "fullmatch", "search", "sub", "subn", "split",
+    "findall", "finditer", "compile", "purge", "template", "escape",
+    "error", "A", "I", "L", "M", "S", "X", "U",
+    "ASCII", "IGNORECASE", "LOCALE", "MULTILINE", "DOTALL", "VERBOSE",
+    "UNICODE",
+]
 
 __version__ = "2.2.1"
 
-# flags
-A = ASCII = sre_compile.SRE_FLAG_ASCII # assume ascii "locale"
-I = IGNORECASE = sre_compile.SRE_FLAG_IGNORECASE # ignore case
-L = LOCALE = sre_compile.SRE_FLAG_LOCALE # assume current 8-bit locale
-U = UNICODE = sre_compile.SRE_FLAG_UNICODE # assume unicode "locale"
-M = MULTILINE = sre_compile.SRE_FLAG_MULTILINE # make anchors look for newline
-S = DOTALL = sre_compile.SRE_FLAG_DOTALL # make dot match newline
-X = VERBOSE = sre_compile.SRE_FLAG_VERBOSE # ignore whitespace and comments
-
-# sre extensions (experimental, don't rely on these)
-T = TEMPLATE = sre_compile.SRE_FLAG_TEMPLATE # disable backtracking
-DEBUG = sre_compile.SRE_FLAG_DEBUG # dump pattern after compilation
+class RegexFlag(enum.IntFlag):
+    ASCII = sre_compile.SRE_FLAG_ASCII # assume ascii "locale"
+    IGNORECASE = sre_compile.SRE_FLAG_IGNORECASE # ignore case
+    LOCALE = sre_compile.SRE_FLAG_LOCALE # assume current 8-bit locale
+    UNICODE = sre_compile.SRE_FLAG_UNICODE # assume unicode "locale"
+    MULTILINE = sre_compile.SRE_FLAG_MULTILINE # make anchors look for newline
+    DOTALL = sre_compile.SRE_FLAG_DOTALL # make dot match newline
+    VERBOSE = sre_compile.SRE_FLAG_VERBOSE # ignore whitespace and comments
+    A = ASCII
+    I = IGNORECASE
+    L = LOCALE
+    U = UNICODE
+    M = MULTILINE
+    S = DOTALL
+    X = VERBOSE
+    # sre extensions (experimental, don't rely on these)
+    TEMPLATE = sre_compile.SRE_FLAG_TEMPLATE # disable backtracking
+    T = TEMPLATE
+    DEBUG = sre_compile.SRE_FLAG_DEBUG # dump pattern after compilation
+globals().update(RegexFlag.__members__)
 
 # sre exception
 error = sre_compile.error
@@ -151,21 +171,26 @@ def match(pattern, string, flags=0):
     a match object, or None if no match was found."""
     return _compile(pattern, flags).match(string)
 
+def fullmatch(pattern, string, flags=0):
+    """Try to apply the pattern to all of the string, returning
+    a match object, or None if no match was found."""
+    return _compile(pattern, flags).fullmatch(string)
+
 def search(pattern, string, flags=0):
     """Scan through string looking for a match to the pattern, returning
     a match object, or None if no match was found."""
     return _compile(pattern, flags).search(string)
 
-def sub(pattern, repl, string, count=0):
+def sub(pattern, repl, string, count=0, flags=0):
     """Return the string obtained by replacing the leftmost
     non-overlapping occurrences of the pattern in string by the
     replacement repl.  repl can be either a string or a callable;
     if a string, backslash escapes in it are processed.  If it is
     a callable, it's passed the match object and must return
     a replacement string to be used."""
-    return _compile(pattern, 0).sub(repl, string, count)
+    return _compile(pattern, flags).sub(repl, string, count)
 
-def subn(pattern, repl, string, count=0):
+def subn(pattern, repl, string, count=0, flags=0):
     """Return a 2-tuple containing (new_string, number).
     new_string is the string obtained by replacing the leftmost
     non-overlapping occurrences of the pattern in the source
@@ -174,57 +199,61 @@ def subn(pattern, repl, string, count=0):
     callable; if a string, backslash escapes in it are processed.
     If it is a callable, it's passed the match object and must
     return a replacement string to be used."""
-    return _compile(pattern, 0).subn(repl, string, count)
+    return _compile(pattern, flags).subn(repl, string, count)
 
-def split(pattern, string, maxsplit=0):
+def split(pattern, string, maxsplit=0, flags=0):
     """Split the source string by the occurrences of the pattern,
-    returning a list containing the resulting substrings."""
-    return _compile(pattern, 0).split(string, maxsplit)
+    returning a list containing the resulting substrings.  If
+    capturing parentheses are used in pattern, then the text of all
+    groups in the pattern are also returned as part of the resulting
+    list.  If maxsplit is nonzero, at most maxsplit splits occur,
+    and the remainder of the string is returned as the final element
+    of the list."""
+    return _compile(pattern, flags).split(string, maxsplit)
 
 def findall(pattern, string, flags=0):
     """Return a list of all non-overlapping matches in the string.
 
-    If one or more groups are present in the pattern, return a
-    list of groups; this will be a list of tuples if the pattern
+    If one or more capturing groups are present in the pattern, return
+    a list of groups; this will be a list of tuples if the pattern
     has more than one group.
 
     Empty matches are included in the result."""
     return _compile(pattern, flags).findall(string)
 
-if True: # XXX RustPython: when sys.hexversion is available, change to (sys.hexversion >= 0x02020000)
-    __all__.append("finditer")
-    def finditer(pattern, string, flags=0):
-        """Return an iterator over all non-overlapping matches in the
-        string.  For each match, the iterator returns a match object.
+def finditer(pattern, string, flags=0):
+    """Return an iterator over all non-overlapping matches in the
+    string.  For each match, the iterator returns a match object.
 
-        Empty matches are included in the result."""
-        return _compile(pattern, flags).finditer(string)
+    Empty matches are included in the result."""
+    return _compile(pattern, flags).finditer(string)
 
 def compile(pattern, flags=0):
     "Compile a regular expression pattern, returning a pattern object."
     return _compile(pattern, flags)
 
 def purge():
-    "Clear the regular expression cache"
+    "Clear the regular expression caches"
     _cache.clear()
-    _cache_repl.clear()
+    _compile_repl.cache_clear()
 
 def template(pattern, flags=0):
     "Compile a template pattern, returning a pattern object"
     return _compile(pattern, flags|T)
 
 _alphanum_str = frozenset(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890")
+    "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890")
 _alphanum_bytes = frozenset(
-    b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890")
+    b"_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890")
 
 def escape(pattern):
-    "Escape all non-alphanumeric characters in pattern."
+    """
+    Escape all the characters in pattern except ASCII letters, numbers and '_'.
+    """
     if isinstance(pattern, str):
         alphanum = _alphanum_str
         s = list(pattern)
-        for i in range(len(pattern)):
-            c = pattern[i]
+        for i, c in enumerate(pattern):
             if c not in alphanum:
                 if c == "\000":
                     s[i] = "\\000"
@@ -250,43 +279,42 @@ def escape(pattern):
 # internals
 
 _cache = {}
-_cache_repl = {}
 
 _pattern_type = type(sre_compile.compile("", 0))
 
-_MAXCACHE = 100
-
-def _compile(*key):
+_MAXCACHE = 512
+def _compile(pattern, flags):
     # internal: compile pattern
-    cachekey = (type(key[0]),) + key
-    p = _cache.get(cachekey)
-    if p is not None:
-        return p
-    pattern, flags = key
+    try:
+        p, loc = _cache[type(pattern), pattern, flags]
+        if loc is None or loc == _locale.setlocale(_locale.LC_CTYPE):
+            return p
+    except KeyError:
+        pass
     if isinstance(pattern, _pattern_type):
         if flags:
             raise ValueError(
-                "Cannot process flags argument with a compiled pattern")
+                "cannot process flags argument with a compiled pattern")
         return pattern
     if not sre_compile.isstring(pattern):
         raise TypeError("first argument must be string or compiled pattern")
     p = sre_compile.compile(pattern, flags)
-    if len(_cache) >= _MAXCACHE:
-        _cache.clear()
-    _cache[cachekey] = p
+    if not (flags & DEBUG):
+        if len(_cache) >= _MAXCACHE:
+            _cache.clear()
+        if p.flags & LOCALE:
+            if not _locale:
+                return p
+            loc = _locale.setlocale(_locale.LC_CTYPE)
+        else:
+            loc = None
+        _cache[type(pattern), pattern, flags] = p, loc
     return p
 
-def _compile_repl(*key):
+@functools.lru_cache(_MAXCACHE)
+def _compile_repl(repl, pattern):
     # internal: compile replacement pattern
-    p = _cache_repl.get(key)
-    if p is not None:
-        return p
-    repl, pattern = key
-    p = sre_parse.parse_template(repl, pattern)
-    if len(_cache_repl) >= _MAXCACHE:
-        _cache_repl.clear()
-    _cache_repl[key] = p
-    return p
+    return sre_parse.parse_template(repl, pattern)
 
 def _expand(pattern, match, template):
     # internal: match.expand implementation hook
@@ -324,10 +352,11 @@ class Scanner:
         s = sre_parse.Pattern()
         s.flags = flags
         for phrase, action in lexicon:
+            gid = s.opengroup()
             p.append(sre_parse.SubPattern(s, [
-                (SUBPATTERN, (len(p)+1, sre_parse.parse(phrase, flags))),
+                (SUBPATTERN, (gid, 0, 0, sre_parse.parse(phrase, flags))),
                 ]))
-        s.groups = len(p)+1
+            s.closegroup(gid, p[-1])
         p = sre_parse.SubPattern(s, [(BRANCH, (None, p))])
         self.scanner = sre_compile.compile(p)
     def scan(self, string):
@@ -335,7 +364,7 @@ class Scanner:
         append = result.append
         match = self.scanner.scanner(string).match
         i = 0
-        while 1:
+        while True:
             m = match()
             if not m:
                 break
@@ -343,7 +372,7 @@ class Scanner:
             if i == j:
                 break
             action = self.lexicon[m.lastindex-1][1]
-            if hasattr(action, "__call__"):
+            if callable(action):
                 self.match = m
                 action = action(self, m.group())
             if action is not None:
