@@ -158,7 +158,10 @@ class RegexFlag(enum.IntFlag):
     TEMPLATE = sre_compile.SRE_FLAG_TEMPLATE # disable backtracking
     T = TEMPLATE
     DEBUG = sre_compile.SRE_FLAG_DEBUG # dump pattern after compilation
-globals().update(RegexFlag.__members__)
+#TODO: globals().update(RegexFlag.__members__) once mappingproxy has __iter__
+for name in ("ASCII","IGNORECASE","LOCALE","UNICODE","MULTILINE","DOTALL",
+             "VERBOSE","A","I","L","U","M","S","X","TEMPLATE","T","DEBUG"):
+    globals()[name] = getattr(RegexFlag, name)
 
 # sre exception
 error = sre_compile.error

@@ -11,12 +11,13 @@ import array, operator, sys
 from sre_constants import ATCODES, OPCODES, CHCODES, MAXREPEAT
 from sre_constants import SRE_INFO_PREFIX, SRE_INFO_LITERAL
 from sre_constants import SRE_FLAG_UNICODE, SRE_FLAG_LOCALE
+import sre_constants
 
 
 import sys
 
 # Identifying as _sre from Python 2.3 or 2.4
-MAGIC = 20031017
+MAGIC = 20140917
 
 # In _sre.c this is bytesize of the code word type of the C implementation.
 # There it's 2 for normal Python builds and more for wide unicode builds (large
@@ -355,7 +356,7 @@ class _State(object):
     def match(self, pattern_codes):
         # Optimization: Check string length. pattern_codes[3] contains the
         # minimum length for a string to possibly match.
-        if pattern_codes[0] == OPCODES["info"] and pattern_codes[3]:
+        if pattern_codes[0] == sre_constants.INFO and pattern_codes[3]:
             if self.end - self.string_position < pattern_codes[3]:
                 #_log("reject (got %d chars, need %d)"
                 #         % (self.end - self.string_position, pattern_codes[3]))
@@ -373,7 +374,7 @@ class _State(object):
 
     def search(self, pattern_codes):
         flags = 0
-        if pattern_codes[0] == OPCODES["info"]:
+        if pattern_codes[0] == sre_constants.INFO:
             # optimization info block
             # <INFO> <1=skip> <2=flags> <3=min> <4=max> <5=prefix info>
             if pattern_codes[2] & SRE_INFO_PREFIX and pattern_codes[5] > 1:
@@ -382,7 +383,7 @@ class _State(object):
             pattern_codes = pattern_codes[pattern_codes[1] + 1:]
 
         string_position = self.start
-        if pattern_codes[0] == OPCODES["literal"]:
+        if pattern_codes[0] == sre_constants.LITERAL:
             # Special case: Pattern starts with a literal character. This is
             # used for short prefixes
             character = pattern_codes[1]
@@ -551,13 +552,13 @@ class _Dispatcher(object):
     def unknown(self, code, ctx):
         raise NotImplementedError()
 
-    def build_dispatch_table(cls, code_dict, method_prefix):
+    def build_dispatch_table(cls, codes, method_prefix):
         if cls.DISPATCH_TABLE is not None:
             return
         table = {}
-        for key, value in list(code_dict.items()):
-            if hasattr(cls, "%s%s" % (method_prefix, key)):
-                table[value] = getattr(cls, "%s%s" % (method_prefix, key))
+        for code in codes:
+            if hasattr(cls, "%s%s" % (method_prefix, code.name)):
+                table[value] = getattr(cls, "%s%s" % (method_prefix, code.name))
         cls.DISPATCH_TABLE = table
 
     build_dispatch_table = classmethod(build_dispatch_table)
@@ -747,7 +748,7 @@ class _OpcodeDispatcher(_Dispatcher):
         while current_branch_length:
             # The following tries to shortcut branches starting with a
             # (unmatched) literal. _sre.c also shortcuts charsets here.
-            if not (ctx.peek_code(1) == OPCODES["literal"] and \
+            if not (ctx.peek_code(1) == sre_constants.LITERAL and \
                     (ctx.at_end() or ctx.peek_code(2) != ord(ctx.peek_char()))):
                 ctx.state.string_position = ctx.string_position
                 child_context = ctx.push_new_context(1)
@@ -780,14 +781,14 @@ class _OpcodeDispatcher(_Dispatcher):
         if count < mincount:
             ctx.has_matched = False
             yield True
-        if ctx.peek_code(ctx.peek_code(1) + 1) == OPCODES["success"]:
+        if ctx.peek_code(ctx.peek_code(1) + 1) == sre_constants.SUCCESS:
             # tail is empty.  we're finished
             ctx.state.string_position = ctx.string_position
             ctx.has_matched = True
             yield True
 
         ctx.state.marks_push()
-        if ctx.peek_code(ctx.peek_code(1) + 1) == OPCODES["literal"]:
+        if ctx.peek_code(ctx.peek_code(1) + 1) == sre_constants.LITERAL:
             # Special case: Tail starts with a literal. Skip positions where
             # the rest of the pattern cannot possibly match.
             char = ctx.peek_code(ctx.peek_code(1) + 2)
@@ -844,7 +845,7 @@ class _OpcodeDispatcher(_Dispatcher):
                 ctx.has_matched = False
                 yield True
             ctx.skip_char(count)
-        if ctx.peek_code(ctx.peek_code(1) + 1) == OPCODES["success"]:
+        if ctx.peek_code(ctx.peek_code(1) + 1) == sre_constants.SUCCESS:
             # tail is empty.  we're finished
             ctx.state.string_position = ctx.string_position
             ctx.has_matched = True
