@@ -38,6 +38,7 @@ rustpython-compiler = {path = "../compiler", optional = true, version = "0.1.1"}
 rustpython-bytecode = { path = "../bytecode", version = "0.1.1"}
 serde = { version = "1.0.66", features = ["derive"] }
 serde_json = "1.0.26"
+csv = "1.1.1"
 byteorder = "1.2.6"
 regex = "1"
 rustc_version_runtime = "0.1.*"
