@@ -690,15 +690,15 @@ impl PyInt {
 
 #[derive(FromArgs)]
 struct IntOptions {
-    #[pyarg(positional_only, optional = true)]
-    val_options: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    x: OptionalArg<PyObjectRef>,
     #[pyarg(positional_or_keyword, optional = true)]
     base: OptionalArg<PyIntRef>,
 }
 
 impl IntOptions {
     fn get_int_value(self, vm: &VirtualMachine) -> PyResult<BigInt> {
-        if let OptionalArg::Present(val) = self.val_options {
+        if let OptionalArg::Present(val) = self.x {
             let base = if let OptionalArg::Present(base) = self.base {
                 if !(objtype::isinstance(&val, &vm.ctx.str_type())
                     || objtype::isinstance(&val, &vm.ctx.bytes_type()))
