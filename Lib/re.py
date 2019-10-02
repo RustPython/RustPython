@@ -191,7 +191,7 @@ def findall(pattern, string, flags=0):
     Empty matches are included in the result."""
     return _compile(pattern, flags).findall(string)
 
-if sys.hexversion >= 0x02020000:
+if True: # XXX RustPython: when sys.hexversion is available, change to (sys.hexversion >= 0x02020000)
     __all__.append("finditer")
     def finditer(pattern, string, flags=0):
         """Return an iterator over all non-overlapping matches in the
