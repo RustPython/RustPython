@@ -455,7 +455,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let match_type = PyMatch::make_class(ctx);
     let pattern_type = PyPattern::make_class(ctx);
 
-    py_module!(vm, "re", {
+    py_module!(vm, "regex_crate", {
         "compile" => ctx.new_rustfunc(re_compile),
         "escape" => ctx.new_rustfunc(re_escape),
         "purge" => ctx.new_rustfunc(re_purge),

@@ -68,7 +68,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "marshal".to_string() => Box::new(marshal::make_module),
         "math".to_string() => Box::new(math::make_module),
         "platform".to_string() => Box::new(platform::make_module),
-        "re".to_string() => Box::new(re::make_module),
+        "regex_crate".to_string() => Box::new(re::make_module),
         "random".to_string() => Box::new(random::make_module),
         "_string".to_string() => Box::new(string::make_module),
         "struct".to_string() => Box::new(pystruct::make_module),
