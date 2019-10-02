@@ -307,38 +307,18 @@ pub fn seq_lt(
     zelf: &dyn SimpleSeq,
     other: &dyn SimpleSeq,
 ) -> Result<bool, PyObjectRef> {
+    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+        if vm.bool_lt(a.clone(), b.clone())? {
+            return Ok(true);
+        } else if !vm.bool_eq(a.clone(), b.clone())? {
+            return Ok(false);
+        }
+    }
+
     if zelf.len() == other.len() {
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let lt = vm._lt(a.clone(), b.clone())?;
-            let value = objbool::boolval(vm, lt)?;
-            if !value {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        Ok(false)
     } else {
-        // This case is more complicated because it can still return true if
-        // `zelf` is the head of `other` e.g. [1,2,3] < [1,2,3,4] should return true
-        let mut head = true; // true if `zelf` is the head of `other`
-
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let lt = vm._lt(a.clone(), b.clone())?;
-            let eq = vm._eq(a.clone(), b.clone())?;
-            let lt_value = objbool::boolval(vm, lt)?;
-            let eq_value = objbool::boolval(vm, eq)?;
-
-            if !lt_value && !eq_value {
-                return Ok(false);
-            } else if !eq_value {
-                head = false;
-            }
-        }
-
-        if head {
-            Ok(zelf.len() < other.len())
-        } else {
-            Ok(true)
-        }
+        Ok(zelf.len() < other.len())
     }
 }
 
@@ -347,37 +327,18 @@ pub fn seq_gt(
     zelf: &dyn SimpleSeq,
     other: &dyn SimpleSeq,
 ) -> Result<bool, PyObjectRef> {
+    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+        if vm.bool_gt(a.clone(), b.clone())? {
+            return Ok(true);
+        } else if !vm.bool_eq(a.clone(), b.clone())? {
+            return Ok(false);
+        }
+    }
+
     if zelf.len() == other.len() {
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let gt = vm._gt(a.clone(), b.clone())?;
-            let value = objbool::boolval(vm, gt)?;
-            if !value {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        Ok(false)
     } else {
-        let mut head = true; // true if `other` is the head of `zelf`
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            // This case is more complicated because it can still return true if
-            // `other` is the head of `zelf` e.g. [1,2,3,4] > [1,2,3] should return true
-            let gt = vm._gt(a.clone(), b.clone())?;
-            let eq = vm._eq(a.clone(), b.clone())?;
-            let gt_value = objbool::boolval(vm, gt)?;
-            let eq_value = objbool::boolval(vm, eq)?;
-
-            if !gt_value && !eq_value {
-                return Ok(false);
-            } else if !eq_value {
-                head = false;
-            }
-        }
-
-        if head {
-            Ok(zelf.len() > other.len())
-        } else {
-            Ok(true)
-        }
+        Ok(zelf.len() > other.len())
     }
 }
 
@@ -386,7 +347,19 @@ pub fn seq_ge(
     zelf: &dyn SimpleSeq,
     other: &dyn SimpleSeq,
 ) -> Result<bool, PyObjectRef> {
-    Ok(seq_gt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
+    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+        if vm.bool_gt(a.clone(), b.clone())? {
+            return Ok(true);
+        } else if !vm.bool_eq(a.clone(), b.clone())? {
+            return Ok(false);
+        }
+    }
+
+    if zelf.len() == other.len() {
+        Ok(true)
+    } else {
+        Ok(zelf.len() > other.len())
+    }
 }
 
 pub fn seq_le(
@@ -394,7 +367,19 @@ pub fn seq_le(
     zelf: &dyn SimpleSeq,
     other: &dyn SimpleSeq,
 ) -> Result<bool, PyObjectRef> {
-    Ok(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
+    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+        if vm.bool_lt(a.clone(), b.clone())? {
+            return Ok(true);
+        } else if !vm.bool_eq(a.clone(), b.clone())? {
+            return Ok(false);
+        }
+    }
+
+    if zelf.len() == other.len() {
+        Ok(true)
+    } else {
+        Ok(zelf.len() < other.len())
+    }
 }
 
 pub struct SeqMul<'a> {
