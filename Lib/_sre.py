@@ -552,16 +552,16 @@ class _Dispatcher(object):
     def unknown(self, code, ctx):
         raise NotImplementedError()
 
+    @classmethod
     def build_dispatch_table(cls, codes, method_prefix):
         if cls.DISPATCH_TABLE is not None:
             return
         table = {}
         for code in codes:
-            if hasattr(cls, "%s%s" % (method_prefix, code.name)):
-                table[value] = getattr(cls, "%s%s" % (method_prefix, code.name))
+            code_name = code.name.lower()
+            if hasattr(cls, "%s%s" % (method_prefix, code_name)):
+                table[code] = getattr(cls, "%s%s" % (method_prefix, code_name))
         cls.DISPATCH_TABLE = table
-
-    build_dispatch_table = classmethod(build_dispatch_table)
 
 
 class _OpcodeDispatcher(_Dispatcher):
