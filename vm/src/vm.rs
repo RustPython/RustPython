@@ -303,7 +303,7 @@ impl VirtualMachine {
     }
 
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
-    fn new_exception_obj(&self, exc_type: PyClassRef, args: Vec<PyObjectRef>) -> PyResult {
+    pub fn new_exception_obj(&self, exc_type: PyClassRef, args: Vec<PyObjectRef>) -> PyResult {
         // TODO: add repr of args into logging?
         vm_trace!("New exception created: {}", exc_type.name);
         self.invoke(&exc_type.into_object(), args)
