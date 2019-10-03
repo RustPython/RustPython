@@ -1,7 +1,7 @@
 use num_bigint::Sign;
 use num_traits::Zero;
 
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::PyFuncArgs;
 use crate::pyobject::{
     IntoPyObject, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
@@ -188,16 +188,19 @@ fn bool_rxor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResul
     do_bool_xor(vm, &lhs, &rhs)
 }
 
-#[derive(FromArgs)]
-struct BoolArgs {
-    #[pyarg(positional_or_keyword, optional = true)]
-    x: OptionalArg<PyObjectRef>,
-}
-
-fn bool_new(_cls: objtype::PyClassRef, args: BoolArgs, vm: &VirtualMachine) -> PyResult {
-    Ok(match args.x {
-        OptionalArg::Present(x) => vm.new_bool(boolval(vm, x.clone())?),
-        OptionalArg::Missing => vm.context().new_bool(false),
+fn bool_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(_zelf, Some(vm.ctx.type_type()))],
+        optional = [(val, None)]
+    );
+    Ok(match val {
+        Some(val) => {
+            let bv = boolval(vm, val.clone())?;
+            vm.new_bool(bv)
+        }
+        None => vm.context().new_bool(false),
     })
 }
 

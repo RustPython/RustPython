@@ -16,8 +16,6 @@ assert not None
 
 assert bool() == False
 assert bool(1) == True
-assert bool(x=True) == True
-assert bool(x=False) == False
 assert bool({}) == False
 
 assert bool(NotImplemented) == True
