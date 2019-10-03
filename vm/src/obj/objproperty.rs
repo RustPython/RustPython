@@ -28,14 +28,13 @@ pub type PyReadOnlyPropertyRef = PyRef<PyReadOnlyProperty>;
 #[pyimpl]
 impl PyReadOnlyProperty {
     #[pymethod(name = "__get__")]
-    fn get(
-        zelf: PyRef<Self>,
-        obj: PyObjectRef,
-        _owner: OptionalArg<PyClassRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        if obj.is(vm.ctx.none.as_object()) {
-            Ok(zelf.into_object())
+    fn get(zelf: PyRef<Self>, obj: PyObjectRef, cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
+        if vm.is_none(&obj) {
+            if cls.is(&vm.ctx.types.type_type) {
+                vm.invoke(&zelf.getter, cls.into_object())
+            } else {
+                Ok(zelf.into_object())
+            }
         } else {
             vm.invoke(&zelf.getter, obj)
         }

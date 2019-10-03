@@ -20,6 +20,7 @@ use super::objweakref::PyWeak;
 #[derive(Debug)]
 pub struct PyClass {
     pub name: String,
+    pub bases: Vec<PyClassRef>,
     pub mro: Vec<PyClassRef>,
     pub subclasses: RefCell<Vec<PyWeak>>,
     pub attributes: RefCell<PyAttributes>,
@@ -92,6 +93,11 @@ impl PyClassRef {
 
     fn set_mro(self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_attribute_error("read-only attribute".to_string()))
+    }
+
+    fn bases(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx
+            .new_tuple(self.bases.iter().map(|x| x.as_object().clone()).collect())
     }
 
     fn dir(self, vm: &VirtualMachine) -> PyList {
@@ -241,6 +247,7 @@ pub fn init(ctx: &PyContext) {
                 .add_getter(PyClassRef::mro)
                 .add_setter(PyClassRef::set_mro)
                 .create(),
+        "__bases__" => ctx.new_property(PyClassRef::bases),
         "__name__" => ctx.new_property(PyClassRef::name),
         "__repr__" => ctx.new_rustfunc(PyClassRef::repr),
         "__qualname__" => ctx.new_property(PyClassRef::qualname),
@@ -290,8 +297,12 @@ fn type_new_slot(metatype: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) ->
 
     let (name, bases, dict): (PyStringRef, PyIterable<PyClassRef>, PyDictRef) = args.bind(vm)?;
 
-    let mut bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
-    bases.push(vm.ctx.object());
+    let bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
+    let bases = if bases.is_empty() {
+        vec![vm.ctx.object()]
+    } else {
+        bases
+    };
 
     let attributes = dict.to_attributes();
 
@@ -446,13 +457,10 @@ fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Option<Vec<PyClassRef>> {
         if (&bases).iter().all(Vec::is_empty) {
             break;
         }
-        match take_next_base(bases) {
-            Some((head, new_bases)) => {
-                result.push(head);
-                bases = new_bases;
-            }
-            None => return None,
-        }
+        let (head, new_bases) = take_next_base(bases)?;
+
+        result.push(head);
+        bases = new_bases;
     }
     Some(result)
 }
@@ -468,6 +476,7 @@ pub fn new(
     let new_type = PyObject {
         payload: PyClass {
             name: String::from(name),
+            bases,
             mro,
             subclasses: RefCell::default(),
             attributes: RefCell::new(dict),
@@ -477,13 +486,16 @@ pub fn new(
         typ,
     }
     .into_ref();
-    for base in bases {
+
+    let new_type: PyClassRef = new_type.downcast().unwrap();
+
+    for base in &new_type.bases {
         base.subclasses
             .borrow_mut()
-            .push(PyWeak::downgrade(&new_type));
+            .push(PyWeak::downgrade(new_type.as_object()));
     }
 
-    Ok(new_type.downcast().unwrap())
+    Ok(new_type)
 }
 
 #[cfg(test)]

@@ -232,6 +232,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             dict: None,
             payload: PyClass {
                 name: String::from("object"),
+                bases: vec![],
                 mro: vec![],
                 subclasses: RefCell::default(),
                 attributes: RefCell::new(PyAttributes::new()),
@@ -245,6 +246,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             dict: None,
             payload: PyClass {
                 name: String::from("type"),
+                bases: vec![object_type.clone().downcast().unwrap()],
                 mro: vec![object_type.clone().downcast().unwrap()],
                 subclasses: RefCell::default(),
                 attributes: RefCell::new(PyAttributes::new()),
