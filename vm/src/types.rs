@@ -298,7 +298,6 @@ pub fn initialize_types(context: &PyContext) {
     objrange::init(&context);
     objslice::init(&context);
     objsuper::init(&context);
-    objtuple::init(&context);
     objiter::init(&context);
     objellipsis::init(&context);
     objenumerate::init(&context);
