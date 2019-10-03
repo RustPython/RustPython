@@ -1,13 +1,21 @@
 use super::objstr::PyStringRef;
 use super::objtype::{self, PyClassRef};
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 use crate::vm::VirtualMachine;
 
 #[pyclass]
 #[derive(Debug)]
 pub struct PyMappingProxy {
-    class: PyClassRef,
+    mapping: MappingProxyInner,
+}
+
+#[derive(Debug)]
+enum MappingProxyInner {
+    Class(PyClassRef),
+    Dict(PyObjectRef),
 }
 
 pub type PyMappingProxyRef = PyRef<PyMappingProxy>;
@@ -21,28 +29,54 @@ impl PyValue for PyMappingProxy {
 #[pyimpl]
 impl PyMappingProxy {
     pub fn new(class: PyClassRef) -> PyMappingProxy {
-        PyMappingProxy { class }
+        PyMappingProxy {
+            mapping: MappingProxyInner::Class(class),
+        }
+    }
+
+    #[pyslot(new)]
+    fn tp_new(cls: PyClassRef, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        PyMappingProxy {
+            mapping: MappingProxyInner::Dict(mapping),
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
+    fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+        let opt = match &self.mapping {
+            MappingProxyInner::Class(class) => {
+                let key = PyStringRef::try_from_object(vm, key)?;
+                objtype::class_get_attr(&class, key.as_str())
+            }
+            MappingProxyInner::Dict(obj) => obj.get_item(&key, vm).ok(),
+        };
+        Ok(opt)
     }
 
     #[pymethod]
-    fn get(&self, key: PyStringRef, default: OptionalArg, vm: &VirtualMachine) -> PyObjectRef {
+    fn get(&self, key: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
         let default = default.into_option();
-        objtype::class_get_attr(&self.class, key.as_str())
+        Ok(self
+            .get_inner(key, vm)?
             .or(default)
-            .unwrap_or_else(|| vm.get_none())
+            .unwrap_or_else(|| vm.get_none()))
     }
 
     #[pymethod(name = "__getitem__")]
-    pub fn getitem(&self, key: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(value) = objtype::class_get_attr(&self.class, key.as_str()) {
-            return Ok(value);
-        }
-        Err(vm.new_key_error(key.into_object()))
+    pub fn getitem(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.get_inner(key.clone(), vm)?
+            .ok_or_else(|| vm.new_key_error(key))
     }
 
     #[pymethod(name = "__contains__")]
-    pub fn contains(&self, attr: PyStringRef, _vm: &VirtualMachine) -> bool {
-        objtype::class_has_attr(&self.class, attr.as_str())
+    pub fn contains(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match &self.mapping {
+            MappingProxyInner::Class(class) => {
+                let key = PyStringRef::try_from_object(vm, key)?;
+                Ok(vm.new_bool(objtype::class_has_attr(&class, key.as_str())))
+            }
+            MappingProxyInner::Dict(obj) => vm._membership(obj.clone(), key),
+        }
     }
 }
 

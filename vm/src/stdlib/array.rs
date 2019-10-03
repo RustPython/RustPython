@@ -165,10 +165,10 @@ def_array_enum!(
     // TODO: support unicode char
     (SignedShort, i16, 'h'),
     (UnsignedShort, u16, 'H'),
-    (SignedInt, i16, 'i'),
-    (UnsignedInt, u16, 'I'),
-    (SignedLong, i32, 'l'),
-    (UnsignedLong, u32, 'L'),
+    (SignedInt, i32, 'i'),
+    (UnsignedInt, u32, 'I'),
+    (SignedLong, i64, 'l'),
+    (UnsignedLong, u64, 'L'),
     (SignedLongLong, i64, 'q'),
     (UnsignedLongLong, u64, 'Q'),
     (Float, f32, 'f'),
@@ -306,6 +306,16 @@ impl PyArray {
     }
 
     #[pymethod]
+    fn tolist(&self, vm: &VirtualMachine) -> PyResult {
+        let array = self.array.borrow();
+        let mut v = Vec::with_capacity(array.len());
+        for obj in array.iter(vm) {
+            v.push(obj?);
+        }
+        Ok(vm.ctx.new_list(v))
+    }
+
+    #[pymethod]
     fn reverse(&self, _vm: &VirtualMachine) {
         self.array.borrow_mut().reverse()
     }
@@ -336,6 +346,11 @@ impl PyArray {
             }
             Ok(vm.new_bool(true))
         }
+    }
+
+    #[pymethod(name = "__len__")]
+    fn len(&self, _vm: &VirtualMachine) -> usize {
+        self.array.borrow().len()
     }
 
     #[pymethod(name = "__iter__")]
