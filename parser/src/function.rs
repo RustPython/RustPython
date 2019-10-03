@@ -6,6 +6,7 @@ use crate::error::{LexicalError, LexicalErrorType};
 type ParameterDefs = (Vec<ast::Parameter>, Vec<ast::Expression>);
 type ParameterDef = (ast::Parameter, Option<ast::Expression>);
 
+#[allow(clippy::collapsible_if)]
 pub fn parse_params(params: Vec<ParameterDef>) -> Result<ParameterDefs, LexicalError> {
     let mut names = vec![];
     let mut defaults = vec![];
