@@ -742,7 +742,7 @@ impl PyItertoolsTee {
     #[pymethod(name = "__copy__")]
     fn copy(&self, vm: &VirtualMachine) -> PyResult {
         Ok(PyItertoolsTee {
-            tee_data: self.tee_data.clone(),
+            tee_data: Rc::clone(&self.tee_data),
             index: self.index.clone(),
         }
         .into_ref_with_type(vm, Self::class(vm))?
