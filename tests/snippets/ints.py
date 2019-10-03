@@ -151,10 +151,6 @@ assert int('1 ') == 1
 assert int(' 1 ') == 1
 assert int('10', base=0) == 10
 
-assert int(x=10) == 10
-assert int(x='10') == 10
-assert int(x='10', base=0) == 10
-
 # type byte, signed, implied base
 assert int(b'     -0XFF ', base=0) == -255
 
