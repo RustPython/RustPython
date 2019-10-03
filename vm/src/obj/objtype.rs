@@ -297,8 +297,12 @@ fn type_new_slot(metatype: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) ->
 
     let (name, bases, dict): (PyStringRef, PyIterable<PyClassRef>, PyDictRef) = args.bind(vm)?;
 
-    let mut bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
-    bases.push(vm.ctx.object());
+    let bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
+    let bases = if bases.is_empty() {
+        vec![vm.ctx.object()]
+    } else {
+        bases
+    };
 
     let attributes = dict.to_attributes();
 
