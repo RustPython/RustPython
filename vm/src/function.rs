@@ -277,7 +277,7 @@ impl<T> IntoIterator for KwArgs<T> {
 
 /// A list of positional argument values.
 ///
-/// A built-in function with a `Args` parameter is analagous to a Python
+/// A built-in function with a `Args` parameter is analogous to a Python
 /// function with `*args`. All remaining positional arguments are extracted
 /// (and hence the function will permit an arbitrary number of them).
 ///
