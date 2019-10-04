@@ -751,9 +751,9 @@ impl PyItertoolsTee {
 
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let result = self.tee_data.get_item(vm, self.index.get());
+        let value = self.tee_data.get_item(vm, self.index.get())?;
         self.index.set(self.index.get() + 1);
-        result
+        Ok(value)
     }
 
     #[pymethod(name = "__iter__")]

@@ -295,3 +295,7 @@ t2, t3 = itertools.tee(t0)
 assert list(t1) == [1,2,3]
 assert list(t2) == [1,2,3]
 assert list(t3) == [1,2,3]
+
+t = itertools.tee([1,2,3])
+assert list(t[0]) == [1,2,3]
+assert list(t[0]) == []
