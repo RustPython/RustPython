@@ -811,6 +811,7 @@ impl Frame {
         Ok(None)
     }
 
+    #[allow(clippy::collapsible_if)]
     fn execute_build_map(
         &self,
         vm: &VirtualMachine,
