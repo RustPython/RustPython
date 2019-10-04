@@ -23,25 +23,26 @@ impl PyValue for PyMap {
     }
 }
 
-fn map_new(
-    cls: PyClassRef,
-    function: PyObjectRef,
-    iterables: Args,
-    vm: &VirtualMachine,
-) -> PyResult<PyMapRef> {
-    let iterators = iterables
-        .into_iter()
-        .map(|iterable| objiter::get_iter(vm, &iterable))
-        .collect::<Result<Vec<_>, _>>()?;
-    PyMap {
-        mapper: function.clone(),
-        iterators,
-    }
-    .into_ref_with_type(vm, cls.clone())
-}
-
 #[pyimpl]
 impl PyMap {
+    #[pyslot(new)]
+    fn tp_new(
+        cls: PyClassRef,
+        function: PyObjectRef,
+        iterables: Args,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyMapRef> {
+        let iterators = iterables
+            .into_iter()
+            .map(|iterable| objiter::get_iter(vm, &iterable))
+            .collect::<Result<Vec<_>, _>>()?;
+        PyMap {
+            mapper: function.clone(),
+            iterators,
+        }
+        .into_ref_with_type(vm, cls.clone())
+    }
+
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         let next_objs = self
@@ -62,7 +63,4 @@ impl PyMap {
 
 pub fn init(context: &PyContext) {
     PyMap::extend_class(context, &context.types.map_type);
-    extend_class!(context, &context.types.map_type, {
-        (slot new) => map_new,
-    });
 }
