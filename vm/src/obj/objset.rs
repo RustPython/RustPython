@@ -616,6 +616,11 @@ impl PyFrozenSet {
         try_set_inner!(vm, other, |other| self.inner.eq(other, vm))
     }
 
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.ne(other, vm))
+    }
+
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         try_set_inner!(vm, other, |other| self.inner.ge(other, vm))
