@@ -208,17 +208,21 @@ impl PyString {
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> bool {
+    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            self.value == get_value(&rhs)
+            vm.new_bool(self.value == get_value(&rhs))
         } else {
-            false
+            vm.ctx.not_implemented()
         }
     }
 
     #[pymethod(name = "__ne__")]
-    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> bool {
-        !self.eq(rhs, vm)
+    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
+            vm.new_bool(self.value != get_value(&rhs))
+        } else {
+            vm.ctx.not_implemented()
+        }
     }
 
     #[pymethod(name = "__contains__")]
