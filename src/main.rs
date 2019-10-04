@@ -532,7 +532,18 @@ impl ShellHelper<'_> {
         // the very first word and then all the ones after the dot
         let (first, rest) = words.split_first().unwrap();
 
+        let str_iter = |obj| {
+            PyIterable::<PyStringRef>::try_from_object(self.vm, obj)
+                .ok()?
+                .iter(self.vm)
+                .ok()
+        };
+
+        type StrIter<'a> = Box<dyn Iterator<Item = PyResult<PyStringRef>> + 'a>;
+
         let (iter, prefix) = if let Some((last, parents)) = rest.split_last() {
+            // we need to get an attribute based off of the dir() of an object
+
             // last: the last word, could be empty if it ends with a dot
             // parents: the words before the dot
 
@@ -543,21 +554,39 @@ impl ShellHelper<'_> {
             }
 
             (
-                self.vm.call_method(&current, "__dir__", vec![]).ok()?,
+                Box::new(str_iter(
+                    self.vm.call_method(&current, "__dir__", vec![]).ok()?,
+                )?) as StrIter,
                 last.as_str(),
             )
         } else {
-            (
+            // we need to get a variable based off of globals/builtins
+
+            let globals = str_iter(
                 self.vm
                     .call_method(self.scope.globals.as_object(), "keys", vec![])
                     .ok()?,
-                first.as_str(),
-            )
+            )?;
+            let iter = if first.as_str().is_empty() {
+                // only show globals that don't start with a  '_'
+                Box::new(globals.filter(|r| {
+                    r.as_ref()
+                        .ok()
+                        .map_or(true, |s| !s.as_str().starts_with('_'))
+                })) as StrIter
+            } else {
+                // show globals and builtins
+                Box::new(
+                    globals.chain(str_iter(
+                        self.vm
+                            .call_method(&self.vm.builtins, "__dir__", vec![])
+                            .ok()?,
+                    )?),
+                ) as StrIter
+            };
+            (iter, first.as_str())
         };
-        let iter = PyIterable::<PyStringRef>::try_from_object(self.vm, iter).ok()?;
         let completions = iter
-            .iter(self.vm)
-            .ok()?
             .filter(|res| {
                 res.as_ref()
                     .ok()
@@ -568,13 +597,14 @@ impl ShellHelper<'_> {
         let no_underscore = completions
             .iter()
             .cloned()
-            .filter(|s| !prefix.starts_with("_") && !s.as_str().starts_with("_"))
+            .filter(|s| !prefix.starts_with('_') && !s.as_str().starts_with('_'))
             .collect::<Vec<_>>();
-        let completions = if no_underscore.is_empty() {
+        let mut completions = if no_underscore.is_empty() {
             completions
         } else {
             no_underscore
         };
+        completions.sort_by(|a, b| std::cmp::Ord::cmp(a.as_str(), b.as_str()));
         Some((
             startpos,
             completions
