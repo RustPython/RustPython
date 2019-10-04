@@ -9,10 +9,10 @@ use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType}
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
     import, match_class,
-    obj::{objint::PyInt, objtuple::PyTuple, objtype},
+    obj::{objint::PyInt, objstr::PyStringRef, objtuple::PyTuple, objtype},
     print_exception,
-    pyobject::{ItemProtocol, PyObjectRef, PyResult},
-    scope::Scope,
+    pyobject::{ItemProtocol, PyIterable, PyObjectRef, PyResult, TryFromObject},
+    scope::{NameProtocol, Scope},
     util, PySettings, VirtualMachine,
 };
 use std::convert::TryInto;
@@ -487,9 +487,127 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResul
     }
 }
 
+struct ShellHelper<'a> {
+    vm: &'a VirtualMachine,
+    scope: Scope,
+}
+
+impl ShellHelper<'_> {
+    fn complete_opt(&self, line: &str) -> Option<(usize, Vec<String>)> {
+        let mut words = vec![String::new()];
+        fn revlastword(words: &mut Vec<String>) {
+            let word = words.last_mut().unwrap();
+            let revword = word.chars().rev().collect();
+            *word = revword;
+        }
+        let mut startpos = 0;
+        for (i, c) in line.chars().rev().enumerate() {
+            match c {
+                '.' => {
+                    // check for a double dot
+                    if i != 0 && words.last().map_or(false, |s| s.is_empty()) {
+                        return None;
+                    }
+                    revlastword(&mut words);
+                    if words.len() == 1 {
+                        startpos = line.len() - i;
+                    }
+                    words.push(String::new());
+                }
+                c if c.is_alphanumeric() || c == '_' => words.last_mut().unwrap().push(c),
+                _ => {
+                    if words.len() == 1 {
+                        if words.last().unwrap().is_empty() {
+                            return None;
+                        }
+                        startpos = line.len() - i;
+                    }
+                    break;
+                }
+            }
+        }
+        revlastword(&mut words);
+        words.reverse();
+
+        // the very first word and then all the ones after the dot
+        let (first, rest) = words.split_first().unwrap();
+
+        let (iter, prefix) = if let Some((last, parents)) = rest.split_last() {
+            // last: the last word, could be empty if it ends with a dot
+            // parents: the words before the dot
+
+            let mut current = self.scope.load_global(self.vm, first)?;
+
+            for attr in parents {
+                current = self.vm.get_attribute(current.clone(), attr.as_str()).ok()?;
+            }
+
+            (
+                self.vm.call_method(&current, "__dir__", vec![]).ok()?,
+                last.as_str(),
+            )
+        } else {
+            (
+                self.vm
+                    .call_method(self.scope.globals.as_object(), "keys", vec![])
+                    .ok()?,
+                first.as_str(),
+            )
+        };
+        let iter = PyIterable::<PyStringRef>::try_from_object(self.vm, iter).ok()?;
+        let completions = iter
+            .iter(self.vm)
+            .ok()?
+            .filter(|res| {
+                res.as_ref()
+                    .ok()
+                    .map_or(true, |s| s.as_str().starts_with(prefix))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .ok()?;
+        let no_underscore = completions
+            .iter()
+            .cloned()
+            .filter(|s| !prefix.starts_with("_") && !s.as_str().starts_with("_"))
+            .collect::<Vec<_>>();
+        let completions = if no_underscore.is_empty() {
+            completions
+        } else {
+            no_underscore
+        };
+        Some((
+            startpos,
+            completions
+                .into_iter()
+                .map(|s| s.as_str().to_owned())
+                .collect(),
+        ))
+    }
+}
+
+impl rustyline::completion::Completer for ShellHelper<'_> {
+    type Candidate = String;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &rustyline::Context,
+    ) -> rustyline::Result<(usize, Vec<String>)> {
+        if pos != line.len() {
+            return Ok((0, vec![]));
+        }
+        Ok(self.complete_opt(line).unwrap_or((0, vec![])))
+    }
+}
+
+impl rustyline::hint::Hinter for ShellHelper<'_> {}
+impl rustyline::highlight::Highlighter for ShellHelper<'_> {}
+impl rustyline::Helper for ShellHelper<'_> {}
+
 #[cfg(not(target_os = "wasi"))]
 fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
-    use rustyline::{error::ReadlineError, Editor};
+    use rustyline::{error::ReadlineError, CompletionType, Config, Editor};
 
     println!(
         "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
@@ -497,8 +615,16 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     );
 
     // Read a single line:
-    let mut input = String::new();
-    let mut repl = Editor::<()>::new();
+    let mut repl = Editor::with_config(
+        Config::builder()
+            .completion_type(CompletionType::List)
+            .build(),
+    );
+    repl.set_helper(Some(ShellHelper {
+        vm,
+        scope: scope.clone(),
+    }));
+    let mut full_input = String::new();
 
     // Retrieve a `history_path_str` dependent on the OS
     let repl_history_path = match dirs::config_dir() {
@@ -539,12 +665,12 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
 
                 let stop_continuing = line.is_empty();
 
-                if input.is_empty() {
-                    input = line;
+                if full_input.is_empty() {
+                    full_input = line;
                 } else {
-                    input.push_str(&line);
+                    full_input.push_str(&line);
                 }
-                input.push_str("\n");
+                full_input.push_str("\n");
 
                 if continuing {
                     if stop_continuing {
@@ -554,9 +680,9 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                     }
                 }
 
-                match shell_exec(vm, &input, scope.clone()) {
+                match shell_exec(vm, &full_input, scope.clone()) {
                     ShellExecResult::Ok => {
-                        input.clear();
+                        full_input.clear();
                         Ok(())
                     }
                     ShellExecResult::Continue => {
@@ -564,14 +690,14 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                         Ok(())
                     }
                     ShellExecResult::PyErr(err) => {
-                        input.clear();
+                        full_input.clear();
                         Err(err)
                     }
                 }
             }
             Err(ReadlineError::Interrupted) => {
                 continuing = false;
-                input.clear();
+                full_input.clear();
                 let keyboard_interrupt = vm
                     .new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())
                     .unwrap();
