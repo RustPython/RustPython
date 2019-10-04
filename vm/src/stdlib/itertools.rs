@@ -1,6 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::ops::{AddAssign, SubAssign};
+use std::rc::Rc;
 
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
@@ -10,9 +11,12 @@ use crate::obj::objbool;
 use crate::obj::objint;
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter::{call_next, get_iter, new_stop_iteration};
+use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 #[pyclass(name = "chain")]
@@ -629,6 +633,114 @@ impl PyItertoolsAccumulate {
     }
 }
 
+#[derive(Debug)]
+struct PyItertoolsTeeData {
+    iterable: PyObjectRef,
+    values: RefCell<Vec<PyObjectRef>>,
+}
+
+impl PyItertoolsTeeData {
+    fn new(
+        iterable: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> Result<Rc<PyItertoolsTeeData>, PyObjectRef> {
+        Ok(Rc::new(PyItertoolsTeeData {
+            iterable: get_iter(vm, &iterable)?,
+            values: RefCell::new(vec![]),
+        }))
+    }
+
+    fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult {
+        if self.values.borrow().len() == index {
+            let result = call_next(vm, &self.iterable)?;
+            self.values.borrow_mut().push(result);
+        }
+        Ok(self.values.borrow()[index].clone())
+    }
+}
+
+#[pyclass]
+#[derive(Debug)]
+struct PyItertoolsTee {
+    tee_data: Rc<PyItertoolsTeeData>,
+    index: Cell<usize>,
+}
+
+impl PyValue for PyItertoolsTee {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "tee")
+    }
+}
+
+#[pyimpl]
+impl PyItertoolsTee {
+    fn from_iter(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let it = get_iter(vm, &iterable)?;
+        if it.class().is(&PyItertoolsTee::class(vm)) {
+            return vm.call_method(&it, "__copy__", PyFuncArgs::from(vec![]));
+        }
+        Ok(PyItertoolsTee {
+            tee_data: PyItertoolsTeeData::new(it, vm)?,
+            index: Cell::from(0),
+        }
+        .into_ref_with_type(vm, PyItertoolsTee::class(vm))?
+        .into_object())
+    }
+
+    #[pymethod(name = "__new__")]
+    #[allow(clippy::new_ret_no_self)]
+    fn new(
+        _cls: PyClassRef,
+        iterable: PyObjectRef,
+        n: OptionalArg<PyIntRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyTuple>> {
+        let n = match n {
+            OptionalArg::Present(x) => match x.as_bigint().to_usize() {
+                Some(y) => y,
+                None => return Err(vm.new_overflow_error(String::from("n is too big"))),
+            },
+            OptionalArg::Missing => 2,
+        };
+
+        let copyable = if objtype::class_has_attr(&iterable.class(), "__copy__") {
+            vm.call_method(&iterable, "__copy__", PyFuncArgs::from(vec![]))?
+        } else {
+            PyItertoolsTee::from_iter(iterable, vm)?
+        };
+
+        let mut tee_vec: Vec<PyObjectRef> = Vec::with_capacity(n);
+        for _ in 0..n {
+            let no_args = PyFuncArgs::from(vec![]);
+            tee_vec.push(vm.call_method(&copyable, "__copy__", no_args)?);
+        }
+
+        Ok(PyTuple::from(tee_vec).into_ref(vm))
+    }
+
+    #[pymethod(name = "__copy__")]
+    fn copy(&self, vm: &VirtualMachine) -> PyResult {
+        Ok(PyItertoolsTee {
+            tee_data: Rc::clone(&self.tee_data),
+            index: self.index.clone(),
+        }
+        .into_ref_with_type(vm, Self::class(vm))?
+        .into_object())
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let value = self.tee_data.get_item(vm, self.index.get())?;
+        self.index.set(self.index.get() + 1);
+        Ok(value)
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -658,6 +770,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let accumulate = ctx.new_class("accumulate", ctx.object());
     PyItertoolsAccumulate::extend_class(ctx, &accumulate);
 
+    let tee = ctx.new_class("tee", ctx.object());
+    PyItertoolsTee::extend_class(ctx, &tee);
+
     py_module!(vm, "itertools", {
         "chain" => chain,
         "compress" => compress,
@@ -669,5 +784,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "islice" => islice,
         "filterfalse" => filterfalse,
         "accumulate" => accumulate,
+        "tee" => tee,
     })
 }
