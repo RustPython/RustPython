@@ -274,3 +274,24 @@ with assert_raises(StopIteration):
     next(t[2])
 with assert_raises(StopIteration):
     next(t[1])
+
+t0, t1 = itertools.tee([1,2,3])
+tc = t0.__copy__()
+assert list(t0) == [1,2,3]
+assert list(t1) == [1,2,3]
+assert list(tc) == [1,2,3]
+
+t0, t1 = itertools.tee([1,2,3])
+assert 1 == next(t0)  # advance index of t0 by 1 before __copy__()
+t0c = t0.__copy__()
+t1c = t1.__copy__()
+assert list(t0) == [2,3]
+assert list(t0c) == [2,3]
+assert list(t1) == [1,2,3]
+assert list(t1c) == [1,2,3]
+
+t0, t1 = itertools.tee([1,2,3])
+t2, t3 = itertools.tee(t0)
+assert list(t1) == [1,2,3]
+assert list(t2) == [1,2,3]
+assert list(t3) == [1,2,3]
