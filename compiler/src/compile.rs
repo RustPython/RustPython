@@ -658,6 +658,7 @@ impl<O: OutputStream> Compiler<O> {
             self.emit(Instruction::BuildMap {
                 size: num_kw_only_defaults,
                 unpack: false,
+                for_call: false,
             });
         }
 
@@ -896,6 +897,7 @@ impl<O: OutputStream> Compiler<O> {
             self.emit(Instruction::BuildMap {
                 size: num_annotations,
                 unpack: false,
+                for_call: false,
             });
         }
 
@@ -1464,6 +1466,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::BuildMap {
                     size: subsize,
                     unpack: false,
+                    for_call: false,
                 });
                 size += 1;
             }
@@ -1472,10 +1475,15 @@ impl<O: OutputStream> Compiler<O> {
             self.emit(Instruction::BuildMap {
                 size,
                 unpack: false,
+                for_call: false,
             });
         }
         if size > 1 || has_unpacking {
-            self.emit(Instruction::BuildMap { size, unpack: true });
+            self.emit(Instruction::BuildMap {
+                size,
+                unpack: true,
+                for_call: false,
+            });
         }
         Ok(())
     }
@@ -1704,12 +1712,17 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::BuildMap {
                     size: subsize,
                     unpack: false,
+                    for_call: false,
                 });
                 size += 1;
             }
         }
         if size > 1 {
-            self.emit(Instruction::BuildMap { size, unpack: true });
+            self.emit(Instruction::BuildMap {
+                size,
+                unpack: true,
+                for_call: true,
+            });
         }
         Ok(())
     }
@@ -1855,6 +1868,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::BuildMap {
                     size: 0,
                     unpack: false,
+                    for_call: false,
                 });
             }
         }
