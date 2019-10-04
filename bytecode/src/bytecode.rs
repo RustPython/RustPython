@@ -243,6 +243,7 @@ pub enum Instruction {
     BuildMap {
         size: usize,
         unpack: bool,
+        for_call: bool,
     },
     BuildSlice {
         size: usize,
@@ -519,7 +520,11 @@ impl Instruction {
             BuildTuple { size, unpack } => w!(BuildTuple, size, unpack),
             BuildList { size, unpack } => w!(BuildList, size, unpack),
             BuildSet { size, unpack } => w!(BuildSet, size, unpack),
-            BuildMap { size, unpack } => w!(BuildMap, size, unpack),
+            BuildMap {
+                size,
+                unpack,
+                for_call,
+            } => w!(BuildMap, size, unpack, for_call),
             BuildSlice { size } => w!(BuildSlice, size),
             ListAppend { i } => w!(ListAppend, i),
             SetAdd { i } => w!(SetAdd, i),

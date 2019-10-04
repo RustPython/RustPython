@@ -105,3 +105,12 @@ with assert_raises(SyntaxError):
 
 with assert_raises(SyntaxError):
     exec("def f(a=1, b): pass")
+
+
+def f(a):
+    pass
+
+x = {'a': 1}
+y = {'a': 2}
+with assert_raises(TypeError):
+    f(**x, **y)
