@@ -49,6 +49,8 @@ with assert_raises(ZeroDivisionError):
 assert (-3).__rdivmod__(2) == (-1, -1)
 assert (2).__pow__(3) == 8
 assert (10).__pow__(-1) == 0.1
+with assert_raises(ZeroDivisionError):
+    (0).__pow__(-1)
 assert (2).__rpow__(3) == 9
 assert (10).__mod__(5) == 0
 assert (10).__mod__(6) == 4

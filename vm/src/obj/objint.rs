@@ -18,6 +18,7 @@ use crate::vm::VirtualMachine;
 use super::objbool::IntoPyBool;
 use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
+use super::objfloat;
 use super::objint;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype;
@@ -118,12 +119,12 @@ impl_try_from_object_int!(
 
 #[allow(clippy::collapsible_if)]
 fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
-    let result = if int2.value.is_negative() {
+    if int2.value.is_negative() {
         let v1 = int1.float(vm)?;
         let v2 = int2.float(vm)?;
-        vm.ctx.new_float(v1.pow(v2))
+        objfloat::float_pow(v1, v2, vm)
     } else {
-        if let Some(v2) = int2.value.to_u64() {
+        Ok(if let Some(v2) = int2.value.to_u64() {
             vm.ctx.new_int(int1.value.pow(v2))
         } else if int1.value.is_one() || int1.value.is_zero() {
             vm.ctx.new_int(int1.value.clone())
@@ -137,9 +138,8 @@ fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
             // missing feature: BigInt exp
             // practically, exp over u64 is not possible to calculate anyway
             vm.ctx.not_implemented()
-        }
-    };
-    Ok(result)
+        })
+    }
 }
 
 fn inner_mod(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
