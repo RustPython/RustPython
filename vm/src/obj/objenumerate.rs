@@ -26,27 +26,28 @@ impl PyValue for PyEnumerate {
     }
 }
 
-fn enumerate_new(
-    cls: PyClassRef,
-    iterable: PyObjectRef,
-    start: OptionalArg<PyIntRef>,
-    vm: &VirtualMachine,
-) -> PyResult<PyEnumerateRef> {
-    let counter = match start {
-        OptionalArg::Present(start) => start.as_bigint().clone(),
-        OptionalArg::Missing => BigInt::zero(),
-    };
-
-    let iterator = objiter::get_iter(vm, &iterable)?;
-    PyEnumerate {
-        counter: RefCell::new(counter.clone()),
-        iterator,
-    }
-    .into_ref_with_type(vm, cls)
-}
-
 #[pyimpl]
 impl PyEnumerate {
+    #[pyslot(new)]
+    fn tp_new(
+        cls: PyClassRef,
+        iterable: PyObjectRef,
+        start: OptionalArg<PyIntRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyEnumerateRef> {
+        let counter = match start {
+            OptionalArg::Present(start) => start.as_bigint().clone(),
+            OptionalArg::Missing => BigInt::zero(),
+        };
+
+        let iterator = objiter::get_iter(vm, &iterable)?;
+        PyEnumerate {
+            counter: RefCell::new(counter.clone()),
+            iterator,
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         let iterator = &self.iterator;
@@ -69,7 +70,4 @@ impl PyEnumerate {
 
 pub fn init(context: &PyContext) {
     PyEnumerate::extend_class(context, &context.types.enumerate_type);
-    extend_class!(context, &context.types.enumerate_type, {
-        (slot new) => enumerate_new,
-    });
 }
