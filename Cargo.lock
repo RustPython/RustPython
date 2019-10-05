@@ -1092,6 +1092,7 @@ dependencies = [
  "flame 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "flamescope 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num-traits 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustpython-compiler 0.1.1",
  "rustpython-parser 0.1.1",
  "rustpython-vm 0.1.1",

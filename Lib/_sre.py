@@ -1155,17 +1155,17 @@ class _CharsetDispatcher(_Dispatcher):
             block_index = char_code >> 8
             # NB: there are CODESIZE block indices per bytecode
             a = array.array("B")
-            a.fromstring(array.array(CODESIZE == 2 and "H" or "I",
-                    [ctx.peek_code(block_index / CODESIZE)]).tostring())
+            a.frombytes(array.array(CODESIZE == 2 and "H" or "I",
+                    [ctx.peek_code(block_index // CODESIZE)]).tobytes())
             block = a[block_index % CODESIZE]
-            ctx.skip_code(256 / CODESIZE) # skip block indices
-            block_value = ctx.peek_code(block * (32 / CODESIZE)
+            ctx.skip_code(256 // CODESIZE) # skip block indices
+            block_value = ctx.peek_code(block * (32 // CODESIZE)
                     + ((char_code & 255) >> (CODESIZE == 2 and 4 or 5)))
             if block_value & (1 << (char_code & ((8 * CODESIZE) - 1))):
                 return self.ok
         else:
-            ctx.skip_code(256 / CODESIZE) # skip block indices
-        ctx.skip_code(count * (32 / CODESIZE)) # skip blocks
+            ctx.skip_code(256 // CODESIZE) # skip block indices
+        ctx.skip_code(count * (32 // CODESIZE)) # skip blocks
     def unknown(self, ctx):
         return False
 

@@ -27,6 +27,7 @@ rustpython-compiler = {path = "compiler", version = "0.1.1"}
 rustpython-parser = {path = "parser", version = "0.1.1"}
 rustpython-vm = {path = "vm", version = "0.1.1"}
 dirs = "2.0"
+num-traits = "0.2.8"
 
 flame = { version = "0.2", optional = true }
 flamescope = { version = "0.1", optional = true }

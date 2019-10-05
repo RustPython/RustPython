@@ -225,14 +225,13 @@ impl CFormatSpec {
             "-"
         };
 
-        // TODO: Support precision
         let magnitude_string = match self.format_type {
             CFormatType::Float(CFloatType::PointDecimal) => {
-                if Some(CFormatQuantity::Amount(6)) != self.precision {
-                    return Err("Not yet implemented for %#.#f types".to_string());
-                } else {
-                    format!("{:.6}", magnitude)
-                }
+                let precision = match self.precision {
+                    Some(CFormatQuantity::Amount(p)) => p,
+                    _ => 6,
+                };
+                format!("{:.*}", precision, magnitude)
             }
             CFormatType::Float(CFloatType::Exponent(_)) => {
                 return Err("Not yet implemented for %e and %E".to_string())

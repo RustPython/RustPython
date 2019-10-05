@@ -171,10 +171,9 @@ fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
     ])
 }
 
-// TODO: raise a SystemExit here
-fn sys_exit(code: OptionalArg<i32>, _vm: &VirtualMachine) -> PyResult<()> {
-    let code = code.unwrap_or(0);
-    std::process::exit(code)
+fn sys_exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    let code = code.unwrap_or_else(|| vm.new_int(0));
+    Err(vm.new_exception_obj(vm.ctx.exceptions.system_exit.clone(), vec![code])?)
 }
 
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
