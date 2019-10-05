@@ -2,6 +2,7 @@
  * Builtin set type with a sequence of unique items.
  */
 
+use std::borrow::Borrow;
 use std::cell::{Cell, RefCell};
 use std::fmt;
 
@@ -13,6 +14,7 @@ use crate::pyobject::{
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
+use super::objbool;
 use super::objlist::PyListIterator;
 use super::objtype;
 use super::objtype::PyClassRef;
@@ -131,6 +133,11 @@ impl PySetInner {
             false,
             vm,
         )
+    }
+
+    fn ne(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult {
+        let eq = objbool::get_value(self.eq(other, vm)?.borrow());
+        Ok(vm.new_bool(!eq))
     }
 
     fn ge(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult {
@@ -356,6 +363,11 @@ impl PySet {
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         try_set_inner!(vm, other, |other| self.inner.borrow().eq(other, vm))
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.borrow().ne(other, vm))
     }
 
     #[pymethod(name = "__ge__")]
@@ -602,6 +614,11 @@ impl PyFrozenSet {
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         try_set_inner!(vm, other, |other| self.inner.eq(other, vm))
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.ne(other, vm))
     }
 
     #[pymethod(name = "__ge__")]

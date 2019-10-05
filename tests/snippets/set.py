@@ -327,3 +327,13 @@ x = object()
 assert x == (EqObject(x) == EqObject(x))
 s = {EqObject(x)}
 assert EqObject(x) in s
+
+assert set([1, 2]).__ne__(set())
+assert not set([1, 2]).__ne__(set([2, 1]))
+assert set().__ne__(1) == NotImplemented
+
+assert frozenset([1, 2]).__ne__(set())
+assert frozenset([1, 2]).__ne__(frozenset())
+assert not frozenset([1, 2]).__ne__(set([2, 1]))
+assert not frozenset([1, 2]).__ne__(frozenset([2, 1]))
+assert frozenset().__ne__(1) == NotImplemented

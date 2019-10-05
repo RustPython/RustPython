@@ -50,6 +50,9 @@ a = ()
 b = ()
 assert a is b
 
+assert (1,).__ne__((2,))
+assert not (1,).__ne__((1,))
+
 # tuple gt, ge, lt, le
 assert_raises(TypeError, lambda: (0, ()) < (0, 0))
 assert_raises(TypeError, lambda: (0, ()) <= (0, 0))
