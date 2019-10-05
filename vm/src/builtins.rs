@@ -850,6 +850,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "RuntimeError" => ctx.exceptions.runtime_error.clone(),
         "ReferenceError" => ctx.exceptions.reference_error.clone(),
         "SyntaxError" =>  ctx.exceptions.syntax_error.clone(),
+        "IndentationError" =>  ctx.exceptions.indentation_error.clone(),
+        "TabError" =>  ctx.exceptions.tab_error.clone(),
         "NotImplementedError" => ctx.exceptions.not_implemented_error.clone(),
         "TypeError" => ctx.exceptions.type_error.clone(),
         "ValueError" => ctx.exceptions.value_error.clone(),

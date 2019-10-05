@@ -38,9 +38,7 @@ impl IndentationLevel {
             } else {
                 Err(LexicalError {
                     location,
-                    error: LexicalErrorType::OtherError(
-                        "inconsistent use of tabs and spaces in indentation".to_string(),
-                    ),
+                    error: LexicalErrorType::TabError,
                 })
             }
         } else if self.tabs > other.tabs {
@@ -49,9 +47,7 @@ impl IndentationLevel {
             } else {
                 Err(LexicalError {
                     location,
-                    error: LexicalErrorType::OtherError(
-                        "inconsistent use of tabs and spaces in indentation".to_string(),
-                    ),
+                    error: LexicalErrorType::TabError,
                 })
             }
         } else {

@@ -1,4 +1,4 @@
-use rustpython_parser::error::{ParseError, ParseErrorType};
+use rustpython_parser::error::{LexicalErrorType, ParseError, ParseErrorType};
 use rustpython_parser::location::Location;
 
 use std::error::Error;
@@ -38,6 +38,19 @@ pub enum CompileErrorType {
     InvalidContinue,
     InvalidReturn,
     InvalidYield,
+}
+
+impl CompileError {
+    pub fn is_tab_error(&self) -> bool {
+        if let CompileErrorType::Parse(parse) = &self.error {
+            if let ParseErrorType::Lexical(lex) = parse {
+                if let LexicalErrorType::TabError = lex {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 impl fmt::Display for CompileError {

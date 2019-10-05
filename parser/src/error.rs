@@ -20,6 +20,7 @@ pub enum LexicalErrorType {
     StringError,
     UnicodeError,
     NestingError,
+    TabError,
     DefaultArgumentError,
     PositionalArgumentError,
     DuplicateKeywordArgumentError,
@@ -35,6 +36,9 @@ impl fmt::Display for LexicalErrorType {
             LexicalErrorType::FStringError(error) => write!(f, "Got error in f-string: {}", error),
             LexicalErrorType::UnicodeError => write!(f, "Got unexpected unicode"),
             LexicalErrorType::NestingError => write!(f, "Got unexpected nesting"),
+            LexicalErrorType::TabError => {
+                write!(f, "inconsistent use of tabs and spaces in indentation")
+            }
             LexicalErrorType::DefaultArgumentError => {
                 write!(f, "non-default argument follows default argument")
             }
