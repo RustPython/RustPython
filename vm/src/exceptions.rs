@@ -229,6 +229,8 @@ pub struct ExceptionZoo {
     pub runtime_error: PyClassRef,
     pub stop_iteration: PyClassRef,
     pub syntax_error: PyClassRef,
+    pub indentation_error: PyClassRef,
+    pub tab_error: PyClassRef,
     pub system_error: PyClassRef,
     pub type_error: PyClassRef,
     pub value_error: PyClassRef,
@@ -284,6 +286,8 @@ impl ExceptionZoo {
         let permission_error = create_type("PermissionError", &type_type, &os_error);
         let file_exists_error = create_type("FileExistsError", &type_type, &os_error);
         let eof_error = create_type("EOFError", &type_type, &exception_type);
+        let indentation_error = create_type("IndentationError", &type_type, &syntax_error);
+        let tab_error = create_type("TabError", &type_type, &indentation_error);
         let unicode_error = create_type("UnicodeError", &type_type, &value_error);
         let unicode_decode_error = create_type("UnicodeDecodeError", &type_type, &unicode_error);
         let unicode_encode_error = create_type("UnicodeEncodeError", &type_type, &unicode_error);
@@ -327,6 +331,8 @@ impl ExceptionZoo {
             runtime_error,
             stop_iteration,
             syntax_error,
+            indentation_error,
+            tab_error,
             system_error,
             type_error,
             value_error,
