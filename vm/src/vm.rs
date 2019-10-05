@@ -1248,6 +1248,18 @@ impl VirtualMachine {
         let value = objbool::boolval(self, eq)?;
         Ok(value)
     }
+
+    pub fn bool_lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
+        let lt = self._lt(a.clone(), b.clone())?;
+        let value = objbool::boolval(self, lt)?;
+        Ok(value)
+    }
+
+    pub fn bool_gt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
+        let gt = self._gt(a.clone(), b.clone())?;
+        let value = objbool::boolval(self, gt)?;
+        Ok(value)
+    }
 }
 
 impl Default for VirtualMachine {
