@@ -146,6 +146,15 @@ impl PyDictRef {
         }
     }
 
+    fn ne(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(other) = other.payload::<PyDict>() {
+            let neq = !self.inner_eq(other, vm)?;
+            Ok(vm.ctx.new_bool(neq))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
     fn len(self, _vm: &VirtualMachine) -> usize {
         self.entries.borrow().len()
     }
@@ -575,6 +584,7 @@ pub fn init(context: &PyContext) {
         "__contains__" => context.new_rustfunc(PyDictRef::contains),
         "__delitem__" => context.new_rustfunc(PyDictRef::inner_delitem),
         "__eq__" => context.new_rustfunc(PyDictRef::eq),
+        "__ne__" => context.new_rustfunc(PyDictRef::ne),
         "__getitem__" => context.new_rustfunc(PyDictRef::inner_getitem),
         "__iter__" => context.new_rustfunc(PyDictRef::iter),
         (slot new) => PyDictRef::new,

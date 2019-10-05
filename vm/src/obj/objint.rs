@@ -181,6 +181,11 @@ fn inner_rshift(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
 
 #[pyimpl]
 impl PyInt {
+    #[pyslot(new)]
+    fn tp_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+        PyInt::new(options.get_int_value(vm)?).into_ref_with_type(vm, cls)
+    }
+
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
@@ -720,10 +725,6 @@ impl IntOptions {
     }
 }
 
-fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-    PyInt::new(options.get_int_value(vm)?).into_ref_with_type(vm, cls)
-}
-
 #[derive(FromArgs)]
 struct IntFromByteArgs {
     #[pyarg(positional_or_keyword)]
@@ -935,7 +936,4 @@ fn get_py_int(obj: &PyObjectRef) -> &PyInt {
 
 pub fn init(context: &PyContext) {
     PyInt::extend_class(context, &context.types.int_type);
-    extend_class!(context, &context.types.int_type, {
-        (slot new) => int_new,
-    });
 }

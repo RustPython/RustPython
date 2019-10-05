@@ -397,7 +397,11 @@ impl VirtualMachine {
 
     #[cfg(feature = "rustpython-compiler")]
     pub fn new_syntax_error(&self, error: &CompileError) -> PyObjectRef {
-        let syntax_error_type = self.ctx.exceptions.syntax_error.clone();
+        let syntax_error_type = if error.is_tab_error() {
+            self.ctx.exceptions.tab_error.clone()
+        } else {
+            self.ctx.exceptions.syntax_error.clone()
+        };
         let syntax_error = self.new_exception(syntax_error_type, error.to_string());
         let lineno = self.new_int(error.location.row());
         self.set_attr(&syntax_error, "lineno", lineno).unwrap();
@@ -1246,6 +1250,18 @@ impl VirtualMachine {
     pub fn bool_eq(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
         let eq = self._eq(a.clone(), b.clone())?;
         let value = objbool::boolval(self, eq)?;
+        Ok(value)
+    }
+
+    pub fn bool_lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
+        let lt = self._lt(a.clone(), b.clone())?;
+        let value = objbool::boolval(self, lt)?;
+        Ok(value)
+    }
+
+    pub fn bool_gt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
+        let gt = self._gt(a.clone(), b.clone())?;
+        let value = objbool::boolval(self, gt)?;
         Ok(value)
     }
 }

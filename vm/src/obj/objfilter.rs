@@ -24,23 +24,24 @@ impl PyValue for PyFilter {
     }
 }
 
-fn filter_new(
-    cls: PyClassRef,
-    function: PyObjectRef,
-    iterable: PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult<PyFilterRef> {
-    let iterator = objiter::get_iter(vm, &iterable)?;
-
-    PyFilter {
-        predicate: function.clone(),
-        iterator,
-    }
-    .into_ref_with_type(vm, cls)
-}
-
 #[pyimpl]
 impl PyFilter {
+    #[pyslot(new)]
+    fn tp_new(
+        cls: PyClassRef,
+        function: PyObjectRef,
+        iterable: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyFilterRef> {
+        let iterator = objiter::get_iter(vm, &iterable)?;
+
+        PyFilter {
+            predicate: function.clone(),
+            iterator,
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         let predicate = &self.predicate;
@@ -68,7 +69,4 @@ impl PyFilter {
 
 pub fn init(context: &PyContext) {
     PyFilter::extend_class(context, &context.types.filter_type);
-    extend_class!(context, &context.types.filter_type, {
-        (slot new) => filter_new,
-    });
 }

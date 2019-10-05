@@ -1,5 +1,6 @@
 from testutils import assert_raises
 
+assert "".__eq__(1) == NotImplemented
 assert "a" == 'a'
 assert """a""" == "a"
 assert len(""" " "" " "" """) == 11
@@ -318,3 +319,8 @@ assert chr(999).__repr__() == "'ϧ'"
 assert chr(9999).__repr__() == "'✏'"
 assert chr(99999).__repr__() == "'𘚟'"
 assert chr(999999).__repr__() == "'\\U000f423f'"
+
+assert "a".__ne__("b")
+assert not "a".__ne__("a")
+assert not "".__ne__("")
+assert "".__ne__(1) == NotImplemented
