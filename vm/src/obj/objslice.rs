@@ -129,6 +129,48 @@ impl PySlice {
         Ok(true)
     }
 
+    fn inner_lte(&self, other: &PySlice, eq: bool, vm: &VirtualMachine) -> PyResult<bool> {
+        if vm.bool_lt(self.start(vm), other.start(vm))? {
+            return Ok(true);
+        } else if !vm.bool_eq(self.start(vm), other.start(vm))? {
+            return Ok(false);
+        }
+
+        if vm.bool_lt(self.stop(vm), other.stop(vm))? {
+            return Ok(true);
+        } else if !vm.bool_eq(self.stop(vm), other.stop(vm))? {
+            return Ok(false);
+        }
+
+        if vm.bool_lt(self.step(vm), other.step(vm))? {
+            return Ok(true);
+        } else if !vm.bool_eq(self.step(vm), other.step(vm))? {
+            return Ok(false);
+        }
+        Ok(eq)
+    }
+
+    fn inner_gte(&self, other: &PySlice, eq: bool, vm: &VirtualMachine) -> PyResult<bool> {
+        if vm.bool_gt(self.start(vm), other.start(vm))? {
+            return Ok(true);
+        } else if !vm.bool_eq(self.start(vm), other.start(vm))? {
+            return Ok(false);
+        }
+
+        if vm.bool_gt(self.stop(vm), other.stop(vm))? {
+            return Ok(true);
+        } else if !vm.bool_eq(self.stop(vm), other.stop(vm))? {
+            return Ok(false);
+        }
+
+        if vm.bool_gt(self.step(vm), other.step(vm))? {
+            return Ok(true);
+        } else if !vm.bool_eq(self.step(vm), other.step(vm))? {
+            return Ok(false);
+        }
+        Ok(eq)
+    }
+
     #[pymethod(name = "__eq__")]
     fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(rhs) = rhs.payload::<PySlice>() {
@@ -144,6 +186,46 @@ impl PySlice {
         if let Some(rhs) = rhs.payload::<PySlice>() {
             let eq = self.inner_eq(rhs, vm)?;
             Ok(vm.ctx.new_bool(!eq))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    #[pymethod(name = "__lt__")]
+    fn lt(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(rhs) = rhs.payload::<PySlice>() {
+            let lt = self.inner_lte(rhs, false, vm)?;
+            Ok(vm.ctx.new_bool(lt))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    #[pymethod(name = "__gt__")]
+    fn gt(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(rhs) = rhs.payload::<PySlice>() {
+            let gt = self.inner_gte(rhs, false, vm)?;
+            Ok(vm.ctx.new_bool(gt))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    #[pymethod(name = "__ge__")]
+    fn ge(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(rhs) = rhs.payload::<PySlice>() {
+            let ge = self.inner_gte(rhs, true, vm)?;
+            Ok(vm.ctx.new_bool(ge))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    #[pymethod(name = "__le__")]
+    fn le(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(rhs) = rhs.payload::<PySlice>() {
+            let le = self.inner_lte(rhs, true, vm)?;
+            Ok(vm.ctx.new_bool(le))
         } else {
             Ok(vm.ctx.not_implemented())
         }
