@@ -243,3 +243,59 @@ assert list(itertools.compress("ABCDEF", [1,1,1,1,1,1])) == list("ABCDEF")
 assert list(itertools.compress("ABCDEF", [1,0,1])) == list("AC")
 assert list(itertools.compress("ABC", [0,1,1,1,1,1])) == list("BC")
 assert list(itertools.compress("ABCDEF", [True,False,"t","",1,9])) == list("ACEF")
+
+
+# itertools.tee
+t = itertools.tee([])
+assert len(t) == 2
+assert t[0] is not t[1]
+assert list(t[0]) == list(t[1]) == []
+
+with assert_raises(TypeError):
+    itertools.tee()
+
+t = itertools.tee(range(1000))
+assert list(t[0]) == list(t[1]) == list(range(1000))
+
+t = itertools.tee([1,22,333], 3)
+assert len(t) == 3
+assert 1 == next(t[0])
+assert 1 == next(t[1])
+assert 22 == next(t[0])
+assert 333 == next(t[0])
+assert 1 == next(t[2])
+assert 22 == next(t[1])
+assert 333 == next(t[1])
+assert 22 == next(t[2])
+with assert_raises(StopIteration):
+    next(t[0])
+assert 333 == next(t[2])
+with assert_raises(StopIteration):
+    next(t[2])
+with assert_raises(StopIteration):
+    next(t[1])
+
+t0, t1 = itertools.tee([1,2,3])
+tc = t0.__copy__()
+assert list(t0) == [1,2,3]
+assert list(t1) == [1,2,3]
+assert list(tc) == [1,2,3]
+
+t0, t1 = itertools.tee([1,2,3])
+assert 1 == next(t0)  # advance index of t0 by 1 before __copy__()
+t0c = t0.__copy__()
+t1c = t1.__copy__()
+assert list(t0) == [2,3]
+assert list(t0c) == [2,3]
+assert list(t1) == [1,2,3]
+assert list(t1c) == [1,2,3]
+
+t0, t1 = itertools.tee([1,2,3])
+t2, t3 = itertools.tee(t0)
+assert list(t1) == [1,2,3]
+assert list(t2) == [1,2,3]
+assert list(t3) == [1,2,3]
+
+t = itertools.tee([1,2,3])
+assert list(t[0]) == [1,2,3]
+assert list(t[0]) == []

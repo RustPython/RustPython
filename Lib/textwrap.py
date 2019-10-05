@@ -113,7 +113,7 @@ class TextWrapper:
     sentence_end_re = re.compile(r'[a-z]'             # lowercase letter
                                  r'[\.!\?]'          # sentence-ending punct.
                                  r'["\']?'           # optional end-of-quote
-                                 r'\z')               # end of chunk
+                                 r'\Z')               # end of chunk
 
     def __init__(self,
                  width=70,

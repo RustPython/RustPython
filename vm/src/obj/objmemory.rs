@@ -34,6 +34,11 @@ impl PyMemoryView {
         self.obj_ref.clone()
     }
 
+    #[pymethod(name = "__hash__")]
+    fn hash(&self, vm: &VirtualMachine) -> PyResult {
+        vm.call_method(&self.obj_ref, "__hash__", vec![])
+    }
+
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm.call_method(&self.obj_ref, "__getitem__", vec![needle])

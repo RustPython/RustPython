@@ -493,3 +493,42 @@ assert [1, 2].__ne__([])
 assert [2, 1].__ne__([1, 2])
 assert not [1, 2].__ne__([1, 2])
 assert [1, 2].__ne__(1) == NotImplemented
+
+# list gt, ge, lt, le
+assert_raises(TypeError, lambda: [0, []] < [0, 0])
+assert_raises(TypeError, lambda: [0, []] <= [0, 0])
+assert_raises(TypeError, lambda: [0, []] > [0, 0])
+assert_raises(TypeError, lambda: [0, []] >= [0, 0])
+
+assert_raises(TypeError, lambda: [0, 0] < [0, []])
+assert_raises(TypeError, lambda: [0, 0] <= [0, []])
+assert_raises(TypeError, lambda: [0, 0] > [0, []])
+assert_raises(TypeError, lambda: [0, 0] >= [0, []])
+
+assert [0, 0] < [1, -1]
+assert [0, 0] < [0, 0, 1]
+assert [0, 0] < [0, 0, -1]
+assert [0, 0] <= [0, 0, -1]
+assert not [0, 0, 0, 0] <= [0, -1]
+
+assert [0, 0] > [-1, 1]
+assert [0, 0] >= [-1, 1]
+assert [0, 0, 0] >= [-1, 1]
+
+assert [0, 0] <= [0, 1]
+assert [0, 0] <= [0, 0]
+assert [0, 0] <= [0, 0]
+assert not [0, 0] > [0, 0]
+assert not [0, 0] < [0, 0]
+
+assert not [float('nan'), float('nan')] <= [float('nan'), 1]
+assert not [float('nan'), float('nan')] <= [float('nan'), float('nan')]
+assert not [float('nan'), float('nan')] >= [float('nan'), float('nan')]
+assert not [float('nan'), float('nan')] < [float('nan'), float('nan')]
+assert not [float('nan'), float('nan')] > [float('nan'), float('nan')]
+
+assert [float('inf'), float('inf')] >= [float('inf'), 1]
+assert [float('inf'), float('inf')] <= [float('inf'), float('inf')]
+assert [float('inf'), float('inf')] >= [float('inf'), float('inf')]
+assert not [float('inf'), float('inf')] < [float('inf'), float('inf')]
+assert not [float('inf'), float('inf')] > [float('inf'), float('inf')]

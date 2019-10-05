@@ -19,16 +19,17 @@ impl PyValue for PyZip {
     }
 }
 
-fn zip_new(cls: PyClassRef, iterables: Args, vm: &VirtualMachine) -> PyResult<PyZipRef> {
-    let iterators = iterables
-        .into_iter()
-        .map(|iterable| objiter::get_iter(vm, &iterable))
-        .collect::<Result<Vec<_>, _>>()?;
-    PyZip { iterators }.into_ref_with_type(vm, cls)
-}
-
 #[pyimpl]
 impl PyZip {
+    #[pyslot(new)]
+    fn tp_new(cls: PyClassRef, iterables: Args, vm: &VirtualMachine) -> PyResult<PyZipRef> {
+        let iterators = iterables
+            .into_iter()
+            .map(|iterable| objiter::get_iter(vm, &iterable))
+            .collect::<Result<Vec<_>, _>>()?;
+        PyZip { iterators }.into_ref_with_type(vm, cls)
+    }
+
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         if self.iterators.is_empty() {
@@ -52,7 +53,4 @@ impl PyZip {
 
 pub fn init(context: &PyContext) {
     PyZip::extend_class(context, &context.types.zip_type);
-    extend_class!(context, &context.types.zip_type, {
-        (slot new) => zip_new,
-    });
 }

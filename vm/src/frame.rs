@@ -284,9 +284,11 @@ impl Frame {
                 self.push_value(list_obj);
                 Ok(None)
             }
-            bytecode::Instruction::BuildMap { size, unpack } => {
-                self.execute_build_map(vm, *size, *unpack)
-            }
+            bytecode::Instruction::BuildMap {
+                size,
+                unpack,
+                for_call,
+            } => self.execute_build_map(vm, *size, *unpack, *for_call),
             bytecode::Instruction::BuildSlice { size } => self.execute_build_slice(vm, *size),
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
@@ -809,13 +811,30 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_build_map(&self, vm: &VirtualMachine, size: usize, unpack: bool) -> FrameResult {
+    #[allow(clippy::collapsible_if)]
+    fn execute_build_map(
+        &self,
+        vm: &VirtualMachine,
+        size: usize,
+        unpack: bool,
+        for_call: bool,
+    ) -> FrameResult {
         let map_obj = vm.ctx.new_dict();
         if unpack {
             for obj in self.pop_multiple(size) {
                 // Take all key-value pairs from the dict:
                 let dict: PyDictRef = obj.downcast().expect("Need a dictionary to build a map.");
                 for (key, value) in dict {
+                    if for_call {
+                        if map_obj.contains_key(&key, vm) {
+                            let key_repr = vm.to_repr(&key)?;
+                            let msg = format!(
+                                "got multiple values for keyword argument {}",
+                                key_repr.as_str()
+                            );
+                            return Err(vm.new_type_error(msg));
+                        }
+                    }
                     map_obj.set_item(&key, value, vm).unwrap();
                 }
             }

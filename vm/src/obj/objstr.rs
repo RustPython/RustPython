@@ -10,7 +10,6 @@ use std::string::ToString;
 
 use num_traits::ToPrimitive;
 use unicode_casing::CharExt;
-use unicode_segmentation::UnicodeSegmentation;
 use unicode_xid::UnicodeXID;
 
 use crate::cformat::{
@@ -1504,43 +1503,39 @@ impl PySliceableSequence for String {
     type Sliced = String;
 
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
-        to_graphemes(self)
-            .get(range)
-            .map_or(String::default(), |c| c.join(""))
+        self.chars()
+            .skip(range.start)
+            .take(range.end - range.start)
+            .collect()
     }
 
     fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
-        to_graphemes(self)
-            .get_mut(range)
-            .map_or(String::default(), |slice| {
-                slice.reverse();
-                slice.join("")
-            })
+        let count = self.chars().count();
+
+        self.chars()
+            .rev()
+            .skip(count - range.end)
+            .take(range.end - range.start)
+            .collect()
     }
 
     fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        if let Some(s) = to_graphemes(self).get(range) {
-            return s
-                .iter()
-                .cloned()
-                .step_by(step)
-                .collect::<Vec<String>>()
-                .join("");
-        }
-        String::default()
+        self.chars()
+            .skip(range.start)
+            .take(range.end - range.start)
+            .step_by(step)
+            .collect()
     }
 
     fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        if let Some(s) = to_graphemes(self).get(range) {
-            return s
-                .iter()
-                .rev()
-                .cloned()
-                .step_by(step)
-                .collect::<Vec<String>>()
-                .join("");
-        }
-        String::default()
+        let count = self.chars().count();
+
+        self.chars()
+            .rev()
+            .skip(count - range.end)
+            .take(range.end - range.start)
+            .step_by(step)
+            .collect()
     }
 
     fn empty() -> Self::Sliced {
@@ -1548,7 +1543,7 @@ impl PySliceableSequence for String {
     }
 
     fn len(&self) -> usize {
-        to_graphemes(self).len()
+        self.chars().count()
     }
 
     fn is_empty(&self) -> bool {
@@ -1556,21 +1551,18 @@ impl PySliceableSequence for String {
     }
 }
 
-/// Convert a string-able `value` to a vec of graphemes
-/// represents the string according to user perceived characters
-fn to_graphemes<S: AsRef<str>>(value: S) -> Vec<String> {
-    UnicodeSegmentation::graphemes(value.as_ref(), true)
-        .map(String::from)
-        .collect()
-}
-
 pub fn subscript(vm: &VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
     if objtype::isinstance(&b, &vm.ctx.int_type()) {
-        match objint::get_value(&b).to_i32() {
+        match objint::get_value(&b).to_isize() {
             Some(pos) => {
-                let graphemes = to_graphemes(value);
-                if let Some(idx) = graphemes.get_pos(pos) {
-                    Ok(vm.new_str(graphemes[idx].to_string()))
+                let index: usize = if pos.is_negative() {
+                    (value.chars().count() as isize + pos) as usize
+                } else {
+                    pos.abs() as usize
+                };
+
+                if let Some(character) = value.chars().nth(index) {
+                    Ok(vm.new_str(character.to_string()))
                 } else {
                     Err(vm.new_index_error("string index out of range".to_string()))
                 }

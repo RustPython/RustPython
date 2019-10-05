@@ -43,6 +43,11 @@ assert B.__subclasses__() == [D]
 assert C.__subclasses__() == [D]
 assert D.__subclasses__() == []
 
+assert D.__bases__ == (B, C)
+assert A.__bases__ == (object,)
+assert B.__bases__ == (A,)
+
+
 del D
 
 try: # gc sweep is needed here for CPython...
