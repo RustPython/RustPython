@@ -603,15 +603,13 @@ impl VirtualMachine {
             self.invoke(&function, args.insert(object.clone()))
         } else if let Some(PyBuiltinFunction { ref value }) = func_ref.payload() {
             value(self, args)
+        } else if self.is_callable(&func_ref) {
+            self.call_method(&func_ref, "__call__", args)
         } else {
-            if self.is_callable(&func_ref) {
-                self.call_method(&func_ref, "__call__", args)
-            } else {
-                Err(self.new_type_error(format!(
-                    "'{}' object is not callable",
-                    func_ref.class().name
-                )))
-            }
+            Err(self.new_type_error(format!(
+                "'{}' object is not callable",
+                func_ref.class().name
+            )))
         }
     }
 
