@@ -49,3 +49,21 @@ except ZeroDivisionError as exc:
 	exc_info = sys.exc_info()
 	assert exc_info[0] == type(exc) == ZeroDivisionError
 	assert exc_info[1] == exc
+
+
+# Recursion:
+
+def recursive_call(n):
+    if n > 0:
+        recursive_call(n - 1)
+
+sys.setrecursionlimit(200)
+assert sys.getrecursionlimit() == 200
+
+exc = None
+try:
+    recursive_call(300)
+except RecursionError as exc:
+    pass
+
+assert exc is not None
