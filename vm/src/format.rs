@@ -279,15 +279,12 @@ impl FormatSpec {
         separator: char,
     ) -> String {
         let mut result = String::new();
-        let mut remaining: usize = magnitude_string.len() % interval;
-        if remaining == 0 {
-            remaining = interval;
-        }
+        let mut remaining: usize = magnitude_string.len();
         for c in magnitude_string.chars() {
             result.push(c);
-            if remaining == 0 {
+            remaining -= 1;
+            if remaining % interval == 0 && remaining > 0 {
                 result.push(separator);
-                remaining = interval;
             }
         }
         result
