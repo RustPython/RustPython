@@ -1,5 +1,7 @@
 import sys
 
+from testutils import assert_raises
+
 print('python executable:', sys.executable)
 print(sys.argv)
 assert sys.argv[0].endswith('.py')
@@ -49,3 +51,16 @@ except ZeroDivisionError as exc:
 	exc_info = sys.exc_info()
 	assert exc_info[0] == type(exc) == ZeroDivisionError
 	assert exc_info[1] == exc
+
+
+# Recursion:
+
+def recursive_call(n):
+    if n > 0:
+        recursive_call(n - 1)
+
+sys.setrecursionlimit(200)
+assert sys.getrecursionlimit() == 200
+
+with assert_raises(RecursionError):
+    recursive_call(300)

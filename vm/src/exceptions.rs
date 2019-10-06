@@ -222,6 +222,7 @@ pub struct ExceptionZoo {
     pub module_not_found_error: PyClassRef,
     pub name_error: PyClassRef,
     pub not_implemented_error: PyClassRef,
+    pub recursion_error: PyClassRef,
     pub os_error: PyClassRef,
     pub overflow_error: PyClassRef,
     pub permission_error: PyClassRef,
@@ -282,6 +283,7 @@ impl ExceptionZoo {
         let zero_division_error = create_type("ZeroDivisionError", &type_type, &arithmetic_error);
         let module_not_found_error = create_type("ModuleNotFoundError", &type_type, &import_error);
         let not_implemented_error = create_type("NotImplementedError", &type_type, &runtime_error);
+        let recursion_error = create_type("RecursionError", &type_type, &runtime_error);
         let file_not_found_error = create_type("FileNotFoundError", &type_type, &os_error);
         let permission_error = create_type("PermissionError", &type_type, &os_error);
         let file_exists_error = create_type("FileExistsError", &type_type, &os_error);
@@ -325,6 +327,7 @@ impl ExceptionZoo {
             module_not_found_error,
             name_error,
             not_implemented_error,
+            recursion_error,
             os_error,
             overflow_error,
             permission_error,
