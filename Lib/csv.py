@@ -1,20 +1,15 @@
 
 """
-csv.py - read/write/investigate CSV files
+csv.py - read CSV files
 """
 
 import re
-from _csv import Error, __version__, writer, reader, register_dialect, \
-                 unregister_dialect, get_dialect, list_dialects, \
-                 field_size_limit, \
-                 QUOTE_MINIMAL, QUOTE_ALL, QUOTE_NONNUMERIC, QUOTE_NONE, \
-                 __doc__
-from _csv import Dialect as _Dialect
+from _csv import Error, reader, __doc__
 
+from collections import OrderedDict
 from io import StringIO
 
-__all__ = ["QUOTE_MINIMAL", "QUOTE_ALL", "QUOTE_NONNUMERIC", "QUOTE_NONE",
-           "Error", "Dialect", "__doc__", "excel", "excel_tab",
+__all__ = ["Error", "Dialect", "__doc__", "excel", "excel_tab",
            "field_size_limit", "reader", "writer",
            "register_dialect", "get_dialect", "list_dialects", "Sniffer",
            "unregister_dialect", "__version__", "DictReader", "DictWriter",
@@ -50,31 +45,6 @@ class Dialect:
         except TypeError as e:
             # We do this for compatibility with py2.3
             raise Error(str(e))
-
-class excel(Dialect):
-    """Describe the usual properties of Excel-generated CSV files."""
-    delimiter = ','
-    quotechar = '"'
-    doublequote = True
-    skipinitialspace = False
-    lineterminator = '\r\n'
-    quoting = QUOTE_MINIMAL
-register_dialect("excel", excel)
-
-class excel_tab(excel):
-    """Describe the usual properties of Excel-generated TAB-delimited files."""
-    delimiter = '\t'
-register_dialect("excel-tab", excel_tab)
-
-class unix_dialect(Dialect):
-    """Describe the usual properties of Unix-generated CSV files."""
-    delimiter = ','
-    quotechar = '"'
-    doublequote = True
-    skipinitialspace = False
-    lineterminator = '\n'
-    quoting = QUOTE_ALL
-register_dialect("unix", unix_dialect)
 
 
 class DictReader:
@@ -116,7 +86,7 @@ class DictReader:
         # values
         while row == []:
             row = next(self.reader)
-        d = dict(zip(self.fieldnames, row))
+        d = OrderedDict(zip(self.fieldnames, row))
         lf = len(self.fieldnames)
         lr = len(row)
         if lf < lr:
@@ -140,7 +110,7 @@ class DictWriter:
 
     def writeheader(self):
         header = dict(zip(self.fieldnames, self.fieldnames))
-        return self.writerow(header)
+        self.writerow(header)
 
     def _dict_to_list(self, rowdict):
         if self.extrasaction == "raise":
