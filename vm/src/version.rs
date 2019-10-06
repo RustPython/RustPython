@@ -23,7 +23,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 pub fn get_version() -> String {
     format!(
-        "{} {:?} {}",
+        "{:.80} ({:.80}) {:.80}",
         get_version_number(),
         get_build_info(),
         get_compiler()
