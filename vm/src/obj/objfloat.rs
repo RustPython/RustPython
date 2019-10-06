@@ -154,6 +154,15 @@ fn inner_gt_int(value: f64, other_int: &BigInt) -> bool {
     }
 }
 
+pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
+    if v1.is_zero() {
+        let msg = format!("{} cannot be raised to a negative power", v1);
+        Err(vm.new_zero_division_error(msg))
+    } else {
+        v1.powf(v2).into_pyobject(vm)
+    }
+}
+
 #[pyimpl]
 #[allow(clippy::trivially_copy_pass_by_ref)]
 impl PyFloat {
@@ -359,7 +368,7 @@ impl PyFloat {
     fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         try_float(&other, vm)?.map_or_else(
             || Ok(vm.ctx.not_implemented()),
-            |other| self.value.powf(other).into_pyobject(vm),
+            |other| float_pow(self.value, other, vm),
         )
     }
 
@@ -367,7 +376,7 @@ impl PyFloat {
     fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         try_float(&other, vm)?.map_or_else(
             || Ok(vm.ctx.not_implemented()),
-            |other| other.powf(self.value).into_pyobject(vm),
+            |other| float_pow(other, self.value, vm),
         )
     }
 
