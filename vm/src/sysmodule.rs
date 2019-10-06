@@ -147,6 +147,24 @@ fn update_use_tracing(vm: &VirtualMachine) {
     vm.use_tracing.replace(tracing);
 }
 
+fn sys_getrecursionlimit(vm: &VirtualMachine) -> usize {
+    *vm.recursion_limit.borrow()
+}
+
+fn sys_setrecursionlimit(recursion_limit: usize, vm: &VirtualMachine) -> PyResult {
+    let recursion_depth = vm.frames.borrow().len();
+
+    if recursion_limit > recursion_depth + 1 {
+        vm.recursion_limit.replace(recursion_limit);
+        Ok(vm.ctx.none())
+    } else {
+        Err(vm.new_recursion_error(format!(
+            "cannot set the recursion limit to {} at the recursion depth {}: the limit is too low",
+            recursion_limit, recursion_depth
+        )))
+    }
+}
+
 // TODO implement string interning, this will be key for performance
 fn sys_intern(value: PyStringRef, _vm: &VirtualMachine) -> PyStringRef {
     value
@@ -325,6 +343,7 @@ settrace() -- set the global debug tracing function
       "executable" => executable(ctx),
       "flags" => flags,
       "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
+      "getrecursionlimit" => ctx.new_rustfunc(sys_getrecursionlimit),
       "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
       "implementation" => implementation,
       "getfilesystemencoding" => ctx.new_rustfunc(sys_getfilesystemencoding),
@@ -349,6 +368,7 @@ settrace() -- set the global debug tracing function
       "pycache_prefix" => vm.get_none(),
       "dont_write_bytecode" => vm.new_bool(vm.settings.dont_write_bytecode),
       "setprofile" => ctx.new_rustfunc(sys_setprofile),
+      "setrecursionlimit" => ctx.new_rustfunc(sys_setrecursionlimit),
       "settrace" => ctx.new_rustfunc(sys_settrace),
       "version" => vm.new_str(version::get_version()),
       "version_info" => version_info,
