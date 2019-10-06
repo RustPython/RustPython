@@ -1,5 +1,7 @@
 import sys
 
+from testutils import assert_raises
+
 print('python executable:', sys.executable)
 print(sys.argv)
 assert sys.argv[0].endswith('.py')
@@ -60,10 +62,5 @@ def recursive_call(n):
 sys.setrecursionlimit(200)
 assert sys.getrecursionlimit() == 200
 
-exc = None
-try:
+with assert_raises(RecursionError):
     recursive_call(300)
-except RecursionError as exc:
-    pass
-
-assert exc is not None
