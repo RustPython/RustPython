@@ -12,6 +12,8 @@ use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
 #[cfg(unix)]
+use exitcode;
+#[cfg(unix)]
 use nix::errno::Errno;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::pty::openpty;
@@ -1292,6 +1294,22 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "SEEK_SET" => ctx.new_int(Whence::SeekSet as i8),
         "SEEK_CUR" => ctx.new_int(Whence::SeekCur as i8),
         "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8),
+        "EX_OK" => ctx.new_int(exitcode::OK as i8),
+        "EX_USAGE" => ctx.new_int(exitcode::USAGE as i8),
+        "EX_DATAERR" => ctx.new_int(exitcode::DATAERR as i8),
+        "EX_NOINPUT" => ctx.new_int(exitcode::NOINPUT as i8),
+        "EX_NOUSER" => ctx.new_int(exitcode::NOUSER as i8),
+        "EX_NOHOST" => ctx.new_int(exitcode::NOHOST as i8),
+        "EX_UNAVAILABLE" => ctx.new_int(exitcode::UNAVAILABLE as i8),
+        "EX_SOFTWARE" => ctx.new_int(exitcode::SOFTWARE as i8),
+        "EX_OSERR" => ctx.new_int(exitcode::OSERR as i8),
+        "EX_OSFILE" => ctx.new_int(exitcode::OSFILE as i8),
+        "EX_CANTCREAT" => ctx.new_int(exitcode::CANTCREAT as i8),
+        "EX_IOERR" => ctx.new_int(exitcode::IOERR as i8),
+        "EX_TEMPFAIL" => ctx.new_int(exitcode::TEMPFAIL as i8),
+        "EX_PROTOCOL" => ctx.new_int(exitcode::PROTOCOL as i8),
+        "EX_NOPERM" => ctx.new_int(exitcode::NOPERM as i8),
+        "EX_CONFIG" => ctx.new_int(exitcode::CONFIG as i8),
     });
 
     #[cfg(not(target_os = "redox"))]
