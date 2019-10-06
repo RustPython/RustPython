@@ -81,3 +81,12 @@ assert_raises(TypeError, lambda: slice(0) < 3)
 assert_raises(TypeError, lambda: slice(0) > 3)
 assert_raises(TypeError, lambda: slice(0) <= 3)
 assert_raises(TypeError, lambda: slice(0) >= 3)
+
+assert_raises(TypeError, hash, slice(0))
+assert_raises(TypeError, hash, slice(None))
+
+def dict_slice():
+    d = {}
+    d[slice(0)] = 3
+
+assert_raises(TypeError, dict_slice)

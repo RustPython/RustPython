@@ -230,6 +230,11 @@ impl PySlice {
             Ok(vm.ctx.not_implemented())
         }
     }
+
+    #[pymethod(name = "__hash__")]
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
+        Err(vm.new_type_error("unhashable type".to_string()))
+    }
 }
 
 fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<BigInt>> {
