@@ -972,6 +972,14 @@ fn os_cpu_count(vm: &VirtualMachine) -> PyObjectRef {
     vm.new_int(cpu_count)
 }
 
+fn os_exit(code: PyIntRef, _vm: &VirtualMachine) -> PyResult<()> {
+    if let Some(code) = code.as_bigint().to_i32() {
+        std::process::exit(code)
+    } else {
+        panic!("unwrap error from code.as_bigint().to_i32() in os_exit()")
+    }
+}
+
 #[cfg(unix)]
 fn os_getppid(vm: &VirtualMachine) -> PyObjectRef {
     let ppid = unistd::getppid().as_raw();
@@ -1215,6 +1223,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "fspath" => ctx.new_rustfunc(os_fspath),
          "getpid" => ctx.new_rustfunc(os_getpid),
         "cpu_count" => ctx.new_rustfunc(os_cpu_count),
+        "_exit" => ctx.new_rustfunc(os_exit),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
