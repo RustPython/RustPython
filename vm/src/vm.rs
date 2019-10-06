@@ -65,6 +65,7 @@ pub struct VirtualMachine {
     pub use_tracing: RefCell<bool>,
     pub signal_handlers: RefCell<[PyObjectRef; NSIG]>,
     pub settings: PySettings,
+    pub recursion_limit: RefCell<usize>,
 }
 
 pub const NSIG: usize = 64;
@@ -186,6 +187,7 @@ impl VirtualMachine {
             use_tracing: RefCell::new(false),
             signal_handlers,
             settings,
+            recursion_limit: RefCell::new(512),
         };
 
         objmodule::init_module_dict(
@@ -223,10 +225,19 @@ impl VirtualMachine {
     }
 
     pub fn run_frame(&self, frame: FrameRef) -> PyResult<ExecutionResult> {
+        self.check_recursive_call("")?;
         self.frames.borrow_mut().push(frame.clone());
         let result = frame.run(self);
         self.frames.borrow_mut().pop();
         result
+    }
+
+    fn check_recursive_call(&self, _where: &str) -> PyResult<()> {
+        if self.frames.borrow().len() > *self.recursion_limit.borrow() {
+            Err(self.new_recursion_error(format!("maximum recursion depth exceeded {}", _where)))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn frame_throw(
@@ -383,6 +394,11 @@ impl VirtualMachine {
     pub fn new_not_implemented_error(&self, msg: String) -> PyObjectRef {
         let not_implemented_error = self.ctx.exceptions.not_implemented_error.clone();
         self.new_exception(not_implemented_error, msg)
+    }
+
+    pub fn new_recursion_error(&self, msg: String) -> PyObjectRef {
+        let recursion_error = self.ctx.exceptions.recursion_error.clone();
+        self.new_exception(recursion_error, msg)
     }
 
     pub fn new_zero_division_error(&self, msg: String) -> PyObjectRef {
