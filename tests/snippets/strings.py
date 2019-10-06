@@ -313,6 +313,12 @@ assert index_str[-1] == 'n'
 
 assert_raises(TypeError, lambda: index_str['a'])
 
+assert chr(9).__repr__() == "'\\t'"
+assert chr(99).__repr__() == "'c'"
+assert chr(999).__repr__() == "'ϧ'"
+assert chr(9999).__repr__() == "'✏'"
+assert chr(99999).__repr__() == "'𘚟'"
+assert chr(999999).__repr__() == "'\\U000f423f'"
 
 assert "a".__ne__("b")
 assert not "a".__ne__("a")

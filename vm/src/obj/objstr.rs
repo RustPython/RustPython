@@ -327,16 +327,36 @@ impl PyString {
                 formatted.push('\\');
                 formatted.push(c);
             } else if c == '\n' {
-                formatted.push('\\');
-                formatted.push('n');
+                formatted.push_str("\\n")
             } else if c == '\t' {
-                formatted.push('\\');
-                formatted.push('t');
+                formatted.push_str("\\t");
             } else if c == '\r' {
-                formatted.push('\\');
-                formatted.push('r');
-            } else {
+                formatted.push_str("\\r");
+            } else if c < ' ' || c as u32 == 0x7F {
+                formatted.push_str(&format!("\\x{:02x}", c as u32));
+            } else if c.is_ascii() {
                 formatted.push(c);
+            } else if c.is_other() || c.is_separator() {
+                // According to python following categories aren't printable:
+                // * Cc (Other, Control)
+                // * Cf (Other, Format)
+                // * Cs (Other, Surrogate)
+                // * Co (Other, Private Use)
+                // * Cn (Other, Not Assigned)
+                // * Zl Separator, Line ('\u2028', LINE SEPARATOR)
+                // * Zp Separator, Paragraph ('\u2029', PARAGRAPH SEPARATOR)
+                // * Zs (Separator, Space) other than ASCII space('\x20').
+                let code = c as u32;
+                let escaped = if code < 0xff {
+                    format!("\\U{:02x}", code)
+                } else if code < 0xffff {
+                    format!("\\U{:04x}", code)
+                } else {
+                    format!("\\U{:08x}", code)
+                };
+                formatted.push_str(&escaped);
+            } else {
+                formatted.push(c)
             }
         }
         formatted.push(quote_char);
