@@ -4,12 +4,14 @@ csv.py - read CSV files
 """
 
 import re
-from _csv import Error, reader, __doc__
+from _csv import QUOTE_MINIMAL, QUOTE_ALL, QUOTE_NONNUMERIC, QUOTE_NONE, \
+                 Error, reader, __doc__
 
 from collections import OrderedDict
 from io import StringIO
 
-__all__ = ["Error", "Dialect", "__doc__", "excel", "excel_tab",
+__all__ = ["QUOTE_MINIMAL", "QUOTE_ALL", "QUOTE_NONNUMERIC", "QUOTE_NONE",
+           "Error", "Dialect", "__doc__", "excel", "excel_tab",
            "field_size_limit", "reader", "writer",
            "register_dialect", "get_dialect", "list_dialects", "Sniffer",
            "unregister_dialect", "__version__", "DictReader", "DictWriter",

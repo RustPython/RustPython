@@ -15,6 +15,14 @@ use crate::obj::objstr::PyString;
 // external crates go here.
 use csv as rust_csv;
 
+#[repr(i32)]
+pub enum QuoteStyle {
+    QuoteMinimal,
+    QuoteAll,
+    QuoteNonnumeric,
+    QuoteNone,
+}
+
 #[pyclass(name = "Reader")]
 pub struct Reader {
     reader: Rc<RefCell<rust_csv::StringRecordsIntoIter<Cursor<Vec<u8>>>>>,
@@ -109,12 +117,17 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let error = create_type(
         "Error",
         &ctx.types.type_type,
-        &ctx.exceptions.exception_type
+        &ctx.exceptions.exception_type,
     );
 
     py_module!(vm, "_csv", {
         "reader" => ctx.new_rustfunc(csv_reader),
         "Reader" => reader_type,
-        "Error"  => error
+        "Error"  => error,
+        // constants
+        "QUOTE_MINIMAL" => ctx.new_int(QuoteStyle::QuoteMinimal as i32),
+        "QUOTE_ALL" => ctx.new_int(QuoteStyle::QuoteAll as i32),
+        "QUOTE_NONNUMERIC" => ctx.new_int(QuoteStyle::QuoteNonnumeric as i32),
+        "QUOTE_NONE" => ctx.new_int(QuoteStyle::QuoteNone as i32),
     })
 }
