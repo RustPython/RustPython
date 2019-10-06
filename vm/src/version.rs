@@ -46,7 +46,7 @@ pub fn get_version_number() -> String {
 
 pub fn get_compiler() -> String {
     let rustc_version = rustc_version_runtime::version_meta();
-    format!("rustc {}", rustc_version.semver)
+    format!("\n[rustc {}]", rustc_version.semver)
 }
 
 pub fn get_build_info() -> String {
