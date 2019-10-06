@@ -11,6 +11,42 @@ assert y == [2, 1, 2, 3]
 y.extend(x)
 assert y == [2, 1, 2, 3, 1, 2, 3]
 
+a = []
+a.extend((1,2,3,4))
+assert a == [1, 2, 3, 4]
+
+a.extend('abcdefg')
+assert a == [1, 2, 3, 4, 'a', 'b', 'c', 'd', 'e', 'f', 'g']
+
+a.extend(range(10))
+assert a == [1, 2, 3, 4, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+a = []
+a.extend({1,2,3,4})
+assert a == [1, 2, 3, 4]
+
+a.extend({'a': 1, 'b': 2, 'z': 51})
+assert a == [1, 2, 3, 4, 'a', 'b', 'z']
+
+class Iter:
+    def __iter__(self):
+        yield 12
+        yield 28
+
+a.extend(Iter())
+assert a == [1, 2, 3, 4, 'a', 'b', 'z', 12, 28]
+
+a.extend(bytes(b'hello world'))
+assert a == [1, 2, 3, 4, 'a', 'b', 'z', 12, 28, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]
+
+class Next:
+    def __next__(self):
+        yield 12
+        yield 28
+
+assert_raises(TypeError, lambda: [].extend(3))
+assert_raises(TypeError, lambda: [].extend(slice(0, 10, 1)))
+
 assert x * 0 == [], "list __mul__ by 0 failed"
 assert x * -1 == [], "list __mul__ by -1 failed"
 assert x * 2 == [1, 2, 3, 1, 2, 3], "list __mul__ by 2 failed"
@@ -527,3 +563,54 @@ assert [float('inf'), float('inf')] <= [float('inf'), float('inf')]
 assert [float('inf'), float('inf')] >= [float('inf'), float('inf')]
 assert not [float('inf'), float('inf')] < [float('inf'), float('inf')]
 assert not [float('inf'), float('inf')] > [float('inf'), float('inf')]
+
+# list __iadd__
+a = []
+a += [1, 2, 3]
+assert a == [1, 2, 3]
+
+a = []
+a += (1,2,3,4)
+assert a == [1, 2, 3, 4]
+
+a += 'abcdefg'
+assert a == [1, 2, 3, 4, 'a', 'b', 'c', 'd', 'e', 'f', 'g']
+
+a += range(10)
+assert a == [1, 2, 3, 4, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+a = []
+a += {1,2,3,4}
+assert a == [1, 2, 3, 4]
+
+a += {'a': 1, 'b': 2, 'z': 51}
+assert a == [1, 2, 3, 4, 'a', 'b', 'z']
+
+class Iter:
+    def __iter__(self):
+        yield 12
+        yield 28
+
+a += Iter()
+assert a == [1, 2, 3, 4, 'a', 'b', 'z', 12, 28]
+
+a += bytes(b'hello world')
+assert a == [1, 2, 3, 4, 'a', 'b', 'z', 12, 28, 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]
+
+class Next:
+    def __next__(self):
+        yield 12
+        yield 28
+
+def iadd_int():
+    a = []
+    a += 3
+
+def iadd_slice():
+    a = []
+    a += slice(0, 10, 1)
+
+assert_raises(TypeError, iadd_int)
+assert_raises(TypeError, iadd_slice)
+
+
