@@ -1,4 +1,4 @@
-mod array;
+pub mod array;
 #[cfg(feature = "rustpython-parser")]
 mod ast;
 mod binascii;

@@ -1,6 +1,9 @@
+use std::borrow::Borrow;
+
 use crate::obj::objbyteinner::try_as_byte;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::{issubclass, PyClassRef};
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
 
 #[pyclass(name = "memoryview")]
@@ -23,10 +26,23 @@ impl PyMemoryView {
         bytes_object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyMemoryViewRef> {
-        PyMemoryView {
-            obj_ref: bytes_object.clone(),
+        let object_type = bytes_object.typ.borrow();
+
+        if issubclass(object_type, &vm.ctx.types.memoryview_type)
+            || issubclass(object_type, &vm.ctx.types.bytes_type)
+            || issubclass(object_type, &vm.ctx.types.bytearray_type)
+            || issubclass(object_type, &PyArray::class(vm))
+        {
+            PyMemoryView {
+                obj_ref: bytes_object.clone(),
+            }
+            .into_ref_with_type(vm, cls)
+        } else {
+            Err(vm.new_type_error(format!(
+                "memoryview: a bytes-like object is required, not '{}'",
+                object_type.name
+            )))
         }
-        .into_ref_with_type(vm, cls)
     }
 
     #[pyproperty]
