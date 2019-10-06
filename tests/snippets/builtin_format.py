@@ -18,3 +18,12 @@ def test_zero_padding():
     assert f'{i:04d}' == '0001'
 
 test_zero_padding()
+
+assert '{:,}'.format(100) == '100'
+assert '{:,}'.format(1024) == '1,024'
+assert '{:_}'.format(65536) == '65_536'
+assert '{:_}'.format(4294967296) == '4_294_967_296'
+assert f'{100:_}' == '100'
+assert f'{1024:_}' == '1_024'
+assert f'{65536:,}' == '65,536'
+assert f'{4294967296:,}' == '4,294,967,296'
