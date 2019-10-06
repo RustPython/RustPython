@@ -851,6 +851,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "ReferenceError" => ctx.exceptions.reference_error.clone(),
         "SyntaxError" =>  ctx.exceptions.syntax_error.clone(),
         "NotImplementedError" => ctx.exceptions.not_implemented_error.clone(),
+        "RecursionError" => ctx.exceptions.recursion_error.clone(),
         "TypeError" => ctx.exceptions.type_error.clone(),
         "ValueError" => ctx.exceptions.value_error.clone(),
         "IndexError" => ctx.exceptions.index_error.clone(),
