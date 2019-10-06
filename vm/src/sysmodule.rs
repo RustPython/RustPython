@@ -148,14 +148,14 @@ fn update_use_tracing(vm: &VirtualMachine) {
 }
 
 fn sys_getrecursionlimit(vm: &VirtualMachine) -> usize {
-    *vm.recursion_limit.borrow()
+    vm.recursion_limit.get()
 }
 
 fn sys_setrecursionlimit(recursion_limit: usize, vm: &VirtualMachine) -> PyResult {
     let recursion_depth = vm.frames.borrow().len();
 
     if recursion_limit > recursion_depth + 1 {
-        vm.recursion_limit.replace(recursion_limit);
+        vm.recursion_limit.set(recursion_limit);
         Ok(vm.ctx.none())
     } else {
         Err(vm.new_recursion_error(format!(

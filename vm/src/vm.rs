@@ -4,7 +4,7 @@
 //!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
 //!
 
-use std::cell::{Ref, RefCell};
+use std::cell::{Ref, RefCell, Cell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
 use std::fmt;
@@ -65,7 +65,7 @@ pub struct VirtualMachine {
     pub use_tracing: RefCell<bool>,
     pub signal_handlers: RefCell<[PyObjectRef; NSIG]>,
     pub settings: PySettings,
-    pub recursion_limit: RefCell<usize>,
+    pub recursion_limit: Cell<usize>,
 }
 
 pub const NSIG: usize = 64;
@@ -187,7 +187,7 @@ impl VirtualMachine {
             use_tracing: RefCell::new(false),
             signal_handlers,
             settings,
-            recursion_limit: RefCell::new(512),
+            recursion_limit: Cell::new(512),
         };
 
         objmodule::init_module_dict(
@@ -233,7 +233,7 @@ impl VirtualMachine {
     }
 
     fn check_recursive_call(&self, _where: &str) -> PyResult<()> {
-        if self.frames.borrow().len() > *self.recursion_limit.borrow() {
+        if self.frames.borrow().len() > self.recursion_limit.get() {
             Err(self.new_recursion_error(format!("maximum recursion depth exceeded {}", _where)))
         } else {
             Ok(())
