@@ -9,9 +9,6 @@ with assert_raises(SystemExit):
 with assert_raises(SystemExit):
     exit(1)
 
-with assert_raises(NameError):
-    exit(AB)
-
 with assert_raises(SystemExit):
     exit("AB")
 
@@ -23,9 +20,6 @@ with assert_raises(SystemExit):
 
 with assert_raises(SystemExit):
     quit(1)
-
-with assert_raises(NameError):
-    quit(AB)
 
 with assert_raises(SystemExit):
     quit("AB")
@@ -40,9 +34,6 @@ with assert_raises(SystemExit):
 
 with assert_raises(SystemExit):
     sys.exit(1)
-
-with assert_raises(NameError):
-    sys.exit(AB)
 
 with assert_raises(SystemExit):
     sys.exit("AB")
