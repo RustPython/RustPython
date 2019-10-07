@@ -34,6 +34,27 @@ Or use the interactive shell:
     >>>>> 2+2
     4
 
+### WASI
+
+You can compile RustPython to a standalone WebAssembly WASI module so it can run anywhere.
+
+```shell
+$ wapm install rustpython
+$ wapm run rustpython
+>>>>> 2+2
+4
+```
+
+#### Building the WASI file
+
+You can build the WebAssembly WASI file with:
+
+```
+cargo build --release --target wasm32-wasi --features="freeze-stdlib"
+```
+
+> Note: we use the `freeze-stdlib` to include the standard libarary inside the binary.
+
 ## Disclaimer
 
 RustPython is in a development phase and should not be used in production or a
