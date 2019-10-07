@@ -601,14 +601,9 @@ impl Printer for std::io::StdoutLock<'_> {
     }
 }
 
-pub fn builtin_exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
-    if let OptionalArg::Present(exit_code_obj) = exit_code_arg {
-        match i32::try_from_object(&vm, exit_code_obj.clone()) {
-            Ok(code) => std::process::exit(code),
-            _ => println!("{}", vm.to_str(&exit_code_obj)?.as_str()),
-        }
-    }
-    std::process::exit(0);
+pub fn builtin_exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    let code = exit_code_arg.unwrap_or_else(|| vm.new_int(0));
+    Err(vm.new_exception_obj(vm.ctx.exceptions.system_exit.clone(), vec![code])?)
 }
 
 pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {

@@ -45,6 +45,7 @@ def _get_exports_list(module):
 
 import _os
 from _os import *
+from _os import _exit
 __all__.extend(_get_exports_list(_os))
 del _os
 

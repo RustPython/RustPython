@@ -71,6 +71,9 @@ flamer = { version = "0.3", optional = true }
 [target.'cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))'.dependencies]
 pwd = "1"
 
+[target.'cfg(unix)'.dependencies]
+exitcode = "1.1.2"
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 crc32fast = "1.2.0"
 adler32 = "1.0.3"
