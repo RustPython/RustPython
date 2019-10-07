@@ -5,6 +5,7 @@ use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyhash;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
@@ -14,6 +15,7 @@ use super::objint::{PyInt, PyIntRef};
 use super::objiter;
 use super::objslice::{PySlice, PySliceRef};
 use super::objtype::{self, PyClassRef};
+use crate::obj::objtuple::PyTuple;
 
 /// range(stop) -> range object
 /// range(start, stop[, step]) -> range object
@@ -400,6 +402,27 @@ impl PyRange {
                 None => Err(vm.new_index_error("range object index out of range".to_string())),
             },
         }
+    }
+
+    #[pymethod(name = "__hash__")]
+    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+        let length = zelf.length();
+        let len = length.as_bigint().clone();
+        let a = length.into_ref(vm).into_object();
+        let mut b = vm.get_none();
+        let mut c = vm.get_none();
+        if !len.is_zero() {
+            b = zelf.start.clone().into_object();
+            if !len.is_one() {
+                c = zelf.step(vm).into_object();
+            }
+        };
+        let tuple = vm
+            .ctx
+            .new_tuple(vec![a, b, c])
+            .downcast::<PyTuple>()
+            .unwrap();
+        tuple.hash(vm)
     }
 
     #[pyslot(new)]
