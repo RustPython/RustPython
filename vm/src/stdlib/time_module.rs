@@ -56,7 +56,7 @@ fn duration_to_f64(d: Duration) -> f64 {
     (d.as_secs() as f64) + (f64::from(d.subsec_nanos()) / 1e9)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 fn time_time(_vm: &VirtualMachine) -> f64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(v) => duration_to_f64(v),
@@ -64,7 +64,7 @@ fn time_time(_vm: &VirtualMachine) -> f64 {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
 fn time_time(_vm: &VirtualMachine) -> f64 {
     use wasm_bindgen::prelude::*;
     #[wasm_bindgen]
