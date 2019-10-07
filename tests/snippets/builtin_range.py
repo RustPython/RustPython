@@ -113,3 +113,15 @@ assert range(10)[-2:4] == range(8, 4)
 assert range(10)[-6:-2] == range(4, 8)
 assert range(50, 0, -2)[-5] == 10
 assert range(50, 0, -2)[-5:3:5] == range(10, 44, -10)
+
+assert hash(range(10)) == hash((10, 0, 1))
+assert hash(range(10)) == hash(range(10))
+assert hash(range(100)[20:30]) == hash(range(20, 30))
+assert hash(range(10, 10)) == hash(range(0, 0))
+assert hash(range(1, 2, 100)) == hash(range(1, 6, 100))
+
+a = {}
+for i in range(100):
+    a[range(10)] = 1
+
+assert len(a.keys()) == 1
