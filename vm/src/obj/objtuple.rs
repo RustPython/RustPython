@@ -179,7 +179,7 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__hash__")]
-    pub fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
         pyhash::hash_iter(self.elements.iter(), vm)
     }
 

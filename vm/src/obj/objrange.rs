@@ -15,7 +15,6 @@ use super::objint::{PyInt, PyIntRef};
 use super::objiter;
 use super::objslice::{PySlice, PySliceRef};
 use super::objtype::{self, PyClassRef};
-use crate::obj::objtuple::PyTuple;
 
 /// range(stop) -> range object
 /// range(start, stop[, step]) -> range object
@@ -77,18 +76,13 @@ impl PyRange {
     #[inline]
     pub fn get(&self, index: &BigInt) -> Option<BigInt> {
         let start = self.start.as_bigint();
-        let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
         let index = index.clone();
         if self.is_empty() {
             return None;
         }
 
-        let length: BigInt = if start < stop {
-            (stop - start - 1) / step + 1
-        } else {
-            (start - stop - 1) / (-step) + 1
-        };
+        let length = self.length();
 
         let index = if index.is_negative() {
             let new_index: BigInt = &length + &index;
@@ -108,15 +102,15 @@ impl PyRange {
     }
 
     #[inline]
-    fn length(&self) -> PyInt {
+    fn length(&self) -> BigInt {
         let start = self.start.as_bigint();
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
 
         match step.sign() {
-            Sign::Plus if start < stop => PyInt::new((stop - start - 1usize) / step + 1),
-            Sign::Minus if start > stop => PyInt::new((start - stop - 1usize) / (-step) + 1),
-            Sign::Plus | Sign::Minus => PyInt::new(0),
+            Sign::Plus if start < stop => (stop - start - 1usize) / step + 1,
+            Sign::Minus if start > stop => (start - stop - 1usize) / (-step) + 1,
+            Sign::Plus | Sign::Minus => BigInt::zero(),
             Sign::NoSign => unreachable!(),
         }
     }
@@ -216,7 +210,7 @@ impl PyRange {
 
     #[pymethod(name = "__len__")]
     fn len(&self, _vm: &VirtualMachine) -> PyInt {
-        self.length()
+        PyInt::new(self.length())
     }
 
     #[pymethod(name = "__repr__")]
@@ -250,11 +244,11 @@ impl PyRange {
         if objtype::isinstance(&rhs, &vm.ctx.range_type()) {
             let rhs = get_value(&rhs);
 
-            if self.length().as_bigint() != rhs.length().as_bigint() {
+            if self.length() != rhs.length() {
                 return false;
             }
 
-            if self.length().as_bigint().is_zero() {
+            if self.length().is_zero() {
                 return true;
             }
 
@@ -323,8 +317,7 @@ impl PyRange {
             RangeIndex::Slice(slice) => {
                 let range_start = self.start.as_bigint();
                 let range_step = self.step.as_bigint();
-                let _tmp_len = self.length();
-                let range_length = _tmp_len.as_bigint();
+                let range_length = &self.length();
 
                 let substep = if let Some(slice_step) = slice.step_index(vm)? {
                     if slice_step.is_zero() {
@@ -407,22 +400,22 @@ impl PyRange {
     #[pymethod(name = "__hash__")]
     fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
         let length = zelf.length();
-        let len = length.as_bigint().clone();
-        let a = length.into_ref(vm).into_object();
-        let mut b = vm.get_none();
-        let mut c = vm.get_none();
-        if !len.is_zero() {
-            b = zelf.start.clone().into_object();
-            if !len.is_one() {
-                c = zelf.step(vm).into_object();
-            }
+        let elements = if length.is_zero() {
+            vec![vm.ctx.new_int(length), vm.get_none(), vm.get_none()]
+        } else if length.is_one() {
+            vec![
+                vm.ctx.new_int(length),
+                zelf.start(vm).into_object(),
+                vm.get_none(),
+            ]
+        } else {
+            vec![
+                vm.ctx.new_int(length),
+                zelf.start(vm).into_object(),
+                zelf.step(vm).into_object(),
+            ]
         };
-        let tuple = vm
-            .ctx
-            .new_tuple(vec![a, b, c])
-            .downcast::<PyTuple>()
-            .unwrap();
-        tuple.hash(vm)
+        pyhash::hash_iter(elements.iter(), vm)
     }
 
     #[pyslot(new)]
