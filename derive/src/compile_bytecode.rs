@@ -14,7 +14,6 @@
 //! ```
 
 use crate::{extract_spans, Diagnostic};
-use bincode;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use rustpython_bytecode::bytecode::{CodeObject, FrozenModule};
@@ -249,11 +248,11 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
         .into_iter()
         .map(|(module_name, FrozenModule { code, package })| {
             let module_name = LitStr::new(&module_name, Span::call_site());
-            let bytes = bincode::serialize(&code).expect("Failed to serialize");
+            let bytes = code.to_bytes();
             let bytes = LitByteStr::new(&bytes, Span::call_site());
             quote! {
                 #module_name.into() => ::rustpython_vm::bytecode::FrozenModule {
-                    code: bincode::deserialize::<::rustpython_vm::bytecode::CodeObject>(
+                    code: ::rustpython_vm::bytecode::CodeObject::from_bytes(
                         #bytes
                     ).expect("Deserializing CodeObject failed"),
                     package: #package,
@@ -263,7 +262,6 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
 
     let output = quote! {
         ({
-            use ::rustpython_vm::__exports::bincode;
             use ::rustpython_vm::__exports::hashmap;
             hashmap! {
                 #(#modules),*

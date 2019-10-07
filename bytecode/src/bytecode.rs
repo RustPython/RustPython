@@ -378,6 +378,18 @@ impl CodeObject {
         }
     }
 
+    /// Load a code object from bytes
+    pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+        let data = lz4_compress::decompress(data)?;
+        bincode::deserialize::<Self>(&data).map_err(|e| e.into())
+    }
+
+    /// Serialize this bytecode to bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let data = bincode::serialize(&self).expect("Code object must be serializable");
+        lz4_compress::compress(&data)
+    }
+
     pub fn get_constants(&self) -> impl Iterator<Item = &Constant> {
         self.instructions.iter().filter_map(|x| {
             if let Instruction::LoadConst { value } = x {
