@@ -4,8 +4,8 @@ use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::VirtualMachine;
 use rustyline::{completion::Completer, highlight::Highlighter, hint::Hinter, Context, Helper};
 
-pub struct ShellHelper<'a> {
-    vm: &'a VirtualMachine,
+pub struct ShellHelper<'vm> {
+    vm: &'vm VirtualMachine,
     scope: Scope,
 }
 
@@ -14,7 +14,7 @@ fn reverse_string(s: &mut String) {
     *s = rev;
 }
 
-fn extract_words(line: &str) -> Option<(usize, Vec<String>)> {
+fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
     let mut words = vec![String::new()];
     let mut startpos = 0;
     for (i, c) in line.chars().rev().enumerate() {
@@ -42,34 +42,36 @@ fn extract_words(line: &str) -> Option<(usize, Vec<String>)> {
             }
         }
     }
+    if words == &[String::new()] {
+        return None;
+    }
     reverse_string(words.last_mut().unwrap());
     words.reverse();
+
     Some((startpos, words))
 }
 
-impl<'a> ShellHelper<'a> {
-    pub fn new(vm: &'a VirtualMachine, scope: Scope) -> Self {
+impl<'vm> ShellHelper<'vm> {
+    pub fn new(vm: &'vm VirtualMachine, scope: Scope) -> Self {
         ShellHelper { vm, scope }
     }
 
-    // fn get_words
-
-    fn complete_opt(&self, line: &str) -> Option<(usize, Vec<String>)> {
-        let (startpos, words) = extract_words(line)?;
-
+    fn get_available_completions<'w>(
+        &self,
+        words: &'w [String],
+    ) -> Option<(
+        &'w str,
+        Box<dyn Iterator<Item = PyResult<PyStringRef>> + 'vm>,
+    )> {
         // the very first word and then all the ones after the dot
         let (first, rest) = words.split_first().unwrap();
 
-        let str_iter = |obj| {
-            PyIterable::<PyStringRef>::try_from_object(self.vm, obj)
-                .ok()?
-                .iter(self.vm)
-                .ok()
+        let str_iter_method = |obj, name| {
+            let iter = self.vm.call_method(obj, name, vec![])?;
+            PyIterable::<PyStringRef>::try_from_object(self.vm, iter)?.iter(self.vm)
         };
 
-        type StrIter<'a> = Box<dyn Iterator<Item = PyResult<PyStringRef>> + 'a>;
-
-        let (iter, prefix) = if let Some((last, parents)) = rest.split_last() {
+        if let Some((last, parents)) = rest.split_last() {
             // we need to get an attribute based off of the dir() of an object
 
             // last: the last word, could be empty if it ends with a dot
@@ -81,58 +83,55 @@ impl<'a> ShellHelper<'a> {
                 current = self.vm.get_attribute(current.clone(), attr.as_str()).ok()?;
             }
 
-            (
-                Box::new(str_iter(
-                    self.vm.call_method(&current, "__dir__", vec![]).ok()?,
-                )?) as StrIter,
-                last.as_str(),
-            )
+            let current_iter = str_iter_method(&current, "__dir__").ok()?;
+
+            Some((&last, Box::new(current_iter) as _))
         } else {
             // we need to get a variable based off of globals/builtins
 
-            let globals = str_iter(
-                self.vm
-                    .call_method(self.scope.globals.as_object(), "keys", vec![])
-                    .ok()?,
-            )?;
-            let iter = if first.as_str().is_empty() {
-                // only show globals that don't start with a  '_'
-                Box::new(globals.filter(|r| {
-                    r.as_ref()
-                        .ok()
-                        .map_or(true, |s| !s.as_str().starts_with('_'))
-                })) as StrIter
-            } else {
-                // show globals and builtins
-                Box::new(
-                    globals.chain(str_iter(
-                        self.vm
-                            .call_method(&self.vm.builtins, "__dir__", vec![])
-                            .ok()?,
-                    )?),
-                ) as StrIter
-            };
-            (iter, first.as_str())
-        };
-        let completions = iter
+            let globals = str_iter_method(self.scope.globals.as_object(), "keys").ok()?;
+            let builtins = str_iter_method(&self.vm.builtins, "__dir__").ok()?;
+            Some((&first, Box::new(Iterator::chain(globals, builtins)) as _))
+        }
+    }
+
+    fn complete_opt(&self, line: &str) -> Option<(usize, Vec<String>)> {
+        let (startpos, words) = split_idents_on_dot(line)?;
+
+        let (word_start, iter) = self.get_available_completions(&words)?;
+
+        let all_completions = iter
             .filter(|res| {
                 res.as_ref()
                     .ok()
-                    .map_or(true, |s| s.as_str().starts_with(prefix))
+                    .map_or(true, |s| s.as_str().starts_with(word_start))
             })
             .collect::<Result<Vec<_>, _>>()
             .ok()?;
-        let no_underscore = completions
-            .iter()
-            .cloned()
-            .filter(|s| !prefix.starts_with('_') && !s.as_str().starts_with('_'))
-            .collect::<Vec<_>>();
-        let mut completions = if no_underscore.is_empty() {
-            completions
+        let mut completions = if word_start.starts_with('_') {
+            // if they're already looking for something starting with a '_', just give
+            // them all the completions
+            all_completions
         } else {
-            no_underscore
+            // only the completions that don't start with a '_'
+            let no_underscore = all_completions
+                .iter()
+                .cloned()
+                .filter(|s| !s.as_str().starts_with('_'))
+                .collect::<Vec<_>>();
+
+            // if there are only completions that start with a '_', give them all of the
+            // completions, otherwise only the ones that don't start with '_'
+            if no_underscore.is_empty() {
+                all_completions
+            } else {
+                no_underscore
+            }
         };
+
+        // sort the completions alphabetically
         completions.sort_by(|a, b| std::cmp::Ord::cmp(a.as_str(), b.as_str()));
+
         Some((
             startpos,
             completions
