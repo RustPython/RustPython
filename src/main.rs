@@ -321,7 +321,8 @@ fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>>
 }
 
 fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
-    import::init_importlib(&vm, true)?;
+    // We only include the standard library bytecode in WASI
+    import::init_importlib(&vm, cfg!(not(target_os = "wasi")))?;
 
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
         let sys_path = vm.get_attribute(vm.sys_module.clone(), "path")?;
@@ -486,6 +487,7 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResul
     }
 }
 
+#[cfg(not(target_os = "wasi"))]
 fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     use rustyline::{error::ReadlineError, Editor};
 
@@ -594,5 +596,81 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     }
     repl.save_history(&repl_history_path).unwrap();
 
+    Ok(())
+}
+
+#[cfg(target_os = "wasi")]
+fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
+    use std::io::prelude::*;
+    use std::io::{self, BufRead};
+
+    println!(
+        "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
+        crate_version!()
+    );
+
+    // Read a single line:
+    let mut input = String::new();
+    let mut continuing = false;
+
+    loop {
+        let prompt_name = if continuing { "ps2" } else { "ps1" };
+        let prompt = vm
+            .get_attribute(vm.sys_module.clone(), prompt_name)
+            .and_then(|prompt| vm.to_str(&prompt));
+        let prompt = match prompt {
+            Ok(ref s) => s.as_str(),
+            Err(_) => "",
+        };
+        print!("{}", prompt);
+        io::stdout().flush().ok().expect("Could not flush stdout");
+
+        let stdin = io::stdin();
+
+        let result = match stdin.lock().lines().next().unwrap() {
+            Ok(line) => {
+                debug!("You entered {:?}", line);
+                let stop_continuing = line.is_empty();
+
+                if input.is_empty() {
+                    input = line;
+                } else {
+                    input.push_str(&line);
+                }
+                input.push_str("\n");
+
+                if continuing {
+                    if stop_continuing {
+                        continuing = false;
+                    } else {
+                        continue;
+                    }
+                }
+
+                match shell_exec(vm, &input, scope.clone()) {
+                    ShellExecResult::Ok => {
+                        input.clear();
+                        Ok(())
+                    }
+                    ShellExecResult::Continue => {
+                        continuing = true;
+                        Ok(())
+                    }
+                    ShellExecResult::PyErr(err) => {
+                        input.clear();
+                        Err(err)
+                    }
+                }
+            }
+            Err(err) => {
+                eprintln!("Readline error: {:?}", err);
+                break;
+            }
+        };
+
+        if let Err(exc) = result {
+            print_exception(vm, &exc);
+        }
+    }
     Ok(())
 }
