@@ -321,11 +321,8 @@ fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>>
 }
 
 fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
-    #[cfg(not(target_os = "wasi"))]
-    import::init_importlib(&vm, true)?;
-
-    #[cfg(target_os = "wasi")]
-    import::init_importlib(&vm, false)?;
+    // We only include the standard library bytecode in WASI
+    import::init_importlib(&vm, cfg!(not(target_os = "wasi")))?;
 
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
         let sys_path = vm.get_attribute(vm.sys_module.clone(), "path")?;
@@ -602,11 +599,10 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     Ok(())
 }
 
-
 #[cfg(target_os = "wasi")]
 fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
-    use std::io::{self, BufRead};
     use std::io::prelude::*;
+    use std::io::{self, BufRead};
 
     println!(
         "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
