@@ -32,7 +32,8 @@ fn platform_python_compiler(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn platform_python_build(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args);
-    let (git_hash, git_timestamp) = version::get_build_info();
+    let git_hash = version::get_git_identifier();
+    let git_timestamp = version::get_git_datetime();
     Ok(vm
         .ctx
         .new_tuple(vec![vm.new_str(git_hash), vm.new_str(git_timestamp)]))

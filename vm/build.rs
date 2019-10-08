@@ -15,7 +15,7 @@ fn git_hash() -> String {
 }
 
 fn git_timestamp() -> String {
-    git(&["log", "-1", "--format=%cd"])
+    git(&["log", "-1", "--format=%ct"])
 }
 
 fn git_tag() -> String {
@@ -23,7 +23,7 @@ fn git_tag() -> String {
 }
 
 fn git_branch() -> String {
-    git(&["rev-parse", "--abbrev-ref", "HEAD"])
+    git(&["name-rev", "--name-only", "HEAD"])
 }
 
 fn git(args: &[&str]) -> String {
