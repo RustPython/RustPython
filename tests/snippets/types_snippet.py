@@ -61,3 +61,28 @@ assert C.__subclasses__() == []
 assert type in object.__subclasses__()
 
 assert cls.__name__ == 'Cls'
+
+# mro
+assert int.mro() == [int, object]
+assert bool.mro() == [bool, int, object]
+assert object.mro() == [object]
+
+class A:
+    pass
+
+class B(A):
+    pass
+
+assert A.mro() == [A, object]
+assert B.mro() == [B, A, object]
+
+class AA:
+    pass
+
+class BB(AA):
+    pass
+
+class C(B, BB):
+    pass
+
+assert C.mro() == [C, B, A, BB, AA, object]
