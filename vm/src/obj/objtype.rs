@@ -220,8 +220,9 @@ impl PyClassRef {
 }
 
 fn type_mro(cls: PyClassRef, vm: &VirtualMachine) -> PyObjectRef {
-    vm.ctx
-        .new_list(cls.mro.iter().map(|x| x.clone().into_object()).collect())
+    let mut mro = vec![cls.clone().into_object()];
+    mro.extend(cls.mro.iter().map(|x| x.clone().into_object()));
+    vm.ctx.new_list(mro)
 }
 
 /*
