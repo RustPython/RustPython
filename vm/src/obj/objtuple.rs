@@ -1,7 +1,6 @@
 use std::cell::Cell;
 use std::fmt;
 
-use super::objbool;
 use super::objiter;
 use super::objsequence::{
     get_elements_tuple, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
@@ -10,7 +9,7 @@ use super::objtype::{self, PyClassRef};
 use crate::function::OptionalArg;
 use crate::pyhash;
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -142,13 +141,8 @@ impl PyTuple {
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
         for element in self.elements.iter() {
-            if element.is(&needle) {
+            if vm.identical_or_equal(element, &needle)? {
                 count += 1;
-            } else {
-                let is_eq = vm._eq(element.clone(), needle.clone())?;
-                if objbool::boolval(vm, is_eq)? {
-                    count += 1;
-                }
             }
         }
         Ok(count)
@@ -236,11 +230,7 @@ impl PyTuple {
     #[pymethod(name = "index")]
     fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         for (index, element) in self.elements.iter().enumerate() {
-            if element.is(&needle) {
-                return Ok(index);
-            }
-            let is_eq = vm._eq(needle.clone(), element.clone())?;
-            if objbool::boolval(vm, is_eq)? {
+            if vm.identical_or_equal(element, &needle)? {
                 return Ok(index);
             }
         }
@@ -250,11 +240,7 @@ impl PyTuple {
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         for element in self.elements.iter() {
-            if element.is(&needle) {
-                return Ok(true);
-            }
-            let is_eq = vm._eq(needle.clone(), element.clone())?;
-            if objbool::boolval(vm, is_eq)? {
+            if vm.identical_or_equal(element, &needle)? {
                 return Ok(true);
             }
         }
