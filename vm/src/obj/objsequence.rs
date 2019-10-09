@@ -10,7 +10,6 @@ use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use super::objbool;
 use super::objint::{PyInt, PyIntRef};
 use super::objlist::PyList;
 use super::objslice::{PySlice, PySliceRef};
@@ -285,15 +284,14 @@ pub fn seq_equal(
     vm: &VirtualMachine,
     zelf: &dyn SimpleSeq,
     other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
+) -> PyResult<bool> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            if !a.is(b) {
-                let eq = vm._eq(a.clone(), b.clone())?;
-                let value = objbool::boolval(vm, eq)?;
-                if !value {
-                    return Ok(false);
-                }
+            if a.is(b) {
+                continue;
+            }
+            if !vm.bool_eq(a.clone(), b.clone())? {
+                return Ok(false);
             }
         }
         Ok(true)
@@ -302,84 +300,42 @@ pub fn seq_equal(
     }
 }
 
-pub fn seq_lt(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
+pub fn seq_lt(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
     for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-        if vm.bool_lt(a.clone(), b.clone())? {
-            return Ok(true);
-        } else if !vm.bool_eq(a.clone(), b.clone())? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_lt(a.clone(), b.clone())? {
+            return Ok(v);
         }
     }
-
-    if zelf.len() == other.len() {
-        Ok(false)
-    } else {
-        Ok(zelf.len() < other.len())
-    }
+    Ok(zelf.len() < other.len())
 }
 
-pub fn seq_gt(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
+pub fn seq_gt(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
     for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-        if vm.bool_gt(a.clone(), b.clone())? {
-            return Ok(true);
-        } else if !vm.bool_eq(a.clone(), b.clone())? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_gt(a.clone(), b.clone())? {
+            return Ok(v);
         }
     }
-
-    if zelf.len() == other.len() {
-        Ok(false)
-    } else {
-        Ok(zelf.len() > other.len())
-    }
+    Ok(zelf.len() > other.len())
 }
 
-pub fn seq_ge(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
+pub fn seq_ge(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
     for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-        if vm.bool_gt(a.clone(), b.clone())? {
-            return Ok(true);
-        } else if !vm.bool_eq(a.clone(), b.clone())? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_gt(a.clone(), b.clone())? {
+            return Ok(v);
         }
     }
 
-    if zelf.len() == other.len() {
-        Ok(true)
-    } else {
-        Ok(zelf.len() > other.len())
-    }
+    Ok(zelf.len() >= other.len())
 }
 
-pub fn seq_le(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
+pub fn seq_le(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
     for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-        if vm.bool_lt(a.clone(), b.clone())? {
-            return Ok(true);
-        } else if !vm.bool_eq(a.clone(), b.clone())? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_lt(a.clone(), b.clone())? {
+            return Ok(v);
         }
     }
 
-    if zelf.len() == other.len() {
-        Ok(true)
-    } else {
-        Ok(zelf.len() < other.len())
-    }
+    Ok(zelf.len() <= other.len())
 }
 
 pub struct SeqMul<'a> {

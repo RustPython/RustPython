@@ -1272,15 +1272,25 @@ impl VirtualMachine {
         Ok(value)
     }
 
-    pub fn bool_lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
-        let lt = self._lt(a.clone(), b.clone())?;
-        let value = objbool::boolval(self, lt)?;
+    pub fn bool_seq_lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
+        let value = if objbool::boolval(self, self._lt(a.clone(), b.clone())?)? {
+            Some(true)
+        } else if !objbool::boolval(self, self._eq(a.clone(), b.clone())?)? {
+            Some(false)
+        } else {
+            None
+        };
         Ok(value)
     }
 
-    pub fn bool_gt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
-        let gt = self._gt(a.clone(), b.clone())?;
-        let value = objbool::boolval(self, gt)?;
+    pub fn bool_seq_gt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
+        let value = if objbool::boolval(self, self._gt(a.clone(), b.clone())?)? {
+            Some(true)
+        } else if !objbool::boolval(self, self._eq(a.clone(), b.clone())?)? {
+            Some(false)
+        } else {
+            None
+        };
         Ok(value)
     }
 }
