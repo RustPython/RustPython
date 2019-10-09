@@ -4,12 +4,9 @@ csv.py - read/write/investigate CSV files
 """
 
 import re
-from _csv import Error, __version__, writer, reader, register_dialect, \
-                 unregister_dialect, get_dialect, list_dialects, \
-                 field_size_limit, \
+from _csv import Error, reader, \
                  QUOTE_MINIMAL, QUOTE_ALL, QUOTE_NONNUMERIC, QUOTE_NONE, \
                  __doc__
-from _csv import Dialect as _Dialect
 
 from collections import OrderedDict
 from io import StringIO
@@ -17,7 +14,7 @@ from io import StringIO
 __all__ = ["QUOTE_MINIMAL", "QUOTE_ALL", "QUOTE_NONNUMERIC", "QUOTE_NONE",
            "Error", "Dialect", "__doc__", "excel", "excel_tab",
            "field_size_limit", "reader", "writer",
-           "register_dialect", "get_dialect", "list_dialects", "Sniffer",
+           "Sniffer",
            "unregister_dialect", "__version__", "DictReader", "DictWriter",
            "unix_dialect"]
 
@@ -60,12 +57,10 @@ class excel(Dialect):
     skipinitialspace = False
     lineterminator = '\r\n'
     quoting = QUOTE_MINIMAL
-register_dialect("excel", excel)
 
 class excel_tab(excel):
     """Describe the usual properties of Excel-generated TAB-delimited files."""
     delimiter = '\t'
-register_dialect("excel-tab", excel_tab)
 
 class unix_dialect(Dialect):
     """Describe the usual properties of Unix-generated CSV files."""
@@ -75,7 +70,6 @@ class unix_dialect(Dialect):
     skipinitialspace = False
     lineterminator = '\n'
     quoting = QUOTE_ALL
-register_dialect("unix", unix_dialect)
 
 
 class DictReader:
