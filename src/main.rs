@@ -5,22 +5,23 @@ extern crate env_logger;
 extern crate log;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
-use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
-use rustpython_parser::error::ParseErrorType;
+use rustpython_compiler::compile;
 use rustpython_vm::{
     import, match_class,
     obj::{objint::PyInt, objtuple::PyTuple, objtype},
     print_exception,
-    pyobject::{ItemProtocol, PyObjectRef, PyResult},
+    pyobject::{ItemProtocol, PyResult},
     scope::Scope,
     util, PySettings, VirtualMachine,
 };
-use std::convert::TryInto;
 
+use std::convert::TryInto;
 use std::env;
 use std::path::PathBuf;
 use std::process;
 use std::str::FromStr;
+
+mod shell;
 
 fn main() {
     #[cfg(feature = "flame-it")]
@@ -365,7 +366,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     } else if let Some(filename) = matches.value_of("script") {
         run_script(&vm, scope, filename)?
     } else {
-        run_shell(&vm, scope)?;
+        shell::run_shell(&vm, scope)?;
     }
 
     Ok(())
@@ -456,221 +457,4 @@ fn test_run_script() {
     // test module run
     let r = run_script(&vm, vm.new_scope_with_builtins(), "tests/snippets/dir_main");
     assert!(r.is_ok());
-}
-
-enum ShellExecResult {
-    Ok,
-    PyErr(PyObjectRef),
-    Continue,
-}
-
-fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResult {
-    match vm.compile(source, compile::Mode::Single, "<stdin>".to_string()) {
-        Ok(code) => {
-            match vm.run_code_obj(code, scope.clone()) {
-                Ok(value) => {
-                    // Save non-None values as "_"
-                    if !vm.is_none(&value) {
-                        let key = "_";
-                        scope.globals.set_item(key, value, vm).unwrap();
-                    }
-                    ShellExecResult::Ok
-                }
-                Err(err) => ShellExecResult::PyErr(err),
-            }
-        }
-        Err(CompileError {
-            error: CompileErrorType::Parse(ParseErrorType::EOF),
-            ..
-        }) => ShellExecResult::Continue,
-        Err(err) => ShellExecResult::PyErr(vm.new_syntax_error(&err)),
-    }
-}
-
-#[cfg(not(target_os = "wasi"))]
-fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
-    use rustyline::{error::ReadlineError, Editor};
-
-    println!(
-        "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
-        crate_version!()
-    );
-
-    // Read a single line:
-    let mut input = String::new();
-    let mut repl = Editor::<()>::new();
-
-    // Retrieve a `history_path_str` dependent on the OS
-    let repl_history_path = match dirs::config_dir() {
-        Some(mut path) => {
-            path.push("rustpython");
-            path.push("repl_history.txt");
-            path
-        }
-        None => ".repl_history.txt".into(),
-    };
-
-    if !repl_history_path.exists() {
-        if let Some(parent) = repl_history_path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-    }
-
-    if repl.load_history(&repl_history_path).is_err() {
-        println!("No previous history.");
-    }
-
-    let mut continuing = false;
-
-    loop {
-        let prompt_name = if continuing { "ps2" } else { "ps1" };
-        let prompt = vm
-            .get_attribute(vm.sys_module.clone(), prompt_name)
-            .and_then(|prompt| vm.to_str(&prompt));
-        let prompt = match prompt {
-            Ok(ref s) => s.as_str(),
-            Err(_) => "",
-        };
-        let result = match repl.readline(prompt) {
-            Ok(line) => {
-                debug!("You entered {:?}", line);
-
-                repl.add_history_entry(line.trim_end());
-
-                let stop_continuing = line.is_empty();
-
-                if input.is_empty() {
-                    input = line;
-                } else {
-                    input.push_str(&line);
-                }
-                input.push_str("\n");
-
-                if continuing {
-                    if stop_continuing {
-                        continuing = false;
-                    } else {
-                        continue;
-                    }
-                }
-
-                match shell_exec(vm, &input, scope.clone()) {
-                    ShellExecResult::Ok => {
-                        input.clear();
-                        Ok(())
-                    }
-                    ShellExecResult::Continue => {
-                        continuing = true;
-                        Ok(())
-                    }
-                    ShellExecResult::PyErr(err) => {
-                        input.clear();
-                        Err(err)
-                    }
-                }
-            }
-            Err(ReadlineError::Interrupted) => {
-                continuing = false;
-                input.clear();
-                let keyboard_interrupt = vm
-                    .new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())
-                    .unwrap();
-                Err(keyboard_interrupt)
-            }
-            Err(ReadlineError::Eof) => {
-                break;
-            }
-            Err(err) => {
-                eprintln!("Readline error: {:?}", err);
-                break;
-            }
-        };
-
-        if let Err(exc) = result {
-            if objtype::isinstance(&exc, &vm.ctx.exceptions.system_exit) {
-                repl.save_history(&repl_history_path).unwrap();
-                return Err(exc);
-            }
-            print_exception(vm, &exc);
-        }
-    }
-    repl.save_history(&repl_history_path).unwrap();
-
-    Ok(())
-}
-
-#[cfg(target_os = "wasi")]
-fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
-    use std::io::prelude::*;
-    use std::io::{self, BufRead};
-
-    println!(
-        "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
-        crate_version!()
-    );
-
-    // Read a single line:
-    let mut input = String::new();
-    let mut continuing = false;
-
-    loop {
-        let prompt_name = if continuing { "ps2" } else { "ps1" };
-        let prompt = vm
-            .get_attribute(vm.sys_module.clone(), prompt_name)
-            .and_then(|prompt| vm.to_str(&prompt));
-        let prompt = match prompt {
-            Ok(ref s) => s.as_str(),
-            Err(_) => "",
-        };
-        print!("{}", prompt);
-        io::stdout().flush().ok().expect("Could not flush stdout");
-
-        let stdin = io::stdin();
-
-        let result = match stdin.lock().lines().next().unwrap() {
-            Ok(line) => {
-                debug!("You entered {:?}", line);
-                let stop_continuing = line.is_empty();
-
-                if input.is_empty() {
-                    input = line;
-                } else {
-                    input.push_str(&line);
-                }
-                input.push_str("\n");
-
-                if continuing {
-                    if stop_continuing {
-                        continuing = false;
-                    } else {
-                        continue;
-                    }
-                }
-
-                match shell_exec(vm, &input, scope.clone()) {
-                    ShellExecResult::Ok => {
-                        input.clear();
-                        Ok(())
-                    }
-                    ShellExecResult::Continue => {
-                        continuing = true;
-                        Ok(())
-                    }
-                    ShellExecResult::PyErr(err) => {
-                        input.clear();
-                        Err(err)
-                    }
-                }
-            }
-            Err(err) => {
-                eprintln!("Readline error: {:?}", err);
-                break;
-            }
-        };
-
-        if let Err(exc) = result {
-            print_exception(vm, &exc);
-        }
-    }
-    Ok(())
 }
