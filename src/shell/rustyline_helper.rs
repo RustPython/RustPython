@@ -42,7 +42,7 @@ fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
             }
         }
     }
-    if words == &[String::new()] {
+    if words == [String::new()] {
         return None;
     }
     reverse_string(words.last_mut().unwrap());
@@ -56,6 +56,7 @@ impl<'vm> ShellHelper<'vm> {
         ShellHelper { vm, scope }
     }
 
+    #[allow(clippy::type_complexity)]
     fn get_available_completions<'w>(
         &self,
         words: &'w [String],
