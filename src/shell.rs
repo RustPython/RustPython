@@ -106,6 +106,7 @@ impl<'vm> RustylineReadline<'vm> {
         let mut repl = Editor::with_config(
             Config::builder()
                 .completion_type(CompletionType::List)
+                .tab_stop(4)
                 .build(),
         );
         repl.set_helper(Some(ShellHelper::new(vm, scope)));

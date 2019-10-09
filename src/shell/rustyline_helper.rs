@@ -155,7 +155,11 @@ impl Completer for ShellHelper<'_> {
         if pos != line.len() {
             return Ok((0, vec![]));
         }
-        Ok(self.complete_opt(line).unwrap_or((0, vec![])))
+        Ok(self
+            .complete_opt(line)
+            // as far as I can tell, there's no better way to do both completion
+            // and indentation (or even just indentation)
+            .unwrap_or_else(|| (line.len(), vec!["    ".to_string()])))
     }
 }
 
