@@ -64,6 +64,7 @@ libc = "0.2"
 nix = "0.14.1"
 wtf8 = "0.0.3"
 arr_macro = "0.1.2"
+csv = "1.1.1"
 
 flame = { version = "0.2", optional = true }
 flamer = { version = "0.3", optional = true }
