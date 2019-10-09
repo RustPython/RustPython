@@ -200,6 +200,23 @@ impl PyClassRef {
         Ok(())
     }
 
+    fn del_attr(self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(attr) = class_get_attr(&self.class(), attr_name.as_str()) {
+            if let Some(ref descriptor) = class_get_attr(&attr.class(), "__delete__") {
+                return vm
+                    .invoke(descriptor, vec![attr, self.into_object()])
+                    .map(|_| ());
+            }
+        }
+
+        if class_get_attr(&self, attr_name.as_str()).is_some() {
+            self.attributes.borrow_mut().remove(attr_name.as_str());
+            Ok(())
+        } else {
+            Err(vm.new_attribute_error(attr_name.as_str().to_string()))
+        }
+    }
+
     // This is used for class initialisation where the vm is not yet available.
     pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
         self.attributes
@@ -256,8 +273,8 @@ pub fn init(ctx: &PyContext) {
         "__prepare__" => ctx.new_rustfunc(PyClassRef::prepare),
         "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
         "__setattr__" => ctx.new_rustfunc(PyClassRef::set_attr),
+        "__delattr__" => ctx.new_rustfunc(PyClassRef::del_attr),
         "__subclasses__" => ctx.new_rustfunc(PyClassRef::subclasses),
-        "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
         "__instancecheck__" => ctx.new_rustfunc(PyClassRef::instance_check),
         "__subclasscheck__" => ctx.new_rustfunc(PyClassRef::subclass_check),
         "__doc__" => ctx.new_str(type_doc.to_string()),
