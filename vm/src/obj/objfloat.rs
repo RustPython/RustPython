@@ -179,20 +179,39 @@ impl PyFloat {
         PyFloat::from(float_val?).into_ref_with_type(vm, cls)
     }
 
+    fn float_eq(&self, other: PyObjectRef) -> bool {
+        let other = get_value(&other);
+        self.value == other
+    }
+
+    fn int_eq(&self, other: PyObjectRef) -> bool {
+        let other_int = objint::get_value(&other);
+        let value = self.value;
+        if let (Some(self_int), Some(other_float)) = (value.to_bigint(), other_int.to_f64()) {
+            value == other_float && self_int == *other_int
+        } else {
+            false
+        }
+    }
+
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        let value = self.value;
         let result = if objtype::isinstance(&other, &vm.ctx.float_type()) {
-            let other = get_value(&other);
-            value == other
+            self.float_eq(other)
         } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let other_int = objint::get_value(&other);
+            self.int_eq(other)
+        } else {
+            return vm.ctx.not_implemented();
+        };
+        vm.ctx.new_bool(result)
+    }
 
-            if let (Some(self_int), Some(other_float)) = (value.to_bigint(), other_int.to_f64()) {
-                value == other_float && self_int == *other_int
-            } else {
-                false
-            }
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        let result = if objtype::isinstance(&other, &vm.ctx.float_type()) {
+            !self.float_eq(other)
+        } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
+            !self.int_eq(other)
         } else {
             return vm.ctx.not_implemented();
         };
