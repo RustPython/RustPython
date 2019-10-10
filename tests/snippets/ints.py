@@ -306,3 +306,8 @@ b = 03 + 2j
 
 with assert_raises(SyntaxError):
     exec(src)
+
+# Small int cache in [-5..256]
+assert 1 is 1  # noqa
+x = 6
+assert 5 is (x-1)  # noqa
