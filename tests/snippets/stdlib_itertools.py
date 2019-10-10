@@ -299,3 +299,25 @@ assert list(t3) == [1,2,3]
 t = itertools.tee([1,2,3])
 assert list(t[0]) == [1,2,3]
 assert list(t[0]) == []
+
+# itertools.product
+it = itertools.product([1, 2], [3, 4])
+assert (1, 3) == next(it)
+assert (1, 4) == next(it)
+assert (2, 3) == next(it)
+assert (2, 4) == next(it)
+with assert_raises(StopIteration):
+    next(it)
+
+it = itertools.product([1, 2], repeat=2)
+assert (1, 1) == next(it)
+assert (1, 2) == next(it)
+assert (2, 1) == next(it)
+assert (2, 2) == next(it)
+with assert_raises(StopIteration):
+    next(it)
+
+with assert_raises(TypeError):
+    itertools.product(None)
+with assert_raises(TypeError):
+    itertools.product([1, 2], repeat=None)
