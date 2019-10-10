@@ -366,7 +366,8 @@ fn builtin_len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn builtin_locals(vm: &VirtualMachine) -> PyDictRef {
-    vm.get_locals()
+    let locals = vm.get_locals();
+    locals.copy(vm).into_ref(vm)
 }
 
 fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {

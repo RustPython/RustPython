@@ -279,7 +279,7 @@ impl PyDictRef {
         }
     }
 
-    fn copy(self, _vm: &VirtualMachine) -> PyDict {
+    pub fn copy(self, _vm: &VirtualMachine) -> PyDict {
         PyDict {
             entries: self.entries.clone(),
         }
