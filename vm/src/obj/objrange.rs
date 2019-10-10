@@ -14,7 +14,7 @@ use crate::vm::VirtualMachine;
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
 use super::objslice::{PySlice, PySliceRef};
-use super::objtype::{self, PyClassRef};
+use super::objtype::PyClassRef;
 
 /// range(stop) -> range object
 /// range(start, stop[, step]) -> range object
@@ -239,30 +239,43 @@ impl PyRange {
         }
     }
 
+    fn inner_eq(&self, rhs: &PyRange) -> bool {
+        if self.length() != rhs.length() {
+            return false;
+        }
+
+        if self.length().is_zero() {
+            return true;
+        }
+
+        if self.start.as_bigint() != rhs.start.as_bigint() {
+            return false;
+        }
+        let step = self.step.as_bigint();
+        if step.is_one() || step == rhs.step.as_bigint() {
+            return true;
+        }
+
+        false
+    }
+
     #[pymethod(name = "__eq__")]
-    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> bool {
-        if objtype::isinstance(&rhs, &vm.ctx.range_type()) {
-            let rhs = get_value(&rhs);
-
-            if self.length() != rhs.length() {
-                return false;
-            }
-
-            if self.length().is_zero() {
-                return true;
-            }
-
-            if self.start.as_bigint() != rhs.start.as_bigint() {
-                return false;
-            }
-            let step = self.step.as_bigint();
-            if step.is_one() || step == rhs.step.as_bigint() {
-                return true;
-            }
-
-            false
+    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(rhs) = rhs.payload::<PyRange>() {
+            let eq = self.inner_eq(rhs);
+            Ok(vm.ctx.new_bool(eq))
         } else {
-            false
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(rhs) = rhs.payload::<PyRange>() {
+            let eq = self.inner_eq(rhs);
+            Ok(vm.ctx.new_bool(!eq))
+        } else {
+            Ok(vm.ctx.not_implemented())
         }
     }
 

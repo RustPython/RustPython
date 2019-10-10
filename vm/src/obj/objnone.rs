@@ -111,6 +111,24 @@ impl PyNoneRef {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self.as_object(), name)))
         }
     }
+
+    #[pymethod(name = "__eq__")]
+    fn eq(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if vm.is_none(&rhs) {
+            vm.ctx.new_bool(true)
+        } else {
+            vm.ctx.not_implemented()
+        }
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if vm.is_none(&rhs) {
+            vm.ctx.new_bool(false)
+        } else {
+            vm.ctx.not_implemented()
+        }
+    }
 }
 
 pub fn init(context: &PyContext) {

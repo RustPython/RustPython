@@ -229,3 +229,34 @@ assert float('nan').hex() == 'nan'
 # Test float exponent:
 assert 1 if 1else 0 == 1
 
+a = 3.
+assert a.__eq__(3) is True
+assert a.__eq__(3.) is True
+assert a.__eq__(3.00000) is True
+assert a.__eq__(3.01) is False
+
+pi = 3.14
+assert pi.__eq__(3.14) is True
+assert pi.__ne__(3.14) is False
+assert pi.__eq__(3) is False
+assert pi.__ne__(3) is True
+assert pi.__eq__('pi') is NotImplemented
+assert pi.__ne__('pi') is NotImplemented
+
+assert pi.__eq__(float('inf')) is False
+assert pi.__ne__(float('inf')) is True
+assert float('inf').__eq__(pi) is False
+assert float('inf').__ne__(pi) is True
+assert float('inf').__eq__(float('inf')) is True
+assert float('inf').__ne__(float('inf')) is False
+assert float('inf').__eq__(float('nan')) is False
+assert float('inf').__ne__(float('nan')) is True
+
+assert pi.__eq__(float('nan')) is False
+assert pi.__ne__(float('nan')) is True
+assert float('nan').__eq__(pi) is False
+assert float('nan').__ne__(pi) is True
+assert float('nan').__eq__(float('nan')) is False
+assert float('nan').__ne__(float('nan')) is True
+assert float('nan').__eq__(float('inf')) is False
+assert float('nan').__ne__(float('inf')) is True
