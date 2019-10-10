@@ -640,10 +640,7 @@ struct PyItertoolsTeeData {
 }
 
 impl PyItertoolsTeeData {
-    fn new(
-        iterable: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> Result<Rc<PyItertoolsTeeData>, PyObjectRef> {
+    fn new(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Rc<PyItertoolsTeeData>> {
         Ok(Rc::new(PyItertoolsTeeData {
             iterable: get_iter(vm, &iterable)?,
             values: RefCell::new(vec![]),

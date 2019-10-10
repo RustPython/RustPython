@@ -467,7 +467,7 @@ impl VirtualMachine {
         TryFromObject::try_from_object(self, str)
     }
 
-    pub fn to_pystr<'a, T: Into<&'a PyObjectRef>>(&'a self, obj: T) -> Result<String, PyObjectRef> {
+    pub fn to_pystr<'a, T: Into<&'a PyObjectRef>>(&'a self, obj: T) -> PyResult<String> {
         let py_str_obj = self.to_str(obj.into())?;
         Ok(py_str_obj.as_str().to_owned())
     }
