@@ -1,19 +1,18 @@
 use std::cell::Cell;
 use std::fmt;
 
-use crate::function::OptionalArg;
-use crate::pyhash;
-use crate::pyobject::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-};
-use crate::vm::{ReprGuard, VirtualMachine};
-
 use super::objbool;
 use super::objiter;
 use super::objsequence::{
     get_elements_tuple, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
 };
 use super::objtype::{self, PyClassRef};
+use crate::function::OptionalArg;
+use crate::pyhash;
+use crate::pyobject::{
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
 
 /// tuple() -> empty tuple
 /// tuple(iterable) -> tuple initialized from iterable's items

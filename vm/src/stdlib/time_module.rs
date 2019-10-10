@@ -5,22 +5,19 @@ use std::fmt;
 use std::ops::Range;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::function::OptionalArg;
-use crate::obj::objfloat::PyFloatRef;
-use crate::obj::objint::PyInt;
-use crate::obj::objsequence::get_sequence_index;
-use crate::obj::objsequence::PySliceableSequence;
-use crate::obj::objslice::PySlice;
-use crate::obj::objstr::PyStringRef;
-use crate::obj::objtype::PyClassRef;
-use crate::obj::{objfloat, objint, objtype};
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
-use crate::vm::VirtualMachine;
-
-use num_traits::cast::ToPrimitive;
-
 use chrono::naive::NaiveDateTime;
 use chrono::{Datelike, Timelike};
+use num_traits::cast::ToPrimitive;
+
+use crate::function::OptionalArg;
+use crate::obj::objfloat::{self, PyFloatRef};
+use crate::obj::objint::{self, PyInt};
+use crate::obj::objsequence::{get_sequence_index, PySliceableSequence};
+use crate::obj::objslice::PySlice;
+use crate::obj::objstr::PyStringRef;
+use crate::obj::objtype::{self, PyClassRef};
+use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
 fn time_sleep(seconds: PyFloatRef, vm: &VirtualMachine) -> PyResult<()> {

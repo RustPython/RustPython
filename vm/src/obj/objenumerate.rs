@@ -4,13 +4,12 @@ use std::ops::AddAssign;
 use num_bigint::BigInt;
 use num_traits::Zero;
 
-use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
-use crate::vm::VirtualMachine;
-
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objtype::PyClassRef;
+use crate::function::OptionalArg;
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::vm::VirtualMachine;
 
 #[pyclass]
 #[derive(Debug)]

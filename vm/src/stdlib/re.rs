@@ -4,9 +4,10 @@
  * This module fits the python re interface onto the rust regular expression
  * system.
  */
-use regex::bytes::{Captures, Regex, RegexBuilder};
-
 use std::fmt;
+
+use num_traits::{Signed, ToPrimitive};
+use regex::bytes::{Captures, Regex, RegexBuilder};
 
 use crate::function::{Args, OptionalArg};
 use crate::obj::objint::{PyInt, PyIntRef};
@@ -14,7 +15,6 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject};
 use crate::vm::VirtualMachine;
-use num_traits::{Signed, ToPrimitive};
 
 #[pyclass(name = "Pattern")]
 #[derive(Debug)]

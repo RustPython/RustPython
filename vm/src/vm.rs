@@ -11,6 +11,12 @@ use std::fmt;
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
 
+use arr_macro::arr;
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
+#[cfg(feature = "rustpython-compiler")]
+use rustpython_compiler::{compile, error::CompileError};
+
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
 use crate::frame::{ExecutionResult, Frame, FrameRef};
@@ -29,8 +35,7 @@ use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
@@ -39,11 +44,6 @@ use crate::pyobject::{
 use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
-use arr_macro::arr;
-use num_bigint::BigInt;
-use num_traits::ToPrimitive;
-#[cfg(feature = "rustpython-compiler")]
-use rustpython_compiler::{compile, error::CompileError};
 
 // use objects::objects;
 
@@ -1194,7 +1194,7 @@ impl VirtualMachine {
     pub fn _ne(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__ne__", "__ne__", |vm, a, b| {
             let eq = vm._eq(a, b)?;
-            objbool::not(vm, &eq)
+            Ok(vm.new_bool(objbool::not(vm, &eq)?))
         })
     }
 

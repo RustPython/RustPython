@@ -1,10 +1,9 @@
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
+use super::objproperty::PropertyBuilder;
 use super::objstr::PyStringRef;
-use super::objtype;
+use super::objtype::{self, PyClassRef};
 use crate::function::PyFuncArgs;
-use crate::obj::objproperty::PropertyBuilder;
-use crate::obj::objtype::PyClassRef;
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyResult, PyValue,

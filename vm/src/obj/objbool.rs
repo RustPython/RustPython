@@ -85,19 +85,19 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
         "__repr__" => context.new_rustfunc(bool_repr),
         "__format__" => context.new_rustfunc(bool_format),
         "__or__" => context.new_rustfunc(bool_or),
-        "__ror__" => context.new_rustfunc(bool_ror),
+        "__ror__" => context.new_rustfunc(bool_or),
         "__and__" => context.new_rustfunc(bool_and),
-        "__rand__" => context.new_rustfunc(bool_rand),
+        "__rand__" => context.new_rustfunc(bool_and),
         "__xor__" => context.new_rustfunc(bool_xor),
-        "__rxor__" => context.new_rustfunc(bool_rxor),
+        "__rxor__" => context.new_rustfunc(bool_xor),
         "__doc__" => context.new_str(bool_doc.to_string()),
     });
 }
 
-pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult {
+pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<bool> {
     if objtype::isinstance(obj, &vm.ctx.bool_type()) {
         let value = get_value(obj);
-        Ok(vm.ctx.new_bool(!value))
+        Ok(!value)
     } else {
         Err(vm.new_type_error(format!("Can only invert a bool, on {:?}", obj)))
     }
@@ -128,64 +128,40 @@ fn bool_format(
     }
 }
 
-fn do_bool_or(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyResult {
-    if objtype::isinstance(lhs, &vm.ctx.bool_type())
-        && objtype::isinstance(rhs, &vm.ctx.bool_type())
+fn bool_or(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    if objtype::isinstance(&lhs, &vm.ctx.bool_type())
+        && objtype::isinstance(&rhs, &vm.ctx.bool_type())
     {
-        let lhs = get_value(lhs);
-        let rhs = get_value(rhs);
+        let lhs = get_value(&lhs);
+        let rhs = get_value(&rhs);
         (lhs || rhs).into_pyobject(vm)
     } else {
         Ok(lhs.payload::<PyInt>().unwrap().or(rhs.clone(), vm))
     }
 }
 
-fn bool_or(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    do_bool_or(vm, &lhs, &rhs)
-}
-
-fn bool_ror(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    do_bool_or(vm, &lhs, &rhs)
-}
-
-fn do_bool_and(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyResult {
-    if objtype::isinstance(lhs, &vm.ctx.bool_type())
-        && objtype::isinstance(rhs, &vm.ctx.bool_type())
+fn bool_and(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    if objtype::isinstance(&lhs, &vm.ctx.bool_type())
+        && objtype::isinstance(&rhs, &vm.ctx.bool_type())
     {
-        let lhs = get_value(lhs);
-        let rhs = get_value(rhs);
+        let lhs = get_value(&lhs);
+        let rhs = get_value(&rhs);
         (lhs && rhs).into_pyobject(vm)
     } else {
         Ok(lhs.payload::<PyInt>().unwrap().and(rhs.clone(), vm))
     }
 }
 
-fn bool_and(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    do_bool_and(vm, &lhs, &rhs)
-}
-
-fn bool_rand(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    do_bool_and(vm, &lhs, &rhs)
-}
-
-fn do_bool_xor(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyResult {
-    if objtype::isinstance(lhs, &vm.ctx.bool_type())
-        && objtype::isinstance(rhs, &vm.ctx.bool_type())
+fn bool_xor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    if objtype::isinstance(&lhs, &vm.ctx.bool_type())
+        && objtype::isinstance(&rhs, &vm.ctx.bool_type())
     {
-        let lhs = get_value(lhs);
-        let rhs = get_value(rhs);
+        let lhs = get_value(&lhs);
+        let rhs = get_value(&rhs);
         (lhs ^ rhs).into_pyobject(vm)
     } else {
         Ok(lhs.payload::<PyInt>().unwrap().xor(rhs.clone(), vm))
     }
-}
-
-fn bool_xor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    do_bool_xor(vm, &lhs, &rhs)
-}
-
-fn bool_rxor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    do_bool_xor(vm, &lhs, &rhs)
 }
 
 fn bool_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -195,13 +171,11 @@ fn bool_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(_zelf, Some(vm.ctx.type_type()))],
         optional = [(val, None)]
     );
-    Ok(match val {
-        Some(val) => {
-            let bv = boolval(vm, val.clone())?;
-            vm.new_bool(bv)
-        }
-        None => vm.context().new_bool(false),
-    })
+    let value = match val {
+        Some(val) => boolval(vm, val.clone())?,
+        None => false,
+    };
+    Ok(vm.new_bool(value))
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]

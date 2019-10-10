@@ -1,20 +1,17 @@
 use std::cell::{Cell, RefCell};
 use std::fmt;
 
-use crate::function::{KwArgs, OptionalArg};
-use crate::pyobject::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyIterable, PyObjectRef,
-    PyRef, PyResult, PyValue,
-};
-use crate::vm::{ReprGuard, VirtualMachine};
-
 use super::objbool;
 use super::objiter;
 use super::objstr;
-use super::objtype;
+use super::objtype::{self, PyClassRef};
 use crate::dictdatatype::{self, DictKey};
-use crate::obj::objtype::PyClassRef;
-use crate::pyobject::PyClassImpl;
+use crate::function::{KwArgs, OptionalArg};
+use crate::pyobject::{
+    IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
 
 pub type DictContentType = dictdatatype::Dict;
 

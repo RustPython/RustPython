@@ -600,7 +600,7 @@ fn map_ast<T>(
     f: fn(vm: &VirtualMachine, &T) -> PyResult<AstNodeRef>,
     vm: &VirtualMachine,
     items: &[T],
-) -> PyResult<PyObjectRef> {
+) -> PyResult {
     let list: PyResult<Vec<PyObjectRef>> =
         items.iter().map(|x| Ok(f(vm, x)?.into_object())).collect();
     Ok(vm.ctx.new_list(list?))

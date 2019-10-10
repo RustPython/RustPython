@@ -2,13 +2,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::function::{PyFuncArgs, PyNativeFunc};
-use crate::pyobject::{
-    IdProtocol, PyAttributes, PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
-
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objmappingproxy::PyMappingProxy;
@@ -16,6 +9,12 @@ use super::objproperty::PropertyBuilder;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
+use crate::function::{PyFuncArgs, PyNativeFunc};
+use crate::pyobject::{
+    IdProtocol, PyAttributes, PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
+};
+use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
 pub struct PyClass {

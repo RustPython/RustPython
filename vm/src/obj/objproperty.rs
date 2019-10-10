@@ -1,14 +1,15 @@
 /*! Python `property` descriptor class.
 
 */
+use std::cell::RefCell;
+
+use super::objtype::PyClassRef;
 use crate::function::{IntoPyNativeFunc, OptionalArg};
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use std::cell::RefCell;
 
 // Read-only property, doesn't have __set__ or __delete__
 #[pyclass]

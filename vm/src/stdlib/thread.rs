@@ -1,8 +1,7 @@
 /// Implementation of the _thread module, currently noop implementation as RustPython doesn't yet
 /// support threading
-use super::super::pyobject::PyObjectRef;
 use crate::function::PyFuncArgs;
-use crate::pyobject::PyResult;
+use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 #[cfg(not(target_os = "windows"))]

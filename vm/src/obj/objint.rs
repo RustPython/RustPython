@@ -5,23 +5,21 @@ use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
 
-use crate::format::FormatSpec;
-use crate::function::{OptionalArg, PyFuncArgs};
-use crate::obj::objtype::PyClassRef;
-use crate::pyhash;
-use crate::pyobject::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
-
 use super::objbool::IntoPyBool;
 use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
 use super::objfloat;
 use super::objint;
 use super::objstr::{PyString, PyStringRef};
-use super::objtype;
+use super::objtype::{self, PyClassRef};
+use crate::format::FormatSpec;
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyhash;
+use crate::pyobject::{
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
+};
+use crate::vm::VirtualMachine;
 
 /// int(x=0) -> integer
 /// int(x, base=10) -> integer

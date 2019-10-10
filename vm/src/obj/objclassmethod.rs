@@ -52,10 +52,9 @@ impl PyClassMethod {
     }
 
     #[pymethod(name = "__get__")]
-    fn get(&self, _inst: PyObjectRef, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_bound_method(self.callable.clone(), owner.clone()))
+    fn get(&self, _inst: PyObjectRef, owner: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx
+            .new_bound_method(self.callable.clone(), owner.clone())
     }
 
     #[pyproperty(name = "__func__")]

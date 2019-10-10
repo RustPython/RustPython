@@ -11,9 +11,9 @@ use num_traits::cast::ToPrimitive;
 use num_traits::{One, Zero};
 
 use crate::function::OptionalArg;
-use crate::obj::objfloat::{IntoPyFloat, PyFloatRef};
+use crate::obj::objfloat::{self, IntoPyFloat, PyFloatRef};
 use crate::obj::objint::PyIntRef;
-use crate::obj::{objfloat, objtype};
+use crate::obj::objtype;
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
