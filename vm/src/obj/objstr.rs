@@ -1260,7 +1260,7 @@ fn do_cformat_specifier(
     vm: &VirtualMachine,
     format_spec: &mut CFormatSpec,
     obj: PyObjectRef,
-) -> Result<String, PyObjectRef> {
+) -> PyResult<String> {
     use CNumberType::*;
     // do the formatting by type
     let format_type = &format_spec.format_type;
