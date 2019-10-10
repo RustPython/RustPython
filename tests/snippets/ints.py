@@ -23,12 +23,12 @@ assert int("101", base=2) == 5
 
 # magic methods should only be implemented for other ints
 
-assert (1).__eq__(1) == True
-assert (1).__ne__(1) == False
-assert (1).__gt__(1) == False
-assert (1).__ge__(1) == True
-assert (1).__lt__(1) == False
-assert (1).__le__(1) == True
+assert (1).__eq__(1) is True
+assert (1).__ne__(1) is False
+assert (1).__gt__(1) is False
+assert (1).__ge__(1) is True
+assert (1).__lt__(1) is False
+assert (1).__le__(1) is True
 assert (1).__add__(1) == 2
 assert (1).__radd__(1) == 2
 assert (2).__sub__(1) == 1

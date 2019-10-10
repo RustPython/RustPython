@@ -14,12 +14,12 @@ assert not 0.0
 
 assert not None
 
-assert bool() == False
-assert bool(1) == True
-assert bool({}) == False
+assert bool() is False
+assert bool(1) is True
+assert bool({}) is False
 
-assert bool(NotImplemented) == True
-assert bool(...) == True
+assert bool(NotImplemented) is True
+assert bool(...) is True
 
 if not 1:
     raise BaseException
@@ -105,8 +105,8 @@ class TestMagicMethodLenOne:
         return 1
 
 
-assert bool(TestMagicMethodLenZero()) == False
-assert bool(TestMagicMethodLenOne()) == True
+assert bool(TestMagicMethodLenZero()) is False
+assert bool(TestMagicMethodLenOne()) is True
 
 
 # check __len__ and __bool__
