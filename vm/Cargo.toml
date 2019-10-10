@@ -30,7 +30,8 @@ num-traits = "0.2.8"
 num-integer = "0.1.41"
 num-rational = "0.2.2"
 num-iter = "0.1.39"
-rand = "0.5"
+rand = "0.7"
+rand_distr = "0.2"
 log = "0.3"
 rustpython-derive = {path = "../derive", version = "0.1.1"}
 rustpython-parser = {path = "../parser", optional = true, version = "0.1.1"}

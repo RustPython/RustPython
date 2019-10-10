@@ -1,6 +1,7 @@
 //! Random module.
 
-use rand::distributions::{Distribution, Normal};
+use rand::distributions::Distribution;
+use rand_distr::Normal;
 
 use crate::function::PyFuncArgs;
 use crate::obj::objfloat;
@@ -34,7 +35,12 @@ fn random_normalvariate(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let mu = objfloat::get_value(mu);
     let sigma = objfloat::get_value(sigma);
-    let normal = Normal::new(mu, sigma);
+    let normal = Normal::new(mu, sigma).map_err(|rand_err| {
+        vm.new_exception(
+            vm.ctx.exceptions.arithmetic_error.clone(),
+            format!("invalid normal distribution: {:?}", rand_err),
+        )
+    })?;
     let value = normal.sample(&mut rand::thread_rng());
     let py_value = vm.ctx.new_float(value);
     Ok(py_value)
