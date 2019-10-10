@@ -1,12 +1,13 @@
-use num_bigint::BigInt;
-
 use super::objint::PyInt;
 use super::objtype::{class_has_attr, PyClassRef};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use num_bigint::{BigInt, ToBigInt};
+use num_traits::{One, Signed, Zero};
 
 #[pyclass]
 #[derive(Debug)]
@@ -157,6 +158,92 @@ impl PySlice {
         Ok(eq)
     }
 
+    pub(crate) fn inner_indices(
+        &self,
+        length: &BigInt,
+        vm: &VirtualMachine,
+    ) -> PyResult<(BigInt, BigInt, BigInt)> {
+        // Calculate step
+        let step: BigInt;
+        if vm.is_none(&self.step(vm)) {
+            step = One::one();
+        } else {
+            // Clone the value, not the reference.
+            let this_step: PyRef<PyInt> = self.step(vm).try_into_ref(vm)?;
+            step = this_step.as_bigint().clone();
+
+            if step.is_zero() {
+                return Err(vm.new_value_error("slice step cannot be zero.".to_owned()));
+            }
+        }
+
+        // For convenience
+        let backwards = step.is_negative();
+
+        // Each end of the array
+        let lower = if backwards {
+            -1_i8.to_bigint().unwrap()
+        } else {
+            Zero::zero()
+        };
+
+        let upper = if backwards {
+            lower.clone() + length
+        } else {
+            length.clone()
+        };
+
+        // Calculate start
+        let mut start: BigInt;
+        if vm.is_none(&self.start(vm)) {
+            // Default
+            start = if backwards {
+                upper.clone()
+            } else {
+                lower.clone()
+            };
+        } else {
+            let this_start: PyRef<PyInt> = self.start(vm).try_into_ref(vm)?;
+            start = this_start.as_bigint().clone();
+
+            if start < Zero::zero() {
+                // From end of array
+                start += length;
+
+                if start < lower {
+                    start = lower.clone();
+                }
+            } else if start > upper {
+                start = upper.clone();
+            }
+        }
+
+        // Calculate Stop
+        let mut stop: BigInt;
+        if vm.is_none(&self.stop(vm)) {
+            stop = if backwards {
+                lower.clone()
+            } else {
+                upper.clone()
+            };
+        } else {
+            let this_stop: PyRef<PyInt> = self.stop(vm).try_into_ref(vm)?;
+            stop = this_stop.as_bigint().clone();
+
+            if stop < Zero::zero() {
+                // From end of array
+                stop += length;
+                if stop < lower {
+                    stop = lower.clone();
+                }
+            } else if stop > upper {
+                stop = upper.clone();
+            }
+        }
+
+        Ok((start, stop, step))
+    }
+
     #[pymethod(name = "__eq__")]
     fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(rhs) = rhs.payload::<PySlice>() {
@@ -220,6 +307,18 @@ impl PySlice {
     #[pymethod(name = "__hash__")]
     fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error("unhashable type".to_string()))
+    }
+
+    #[pymethod(name = "indices")]
+    fn indices(&self, length: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(length) = length.payload::<PyInt>() {
+            let (start, stop, step) = self.inner_indices(length.as_bigint(), vm)?;
+            Ok(vm
+                .ctx
+                .new_tuple(vec![vm.new_int(start), vm.new_int(stop), vm.new_int(step)]))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
     }
 }
 
