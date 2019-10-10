@@ -129,44 +129,30 @@ impl PySlice {
         Ok(true)
     }
 
+    #[inline]
     fn inner_lte(&self, other: &PySlice, eq: bool, vm: &VirtualMachine) -> PyResult<bool> {
-        if vm.bool_lt(self.start(vm), other.start(vm))? {
-            return Ok(true);
-        } else if !vm.bool_eq(self.start(vm), other.start(vm))? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_lt(self.start(vm), other.start(vm))? {
+            return Ok(v);
         }
-
-        if vm.bool_lt(self.stop(vm), other.stop(vm))? {
-            return Ok(true);
-        } else if !vm.bool_eq(self.stop(vm), other.stop(vm))? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_lt(self.stop(vm), other.stop(vm))? {
+            return Ok(v);
         }
-
-        if vm.bool_lt(self.step(vm), other.step(vm))? {
-            return Ok(true);
-        } else if !vm.bool_eq(self.step(vm), other.step(vm))? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_lt(self.step(vm), other.step(vm))? {
+            return Ok(v);
         }
         Ok(eq)
     }
 
+    #[inline]
     fn inner_gte(&self, other: &PySlice, eq: bool, vm: &VirtualMachine) -> PyResult<bool> {
-        if vm.bool_gt(self.start(vm), other.start(vm))? {
-            return Ok(true);
-        } else if !vm.bool_eq(self.start(vm), other.start(vm))? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_gt(self.start(vm), other.start(vm))? {
+            return Ok(v);
         }
-
-        if vm.bool_gt(self.stop(vm), other.stop(vm))? {
-            return Ok(true);
-        } else if !vm.bool_eq(self.stop(vm), other.stop(vm))? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_gt(self.stop(vm), other.stop(vm))? {
+            return Ok(v);
         }
-
-        if vm.bool_gt(self.step(vm), other.step(vm))? {
-            return Ok(true);
-        } else if !vm.bool_eq(self.step(vm), other.step(vm))? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_gt(self.step(vm), other.step(vm))? {
+            return Ok(v);
         }
         Ok(eq)
     }
