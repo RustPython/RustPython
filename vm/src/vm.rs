@@ -41,6 +41,7 @@ use crate::stdlib;
 use crate::sysmodule;
 use arr_macro::arr;
 use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::{compile, error::CompileError};
 
@@ -293,11 +294,13 @@ impl VirtualMachine {
     }
 
     /// Create a new python int object.
-    pub fn new_int<T: Into<BigInt>>(&self, i: T) -> PyObjectRef {
+    #[inline]
+    pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyObjectRef {
         self.ctx.new_int(i)
     }
 
     /// Create a new python bool object.
+    #[inline]
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
         self.ctx.new_bool(b)
     }

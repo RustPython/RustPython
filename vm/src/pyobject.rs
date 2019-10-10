@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use num_bigint::BigInt;
 use num_complex::Complex64;
-use num_traits::{One, Zero};
+use num_traits::{One, ToPrimitive, Zero};
 
 use crate::bytecode;
 use crate::dictdatatype::DictKey;
@@ -92,6 +92,9 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
     }
 }
 
+const INT_CACHE_POOL_MIN: i32 = -5;
+const INT_CACHE_POOL_MAX: i32 = 256;
+
 #[derive(Debug)]
 pub struct PyContext {
     pub true_value: PyIntRef,
@@ -104,6 +107,7 @@ pub struct PyContext {
 
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
+    pub int_cache_pool: Vec<PyObjectRef>,
 }
 
 pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
@@ -149,6 +153,10 @@ impl PyContext {
             create_type("NotImplementedType", &types.type_type, &types.object_type);
         let not_implemented = create_object(PyNotImplemented, &not_implemented_type);
 
+        let int_cache_pool = (INT_CACHE_POOL_MIN..=INT_CACHE_POOL_MAX)
+            .map(|v| create_object(PyInt::new(BigInt::from(v)), &types.int_type).into_object())
+            .collect();
+
         let true_value = create_object(PyInt::new(BigInt::one()), &types.bool_type);
         let false_value = create_object(PyInt::new(BigInt::zero()), &types.bool_type);
 
@@ -159,12 +167,13 @@ impl PyContext {
             false_value,
             not_implemented,
             none,
+            empty_tuple,
             ellipsis,
             ellipsis_type,
 
             types,
             exceptions,
-            empty_tuple,
+            int_cache_pool,
         };
         initialize_types(&context);
 
@@ -364,7 +373,14 @@ impl PyContext {
         self.types.object_type.clone()
     }
 
-    pub fn new_int<T: Into<BigInt>>(&self, i: T) -> PyObjectRef {
+    #[inline]
+    pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyObjectRef {
+        if let Some(i) = i.to_i32() {
+            if i >= INT_CACHE_POOL_MIN && i <= INT_CACHE_POOL_MAX {
+                let inner_idx = (i - INT_CACHE_POOL_MIN) as usize;
+                return self.int_cache_pool[inner_idx].clone();
+            }
+        }
         PyObject::new(PyInt::new(i), self.int_type(), None)
     }
 

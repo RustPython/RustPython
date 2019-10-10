@@ -23,12 +23,12 @@ assert int("101", base=2) == 5
 
 # magic methods should only be implemented for other ints
 
-assert (1).__eq__(1) == True
-assert (1).__ne__(1) == False
-assert (1).__gt__(1) == False
-assert (1).__ge__(1) == True
-assert (1).__lt__(1) == False
-assert (1).__le__(1) == True
+assert (1).__eq__(1) is True
+assert (1).__ne__(1) is False
+assert (1).__gt__(1) is False
+assert (1).__ge__(1) is True
+assert (1).__lt__(1) is False
+assert (1).__le__(1) is True
 assert (1).__add__(1) == 2
 assert (1).__radd__(1) == 2
 assert (2).__sub__(1) == 1
@@ -306,3 +306,8 @@ b = 03 + 2j
 
 with assert_raises(SyntaxError):
     exec(src)
+
+# Small int cache in [-5..256]
+assert 1 is 1  # noqa
+x = 6
+assert 5 is (x-1)  # noqa
