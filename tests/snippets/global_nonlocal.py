@@ -85,3 +85,27 @@ with assert_raises(SyntaxError):
 #     nonlocal c
 #     c = 2
 
+def a():
+    x = 0
+    locals()['x'] = 3
+    assert x == 0
+
+a()
+
+def a():
+    x = 0
+    del locals()['x']
+    assert x == 0
+
+a()
+
+def a():
+    x = 0
+    b = locals()
+    assert b['x'] == 0
+
+    del b['x']
+    b = locals()
+    assert b['x'] == 0
+
+a()
