@@ -143,19 +143,14 @@ impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
                 error: ParseErrorType::Lexical(error.error),
                 location: error.location,
             },
-            LalrpopError::UnrecognizedToken { token, expected } => {
-                match token {
-                    Some(tok) => ParseError {
-                        error: ParseErrorType::UnrecognizedToken(tok.1, expected),
-                        location: tok.0,
-                    },
-                    // EOF was observed when it was unexpected
-                    None => ParseError {
-                        error: ParseErrorType::EOF,
-                        location: Default::default(),
-                    },
-                }
-            }
+            LalrpopError::UnrecognizedToken { token, expected } => ParseError {
+                error: ParseErrorType::UnrecognizedToken(token.1, expected),
+                location: token.0,
+            },
+            LalrpopError::UnrecognizedEOF { location, .. } => ParseError {
+                error: ParseErrorType::EOF,
+                location,
+            },
         }
     }
 }
