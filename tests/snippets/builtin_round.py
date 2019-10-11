@@ -19,3 +19,13 @@ with assert_raises(TypeError):
     round(0, 0.0)
 with assert_raises(TypeError):
     round(0.0, 0.0)
+
+
+class X:
+    def __round__(self, ndigits=None):
+        return 1.1
+
+
+assert round(X(), 1) == 1.1
+assert round(X(), None) == 1.1
+assert round(X()) == 1.1

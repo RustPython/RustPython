@@ -675,24 +675,20 @@ fn builtin_round(
     ndigits: OptionalArg<Option<PyIntRef>>,
     vm: &VirtualMachine,
 ) -> PyResult {
-    match ndigits {
+    let rounded = match ndigits {
         OptionalArg::Present(ndigits) => match ndigits {
             Some(int) => {
                 let ndigits = vm.call_method(int.as_object(), "__int__", vec![])?;
-                let rounded = vm.call_method(&number, "__round__", vec![ndigits])?;
-                Ok(rounded)
+                vm.call_method(&number, "__round__", vec![ndigits])?
             }
-            None => {
-                let rounded = &vm.call_method(&number, "__round__", vec![])?;
-                Ok(vm.ctx.new_int(objint::get_value(rounded).clone()))
-            }
+            None => vm.call_method(&number, "__round__", vec![])?,
         },
         OptionalArg::Missing => {
             // without a parameter, the result type is coerced to int
-            let rounded = &vm.call_method(&number, "__round__", vec![])?;
-            Ok(vm.ctx.new_int(objint::get_value(rounded).clone()))
+            vm.call_method(&number, "__round__", vec![])?
         }
-    }
+    };
+    Ok(rounded)
 }
 
 fn builtin_setattr(
