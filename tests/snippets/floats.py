@@ -206,6 +206,26 @@ assert str(1.123456789) == '1.123456789'
 # Test special case for lexer, float starts with a dot:
 a = .5
 assert a == 0.5
+assert 3.14 == float('3.14')
+src = """
+a = 3._14
+"""
+
+with assert_raises(SyntaxError):
+    exec(src)
+src = """
+a = 3.__14
+"""
+
+with assert_raises(SyntaxError):
+    exec(src)
+
+src = """
+a = 3.1__4
+"""
+
+with assert_raises(SyntaxError):
+    exec(src)
 
 assert float.fromhex('0x0.0p+0') == 0.0
 assert float.fromhex('-0x0.0p+0') == -0.0

@@ -357,6 +357,12 @@ where
         if self.chr0 == Some('.') || self.at_exponent() {
             // Take '.':
             if self.chr0 == Some('.') {
+                if self.chr1 == Some('_') {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::OtherError("Invalid Syntax".to_string()),
+                        location: self.get_pos(),
+                    });
+                }
                 value_text.push(self.next_char().unwrap());
                 value_text.push_str(&self.radix_run(10));
             }
@@ -416,6 +422,7 @@ where
     /// like this: '1_2_3_4' == '1234'
     fn radix_run(&mut self, radix: u32) -> String {
         let mut value_text = String::new();
+
         loop {
             if let Some(c) = self.take_number(radix) {
                 value_text.push(c);
