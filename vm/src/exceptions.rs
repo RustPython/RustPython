@@ -8,7 +8,7 @@ use crate::types::create_type;
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Write};
 
 fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let exc_self = args.args[0].clone();
@@ -25,32 +25,46 @@ fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /// Print exception chain
 pub fn print_exception(vm: &VirtualMachine, exc: &PyObjectRef) {
+    let _ = write_exception(io::stdout(), vm, exc);
+}
+
+pub fn write_exception<W: Write>(
+    mut output: W,
+    vm: &VirtualMachine,
+    exc: &PyObjectRef,
+) -> io::Result<()> {
     let mut had_cause = false;
     if let Ok(cause) = vm.get_attribute(exc.clone(), "__cause__") {
         if !vm.get_none().is(&cause) {
             had_cause = true;
             print_exception(vm, &cause);
-            println!("\nThe above exception was the direct cause of the following exception:\n");
+            writeln!(
+                output,
+                "\nThe above exception was the direct cause of the following exception:\n"
+            )?;
         }
     }
     if !had_cause {
         if let Ok(context) = vm.get_attribute(exc.clone(), "__context__") {
             if !vm.get_none().is(&context) {
                 print_exception(vm, &context);
-                println!("\nDuring handling of the above exception, another exception occurred:\n");
+                writeln!(
+                    output,
+                    "\nDuring handling of the above exception, another exception occurred:\n"
+                )?;
             }
         }
     }
-    print_exception_inner(vm, exc)
+    print_exception_inner(output, vm, exc)
 }
 
-fn print_source_line(filename: &str, lineno: usize) {
+fn print_source_line<W: Write>(mut output: W, filename: &str, lineno: usize) -> io::Result<()> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/master/Python/traceback.c#L393
     // TODO: support different encodings
     let file = match File::open(filename) {
         Ok(file) => file,
         Err(_) => {
-            return;
+            return Ok(());
         }
     };
     let file = BufReader::new(file);
@@ -59,15 +73,21 @@ fn print_source_line(filename: &str, lineno: usize) {
         if i + 1 == lineno {
             if let Ok(line) = line {
                 // Indented with 4 spaces
-                println!("    {}", line.trim_start());
+                writeln!(output, "    {}", line.trim_start())?;
             }
-            return;
+            return Ok(());
         }
     }
+
+    Ok(())
 }
 
 /// Print exception occurrence location from traceback element
-fn print_traceback_entry(vm: &VirtualMachine, tb_entry: &PyObjectRef) {
+fn print_traceback_entry<W: Write>(
+    mut output: W,
+    vm: &VirtualMachine,
+    tb_entry: &PyObjectRef,
+) -> io::Result<()> {
     if objtype::isinstance(&tb_entry, &vm.ctx.tuple_type()) {
         let location_attrs = objsequence::get_elements_tuple(&tb_entry);
 
@@ -92,32 +112,38 @@ fn print_traceback_entry(vm: &VirtualMachine, tb_entry: &PyObjectRef) {
             "<error>"
         };
 
-        println!(
+        writeln!(
+            output,
             r##"  File "{}", line {}, in {}"##,
             filename, lineno, obj_name
-        );
-        print_source_line(filename, lineno.parse().unwrap());
+        )?;
+        print_source_line(output, filename, lineno.parse().unwrap())?;
     } else {
-        println!("  File ??");
+        writeln!(output, "  File ??")?;
     }
+    Ok(())
 }
 
 /// Print exception with traceback
-pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
+pub fn print_exception_inner<W: Write>(
+    mut output: W,
+    vm: &VirtualMachine,
+    exc: &PyObjectRef,
+) -> io::Result<()> {
     if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
             let mut tb_entries = objsequence::get_elements_list(&tb).to_vec();
             tb_entries.reverse();
 
             if !tb_entries.is_empty() {
-                println!("Traceback (most recent call last):");
+                writeln!(output, "Traceback (most recent call last):")?;
             }
             for exc_location in tb_entries.iter() {
-                print_traceback_entry(vm, exc_location);
+                print_traceback_entry(&mut output, vm, exc_location)?;
             }
         }
     } else {
-        println!("No traceback set on exception");
+        writeln!(output, "No traceback set on exception")?;
     }
 
     let varargs = vm
@@ -129,9 +155,14 @@ pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
 
     let exc_name = exc.class().name.clone();
     match args_repr.len() {
-        0 => println!("{}", exc_name),
-        1 => println!("{}: {}", exc_name, args_repr[0]),
-        _ => println!("{}: ({})", exc_name, args_repr.into_iter().format(", ")),
+        0 => writeln!(output, "{}", exc_name),
+        1 => writeln!(output, "{}: {}", exc_name, args_repr[0]),
+        _ => writeln!(
+            output,
+            "{}: ({})",
+            exc_name,
+            args_repr.into_iter().format(", ")
+        ),
     }
 }
 
