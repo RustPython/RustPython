@@ -16,6 +16,32 @@ else:
 
 src = """
 if True:
+pass
+"""
+
+with assert_raises(IndentationError):
+    compile(src, '', 'exec')
+
+src = """
+if True:
+  pass
+    pass
+"""
+
+with assert_raises(IndentationError):
+    compile(src, '', 'exec')
+
+src = """
+if True:
+    pass
+  pass
+"""
+
+with assert_raises(IndentationError):
+    compile(src, '', 'exec')
+
+src = """
+if True:
     pass
 \tpass
 """

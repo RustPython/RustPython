@@ -1,5 +1,6 @@
 use rustpython_parser::error::{LexicalErrorType, ParseError, ParseErrorType};
 use rustpython_parser::location::Location;
+use rustpython_parser::token::Tok;
 
 use std::error::Error;
 use std::fmt;
@@ -41,6 +42,26 @@ pub enum CompileErrorType {
 }
 
 impl CompileError {
+    pub fn is_indentation_error(&self) -> bool {
+        if let CompileErrorType::Parse(parse) = &self.error {
+            match parse {
+                ParseErrorType::Lexical(LexicalErrorType::IndentationError) => true,
+                ParseErrorType::UnrecognizedToken(token, expected) => {
+                    if *token == Tok::Indent {
+                        true
+                    } else if expected.clone() == Some("Indent".to_string()) {
+                        true
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            }
+        } else {
+            false
+        }
+    }
+
     pub fn is_tab_error(&self) -> bool {
         if let CompileErrorType::Parse(parse) = &self.error {
             if let ParseErrorType::Lexical(lex) = parse {

@@ -791,11 +791,8 @@ where
                                 break;
                             }
                             Ordering::Greater => {
-                                // TODO: handle wrong indentations
                                 return Err(LexicalError {
-                                    error: LexicalErrorType::OtherError(
-                                        "Non matching indentation levels!".to_string(),
-                                    ),
+                                    error: LexicalErrorType::IndentationError,
                                     location: self.get_pos(),
                                 });
                             }

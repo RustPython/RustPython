@@ -416,7 +416,9 @@ impl VirtualMachine {
 
     #[cfg(feature = "rustpython-compiler")]
     pub fn new_syntax_error(&self, error: &CompileError) -> PyObjectRef {
-        let syntax_error_type = if error.is_tab_error() {
+        let syntax_error_type = if error.is_indentation_error() {
+            self.ctx.exceptions.indentation_error.clone()
+        } else if error.is_tab_error() {
             self.ctx.exceptions.tab_error.clone()
         } else {
             self.ctx.exceptions.syntax_error.clone()
