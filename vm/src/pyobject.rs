@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::rc::Rc;
 
+use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::{One, ToPrimitive, Zero};
@@ -39,7 +40,6 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::scope::Scope;
 use crate::types::{create_type, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
-use indexmap::IndexMap;
 
 /* Python objects and references.
 
@@ -409,11 +409,12 @@ impl PyContext {
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
-        if b {
-            self.true_value.clone().into_object()
+        let value = if b {
+            &self.true_value
         } else {
-            self.false_value.clone().into_object()
-        }
+            &self.false_value
+        };
+        value.clone().into_object()
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {

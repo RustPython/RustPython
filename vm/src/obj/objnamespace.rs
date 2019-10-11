@@ -1,5 +1,5 @@
+use super::objtype::PyClassRef;
 use crate::function::KwArgs;
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 

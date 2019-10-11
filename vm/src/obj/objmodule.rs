@@ -1,7 +1,7 @@
+use super::objdict::PyDictRef;
+use super::objstr::PyStringRef;
+use super::objtype::PyClassRef;
 use crate::function::OptionalOption;
-use crate::obj::objdict::PyDictRef;
-use crate::obj::objstr::PyStringRef;
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 

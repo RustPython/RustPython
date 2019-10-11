@@ -1,20 +1,19 @@
+use hexf_parse;
+use num_bigint::{BigInt, ToBigInt};
+use num_rational::Ratio;
+use num_traits::{float::Float, sign::Signed, ToPrimitive, Zero};
+
 use super::objbytes;
 use super::objint;
-use super::objstr;
-use super::objtype;
+use super::objstr::{self, PyStringRef};
+use super::objtype::{self, PyClassRef};
 use crate::function::OptionalArg;
-use crate::obj::objstr::PyStringRef;
-use crate::obj::objtype::PyClassRef;
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use hexf_parse;
-use num_bigint::{BigInt, ToBigInt};
-use num_rational::Ratio;
-use num_traits::{float::Float, sign::Signed, ToPrimitive, Zero};
 
 /// Convert a string or number to a floating point number, if possible.
 #[pyclass(name = "float")]

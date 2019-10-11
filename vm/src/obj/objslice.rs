@@ -1,12 +1,12 @@
+use num_bigint::BigInt;
+
+use super::objint::PyInt;
+use super::objtype::{class_has_attr, PyClassRef};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
-
-use crate::obj::objint::PyInt;
-use crate::obj::objtype::{class_has_attr, PyClassRef};
 use crate::vm::VirtualMachine;
-use num_bigint::BigInt;
 
 #[pyclass]
 #[derive(Debug)]

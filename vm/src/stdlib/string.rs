@@ -1,6 +1,4 @@
 /* String builtin module
- *
- *
  */
 
 use crate::pyobject::PyObjectRef;

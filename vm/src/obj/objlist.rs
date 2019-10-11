@@ -1,17 +1,9 @@
 use std::cell::{Cell, RefCell};
 use std::fmt;
-
 use std::ops::Range;
 
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
-
-use crate::function::OptionalArg;
-use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
-};
-use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
 use super::objbyteinner;
@@ -21,8 +13,13 @@ use super::objsequence::{
     get_elements_list, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul, SequenceIndex,
 };
 use super::objslice::PySliceRef;
-use super::objtype;
-use crate::obj::objtype::PyClassRef;
+use super::objtype::{self, PyClassRef};
+use crate::function::OptionalArg;
+use crate::pyobject::{
+    IdProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
 
 #[derive(Default)]
 pub struct PyList {
@@ -529,25 +526,25 @@ impl PyListRef {
     }
 
     fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if self.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
-        }
-        if objtype::isinstance(&other, &vm.ctx.list_type()) {
-            Ok(vm.new_bool(self.inner_eq(&other, vm)?))
+        let value = if self.as_object().is(&other) {
+            vm.new_bool(true)
+        } else if objtype::isinstance(&other, &vm.ctx.list_type()) {
+            vm.new_bool(self.inner_eq(&other, vm)?)
         } else {
-            Ok(vm.ctx.not_implemented())
-        }
+            vm.ctx.not_implemented()
+        };
+        Ok(value)
     }
 
     fn ne(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if self.as_object().is(&other) {
-            return Ok(vm.new_bool(false));
-        }
-        if objtype::isinstance(&other, &vm.ctx.list_type()) {
-            Ok(vm.new_bool(!self.inner_eq(&other, vm)?))
+        let value = if self.as_object().is(&other) {
+            vm.new_bool(false)
+        } else if objtype::isinstance(&other, &vm.ctx.list_type()) {
+            vm.new_bool(!self.inner_eq(&other, vm)?)
         } else {
-            Ok(vm.ctx.not_implemented())
-        }
+            vm.ctx.not_implemented()
+        };
+        Ok(value)
     }
 
     fn inner_eq(self, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {

@@ -9,8 +9,12 @@ use std::str;
 
 use num_bigint::Sign;
 use num_traits::{Signed, ToPrimitive, Zero};
+#[cfg(feature = "rustpython-compiler")]
+use rustpython_compiler::compile;
 
+use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::obj::objbool::{self, IntoPyBool};
+use crate::obj::objbyteinner::PyByteInner;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
@@ -19,10 +23,7 @@ use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
-#[cfg(feature = "rustpython-compiler")]
-use rustpython_compiler::compile;
-
-use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
+use crate::pyhash;
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
@@ -30,7 +31,6 @@ use crate::pyobject::{
 use crate::scope::Scope;
 use crate::vm::VirtualMachine;
 
-use crate::obj::objbyteinner::PyByteInner;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
 
@@ -299,8 +299,8 @@ fn builtin_hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> 
     }
 }
 
-fn builtin_hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    vm._hash(&obj).and_then(|v| Ok(vm.new_int(v)))
+fn builtin_hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+    vm._hash(&obj)
 }
 
 // builtin_help
@@ -308,7 +308,7 @@ fn builtin_hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn builtin_hex(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
     let n = number.as_bigint();
     let s = if n.is_negative() {
-        format!("-0x{:x}", n.abs())
+        format!("-0x{:x}", -n)
     } else {
         format!("0x{:x}", n)
     };
@@ -316,8 +316,8 @@ fn builtin_hex(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-fn builtin_id(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    Ok(vm.context().new_int(obj.get_id()))
+fn builtin_id(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
+    obj.get_id()
 }
 
 // builtin_input
@@ -492,7 +492,7 @@ fn builtin_oct(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-fn builtin_ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) -> PyResult {
+fn builtin_ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) -> PyResult<u32> {
     match string {
         Either::A(bytes) => {
             let bytes_len = bytes.elements.len();
@@ -502,7 +502,7 @@ fn builtin_ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) ->
                     bytes_len
                 )));
             }
-            Ok(vm.context().new_int(bytes.elements[0]))
+            Ok(u32::from(bytes.elements[0]))
         }
         Either::B(string) => {
             let string = string.as_str();
@@ -514,7 +514,7 @@ fn builtin_ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) ->
                 )));
             }
             match string.chars().next() {
-                Some(character) => Ok(vm.context().new_int(character as i32)),
+                Some(character) => Ok(character as u32),
                 None => Err(vm.new_type_error(
                     "ord() could not guess the integer representing this character".to_string(),
                 )),

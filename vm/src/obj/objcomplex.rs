@@ -2,15 +2,14 @@ use num_complex::Complex64;
 use num_traits::Zero;
 use std::num::Wrapping;
 
+use super::objfloat::{self, IntoPyFloat};
+use super::objtype::{self, PyClassRef};
 use crate::function::OptionalArg;
 use crate::pyhash;
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::VirtualMachine;
-
-use super::objfloat::{self, IntoPyFloat, PyFloat};
-use super::objtype::{self, PyClassRef};
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///
@@ -61,19 +60,19 @@ fn try_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Comp
 #[pyimpl]
 impl PyComplex {
     #[pyproperty(name = "real")]
-    fn real(&self, _vm: &VirtualMachine) -> PyFloat {
-        self.value.re.into()
+    fn real(&self, _vm: &VirtualMachine) -> f64 {
+        self.value.re
     }
 
     #[pyproperty(name = "imag")]
-    fn imag(&self, _vm: &VirtualMachine) -> PyFloat {
-        self.value.im.into()
+    fn imag(&self, _vm: &VirtualMachine) -> f64 {
+        self.value.im
     }
 
     #[pymethod(name = "__abs__")]
-    fn abs(&self, _vm: &VirtualMachine) -> PyFloat {
+    fn abs(&self, _vm: &VirtualMachine) -> f64 {
         let Complex64 { im, re } = self.value;
-        re.hypot(im).into()
+        re.hypot(im)
     }
 
     #[pymethod(name = "__add__")]
@@ -126,12 +125,12 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__float__")]
-    fn float(&self, vm: &VirtualMachine) -> PyResult {
+    fn float(&self, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error(String::from("Can't convert complex to float")))
     }
 
     #[pymethod(name = "__int__")]
-    fn int(&self, vm: &VirtualMachine) -> PyResult {
+    fn int(&self, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error(String::from("Can't convert complex to int")))
     }
 
@@ -260,10 +259,9 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__getnewargs__")]
-    fn complex_getnewargs(&self, vm: &VirtualMachine) -> PyResult {
+    fn complex_getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
         let Complex64 { re, im } = self.value;
-        Ok(vm
-            .ctx
-            .new_tuple(vec![vm.ctx.new_float(re), vm.ctx.new_float(im)]))
+        vm.ctx
+            .new_tuple(vec![vm.ctx.new_float(re), vm.ctx.new_float(im)])
     }
 }

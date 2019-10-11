@@ -4,17 +4,16 @@ use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
+use super::objint::{PyInt, PyIntRef};
+use super::objiter;
+use super::objslice::{PySlice, PySliceRef};
+use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-
-use super::objint::{PyInt, PyIntRef};
-use super::objiter;
-use super::objslice::{PySlice, PySliceRef};
-use super::objtype::PyClassRef;
 
 /// range(stop) -> range object
 /// range(start, stop[, step]) -> range object
@@ -260,50 +259,50 @@ impl PyRange {
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if let Some(rhs) = rhs.payload::<PyRange>() {
             let eq = self.inner_eq(rhs);
-            Ok(vm.ctx.new_bool(eq))
+            vm.ctx.new_bool(eq)
         } else {
-            Ok(vm.ctx.not_implemented())
+            vm.ctx.not_implemented()
         }
     }
 
     #[pymethod(name = "__ne__")]
-    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if let Some(rhs) = rhs.payload::<PyRange>() {
             let eq = self.inner_eq(rhs);
-            Ok(vm.ctx.new_bool(!eq))
+            vm.ctx.new_bool(!eq)
         } else {
-            Ok(vm.ctx.not_implemented())
+            vm.ctx.not_implemented()
         }
     }
 
     #[pymethod(name = "__lt__")]
-    fn lt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn lt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn gt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn ge(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod(name = "__le__")]
-    fn le(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn le(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod(name = "index")]
-    fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyInt> {
+    fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
         if let Ok(int) = needle.downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
-                Some(idx) => Ok(PyInt::new(idx)),
+                Some(idx) => Ok(idx),
                 None => Err(vm.new_value_error(format!("{} is not in range", int))),
             }
         } else {
@@ -312,15 +311,15 @@ impl PyRange {
     }
 
     #[pymethod(name = "count")]
-    fn count(&self, item: PyObjectRef, _vm: &VirtualMachine) -> PyInt {
+    fn count(&self, item: PyObjectRef, _vm: &VirtualMachine) -> usize {
         if let Ok(int) = item.downcast::<PyInt>() {
             if self.index_of(int.as_bigint()).is_some() {
-                PyInt::new(1)
+                1
             } else {
-                PyInt::new(0)
+                0
             }
         } else {
-            PyInt::new(0)
+            0
         }
     }
 

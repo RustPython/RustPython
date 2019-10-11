@@ -1,9 +1,8 @@
+use super::objiter;
+use super::objtype::PyClassRef;
 use crate::function::Args;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
-
-use super::objiter;
-use super::objtype::PyClassRef;
 
 /// map(func, *iterables) --> map object
 ///

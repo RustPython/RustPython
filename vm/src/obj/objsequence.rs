@@ -1,19 +1,18 @@
-use crate::function::OptionalArg;
-use crate::obj::objnone::PyNone;
 use std::cell::RefCell;
 use std::marker::Sized;
 use std::ops::{Deref, DerefMut, Range};
 
-use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
-
-use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::objint::{PyInt, PyIntRef};
 use super::objlist::PyList;
+use super::objnone::PyNone;
 use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
+use crate::function::OptionalArg;
+use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 pub trait PySliceableSequence {
     type Sliced;

@@ -11,6 +11,7 @@ use std::os::windows::fs::OpenOptionsExt;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
+use bitflags::bitflags;
 #[cfg(unix)]
 use exitcode;
 #[cfg(unix)]
@@ -34,8 +35,6 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-
-use bitflags::bitflags;
 
 #[cfg(unix)]
 pub fn raw_file_number(handle: File) -> i64 {

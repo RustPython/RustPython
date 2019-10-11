@@ -1,26 +1,26 @@
 //! Implementation of the python bytearray object.
+use std::cell::{Cell, RefCell};
+use std::convert::TryFrom;
 
-use crate::function::OptionalArg;
-use crate::obj::objbyteinner::{
+use num_traits::ToPrimitive;
+
+use super::objbyteinner::{
     ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerPosition, ByteInnerSplitOptions, ByteInnerSplitlinesOptions,
     ByteInnerTranslateOptions, ByteOr, PyByteInner,
 };
-use crate::obj::objint::PyIntRef;
-use crate::obj::objslice::PySliceRef;
-use crate::obj::objstr::PyStringRef;
-use crate::obj::objtuple::PyTupleRef;
+use super::objint::PyIntRef;
+use super::objiter;
+use super::objslice::PySliceRef;
+use super::objstr::PyStringRef;
+use super::objtuple::PyTupleRef;
+use super::objtype::PyClassRef;
+use crate::function::OptionalArg;
 use crate::pyobject::{
     Either, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject,
 };
 use crate::vm::VirtualMachine;
-use num_traits::ToPrimitive;
-use std::cell::{Cell, RefCell};
-use std::convert::TryFrom;
-
-use super::objiter;
-use super::objtype::PyClassRef;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\
 ///  bytearray(string, encoding[, errors]) -> bytearray\n\
@@ -100,8 +100,8 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_str(format!("bytearray(b'{}')", self.inner.borrow().repr()?)))
+    fn repr(self, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!("bytearray(b'{}')", self.inner.borrow().repr()?))
     }
 
     #[pymethod(name = "__len__")]
@@ -157,7 +157,11 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "__contains__")]
-    fn contains(self, needle: Either<PyByteInner, PyIntRef>, vm: &VirtualMachine) -> PyResult {
+    fn contains(
+        self,
+        needle: Either<PyByteInner, PyIntRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
         self.inner.borrow().contains(needle, vm)
     }
 
@@ -177,42 +181,42 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "isalnum")]
-    fn isalnum(self, vm: &VirtualMachine) -> PyResult {
+    fn isalnum(self, vm: &VirtualMachine) -> bool {
         self.inner.borrow().isalnum(vm)
     }
 
     #[pymethod(name = "isalpha")]
-    fn isalpha(self, vm: &VirtualMachine) -> PyResult {
+    fn isalpha(self, vm: &VirtualMachine) -> bool {
         self.inner.borrow().isalpha(vm)
     }
 
     #[pymethod(name = "isascii")]
-    fn isascii(self, vm: &VirtualMachine) -> PyResult {
+    fn isascii(self, vm: &VirtualMachine) -> bool {
         self.inner.borrow().isascii(vm)
     }
 
     #[pymethod(name = "isdigit")]
-    fn isdigit(self, vm: &VirtualMachine) -> PyResult {
+    fn isdigit(self, vm: &VirtualMachine) -> bool {
         self.inner.borrow().isdigit(vm)
     }
 
     #[pymethod(name = "islower")]
-    fn islower(self, vm: &VirtualMachine) -> PyResult {
+    fn islower(self, vm: &VirtualMachine) -> bool {
         self.inner.borrow().islower(vm)
     }
 
     #[pymethod(name = "isspace")]
-    fn isspace(self, vm: &VirtualMachine) -> PyResult {
+    fn isspace(self, vm: &VirtualMachine) -> bool {
         self.inner.borrow().isspace(vm)
     }
 
     #[pymethod(name = "isupper")]
-    fn isupper(self, vm: &VirtualMachine) -> PyResult {
+    fn isupper(self, vm: &VirtualMachine) -> bool {
         self.inner.borrow().isupper(vm)
     }
 
     #[pymethod(name = "istitle")]
-    fn istitle(self, vm: &VirtualMachine) -> PyResult {
+    fn istitle(self, vm: &VirtualMachine) -> bool {
         self.inner.borrow().istitle(vm)
     }
 
@@ -237,7 +241,7 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "hex")]
-    fn hex(self, vm: &VirtualMachine) -> PyResult {
+    fn hex(self, vm: &VirtualMachine) -> String {
         self.inner.borrow().hex(vm)
     }
 
@@ -285,7 +289,7 @@ impl PyByteArrayRef {
         start: OptionalArg<PyObjectRef>,
         end: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<bool> {
         self.inner
             .borrow()
             .startsendswith(suffix, start, end, true, vm)
@@ -298,7 +302,7 @@ impl PyByteArrayRef {
         start: OptionalArg<PyObjectRef>,
         end: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<bool> {
         self.inner
             .borrow()
             .startsendswith(prefix, start, end, false, vm)

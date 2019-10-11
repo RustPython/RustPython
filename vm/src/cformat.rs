@@ -1,4 +1,3 @@
-use crate::format::get_num_digits;
 /// Implementation of Printf-Style string formatting
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 use num_bigint::{BigInt, Sign};
@@ -6,6 +5,8 @@ use num_traits::Signed;
 use std::cmp;
 use std::fmt;
 use std::str::FromStr;
+
+use crate::format::get_num_digits;
 
 #[derive(Debug, PartialEq)]
 pub enum CFormatErrorType {

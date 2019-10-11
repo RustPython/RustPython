@@ -4,8 +4,8 @@
 
 use std::fmt;
 
+use super::objtype::PyClassRef;
 use crate::bytecode;
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 

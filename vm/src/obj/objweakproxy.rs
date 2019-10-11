@@ -1,6 +1,6 @@
+use super::objtype::PyClassRef;
 use super::objweakref::PyWeak;
 use crate::function::OptionalArg;
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 

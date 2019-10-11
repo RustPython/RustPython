@@ -1,6 +1,9 @@
 use std::cell::RefCell;
 use std::fmt;
 
+use indexmap::IndexMap;
+use itertools::Itertools;
+
 use crate::bytecode;
 use crate::function::PyFuncArgs;
 use crate::obj::objbool;
@@ -19,8 +22,6 @@ use crate::pyobject::{
 };
 use crate::scope::{NameProtocol, Scope};
 use crate::vm::VirtualMachine;
-use indexmap::IndexMap;
-use itertools::Itertools;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::signal::check_signals;
@@ -1162,14 +1163,24 @@ impl Frame {
         a.get_id()
     }
 
-    fn _in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
+    fn _in(
+        &self,
+        vm: &VirtualMachine,
+        needle: PyObjectRef,
+        haystack: PyObjectRef,
+    ) -> PyResult<bool> {
         let found = vm._membership(haystack.clone(), needle)?;
-        Ok(vm.ctx.new_bool(objbool::boolval(vm, found)?))
+        Ok(objbool::boolval(vm, found)?)
     }
 
-    fn _not_in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
+    fn _not_in(
+        &self,
+        vm: &VirtualMachine,
+        needle: PyObjectRef,
+        haystack: PyObjectRef,
+    ) -> PyResult<bool> {
         let found = vm._membership(haystack.clone(), needle)?;
-        Ok(vm.ctx.new_bool(!objbool::boolval(vm, found)?))
+        Ok(!objbool::boolval(vm, found)?)
     }
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
@@ -1177,10 +1188,8 @@ impl Frame {
         a.is(&b)
     }
 
-    fn _is_not(&self, vm: &VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let result_bool = !a.is(&b);
-        let result = vm.ctx.new_bool(result_bool);
-        Ok(result)
+    fn _is_not(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
+        !a.is(&b)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -1199,9 +1208,9 @@ impl Frame {
             bytecode::ComparisonOperator::Greater => vm._gt(a, b)?,
             bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(a, b)?,
             bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
-            bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
-            bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
+            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)),
+            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
+            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
         };
 
         self.push_value(value);
