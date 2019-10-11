@@ -100,7 +100,7 @@ impl PyFuncArgs {
         key: &str,
         ty: PyClassRef,
         vm: &VirtualMachine,
-    ) -> Result<Option<PyObjectRef>, PyObjectRef> {
+    ) -> PyResult<Option<PyObjectRef>> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
                 if isinstance(&kwarg, &ty) {

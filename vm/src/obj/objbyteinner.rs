@@ -1161,7 +1161,7 @@ pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
 }
 
 pub trait ByteOr: ToPrimitive {
-    fn byte_or(&self, vm: &VirtualMachine) -> Result<u8, PyObjectRef> {
+    fn byte_or(&self, vm: &VirtualMachine) -> PyResult<u8> {
         match self.to_u8() {
             Some(value) => Ok(value),
             None => Err(vm.new_value_error("byte must be in range(0, 256)".to_string())),

@@ -473,7 +473,7 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "append")]
-    fn append(self, x: PyIntRef, vm: &VirtualMachine) -> Result<(), PyObjectRef> {
+    fn append(self, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner
             .borrow_mut()
             .elements
@@ -482,7 +482,7 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "extend")]
-    fn extend(self, iterable_of_ints: PyIterable, vm: &VirtualMachine) -> Result<(), PyObjectRef> {
+    fn extend(self, iterable_of_ints: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let mut inner = self.inner.borrow_mut();
 
         for x in iterable_of_ints.iter(vm)? {

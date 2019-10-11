@@ -65,11 +65,7 @@ pub trait PySliceableSequence {
         start..stop
     }
 
-    fn get_slice_items(
-        &self,
-        vm: &VirtualMachine,
-        slice: &PyObjectRef,
-    ) -> Result<Self::Sliced, PyObjectRef>
+    fn get_slice_items(&self, vm: &VirtualMachine, slice: &PyObjectRef) -> PyResult<Self::Sliced>
     where
         Self: Sized,
     {
@@ -410,7 +406,7 @@ pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<
 pub fn is_valid_slice_arg(
     arg: OptionalArg<PyObjectRef>,
     vm: &VirtualMachine,
-) -> Result<Option<BigInt>, PyObjectRef> {
+) -> PyResult<Option<BigInt>> {
     if let OptionalArg::Present(value) = arg {
         match_class!(match value {
             i @ PyInt => Ok(Some(i.as_bigint().clone())),
