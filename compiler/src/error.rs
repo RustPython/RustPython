@@ -47,13 +47,7 @@ impl CompileError {
             match parse {
                 ParseErrorType::Lexical(LexicalErrorType::IndentationError) => true,
                 ParseErrorType::UnrecognizedToken(token, expected) => {
-                    if *token == Tok::Indent {
-                        true
-                    } else if expected.clone() == Some("Indent".to_string()) {
-                        true
-                    } else {
-                        false
-                    }
+                    *token == Tok::Indent || expected.clone() == Some("Indent".to_string())
                 }
                 _ => false,
             }
