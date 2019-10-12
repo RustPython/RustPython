@@ -29,10 +29,10 @@ use crate::pyobject::{
     TryFromObject, TypeProtocol,
 };
 use crate::scope::Scope;
-use crate::vm::VirtualMachine;
-
+use crate::stdlib::ast;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
+use crate::vm::VirtualMachine;
 
 fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let method = vm.get_method_or_type_error(x.clone(), "__abs__", || {
@@ -124,22 +124,41 @@ struct CompileArgs {
     optimize: OptionalArg<PyIntRef>,
 }
 
-#[cfg(feature = "rustpython-compiler")]
-fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef> {
+fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
     // TODO: compile::compile should probably get bytes
     let source = match &args.source {
         Either::A(string) => string.as_str(),
         Either::B(bytes) => str::from_utf8(bytes).unwrap(),
     };
 
-    let mode = args
-        .mode
-        .as_str()
-        .parse::<compile::Mode>()
-        .map_err(|err| vm.new_value_error(err.to_string()))?;
+    let mode_str = args.mode.as_str();
 
-    vm.compile(source, mode, args.filename.as_str().to_string())
-        .map_err(|err| vm.new_syntax_error(&err))
+    let flags = args
+        .flags
+        .map_or(Ok(0), |v| i32::try_from_object(vm, v.into_object()))?;
+
+    if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
+        #[cfg(feature = "rustpython-compiler")]
+        {
+            let mode = mode_str
+                .parse::<compile::Mode>()
+                .map_err(|err| vm.new_value_error(err.to_string()))?;
+
+            vm.compile(&source, mode, args.filename.as_str().to_string())
+                .map(|o| o.into_object())
+                .map_err(|err| vm.new_syntax_error(&err))
+        }
+        #[cfg(not(feature = "rustpython-compiler"))]
+        {
+            Err(vm.new_value_error("PyCF_ONLY_AST flag is required without compiler support"))
+        }
+    } else {
+        use rustpython_parser::parser;
+        let mode = mode_str
+            .parse::<parser::Mode>()
+            .map_err(|err| vm.new_value_error(err.to_string()))?;
+        ast::parse(&vm, &source, mode)
+    }
 }
 
 fn builtin_delattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -748,7 +767,6 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     #[cfg(feature = "rustpython-compiler")]
     {
         extend_module!(vm, module, {
-            "compile" => ctx.new_rustfunc(builtin_compile),
             "eval" => ctx.new_rustfunc(builtin_eval),
             "exec" => ctx.new_rustfunc(builtin_exec),
         });
@@ -771,6 +789,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "callable" => ctx.new_rustfunc(builtin_callable),
         "chr" => ctx.new_rustfunc(builtin_chr),
         "classmethod" => ctx.classmethod_type(),
+        "compile" => ctx.new_rustfunc(builtin_compile),
         "complex" => ctx.complex_type(),
         "delattr" => ctx.new_rustfunc(builtin_delattr),
         "dict" => ctx.dict_type(),

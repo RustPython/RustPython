@@ -381,6 +381,16 @@ impl<T> OptionalArg<T> {
         }
     }
 
+    pub fn map_or<U, F>(self, default: U, f: F) -> U
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            Present(value) => f(value),
+            Missing => default,
+        }
+    }
+
     pub fn map_or_else<U, D, F>(self, default: D, f: F) -> U
     where
         D: FnOnce() -> U,

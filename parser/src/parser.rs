@@ -3,6 +3,7 @@ use std::iter;
 use crate::ast;
 use crate::error::ParseError;
 use crate::lexer;
+pub use crate::mode::Mode;
 use crate::python;
 use crate::token;
 
@@ -71,6 +72,20 @@ pub fn parse_statement(source: &str) -> Result<Vec<ast::Statement>, ParseError> 
 /// ```
 pub fn parse_expression(source: &str) -> Result<ast::Expression, ParseError> {
     do_lalr_parsing!(source, Expression, StartExpression)
+}
+
+// Parse a given source code
+pub fn parse(source: &str, mode: Mode) -> Result<ast::Top, ParseError> {
+    Ok(match mode {
+        Mode::Program => {
+            let ast = parse_program(source)?;
+            ast::Top::Program(ast)
+        }
+        Mode::Statement => {
+            let statement = parse_statement(source)?;
+            ast::Top::Statement(statement)
+        }
+    })
 }
 
 #[cfg(test)]
