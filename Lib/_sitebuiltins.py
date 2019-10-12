@@ -10,6 +10,11 @@ The objects used by the site module to add custom builtins.
 
 import sys
 
+sys.stdin = getattr(sys, 'stdin', False) or open('/dev/stdin')
+sys.stdout = getattr(sys, 'stdout', False) or open('/dev/stdout', 'w')
+sys.stderr = getattr(sys, 'stderr', False) or open('/dev/stderr', 'w')
+
+
 class Quitter(object):
     def __init__(self, name, eof):
         self.name = name
