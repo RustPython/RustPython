@@ -457,8 +457,26 @@ fn os_unsetenv(key: Either<PyStringRef, PyBytesRef>, vm: &VirtualMachine) -> PyR
 
 fn _os_environ(vm: &VirtualMachine) -> PyDictRef {
     let environ = vm.ctx.new_dict();
-    for (key, value) in env::vars() {
-        environ.set_item(&key, vm.new_str(value), vm).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        for (key, value) in env::vars_os() {
+            environ
+                .set_item(
+                    &vm.ctx.new_bytes(key.into_vec()),
+                    vm.ctx.new_bytes(value.into_vec()),
+                    vm,
+                )
+                .unwrap();
+        }
+    }
+    #[cfg(windows)]
+    {
+        for (key, value) in env::vars() {
+            environ
+                .set_item(&vm.new_str(key), vm.new_str(value), vm)
+                .unwrap();
+        }
     }
     environ
 }
