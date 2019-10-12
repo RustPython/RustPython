@@ -11,4 +11,5 @@ pub mod error;
 pub mod mode;
 pub(crate) mod output_stream;
 pub mod peephole;
+mod stack_effect;
 pub mod symboltable;
