@@ -20,6 +20,7 @@ pub enum LexicalErrorType {
     StringError,
     UnicodeError,
     NestingError,
+    IndentationError,
     TabError,
     DefaultArgumentError,
     PositionalArgumentError,
@@ -36,6 +37,9 @@ impl fmt::Display for LexicalErrorType {
             LexicalErrorType::FStringError(error) => write!(f, "Got error in f-string: {}", error),
             LexicalErrorType::UnicodeError => write!(f, "Got unexpected unicode"),
             LexicalErrorType::NestingError => write!(f, "Got unexpected nesting"),
+            LexicalErrorType::IndentationError => {
+                write!(f, "unindent does not match any outer indentation level")
+            }
             LexicalErrorType::TabError => {
                 write!(f, "inconsistent use of tabs and spaces in indentation")
             }
@@ -121,7 +125,7 @@ pub enum ParseErrorType {
     /// Parser encountered an invalid token
     InvalidToken,
     /// Parser encountered an unexpected token
-    UnrecognizedToken(Tok, Vec<String>),
+    UnrecognizedToken(Tok, Option<String>),
     /// Maps to `User` type from `lalrpop-util`
     Lexical(LexicalErrorType),
 }
@@ -143,10 +147,19 @@ impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
                 error: ParseErrorType::Lexical(error.error),
                 location: error.location,
             },
-            LalrpopError::UnrecognizedToken { token, expected } => ParseError {
-                error: ParseErrorType::UnrecognizedToken(token.1, expected),
-                location: token.0,
-            },
+            LalrpopError::UnrecognizedToken { token, expected } => {
+                // Hacky, but it's how CPython does it. See PyParser_AddToken,
+                // in particular "Only one possible expected token" comment.
+                let expected = if expected.len() == 1 {
+                    Some(expected[0].clone())
+                } else {
+                    None
+                };
+                ParseError {
+                    error: ParseErrorType::UnrecognizedToken(token.1, expected),
+                    location: token.0,
+                }
+            }
             LalrpopError::UnrecognizedEOF { location, .. } => ParseError {
                 error: ParseErrorType::EOF,
                 location,
@@ -167,8 +180,14 @@ impl fmt::Display for ParseErrorType {
             ParseErrorType::EOF => write!(f, "Got unexpected EOF"),
             ParseErrorType::ExtraToken(ref tok) => write!(f, "Got extraneous token: {:?}", tok),
             ParseErrorType::InvalidToken => write!(f, "Got invalid token"),
-            ParseErrorType::UnrecognizedToken(ref tok, _) => {
-                write!(f, "Got unexpected token {}", tok)
+            ParseErrorType::UnrecognizedToken(ref tok, ref expected) => {
+                if *tok == Tok::Indent {
+                    write!(f, "unexpected indent")
+                } else if expected.clone() == Some("Indent".to_string()) {
+                    write!(f, "expected an indented block")
+                } else {
+                    write!(f, "Got unexpected token {}", tok)
+                }
             }
             ParseErrorType::Lexical(ref error) => write!(f, "{}", error),
         }
