@@ -117,13 +117,13 @@ impl PySlice {
     }
 
     fn inner_eq(&self, other: &PySlice, vm: &VirtualMachine) -> PyResult<bool> {
-        if !vm.bool_eq(self.start(vm), other.start(vm))? {
+        if !vm.identical_or_equal(&self.start(vm), &other.start(vm))? {
             return Ok(false);
         }
-        if !vm.bool_eq(self.stop(vm), other.stop(vm))? {
+        if !vm.identical_or_equal(&self.stop(vm), &other.stop(vm))? {
             return Ok(false);
         }
-        if !vm.bool_eq(self.step(vm), other.step(vm))? {
+        if !vm.identical_or_equal(&self.step(vm), &other.step(vm))? {
             return Ok(false);
         }
         Ok(true)

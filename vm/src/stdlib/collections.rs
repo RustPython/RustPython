@@ -1,5 +1,5 @@
 use crate::function::OptionalArg;
-use crate::obj::{objbool, objiter, objsequence, objtype::PyClassRef};
+use crate::obj::{objiter, objsequence, objtype::PyClassRef};
 use crate::pyobject::{IdProtocol, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::ReprGuard;
 use crate::VirtualMachine;
@@ -78,7 +78,7 @@ impl PyDeque {
     fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count = 0;
         for elem in self.deque.borrow().iter() {
-            if objbool::boolval(vm, vm._eq(elem.clone(), obj.clone())?)? {
+            if vm.identical_or_equal(elem, &obj)? {
                 count += 1;
             }
         }
@@ -114,7 +114,7 @@ impl PyDeque {
         let start = start.unwrap_or(0);
         let stop = stop.unwrap_or_else(|| deque.len());
         for (i, elem) in deque.iter().skip(start).take(stop - start).enumerate() {
-            if objbool::boolval(vm, vm._eq(elem.clone(), obj.clone())?)? {
+            if vm.identical_or_equal(elem, &obj)? {
                 return Ok(i);
             }
         }
@@ -171,7 +171,7 @@ impl PyDeque {
         let mut deque = self.deque.borrow_mut();
         let mut idx = None;
         for (i, elem) in deque.iter().enumerate() {
-            if objbool::boolval(vm, vm._eq(elem.clone(), obj.clone())?)? {
+            if vm.identical_or_equal(elem, &obj)? {
                 idx = Some(i);
                 break;
             }

@@ -447,13 +447,8 @@ impl PyListRef {
     fn count(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
         for element in self.elements.borrow().iter() {
-            if needle.is(element) {
+            if vm.identical_or_equal(element, &needle)? {
                 count += 1;
-            } else {
-                let py_equal = vm._eq(element.clone(), needle.clone())?;
-                if objbool::boolval(vm, py_equal)? {
-                    count += 1;
-                }
             }
         }
         Ok(count)
@@ -461,11 +456,7 @@ impl PyListRef {
 
     fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         for element in self.elements.borrow().iter() {
-            if needle.is(element) {
-                return Ok(true);
-            }
-            let py_equal = vm._eq(element.clone(), needle.clone())?;
-            if objbool::boolval(vm, py_equal)? {
+            if vm.identical_or_equal(element, &needle)? {
                 return Ok(true);
             }
         }
@@ -475,11 +466,7 @@ impl PyListRef {
 
     fn index(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         for (index, element) in self.elements.borrow().iter().enumerate() {
-            if needle.is(element) {
-                return Ok(index);
-            }
-            let py_equal = vm._eq(needle.clone(), element.clone())?;
-            if objbool::boolval(vm, py_equal)? {
+            if vm.identical_or_equal(element, &needle)? {
                 return Ok(index);
             }
         }
@@ -505,12 +492,7 @@ impl PyListRef {
     fn remove(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut ri: Option<usize> = None;
         for (index, element) in self.elements.borrow().iter().enumerate() {
-            if needle.is(element) {
-                ri = Some(index);
-                break;
-            }
-            let py_equal = vm._eq(needle.clone(), element.clone())?;
-            if objbool::get_value(&py_equal) {
+            if vm.identical_or_equal(element, &needle)? {
                 ri = Some(index);
                 break;
             }

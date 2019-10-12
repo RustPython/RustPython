@@ -1,7 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::fmt;
 
-use super::objbool;
 use super::objiter;
 use super::objstr;
 use super::objtype::{self, PyClassRef};
@@ -121,8 +120,7 @@ impl PyDictRef {
                     if v1.is(&v2) {
                         continue;
                     }
-                    let value = objbool::boolval(vm, vm._eq(v1, v2)?)?;
-                    if !value {
+                    if !vm.bool_eq(v1, v2)? {
                         return Ok(false);
                     }
                 }

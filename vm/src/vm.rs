@@ -1238,8 +1238,7 @@ impl VirtualMachine {
         let iter = objiter::get_iter(self, &haystack)?;
         loop {
             if let Some(element) = objiter::get_next_object(self, &iter)? {
-                let equal = self._eq(needle.clone(), element.clone())?;
-                if objbool::get_value(&equal) {
+                if self.bool_eq(needle.clone(), element.clone())? {
                     return Ok(self.new_bool(true));
                 } else {
                     continue;
@@ -1272,9 +1271,17 @@ impl VirtualMachine {
     }
 
     pub fn bool_eq(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
-        let eq = self._eq(a.clone(), b.clone())?;
+        let eq = self._eq(a, b)?;
         let value = objbool::boolval(self, eq)?;
         Ok(value)
+    }
+
+    pub fn identical_or_equal(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<bool> {
+        if a.is(b) {
+            Ok(true)
+        } else {
+            self.bool_eq(a.clone(), b.clone())
+        }
     }
 
     pub fn bool_seq_lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
