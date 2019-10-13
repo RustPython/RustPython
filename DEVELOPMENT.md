@@ -19,7 +19,7 @@ The contents of the Development Guide include:
 
 RustPython requires the following:
 
-- Rust 1.36 or higher
+- Rust latest stable version (at least 1.38.0)
     - To check Rust version: `rustc --version` 
     - If you have `rustup` on your system, enter to update to the latest
       stable version: `rustup update stable`
