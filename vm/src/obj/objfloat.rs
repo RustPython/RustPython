@@ -500,17 +500,17 @@ impl PyFloat {
                     return Ok(vm.ctx.new_float(self.value));
                 }
                 if ndigits >= 0i32 {
-                    return Ok(vm.ctx.new_float(
+                    Ok(vm.ctx.new_float(
                         (self.value * pow(10.0, ndigits as usize)).round()
                             / pow(10.0, ndigits as usize),
-                    ));
+                    ))
                 } else {
                     let result = (self.value / pow(10.0, (-ndigits) as usize)).round()
                         * pow(10.0, (-ndigits) as usize);
                     if result.is_nan() {
                         return Ok(vm.ctx.new_float(0.0));
                     }
-                    return Ok(vm.ctx.new_float(result));
+                    Ok(vm.ctx.new_float(result))
                 }
             }
         } else {
