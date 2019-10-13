@@ -16,7 +16,7 @@ A Python-3 (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream:
 
 #### Check out our [online demo](https://rustpython.github.io/demo/) running on WebAssembly.
 
-RustPython requires Rust 1.36 or higher. 
+RustPython requires Rust latest stable version (at least 1.38.0). 
 To check Rust version: `rustc --version` If you wish to update,
 `rustup update stable`.
 
