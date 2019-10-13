@@ -1,7 +1,7 @@
 use hexf_parse;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
-use num_traits::{float::Float, sign::Signed, ToPrimitive, Zero, pow};
+use num_traits::{float::Float, pow, sign::Signed, ToPrimitive, Zero};
 
 use super::objbytes;
 use super::objint;
@@ -500,9 +500,13 @@ impl PyFloat {
                     return Ok(vm.ctx.new_float(self.value));
                 }
                 if ndigits >= 0i32 {
-                    return Ok(vm.ctx.new_float((self.value*pow(10.0, ndigits as usize)).round() / pow(10.0, ndigits as usize)));
+                    return Ok(vm.ctx.new_float(
+                        (self.value * pow(10.0, ndigits as usize)).round()
+                            / pow(10.0, ndigits as usize),
+                    ));
                 } else {
-                    let result = (self.value/pow(10.0, (-ndigits) as usize)).round() * pow(10.0, (-ndigits) as usize);
+                    let result = (self.value / pow(10.0, (-ndigits) as usize)).round()
+                        * pow(10.0, (-ndigits) as usize);
                     if result.is_nan() {
                         return Ok(vm.ctx.new_float(0.0));
                     }
