@@ -943,6 +943,17 @@ fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 #[cfg(unix)]
+fn os_system(command: PyStringRef, vm: &VirtualMachine) -> PyResult<i32> {
+    use libc::system;
+    use std::ffi::CString;
+
+    let rstr = command.as_str();
+    let cstr = CString::new(rstr).unwrap();
+    let x = unsafe { system(cstr.as_ptr()) };
+    Ok(x)
+}
+
+#[cfg(unix)]
 fn os_chmod(
     path: PyStringRef,
     dir_fd: DirFd,
@@ -1292,6 +1303,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
     let ctx = &vm.ctx;
     extend_module!(vm, module, {
+        "system" => ctx.new_rustfunc(os_system),
         "getppid" => ctx.new_rustfunc(os_getppid),
         "getgid" => ctx.new_rustfunc(os_getgid),
         "getegid" => ctx.new_rustfunc(os_getegid),
