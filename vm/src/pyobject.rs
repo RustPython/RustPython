@@ -384,6 +384,17 @@ impl PyContext {
         PyObject::new(PyInt::new(i), self.int_type(), None)
     }
 
+    #[inline]
+    pub fn new_bigint(&self, i: &BigInt) -> PyObjectRef {
+        if let Some(i) = i.to_i32() {
+            if i >= INT_CACHE_POOL_MIN && i <= INT_CACHE_POOL_MAX {
+                let inner_idx = (i - INT_CACHE_POOL_MIN) as usize;
+                return self.int_cache_pool[inner_idx].clone();
+            }
+        }
+        PyObject::new(PyInt::new(i.clone()), self.int_type(), None)
+    }
+
     pub fn new_float(&self, value: f64) -> PyObjectRef {
         PyObject::new(PyFloat::from(value), self.float_type(), None)
     }
@@ -520,7 +531,7 @@ impl PyContext {
 
     pub fn unwrap_constant(&self, value: &bytecode::Constant) -> PyObjectRef {
         match *value {
-            bytecode::Constant::Integer { ref value } => self.new_int(value.clone()),
+            bytecode::Constant::Integer { ref value } => self.new_bigint(value),
             bytecode::Constant::Float { ref value } => self.new_float(*value),
             bytecode::Constant::Complex { ref value } => self.new_complex(*value),
             bytecode::Constant::String { ref value } => self.new_str(value.clone()),

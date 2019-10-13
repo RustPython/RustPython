@@ -124,8 +124,10 @@ fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
     } else {
         Ok(if let Some(v2) = int2.value.to_u64() {
             vm.ctx.new_int(int1.value.pow(v2))
-        } else if int1.value.is_one() || int1.value.is_zero() {
-            vm.ctx.new_int(int1.value.clone())
+        } else if int1.value.is_one() {
+            vm.ctx.new_int(1)
+        } else if int1.value.is_zero() {
+            vm.ctx.new_int(0)
         } else if int1.value == BigInt::from(-1) {
             if int2.value.is_odd() {
                 vm.ctx.new_int(-1)
@@ -672,7 +674,7 @@ impl PyInt {
     }
     #[pyproperty]
     fn real(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self.value.clone())
+        vm.ctx.new_bigint(&self.value)
     }
 
     #[pyproperty]
