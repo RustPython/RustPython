@@ -22,8 +22,8 @@ impl std::str::FromStr for Mode {
 impl Mode {
     pub fn to_parser_mode(self) -> parser::Mode {
         match self {
-            Self::Exec | Self::Single => parser::Mode::Program,
-            Self::Eval => parser::Mode::Statement,
+            Mode::Exec | Mode::Single => parser::Mode::Program,
+            Mode::Eval => parser::Mode::Statement,
         }
     }
 }
