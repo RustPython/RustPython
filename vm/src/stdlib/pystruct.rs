@@ -88,32 +88,35 @@ where
     I: Sized + Iterator<Item = char>,
 {
     let mut codes = vec![];
-    let mut use_repeat = false;
-    let mut repeat = 0;
-    for c in chars {
-        match c {
-            '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => {
-                let current_character = c.to_digit(10).unwrap();
-                if use_repeat {
-                    repeat = repeat * 10 + current_character;
-                } else {
-                    repeat = current_character;
-                    use_repeat = true;
+    while chars.peek().is_some() {
+        // determine repeat operator:
+        let repeat = match chars.peek() {
+            Some('0'..='9') => {
+                let mut repeat = 0;
+                while let Some('0'..='9') = chars.peek() {
+                    if let Some(c) = chars.next() {
+                        let current_digit = c.to_digit(10).unwrap();
+                        repeat = repeat * 10 + current_digit;
+                    }
                 }
+                Some(repeat)
             }
-            'b' | 'B' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'f' | 'd' => {
-                if use_repeat {
-                    for _ in 0..repeat {
+            _ => None,
+        };
+
+        // determine format char:
+        if let Some(c) = chars.next() {
+            match c {
+                'b' | 'B' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'f' | 'd' => {
+                    if let Some(repeat) = repeat {
+                        for _ in 0..repeat {
+                            codes.push(FormatCode { code: c })
+                        }
+                    } else {
                         codes.push(FormatCode { code: c })
                     }
-                    repeat = 0;
-                    use_repeat = false;
-                } else {
-                    codes.push(FormatCode { code: c })
                 }
-            }
-            c => {
-                return Err(format!("Illegal format code {:?}", c));
+                _ => return Err(format!("Illegal format code {:?}", c)),
             }
         }
     }
