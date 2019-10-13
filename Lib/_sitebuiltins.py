@@ -8,11 +8,12 @@ The objects used by the site module to add custom builtins.
 # Note this means this module should also avoid keep things alive in its
 # globals.
 
+import os
 import sys
 
-sys.stdin = sys.__stdin__ = getattr(sys, '__stdin__', False) or open('/dev/stdin')
-sys.stdout = sys.__stdin__ = getattr(sys, '__stdout__', False) or open('/dev/stdout', 'w')
-sys.stderr = sys.__stdin__ = getattr(sys, '__stderr__', False) or open('/dev/stderr', 'w')
+sys.stdin = sys.__stdin__ = getattr(sys, '__stdin__', False) or os.fdopen(0, "r")
+sys.stdout = sys.__stdin__ = getattr(sys, '__stdout__', False) or os.fdopen(1, "w")
+sys.stderr = sys.__stdin__ = getattr(sys, '__stderr__', False) or os.fdopen(2, "w")
 
 
 class Quitter(object):
