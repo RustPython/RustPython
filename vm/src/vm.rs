@@ -150,21 +150,14 @@ impl VirtualMachine {
 
         // make a new module without access to the vm; doesn't
         // set __spec__, __loader__, etc. attributes
-        let new_module = |name: &str, dict| {
-            PyObject::new(
-                PyModule {
-                    name: name.to_owned(),
-                },
-                ctx.types.module_type.clone(),
-                Some(dict),
-            )
-        };
+        let new_module =
+            |dict| PyObject::new(PyModule {}, ctx.types.module_type.clone(), Some(dict));
 
         // Hard-core modules:
         let builtins_dict = ctx.new_dict();
-        let builtins = new_module("builtins", builtins_dict.clone());
+        let builtins = new_module(builtins_dict.clone());
         let sysmod_dict = ctx.new_dict();
-        let sysmod = new_module("sys", sysmod_dict.clone());
+        let sysmod = new_module(sysmod_dict.clone());
 
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
         let frozen = RefCell::new(frozen::get_module_inits());
@@ -307,13 +300,7 @@ impl VirtualMachine {
 
     pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
         objmodule::init_module_dict(self, &dict, self.new_str(name.to_owned()), self.get_none());
-        PyObject::new(
-            PyModule {
-                name: name.to_owned(),
-            },
-            self.ctx.types.module_type.clone(),
-            Some(dict),
-        )
+        PyObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
     }
 
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]

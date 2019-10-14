@@ -28,7 +28,6 @@ use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
-use crate::obj::objmodule::PyModule;
 use crate::obj::objnamespace::PyNamespace;
 use crate::obj::objnone::{PyNone, PyNoneRef};
 use crate::obj::objobject;
@@ -85,9 +84,6 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
             }
         }
 
-        if let Some(PyModule { ref name, .. }) = self.payload::<PyModule>() {
-            return write!(f, "module '{}'", name);
-        }
         write!(f, "'{}' object", self.class().name)
     }
 }
