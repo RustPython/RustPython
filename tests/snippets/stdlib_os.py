@@ -313,3 +313,18 @@ with TestWithTempDir() as tmpdir:
         with os.scandir() as dir_iter:
             collected_files = [dir_entry.name for dir_entry in dir_iter]
             assert set(collected_files) == set(expected_files)
+
+# system()
+if "win" not in sys.platform:
+    assert os.system('ls') == 0
+    assert os.system('{') != 0
+
+    for arg in [None, 1, 1.0, TabError]:
+        try:
+            os.system(arg)
+        except TypeError:
+            pass
+        else:
+            raise AssertionError(f'os.system failed to raise TypeError with arg {arg}')
+
+
