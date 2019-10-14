@@ -105,6 +105,45 @@ pub enum ExecutionResult {
     Yield(PyObjectRef),
 }
 
+impl ExecutionResult {
+    /// Extract an ExecutionResult from a PyResult returned from e.g. gen.__next__() or gen.send()
+    pub fn from_result(vm: &VirtualMachine, res: PyResult) -> PyResult<Self> {
+        match res {
+            Ok(val) => Ok(ExecutionResult::Yield(val)),
+            Err(err) => {
+                if objtype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                    let args = vm.get_attribute(err, "args")?;
+                    let args: &PyTuple = args.payload().unwrap();
+                    let val = if args.elements.len() == 0 {
+                        vm.get_none()
+                    } else {
+                        args.elements[0].clone()
+                    };
+                    Ok(ExecutionResult::Return(val))
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
+    /// Turn an ExecutionResult into a PyResult that would be returned from a generator or coroutine
+    pub fn into_result(self, vm: &VirtualMachine) -> PyResult {
+        match self {
+            ExecutionResult::Yield(value) => Ok(value),
+            ExecutionResult::Return(value) => {
+                let stop_iteration = vm.ctx.exceptions.stop_iteration.clone();
+                let args = if vm.is_none(&value) {
+                    vec![]
+                } else {
+                    vec![value]
+                };
+                Err(vm.new_exception_obj(stop_iteration, args).unwrap())
+            }
+        }
+    }
+}
+
 /// A valid execution result, or an exception
 pub type FrameResult = PyResult<Option<ExecutionResult>>;
 
@@ -956,18 +995,29 @@ impl Frame {
 
     fn execute_yield_from(&self, vm: &VirtualMachine) -> FrameResult {
         // Value send into iterator:
-        self.pop_value();
+        let val = self.pop_value();
 
-        let top_of_stack = self.last_value();
-        let next_obj = objiter::get_next_object(vm, &top_of_stack)?;
+        let coro = self.last_value();
 
-        match next_obj {
-            Some(value) => {
+        let result = if vm.is_none(&val) {
+            objiter::call_next(vm, &coro)
+        } else {
+            vm.call_method(&coro, "send", vec![val])
+        };
+
+        let result = ExecutionResult::from_result(vm, result)?;
+
+        match result {
+            ExecutionResult::Yield(value) => {
                 // Set back program counter:
                 *self.lasti.borrow_mut() -= 1;
                 Ok(Some(ExecutionResult::Yield(value)))
             }
-            None => Ok(None),
+            ExecutionResult::Return(value) => {
+                self.pop_value();
+                self.push_value(value);
+                Ok(None)
+            }
         }
     }
 

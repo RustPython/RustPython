@@ -88,3 +88,19 @@ l = list(g)
 # print(l)
 assert l == [99]
 assert r == ['a', 66, None]
+
+def binary(n):
+    if n <= 1:
+        return 1
+    l = yield from binary(n - 1)
+    r = yield from binary(n - 1)
+    return l + 1 + r
+
+with assert_raises(StopIteration):
+    try:
+        next(binary(5))
+    except StopIteration as stopiter:
+        # TODO: StopIteration.value
+        assert stopiter.args[0] == 31
+        raise
+

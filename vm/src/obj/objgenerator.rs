@@ -3,7 +3,7 @@
  */
 
 use super::objtype::{isinstance, PyClassRef};
-use crate::frame::{ExecutionResult, FrameRef};
+use crate::frame::FrameRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -41,8 +41,7 @@ impl PyGenerator {
     fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.frame.push_value(value.clone());
 
-        let result = vm.run_frame(self.frame.clone())?;
-        handle_execution_result(result, vm)
+        vm.run_frame(self.frame.clone())?.into_result(vm)
     }
 
     #[pymethod]
@@ -58,19 +57,7 @@ impl PyGenerator {
         if !isinstance(&exc_val, &vm.ctx.exceptions.base_exception_type) {
             return Err(vm.new_type_error("Can't throw non exception".to_string()));
         }
-        let result = vm.frame_throw(self.frame.clone(), exc_val)?;
-        handle_execution_result(result, vm)
-    }
-}
-
-fn handle_execution_result(result: ExecutionResult, vm: &VirtualMachine) -> PyResult {
-    match result {
-        ExecutionResult::Yield(value) => Ok(value),
-        ExecutionResult::Return(_value) => {
-            // Stop iteration!
-            let stop_iteration = vm.ctx.exceptions.stop_iteration.clone();
-            Err(vm.new_exception(stop_iteration, "End of generator".to_string()))
-        }
+        vm.frame_throw(self.frame.clone(), exc_val)?.into_result(vm)
     }
 }
 
