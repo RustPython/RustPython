@@ -353,6 +353,7 @@ pub enum BlockType {
 */
 
 impl CodeObject {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         flags: CodeFlags,
         arg_names: Vec<String>,
