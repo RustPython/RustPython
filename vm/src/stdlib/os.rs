@@ -1303,7 +1303,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
     let ctx = &vm.ctx;
     extend_module!(vm, module, {
-        "system" => ctx.new_rustfunc(os_system),
+        "access" => ctx.new_rustfunc(os_access),
+        "chmod" => ctx.new_rustfunc(os_chmod),
         "getppid" => ctx.new_rustfunc(os_getppid),
         "getgid" => ctx.new_rustfunc(os_getgid),
         "getegid" => ctx.new_rustfunc(os_getegid),
@@ -1313,16 +1314,8 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setgid" => ctx.new_rustfunc(os_setgid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
-        "access" => ctx.new_rustfunc(os_access),
-        "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
-        "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
-        "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
-        "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
-        "chmod" => ctx.new_rustfunc(os_chmod),
+        "system" => ctx.new_rustfunc(os_system),
         "ttyname" => ctx.new_rustfunc(os_ttyname),
-        "SEEK_SET" => ctx.new_int(Whence::SeekSet as i8),
-        "SEEK_CUR" => ctx.new_int(Whence::SeekCur as i8),
-        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8),
         "EX_OK" => ctx.new_int(exitcode::OK as i8),
         "EX_USAGE" => ctx.new_int(exitcode::USAGE as i8),
         "EX_DATAERR" => ctx.new_int(exitcode::DATAERR as i8),
@@ -1339,6 +1332,13 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "EX_PROTOCOL" => ctx.new_int(exitcode::PROTOCOL as i8),
         "EX_NOPERM" => ctx.new_int(exitcode::NOPERM as i8),
         "EX_CONFIG" => ctx.new_int(exitcode::CONFIG as i8),
+        "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
+        "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
+        "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
+        "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
+        "SEEK_SET" => ctx.new_int(Whence::SeekSet as i8),
+        "SEEK_CUR" => ctx.new_int(Whence::SeekCur as i8),
+        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8),
     });
 
     #[cfg(not(target_os = "redox"))]
