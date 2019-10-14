@@ -496,7 +496,9 @@ impl PyFloat {
                     ndigits if *ndigits < i32::min_value().to_bigint().unwrap() => i32::min_value(),
                     _ => ndigits.to_i32().unwrap(),
                 };
-                if (self.value > 1e+16_f64 && ndigits >= 0i32) || ndigits > 16i32 {
+                if (self.value > 1e+16_f64 && ndigits >= 0i32)
+                    || (ndigits + self.value.log10().floor() as i32 > 16i32)
+                {
                     return Ok(vm.ctx.new_float(self.value));
                 }
                 if ndigits >= 0i32 {
