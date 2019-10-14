@@ -51,3 +51,22 @@ assert_raises(TypeError, pow, 2, 4.0, 5)
 assert_raises(TypeError, pow, 2.0, 4, 5)
 assert_raises(ValueError, pow, 2, -1, 5)
 assert_raises(ValueError, pow, 2, 2, 0)
+
+# bitwise
+
+assert 8 >> 3 == 1
+assert 8 << 3 == 64
+
+# Left shift raises type error
+assert_raises(TypeError, lambda: 1 << 0.1)
+assert_raises(TypeError, lambda: 1 << "abc")
+
+# Right shift raises type error
+assert_raises(TypeError, lambda: 1 >> 0.1)
+assert_raises(TypeError, lambda: 1 >> "abc")
+
+# Left shift raises value error on negative
+assert_raises(ValueError, lambda: 1 << -1)
+
+# Right shift raises value error on negative
+assert_raises(ValueError, lambda: 1 >> -1)
