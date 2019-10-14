@@ -1,7 +1,7 @@
 use hexf_parse;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
-use num_traits::{float::Float, sign::Signed, ToPrimitive, Zero};
+use num_traits::{float::Float, pow, sign::Signed, ToPrimitive, Zero};
 
 use super::objbytes;
 use super::objint;
@@ -477,7 +477,6 @@ impl PyFloat {
                 }
             }
         };
-
         if let Some(ndigits) = ndigits {
             if ndigits.is_zero() {
                 let fract = self.value.fract();
@@ -492,7 +491,29 @@ impl PyFloat {
                 };
                 Ok(vm.ctx.new_float(value))
             } else {
-                Ok(vm.ctx.not_implemented())
+                let ndigits = match ndigits {
+                    ndigits if *ndigits > i32::max_value().to_bigint().unwrap() => i32::max_value(),
+                    ndigits if *ndigits < i32::min_value().to_bigint().unwrap() => i32::min_value(),
+                    _ => ndigits.to_i32().unwrap(),
+                };
+                if (self.value > 1e+16_f64 && ndigits >= 0i32)
+                    || (ndigits + self.value.log10().floor() as i32 > 16i32)
+                {
+                    return Ok(vm.ctx.new_float(self.value));
+                }
+                if ndigits >= 0i32 {
+                    Ok(vm.ctx.new_float(
+                        (self.value * pow(10.0, ndigits as usize)).round()
+                            / pow(10.0, ndigits as usize),
+                    ))
+                } else {
+                    let result = (self.value / pow(10.0, (-ndigits) as usize)).round()
+                        * pow(10.0, (-ndigits) as usize);
+                    if result.is_nan() {
+                        return Ok(vm.ctx.new_float(0.0));
+                    }
+                    Ok(vm.ctx.new_float(result))
+                }
             }
         } else {
             let fract = self.value.fract();
