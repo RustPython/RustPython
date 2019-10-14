@@ -943,7 +943,7 @@ fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 #[cfg(unix)]
-fn os_system(command: PyStringRef, vm: &VirtualMachine) -> PyResult<i32> {
+fn os_system(command: PyStringRef, _vm: &VirtualMachine) -> PyResult<i32> {
     use libc::system;
     use std::ffi::CString;
 
