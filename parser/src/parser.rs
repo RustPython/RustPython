@@ -1,3 +1,10 @@
+//! Python parsing.
+//!
+//! Use this module to parse python code into an AST.
+//! There are three ways to parse python code. You could
+//! parse a whole program, a single statement, or a single
+//! expression.
+
 use std::iter;
 
 use crate::ast;
@@ -32,10 +39,12 @@ macro_rules! do_lalr_parsing {
     }};
 }
 
+/// Parse a full python program, containing usually multiple lines.
 pub fn parse_program(source: &str) -> Result<ast::Program, ParseError> {
     do_lalr_parsing!(source, Program, StartProgram)
 }
 
+/// Parse a single statement.
 pub fn parse_statement(source: &str) -> Result<Vec<ast::Statement>, ParseError> {
     do_lalr_parsing!(source, Statement, StartStatement)
 }
