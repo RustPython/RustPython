@@ -16,7 +16,6 @@ pub struct PyFunction {
     pub scope: Scope,
     pub defaults: Option<PyTupleRef>,
     pub kw_only_defaults: Option<PyDictRef>,
-    pub new_locals: bool,
 }
 
 impl PyFunction {
@@ -25,14 +24,12 @@ impl PyFunction {
         scope: Scope,
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
-        new_locals: bool,
     ) -> Self {
         PyFunction {
             code,
             scope,
             defaults,
             kw_only_defaults,
-            new_locals,
         }
     }
 }

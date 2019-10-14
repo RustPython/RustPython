@@ -137,6 +137,7 @@ impl<O: OutputStream> Compiler<O> {
     fn push_new_code_object(&mut self, obj_name: String) {
         let line_number = self.get_source_line_number();
         self.push_output(CodeObject::new(
+            Default::default(),
             Vec::new(),
             Varargs::None,
             Vec::new(),
@@ -595,11 +596,7 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
-    fn enter_function(
-        &mut self,
-        name: &str,
-        args: &ast::Parameters,
-    ) -> Result<bytecode::FunctionOpArg, CompileError> {
+    fn enter_function(&mut self, name: &str, args: &ast::Parameters) -> Result<(), CompileError> {
         let have_defaults = !args.defaults.is_empty();
         if have_defaults {
             // Construct a tuple:
@@ -633,8 +630,17 @@ impl<O: OutputStream> Compiler<O> {
             });
         }
 
+        let mut flags = bytecode::CodeFlags::default();
+        if have_defaults {
+            flags |= bytecode::CodeFlags::HAS_DEFAULTS;
+        }
+        if num_kw_only_defaults > 0 {
+            flags |= bytecode::CodeFlags::HAS_KW_ONLY_DEFAULTS;
+        }
+
         let line_number = self.get_source_line_number();
         self.push_output(CodeObject::new(
+            flags,
             args.args.iter().map(|a| a.arg.clone()).collect(),
             compile_varargs(&args.vararg),
             args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
@@ -645,15 +651,7 @@ impl<O: OutputStream> Compiler<O> {
         ));
         self.enter_scope();
 
-        let mut flags = bytecode::FunctionOpArg::default();
-        if have_defaults {
-            flags |= bytecode::FunctionOpArg::HAS_DEFAULTS;
-        }
-        if num_kw_only_defaults > 0 {
-            flags |= bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS;
-        }
-
-        Ok(flags)
+        Ok(())
     }
 
     fn prepare_decorators(
@@ -813,7 +811,7 @@ impl<O: OutputStream> Compiler<O> {
 
         self.prepare_decorators(decorator_list)?;
 
-        let mut flags = self.enter_function(name, args)?;
+        self.enter_function(name, args)?;
 
         let (body, doc_str) = get_doc(body);
 
@@ -832,7 +830,7 @@ impl<O: OutputStream> Compiler<O> {
             }
         }
 
-        let code = self.pop_code_object();
+        let mut code = self.pop_code_object();
         self.leave_scope();
 
         // Prepare type annotations:
@@ -864,7 +862,7 @@ impl<O: OutputStream> Compiler<O> {
         }
 
         if num_annotations > 0 {
-            flags |= bytecode::FunctionOpArg::HAS_ANNOTATIONS;
+            code.flags |= bytecode::CodeFlags::HAS_ANNOTATIONS;
             self.emit(Instruction::BuildMap {
                 size: num_annotations,
                 unpack: false,
@@ -884,7 +882,7 @@ impl<O: OutputStream> Compiler<O> {
         });
 
         // Turn code object into function object:
-        self.emit(Instruction::MakeFunction { flags });
+        self.emit(Instruction::MakeFunction);
         self.store_docstring(doc_str);
         self.apply_decorators(decorator_list);
 
@@ -915,6 +913,7 @@ impl<O: OutputStream> Compiler<O> {
         self.emit(Instruction::LoadBuildClass);
         let line_number = self.get_source_line_number();
         self.push_output(CodeObject::new(
+            Default::default(),
             vec![],
             Varargs::None,
             vec![],
@@ -950,7 +949,8 @@ impl<O: OutputStream> Compiler<O> {
         });
         self.emit(Instruction::ReturnValue);
 
-        let code = self.pop_code_object();
+        let mut code = self.pop_code_object();
+        code.flags &= !bytecode::CodeFlags::NEW_LOCALS;
         self.leave_scope();
 
         self.emit(Instruction::LoadConst {
@@ -965,9 +965,7 @@ impl<O: OutputStream> Compiler<O> {
         });
 
         // Turn code object into function object:
-        self.emit(Instruction::MakeFunction {
-            flags: bytecode::FunctionOpArg::default() & !bytecode::FunctionOpArg::NEW_LOCALS,
-        });
+        self.emit(Instruction::MakeFunction);
 
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::String {
@@ -1615,7 +1613,7 @@ impl<O: OutputStream> Compiler<O> {
             Lambda { args, body } => {
                 let name = "<lambda>".to_string();
                 // no need to worry about the self.loop_depth because there are no loops in lambda expressions
-                let flags = self.enter_function(&name, args)?;
+                self.enter_function(&name, args)?;
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
@@ -1629,7 +1627,7 @@ impl<O: OutputStream> Compiler<O> {
                     value: bytecode::Constant::String { value: name },
                 });
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction { flags });
+                self.emit(Instruction::MakeFunction);
             }
             Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
@@ -1810,6 +1808,7 @@ impl<O: OutputStream> Compiler<O> {
         let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
         self.push_output(CodeObject::new(
+            Default::default(),
             vec![".0".to_string()],
             Varargs::None,
             vec![],
@@ -1945,9 +1944,7 @@ impl<O: OutputStream> Compiler<O> {
         });
 
         // Turn code object into function object:
-        self.emit(Instruction::MakeFunction {
-            flags: bytecode::FunctionOpArg::default(),
-        });
+        self.emit(Instruction::MakeFunction);
 
         // Evaluate iterated item:
         self.compile_expression(&generators[0].iter)?;
