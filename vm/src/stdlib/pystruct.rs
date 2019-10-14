@@ -105,23 +105,29 @@ where
         };
 
         // determine format char:
-        if let Some(c) = chars.next() {
-            match c {
-                'b' | 'B' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'f' | 'd' => {
-                    if let Some(repeat) = repeat {
-                        for _ in 0..repeat {
-                            codes.push(FormatCode { code: c })
-                        }
-                    } else {
+        let c = chars.next();
+        match c {
+            Some(c) if is_supported_format_character(c) => {
+                if let Some(repeat) = repeat {
+                    for _ in 0..repeat {
                         codes.push(FormatCode { code: c })
                     }
+                } else {
+                    codes.push(FormatCode { code: c })
                 }
-                _ => return Err(format!("Illegal format code {:?}", c)),
             }
+            _ => return Err(format!("Illegal format code {:?}", c)),
         }
     }
 
     Ok(codes)
+}
+
+fn is_supported_format_character(c: char) -> bool {
+    match c {
+        'b' | 'B' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'f' | 'd' => true,
+        _ => false,
+    }
 }
 
 fn get_int(vm: &VirtualMachine, arg: &PyObjectRef) -> PyResult<BigInt> {
