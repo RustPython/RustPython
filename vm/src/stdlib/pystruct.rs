@@ -88,18 +88,46 @@ where
     I: Sized + Iterator<Item = char>,
 {
     let mut codes = vec![];
-    for c in chars {
+    while chars.peek().is_some() {
+        // determine repeat operator:
+        let repeat = match chars.peek() {
+            Some('0'..='9') => {
+                let mut repeat = 0;
+                while let Some('0'..='9') = chars.peek() {
+                    if let Some(c) = chars.next() {
+                        let current_digit = c.to_digit(10).unwrap();
+                        repeat = repeat * 10 + current_digit;
+                    }
+                }
+                Some(repeat)
+            }
+            _ => None,
+        };
+
+        // determine format char:
+        let c = chars.next();
         match c {
-            'b' | 'B' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'f' | 'd' => {
-                codes.push(FormatCode { code: c })
+            Some(c) if is_supported_format_character(c) => {
+                if let Some(repeat) = repeat {
+                    for _ in 0..repeat {
+                        codes.push(FormatCode { code: c })
+                    }
+                } else {
+                    codes.push(FormatCode { code: c })
+                }
             }
-            c => {
-                return Err(format!("Illegal format code {:?}", c));
-            }
+            _ => return Err(format!("Illegal format code {:?}", c)),
         }
     }
 
     Ok(codes)
+}
+
+fn is_supported_format_character(c: char) -> bool {
+    match c {
+        'b' | 'B' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'f' | 'd' => true,
+        _ => false,
+    }
 }
 
 fn get_int(vm: &VirtualMachine, arg: &PyObjectRef) -> PyResult<BigInt> {
