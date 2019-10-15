@@ -458,43 +458,33 @@ fn file_io_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
     true
 }
 
-fn buffered_writer_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(buffered, None), (obj, Some(vm.ctx.bytes_type()))]
-    );
-
-    let raw = vm.get_attribute(buffered.clone(), "raw").unwrap();
+fn buffered_writer_write(instance: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let raw = vm.get_attribute(instance, "raw").unwrap();
 
     //This should be replaced with a more appropriate chunking implementation
     vm.call_method(&raw, "write", vec![obj.clone()])
 }
 
-fn buffered_writer_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    Ok(vm.ctx.new_bool(true))
+fn buffered_writer_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    true
 }
 
-fn text_io_wrapper_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(text_io_wrapper, None), (buffer, None)]
-    );
-
-    vm.set_attr(text_io_wrapper, "buffer", buffer.clone())?;
-    Ok(vm.get_none())
+fn text_io_wrapper_init(
+    instance: PyObjectRef,
+    buffer: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    vm.set_attr(&instance, "buffer", buffer.clone())?;
+    Ok(())
 }
 
-fn text_io_wrapper_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    Ok(vm.new_bool(true))
+fn text_io_wrapper_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    true
 }
 
-fn text_io_base_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(text_io_base, None)]);
-
+fn text_io_base_read(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
     let buffered_reader_class = vm.try_class("_io", "BufferedReader")?;
-    let raw = vm.get_attribute(text_io_base.clone(), "buffer").unwrap();
+    let raw = vm.get_attribute(instance.clone(), "buffer").unwrap();
 
     if !objtype::isinstance(&raw, &buffered_reader_class) {
         // TODO: this should be io.UnsupportedOperation error which derives both from ValueError *and* OSError
@@ -511,30 +501,28 @@ fn text_io_base_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                 e.utf8_error().valid_up_to()
             ))
         })?;
-        Ok(vm.ctx.new_str(rust_string))
+        Ok(rust_string)
     } else {
         Err(vm.new_value_error("Error unpacking Bytes".to_string()))
     }
 }
 
-fn text_io_base_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn text_io_base_write(
+    instance: PyObjectRef,
+    obj: PyStringRef,
+    vm: &VirtualMachine,
+) -> PyResult<usize> {
     use std::str::from_utf8;
 
-    arg_check!(
-        vm,
-        args,
-        required = [(text_io_base, None), (obj, Some(vm.ctx.str_type()))]
-    );
-
     let buffered_writer_class = vm.try_class("_io", "BufferedWriter")?;
-    let raw = vm.get_attribute(text_io_base.clone(), "buffer").unwrap();
+    let raw = vm.get_attribute(instance.clone(), "buffer").unwrap();
 
     if !objtype::isinstance(&raw, &buffered_writer_class) {
         // TODO: this should be io.UnsupportedOperation error which derives from ValueError and OSError
         return Err(vm.new_value_error("not writable".to_string()));
     }
 
-    let bytes = objstr::get_value(obj).into_bytes();
+    let bytes = obj.as_str().to_string().into_bytes();
 
     let len = vm.call_method(&raw, "write", vec![vm.ctx.new_bytes(bytes.clone())])?;
     let len = objint::get_value(&len).to_usize().ok_or_else(|| {
@@ -546,7 +534,7 @@ fn text_io_base_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         .unwrap_or_else(|e| from_utf8(&bytes[..e.valid_up_to()]).unwrap())
         .chars()
         .count();
-    Ok(vm.ctx.new_int(len))
+    Ok(len)
 }
 
 fn split_mode_string(mode_string: String) -> Result<(String, String), String> {
