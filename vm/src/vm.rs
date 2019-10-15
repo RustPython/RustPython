@@ -668,14 +668,14 @@ impl VirtualMachine {
     ) -> PyResult {
         let code = &func.code;
 
-        let scope = if func.new_locals {
+        let scope = if func.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
             scope.new_child_scope(&self.ctx)
         } else {
             scope.clone()
         };
 
         self.fill_locals_from_args(
-            &code.code,
+            &code,
             &scope.get_locals(),
             func_args,
             &func.defaults,
@@ -686,7 +686,7 @@ impl VirtualMachine {
         let frame = Frame::new(code.clone(), scope).into_ref(self);
 
         // If we have a generator, create a new generator
-        if code.code.is_generator {
+        if code.flags.contains(bytecode::CodeFlags::IS_GENERATOR) {
             Ok(PyGenerator::new(frame, self).into_object())
         } else {
             self.run_frame_full(frame)

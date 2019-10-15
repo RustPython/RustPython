@@ -152,14 +152,11 @@ impl Completer for ShellHelper<'_> {
         pos: usize,
         _ctx: &Context,
     ) -> rustyline::Result<(usize, Vec<String>)> {
-        if pos != line.len() {
-            return Ok((0, vec![]));
-        }
         Ok(self
-            .complete_opt(line)
+            .complete_opt(&line[0..pos])
             // as far as I can tell, there's no better way to do both completion
             // and indentation (or even just indentation)
-            .unwrap_or_else(|| (line.len(), vec!["    ".to_string()])))
+            .unwrap_or_else(|| (line.len(), vec!["\t".to_string()])))
     }
 }
 

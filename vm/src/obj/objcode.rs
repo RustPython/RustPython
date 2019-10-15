@@ -3,6 +3,7 @@
 */
 
 use std::fmt;
+use std::ops::Deref;
 
 use super::objtype::PyClassRef;
 use crate::bytecode;
@@ -13,6 +14,13 @@ pub type PyCodeRef = PyRef<PyCode>;
 
 pub struct PyCode {
     pub code: bytecode::CodeObject,
+}
+
+impl Deref for PyCode {
+    type Target = bytecode::CodeObject;
+    fn deref(&self) -> &Self::Target {
+        &self.code
+    }
 }
 
 impl PyCode {
