@@ -607,7 +607,7 @@ fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
         objint::get_float_value(&obj, vm)?
     } else if objtype::isinstance(&obj, &vm.ctx.str_type()) {
-        match lexical::try_parse(objstr::get_value(&obj).trim()) {
+        match lexical::parse(objstr::get_value(&obj).trim()) {
             Ok(f) => f,
             Err(_) => {
                 let arg_repr = vm.to_pystr(obj)?;
@@ -618,7 +618,7 @@ fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
             }
         }
     } else if objtype::isinstance(&obj, &vm.ctx.bytes_type()) {
-        match lexical::try_parse(objbytes::get_value(&obj).as_slice()) {
+        match lexical::parse(objbytes::get_value(&obj).as_slice()) {
             Ok(f) => f,
             Err(_) => {
                 let arg_repr = vm.to_pystr(obj)?;
