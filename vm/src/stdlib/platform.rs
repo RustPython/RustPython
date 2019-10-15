@@ -1,5 +1,4 @@
-use crate::function::PyFuncArgs;
-use crate::pyobject::{PyObjectRef, PyResult};
+use crate::pyobject::PyObjectRef;
 use crate::version;
 use crate::vm::VirtualMachine;
 
@@ -15,36 +14,26 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     })
 }
 
-fn platform_python_implementation(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
-    Ok(vm.new_str("RustPython".to_string()))
+fn platform_python_implementation(_vm: &VirtualMachine) -> String {
+    "RustPython".to_string()
 }
 
-fn platform_python_version(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
-    Ok(vm.new_str(version::get_version_number()))
+fn platform_python_version(_vm: &VirtualMachine) -> String {
+    version::get_version_number()
 }
 
-fn platform_python_compiler(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
-    Ok(vm.new_str(version::get_compiler()))
+fn platform_python_compiler(_vm: &VirtualMachine) -> String {
+    version::get_compiler()
 }
 
-fn platform_python_build(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
-    let git_hash = version::get_git_identifier();
-    let git_timestamp = version::get_git_datetime();
-    Ok(vm
-        .ctx
-        .new_tuple(vec![vm.new_str(git_hash), vm.new_str(git_timestamp)]))
+fn platform_python_build(_vm: &VirtualMachine) -> (String, String) {
+    (version::get_git_identifier(), version::get_git_datetime())
 }
 
-fn platform_python_branch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
-    Ok(vm.new_str(version::get_git_branch()))
+fn platform_python_branch(_vm: &VirtualMachine) -> String {
+    version::get_git_branch()
 }
 
-fn platform_python_revision(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
-    Ok(vm.new_str(version::get_git_revision()))
+fn platform_python_revision(_vm: &VirtualMachine) -> String {
+    version::get_git_revision()
 }
