@@ -2,8 +2,9 @@
  * The mythical generator.
  */
 
-use super::objtype::{isinstance, PyClassRef};
+use super::objtype::{issubclass, PyClassRef};
 use crate::frame::FrameRef;
+use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -47,17 +48,25 @@ impl PyGenerator {
     #[pymethod]
     fn throw(
         &self,
-        _exc_type: PyObjectRef,
-        exc_val: PyObjectRef,
-        _exc_tb: PyObjectRef,
+        exc_type: PyClassRef,
+        exc_val: OptionalArg,
+        exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult {
         // TODO what should we do with the other parameters? CPython normalises them with
         //      PyErr_NormalizeException, do we want to do the same.
-        if !isinstance(&exc_val, &vm.ctx.exceptions.base_exception_type) {
+        if !issubclass(&exc_type, &vm.ctx.exceptions.base_exception_type) {
             return Err(vm.new_type_error("Can't throw non exception".to_string()));
         }
-        vm.frame_throw(self.frame.clone(), exc_val)?.into_result(vm)
+        vm.frames.borrow_mut().push(self.frame.clone());
+        let result = self.frame.gen_throw(
+            vm,
+            exc_type,
+            exc_val.unwrap_or(vm.get_none()),
+            exc_tb.unwrap_or(vm.get_none()),
+        );
+        vm.frames.borrow_mut().pop();
+        result
     }
 }
 

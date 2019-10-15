@@ -241,17 +241,6 @@ impl VirtualMachine {
         }
     }
 
-    pub fn frame_throw(
-        &self,
-        frame: FrameRef,
-        exception: PyObjectRef,
-    ) -> PyResult<ExecutionResult> {
-        self.frames.borrow_mut().push(frame.clone());
-        let result = frame.throw(self, exception);
-        self.frames.borrow_mut().pop();
-        result
-    }
-
     pub fn current_frame(&self) -> Option<Ref<FrameRef>> {
         let frames = self.frames.borrow();
         if frames.is_empty() {

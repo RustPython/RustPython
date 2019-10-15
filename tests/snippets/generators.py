@@ -104,3 +104,30 @@ with assert_raises(StopIteration):
         assert stopiter.args[0] == 31
         raise
 
+class SpamException(Exception):
+    pass
+
+l = []
+
+def writer():
+    while True:
+        try:
+            w = (yield)
+        except SpamException:
+            l.append('***')
+        else:
+            l.append(f'>> {w}')
+
+def wrapper(coro):
+    yield from coro
+
+w = writer()
+wrap = wrapper(w)
+wrap.send(None)  # "prime" the coroutine
+for i in [0, 1, 2, 'spam', 4]:
+    if i == 'spam':
+        wrap.throw(SpamException)
+    else:
+        wrap.send(i)
+
+assert l == ['>> 0', '>> 1', '>> 2', '***', '>> 4']
