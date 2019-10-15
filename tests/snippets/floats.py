@@ -165,6 +165,15 @@ assert isinstance(0.5.__round__(None), int)
 assert isinstance(1.5.__round__(None), int)
 assert 0.5.__round__(None) == 0
 assert 1.5.__round__(None) == 2
+assert 1.234.__round__(1) == 1.2
+assert 1.23456.__round__(4) == 1.2346
+assert 1.00000000001.__round__(10) == 1.0
+assert 1234.5.__round__(-2) == 1200
+assert 1.234.__round__(-1) == 0
+assert 1.23456789.__round__(15) == 1.23456789
+assert 1.2e300.__round__(-500) == 0
+assert 1.234.__round__(500) == 1.234
+assert 1.2e-300.__round__(299) == 0
 assert_raises(TypeError, lambda: 0.5.__round__(0.0))
 assert_raises(TypeError, lambda: 1.5.__round__(0.0))
 assert_raises(OverflowError, float('inf').__round__)

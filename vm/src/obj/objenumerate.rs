@@ -54,7 +54,7 @@ impl PyEnumerate {
         let next_obj = objiter::call_next(vm, iterator)?;
         let result = vm
             .ctx
-            .new_tuple(vec![vm.ctx.new_int(counter.borrow().clone()), next_obj]);
+            .new_tuple(vec![vm.ctx.new_bigint(&counter.borrow()), next_obj]);
 
         AddAssign::add_assign(&mut counter.borrow_mut() as &mut BigInt, 1);
 
