@@ -28,7 +28,7 @@ use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
-use crate::obj::objstr::{self, PyStringRef};
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
@@ -328,19 +328,8 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
     Ok(r_ok && w_ok && x_ok)
 }
 
-fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [],
-        optional = [(message, Some(vm.ctx.str_type()))]
-    );
-
-    let msg = if let Some(val) = message {
-        objstr::get_value(&val)
-    } else {
-        "".to_string()
-    };
+fn os_error(message: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
+    let msg = message.map_or("".to_string(), |msg| msg.as_str().to_string());
 
     Err(vm.new_os_error(msg))
 }
