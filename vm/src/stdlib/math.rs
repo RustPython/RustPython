@@ -52,7 +52,7 @@ struct IsCloseArgs {
     abs_tol: OptionalArg<IntoPyFloat>,
 }
 
-#[deny(clippy::float_cmp)]
+#[allow(clippy::float_cmp)]
 fn math_isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
     let a = args.a.to_f64();
     let b = args.b.to_f64();
