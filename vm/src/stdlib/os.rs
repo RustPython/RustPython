@@ -25,7 +25,7 @@ use num_traits::cast::ToPrimitive;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::{self, PyIntRef};
+use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
 use crate::obj::objstr::{self, PyStringRef};
@@ -83,17 +83,11 @@ fn make_path(_vm: &VirtualMachine, path: PyStringRef, dir_fd: &DirFd) -> PyStrin
     }
 }
 
-pub fn os_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(fileno, Some(vm.ctx.int_type()))]);
-
-    let raw_fileno = objint::get_value(&fileno);
-
+fn os_close(fileno: PyIntRef, _vm: &VirtualMachine) {
     //The File type automatically closes when it goes out of scope.
     //To enable us to close these file descriptors (and hence prevent leaks)
     //we seek to create the relevant File and simply let it pass out of scope!
-    rust_file(raw_fileno.to_i64().unwrap());
-
-    Ok(vm.get_none())
+    rust_file(fileno.as_bigint().to_i64().unwrap());
 }
 
 #[cfg(unix)]
