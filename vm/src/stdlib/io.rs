@@ -230,41 +230,29 @@ fn bytes_io_new(
     .into_ref_with_type(vm, cls)
 }
 
-fn io_base_cm_enter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(instance, None)]);
-    Ok(instance.clone())
+fn io_base_cm_enter(instance: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
+    instance.clone()
 }
 
-fn io_base_cm_exit(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        // The context manager protocol requires these, but we don't use them
-        required = [
-            (_instance, None),
-            (_exception_type, None),
-            (_exception_value, None),
-            (_traceback, None)
-        ]
-    );
-    Ok(vm.get_none())
-}
+fn io_base_cm_exit(_args: PyFuncArgs, _vm: &VirtualMachine) {}
 
 // TODO Check if closed, then if so raise ValueError
 fn io_base_flush(_self: PyObjectRef, _vm: &VirtualMachine) {}
 
-fn io_base_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    Ok(vm.ctx.new_bool(false))
+fn io_base_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    false
 }
 
-fn buffered_io_base_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(buffered, None), (raw, None)]);
-    vm.set_attr(buffered, "raw", raw.clone())?;
-    Ok(vm.get_none())
+fn buffered_io_base_init(
+    instance: PyObjectRef,
+    raw: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    vm.set_attr(&instance, "raw", raw.clone())?;
+    Ok(())
 }
 
-fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(buffered, None)]);
+fn buffered_reader_read(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     let buff_size = 8 * 1024;
     let buffer = vm.ctx.new_bytearray(vec![0; buff_size]);
 
@@ -272,7 +260,7 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut result = vec![];
     let mut length = buff_size;
 
-    let raw = vm.get_attribute(buffered.clone(), "raw").unwrap();
+    let raw = vm.get_attribute(instance.clone(), "raw").unwrap();
 
     //Iterates through the raw class, invoking the readinto method
     //to obtain buff_size many bytes. Exit when less than buff_size many
@@ -290,11 +278,11 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         length = objint::get_value(&py_len).to_usize().unwrap();
     }
 
-    Ok(vm.ctx.new_bytes(result))
+    Ok(result)
 }
 
-fn buffered_reader_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    Ok(vm.ctx.new_bool(true))
+fn buffered_reader_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    true
 }
 
 fn compute_c_flag(mode: &str) -> u32 {
