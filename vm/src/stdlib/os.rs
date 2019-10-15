@@ -86,8 +86,8 @@ fn make_path(_vm: &VirtualMachine, path: PyStringRef, dir_fd: &DirFd) -> PyStrin
 fn os_close(fileno: i64, _vm: &VirtualMachine) {
     //The File type automatically closes when it goes out of scope.
     //To enable us to close these file descriptors (and hence prevent leaks)
-    //we seek to create the relevant File and simply drop it.
-    drop(rust_file(fileno));
+    //we seek to create the relevant File and simply let it pass out of scope!
+    rust_file(fileno);
 }
 
 #[cfg(unix)]
