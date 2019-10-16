@@ -6,9 +6,10 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::rc::Rc;
 
+use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
-use num_traits::{One, Zero};
+use num_traits::{One, ToPrimitive, Zero};
 
 use crate::bytecode;
 use crate::dictdatatype::DictKey;
@@ -27,7 +28,6 @@ use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
-use crate::obj::objmodule::PyModule;
 use crate::obj::objnamespace::PyNamespace;
 use crate::obj::objnone::{PyNone, PyNoneRef};
 use crate::obj::objobject;
@@ -39,7 +39,6 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::scope::Scope;
 use crate::types::{create_type, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
-use indexmap::IndexMap;
 
 /* Python objects and references.
 
@@ -85,12 +84,12 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
             }
         }
 
-        if let Some(PyModule { ref name, .. }) = self.payload::<PyModule>() {
-            return write!(f, "module '{}'", name);
-        }
         write!(f, "'{}' object", self.class().name)
     }
 }
+
+const INT_CACHE_POOL_MIN: i32 = -5;
+const INT_CACHE_POOL_MAX: i32 = 256;
 
 #[derive(Debug)]
 pub struct PyContext {
@@ -104,6 +103,7 @@ pub struct PyContext {
 
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
+    pub int_cache_pool: Vec<PyObjectRef>,
 }
 
 pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
@@ -135,11 +135,8 @@ impl PyContext {
         let types = TypeZoo::new();
         let exceptions = exceptions::ExceptionZoo::new(&types.type_type, &types.object_type);
 
-        fn create_object<T: PyObjectPayload>(payload: T, cls: &PyClassRef) -> PyRef<T> {
-            PyRef {
-                obj: PyObject::new(payload, cls.clone(), None),
-                _payload: PhantomData,
-            }
+        fn create_object<T: PyObjectPayload + PyValue>(payload: T, cls: &PyClassRef) -> PyRef<T> {
+            PyRef::new_ref_unchecked(PyObject::new(payload, cls.clone(), None))
         }
 
         let none_type = create_type("NoneType", &types.type_type, &types.object_type);
@@ -152,6 +149,10 @@ impl PyContext {
             create_type("NotImplementedType", &types.type_type, &types.object_type);
         let not_implemented = create_object(PyNotImplemented, &not_implemented_type);
 
+        let int_cache_pool = (INT_CACHE_POOL_MIN..=INT_CACHE_POOL_MAX)
+            .map(|v| create_object(PyInt::new(BigInt::from(v)), &types.int_type).into_object())
+            .collect();
+
         let true_value = create_object(PyInt::new(BigInt::one()), &types.bool_type);
         let false_value = create_object(PyInt::new(BigInt::zero()), &types.bool_type);
 
@@ -162,12 +163,13 @@ impl PyContext {
             false_value,
             not_implemented,
             none,
+            empty_tuple,
             ellipsis,
             ellipsis_type,
 
             types,
             exceptions,
-            empty_tuple,
+            int_cache_pool,
         };
         initialize_types(&context);
 
@@ -367,8 +369,26 @@ impl PyContext {
         self.types.object_type.clone()
     }
 
-    pub fn new_int<T: Into<BigInt>>(&self, i: T) -> PyObjectRef {
+    #[inline]
+    pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyObjectRef {
+        if let Some(i) = i.to_i32() {
+            if i >= INT_CACHE_POOL_MIN && i <= INT_CACHE_POOL_MAX {
+                let inner_idx = (i - INT_CACHE_POOL_MIN) as usize;
+                return self.int_cache_pool[inner_idx].clone();
+            }
+        }
         PyObject::new(PyInt::new(i), self.int_type(), None)
+    }
+
+    #[inline]
+    pub fn new_bigint(&self, i: &BigInt) -> PyObjectRef {
+        if let Some(i) = i.to_i32() {
+            if i >= INT_CACHE_POOL_MIN && i <= INT_CACHE_POOL_MAX {
+                let inner_idx = (i - INT_CACHE_POOL_MIN) as usize;
+                return self.int_cache_pool[inner_idx].clone();
+            }
+        }
+        PyObject::new(PyInt::new(i.clone()), self.int_type(), None)
     }
 
     pub fn new_float(&self, value: f64) -> PyObjectRef {
@@ -396,11 +416,12 @@ impl PyContext {
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
-        if b {
-            self.true_value.clone().into_object()
+        let value = if b {
+            &self.true_value
         } else {
-            self.false_value.clone().into_object()
-        }
+            &self.false_value
+        };
+        value.clone().into_object()
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
@@ -505,7 +526,7 @@ impl PyContext {
 
     pub fn unwrap_constant(&self, value: &bytecode::Constant) -> PyObjectRef {
         match *value {
-            bytecode::Constant::Integer { ref value } => self.new_int(value.clone()),
+            bytecode::Constant::Integer { ref value } => self.new_bigint(value),
             bytecode::Constant::Float { ref value } => self.new_float(*value),
             bytecode::Constant::Complex { ref value } => self.new_complex(*value),
             bytecode::Constant::String { ref value } => self.new_str(value.clone()),
@@ -593,6 +614,24 @@ impl<T> Clone for PyRef<T> {
 }
 
 impl<T: PyValue> PyRef<T> {
+    fn new_ref(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        if obj.payload_is::<T>() {
+            Ok(Self::new_ref_unchecked(obj))
+        } else {
+            Err(vm.new_exception(
+                vm.ctx.exceptions.runtime_error.clone(),
+                format!("Unexpected payload for type {:?}", obj.class().name),
+            ))
+        }
+    }
+
+    fn new_ref_unchecked(obj: PyObjectRef) -> Self {
+        PyRef {
+            obj,
+            _payload: PhantomData,
+        }
+    }
+
     pub fn as_object(&self) -> &PyObjectRef {
         &self.obj
     }
@@ -602,10 +641,7 @@ impl<T: PyValue> PyRef<T> {
     }
 
     pub fn typ(&self) -> PyClassRef {
-        PyRef {
-            obj: self.obj.class().into_object(),
-            _payload: PhantomData,
-        }
+        self.obj.class()
     }
 }
 
@@ -626,10 +662,7 @@ where
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if objtype::isinstance(&obj, &T::class(vm)) {
-            Ok(PyRef {
-                obj,
-                _payload: PhantomData,
-            })
+            PyRef::new_ref(obj, vm)
         } else {
             let class = T::class(vm);
             let expected_type = vm.to_pystr(&class)?;
@@ -1027,10 +1060,7 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
     fn class(vm: &VirtualMachine) -> PyClassRef;
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        PyRef {
-            obj: PyObject::new(self, Self::class(vm), None),
-            _payload: PhantomData,
-        }
+        PyRef::new_ref_unchecked(PyObject::new(self, Self::class(vm), None))
     }
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
@@ -1041,10 +1071,7 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
             } else {
                 Some(vm.ctx.new_dict())
             };
-            Ok(PyRef {
-                obj: PyObject::new(self, cls, dict),
-                _payload: PhantomData,
-            })
+            PyRef::new_ref(PyObject::new(self, cls, dict), vm)
         } else {
             let subtype = vm.to_pystr(&cls.obj)?;
             let basetype = vm.to_pystr(&class.obj)?;

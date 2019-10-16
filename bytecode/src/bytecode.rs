@@ -37,6 +37,7 @@ pub struct CodeObject {
     /// Jump targets.
     pub label_map: HashMap<Label, usize>,
     pub locations: Vec<Location>,
+    pub flags: CodeFlags,
     pub arg_names: Vec<String>, // Names of positional arguments
     pub varargs: Varargs,       // *args or *
     pub kwonlyarg_names: Vec<String>,
@@ -44,15 +45,22 @@ pub struct CodeObject {
     pub source_path: String,
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
-    pub is_generator: bool,
 }
 
 bitflags! {
     #[derive(Serialize, Deserialize)]
-    pub struct FunctionOpArg: u8 {
+    pub struct CodeFlags: u8 {
         const HAS_DEFAULTS = 0x01;
         const HAS_KW_ONLY_DEFAULTS = 0x02;
         const HAS_ANNOTATIONS = 0x04;
+        const NEW_LOCALS = 0x08;
+        const IS_GENERATOR = 0x10;
+    }
+}
+
+impl Default for CodeFlags {
+    fn default() -> Self {
+        Self::NEW_LOCALS
     }
 }
 
@@ -169,9 +177,7 @@ pub enum Instruction {
     JumpIfFalseOrPop {
         target: Label,
     },
-    MakeFunction {
-        flags: FunctionOpArg,
-    },
+    MakeFunction,
     CallFunction {
         typ: CallType,
     },
@@ -236,6 +242,7 @@ pub enum Instruction {
     BuildMap {
         size: usize,
         unpack: bool,
+        for_call: bool,
     },
     BuildSlice {
         size: usize,
@@ -346,7 +353,9 @@ pub enum BlockType {
 */
 
 impl CodeObject {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        flags: CodeFlags,
         arg_names: Vec<String>,
         varargs: Varargs,
         kwonlyarg_names: Vec<String>,
@@ -359,6 +368,7 @@ impl CodeObject {
             instructions: Vec::new(),
             label_map: HashMap::new(),
             locations: Vec::new(),
+            flags,
             arg_names,
             varargs,
             kwonlyarg_names,
@@ -366,8 +376,19 @@ impl CodeObject {
             source_path,
             first_line_number,
             obj_name,
-            is_generator: false,
         }
+    }
+
+    /// Load a code object from bytes
+    pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+        let data = lz4_compress::decompress(data)?;
+        bincode::deserialize::<Self>(&data).map_err(|e| e.into())
+    }
+
+    /// Serialize this bytecode to bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let data = bincode::serialize(&self).expect("Code object must be serializable");
+        lz4_compress::compress(&data)
     }
 
     pub fn get_constants(&self) -> impl Iterator<Item = &Constant> {
@@ -493,7 +514,7 @@ impl Instruction {
             JumpIfFalse { target } => w!(JumpIfFalse, label_map[target]),
             JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, label_map[target]),
             JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, label_map[target]),
-            MakeFunction { flags } => w!(MakeFunction, format!("{:?}", flags)),
+            MakeFunction => w!(MakeFunction),
             CallFunction { typ } => w!(CallFunction, format!("{:?}", typ)),
             ForIter { target } => w!(ForIter, label_map[target]),
             ReturnValue => w!(ReturnValue),
@@ -512,7 +533,11 @@ impl Instruction {
             BuildTuple { size, unpack } => w!(BuildTuple, size, unpack),
             BuildList { size, unpack } => w!(BuildList, size, unpack),
             BuildSet { size, unpack } => w!(BuildSet, size, unpack),
-            BuildMap { size, unpack } => w!(BuildMap, size, unpack),
+            BuildMap {
+                size,
+                unpack,
+                for_call,
+            } => w!(BuildMap, size, unpack, for_call),
             BuildSlice { size } => w!(BuildSlice, size),
             ListAppend { i } => w!(ListAppend, i),
             SetAdd { i } => w!(SetAdd, i),

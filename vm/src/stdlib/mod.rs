@@ -1,9 +1,10 @@
-mod array;
+pub mod array;
 #[cfg(feature = "rustpython-parser")]
-mod ast;
+pub(crate) mod ast;
 mod binascii;
 mod codecs;
 mod collections;
+mod csv;
 mod dis;
 mod errno;
 mod functools;
@@ -60,6 +61,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "dis".to_string() => Box::new(dis::make_module),
         "_codecs".to_string() => Box::new(codecs::make_module),
         "_collections".to_string() => Box::new(collections::make_module),
+        "_csv".to_string() => Box::new(csv::make_module),
         "_functools".to_string() => Box::new(functools::make_module),
         "errno".to_string() => Box::new(errno::make_module),
         "hashlib".to_string() => Box::new(hashlib::make_module),
@@ -68,7 +70,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "marshal".to_string() => Box::new(marshal::make_module),
         "math".to_string() => Box::new(math::make_module),
         "platform".to_string() => Box::new(platform::make_module),
-        "re".to_string() => Box::new(re::make_module),
+        "regex_crate".to_string() => Box::new(re::make_module),
         "random".to_string() => Box::new(random::make_module),
         "_string".to_string() => Box::new(string::make_module),
         "struct".to_string() => Box::new(pystruct::make_module),
@@ -84,7 +86,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[cfg(feature = "rustpython-parser")]
     {
         modules.insert(
-            "ast".to_string(),
+            "_ast".to_string(),
             Box::new(ast::make_module) as StdlibInitFunc,
         );
         modules.insert("keyword".to_string(), Box::new(keyword::make_module));
@@ -104,7 +106,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("_os".to_string(), Box::new(os::make_module));
         modules.insert("socket".to_string(), Box::new(socket::make_module));
         modules.insert("signal".to_string(), Box::new(signal::make_module));
-        modules.insert("subprocess".to_string(), Box::new(subprocess::make_module));
+        modules.insert("_subprocess".to_string(), Box::new(subprocess::make_module));
         modules.insert("zlib".to_string(), Box::new(zlib::make_module));
     }
 

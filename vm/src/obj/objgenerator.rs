@@ -2,8 +2,8 @@
  * The mythical generator.
  */
 
+use super::objtype::{isinstance, PyClassRef};
 use crate::frame::{ExecutionResult, FrameRef};
-use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 

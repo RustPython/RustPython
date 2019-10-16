@@ -4,13 +4,11 @@
 
 use std::cell::Cell;
 
+use super::objtype::{self, PyClassRef};
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-
-use super::objtype;
-use super::objtype::PyClassRef;
 
 /*
  * This helper function is called at multiple places. First, it is called

@@ -24,7 +24,7 @@ enum FetchResponseFormat {
 }
 
 impl FetchResponseFormat {
-    fn from_str(vm: &VirtualMachine, s: &str) -> Result<Self, PyObjectRef> {
+    fn from_str(vm: &VirtualMachine, s: &str) -> PyResult<Self> {
         match s {
             "json" => Ok(FetchResponseFormat::Json),
             "text" => Ok(FetchResponseFormat::Text),
@@ -137,7 +137,7 @@ fn browser_request_animation_frame(func: PyCallable, vm: &VirtualMachine) -> PyR
 
         let closure = f.borrow_mut().take();
         drop(closure);
-    }) as Box<Fn(f64)>));
+    }) as Box<dyn Fn(f64)>));
 
     let id = window()
         .request_animation_frame(&js_sys::Function::from(

@@ -19,6 +19,5 @@ quote = "0.6.11"
 proc-macro2 = "0.4.27"
 rustpython-compiler = { path = "../compiler", version = "0.1.1" }
 rustpython-bytecode = { path = "../bytecode", version = "0.1.1" }
-bincode =  "1.1"
 proc-macro-hack = { version = "0.5", optional = true }
 maplit = "1.0"

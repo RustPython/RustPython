@@ -1,9 +1,8 @@
+use super::objiter;
+use super::objtype::PyClassRef;
 use crate::function::Args;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
-
-use super::objiter;
-use super::objtype::PyClassRef;
 
 /// map(func, *iterables) --> map object
 ///
@@ -23,25 +22,26 @@ impl PyValue for PyMap {
     }
 }
 
-fn map_new(
-    cls: PyClassRef,
-    function: PyObjectRef,
-    iterables: Args,
-    vm: &VirtualMachine,
-) -> PyResult<PyMapRef> {
-    let iterators = iterables
-        .into_iter()
-        .map(|iterable| objiter::get_iter(vm, &iterable))
-        .collect::<Result<Vec<_>, _>>()?;
-    PyMap {
-        mapper: function.clone(),
-        iterators,
-    }
-    .into_ref_with_type(vm, cls.clone())
-}
-
 #[pyimpl]
 impl PyMap {
+    #[pyslot(new)]
+    fn tp_new(
+        cls: PyClassRef,
+        function: PyObjectRef,
+        iterables: Args,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyMapRef> {
+        let iterators = iterables
+            .into_iter()
+            .map(|iterable| objiter::get_iter(vm, &iterable))
+            .collect::<Result<Vec<_>, _>>()?;
+        PyMap {
+            mapper: function.clone(),
+            iterators,
+        }
+        .into_ref_with_type(vm, cls.clone())
+    }
+
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         let next_objs = self
@@ -62,7 +62,4 @@ impl PyMap {
 
 pub fn init(context: &PyContext) {
     PyMap::extend_class(context, &context.types.map_type);
-    extend_class!(context, &context.types.map_type, {
-        "__new__" => context.new_rustfunc(map_new),
-    });
 }

@@ -1,6 +1,6 @@
+use super::objtype::PyClassRef;
 use super::objweakref::PyWeak;
 use crate::function::OptionalArg;
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -21,8 +21,8 @@ pub type PyWeakProxyRef = PyRef<PyWeakProxy>;
 #[pyimpl]
 impl PyWeakProxy {
     // TODO: callbacks
-    #[pymethod(name = "__new__")]
-    fn create(
+    #[pyslot(new)]
+    fn tp_new(
         cls: PyClassRef,
         referent: PyObjectRef,
         callback: OptionalArg<PyObjectRef>,

@@ -1,7 +1,8 @@
+use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
-use crate::obj::objtype::PyClassRef;
-use crate::pyobject::PyValue;
-use crate::pyobject::{PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult};
+use crate::pyobject::{
+    PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult, PyValue,
+};
 use crate::vm::VirtualMachine;
 
 use std::rc::{Rc, Weak};
@@ -49,7 +50,7 @@ impl PyWeakRef {
 
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.types.weakref_type, {
-        "__new__" => context.new_rustfunc(PyWeakRef::create),
+        (slot new) => PyWeakRef::create,
         "__call__" => context.new_rustfunc(PyWeakRef::call)
     });
 }

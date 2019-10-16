@@ -1,10 +1,10 @@
-use crate::obj::objtype::{issubclass, PyClassRef};
+use super::objtype::{issubclass, PyClassRef};
 use crate::pyobject::{PyContext, PyEllipsisRef, PyResult};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.ellipsis_type, {
-        "__new__" => context.new_rustfunc(ellipsis_new),
+        (slot new) => ellipsis_new,
         "__repr__" => context.new_rustfunc(ellipsis_repr),
         "__reduce__" => context.new_rustfunc(ellipsis_reduce),
     });

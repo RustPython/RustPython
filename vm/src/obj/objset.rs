@@ -5,6 +5,8 @@
 use std::cell::{Cell, RefCell};
 use std::fmt;
 
+use super::objlist::PyListIterator;
+use super::objtype::{self, PyClassRef};
 use crate::dictdatatype;
 use crate::function::OptionalArg;
 use crate::pyobject::{
@@ -12,10 +14,6 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
-
-use super::objlist::PyListIterator;
-use super::objtype;
-use super::objtype::PyClassRef;
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
@@ -114,21 +112,21 @@ impl PySetInner {
         size_func: fn(usize, usize) -> bool,
         swap: bool,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<bool> {
         let (zelf, other) = if swap { (other, self) } else { (self, other) };
 
         if size_func(zelf.len(), other.len()) {
-            return Ok(vm.new_bool(false));
+            return Ok(false);
         }
         for key in other.content.keys() {
             if !zelf.contains(&key, vm)? {
-                return Ok(vm.new_bool(false));
+                return Ok(false);
             }
         }
-        Ok(vm.new_bool(true))
+        Ok(true)
     }
 
-    fn eq(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult {
+    fn eq(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult<bool> {
         self._compare_inner(
             other,
             |zelf: usize, other: usize| -> bool { zelf != other },
@@ -137,7 +135,11 @@ impl PySetInner {
         )
     }
 
-    fn ge(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult {
+    fn ne(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(!self.eq(other, vm)?)
+    }
+
+    fn ge(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult<bool> {
         self._compare_inner(
             other,
             |zelf: usize, other: usize| -> bool { zelf < other },
@@ -146,7 +148,7 @@ impl PySetInner {
         )
     }
 
-    fn gt(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult {
+    fn gt(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult<bool> {
         self._compare_inner(
             other,
             |zelf: usize, other: usize| -> bool { zelf <= other },
@@ -155,7 +157,7 @@ impl PySetInner {
         )
     }
 
-    fn le(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult {
+    fn le(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult<bool> {
         self._compare_inner(
             other,
             |zelf: usize, other: usize| -> bool { zelf < other },
@@ -164,7 +166,7 @@ impl PySetInner {
         )
     }
 
-    fn lt(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult {
+    fn lt(&self, other: &PySetInner, vm: &VirtualMachine) -> PyResult<bool> {
         self._compare_inner(
             other,
             |zelf: usize, other: usize| -> bool { zelf <= other },
@@ -220,7 +222,7 @@ impl PySetInner {
         Ok(true)
     }
 
-    fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
         let other_set = PySetInner::new(other, vm)?;
         self.le(&other_set, vm)
     }
@@ -316,20 +318,20 @@ impl PySetInner {
     }
 }
 
-macro_rules! try_set_inner {
+macro_rules! try_set_cmp {
     ($vm:expr, $other:expr, $op:expr) => {
-        match_class!(match ($other) {
-            set @ PySet => ($op(&*set.inner.borrow())),
-            frozen @ PyFrozenSet => ($op(&frozen.inner)),
-            _ => Ok($vm.ctx.not_implemented()),
-        });
+        Ok(match_class!(match ($other) {
+            set @ PySet => ($vm.new_bool($op(&*set.inner.borrow())?)),
+            frozen @ PyFrozenSet => ($vm.new_bool($op(&frozen.inner)?)),
+            _ => $vm.ctx.not_implemented(),
+        }));
     };
 }
 
 #[pyimpl]
 impl PySet {
-    #[pymethod(name = "__new__")]
-    fn new(
+    #[pyslot(new)]
+    fn tp_new(
         cls: PyClassRef,
         iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
@@ -364,27 +366,32 @@ impl PySet {
 
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_inner!(vm, other, |other| self.inner.borrow().eq(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.borrow().eq(other, vm))
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_cmp!(vm, other, |other| self.inner.borrow().ne(other, vm))
     }
 
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_inner!(vm, other, |other| self.inner.borrow().ge(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.borrow().ge(other, vm))
     }
 
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_inner!(vm, other, |other| self.inner.borrow().gt(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.borrow().gt(other, vm))
     }
 
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_inner!(vm, other, |other| self.inner.borrow().le(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.borrow().le(other, vm))
     }
 
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_inner!(vm, other, |other| self.inner.borrow().lt(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.borrow().lt(other, vm))
     }
 
     #[pymethod]
@@ -416,7 +423,7 @@ impl PySet {
     }
 
     #[pymethod]
-    fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.borrow().issubset(other, vm)
     }
 
@@ -579,8 +586,8 @@ impl PySet {
 
 #[pyimpl]
 impl PyFrozenSet {
-    #[pymethod(name = "__new__")]
-    fn new(
+    #[pyslot(new)]
+    fn tp_new(
         cls: PyClassRef,
         iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
@@ -615,27 +622,32 @@ impl PyFrozenSet {
 
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_inner!(vm, other, |other| self.inner.eq(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.eq(other, vm))
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_cmp!(vm, other, |other| self.inner.ne(other, vm))
     }
 
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_inner!(vm, other, |other| self.inner.ge(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.ge(other, vm))
     }
 
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_inner!(vm, other, |other| self.inner.gt(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.gt(other, vm))
     }
 
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_inner!(vm, other, |other| self.inner.le(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.le(other, vm))
     }
 
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_inner!(vm, other, |other| self.inner.lt(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.lt(other, vm))
     }
 
     #[pymethod]
@@ -667,7 +679,7 @@ impl PyFrozenSet {
     }
 
     #[pymethod]
-    fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.issubset(other, vm)
     }
 

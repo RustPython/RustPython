@@ -39,8 +39,8 @@ impl PyValue for PyClassMethod {
 
 #[pyimpl]
 impl PyClassMethod {
-    #[pymethod(name = "__new__")]
-    fn new(
+    #[pyslot(new)]
+    fn tp_new(
         cls: PyClassRef,
         callable: PyObjectRef,
         vm: &VirtualMachine,
@@ -52,10 +52,9 @@ impl PyClassMethod {
     }
 
     #[pymethod(name = "__get__")]
-    fn get(&self, _inst: PyObjectRef, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_bound_method(self.callable.clone(), owner.clone()))
+    fn get(&self, _inst: PyObjectRef, owner: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx
+            .new_bound_method(self.callable.clone(), owner.clone())
     }
 
     #[pyproperty(name = "__func__")]

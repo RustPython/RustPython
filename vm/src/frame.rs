@@ -1,7 +1,9 @@
 use std::cell::RefCell;
 use std::fmt;
 
-use crate::builtins;
+use indexmap::IndexMap;
+use itertools::Itertools;
+
 use crate::bytecode;
 use crate::function::PyFuncArgs;
 use crate::obj::objbool;
@@ -20,8 +22,6 @@ use crate::pyobject::{
 };
 use crate::scope::{NameProtocol, Scope};
 use crate::vm::VirtualMachine;
-use indexmap::IndexMap;
-use itertools::Itertools;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::signal::check_signals;
@@ -79,13 +79,18 @@ enum UnwindReason {
     Continue,
 }
 
+#[pyclass]
 pub struct Frame {
-    pub code: bytecode::CodeObject,
+    pub code: PyCodeRef,
     // We need 1 stack per frame
-    stack: RefCell<Vec<PyObjectRef>>, // The main data frame of the stack machine
-    blocks: RefCell<Vec<Block>>,      // Block frames, for controlling loops and exceptions
-    pub scope: Scope,                 // Variables
-    pub lasti: RefCell<usize>,        // index of last instruction ran
+    /// The main data frame of the stack machine
+    stack: RefCell<Vec<PyObjectRef>>,
+    /// Block frames, for controlling loops and exceptions
+    blocks: RefCell<Vec<Block>>,
+    /// Variables
+    pub scope: Scope,
+    /// index of last instruction ran
+    pub lasti: RefCell<usize>,
 }
 
 impl PyValue for Frame {
@@ -117,7 +122,7 @@ impl Frame {
         // locals.extend(callargs);
 
         Frame {
-            code: code.code.clone(),
+            code,
             stack: RefCell::new(vec![]),
             blocks: RefCell::new(vec![]),
             // save the callargs as locals
@@ -285,9 +290,11 @@ impl Frame {
                 self.push_value(list_obj);
                 Ok(None)
             }
-            bytecode::Instruction::BuildMap { size, unpack } => {
-                self.execute_build_map(vm, *size, *unpack)
-            }
+            bytecode::Instruction::BuildMap {
+                size,
+                unpack,
+                for_call,
+            } => self.execute_build_map(vm, *size, *unpack, *for_call),
             bytecode::Instruction::BuildSlice { size } => self.execute_build_slice(vm, *size),
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
@@ -398,7 +405,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, *target),
-            bytecode::Instruction::MakeFunction { flags } => self.execute_make_function(vm, *flags),
+            bytecode::Instruction::MakeFunction => self.execute_make_function(vm),
             bytecode::Instruction::CallFunction { typ } => self.execute_call_function(vm, typ),
             bytecode::Instruction::Jump { target } => {
                 self.jump(*target);
@@ -460,7 +467,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
-                self.push_value(vm.ctx.new_rustfunc(builtins::builtin_build_class_));
+                self.push_value(vm.get_attribute(vm.builtins.clone(), "__build_class__")?);
                 Ok(None)
             }
             bytecode::Instruction::UnpackSequence { size } => {
@@ -810,13 +817,30 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_build_map(&self, vm: &VirtualMachine, size: usize, unpack: bool) -> FrameResult {
+    #[allow(clippy::collapsible_if)]
+    fn execute_build_map(
+        &self,
+        vm: &VirtualMachine,
+        size: usize,
+        unpack: bool,
+        for_call: bool,
+    ) -> FrameResult {
         let map_obj = vm.ctx.new_dict();
         if unpack {
             for obj in self.pop_multiple(size) {
                 // Take all key-value pairs from the dict:
                 let dict: PyDictRef = obj.downcast().expect("Need a dictionary to build a map.");
                 for (key, value) in dict {
+                    if for_call {
+                        if map_obj.contains_key(&key, vm) {
+                            let key_repr = vm.to_repr(&key)?;
+                            let msg = format!(
+                                "got multiple values for keyword argument {}",
+                                key_repr.as_str()
+                            );
+                            return Err(vm.new_type_error(msg));
+                        }
+                    }
                     map_obj.set_item(&key, value, vm).unwrap();
                 }
             }
@@ -1011,27 +1035,25 @@ impl Frame {
             }
         }
     }
-    fn execute_make_function(
-        &self,
-        vm: &VirtualMachine,
-        flags: bytecode::FunctionOpArg,
-    ) -> FrameResult {
+    fn execute_make_function(&self, vm: &VirtualMachine) -> FrameResult {
         let qualified_name = self
             .pop_value()
             .downcast::<PyString>()
             .expect("qualified name to be a string");
-        let code_obj = self
+        let code_obj: PyCodeRef = self
             .pop_value()
             .downcast()
             .expect("Second to top value on the stack must be a code object");
 
-        let annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
+        let flags = code_obj.flags;
+
+        let annotations = if flags.contains(bytecode::CodeFlags::HAS_ANNOTATIONS) {
             self.pop_value()
         } else {
             vm.ctx.new_dict().into_object()
         };
 
-        let kw_only_defaults = if flags.contains(bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS) {
+        let kw_only_defaults = if flags.contains(bytecode::CodeFlags::HAS_KW_ONLY_DEFAULTS) {
             Some(
                 self.pop_value()
                     .downcast::<PyDict>()
@@ -1041,7 +1063,7 @@ impl Frame {
             None
         };
 
-        let defaults = if flags.contains(bytecode::FunctionOpArg::HAS_DEFAULTS) {
+        let defaults = if flags.contains(bytecode::CodeFlags::HAS_DEFAULTS) {
             Some(
                 self.pop_value()
                     .downcast::<PyTuple>()
@@ -1140,14 +1162,24 @@ impl Frame {
         a.get_id()
     }
 
-    fn _in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
+    fn _in(
+        &self,
+        vm: &VirtualMachine,
+        needle: PyObjectRef,
+        haystack: PyObjectRef,
+    ) -> PyResult<bool> {
         let found = vm._membership(haystack.clone(), needle)?;
-        Ok(vm.ctx.new_bool(objbool::boolval(vm, found)?))
+        Ok(objbool::boolval(vm, found)?)
     }
 
-    fn _not_in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
+    fn _not_in(
+        &self,
+        vm: &VirtualMachine,
+        needle: PyObjectRef,
+        haystack: PyObjectRef,
+    ) -> PyResult<bool> {
         let found = vm._membership(haystack.clone(), needle)?;
-        Ok(vm.ctx.new_bool(!objbool::boolval(vm, found)?))
+        Ok(!objbool::boolval(vm, found)?)
     }
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
@@ -1155,10 +1187,8 @@ impl Frame {
         a.is(&b)
     }
 
-    fn _is_not(&self, vm: &VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let result_bool = !a.is(&b);
-        let result = vm.ctx.new_bool(result_bool);
-        Ok(result)
+    fn _is_not(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
+        !a.is(&b)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -1177,9 +1207,9 @@ impl Frame {
             bytecode::ComparisonOperator::Greater => vm._gt(a, b)?,
             bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(a, b)?,
             bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
-            bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
-            bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
+            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)),
+            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
+            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
         };
 
         self.push_value(value);

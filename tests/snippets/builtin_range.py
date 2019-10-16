@@ -58,6 +58,12 @@ assert range(2) == range(0, 2)
 assert range(0, 10, 3) == range(0, 12, 3)
 assert range(20, 10, 3) == range(20, 12, 3)
 
+assert range(10).__eq__(range(0, 10, 1)) is True
+assert range(10).__ne__(range(0, 10, 1)) is False
+assert range(10).__eq__(range(0, 11, 1)) is False
+assert range(10).__ne__(range(0, 11, 1)) is True
+assert range(0, 10, 3).__eq__(range(0, 11, 3)) is True
+assert range(0, 10, 3).__ne__(range(0, 11, 3)) is False
 #__lt__
 assert range(1, 2, 3).__lt__(range(1, 2, 3)) == NotImplemented
 assert range(1, 2, 1).__lt__(range(1, 2)) == NotImplemented
@@ -113,3 +119,15 @@ assert range(10)[-2:4] == range(8, 4)
 assert range(10)[-6:-2] == range(4, 8)
 assert range(50, 0, -2)[-5] == 10
 assert range(50, 0, -2)[-5:3:5] == range(10, 44, -10)
+
+assert hash(range(10)) == hash((10, 0, 1))
+assert hash(range(10)) == hash(range(10))
+assert hash(range(100)[20:30]) == hash(range(20, 30))
+assert hash(range(10, 10)) == hash(range(0, 0))
+assert hash(range(1, 2, 100)) == hash(range(1, 6, 100))
+
+a = {}
+for i in range(100):
+    a[range(10)] = 1
+
+assert len(a.keys()) == 1

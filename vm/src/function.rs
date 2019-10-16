@@ -100,7 +100,7 @@ impl PyFuncArgs {
         key: &str,
         ty: PyClassRef,
         vm: &VirtualMachine,
-    ) -> Result<Option<PyObjectRef>, PyObjectRef> {
+    ) -> PyResult<Option<PyObjectRef>> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
                 if isinstance(&kwarg, &ty) {
@@ -277,7 +277,7 @@ impl<T> IntoIterator for KwArgs<T> {
 
 /// A list of positional argument values.
 ///
-/// A built-in function with a `Args` parameter is analagous to a Python
+/// A built-in function with a `Args` parameter is analogous to a Python
 /// function with `*args`. All remaining positional arguments are extracted
 /// (and hence the function will permit an arbitrary number of them).
 ///
@@ -378,6 +378,16 @@ impl<T> OptionalArg<T> {
         match self {
             Present(value) => value,
             Missing => f(),
+        }
+    }
+
+    pub fn map_or<U, F>(self, default: U, f: F) -> U
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            Present(value) => f(value),
+            Missing => default,
         }
     }
 

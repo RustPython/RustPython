@@ -41,7 +41,7 @@ class TestFailingIter:
 def _assert_print(f, args):
     raised = True
     try:
-        f()
+        assert f()
         raised = False
     finally:
         if raised:

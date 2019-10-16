@@ -45,7 +45,7 @@ fn zlib_adler32(
     data: PyBytesRef,
     begin_state: OptionalArg<PyIntRef>,
     vm: &VirtualMachine,
-) -> PyResult<PyObjectRef> {
+) -> PyResult {
     let data = data.get_value();
 
     let begin_state = begin_state
@@ -67,7 +67,7 @@ fn zlib_crc32(
     data: PyBytesRef,
     begin_state: OptionalArg<PyIntRef>,
     vm: &VirtualMachine,
-) -> PyResult<PyObjectRef> {
+) -> PyResult {
     let data = data.get_value();
 
     let begin_state = begin_state
@@ -85,11 +85,7 @@ fn zlib_crc32(
 }
 
 /// Returns a bytes object containing compressed data.
-fn zlib_compress(
-    data: PyBytesRef,
-    level: OptionalArg<PyIntRef>,
-    vm: &VirtualMachine,
-) -> PyResult<PyObjectRef> {
+fn zlib_compress(data: PyBytesRef, level: OptionalArg<PyIntRef>, vm: &VirtualMachine) -> PyResult {
     let input_bytes = data.get_value();
 
     let level = level
@@ -119,7 +115,7 @@ fn zlib_decompress(
     wbits: OptionalArg<PyIntRef>,
     bufsize: OptionalArg<PyIntRef>,
     vm: &VirtualMachine,
-) -> PyResult<PyObjectRef> {
+) -> PyResult {
     let encoded_bytes = data.get_value();
 
     let wbits = wbits

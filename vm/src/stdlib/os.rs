@@ -1,5 +1,5 @@
 use num_cpus;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -11,6 +11,9 @@ use std::os::windows::fs::OpenOptionsExt;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
+use bitflags::bitflags;
+#[cfg(unix)]
+use exitcode;
 #[cfg(unix)]
 use nix::errno::Errno;
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -22,18 +25,16 @@ use num_traits::cast::ToPrimitive;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::{self, PyIntRef};
+use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
-use crate::obj::objstr::{self, PyStringRef};
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-
-use bitflags::bitflags;
 
 #[cfg(unix)]
 pub fn raw_file_number(handle: File) -> i64 {
@@ -82,17 +83,11 @@ fn make_path(_vm: &VirtualMachine, path: PyStringRef, dir_fd: &DirFd) -> PyStrin
     }
 }
 
-pub fn os_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(fileno, Some(vm.ctx.int_type()))]);
-
-    let raw_fileno = objint::get_value(&fileno);
-
+fn os_close(fileno: i64, _vm: &VirtualMachine) {
     //The File type automatically closes when it goes out of scope.
     //To enable us to close these file descriptors (and hence prevent leaks)
     //we seek to create the relevant File and simply let it pass out of scope!
-    rust_file(raw_fileno.to_i64().unwrap());
-
-    Ok(vm.get_none())
+    rust_file(fileno);
 }
 
 #[cfg(unix)]
@@ -333,19 +328,8 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
     Ok(r_ok && w_ok && x_ok)
 }
 
-fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [],
-        optional = [(message, Some(vm.ctx.str_type()))]
-    );
-
-    let msg = if let Some(val) = message {
-        objstr::get_value(&val)
-    } else {
-        "".to_string()
-    };
+fn os_error(message: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
+    let msg = message.map_or("".to_string(), |msg| msg.as_str().to_string());
 
     Err(vm.new_os_error(msg))
 }
@@ -456,8 +440,26 @@ fn os_unsetenv(key: Either<PyStringRef, PyBytesRef>, vm: &VirtualMachine) -> PyR
 
 fn _os_environ(vm: &VirtualMachine) -> PyDictRef {
     let environ = vm.ctx.new_dict();
-    for (key, value) in env::vars() {
-        environ.set_item(&key, vm.new_str(value), vm).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        for (key, value) in env::vars_os() {
+            environ
+                .set_item(
+                    &vm.ctx.new_bytes(key.into_vec()),
+                    vm.ctx.new_bytes(value.into_vec()),
+                    vm,
+                )
+                .unwrap();
+        }
+    }
+    #[cfg(windows)]
+    {
+        for (key, value) in env::vars() {
+            environ
+                .set_item(&vm.new_str(key), vm.new_str(value), vm)
+                .unwrap();
+        }
     }
     environ
 }
@@ -558,6 +560,7 @@ impl DirEntryRef {
 #[derive(Debug)]
 struct ScandirIterator {
     entries: RefCell<fs::ReadDir>,
+    exhausted: Cell<bool>,
 }
 
 impl PyValue for ScandirIterator {
@@ -570,25 +573,53 @@ impl PyValue for ScandirIterator {
 impl ScandirIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
+        if self.exhausted.get() {
+            return Err(objiter::new_stop_iteration(vm));
+        }
+
         match self.entries.borrow_mut().next() {
             Some(entry) => match entry {
                 Ok(entry) => Ok(DirEntry { entry }.into_ref(vm).into_object()),
                 Err(s) => Err(convert_io_error(vm, s)),
             },
-            None => Err(objiter::new_stop_iteration(vm)),
+            None => {
+                self.exhausted.set(true);
+                Err(objiter::new_stop_iteration(vm))
+            }
         }
+    }
+
+    #[pymethod]
+    fn close(&self, _vm: &VirtualMachine) {
+        self.exhausted.set(true);
     }
 
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
     }
+
+    #[pymethod(name = "__enter__")]
+    fn enter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+
+    #[pymethod(name = "__exit__")]
+    fn exit(zelf: PyRef<Self>, _args: PyFuncArgs, vm: &VirtualMachine) {
+        zelf.close(vm)
+    }
 }
 
-fn os_scandir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match fs::read_dir(path.as_str()) {
+fn os_scandir(path: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
+    let path = match path {
+        OptionalArg::Present(ref path) => path.as_str(),
+        OptionalArg::Missing => ".",
+    };
+
+    match fs::read_dir(path) {
         Ok(iter) => Ok(ScandirIterator {
             entries: RefCell::new(iter),
+            exhausted: Cell::new(false),
         }
         .into_ref(vm)
         .into_object()),
@@ -895,6 +926,17 @@ fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 #[cfg(unix)]
+fn os_system(command: PyStringRef, _vm: &VirtualMachine) -> PyResult<i32> {
+    use libc::system;
+    use std::ffi::CString;
+
+    let rstr = command.as_str();
+    let cstr = CString::new(rstr).unwrap();
+    let x = unsafe { system(cstr.as_ptr()) };
+    Ok(x)
+}
+
+#[cfg(unix)]
 fn os_chmod(
     path: PyStringRef,
     dir_fd: DirFd,
@@ -941,6 +983,14 @@ fn os_getpid(vm: &VirtualMachine) -> PyObjectRef {
 fn os_cpu_count(vm: &VirtualMachine) -> PyObjectRef {
     let cpu_count = num_cpus::get();
     vm.new_int(cpu_count)
+}
+
+fn os_exit(code: PyIntRef, _vm: &VirtualMachine) -> PyResult<()> {
+    if let Some(code) = code.as_bigint().to_i32() {
+        std::process::exit(code)
+    } else {
+        panic!("unwrap error from code.as_bigint().to_i32() in os_exit()")
+    }
 }
 
 #[cfg(unix)]
@@ -1186,6 +1236,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "fspath" => ctx.new_rustfunc(os_fspath),
          "getpid" => ctx.new_rustfunc(os_getpid),
         "cpu_count" => ctx.new_rustfunc(os_cpu_count),
+        "_exit" => ctx.new_rustfunc(os_exit),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
@@ -1235,6 +1286,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
     let ctx = &vm.ctx;
     extend_module!(vm, module, {
+        "access" => ctx.new_rustfunc(os_access),
+        "chmod" => ctx.new_rustfunc(os_chmod),
         "getppid" => ctx.new_rustfunc(os_getppid),
         "getgid" => ctx.new_rustfunc(os_getgid),
         "getegid" => ctx.new_rustfunc(os_getegid),
@@ -1244,13 +1297,28 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setgid" => ctx.new_rustfunc(os_setgid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
-        "access" => ctx.new_rustfunc(os_access),
+        "system" => ctx.new_rustfunc(os_system),
+        "ttyname" => ctx.new_rustfunc(os_ttyname),
+        "EX_OK" => ctx.new_int(exitcode::OK as i8),
+        "EX_USAGE" => ctx.new_int(exitcode::USAGE as i8),
+        "EX_DATAERR" => ctx.new_int(exitcode::DATAERR as i8),
+        "EX_NOINPUT" => ctx.new_int(exitcode::NOINPUT as i8),
+        "EX_NOUSER" => ctx.new_int(exitcode::NOUSER as i8),
+        "EX_NOHOST" => ctx.new_int(exitcode::NOHOST as i8),
+        "EX_UNAVAILABLE" => ctx.new_int(exitcode::UNAVAILABLE as i8),
+        "EX_SOFTWARE" => ctx.new_int(exitcode::SOFTWARE as i8),
+        "EX_OSERR" => ctx.new_int(exitcode::OSERR as i8),
+        "EX_OSFILE" => ctx.new_int(exitcode::OSFILE as i8),
+        "EX_CANTCREAT" => ctx.new_int(exitcode::CANTCREAT as i8),
+        "EX_IOERR" => ctx.new_int(exitcode::IOERR as i8),
+        "EX_TEMPFAIL" => ctx.new_int(exitcode::TEMPFAIL as i8),
+        "EX_PROTOCOL" => ctx.new_int(exitcode::PROTOCOL as i8),
+        "EX_NOPERM" => ctx.new_int(exitcode::NOPERM as i8),
+        "EX_CONFIG" => ctx.new_int(exitcode::CONFIG as i8),
         "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
         "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
         "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
         "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
-        "chmod" => ctx.new_rustfunc(os_chmod),
-        "ttyname" => ctx.new_rustfunc(os_ttyname),
         "SEEK_SET" => ctx.new_int(Whence::SeekSet as i8),
         "SEEK_CUR" => ctx.new_int(Whence::SeekCur as i8),
         "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8),

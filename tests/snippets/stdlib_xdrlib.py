@@ -1,4 +1,3 @@
-
 # This probably will be superceeded by the python unittests when that works.
 
 import xdrlib

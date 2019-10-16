@@ -1,4 +1,3 @@
-use crate::obj::objbool;
 use crate::obj::objstr::PyString;
 use crate::pyhash;
 use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
@@ -310,8 +309,7 @@ impl DictKey for &PyObjectRef {
     }
 
     fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
-        let result = vm._eq(self.clone(), other_key.clone())?;
-        objbool::boolval(vm, result)
+        vm.identical_or_equal(self, other_key)
     }
 }
 
@@ -404,7 +402,7 @@ mod tests {
         assert_eq!(true, dict.contains(&vm, "x").unwrap());
 
         let val = dict.get(&vm, "x").unwrap().unwrap();
-        vm._eq(val, value2)
+        vm.bool_eq(val, value2)
             .expect("retrieved value must be equal to inserted value.");
     }
 

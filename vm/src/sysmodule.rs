@@ -147,6 +147,24 @@ fn update_use_tracing(vm: &VirtualMachine) {
     vm.use_tracing.replace(tracing);
 }
 
+fn sys_getrecursionlimit(vm: &VirtualMachine) -> usize {
+    vm.recursion_limit.get()
+}
+
+fn sys_setrecursionlimit(recursion_limit: usize, vm: &VirtualMachine) -> PyResult {
+    let recursion_depth = vm.frames.borrow().len();
+
+    if recursion_limit > recursion_depth + 1 {
+        vm.recursion_limit.set(recursion_limit);
+        Ok(vm.ctx.none())
+    } else {
+        Err(vm.new_recursion_error(format!(
+            "cannot set the recursion limit to {} at the recursion depth {}: the limit is too low",
+            recursion_limit, recursion_depth
+        )))
+    }
+}
+
 // TODO implement string interning, this will be key for performance
 fn sys_intern(value: PyStringRef, _vm: &VirtualMachine) -> PyStringRef {
     value
@@ -163,20 +181,17 @@ fn sys_exc_info(vm: &VirtualMachine) -> PyResult {
     }))
 }
 
-// TODO: raise a SystemExit here
-fn sys_exit(code: OptionalArg<i32>, _vm: &VirtualMachine) -> PyResult<()> {
-    let code = code.unwrap_or(0);
-    std::process::exit(code)
+fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
+    vm.ctx.new_tuple(vec![
+        vm.ctx.new_str("RustPython".to_string()),
+        vm.ctx.new_str(version::get_git_identifier()),
+        vm.ctx.new_str(version::get_git_revision()),
+    ])
 }
 
-#[pystruct_sequence(name = "version_info")]
-#[derive(Default, Debug)]
-struct VersionInfo {
-    major: usize,
-    minor: usize,
-    micro: usize,
-    releaselevel: String,
-    serial: usize,
+fn sys_exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    let code = code.unwrap_or_else(|| vm.new_int(0));
+    Err(vm.new_exception_obj(vm.ctx.exceptions.system_exit.clone(), vec![code])?)
 }
 
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
@@ -187,16 +202,10 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         .into_struct_sequence(vm, flags_type)
         .unwrap();
 
-    let version_info_type = VersionInfo::make_class(ctx);
-    let version_info = VersionInfo {
-        major: env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap(),
-        minor: env!("CARGO_PKG_VERSION_MINOR").parse().unwrap(),
-        micro: env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
-        releaselevel: "alpha".to_owned(),
-        serial: 0,
-    }
-    .into_struct_sequence(vm, version_info_type)
-    .unwrap();
+    let version_info_type = version::VersionInfo::make_class(ctx);
+    let version_info = version::get_version_info()
+        .into_struct_sequence(vm, version_info_type)
+        .unwrap();
 
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {
@@ -333,6 +342,7 @@ settrace() -- set the global debug tracing function
       "executable" => executable(ctx),
       "flags" => flags,
       "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
+      "getrecursionlimit" => ctx.new_rustfunc(sys_getrecursionlimit),
       "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
       "implementation" => implementation,
       "getfilesystemencoding" => ctx.new_rustfunc(sys_getfilesystemencoding),
@@ -357,9 +367,11 @@ settrace() -- set the global debug tracing function
       "pycache_prefix" => vm.get_none(),
       "dont_write_bytecode" => vm.new_bool(vm.settings.dont_write_bytecode),
       "setprofile" => ctx.new_rustfunc(sys_setprofile),
+      "setrecursionlimit" => ctx.new_rustfunc(sys_setrecursionlimit),
       "settrace" => ctx.new_rustfunc(sys_settrace),
       "version" => vm.new_str(version::get_version()),
       "version_info" => version_info,
+      "_git" => sys_git_info(vm),
       "exc_info" => ctx.new_rustfunc(sys_exc_info),
       "prefix" => ctx.new_str(prefix.to_string()),
       "base_prefix" => ctx.new_str(base_prefix.to_string()),

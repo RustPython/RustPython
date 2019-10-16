@@ -63,27 +63,30 @@ assert os.fspath(b"Testing") == b"Testing"
 assert_raises(TypeError, lambda: os.fspath([1,2,3]))
 
 class TestWithTempDir():
-	def __enter__(self):
-		if os.name == "nt":
-			base_folder = os.environ["TEMP"]
-		else:
-			base_folder = "/tmp"
-		name = os.path.join(base_folder, "rustpython_test_os_" + str(int(time.time())))
-		os.mkdir(name)
-		self.name = name
-		return name
+    def __enter__(self):
+        if os.name == "nt":
+            base_folder = os.environ["TEMP"]
+        else:
+            base_folder = "/tmp"
 
-	def __exit__(self, exc_type, exc_val, exc_tb):
-		# TODO: Delete temp dir
-		pass
+        name = os.path.join(base_folder, "rustpython_test_os_" + str(int(time.time())))
 
+        while os.path.isdir(name):
+            name = name + "_"
+
+        os.mkdir(name)
+        self.name = name
+        return name
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
 
 class TestWithTempCurrentDir():
-	def __enter__(self):
-		self.prev_cwd = os.getcwd()
+    def __enter__(self):
+        self.prev_cwd = os.getcwd()
 
-	def __exit__(self, exc_type, exc_val, exc_tb):
-		os.chdir(self.prev_cwd)
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        os.chdir(self.prev_cwd)
 
 
 FILE_NAME = "test1"
@@ -286,3 +289,42 @@ if "win" not in sys.platform:
     assert_raises(OSError, lambda: os.ttyname(9999))
     os.close(b)
     os.close(a)
+
+with TestWithTempDir() as tmpdir:
+    for i in range(0, 4):
+        file_name = os.path.join(tmpdir, 'file' + str(i))
+        with open(file_name, 'w') as f:
+            f.write('test')
+
+    expected_files = ['file0', 'file1', 'file2', 'file3']
+
+    dir_iter = os.scandir(tmpdir)
+    collected_files = [dir_entry.name for dir_entry in dir_iter]
+
+    assert set(collected_files) == set(expected_files)
+
+    with assert_raises(StopIteration):
+        next(dir_iter)
+
+    dir_iter.close()
+
+    with TestWithTempCurrentDir():
+        os.chdir(tmpdir)
+        with os.scandir() as dir_iter:
+            collected_files = [dir_entry.name for dir_entry in dir_iter]
+            assert set(collected_files) == set(expected_files)
+
+# system()
+if "win" not in sys.platform:
+    assert os.system('ls') == 0
+    assert os.system('{') != 0
+
+    for arg in [None, 1, 1.0, TabError]:
+        try:
+            os.system(arg)
+        except TypeError:
+            pass
+        else:
+            raise AssertionError(f'os.system failed to raise TypeError with arg {arg}')
+
+

@@ -4,11 +4,20 @@ from testutils import assert_raises
 class A:
     pass
 
+class B:
+    x = 50
 
 a = A()
 a.b = 10
 assert hasattr(a, 'b')
 assert a.b == 10
+
+assert B.x == 50
+
+# test delete class attribute with del keyword
+del B.x
+with assert_raises(AttributeError):
+    _ = B.x
 
 # test override attribute
 setattr(a, 'b', 12)

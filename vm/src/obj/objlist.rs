@@ -1,28 +1,26 @@
 use std::cell::{Cell, RefCell};
 use std::fmt;
-
 use std::mem::size_of;
 use std::ops::Range;
 
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use crate::function::OptionalArg;
-use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject,
-};
-use crate::vm::{ReprGuard, VirtualMachine};
-
 use super::objbool;
-//use super::objint;
+use super::objbyteinner;
+use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::{
     get_elements_list, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul, SequenceIndex,
 };
 use super::objslice::PySliceRef;
-use super::objtype;
-use crate::obj::objtype::PyClassRef;
+use super::objtype::{self, PyClassRef};
+use crate::function::OptionalArg;
+use crate::pyobject::{
+    IdProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
 
 #[derive(Default)]
 pub struct PyList {
@@ -97,6 +95,29 @@ impl PyList {
 
         start..stop
     }
+
+    pub fn get_byte_inner(&self, vm: &VirtualMachine) -> PyResult<objbyteinner::PyByteInner> {
+        let mut elements = Vec::<u8>::with_capacity(self.get_len());
+        for elem in self.elements.borrow().iter() {
+            match PyIntRef::try_from_object(vm, elem.clone()) {
+                Ok(result) => match result.as_bigint().to_u8() {
+                    Some(result) => elements.push(result),
+                    None => {
+                        return Err(
+                            vm.new_value_error("bytes must be in range (0, 256)".to_string())
+                        )
+                    }
+                },
+                _ => {
+                    return Err(vm.new_type_error(format!(
+                        "'{}' object cannot be interpreted as an integer",
+                        elem.class().name
+                    )))
+                }
+            }
+        }
+        Ok(objbyteinner::PyByteInner { elements })
+    }
 }
 
 #[derive(FromArgs)]
@@ -146,9 +167,9 @@ impl PyListRef {
     }
 
     fn iadd(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.list_type()) {
-            let e = get_elements_list(&other).clone();
-            self.elements.borrow_mut().extend_from_slice(&e);
+        if let Ok(new_elements) = vm.extract_elements(&other) {
+            let mut e = new_elements;
+            self.elements.borrow_mut().append(&mut e);
             Ok(self.into_object())
         } else {
             Ok(vm.ctx.not_implemented())
@@ -431,13 +452,8 @@ impl PyListRef {
     fn count(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
         for element in self.elements.borrow().iter() {
-            if needle.is(element) {
+            if vm.identical_or_equal(element, &needle)? {
                 count += 1;
-            } else {
-                let py_equal = vm._eq(element.clone(), needle.clone())?;
-                if objbool::boolval(vm, py_equal)? {
-                    count += 1;
-                }
             }
         }
         Ok(count)
@@ -445,11 +461,7 @@ impl PyListRef {
 
     fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         for element in self.elements.borrow().iter() {
-            if needle.is(element) {
-                return Ok(true);
-            }
-            let py_equal = vm._eq(element.clone(), needle.clone())?;
-            if objbool::boolval(vm, py_equal)? {
+            if vm.identical_or_equal(element, &needle)? {
                 return Ok(true);
             }
         }
@@ -459,11 +471,7 @@ impl PyListRef {
 
     fn index(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         for (index, element) in self.elements.borrow().iter().enumerate() {
-            if needle.is(element) {
-                return Ok(index);
-            }
-            let py_equal = vm._eq(needle.clone(), element.clone())?;
-            if objbool::boolval(vm, py_equal)? {
+            if vm.identical_or_equal(element, &needle)? {
                 return Ok(index);
             }
         }
@@ -489,12 +497,7 @@ impl PyListRef {
     fn remove(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut ri: Option<usize> = None;
         for (index, element) in self.elements.borrow().iter().enumerate() {
-            if needle.is(element) {
-                ri = Some(index);
-                break;
-            }
-            let py_equal = vm._eq(needle.clone(), element.clone())?;
-            if objbool::get_value(&py_equal) {
+            if vm.identical_or_equal(element, &needle)? {
                 ri = Some(index);
                 break;
             }
@@ -510,18 +513,31 @@ impl PyListRef {
     }
 
     fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if self.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
-        }
-
-        if objtype::isinstance(&other, &vm.ctx.list_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements_list(&other);
-            let res = seq_equal(vm, &zelf.as_slice(), &other.as_slice())?;
-            Ok(vm.new_bool(res))
+        let value = if self.as_object().is(&other) {
+            vm.new_bool(true)
+        } else if objtype::isinstance(&other, &vm.ctx.list_type()) {
+            vm.new_bool(self.inner_eq(&other, vm)?)
         } else {
-            Ok(vm.ctx.not_implemented())
-        }
+            vm.ctx.not_implemented()
+        };
+        Ok(value)
+    }
+
+    fn ne(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let value = if self.as_object().is(&other) {
+            vm.new_bool(false)
+        } else if objtype::isinstance(&other, &vm.ctx.list_type()) {
+            vm.new_bool(!self.inner_eq(&other, vm)?)
+        } else {
+            vm.ctx.not_implemented()
+        };
+        Ok(value)
+    }
+
+    fn inner_eq(self, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let zelf = self.elements.borrow();
+        let other = get_elements_list(other);
+        seq_equal(vm, &zelf.as_slice(), &other.as_slice())
     }
 
     fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -875,6 +891,7 @@ pub fn init(context: &PyContext) {
         "__contains__" => context.new_rustfunc(PyListRef::contains),
         "__delitem__" => context.new_rustfunc(PyListRef::delitem),
         "__eq__" => context.new_rustfunc(PyListRef::eq),
+        "__ne__" => context.new_rustfunc(PyListRef::ne),
         "__lt__" => context.new_rustfunc(PyListRef::lt),
         "__gt__" => context.new_rustfunc(PyListRef::gt),
         "__le__" => context.new_rustfunc(PyListRef::le),
@@ -887,7 +904,7 @@ pub fn init(context: &PyContext) {
         "__rmul__" => context.new_rustfunc(PyListRef::rmul),
         "__imul__" => context.new_rustfunc(PyListRef::imul),
         "__len__" => context.new_rustfunc(PyListRef::len),
-        "__new__" => context.new_rustfunc(list_new),
+        (slot new) => list_new,
         "__repr__" => context.new_rustfunc(PyListRef::repr),
         "__hash__" => context.new_rustfunc(PyListRef::hash),
         "__doc__" => context.new_str(list_doc.to_string()),

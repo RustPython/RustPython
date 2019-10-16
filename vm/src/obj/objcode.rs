@@ -3,9 +3,10 @@
 */
 
 use std::fmt;
+use std::ops::Deref;
 
+use super::objtype::PyClassRef;
 use crate::bytecode;
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -13,6 +14,13 @@ pub type PyCodeRef = PyRef<PyCode>;
 
 pub struct PyCode {
     pub code: bytecode::CodeObject,
+}
+
+impl Deref for PyCode {
+    type Target = bytecode::CodeObject;
+    fn deref(&self) -> &Self::Target {
+        &self.code
+    }
 }
 
 impl PyCode {
@@ -82,7 +90,7 @@ impl PyCodeRef {
 
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.types.code_type, {
-        "__new__" => context.new_rustfunc(PyCodeRef::new),
+        (slot new) => PyCodeRef::new,
         "__repr__" => context.new_rustfunc(PyCodeRef::repr),
 
         "co_argcount" => context.new_property(PyCodeRef::co_argcount),

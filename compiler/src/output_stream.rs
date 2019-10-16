@@ -1,4 +1,4 @@
-use rustpython_bytecode::bytecode::{CodeObject, Instruction, Label, Location};
+use rustpython_bytecode::bytecode::{CodeFlags, CodeObject, Instruction, Label, Location};
 
 pub trait OutputStream: From<CodeObject> + Into<CodeObject> {
     /// Output an instruction
@@ -34,6 +34,6 @@ impl OutputStream for CodeObjectStream {
         self.code.label_map.insert(label, position);
     }
     fn mark_generator(&mut self) {
-        self.code.is_generator = true;
+        self.code.flags |= CodeFlags::IS_GENERATOR;
     }
 }

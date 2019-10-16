@@ -1,14 +1,15 @@
 /*! Python `property` descriptor class.
 
 */
+use std::cell::RefCell;
+
+use super::objtype::PyClassRef;
 use crate::function::{IntoPyNativeFunc, OptionalArg};
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use std::cell::RefCell;
 
 // Read-only property, doesn't have __set__ or __delete__
 #[pyclass]
@@ -28,14 +29,13 @@ pub type PyReadOnlyPropertyRef = PyRef<PyReadOnlyProperty>;
 #[pyimpl]
 impl PyReadOnlyProperty {
     #[pymethod(name = "__get__")]
-    fn get(
-        zelf: PyRef<Self>,
-        obj: PyObjectRef,
-        _owner: OptionalArg<PyClassRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        if obj.is(vm.ctx.none.as_object()) {
-            Ok(zelf.into_object())
+    fn get(zelf: PyRef<Self>, obj: PyObjectRef, cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
+        if vm.is_none(&obj) {
+            if cls.is(&vm.ctx.types.type_type) {
+                vm.invoke(&zelf.getter, cls.into_object())
+            } else {
+                Ok(zelf.into_object())
+            }
         } else {
             vm.invoke(&zelf.getter, obj)
         }
@@ -105,12 +105,8 @@ struct PropertyArgs {
 
 #[pyimpl]
 impl PyProperty {
-    #[pymethod(name = "__new__")]
-    fn new_property(
-        cls: PyClassRef,
-        args: PropertyArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyPropertyRef> {
+    #[pyslot(new)]
+    fn tp_new(cls: PyClassRef, args: PropertyArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
         PyProperty {
             getter: args.fget,
             setter: args.fset,

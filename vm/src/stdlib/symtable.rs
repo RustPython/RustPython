@@ -1,10 +1,12 @@
+use std::fmt;
+
+use rustpython_compiler::{compile, error::CompileError, symboltable};
+use rustpython_parser::parser;
+
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
-use rustpython_compiler::{compile, error::CompileError, symboltable};
-use rustpython_parser::parser;
-use std::fmt;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
@@ -169,43 +171,43 @@ impl PyValue for PySymbol {
 #[pyimpl]
 impl PySymbol {
     #[pymethod(name = "get_name")]
-    fn get_name(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.symbol.name.clone()))
+    fn get_name(&self, _vm: &VirtualMachine) -> String {
+        self.symbol.name.clone()
     }
 
     #[pymethod(name = "is_global")]
-    fn is_global(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_global()))
+    fn is_global(&self, _vm: &VirtualMachine) -> bool {
+        self.symbol.is_global()
     }
 
     #[pymethod(name = "is_local")]
-    fn is_local(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_local()))
+    fn is_local(&self, _vm: &VirtualMachine) -> bool {
+        self.symbol.is_local()
     }
 
     #[pymethod(name = "is_referenced")]
-    fn is_referenced(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_referenced))
+    fn is_referenced(&self, _vm: &VirtualMachine) -> bool {
+        self.symbol.is_referenced
     }
 
     #[pymethod(name = "is_assigned")]
-    fn is_assigned(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_assigned))
+    fn is_assigned(&self, _vm: &VirtualMachine) -> bool {
+        self.symbol.is_assigned
     }
 
     #[pymethod(name = "is_parameter")]
-    fn is_parameter(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_parameter))
+    fn is_parameter(&self, _vm: &VirtualMachine) -> bool {
+        self.symbol.is_parameter
     }
 
     #[pymethod(name = "is_free")]
-    fn is_free(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_free))
+    fn is_free(&self, _vm: &VirtualMachine) -> bool {
+        self.symbol.is_free
     }
 
     #[pymethod(name = "is_namespace")]
-    fn is_namespace(&self, vm: &VirtualMachine) -> PyResult {
+    fn is_namespace(&self, _vm: &VirtualMachine) -> bool {
         // TODO
-        Ok(vm.ctx.new_bool(false))
+        false
     }
 }

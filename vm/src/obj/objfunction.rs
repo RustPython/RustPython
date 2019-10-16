@@ -1,8 +1,8 @@
-use crate::function::{Args, KwArgs};
-use crate::obj::objcode::PyCodeRef;
-use crate::obj::objdict::PyDictRef;
-use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::PyClassRef;
+use super::objcode::PyCodeRef;
+use super::objdict::PyDictRef;
+use super::objtuple::PyTupleRef;
+use super::objtype::PyClassRef;
+use crate::function::PyFuncArgs;
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::scope::Scope;
 use crate::vm::VirtualMachine;
@@ -41,8 +41,8 @@ impl PyValue for PyFunction {
 }
 
 impl PyFunctionRef {
-    fn call(self, args: Args, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult {
-        vm.invoke(&self.into_object(), (&args, &kwargs))
+    fn call(func: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        vm.invoke(&func, args)
     }
 
     fn code(self, _vm: &VirtualMachine) -> PyCodeRef {
@@ -89,7 +89,8 @@ pub fn init(context: &PyContext) {
 
     let builtin_function_or_method_type = &context.types.builtin_function_or_method_type;
     extend_class!(context, builtin_function_or_method_type, {
-        "__get__" => context.new_rustfunc(bind_method)
+        "__get__" => context.new_rustfunc(bind_method),
+        "__call__" => context.new_rustfunc(PyFunctionRef::call),
     });
 }
 

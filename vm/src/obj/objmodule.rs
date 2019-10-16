@@ -1,14 +1,12 @@
+use super::objdict::PyDictRef;
+use super::objstr::{PyString, PyStringRef};
+use super::objtype::PyClassRef;
 use crate::function::OptionalOption;
-use crate::obj::objdict::PyDictRef;
-use crate::obj::objstr::PyStringRef;
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
-pub struct PyModule {
-    pub name: String,
-}
+pub struct PyModule {}
 pub type PyModuleRef = PyRef<PyModule>;
 
 impl PyValue for PyModule {
@@ -49,10 +47,7 @@ impl PyModuleRef {
         doc: OptionalOption<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyModuleRef> {
-        let zelf = PyModule {
-            name: name.as_str().to_owned(),
-        }
-        .into_ref_with_type(vm, cls)?;
+        let zelf = PyModule {}.into_ref_with_type(vm, cls)?;
         init_module_dict(
             vm,
             zelf.as_object().dict.as_ref().unwrap(),
@@ -63,13 +58,26 @@ impl PyModuleRef {
         Ok(zelf)
     }
 
+    fn name(self, vm: &VirtualMachine) -> Option<String> {
+        vm.generic_getattribute(
+            self.as_object().clone(),
+            PyString::from("__name__").into_ref(vm),
+        )
+        .unwrap_or(None)
+        .and_then(|obj| obj.payload::<PyString>().map(|s| s.as_str().to_owned()))
+    }
+
     fn getattribute(self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         vm.generic_getattribute(self.as_object().clone(), name.clone())?
             .ok_or_else(|| {
-                vm.new_attribute_error(format!(
-                    "module '{}' has no attribute '{}'",
-                    self.name, name,
-                ))
+                let module_name = if let Some(name) = self.name(vm) {
+                    format!(" '{}'", name)
+                } else {
+                    "".to_owned()
+                };
+                vm.new_attribute_error(
+                    format!("module{} has no attribute '{}'", module_name, name,),
+                )
             })
     }
 
@@ -82,7 +90,7 @@ impl PyModuleRef {
 
 pub fn init(context: &PyContext) {
     extend_class!(&context, &context.types.module_type, {
-        "__new__" => context.new_rustfunc(PyModuleRef::new),
+        (slot new) => PyModuleRef::new,
         "__getattribute__" => context.new_rustfunc(PyModuleRef::getattribute),
         "__repr__" => context.new_rustfunc(PyModuleRef::repr),
     });

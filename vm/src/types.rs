@@ -232,9 +232,11 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             dict: None,
             payload: PyClass {
                 name: String::from("object"),
+                bases: vec![],
                 mro: vec![],
-                subclasses: RefCell::new(vec![]),
+                subclasses: RefCell::default(),
                 attributes: RefCell::new(PyAttributes::new()),
+                slots: RefCell::default(),
             },
         }
         .into_ref();
@@ -244,9 +246,11 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             dict: None,
             payload: PyClass {
                 name: String::from("type"),
+                bases: vec![object_type.clone().downcast().unwrap()],
                 mro: vec![object_type.clone().downcast().unwrap()],
-                subclasses: RefCell::new(vec![]),
+                subclasses: RefCell::default(),
                 attributes: RefCell::new(PyAttributes::new()),
+                slots: RefCell::default(),
             },
         }
         .into_ref();
@@ -294,7 +298,6 @@ pub fn initialize_types(context: &PyContext) {
     objrange::init(&context);
     objslice::init(&context);
     objsuper::init(&context);
-    objtuple::init(&context);
     objiter::init(&context);
     objellipsis::init(&context);
     objenumerate::init(&context);
