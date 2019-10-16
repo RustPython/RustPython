@@ -118,7 +118,6 @@ macro_rules! no_kwargs {
 macro_rules! py_module {
     ( $vm:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {{
         let module = $vm.new_module($module_name, $vm.ctx.new_dict());
-        $vm.set_attr(&module, "__name__", $vm.ctx.new_str($module_name.to_string())).unwrap();
         $(
             $vm.set_attr(&module, $name, $value).unwrap();
         )*
