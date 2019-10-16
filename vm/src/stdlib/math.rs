@@ -40,6 +40,59 @@ make_math_func_bool!(math_isfinite, is_finite);
 make_math_func_bool!(math_isinf, is_infinite);
 make_math_func_bool!(math_isnan, is_nan);
 
+#[derive(FromArgs)]
+struct IsCloseArgs {
+    #[pyarg(positional_only, optional = false)]
+    a: IntoPyFloat,
+    #[pyarg(positional_only, optional = false)]
+    b: IntoPyFloat,
+    #[pyarg(keyword_only, optional = true)]
+    rel_tol: OptionalArg<IntoPyFloat>,
+    #[pyarg(keyword_only, optional = true)]
+    abs_tol: OptionalArg<IntoPyFloat>,
+}
+
+#[allow(clippy::float_cmp)]
+fn math_isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
+    let a = args.a.to_f64();
+    let b = args.b.to_f64();
+    let rel_tol = match args.rel_tol {
+        OptionalArg::Missing => 1e-09,
+        OptionalArg::Present(ref value) => value.to_f64(),
+    };
+
+    let abs_tol = match args.abs_tol {
+        OptionalArg::Missing => 0.0,
+        OptionalArg::Present(ref value) => value.to_f64(),
+    };
+
+    if rel_tol < 0.0 || abs_tol < 0.0 {
+        return Err(vm.new_value_error("tolerances must be non-negative".to_string()));
+    }
+
+    if a == b {
+        /* short circuit exact equality -- needed to catch two infinities of
+           the same sign. And perhaps speeds things up a bit sometimes.
+        */
+        return Ok(true);
+    }
+
+    /* This catches the case of two infinities of opposite sign, or
+       one infinity and one finite number. Two infinities of opposite
+       sign would otherwise have an infinite relative tolerance.
+       Two infinities of the same sign are caught by the equality check
+       above.
+    */
+
+    if a.is_infinite() || b.is_infinite() {
+        return Ok(false);
+    }
+
+    let diff = (b - a).abs();
+
+    Ok((diff <= (rel_tol * b).abs()) || (diff <= (rel_tol * a).abs()) || (diff <= abs_tol))
+}
+
 fn math_copysign(a: IntoPyFloat, b: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
     let a = a.to_f64();
     let b = b.to_f64();
@@ -223,6 +276,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "isfinite" => ctx.new_rustfunc(math_isfinite),
         "isinf" => ctx.new_rustfunc(math_isinf),
         "isnan" => ctx.new_rustfunc(math_isnan),
+        "isclose" => ctx.new_rustfunc(math_isclose),
         "copysign" => ctx.new_rustfunc(math_copysign),
 
         // Power and logarithmic functions:
