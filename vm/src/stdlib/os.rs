@@ -25,10 +25,10 @@ use num_traits::cast::ToPrimitive;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::{self, PyIntRef};
+use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
-use crate::obj::objstr::{self, PyStringRef};
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
@@ -83,17 +83,11 @@ fn make_path(_vm: &VirtualMachine, path: PyStringRef, dir_fd: &DirFd) -> PyStrin
     }
 }
 
-pub fn os_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(fileno, Some(vm.ctx.int_type()))]);
-
-    let raw_fileno = objint::get_value(&fileno);
-
+fn os_close(fileno: i64, _vm: &VirtualMachine) {
     //The File type automatically closes when it goes out of scope.
     //To enable us to close these file descriptors (and hence prevent leaks)
     //we seek to create the relevant File and simply let it pass out of scope!
-    rust_file(raw_fileno.to_i64().unwrap());
-
-    Ok(vm.get_none())
+    rust_file(fileno);
 }
 
 #[cfg(unix)]
@@ -334,19 +328,8 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
     Ok(r_ok && w_ok && x_ok)
 }
 
-fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [],
-        optional = [(message, Some(vm.ctx.str_type()))]
-    );
-
-    let msg = if let Some(val) = message {
-        objstr::get_value(&val)
-    } else {
-        "".to_string()
-    };
+fn os_error(message: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
+    let msg = message.map_or("".to_string(), |msg| msg.as_str().to_string());
 
     Err(vm.new_os_error(msg))
 }
