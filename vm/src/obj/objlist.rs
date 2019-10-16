@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::fmt;
+use std::mem::size_of;
 use std::ops::Range;
 
 use num_bigint::{BigInt, ToBigInt};
@@ -189,6 +190,10 @@ impl PyListRef {
 
     fn len(self, _vm: &VirtualMachine) -> usize {
         self.elements.borrow().len()
+    }
+
+    fn sizeof(self, _vm: &VirtualMachine) -> usize {
+        size_of::<Self>() + self.elements.borrow().capacity() * size_of::<PyObjectRef>()
     }
 
     fn reverse(self, _vm: &VirtualMachine) {
@@ -879,6 +884,7 @@ pub fn init(context: &PyContext) {
                     The argument must be an iterable if specified.";
 
     extend_class!(context, list_type, {
+        "__sizeof__" => context.new_rustfunc(PyListRef::sizeof),
         "__add__" => context.new_rustfunc(PyListRef::add),
         "__iadd__" => context.new_rustfunc(PyListRef::iadd),
         "__bool__" => context.new_rustfunc(PyListRef::bool),

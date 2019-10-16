@@ -1,4 +1,5 @@
 use std::fmt;
+use std::mem::size_of;
 use std::str;
 
 use num_bigint::{BigInt, Sign};
@@ -571,6 +572,11 @@ impl PyInt {
     #[pymethod(name = "__bool__")]
     fn bool(&self, _vm: &VirtualMachine) -> bool {
         !self.value.is_zero()
+    }
+
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+        size_of::<Self>()
     }
 
     #[pymethod]

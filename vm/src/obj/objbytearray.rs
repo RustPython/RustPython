@@ -21,6 +21,7 @@ use crate::pyobject::{
     TryFromObject,
 };
 use crate::vm::VirtualMachine;
+use std::mem::size_of;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\
 ///  bytearray(string, encoding[, errors]) -> bytearray\n\
@@ -107,6 +108,11 @@ impl PyByteArrayRef {
     #[pymethod(name = "__len__")]
     fn len(self, _vm: &VirtualMachine) -> usize {
         self.inner.borrow().len()
+    }
+
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(self, _vm: &VirtualMachine) -> usize {
+        size_of::<Self>() + self.inner.borrow().len() * size_of::<u8>()
     }
 
     #[pymethod(name = "__eq__")]

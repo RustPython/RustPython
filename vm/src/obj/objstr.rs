@@ -4,6 +4,7 @@ extern crate unicode_xid;
 use std::cell::Cell;
 use std::char;
 use std::fmt;
+use std::mem::size_of;
 use std::ops::Range;
 use std::str::FromStr;
 use std::string::ToString;
@@ -283,6 +284,11 @@ impl PyString {
     #[pymethod(name = "__len__")]
     fn len(&self, _vm: &VirtualMachine) -> usize {
         self.value.chars().count()
+    }
+
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+        size_of::<Self>() + self.value.capacity() * size_of::<u8>()
     }
 
     #[pymethod(name = "__mul__")]

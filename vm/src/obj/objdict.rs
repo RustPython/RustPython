@@ -12,6 +12,8 @@ use crate::pyobject::{
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
+use std::mem::size_of;
+
 pub type DictContentType = dictdatatype::Dict;
 
 #[derive(Default)]
@@ -152,6 +154,10 @@ impl PyDictRef {
 
     fn len(self, _vm: &VirtualMachine) -> usize {
         self.entries.borrow().len()
+    }
+
+    fn sizeof(self, _vm: &VirtualMachine) -> usize {
+        size_of::<Self>() + self.entries.borrow().sizeof()
     }
 
     fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
@@ -576,6 +582,7 @@ pub fn init(context: &PyContext) {
     extend_class!(context, &context.types.dict_type, {
         "__bool__" => context.new_rustfunc(PyDictRef::bool),
         "__len__" => context.new_rustfunc(PyDictRef::len),
+        "__sizeof__" => context.new_rustfunc(PyDictRef::sizeof),
         "__contains__" => context.new_rustfunc(PyDictRef::contains),
         "__delitem__" => context.new_rustfunc(PyDictRef::inner_delitem),
         "__eq__" => context.new_rustfunc(PyDictRef::eq),
