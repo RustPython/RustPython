@@ -687,16 +687,10 @@ impl PyItertoolsTee {
     fn new(
         _cls: PyClassRef,
         iterable: PyObjectRef,
-        n: OptionalArg<PyIntRef>,
+        n: OptionalArg<usize>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PyTuple>> {
-        let n = match n {
-            OptionalArg::Present(x) => match x.as_bigint().to_usize() {
-                Some(y) => y,
-                None => return Err(vm.new_overflow_error(String::from("n is too big"))),
-            },
-            OptionalArg::Missing => 2,
-        };
+        let n = n.unwrap_or(2);
 
         let copyable = if objtype::class_has_attr(&iterable.class(), "__copy__") {
             vm.call_method(&iterable, "__copy__", PyFuncArgs::from(vec![]))?

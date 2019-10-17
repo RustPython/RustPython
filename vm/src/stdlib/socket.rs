@@ -312,8 +312,8 @@ impl SocketRef {
         Ok(vm.ctx.new_tuple(vec![socket.into_object(), addr_tuple]))
     }
 
-    fn recv(self, bufsize: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        let mut buffer = vec![0u8; bufsize.as_bigint().to_usize().unwrap()];
+    fn recv(self, bufsize: usize, vm: &VirtualMachine) -> PyResult {
+        let mut buffer = vec![0u8; bufsize];
         match self.con.borrow_mut().as_mut() {
             Some(v) => match v.read_exact(&mut buffer) {
                 Ok(_) => (),
@@ -328,8 +328,8 @@ impl SocketRef {
         Ok(vm.ctx.new_bytes(buffer))
     }
 
-    fn recvfrom(self, bufsize: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        let mut buffer = vec![0u8; bufsize.as_bigint().to_usize().unwrap()];
+    fn recvfrom(self, bufsize: usize, vm: &VirtualMachine) -> PyResult {
+        let mut buffer = vec![0u8; bufsize];
         let ret = match self.con.borrow().as_ref() {
             Some(v) => v.recv_from(&mut buffer),
             None => return Err(vm.new_type_error("".to_string())),

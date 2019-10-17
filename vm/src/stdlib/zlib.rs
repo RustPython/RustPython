@@ -1,5 +1,5 @@
 use crate::function::OptionalArg;
-use crate::obj::{objbytes::PyBytesRef, objint::PyIntRef};
+use crate::obj::objbytes::PyBytesRef;
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
 use crate::types::create_type;
 use crate::vm::VirtualMachine;
@@ -8,7 +8,6 @@ use adler32::RollingAdler32 as Adler32;
 use crc32fast::Hasher as Crc32;
 use flate2::{write::ZlibEncoder, Compression, Decompress, FlushDecompress, Status};
 use libz_sys as libz;
-use num_traits::cast::ToPrimitive;
 
 use std::io::Write;
 
@@ -92,23 +91,14 @@ fn zlib_compress(data: PyBytesRef, level: OptionalArg<i32>, vm: &VirtualMachine)
 /// Returns a bytes object containing the uncompressed data.
 fn zlib_decompress(
     data: PyBytesRef,
-    wbits: OptionalArg<PyIntRef>,
-    bufsize: OptionalArg<PyIntRef>,
+    wbits: OptionalArg<u8>,
+    bufsize: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult {
     let encoded_bytes = data.get_value();
 
-    let wbits = wbits
-        .into_option()
-        .as_ref()
-        .map(|wbits| wbits.as_bigint().to_u8().unwrap())
-        .unwrap_or(MAX_WBITS);
-
-    let bufsize = bufsize
-        .into_option()
-        .as_ref()
-        .map(|bufsize| bufsize.as_bigint().to_usize().unwrap())
-        .unwrap_or(DEF_BUF_SIZE);
+    let wbits = wbits.unwrap_or(MAX_WBITS);
+    let bufsize = bufsize.unwrap_or(DEF_BUF_SIZE);
 
     let mut decompressor = Decompress::new_with_window_bits(true, wbits);
     let mut decoded_bytes = Vec::with_capacity(bufsize);
