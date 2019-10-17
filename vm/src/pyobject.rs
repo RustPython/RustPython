@@ -1134,7 +1134,7 @@ where
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         A::try_from_object(vm, obj.clone())
             .map(Either::A)
-            .or(B::try_from_object(vm, obj.clone()).map(Either::B))
+            .or_else(|_| B::try_from_object(vm, obj.clone()).map(Either::B))
             .map_err(|_| vm.new_type_error(format!("unexpected type {}", obj.class())))
     }
 }
