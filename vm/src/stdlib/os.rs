@@ -985,12 +985,8 @@ fn os_cpu_count(vm: &VirtualMachine) -> PyObjectRef {
     vm.new_int(cpu_count)
 }
 
-fn os_exit(code: PyIntRef, _vm: &VirtualMachine) -> PyResult<()> {
-    if let Some(code) = code.as_bigint().to_i32() {
-        std::process::exit(code)
-    } else {
-        panic!("unwrap error from code.as_bigint().to_i32() in os_exit()")
-    }
+fn os_exit(code: i32, _vm: &VirtualMachine) {
+    std::process::exit(code)
 }
 
 #[cfg(unix)]
@@ -1098,18 +1094,14 @@ pub fn os_openpty(vm: &VirtualMachine) -> PyResult {
 }
 
 #[cfg(unix)]
-pub fn os_ttyname(fd: PyIntRef, vm: &VirtualMachine) -> PyResult {
+pub fn os_ttyname(fd: i32, vm: &VirtualMachine) -> PyResult {
     use libc::ttyname;
-    if let Some(fd) = fd.as_bigint().to_i32() {
-        let name = unsafe { ttyname(fd) };
-        if name.is_null() {
-            Err(vm.new_os_error(io::Error::last_os_error().to_string()))
-        } else {
-            let name = unsafe { ffi::CStr::from_ptr(name) }.to_str().unwrap();
-            Ok(vm.ctx.new_str(name.to_owned()))
-        }
+    let name = unsafe { ttyname(fd) };
+    if name.is_null() {
+        Err(vm.new_os_error(io::Error::last_os_error().to_string()))
     } else {
-        Err(vm.new_overflow_error("signed integer is greater than maximum".to_owned()))
+        let name = unsafe { ffi::CStr::from_ptr(name) }.to_str().unwrap();
+        Ok(vm.ctx.new_str(name.to_owned()))
     }
 }
 

@@ -170,14 +170,14 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    fn getitem(self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow().getitem(needle, vm)
     }
 
     #[pymethod(name = "__setitem__")]
     fn setitem(
         self,
-        needle: Either<PyIntRef, PySliceRef>,
+        needle: Either<i32, PySliceRef>,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {

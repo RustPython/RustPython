@@ -41,18 +41,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 /// Compute an Adler-32 checksum of data.
-fn zlib_adler32(
-    data: PyBytesRef,
-    begin_state: OptionalArg<PyIntRef>,
-    vm: &VirtualMachine,
-) -> PyResult {
+fn zlib_adler32(data: PyBytesRef, begin_state: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
     let data = data.get_value();
 
-    let begin_state = begin_state
-        .into_option()
-        .as_ref()
-        .map(|v| v.as_bigint().to_i32().unwrap())
-        .unwrap_or(1);
+    let begin_state = begin_state.unwrap_or(1);
 
     let mut hasher = Adler32::from_value(begin_state as u32);
     hasher.update_buffer(data);
@@ -63,18 +55,10 @@ fn zlib_adler32(
 }
 
 /// Compute a CRC-32 checksum of data.
-fn zlib_crc32(
-    data: PyBytesRef,
-    begin_state: OptionalArg<PyIntRef>,
-    vm: &VirtualMachine,
-) -> PyResult {
+fn zlib_crc32(data: PyBytesRef, begin_state: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
     let data = data.get_value();
 
-    let begin_state = begin_state
-        .into_option()
-        .as_ref()
-        .map(|v| v.as_bigint().to_i32().unwrap())
-        .unwrap_or(0);
+    let begin_state = begin_state.unwrap_or(0);
 
     let mut hasher = Crc32::new_with_initial(begin_state as u32);
     hasher.update(data);
@@ -85,14 +69,10 @@ fn zlib_crc32(
 }
 
 /// Returns a bytes object containing compressed data.
-fn zlib_compress(data: PyBytesRef, level: OptionalArg<PyIntRef>, vm: &VirtualMachine) -> PyResult {
+fn zlib_compress(data: PyBytesRef, level: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
     let input_bytes = data.get_value();
 
-    let level = level
-        .into_option()
-        .as_ref()
-        .map(|v| v.as_bigint().to_i32().unwrap())
-        .unwrap_or(libz::Z_DEFAULT_COMPRESSION);
+    let level = level.unwrap_or(libz::Z_DEFAULT_COMPRESSION);
 
     let compression = match level {
         valid_level @ libz::Z_NO_COMPRESSION..=libz::Z_BEST_COMPRESSION => {
