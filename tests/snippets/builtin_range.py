@@ -102,6 +102,12 @@ assert list(reversed(range(5))) == [4, 3, 2, 1, 0]
 assert list(reversed(range(5, 0, -1))) == [1, 2, 3, 4, 5]
 assert list(reversed(range(1,10,5))) == [6, 1]
 
+# __reduce__
+assert range(10).__reduce__()[0] == range
+assert range(10).__reduce__()[1] == (0, 10, 1)
+assert range(10, 1, -2).__reduce__()[0] == range
+assert range(10, 1, -2).__reduce__()[1] == (10, 1, -2)
+
 # range retains the original int refs
 i = 2**64
 assert range(i).stop is i
