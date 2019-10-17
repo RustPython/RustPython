@@ -1126,23 +1126,16 @@ impl<A: PyValue, B: PyValue> Either<PyRef<A>, PyRef<B>> {
 ///     }
 /// }
 /// ```
-impl<A, B> TryFromObject for Either<PyRef<A>, PyRef<B>>
+impl<A, B> TryFromObject for Either<A, B>
 where
-    A: PyValue,
-    B: PyValue,
+    A: TryFromObject,
+    B: TryFromObject,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        obj.downcast::<A>()
+        A::try_from_object(vm, obj.clone())
             .map(Either::A)
-            .or_else(|obj| obj.clone().downcast::<B>().map(Either::B))
-            .map_err(|obj| {
-                vm.new_type_error(format!(
-                    "must be {} or {}, not {}",
-                    A::class(vm),
-                    B::class(vm),
-                    obj.class()
-                ))
-            })
+            .or(B::try_from_object(vm, obj.clone()).map(Either::B))
+            .map_err(|_| vm.new_type_error(format!("unexpected type {}", obj.class())))
     }
 }
 

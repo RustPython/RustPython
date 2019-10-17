@@ -17,9 +17,7 @@ use super::objstr::{PyString, PyStringRef};
 use super::objtuple::PyTupleRef;
 use crate::function::OptionalArg;
 use crate::pyhash;
-use crate::pyobject::{
-    Either, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-};
+use crate::pyobject::{Either, PyIterable, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug, Default, Clone)]
@@ -45,22 +43,6 @@ impl TryFromObject for PyByteInner {
                 obj.class()
             ))),
         })
-    }
-}
-
-impl<B: PyValue> TryFromObject for Either<PyByteInner, PyRef<B>> {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match PyByteInner::try_from_object(vm, obj.clone()) {
-            Ok(a) => Ok(Either::A(a)),
-            Err(_) => match obj.clone().downcast::<B>() {
-                Ok(b) => Ok(Either::B(b)),
-                Err(_) => Err(vm.new_type_error(format!(
-                    "a bytes-like object or {} is required, not {}",
-                    B::class(vm),
-                    obj.class()
-                ))),
-            },
-        }
     }
 }
 
