@@ -385,12 +385,15 @@ impl<O: OutputStream> Compiler<O> {
                 items,
                 body,
             } => {
-                if *is_async {
-                    let end_labels = items
-                        .iter()
-                        .map(|item| {
-                            let end_label = self.new_label();
-                            self.compile_expression(&item.context_expr)?;
+                let is_async = *is_async;
+
+                let end_labels = items
+                    .iter()
+                    .map(|item| {
+                        let end_label = self.new_label();
+                        self.compile_expression(&item.context_expr)?;
+
+                        if is_async {
                             self.emit(Instruction::BeforeAsyncWith);
                             self.emit(Instruction::GetAwaitable);
                             self.emit(Instruction::LoadConst {
@@ -398,60 +401,39 @@ impl<O: OutputStream> Compiler<O> {
                             });
                             self.emit(Instruction::YieldFrom);
                             self.emit(Instruction::SetupAsyncWith { end: end_label });
-                            match &item.optional_vars {
-                                Some(var) => {
-                                    self.compile_store(var)?;
-                                }
-                                None => {
-                                    self.emit(Instruction::Pop);
-                                }
+                        } else {
+                            self.emit(Instruction::SetupWith { end: end_label });
+                        }
+
+                        match &item.optional_vars {
+                            Some(var) => {
+                                self.compile_store(var)?;
                             }
-                            Ok(end_label)
-                        })
-                        .collect::<Result<Vec<_>, CompileError>>()?;
+                            None => {
+                                self.emit(Instruction::Pop);
+                            }
+                        }
+                        Ok(end_label)
+                    })
+                    .collect::<Result<Vec<_>, CompileError>>()?;
 
-                    self.compile_statements(body)?;
+                self.compile_statements(body)?;
 
-                    for end_label in end_labels {
-                        self.emit(Instruction::PopBlock);
-                        self.emit(Instruction::EnterFinally);
-                        self.set_label(end_label);
-                        self.emit(Instruction::WithCleanupStart);
+                for end_label in end_labels {
+                    self.emit(Instruction::PopBlock);
+                    self.emit(Instruction::EnterFinally);
+                    self.set_label(end_label);
+                    self.emit(Instruction::WithCleanupStart);
+
+                    if is_async {
                         self.emit(Instruction::GetAwaitable);
                         self.emit(Instruction::LoadConst {
                             value: bytecode::Constant::None,
                         });
                         self.emit(Instruction::YieldFrom);
-                        self.emit(Instruction::WithCleanupFinish);
                     }
-                } else {
-                    let end_labels = items
-                        .iter()
-                        .map(|item| {
-                            let end_label = self.new_label();
-                            self.compile_expression(&item.context_expr)?;
-                            self.emit(Instruction::SetupWith { end: end_label });
-                            match &item.optional_vars {
-                                Some(var) => {
-                                    self.compile_store(var)?;
-                                }
-                                None => {
-                                    self.emit(Instruction::Pop);
-                                }
-                            }
-                            Ok(end_label)
-                        })
-                        .collect::<Result<Vec<_>, CompileError>>()?;
 
-                    self.compile_statements(body)?;
-
-                    for end_label in end_labels {
-                        self.emit(Instruction::PopBlock);
-                        self.emit(Instruction::EnterFinally);
-                        self.set_label(end_label);
-                        self.emit(Instruction::WithCleanupStart);
-                        self.emit(Instruction::WithCleanupFinish);
-                    }
+                    self.emit(Instruction::WithCleanupFinish);
                 }
             }
             For {
