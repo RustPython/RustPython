@@ -576,7 +576,7 @@ impl PyInt {
 
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self, _vm: &VirtualMachine) -> usize {
-        size_of::<Self>() + ((self.value.bits() + 7) & !7) / 8)
+        size_of::<Self>() + ((self.value.bits() + 7) & !7) / 8
     }
 
     #[pymethod]
