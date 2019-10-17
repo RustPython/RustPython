@@ -873,6 +873,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone(),
         "FileExistsError" => ctx.exceptions.file_exists_error.clone(),
         "StopIteration" => ctx.exceptions.stop_iteration.clone(),
+        "StopAsyncIteration" => ctx.exceptions.stop_async_iteration.clone(),
         "SystemError" => ctx.exceptions.system_error.clone(),
         "PermissionError" => ctx.exceptions.permission_error.clone(),
         "UnicodeError" => ctx.exceptions.unicode_error.clone(),

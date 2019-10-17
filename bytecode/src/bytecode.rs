@@ -218,9 +218,8 @@ pub enum Instruction {
     SetupWith {
         end: Label,
     },
-    CleanupWith {
-        end: Label,
-    },
+    WithCleanupStart,
+    WithCleanupFinish,
     PopBlock,
     Raise {
         argc: usize,
@@ -275,6 +274,10 @@ pub enum Instruction {
         amount: usize,
     },
     GetAwaitable,
+    BeforeAsyncWith,
+    SetupAsyncWith {
+        end: Label,
+    },
 }
 
 use self::Instruction::*;
@@ -528,7 +531,10 @@ impl Instruction {
             EnterFinally => w!(EnterFinally),
             EndFinally => w!(EndFinally),
             SetupWith { end } => w!(SetupWith, label_map[end]),
-            CleanupWith { end } => w!(CleanupWith, label_map[end]),
+            WithCleanupStart => w!(WithCleanupStart),
+            WithCleanupFinish => w!(WithCleanupFinish),
+            BeforeAsyncWith => w!(BeforeAsyncWith),
+            SetupAsyncWith { end } => w!(SetupAsyncWith, label_map[end]),
             PopBlock => w!(PopBlock),
             Raise { argc } => w!(Raise, argc),
             BuildString { size } => w!(BuildString, size),

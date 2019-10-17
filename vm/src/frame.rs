@@ -49,10 +49,6 @@ enum BlockType {
     FinallyHandler {
         reason: Option<UnwindReason>,
     },
-    With {
-        end: bytecode::Label,
-        context_manager: PyObjectRef,
-    },
     ExceptHandler,
 }
 
@@ -431,29 +427,69 @@ impl Frame {
             }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
+                let exit = vm.get_attribute(context_manager.clone(), "__exit__")?;
+                self.push_value(exit);
                 // Call enter:
-                let obj = vm.call_method(&context_manager, "__enter__", vec![])?;
-                self.push_block(BlockType::With {
-                    end: *end,
-                    context_manager: context_manager.clone(),
-                });
-                self.push_value(obj);
+                let enter_res = vm.call_method(&context_manager, "__enter__", vec![])?;
+                self.push_block(BlockType::Finally { handler: *end });
+                self.push_value(enter_res);
                 Ok(None)
             }
-            bytecode::Instruction::CleanupWith { end: end1 } => {
-                let block = self.pop_block();
-                if let BlockType::With {
-                    end: end2,
-                    context_manager,
-                } = &block.typ
-                {
-                    debug_assert!(end1 == end2);
-                    self.call_context_manager_exit(vm, &context_manager, None)?;
-                } else {
-                    unreachable!("Block stack is incorrect, expected a with block");
-                }
+            bytecode::Instruction::BeforeAsyncWith => {
+                let mgr = self.pop_value();
+                let aexit = vm.get_attribute(mgr.clone(), "__aexit__")?;
+                self.push_value(aexit);
+                let aenter_res = vm.call_method(&mgr, "__aenter__", vec![])?;
+                self.push_value(aenter_res);
 
                 Ok(None)
+            }
+            bytecode::Instruction::SetupAsyncWith { end } => {
+                self.push_block(BlockType::Finally { handler: *end });
+                Ok(None)
+            }
+            bytecode::Instruction::WithCleanupStart => {
+                let block = self.current_block().unwrap();
+                let reason = match block.typ {
+                    BlockType::FinallyHandler { reason } => reason,
+                    _ => panic!("WithCleanupStart expects a FinallyHandler block on stack"),
+                };
+                let exc = reason.and_then(|reason| match reason {
+                    UnwindReason::Raising { exception } => Some(exception),
+                    _ => None,
+                });
+
+                let exit = self.pop_value();
+
+                let args = if let Some(exc) = exc {
+                    let exc_type = exc.class().into_object();
+                    let exc_val = exc.clone();
+                    let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
+                    vec![exc_type, exc_val, exc_tb]
+                } else {
+                    vec![vm.ctx.none(), vm.ctx.none(), vm.ctx.none()]
+                };
+                let exit_res = vm.invoke(&exit, args)?;
+                self.push_value(exit_res);
+
+                Ok(None)
+            }
+            bytecode::Instruction::WithCleanupFinish => {
+                let block = self.pop_block();
+                let reason = match block.typ {
+                    BlockType::FinallyHandler { reason } => reason,
+                    _ => panic!("WithCleanupFinish expects a FinallyHandler block on stack"),
+                };
+
+                let suppress_exception = objbool::boolval(vm, self.pop_value())?;
+                if suppress_exception {
+                    // suppress exception
+                    Ok(None)
+                } else if let Some(reason) = reason {
+                    self.unwind_blocks(vm, reason)
+                } else {
+                    Ok(None)
+                }
             }
             bytecode::Instruction::PopBlock => {
                 self.pop_block();
@@ -663,7 +699,7 @@ impl Frame {
     /// unwinding a block.
     /// Optionally returns an exception.
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn unwind_blocks(&self, vm: &VirtualMachine, mut reason: UnwindReason) -> FrameResult {
+    fn unwind_blocks(&self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             match block.typ {
@@ -699,60 +735,6 @@ impl Frame {
                         return Ok(None);
                     }
                 }
-                BlockType::With {
-                    context_manager,
-                    end,
-                } => {
-                    self.pop_block();
-                    match &reason {
-                        UnwindReason::Raising { exception } => {
-                            match self.call_context_manager_exit(
-                                vm,
-                                &context_manager,
-                                Some(exception.clone()),
-                            ) {
-                                Ok(exit_result_obj) => {
-                                    match objbool::boolval(vm, exit_result_obj) {
-                                        // If __exit__ method returned True, suppress the exception and continue execution.
-                                        Ok(suppress_exception) => {
-                                            if suppress_exception {
-                                                self.jump(end);
-                                                return Ok(None);
-                                            } else {
-                                                // go on with the stack unwinding.
-                                            }
-                                        }
-                                        Err(exit_exc) => {
-                                            reason = UnwindReason::Raising {
-                                                exception: exit_exc,
-                                            };
-                                            // return Err(exit_exc);
-                                        }
-                                    }
-                                }
-                                Err(exit_exc) => {
-                                    // TODO: what about original exception?
-                                    reason = UnwindReason::Raising {
-                                        exception: exit_exc,
-                                    };
-                                    // return Err(exit_exc);
-                                }
-                            }
-                        }
-                        _ => {
-                            match self.call_context_manager_exit(vm, &context_manager, None) {
-                                Ok(..) => {}
-                                Err(exit_exc) => {
-                                    // __exit__ went wrong,
-                                    reason = UnwindReason::Raising {
-                                        exception: exit_exc,
-                                    };
-                                    // return Err(exc);
-                                }
-                            }
-                        }
-                    }
-                }
                 BlockType::FinallyHandler { .. } => {
                     self.pop_block();
                 }
@@ -771,26 +753,6 @@ impl Frame {
                 panic!("Internal error: break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),
         }
-    }
-
-    fn call_context_manager_exit(
-        &self,
-        vm: &VirtualMachine,
-        context_manager: &PyObjectRef,
-        exc: Option<PyObjectRef>,
-    ) -> PyResult {
-        // TODO: do we want to put the exit call on the stack?
-        // TODO: what happens when we got an error during execution of __exit__?
-        let (exc_type, exc_val, exc_tb) = if let Some(exc) = exc {
-            let exc_type = exc.class().into_object();
-            let exc_val = exc.clone();
-            let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
-            (exc_type, exc_val, exc_tb)
-        } else {
-            (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
-        };
-
-        vm.call_method(context_manager, "__exit__", vec![exc_type, exc_val, exc_tb])
     }
 
     fn store_name(

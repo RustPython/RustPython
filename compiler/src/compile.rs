@@ -386,27 +386,72 @@ impl<O: OutputStream> Compiler<O> {
                 body,
             } => {
                 if *is_async {
-                    unimplemented!("async with");
-                } else {
-                    let end_label = self.new_label();
-                    for item in items {
-                        self.compile_expression(&item.context_expr)?;
-                        self.emit(Instruction::SetupWith { end: end_label });
-                        match &item.optional_vars {
-                            Some(var) => {
-                                self.compile_store(var)?;
+                    let end_labels = items
+                        .iter()
+                        .map(|item| {
+                            let end_label = self.new_label();
+                            self.compile_expression(&item.context_expr)?;
+                            self.emit(Instruction::BeforeAsyncWith);
+                            self.emit(Instruction::GetAwaitable);
+                            self.emit(Instruction::LoadConst {
+                                value: bytecode::Constant::None,
+                            });
+                            self.emit(Instruction::YieldFrom);
+                            self.emit(Instruction::SetupAsyncWith { end: end_label });
+                            match &item.optional_vars {
+                                Some(var) => {
+                                    self.compile_store(var)?;
+                                }
+                                None => {
+                                    self.emit(Instruction::Pop);
+                                }
                             }
-                            None => {
-                                self.emit(Instruction::Pop);
-                            }
-                        }
-                    }
+                            Ok(end_label)
+                        })
+                        .collect::<Result<Vec<_>, CompileError>>()?;
 
                     self.compile_statements(body)?;
-                    for _ in 0..items.len() {
-                        self.emit(Instruction::CleanupWith { end: end_label });
+
+                    for end_label in end_labels {
+                        self.emit(Instruction::PopBlock);
+                        self.emit(Instruction::EnterFinally);
+                        self.set_label(end_label);
+                        self.emit(Instruction::WithCleanupStart);
+                        self.emit(Instruction::GetAwaitable);
+                        self.emit(Instruction::LoadConst {
+                            value: bytecode::Constant::None,
+                        });
+                        self.emit(Instruction::YieldFrom);
+                        self.emit(Instruction::WithCleanupFinish);
                     }
-                    self.set_label(end_label);
+                } else {
+                    let end_labels = items
+                        .iter()
+                        .map(|item| {
+                            let end_label = self.new_label();
+                            self.compile_expression(&item.context_expr)?;
+                            self.emit(Instruction::SetupWith { end: end_label });
+                            match &item.optional_vars {
+                                Some(var) => {
+                                    self.compile_store(var)?;
+                                }
+                                None => {
+                                    self.emit(Instruction::Pop);
+                                }
+                            }
+                            Ok(end_label)
+                        })
+                        .collect::<Result<Vec<_>, CompileError>>()?;
+
+                    self.compile_statements(body)?;
+
+                    for end_label in end_labels {
+                        self.emit(Instruction::PopBlock);
+                        self.emit(Instruction::EnterFinally);
+                        self.set_label(end_label);
+                        self.emit(Instruction::WithCleanupStart);
+                        self.emit(Instruction::WithCleanupFinish);
+                    }
                 }
             }
             For {
