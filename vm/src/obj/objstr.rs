@@ -17,7 +17,7 @@ use unicode_xid::UnicodeXID;
 use super::objbytes::PyBytes;
 use super::objdict::PyDict;
 use super::objfloat;
-use super::objint::{self, PyInt};
+use super::objint::{self, PyInt, PyIntRef};
 use super::objiter;
 use super::objnone::PyNone;
 use super::objsequence::PySliceableSequence;
@@ -229,21 +229,26 @@ impl PyString {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    fn getitem(&self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
         match needle {
-            Either::A(pos) => {
-                let index: usize = if pos.is_negative() {
-                    (self.value.chars().count() as isize + pos) as usize
-                } else {
-                    pos.abs() as usize
-                };
+            Either::A(pos) => match pos.as_bigint().to_isize() {
+                Some(pos) => {
+                    let index: usize = if pos.is_negative() {
+                        (self.value.chars().count() as isize + pos) as usize
+                    } else {
+                        pos.abs() as usize
+                    };
 
-                if let Some(character) = self.value.chars().nth(index) {
-                    Ok(vm.new_str(character.to_string()))
-                } else {
-                    Err(vm.new_index_error("string index out of range".to_string()))
+                    if let Some(character) = self.value.chars().nth(index) {
+                        Ok(vm.new_str(character.to_string()))
+                    } else {
+                        Err(vm.new_index_error("string index out of range".to_string()))
+                    }
                 }
-            }
+                None => Err(
+                    vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string())
+                ),
+            },
             Either::B(slice) => {
                 let string = self
                     .value
