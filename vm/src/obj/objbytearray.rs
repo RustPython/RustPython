@@ -2,8 +2,6 @@
 use std::cell::{Cell, RefCell};
 use std::convert::TryFrom;
 
-use num_traits::ToPrimitive;
-
 use super::objbyteinner::{
     ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerPosition, ByteInnerSplitOptions, ByteInnerSplitlinesOptions,
@@ -506,17 +504,12 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "insert")]
-    fn insert(self, index: PyIntRef, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn insert(self, mut index: isize, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
         let bytes = &mut self.inner.borrow_mut().elements;
         let len = isize::try_from(bytes.len())
             .map_err(|_e| vm.new_overflow_error("bytearray too big".to_string()))?;
 
         let x = x.as_bigint().byte_or(vm)?;
-
-        let mut index = index
-            .as_bigint()
-            .to_isize()
-            .ok_or_else(|| vm.new_overflow_error("index too big".to_string()))?;
 
         if index >= len {
             bytes.push(x);
@@ -550,17 +543,17 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "__mul__")]
-    fn repeat(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    fn repeat(self, n: isize, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_bytearray(self.inner.borrow().repeat(n, vm)?))
     }
 
     #[pymethod(name = "__rmul__")]
-    fn rmul(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    fn rmul(self, n: isize, vm: &VirtualMachine) -> PyResult {
         self.repeat(n, vm)
     }
 
     #[pymethod(name = "__imul__")]
-    fn irepeat(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn irepeat(self, n: isize, vm: &VirtualMachine) -> PyResult<()> {
         self.inner.borrow_mut().irepeat(n, vm)
     }
 

@@ -292,14 +292,10 @@ impl PyString {
     }
 
     #[pymethod(name = "__mul__")]
-    fn mul(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        if !objtype::isinstance(&val, &vm.ctx.int_type()) {
-            return Err(vm.new_type_error(format!("Cannot multiply {} and {}", self, val)));
-        }
-        objint::get_value(&val)
-            .to_isize()
-            .map(|multiplier| multiplier.max(0))
-            .and_then(|multiplier| multiplier.to_usize())
+    fn mul(&self, multiplier: isize, vm: &VirtualMachine) -> PyResult<String> {
+        multiplier
+            .max(0)
+            .to_usize()
             .map(|multiplier| self.value.repeat(multiplier))
             .ok_or_else(|| {
                 vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_string())
@@ -307,7 +303,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__rmul__")]
-    fn rmul(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn rmul(&self, val: isize, vm: &VirtualMachine) -> PyResult<String> {
         self.mul(val, vm)
     }
 
@@ -1358,7 +1354,9 @@ fn try_update_quantity_from_tuple(
                         Ok(tuple_index)
                     }
                 }
-                None => Err(vm.new_type_error("not enough arguments for format string".to_string())),
+                None => {
+                    Err(vm.new_type_error("not enough arguments for format string".to_string()))
+                }
             }
         }
         _ => Ok(tuple_index),

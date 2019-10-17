@@ -1073,15 +1073,11 @@ impl PyByteInner {
         res
     }
 
-    pub fn repeat(&self, n: PyIntRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub fn repeat(&self, n: isize, _vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if self.elements.is_empty() {
             // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
             return Ok(vec![]);
         }
-
-        let n = n.as_bigint().to_isize().ok_or_else(|| {
-            vm.new_overflow_error("can't multiply bytes that many times".to_string())
-        })?;
 
         if n <= 0 {
             Ok(vec![])
@@ -1097,15 +1093,11 @@ impl PyByteInner {
         }
     }
 
-    pub fn irepeat(&mut self, n: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn irepeat(&mut self, n: isize, _vm: &VirtualMachine) -> PyResult<()> {
         if self.elements.is_empty() {
             // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
             return Ok(());
         }
-
-        let n = n.as_bigint().to_isize().ok_or_else(|| {
-            vm.new_overflow_error("can't multiply bytes that many times".to_string())
-        })?;
 
         if n <= 0 {
             self.elements.clear();
