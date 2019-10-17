@@ -9,7 +9,6 @@ use byteorder::{BigEndian, ByteOrder};
 use gethostname::gethostname;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::unistd::sethostname;
-use num_bigint::Sign;
 use num_traits::ToPrimitive;
 
 use crate::function::PyFuncArgs;
@@ -546,14 +545,7 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
 }
 
-fn socket_htonl(host: PyIntRef, vm: &VirtualMachine) -> PyResult {
-    if host.as_bigint().sign() == Sign::Minus {
-        return Err(
-            vm.new_overflow_error("can't convert negative value to unsigned int".to_string())
-        );
-    }
-
-    let host = host.as_bigint().to_u32().unwrap();
+fn socket_htonl(host: u32, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_int(host.to_be()))
 }
 

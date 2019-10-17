@@ -20,7 +20,6 @@ use nix::errno::Errno;
 use nix::pty::openpty;
 #[cfg(unix)]
 use nix::unistd::{self, Gid, Pid, Uid, Whence};
-use num_traits::cast::ToPrimitive;
 
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
@@ -1008,9 +1007,7 @@ fn os_getegid(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 #[cfg(unix)]
-fn os_getpgid(pid: PyIntRef, vm: &VirtualMachine) -> PyObjectRef {
-    let pid = pid.as_bigint().to_u32().unwrap();
-
+fn os_getpgid(pid: u32, vm: &VirtualMachine) -> PyObjectRef {
     match unistd::getpgid(Some(Pid::from_raw(pid as i32))) {
         Ok(pgid) => vm.new_int(pgid.as_raw()),
         Err(err) => convert_nix_error(vm, err),
@@ -1018,9 +1015,7 @@ fn os_getpgid(pid: PyIntRef, vm: &VirtualMachine) -> PyObjectRef {
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
-fn os_getsid(pid: PyIntRef, vm: &VirtualMachine) -> PyObjectRef {
-    let pid = pid.as_bigint().to_u32().unwrap();
-
+fn os_getsid(pid: u32, vm: &VirtualMachine) -> PyObjectRef {
     match unistd::getsid(Some(Pid::from_raw(pid as i32))) {
         Ok(sid) => vm.new_int(sid.as_raw()),
         Err(err) => convert_nix_error(vm, err),
@@ -1040,24 +1035,17 @@ fn os_geteuid(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 #[cfg(unix)]
-fn os_setgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-    let gid = gid.as_bigint().to_u32().unwrap();
-
+fn os_setgid(gid: u32, vm: &VirtualMachine) -> PyResult<()> {
     unistd::setgid(Gid::from_raw(gid)).map_err(|err| convert_nix_error(vm, err))
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
-fn os_setegid(egid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-    let egid = egid.as_bigint().to_u32().unwrap();
-
+fn os_setegid(egid: u32, vm: &VirtualMachine) -> PyResult<()> {
     unistd::setegid(Gid::from_raw(egid)).map_err(|err| convert_nix_error(vm, err))
 }
 
 #[cfg(unix)]
-fn os_setpgid(pid: PyIntRef, pgid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-    let pid = pid.as_bigint().to_u32().unwrap();
-    let pgid = pgid.as_bigint().to_u32().unwrap();
-
+fn os_setpgid(pid: u32, pgid: u32, vm: &VirtualMachine) -> PyResult<()> {
     unistd::setpgid(Pid::from_raw(pid as i32), Pid::from_raw(pgid as i32))
         .map_err(|err| convert_nix_error(vm, err))
 }
@@ -1070,16 +1058,12 @@ fn os_setsid(vm: &VirtualMachine) -> PyResult<()> {
 }
 
 #[cfg(unix)]
-fn os_setuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-    let uid = uid.as_bigint().to_u32().unwrap();
-
+fn os_setuid(uid: u32, vm: &VirtualMachine) -> PyResult<()> {
     unistd::setuid(Uid::from_raw(uid)).map_err(|err| convert_nix_error(vm, err))
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
-fn os_seteuid(euid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-    let euid = euid.as_bigint().to_u32().unwrap();
-
+fn os_seteuid(euid: u32, vm: &VirtualMachine) -> PyResult<()> {
     unistd::seteuid(Uid::from_raw(euid)).map_err(|err| convert_nix_error(vm, err))
 }
 
