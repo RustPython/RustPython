@@ -10,7 +10,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     py_module!(vm, "random", {
-        "guass" => ctx.new_rustfunc(random_normalvariate), // TODO: is this the same?
+        "gauss" => ctx.new_rustfunc(random_normalvariate), // TODO: is this the same?
         "normalvariate" => ctx.new_rustfunc(random_normalvariate),
         "random" => ctx.new_rustfunc(random_random),
         // "weibull", ctx.new_rustfunc(random_weibullvariate),
@@ -29,7 +29,7 @@ fn random_normalvariate(mu: f64, sigma: f64, vm: &VirtualMachine) -> PyResult<f6
 }
 
 fn random_random(_vm: &VirtualMachine) -> f64 {
-    rand::random::<f64>()
+    rand::random()
 }
 
 /*
