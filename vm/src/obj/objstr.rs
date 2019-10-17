@@ -1380,9 +1380,7 @@ fn try_update_quantity_from_tuple(
                         Ok(tuple_index)
                     }
                 }
-                None => {
-                    Err(vm.new_type_error("not enough arguments for format string".to_string()))
-                }
+                None => Err(vm.new_type_error("not enough arguments for format string".to_string())),
             }
         }
         _ => Ok(tuple_index),
