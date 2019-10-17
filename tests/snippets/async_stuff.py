@@ -30,8 +30,11 @@ async def a(s, m):
 
 loop = asyncio.get_event_loop()
 loop.run_until_complete(
-    asyncio.wait([a(0, "hello1"), a(0.5, "hello2"), a(1, "hello3"), a(1.5, "hello4")])
+    asyncio.wait(
+        [a(0, "hello1"), a(0.75, "hello2"), a(1.5, "hello3"), a(2.25, "hello4")]
+    )
 )
+
 
 assert ls == [
     1,
@@ -46,8 +49,8 @@ assert ls == [
     "hello2",
     "hello1",
     "hello3",
-    "hello4",
     "hello2",
+    "hello4",
     "hello3",
     "hello4",
 ]

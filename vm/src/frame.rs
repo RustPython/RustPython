@@ -239,8 +239,8 @@ impl Frame {
                 self.lasti.set(self.lasti.get() + 1);
                 let val = objiter::stop_iter_value(vm, &err)?;
                 self._send(coro, val, vm)
-            })?;
-            Ok(ExecutionResult::Return(vm.get_none()))
+            })
+            .map(ExecutionResult::Yield)
         } else {
             let exception = vm.new_exception_obj(exc_type, vec![exc_val])?;
             match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
