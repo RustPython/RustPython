@@ -230,41 +230,29 @@ fn bytes_io_new(
     .into_ref_with_type(vm, cls)
 }
 
-fn io_base_cm_enter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(instance, None)]);
-    Ok(instance.clone())
+fn io_base_cm_enter(instance: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
+    instance.clone()
 }
 
-fn io_base_cm_exit(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        // The context manager protocol requires these, but we don't use them
-        required = [
-            (_instance, None),
-            (_exception_type, None),
-            (_exception_value, None),
-            (_traceback, None)
-        ]
-    );
-    Ok(vm.get_none())
-}
+fn io_base_cm_exit(_args: PyFuncArgs, _vm: &VirtualMachine) {}
 
 // TODO Check if closed, then if so raise ValueError
 fn io_base_flush(_self: PyObjectRef, _vm: &VirtualMachine) {}
 
-fn io_base_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    Ok(vm.ctx.new_bool(false))
+fn io_base_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    false
 }
 
-fn buffered_io_base_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(buffered, None), (raw, None)]);
-    vm.set_attr(buffered, "raw", raw.clone())?;
-    Ok(vm.get_none())
+fn buffered_io_base_init(
+    instance: PyObjectRef,
+    raw: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    vm.set_attr(&instance, "raw", raw.clone())?;
+    Ok(())
 }
 
-fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(buffered, None)]);
+fn buffered_reader_read(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     let buff_size = 8 * 1024;
     let buffer = vm.ctx.new_bytearray(vec![0; buff_size]);
 
@@ -272,7 +260,7 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut result = vec![];
     let mut length = buff_size;
 
-    let raw = vm.get_attribute(buffered.clone(), "raw").unwrap();
+    let raw = vm.get_attribute(instance.clone(), "raw").unwrap();
 
     //Iterates through the raw class, invoking the readinto method
     //to obtain buff_size many bytes. Exit when less than buff_size many
@@ -290,11 +278,11 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         length = objint::get_value(&py_len).to_usize().unwrap();
     }
 
-    Ok(vm.ctx.new_bytes(result))
+    Ok(result)
 }
 
-fn buffered_reader_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    Ok(vm.ctx.new_bool(true))
+fn buffered_reader_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    true
 }
 
 fn compute_c_flag(mode: &str) -> u32 {
@@ -342,55 +330,50 @@ fn file_io_init(
     Ok(vm.get_none())
 }
 
-fn file_io_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(file_io, None)],
-        optional = [(read_byte, Some(vm.ctx.int_type()))]
-    );
-
-    let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
+fn file_io_read(
+    instance: PyObjectRef,
+    read_byte: OptionalArg<usize>,
+    vm: &VirtualMachine,
+) -> PyResult<Vec<u8>> {
+    let file_no = vm.get_attribute(instance.clone(), "fileno")?;
     let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
 
     let mut handle = os::rust_file(raw_fd);
 
     let bytes = match read_byte {
-        None => {
+        OptionalArg::Missing => {
             let mut bytes = vec![];
             handle
                 .read_to_end(&mut bytes)
                 .map_err(|_| vm.new_value_error("Error reading from Buffer".to_string()))?;
             bytes
         }
-        Some(read_byte) => {
-            let mut bytes = vec![0; objint::get_value(&read_byte).to_usize().unwrap()];
+        OptionalArg::Present(read_byte) => {
+            let mut bytes = vec![0; read_byte];
             handle
                 .read_exact(&mut bytes)
                 .map_err(|_| vm.new_value_error("Error reading from Buffer".to_string()))?;
             let updated = os::raw_file_number(handle);
-            vm.set_attr(file_io, "fileno", vm.ctx.new_int(updated))?;
+            vm.set_attr(&instance, "fileno", vm.ctx.new_int(updated))?;
             bytes
         }
     };
 
-    Ok(vm.ctx.new_bytes(bytes))
+    Ok(bytes)
 }
 
-fn file_io_readinto(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(file_io, None), (obj, None)]);
-
+fn file_io_readinto(instance: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     if !obj.readonly() {
-        return Ok(vm.new_type_error(
+        return Err(vm.new_type_error(
             "readinto() argument must be read-write bytes-like object".to_string(),
         ));
     }
 
     //extract length of buffer
-    let py_length = vm.call_method(obj, "__len__", PyFuncArgs::default())?;
+    let py_length = vm.call_method(&obj, "__len__", PyFuncArgs::default())?;
     let length = objint::get_value(&py_length).to_u64().unwrap();
 
-    let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
+    let file_no = vm.get_attribute(instance.clone(), "fileno")?;
     let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
 
     //extract unix file descriptor.
@@ -409,14 +392,12 @@ fn file_io_readinto(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     let updated = os::raw_file_number(f.into_inner());
-    vm.set_attr(file_io, "fileno", vm.ctx.new_int(updated))?;
-    Ok(vm.get_none())
+    vm.set_attr(&instance, "fileno", vm.ctx.new_int(updated))?;
+    Ok(())
 }
 
-fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(file_io, None), (obj, None)]);
-
-    let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
+fn file_io_write(instance: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    let file_no = vm.get_attribute(instance.clone(), "fileno")?;
     let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
 
     //unsafe block - creates file handle from the UNIX file descriptor
@@ -437,85 +418,73 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(len) => {
             //reset raw fd on the FileIO object
             let updated = os::raw_file_number(handle);
-            vm.set_attr(file_io, "fileno", vm.ctx.new_int(updated))?;
+            vm.set_attr(&instance, "fileno", vm.ctx.new_int(updated))?;
 
             //return number of bytes written
-            Ok(vm.ctx.new_int(len))
+            Ok(len)
         }
         Err(_) => Err(vm.new_value_error("Error Writing Bytes to Handle".to_string())),
     }
 }
 
 #[cfg(windows)]
-fn file_io_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn file_io_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     use std::os::windows::io::IntoRawHandle;
-    arg_check!(vm, args, required = [(file_io, None)]);
-    let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
+    let file_no = vm.get_attribute(instance.clone(), "fileno")?;
     let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
     let handle = os::rust_file(raw_fd);
     let raw_handle = handle.into_raw_handle();
     unsafe {
         kernel32::CloseHandle(raw_handle);
     }
-    vm.set_attr(file_io, "closefd", vm.new_bool(true))?;
-    vm.set_attr(file_io, "closed", vm.new_bool(true))?;
-    Ok(vm.ctx.none())
+    vm.set_attr(&instance, "closefd", vm.new_bool(true))?;
+    vm.set_attr(&instance, "closed", vm.new_bool(true))?;
+    Ok(())
 }
 
 #[cfg(unix)]
-fn file_io_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(file_io, None)]);
-    let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
+fn file_io_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    let file_no = vm.get_attribute(instance.clone(), "fileno")?;
     let raw_fd = objint::get_value(&file_no).to_i32().unwrap();
     unsafe {
         libc::close(raw_fd);
     }
-    vm.set_attr(file_io, "closefd", vm.new_bool(true))?;
-    vm.set_attr(file_io, "closed", vm.new_bool(true))?;
-    Ok(vm.ctx.none())
+    vm.set_attr(&instance, "closefd", vm.new_bool(true))?;
+    vm.set_attr(&instance, "closed", vm.new_bool(true))?;
+    Ok(())
 }
 
-fn file_io_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    Ok(vm.ctx.new_bool(true))
+fn file_io_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    true
 }
 
-fn buffered_writer_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(buffered, None), (obj, Some(vm.ctx.bytes_type()))]
-    );
-
-    let raw = vm.get_attribute(buffered.clone(), "raw").unwrap();
+fn buffered_writer_write(instance: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let raw = vm.get_attribute(instance, "raw").unwrap();
 
     //This should be replaced with a more appropriate chunking implementation
     vm.call_method(&raw, "write", vec![obj.clone()])
 }
 
-fn buffered_writer_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    Ok(vm.ctx.new_bool(true))
+fn buffered_writer_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    true
 }
 
-fn text_io_wrapper_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(text_io_wrapper, None), (buffer, None)]
-    );
-
-    vm.set_attr(text_io_wrapper, "buffer", buffer.clone())?;
-    Ok(vm.get_none())
+fn text_io_wrapper_init(
+    instance: PyObjectRef,
+    buffer: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    vm.set_attr(&instance, "buffer", buffer.clone())?;
+    Ok(())
 }
 
-fn text_io_wrapper_seekable(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    Ok(vm.new_bool(true))
+fn text_io_wrapper_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    true
 }
 
-fn text_io_base_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(text_io_base, None)]);
-
+fn text_io_base_read(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
     let buffered_reader_class = vm.try_class("_io", "BufferedReader")?;
-    let raw = vm.get_attribute(text_io_base.clone(), "buffer").unwrap();
+    let raw = vm.get_attribute(instance.clone(), "buffer").unwrap();
 
     if !objtype::isinstance(&raw, &buffered_reader_class) {
         // TODO: this should be io.UnsupportedOperation error which derives both from ValueError *and* OSError
@@ -532,30 +501,28 @@ fn text_io_base_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                 e.utf8_error().valid_up_to()
             ))
         })?;
-        Ok(vm.ctx.new_str(rust_string))
+        Ok(rust_string)
     } else {
         Err(vm.new_value_error("Error unpacking Bytes".to_string()))
     }
 }
 
-fn text_io_base_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn text_io_base_write(
+    instance: PyObjectRef,
+    obj: PyStringRef,
+    vm: &VirtualMachine,
+) -> PyResult<usize> {
     use std::str::from_utf8;
 
-    arg_check!(
-        vm,
-        args,
-        required = [(text_io_base, None), (obj, Some(vm.ctx.str_type()))]
-    );
-
     let buffered_writer_class = vm.try_class("_io", "BufferedWriter")?;
-    let raw = vm.get_attribute(text_io_base.clone(), "buffer").unwrap();
+    let raw = vm.get_attribute(instance.clone(), "buffer").unwrap();
 
     if !objtype::isinstance(&raw, &buffered_writer_class) {
         // TODO: this should be io.UnsupportedOperation error which derives from ValueError and OSError
         return Err(vm.new_value_error("not writable".to_string()));
     }
 
-    let bytes = objstr::get_value(obj).into_bytes();
+    let bytes = obj.as_str().to_string().into_bytes();
 
     let len = vm.call_method(&raw, "write", vec![vm.ctx.new_bytes(bytes.clone())])?;
     let len = objint::get_value(&len).to_usize().ok_or_else(|| {
@@ -567,7 +534,7 @@ fn text_io_base_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         .unwrap_or_else(|e| from_utf8(&bytes[..e.valid_up_to()]).unwrap())
         .chars()
         .count();
-    Ok(vm.ctx.new_int(len))
+    Ok(len)
 }
 
 fn split_mode_string(mode_string: String) -> Result<(String, String), String> {
