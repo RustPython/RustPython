@@ -271,6 +271,7 @@ pub struct ExceptionZoo {
     pub user_warning: PyClassRef,
 
     pub keyboard_interrupt: PyClassRef,
+    pub generator_exit: PyClassRef,
     pub system_exit: PyClassRef,
 }
 
@@ -327,6 +328,7 @@ impl ExceptionZoo {
         let user_warning = create_type("UserWarning", &type_type, &warning);
 
         let keyboard_interrupt = create_type("KeyboardInterrupt", &type_type, &base_exception_type);
+        let generator_exit = create_type("GeneratorExit", &type_type, &base_exception_type);
         let system_exit = create_type("SystemExit", &type_type, &base_exception_type);
 
         ExceptionZoo {
@@ -376,6 +378,7 @@ impl ExceptionZoo {
             reference_error,
             user_warning,
             keyboard_interrupt,
+            generator_exit,
             system_exit,
         }
     }

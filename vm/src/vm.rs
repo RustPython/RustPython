@@ -26,6 +26,7 @@ use crate::import;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::{PyCode, PyCodeRef};
+use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator::PyGenerator;
@@ -664,6 +665,8 @@ impl VirtualMachine {
         // If we have a generator, create a new generator
         if code.flags.contains(bytecode::CodeFlags::IS_GENERATOR) {
             Ok(PyGenerator::new(frame, self).into_object())
+        } else if code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
+            Ok(PyCoroutine::new(frame, self).into_object())
         } else {
             self.run_frame_full(frame)
         }

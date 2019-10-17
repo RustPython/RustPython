@@ -8,16 +8,16 @@ use crate::bytecode;
 use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
+use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objdict::{PyDict, PyDictRef};
+use crate::obj::objgenerator::PyGenerator;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
-use crate::obj::objstr;
-use crate::obj::objstr::PyString;
+use crate::obj::objstr::{self, PyString};
 use crate::obj::objtraceback::{PyTraceback, PyTracebackRef};
 use crate::obj::objtuple::PyTuple;
-use crate::obj::objtype;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
@@ -230,7 +230,7 @@ impl Frame {
         exc_type: PyClassRef,
         exc_val: PyObjectRef,
         exc_tb: PyObjectRef,
-    ) -> PyResult {
+    ) -> PyResult<ExecutionResult> {
         if let bytecode::Instruction::YieldFrom = self.code.instructions[self.lasti.get()] {
             let coro = self.last_value();
             vm.call_method(
@@ -243,7 +243,8 @@ impl Frame {
                 self.lasti.set(self.lasti.get() + 1);
                 let val = objiter::stop_iter_value(vm, &err)?;
                 self._send(coro, val, vm)
-            })
+            })?;
+            Ok(ExecutionResult::Return(vm.get_none()))
         } else {
             let exception = vm.new_exception_obj(exc_type, vec![exc_val])?;
             match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
@@ -251,7 +252,6 @@ impl Frame {
                 Ok(Some(result)) => Ok(result),
                 Err(exception) => Err(exception),
             }
-            .and_then(|res| res.into_result(vm))
         }
     }
 
@@ -463,6 +463,24 @@ impl Frame {
                 let iterated_obj = self.pop_value();
                 let iter_obj = objiter::get_iter(vm, &iterated_obj)?;
                 self.push_value(iter_obj);
+                Ok(None)
+            }
+            bytecode::Instruction::GetAwaitable => {
+                let awaited_obj = self.pop_value();
+                let awaitable = if awaited_obj.payload_is::<crate::obj::objcoroutine::PyCoroutine>()
+                {
+                    awaited_obj
+                } else {
+                    let await_method =
+                        vm.get_method_or_type_error(awaited_obj.clone(), "__await__", || {
+                            format!(
+                                "object {} can't be used in 'await' expression",
+                                awaited_obj.class().name,
+                            )
+                        })?;
+                    vm.invoke(&await_method, vec![])?
+                };
+                self.push_value(awaitable);
                 Ok(None)
             }
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, *target),
@@ -1016,7 +1034,11 @@ impl Frame {
     }
 
     fn _send(&self, coro: PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if vm.is_none(&val) {
+        if let Some(gen) = coro.payload::<PyGenerator>() {
+            gen.send(val, vm)
+        } else if let Some(coro) = coro.payload::<PyCoroutine>() {
+            coro.send(val, vm)
+        } else if vm.is_none(&val) {
             objiter::call_next(vm, &coro)
         } else {
             vm.call_method(&coro, "send", vec![val])

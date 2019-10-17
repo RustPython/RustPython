@@ -55,6 +55,7 @@ bitflags! {
         const HAS_ANNOTATIONS = 0x04;
         const NEW_LOCALS = 0x08;
         const IS_GENERATOR = 0x10;
+        const IS_COROUTINE = 0x20;
     }
 }
 
@@ -273,6 +274,7 @@ pub enum Instruction {
     Reverse {
         amount: usize,
     },
+    GetAwaitable,
 }
 
 use self::Instruction::*;
@@ -549,6 +551,7 @@ impl Instruction {
             FormatValue { spec, .. } => w!(FormatValue, spec), // TODO: write conversion
             PopException => w!(PopException),
             Reverse { amount } => w!(Reverse, amount),
+            GetAwaitable => w!(GetAwaitable),
         }
     }
 }

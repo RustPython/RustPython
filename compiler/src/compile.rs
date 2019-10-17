@@ -29,6 +29,7 @@ struct Compiler<O: OutputStream = BasicOutputStream> {
     current_qualified_path: Option<String>,
     in_loop: bool,
     in_function_def: bool,
+    in_async_func: bool,
     optimize: u8,
 }
 
@@ -126,6 +127,7 @@ impl<O: OutputStream> Compiler<O> {
             current_qualified_path: None,
             in_loop: false,
             in_function_def: false,
+            in_async_func: false,
             optimize,
         }
     }
@@ -451,11 +453,7 @@ impl<O: OutputStream> Compiler<O> {
                 decorator_list,
                 returns,
             } => {
-                if *is_async {
-                    unimplemented!("async def");
-                } else {
-                    self.compile_function_def(name, args, body, decorator_list, returns)?
-                }
+                self.compile_function_def(name, args, body, decorator_list, returns, *is_async)?;
             }
             ClassDef {
                 name,
@@ -797,11 +795,15 @@ impl<O: OutputStream> Compiler<O> {
         body: &[ast::Statement],
         decorator_list: &[ast::Expression],
         returns: &Option<ast::Expression>, // TODO: use type hint somehow..
+        is_async: bool,
     ) -> Result<(), CompileError> {
         // Create bytecode for this function:
         // remember to restore self.in_loop to the original after the function is compiled
         let was_in_loop = self.in_loop;
         let was_in_function_def = self.in_function_def;
+
+        let was_in_async_func = self.in_async_func;
+        self.in_async_func = is_async;
         self.in_loop = false;
         self.in_function_def = true;
 
@@ -870,6 +872,10 @@ impl<O: OutputStream> Compiler<O> {
             });
         }
 
+        if is_async {
+            code.flags |= bytecode::CodeFlags::IS_COROUTINE;
+        }
+
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
                 code: Box::new(code),
@@ -891,6 +897,7 @@ impl<O: OutputStream> Compiler<O> {
         self.current_qualified_path = old_qualified_path;
         self.in_loop = was_in_loop;
         self.in_function_def = was_in_function_def;
+        self.in_async_func = was_in_async_func;
         Ok(())
     }
 
@@ -1551,7 +1558,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::BuildSlice { size });
             }
             Yield { value } => {
-                if !self.in_function_def {
+                if !self.in_function_def || self.in_async_func {
                     return Err(CompileError {
                         error: CompileErrorType::InvalidYield,
                         location: self.current_source_location.clone(),
@@ -1566,8 +1573,13 @@ impl<O: OutputStream> Compiler<O> {
                 };
                 self.emit(Instruction::YieldValue);
             }
-            Await { .. } => {
-                unimplemented!("await");
+            Await { value } => {
+                self.compile_expression(value)?;
+                self.emit(Instruction::GetAwaitable);
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::None,
+                });
+                self.emit(Instruction::YieldFrom);
             }
             YieldFrom { value } => {
                 self.mark_generator();
@@ -1612,8 +1624,14 @@ impl<O: OutputStream> Compiler<O> {
                 self.load_name(name);
             }
             Lambda { args, body } => {
+                let was_in_loop = self.in_loop;
+                let was_in_function_def = self.in_function_def;
+                let was_in_async_func = self.in_async_func;
+                self.in_async_func = false;
+                self.in_loop = false;
+                self.in_function_def = true;
+
                 let name = "<lambda>".to_string();
-                // no need to worry about the self.loop_depth because there are no loops in lambda expressions
                 self.enter_function(&name, args)?;
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
@@ -1629,6 +1647,10 @@ impl<O: OutputStream> Compiler<O> {
                 });
                 // Turn code object into function object:
                 self.emit(Instruction::MakeFunction);
+
+                self.in_loop = was_in_loop;
+                self.in_function_def = was_in_function_def;
+                self.in_async_func = was_in_async_func;
             }
             Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
