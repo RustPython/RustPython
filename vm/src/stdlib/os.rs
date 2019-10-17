@@ -334,17 +334,17 @@ fn os_error(message: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult 
     Err(vm.new_os_error(msg))
 }
 
-fn os_fsync(fd: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-    let file = rust_file(fd.as_bigint().to_i64().unwrap());
+fn os_fsync(fd: i64, vm: &VirtualMachine) -> PyResult<()> {
+    let file = rust_file(fd);
     file.sync_all().map_err(|err| convert_io_error(vm, err))?;
     // Avoid closing the fd
     raw_file_number(file);
     Ok(())
 }
 
-fn os_read(fd: PyIntRef, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
-    let mut buffer = vec![0u8; n.as_bigint().to_usize().unwrap()];
-    let mut file = rust_file(fd.as_bigint().to_i64().unwrap());
+fn os_read(fd: i64, n: usize, vm: &VirtualMachine) -> PyResult {
+    let mut buffer = vec![0u8; n];
+    let mut file = rust_file(fd);
     file.read_exact(&mut buffer)
         .map_err(|err| convert_io_error(vm, err))?;
 
@@ -353,8 +353,8 @@ fn os_read(fd: PyIntRef, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_bytes(buffer))
 }
 
-fn os_write(fd: PyIntRef, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
-    let mut file = rust_file(fd.as_bigint().to_i64().unwrap());
+fn os_write(fd: i64, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    let mut file = rust_file(fd);
     let written = file.write(&data).map_err(|err| convert_io_error(vm, err))?;
 
     // Avoid closing the fd
