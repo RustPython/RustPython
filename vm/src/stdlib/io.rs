@@ -116,9 +116,8 @@ impl PyStringIORef {
     }
 
     //skip to the jth position
-    fn seek(self, offset: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let position = objint::get_value(&offset).to_u64().unwrap();
-        match self.buffer.borrow_mut().seek(position) {
+    fn seek(self, offset: u64, vm: &VirtualMachine) -> PyResult {
+        match self.buffer.borrow_mut().seek(offset) {
             Some(value) => Ok(vm.ctx.new_int(value)),
             None => Err(vm.new_value_error("Error Performing Operation".to_string())),
         }
@@ -198,9 +197,8 @@ impl PyBytesIORef {
     }
 
     //skip to the jth position
-    fn seek(self, offset: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let position = objint::get_value(&offset).to_u64().unwrap();
-        match self.buffer.borrow_mut().seek(position) {
+    fn seek(self, offset: u64, vm: &VirtualMachine) -> PyResult {
+        match self.buffer.borrow_mut().seek(offset) {
             Some(value) => Ok(vm.ctx.new_int(value)),
             None => Err(vm.new_value_error("Error Performing Operation".to_string())),
         }
