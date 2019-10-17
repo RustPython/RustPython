@@ -21,7 +21,7 @@ use super::objint::{self, PyInt};
 use super::objiter;
 use super::objnone::PyNone;
 use super::objsequence::PySliceableSequence;
-use super::objslice::PySlice;
+use super::objslice::PySliceRef;
 use super::objtuple;
 use super::objtype::{self, PyClassRef};
 use crate::cformat::{
@@ -32,8 +32,8 @@ use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatStri
 use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -229,8 +229,29 @@ impl PyString {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        subscript(vm, &self.value, needle)
+    fn getitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+        match needle {
+            Either::A(pos) => {
+                let index: usize = if pos.is_negative() {
+                    (self.value.chars().count() as isize + pos) as usize
+                } else {
+                    pos.abs() as usize
+                };
+
+                if let Some(character) = self.value.chars().nth(index) {
+                    Ok(vm.new_str(character.to_string()))
+                } else {
+                    Err(vm.new_index_error("string index out of range".to_string()))
+                }
+            }
+            Either::B(slice) => {
+                let string = self
+                    .value
+                    .to_string()
+                    .get_slice_items(vm, slice.as_object())?;
+                Ok(vm.new_str(string))
+            }
+        }
     }
 
     #[pymethod(name = "__gt__")]
@@ -1570,37 +1591,6 @@ impl PySliceableSequence for String {
 
     fn is_empty(&self) -> bool {
         self.is_empty()
-    }
-}
-
-pub fn subscript(vm: &VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
-    if objtype::isinstance(&b, &vm.ctx.int_type()) {
-        match objint::get_value(&b).to_isize() {
-            Some(pos) => {
-                let index: usize = if pos.is_negative() {
-                    (value.chars().count() as isize + pos) as usize
-                } else {
-                    pos.abs() as usize
-                };
-
-                if let Some(character) = value.chars().nth(index) {
-                    Ok(vm.new_str(character.to_string()))
-                } else {
-                    Err(vm.new_index_error("string index out of range".to_string()))
-                }
-            }
-            None => {
-                Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
-            }
-        }
-    } else if b.payload::<PySlice>().is_some() {
-        let string = value.to_string().get_slice_items(vm, &b)?;
-        Ok(vm.new_str(string))
-    } else {
-        Err(vm.new_type_error(format!(
-            "indexing type {:?} with index {:?} is not supported",
-            value, b
-        )))
     }
 }
 
