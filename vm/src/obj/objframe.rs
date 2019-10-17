@@ -47,6 +47,6 @@ impl FrameRef {
 
     #[pyproperty]
     fn f_lasti(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(*self.lasti.borrow())
+        vm.ctx.new_int(self.lasti.get())
     }
 }

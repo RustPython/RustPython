@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fmt;
 
 use indexmap::IndexMap;
@@ -90,7 +90,7 @@ pub struct Frame {
     /// Variables
     pub scope: Scope,
     /// index of last instruction ran
-    pub lasti: RefCell<usize>,
+    pub lasti: Cell<usize>,
 }
 
 impl PyValue for Frame {
@@ -103,6 +103,38 @@ impl PyValue for Frame {
 pub enum ExecutionResult {
     Return(PyObjectRef),
     Yield(PyObjectRef),
+}
+
+impl ExecutionResult {
+    /// Extract an ExecutionResult from a PyResult returned from e.g. gen.__next__() or gen.send()
+    pub fn from_result(vm: &VirtualMachine, res: PyResult) -> PyResult<Self> {
+        match res {
+            Ok(val) => Ok(ExecutionResult::Yield(val)),
+            Err(err) => {
+                if objtype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                    objiter::stop_iter_value(vm, &err).map(ExecutionResult::Return)
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
+    /// Turn an ExecutionResult into a PyResult that would be returned from a generator or coroutine
+    pub fn into_result(self, vm: &VirtualMachine) -> PyResult {
+        match self {
+            ExecutionResult::Yield(value) => Ok(value),
+            ExecutionResult::Return(value) => {
+                let stop_iteration = vm.ctx.exceptions.stop_iteration.clone();
+                let args = if vm.is_none(&value) {
+                    vec![]
+                } else {
+                    vec![value]
+                };
+                Err(vm.new_exception_obj(stop_iteration, args).unwrap())
+            }
+        }
+    }
 }
 
 /// A valid execution result, or an exception
@@ -128,7 +160,7 @@ impl Frame {
             // save the callargs as locals
             // globals: locals.clone(),
             scope,
-            lasti: RefCell::new(0),
+            lasti: Cell::new(0),
         }
     }
 
@@ -185,17 +217,40 @@ impl Frame {
         }
     }
 
-    pub fn throw(&self, vm: &VirtualMachine, exception: PyObjectRef) -> PyResult<ExecutionResult> {
-        match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
-            Ok(None) => self.run(vm),
-            Ok(Some(result)) => Ok(result),
-            Err(exception) => Err(exception),
+    pub(crate) fn gen_throw(
+        &self,
+        vm: &VirtualMachine,
+        exc_type: PyClassRef,
+        exc_val: PyObjectRef,
+        exc_tb: PyObjectRef,
+    ) -> PyResult {
+        if let bytecode::Instruction::YieldFrom = self.code.instructions[self.lasti.get()] {
+            let coro = self.last_value();
+            vm.call_method(
+                &coro,
+                "throw",
+                vec![exc_type.into_object(), exc_val, exc_tb],
+            )
+            .or_else(|err| {
+                self.pop_value();
+                self.lasti.set(self.lasti.get() + 1);
+                let val = objiter::stop_iter_value(vm, &err)?;
+                self._send(coro, val, vm)
+            })
+        } else {
+            let exception = vm.new_exception_obj(exc_type, vec![exc_val])?;
+            match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
+                Ok(None) => self.run(vm),
+                Ok(Some(result)) => Ok(result),
+                Err(exception) => Err(exception),
+            }
+            .and_then(|res| res.into_result(vm))
         }
     }
 
     pub fn fetch_instruction(&self) -> &bytecode::Instruction {
-        let ins2 = &self.code.instructions[*self.lasti.borrow()];
-        *self.lasti.borrow_mut() += 1;
+        let ins2 = &self.code.instructions[self.lasti.get()];
+        self.lasti.set(self.lasti.get() + 1);
         ins2
     }
 
@@ -954,20 +1009,35 @@ impl Frame {
         Err(exception)
     }
 
+    fn _send(&self, coro: PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if vm.is_none(&val) {
+            objiter::call_next(vm, &coro)
+        } else {
+            vm.call_method(&coro, "send", vec![val])
+        }
+    }
+
     fn execute_yield_from(&self, vm: &VirtualMachine) -> FrameResult {
         // Value send into iterator:
-        self.pop_value();
+        let val = self.pop_value();
 
-        let top_of_stack = self.last_value();
-        let next_obj = objiter::get_next_object(vm, &top_of_stack)?;
+        let coro = self.last_value();
 
-        match next_obj {
-            Some(value) => {
+        let result = self._send(coro, val, vm);
+
+        let result = ExecutionResult::from_result(vm, result)?;
+
+        match result {
+            ExecutionResult::Yield(value) => {
                 // Set back program counter:
-                *self.lasti.borrow_mut() -= 1;
+                self.lasti.set(self.lasti.get() - 1);
                 Ok(Some(ExecutionResult::Yield(value)))
             }
-            None => Ok(None),
+            ExecutionResult::Return(value) => {
+                self.pop_value();
+                self.push_value(value);
+                Ok(None)
+            }
         }
     }
 
@@ -1006,7 +1076,7 @@ impl Frame {
         let target_pc = self.code.label_map[&label];
         #[cfg(feature = "vm-tracing-logging")]
         trace!("jump from {:?} to {:?}", self.lasti, target_pc);
-        self.lasti.replace(target_pc);
+        self.lasti.set(target_pc);
     }
 
     /// The top of stack contains the iterator, lets push it forward
@@ -1238,7 +1308,7 @@ impl Frame {
     }
 
     pub fn get_lineno(&self) -> bytecode::Location {
-        self.code.locations[*self.lasti.borrow()].clone()
+        self.code.locations[self.lasti.get()].clone()
     }
 
     fn push_block(&self, typ: BlockType) {
