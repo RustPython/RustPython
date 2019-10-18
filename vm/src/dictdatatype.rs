@@ -7,7 +7,7 @@ use num_bigint::ToBigInt;
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
 /// And: http://code.activestate.com/recipes/578375/
-use std::collections::{hash_map::DefaultHasher, HashMap};
+use std::collections::{hash_map::DefaultHasher, HashMap, LinkedList};
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 
@@ -23,6 +23,7 @@ pub struct Dict<T = PyObjectRef> {
     size: usize,
     indices: HashMap<HashIndex, EntryIndex>,
     entries: Vec<Option<DictEntry<T>>>,
+    empty_slots: LinkedList<EntryIndex>,
 }
 
 impl<T> Default for Dict<T> {
@@ -31,6 +32,7 @@ impl<T> Default for Dict<T> {
             size: 0,
             indices: HashMap::new(),
             entries: Vec::new(),
+            empty_slots: LinkedList::new(),
         }
     }
 }
@@ -61,13 +63,22 @@ impl<T: Clone> Dict<T> {
             key,
             value,
         };
-        let entry_index = self.entries.len();
-        self.entries.push(Some(entry));
-        self.indices.insert(hash_index, entry_index);
+        let index = match self.empty_slots.pop_back() {
+            Some(index) => {
+                self.entries[index] = Some(entry);
+                index
+            }
+            None => {
+                self.entries.push(Some(entry));
+                self.entries.len() - 1
+            }
+        };
+        self.indices.insert(hash_index, index);
         self.size += 1;
     }
 
     fn unchecked_delete(&mut self, entry_index: EntryIndex) {
+        self.empty_slots.push_back(entry_index);
         self.entries[entry_index] = None;
         self.size -= 1;
     }
@@ -129,6 +140,7 @@ impl<T: Clone> Dict<T> {
     pub fn clear(&mut self) {
         self.entries.clear();
         self.indices.clear();
+        self.empty_slots.clear();
         self.size = 0
     }
 
