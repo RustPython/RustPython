@@ -7,7 +7,9 @@ use num_traits::{One, Signed, Zero};
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
 use super::objslice::{PySlice, PySliceRef};
+use super::objtuple::PyTuple;
 use super::objtype::PyClassRef;
+
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
@@ -296,6 +298,16 @@ impl PyRange {
     #[pymethod(name = "__le__")]
     fn le(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
+    }
+
+    #[pymethod(name = "__reduce__")]
+    fn reduce(&self, vm: &VirtualMachine) -> (PyClassRef, PyTuple) {
+        let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
+            .iter()
+            .map(|x| x.as_object().clone())
+            .collect();
+        let range_paramters_tuple = PyTuple::from(range_paramters);
+        (vm.ctx.range_type(), range_paramters_tuple)
     }
 
     #[pymethod(name = "index")]
