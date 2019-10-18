@@ -7,8 +7,8 @@ use num_traits::{One, Signed, Zero};
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
 use super::objslice::{PySlice, PySliceRef};
-use super::objtype::PyClassRef;
 use super::objtuple::PyTuple;
+use super::objtype::PyClassRef;
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
