@@ -9,7 +9,7 @@ use std::io::SeekFrom;
 use num_traits::ToPrimitive;
 
 use super::os;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
 use crate::obj::objbytes::PyBytes;
@@ -21,11 +21,8 @@ use crate::pyobject::TypeProtocol;
 use crate::pyobject::{BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-fn byte_count(bytes: OptionalArg<Option<PyObjectRef>>) -> i64 {
-    match bytes {
-        OptionalArg::Present(Some(ref int)) => objint::get_value(int).to_i64().unwrap(),
-        _ => (-1 as i64),
-    }
+fn byte_count(bytes: OptionalOption<i64>) -> i64 {
+    bytes.flat_option().unwrap_or(-1 as i64)
 }
 
 #[derive(Debug)]
@@ -119,9 +116,8 @@ impl PyStringIORef {
     }
 
     //skip to the jth position
-    fn seek(self, offset: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let position = objint::get_value(&offset).to_u64().unwrap();
-        match self.buffer.borrow_mut().seek(position) {
+    fn seek(self, offset: u64, vm: &VirtualMachine) -> PyResult {
+        match self.buffer.borrow_mut().seek(offset) {
             Some(value) => Ok(vm.ctx.new_int(value)),
             None => Err(vm.new_value_error("Error Performing Operation".to_string())),
         }
@@ -134,7 +130,7 @@ impl PyStringIORef {
     //Read k bytes from the object and return.
     //If k is undefined || k == -1, then we read all bytes until the end of the file.
     //This also increments the stream position by the value of k
-    fn read(self, bytes: OptionalArg<Option<PyObjectRef>>, vm: &VirtualMachine) -> PyResult {
+    fn read(self, bytes: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult {
         let data = match self.buffer.borrow_mut().read(byte_count(bytes)) {
             Some(value) => value,
             None => Vec::new(),
@@ -193,7 +189,7 @@ impl PyBytesIORef {
     //Takes an integer k (bytes) and returns them from the underlying buffer
     //If k is undefined || k == -1, then we read all bytes until the end of the file.
     //This also increments the stream position by the value of k
-    fn read(self, bytes: OptionalArg<Option<PyObjectRef>>, vm: &VirtualMachine) -> PyResult {
+    fn read(self, bytes: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult {
         match self.buffer.borrow_mut().read(byte_count(bytes)) {
             Some(value) => Ok(vm.ctx.new_bytes(value)),
             None => Err(vm.new_value_error("Error Retrieving Value".to_string())),
@@ -201,9 +197,8 @@ impl PyBytesIORef {
     }
 
     //skip to the jth position
-    fn seek(self, offset: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let position = objint::get_value(&offset).to_u64().unwrap();
-        match self.buffer.borrow_mut().seek(position) {
+    fn seek(self, offset: u64, vm: &VirtualMachine) -> PyResult {
+        match self.buffer.borrow_mut().seek(offset) {
             Some(value) => Ok(vm.ctx.new_int(value)),
             None => Err(vm.new_value_error("Error Performing Operation".to_string())),
         }

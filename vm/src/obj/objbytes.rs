@@ -168,7 +168,7 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    fn getitem(self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult {
         self.inner.getitem(needle, vm)
     }
 
@@ -421,12 +421,12 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "__mul__")]
-    fn repeat(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    fn repeat(self, n: isize, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_bytes(self.inner.repeat(n, vm)?))
     }
 
     #[pymethod(name = "__rmul__")]
-    fn rmul(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    fn rmul(self, n: isize, vm: &VirtualMachine) -> PyResult {
         self.repeat(n, vm)
     }
 

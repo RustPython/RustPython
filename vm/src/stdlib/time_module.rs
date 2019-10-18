@@ -7,22 +7,19 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::naive::NaiveDateTime;
 use chrono::{Datelike, Timelike};
-use num_traits::cast::ToPrimitive;
 
 use crate::function::OptionalArg;
-use crate::obj::objfloat::{self, PyFloatRef};
-use crate::obj::objint::{self, PyInt};
+use crate::obj::objint::PyInt;
 use crate::obj::objsequence::{get_sequence_index, PySliceableSequence};
 use crate::obj::objslice::PySlice;
 use crate::obj::objstr::PyStringRef;
-use crate::obj::objtype::{self, PyClassRef};
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::obj::objtype::PyClassRef;
+use crate::pyobject::{Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
-fn time_sleep(seconds: PyFloatRef, vm: &VirtualMachine) -> PyResult<()> {
+fn time_sleep(seconds: f64, vm: &VirtualMachine) -> PyResult<()> {
     // this is basically std::thread::sleep, but that catches interrupts and we don't want to
-    let seconds = seconds.to_f64();
     let secs = seconds.trunc() as u64;
     let nsecs = (seconds.fract() * 1e9) as i64;
 
@@ -41,8 +38,7 @@ fn time_sleep(seconds: PyFloatRef, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 #[cfg(not(unix))]
-fn time_sleep(seconds: PyFloatRef, _vm: &VirtualMachine) {
-    let seconds = seconds.to_f64();
+fn time_sleep(seconds: f64, _vm: &VirtualMachine) {
     let secs: u64 = seconds.trunc() as u64;
     let nanos: u32 = (seconds.fract() * 1e9) as u32;
     let duration = Duration::new(secs, nanos);
@@ -82,47 +78,41 @@ fn time_monotonic(_vm: &VirtualMachine) -> f64 {
     }
 }
 
-fn pyfloat_to_secs_and_nanos(seconds: &PyObjectRef) -> (i64, u32) {
-    let seconds = objfloat::get_value(seconds);
+fn pyfloat_to_secs_and_nanos(seconds: f64) -> (i64, u32) {
     let secs: i64 = seconds.trunc() as i64;
     let nanos: u32 = (seconds.fract() * 1e9) as u32;
     (secs, nanos)
 }
 
-fn pyobj_to_naive_date_time(
-    value: &PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult<Option<NaiveDateTime>> {
-    if objtype::isinstance(value, &vm.ctx.float_type()) {
-        let (seconds, nanos) = pyfloat_to_secs_and_nanos(&value);
-        let dt = NaiveDateTime::from_timestamp(seconds, nanos);
-        Ok(Some(dt))
-    } else if objtype::isinstance(&value, &vm.ctx.int_type()) {
-        let seconds = objint::get_value(&value).to_i64().unwrap();
-        let dt = NaiveDateTime::from_timestamp(seconds, 0);
-        Ok(Some(dt))
-    } else {
-        Err(vm.new_type_error("Expected float, int or None".to_string()))
+fn pyobj_to_naive_date_time(value: Either<f64, i64>) -> NaiveDateTime {
+    match value {
+        Either::A(float) => {
+            let (seconds, nanos) = pyfloat_to_secs_and_nanos(float);
+            NaiveDateTime::from_timestamp(seconds, nanos)
+        }
+        Either::B(int) => NaiveDateTime::from_timestamp(int, 0),
     }
 }
 
 /// https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
-fn time_gmtime(secs: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyStructTime> {
+fn time_gmtime(
+    secs: OptionalArg<Either<f64, i64>>,
+    _vm: &VirtualMachine,
+) -> PyResult<PyStructTime> {
     let default = chrono::offset::Utc::now().naive_utc();
     let instant = match secs {
-        OptionalArg::Present(secs) => pyobj_to_naive_date_time(&secs, vm)?.unwrap_or(default),
+        OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs),
         OptionalArg::Missing => default,
     };
     let value = PyStructTime::new(instant, 0);
     Ok(value)
 }
 
-fn time_localtime(secs: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyStructTime> {
-    let instant = optional_or_localtime(secs, vm)?;
+fn time_localtime(secs: OptionalArg<Either<f64, i64>>, _vm: &VirtualMachine) -> PyStructTime {
+    let instant = optional_or_localtime(secs);
     // TODO: isdst flag must be valid value here
     // https://docs.python.org/3/library/time.html#time.localtime
-    let value = PyStructTime::new(instant, -1);
-    Ok(value)
+    PyStructTime::new(instant, -1)
 }
 
 fn time_mktime(t: PyStructTimeRef, vm: &VirtualMachine) -> PyResult {
@@ -132,16 +122,12 @@ fn time_mktime(t: PyStructTimeRef, vm: &VirtualMachine) -> PyResult {
 }
 
 /// Construct a localtime from the optional seconds, or get the current local time.
-fn optional_or_localtime(
-    secs: OptionalArg<PyObjectRef>,
-    vm: &VirtualMachine,
-) -> PyResult<NaiveDateTime> {
+fn optional_or_localtime(secs: OptionalArg<Either<f64, i64>>) -> NaiveDateTime {
     let default = chrono::offset::Local::now().naive_local();
-    let instant = match secs {
-        OptionalArg::Present(secs) => pyobj_to_naive_date_time(&secs, vm)?.unwrap_or(default),
+    match secs {
+        OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs),
         OptionalArg::Missing => default,
-    };
-    Ok(instant)
+    }
 }
 
 const CFMT: &str = "%a %b %e %H:%M:%S %Y";
@@ -156,10 +142,9 @@ fn time_asctime(t: OptionalArg<PyStructTimeRef>, vm: &VirtualMachine) -> PyResul
     Ok(vm.ctx.new_str(formatted_time))
 }
 
-fn time_ctime(secs: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<String> {
-    let instant = optional_or_localtime(secs, vm)?;
-    let formatted_time = instant.format(&CFMT).to_string();
-    Ok(formatted_time)
+fn time_ctime(secs: OptionalArg<Either<f64, i64>>, _vm: &VirtualMachine) -> String {
+    let instant = optional_or_localtime(secs);
+    instant.format(&CFMT).to_string()
 }
 
 fn time_strftime(

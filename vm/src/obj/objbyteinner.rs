@@ -17,9 +17,7 @@ use super::objstr::{PyString, PyStringRef};
 use super::objtuple::PyTupleRef;
 use crate::function::OptionalArg;
 use crate::pyhash;
-use crate::pyobject::{
-    Either, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-};
+use crate::pyobject::{Either, PyIterable, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug, Default, Clone)]
@@ -45,22 +43,6 @@ impl TryFromObject for PyByteInner {
                 obj.class()
             ))),
         })
-    }
-}
-
-impl<B: PyValue> TryFromObject for Either<PyByteInner, PyRef<B>> {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match PyByteInner::try_from_object(vm, obj.clone()) {
-            Ok(a) => Ok(Either::A(a)),
-            Err(_) => match obj.clone().downcast::<B>() {
-                Ok(b) => Ok(Either::B(b)),
-                Err(_) => Err(vm.new_type_error(format!(
-                    "a bytes-like object or {} is required, not {}",
-                    B::class(vm),
-                    obj.class()
-                ))),
-            },
-        }
     }
 }
 
@@ -274,7 +256,7 @@ pub struct ByteInnerSplitOptions {
     #[pyarg(positional_or_keyword, optional = true)]
     sep: OptionalArg<Option<PyByteInner>>,
     #[pyarg(positional_or_keyword, optional = true)]
-    maxsplit: OptionalArg<PyIntRef>,
+    maxsplit: OptionalArg<i32>,
 }
 
 impl ByteInnerSplitOptions {
@@ -285,7 +267,7 @@ impl ByteInnerSplitOptions {
         };
 
         let maxsplit = if let OptionalArg::Present(value) = self.maxsplit {
-            value.as_bigint().to_i32().unwrap()
+            value
         } else {
             -1
         };
@@ -442,10 +424,10 @@ impl PyByteInner {
         }
     }
 
-    pub fn getitem(&self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    pub fn getitem(&self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult {
         match needle {
             Either::A(int) => {
-                if let Some(idx) = self.elements.get_pos(int.as_bigint().to_i32().unwrap()) {
+                if let Some(idx) = self.elements.get_pos(int) {
                     Ok(vm.new_int(self.elements[idx]))
                 } else {
                     Err(vm.new_index_error("index out of range".to_string()))
@@ -457,8 +439,8 @@ impl PyByteInner {
         }
     }
 
-    fn setindex(&mut self, int: PyIntRef, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(idx) = self.elements.get_pos(int.as_bigint().to_i32().unwrap()) {
+    fn setindex(&mut self, int: i32, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(idx) = self.elements.get_pos(int) {
             let result = match_class!(match object {
                 i @ PyInt => {
                     if let Some(value) = i.as_bigint().to_u8() {
@@ -511,7 +493,7 @@ impl PyByteInner {
 
     pub fn setitem(
         &mut self,
-        needle: Either<PyIntRef, PySliceRef>,
+        needle: Either<i32, PySliceRef>,
         object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -1073,15 +1055,11 @@ impl PyByteInner {
         res
     }
 
-    pub fn repeat(&self, n: PyIntRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub fn repeat(&self, n: isize, _vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if self.elements.is_empty() {
             // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
             return Ok(vec![]);
         }
-
-        let n = n.as_bigint().to_isize().ok_or_else(|| {
-            vm.new_overflow_error("can't multiply bytes that many times".to_string())
-        })?;
 
         if n <= 0 {
             Ok(vec![])
@@ -1097,15 +1075,11 @@ impl PyByteInner {
         }
     }
 
-    pub fn irepeat(&mut self, n: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn irepeat(&mut self, n: isize, _vm: &VirtualMachine) -> PyResult<()> {
         if self.elements.is_empty() {
             // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
             return Ok(());
         }
-
-        let n = n.as_bigint().to_isize().ok_or_else(|| {
-            vm.new_overflow_error("can't multiply bytes that many times".to_string())
-        })?;
 
         if n <= 0 {
             self.elements.clear();

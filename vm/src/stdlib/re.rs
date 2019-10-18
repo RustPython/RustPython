@@ -6,7 +6,7 @@
  */
 use std::fmt;
 
-use num_traits::{Signed, ToPrimitive};
+use num_traits::Signed;
 use regex::bytes::{Captures, Regex, RegexBuilder};
 
 use crate::function::{Args, OptionalArg};
@@ -93,7 +93,7 @@ impl PyValue for PyMatch {
 fn re_match(
     pattern: PyStringRef,
     string: PyStringRef,
-    flags: OptionalArg<PyIntRef>,
+    flags: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult {
     let flags = extract_flags(flags);
@@ -104,7 +104,7 @@ fn re_match(
 fn re_search(
     pattern: PyStringRef,
     string: PyStringRef,
-    flags: OptionalArg<PyIntRef>,
+    flags: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult {
     let flags = extract_flags(flags);
@@ -117,7 +117,7 @@ fn re_sub(
     repl: PyStringRef,
     string: PyStringRef,
     count: OptionalArg<usize>,
-    flags: OptionalArg<PyIntRef>,
+    flags: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult {
     let flags = extract_flags(flags);
@@ -129,7 +129,7 @@ fn re_sub(
 fn re_findall(
     pattern: PyStringRef,
     string: PyStringRef,
-    flags: OptionalArg<PyIntRef>,
+    flags: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult {
     let flags = extract_flags(flags);
@@ -141,7 +141,7 @@ fn re_split(
     pattern: PyStringRef,
     string: PyStringRef,
     maxsplit: OptionalArg<PyIntRef>,
-    flags: OptionalArg<PyIntRef>,
+    flags: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult {
     let flags = extract_flags(flags);
@@ -296,18 +296,16 @@ fn create_match(vm: &VirtualMachine, haystack: PyStringRef, captures: Captures) 
     PyMatch { haystack, captures }.into_ref(vm).into_object()
 }
 
-fn extract_flags(flags: OptionalArg<PyIntRef>) -> PyRegexFlags {
+fn extract_flags(flags: OptionalArg<usize>) -> PyRegexFlags {
     match flags {
-        OptionalArg::Present(flags) => {
-            PyRegexFlags::from_int(flags.as_bigint().to_usize().unwrap())
-        }
+        OptionalArg::Present(flags) => PyRegexFlags::from_int(flags),
         OptionalArg::Missing => Default::default(),
     }
 }
 
 fn re_compile(
     pattern: PyStringRef,
-    flags: OptionalArg<PyIntRef>,
+    flags: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult<PyPattern> {
     let flags = extract_flags(flags);

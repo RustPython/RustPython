@@ -9,7 +9,6 @@ use byteorder::{BigEndian, ByteOrder};
 use gethostname::gethostname;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::unistd::sethostname;
-use num_bigint::Sign;
 use num_traits::ToPrimitive;
 
 use crate::function::PyFuncArgs;
@@ -312,8 +311,8 @@ impl SocketRef {
         Ok(vm.ctx.new_tuple(vec![socket.into_object(), addr_tuple]))
     }
 
-    fn recv(self, bufsize: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        let mut buffer = vec![0u8; bufsize.as_bigint().to_usize().unwrap()];
+    fn recv(self, bufsize: usize, vm: &VirtualMachine) -> PyResult {
+        let mut buffer = vec![0u8; bufsize];
         match self.con.borrow_mut().as_mut() {
             Some(v) => match v.read_exact(&mut buffer) {
                 Ok(_) => (),
@@ -328,8 +327,8 @@ impl SocketRef {
         Ok(vm.ctx.new_bytes(buffer))
     }
 
-    fn recvfrom(self, bufsize: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        let mut buffer = vec![0u8; bufsize.as_bigint().to_usize().unwrap()];
+    fn recvfrom(self, bufsize: usize, vm: &VirtualMachine) -> PyResult {
+        let mut buffer = vec![0u8; bufsize];
         let ret = match self.con.borrow().as_ref() {
             Some(v) => v.recv_from(&mut buffer),
             None => return Err(vm.new_type_error("".to_string())),
@@ -546,14 +545,7 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
 }
 
-fn socket_htonl(host: PyIntRef, vm: &VirtualMachine) -> PyResult {
-    if host.as_bigint().sign() == Sign::Minus {
-        return Err(
-            vm.new_overflow_error("can't convert negative value to unsigned int".to_string())
-        );
-    }
-
-    let host = host.as_bigint().to_u32().unwrap();
+fn socket_htonl(host: u32, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_int(host.to_be()))
 }
 
