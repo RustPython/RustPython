@@ -37,6 +37,7 @@ impl<T> Default for Dict<T> {
 
 #[derive(Clone)]
 struct DictEntry<T> {
+    hash_index: HashIndex,
     hash: HashValue,
     key: PyObjectRef,
     value: T,
@@ -49,6 +50,25 @@ pub struct DictSize {
 }
 
 impl<T: Clone> Dict<T> {
+    fn resize(&mut self) {
+        let mut new_indices = HashMap::with_capacity(self.size);
+        let mut new_entries = Vec::with_capacity(self.size);
+        for maybe_entry in self.entries.drain(0..) {
+            if let Some(entry) = maybe_entry {
+                let mut hash_index = entry.hash;
+                // Faster version of lookup. No equality checks here.
+                // We assume dict doesn't contatins any duplicate keys
+                while new_indices.contains_key(&hash_index) {
+                    hash_index = Self::next_index(entry.hash, hash_index);
+                }
+                new_indices.insert(hash_index, new_entries.len());
+                new_entries.push(Some(entry));
+            }
+        }
+        self.indices = new_indices;
+        self.entries = new_entries;
+    }
+
     fn unchecked_push(
         &mut self,
         hash_index: HashIndex,
@@ -58,6 +78,7 @@ impl<T: Clone> Dict<T> {
     ) {
         let entry = DictEntry {
             hash: hash_value,
+            hash_index,
             key,
             value,
         };
@@ -79,6 +100,9 @@ impl<T: Clone> Dict<T> {
         key: K,
         value: T,
     ) -> PyResult<()> {
+        if self.indices.len() > 2 * self.size {
+            self.resize();
+        }
         match self.lookup(vm, key)? {
             LookupResult::Existing(index) => {
                 // Update existing key
@@ -240,12 +264,16 @@ impl<T: Clone> Dict<T> {
             }
 
             // Update i to next probe location:
-            hash_index = hash_index
-                .wrapping_mul(5)
-                .wrapping_add(perturb)
-                .wrapping_add(1);
+            hash_index = Self::next_index(perturb, hash_index)
             // warn!("Perturb value: {}", i);
         }
+    }
+
+    fn next_index(perturb: HashValue, hash_index: HashIndex) -> HashIndex {
+        hash_index
+            .wrapping_mul(5)
+            .wrapping_add(perturb)
+            .wrapping_add(1)
     }
 
     /// Retrieve and delete a key
