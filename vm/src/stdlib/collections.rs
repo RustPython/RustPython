@@ -1,5 +1,5 @@
 use crate::function::OptionalArg;
-use crate::obj::{objbool, objsequence, objtype::PyClassRef};
+use crate::obj::{objiter, objsequence, objtype::PyClassRef};
 use crate::pyobject::{IdProtocol, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::ReprGuard;
 use crate::VirtualMachine;
@@ -13,6 +13,7 @@ struct PyDeque {
     deque: RefCell<VecDeque<PyObjectRef>>,
     maxlen: Cell<Option<usize>>,
 }
+type PyDequeRef = PyRef<PyDeque>;
 
 impl PyValue for PyDeque {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -77,7 +78,7 @@ impl PyDeque {
     fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count = 0;
         for elem in self.deque.borrow().iter() {
-            if objbool::boolval(vm, vm._eq(elem.clone(), obj.clone())?)? {
+            if vm.identical_or_equal(elem, &obj)? {
                 count += 1;
             }
         }
@@ -113,7 +114,7 @@ impl PyDeque {
         let start = start.unwrap_or(0);
         let stop = stop.unwrap_or_else(|| deque.len());
         for (i, elem) in deque.iter().skip(start).take(stop - start).enumerate() {
-            if objbool::boolval(vm, vm._eq(elem.clone(), obj.clone())?)? {
+            if vm.identical_or_equal(elem, &obj)? {
                 return Ok(i);
             }
         }
@@ -170,7 +171,7 @@ impl PyDeque {
         let mut deque = self.deque.borrow_mut();
         let mut idx = None;
         for (i, elem) in deque.iter().enumerate() {
-            if objbool::boolval(vm, vm._eq(elem.clone(), obj.clone())?)? {
+            if vm.identical_or_equal(elem, &obj)? {
                 idx = Some(i);
                 break;
             }
@@ -337,10 +338,51 @@ impl PyDeque {
     fn len(&self, _vm: &VirtualMachine) -> usize {
         self.deque.borrow().len()
     }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyDequeIterator {
+        PyDequeIterator {
+            position: Cell::new(0),
+            deque: zelf,
+        }
+    }
+}
+
+#[pyclass(name = "_deque_iterator")]
+#[derive(Debug)]
+struct PyDequeIterator {
+    position: Cell<usize>,
+    deque: PyDequeRef,
+}
+
+impl PyValue for PyDequeIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("_collections", "_deque_iterator")
+    }
+}
+
+#[pyimpl]
+impl PyDequeIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        if self.position.get() < self.deque.deque.borrow().len() {
+            let ret = self.deque.deque.borrow()[self.position.get()].clone();
+            self.position.set(self.position.get() + 1);
+            Ok(ret)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     py_module!(vm, "_collections", {
         "deque" => PyDeque::make_class(&vm.ctx),
+        "_deque_iterator" => PyDequeIterator::make_class(&vm.ctx),
     })
 }

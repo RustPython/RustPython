@@ -1,6 +1,6 @@
-use crate::obj::objproperty::PyPropertyRef;
-use crate::obj::objstr::PyStringRef;
-use crate::obj::objtype::{class_get_attr, class_has_attr, PyClassRef};
+use super::objproperty::PyPropertyRef;
+use super::objstr::PyStringRef;
+use super::objtype::{class_get_attr, class_has_attr, PyClassRef};
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -109,6 +109,24 @@ impl PyNoneRef {
             vm.invoke(&getter, vec![self.into_object(), name.into_object()])
         } else {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self.as_object(), name)))
+        }
+    }
+
+    #[pymethod(name = "__eq__")]
+    fn eq(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if vm.is_none(&rhs) {
+            vm.ctx.new_bool(true)
+        } else {
+            vm.ctx.not_implemented()
+        }
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if vm.is_none(&rhs) {
+            vm.ctx.new_bool(false)
+        } else {
+            vm.ctx.not_implemented()
         }
     }
 }

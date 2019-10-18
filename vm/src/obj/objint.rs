@@ -1,19 +1,10 @@
 use std::fmt;
+use std::mem::size_of;
 use std::str;
 
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
-
-use crate::format::FormatSpec;
-use crate::function::{OptionalArg, PyFuncArgs};
-use crate::obj::objtype::PyClassRef;
-use crate::pyhash;
-use crate::pyobject::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
 
 use super::objbool::IntoPyBool;
 use super::objbyteinner::PyByteInner;
@@ -21,7 +12,15 @@ use super::objbytes::PyBytes;
 use super::objfloat;
 use super::objint;
 use super::objstr::{PyString, PyStringRef};
-use super::objtype;
+use super::objtype::{self, PyClassRef};
+use crate::format::FormatSpec;
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyhash;
+use crate::pyobject::{
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
+};
+use crate::vm::VirtualMachine;
 
 /// int(x=0) -> integer
 /// int(x, base=10) -> integer
@@ -126,8 +125,10 @@ fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
     } else {
         Ok(if let Some(v2) = int2.value.to_u64() {
             vm.ctx.new_int(int1.value.pow(v2))
-        } else if int1.value.is_one() || int1.value.is_zero() {
-            vm.ctx.new_int(int1.value.clone())
+        } else if int1.value.is_one() {
+            vm.ctx.new_int(1)
+        } else if int1.value.is_zero() {
+            vm.ctx.new_int(0)
         } else if int1.value == BigInt::from(-1) {
             if int2.value.is_odd() {
                 vm.ctx.new_int(-1)
@@ -573,6 +574,11 @@ impl PyInt {
         !self.value.is_zero()
     }
 
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+        size_of::<Self>() + ((self.value.bits() + 7) & !7) / 8
+    }
+
     #[pymethod]
     fn bit_length(&self, _vm: &VirtualMachine) -> usize {
         self.value.bits()
@@ -674,7 +680,7 @@ impl PyInt {
     }
     #[pyproperty]
     fn real(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self.value.clone())
+        vm.ctx.new_bigint(&self.value)
     }
 
     #[pyproperty]

@@ -21,7 +21,7 @@ freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 
 [dependencies]
 log = "0.4"
-env_logger = "0.6"
+env_logger = "0.7"
 clap = "2.33"
 rustpython-compiler = {path = "compiler", version = "0.1.1"}
 rustpython-parser = {path = "parser", version = "0.1.1"}

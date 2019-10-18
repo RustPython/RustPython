@@ -5,11 +5,11 @@ use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 fn marshal_dumps(co: PyCodeRef, _vm: &VirtualMachine) -> PyBytes {
-    PyBytes::new(bincode::serialize(&co.code).unwrap())
+    PyBytes::new(co.code.to_bytes())
 }
 
 fn marshal_loads(code_bytes: PyBytesRef, vm: &VirtualMachine) -> PyResult<PyCode> {
-    let code = bincode::deserialize::<bytecode::CodeObject>(&code_bytes)
+    let code = bytecode::CodeObject::from_bytes(&code_bytes)
         .map_err(|_| vm.new_value_error("Couldn't deserialize python bytecode".to_owned()))?;
     Ok(PyCode { code })
 }

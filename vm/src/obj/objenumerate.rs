@@ -4,13 +4,12 @@ use std::ops::AddAssign;
 use num_bigint::BigInt;
 use num_traits::Zero;
 
-use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
-use crate::vm::VirtualMachine;
-
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objtype::PyClassRef;
+use crate::function::OptionalArg;
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::vm::VirtualMachine;
 
 #[pyclass]
 #[derive(Debug)]
@@ -55,7 +54,7 @@ impl PyEnumerate {
         let next_obj = objiter::call_next(vm, iterator)?;
         let result = vm
             .ctx
-            .new_tuple(vec![vm.ctx.new_int(counter.borrow().clone()), next_obj]);
+            .new_tuple(vec![vm.ctx.new_bigint(&counter.borrow()), next_obj]);
 
         AddAssign::add_assign(&mut counter.borrow_mut() as &mut BigInt, 1);
 

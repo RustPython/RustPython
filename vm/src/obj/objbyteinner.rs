@@ -1,35 +1,26 @@
-use crate::obj::objint::PyIntRef;
-use crate::obj::objnone::PyNoneRef;
-use crate::obj::objslice::PySliceRef;
-use crate::obj::objtuple::PyTupleRef;
-use crate::pyhash;
-use crate::pyobject::Either;
-use crate::pyobject::PyRef;
-use crate::pyobject::PyValue;
-use crate::pyobject::TryFromObject;
-use crate::pyobject::{PyIterable, PyObjectRef};
-use core::convert::TryFrom;
-use core::ops::Range;
+use std::convert::TryFrom;
+use std::ops::Range;
+
 use num_bigint::BigInt;
-
-use crate::function::OptionalArg;
-use crate::pyobject::{PyResult, TypeProtocol};
-use crate::vm::VirtualMachine;
-
-use super::objint;
-use super::objsequence::{is_valid_slice_arg, PySliceableSequence};
-use super::objstr::{PyString, PyStringRef};
-
-use crate::obj::objint::PyInt;
 use num_integer::Integer;
 use num_traits::ToPrimitive;
 
 use super::objbytearray::PyByteArray;
 use super::objbytes::PyBytes;
+use super::objint::{self, PyInt, PyIntRef};
 use super::objlist::PyList;
 use super::objmemory::PyMemoryView;
-
-use super::objsequence;
+use super::objnone::PyNoneRef;
+use super::objsequence::{self, is_valid_slice_arg, PySliceableSequence};
+use super::objslice::PySliceRef;
+use super::objstr::{PyString, PyStringRef};
+use super::objtuple::PyTupleRef;
+use crate::function::OptionalArg;
+use crate::pyhash;
+use crate::pyobject::{
+    Either, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
+use crate::vm::VirtualMachine;
 
 #[derive(Debug, Default, Clone)]
 pub struct PyByteInner {
@@ -429,7 +420,11 @@ impl PyByteInner {
             .collect::<Vec<u8>>()
     }
 
-    pub fn contains(&self, needle: Either<PyByteInner, PyIntRef>, vm: &VirtualMachine) -> PyResult {
+    pub fn contains(
+        &self,
+        needle: Either<PyByteInner, PyIntRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
         match needle {
             Either::A(byte) => {
                 let other = &byte.elements[..];
@@ -438,18 +433,12 @@ impl PyByteInner {
                         && *i == other[0]
                         && &self.elements[n..n + other.len()] == other
                     {
-                        return Ok(vm.new_bool(true));
+                        return Ok(true);
                     }
                 }
-                Ok(vm.new_bool(false))
+                Ok(false)
             }
-            Either::B(int) => {
-                if self.elements.contains(&int.as_bigint().byte_or(vm)?) {
-                    Ok(vm.new_bool(true))
-                } else {
-                    Ok(vm.new_bool(false))
-                }
-            }
+            Either::B(int) => Ok(self.elements.contains(&int.as_bigint().byte_or(vm)?)),
         }
     }
 
@@ -532,67 +521,51 @@ impl PyByteInner {
         }
     }
 
-    pub fn isalnum(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty()
-                && self
-                    .elements
-                    .iter()
-                    .all(|x| char::from(*x).is_alphanumeric()),
-        ))
+    pub fn isalnum(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty()
+            && self
+                .elements
+                .iter()
+                .all(|x| char::from(*x).is_alphanumeric())
     }
 
-    pub fn isalpha(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty()
-                && self.elements.iter().all(|x| char::from(*x).is_alphabetic()),
-        ))
+    pub fn isalpha(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_alphabetic())
     }
 
-    pub fn isascii(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_ascii()),
-        ))
+    pub fn isascii(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_ascii())
     }
 
-    pub fn isdigit(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_digit(10)),
-        ))
+    pub fn isdigit(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_digit(10))
     }
 
-    pub fn islower(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty()
-                && self
-                    .elements
-                    .iter()
-                    .filter(|x| !char::from(**x).is_whitespace())
-                    .all(|x| char::from(*x).is_lowercase()),
-        ))
+    pub fn islower(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty()
+            && self
+                .elements
+                .iter()
+                .filter(|x| !char::from(**x).is_whitespace())
+                .all(|x| char::from(*x).is_lowercase())
     }
 
-    pub fn isspace(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty()
-                && self.elements.iter().all(|x| char::from(*x).is_whitespace()),
-        ))
+    pub fn isspace(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_whitespace())
     }
 
-    pub fn isupper(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty()
-                && self
-                    .elements
-                    .iter()
-                    .filter(|x| !char::from(**x).is_whitespace())
-                    .all(|x| char::from(*x).is_uppercase()),
-        ))
+    pub fn isupper(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty()
+            && self
+                .elements
+                .iter()
+                .filter(|x| !char::from(**x).is_whitespace())
+                .all(|x| char::from(*x).is_uppercase())
     }
 
-    pub fn istitle(&self, vm: &VirtualMachine) -> PyResult {
+    pub fn istitle(&self, _vm: &VirtualMachine) -> bool {
         if self.elements.is_empty() {
-            return Ok(vm.new_bool(false));
+            return false;
         }
 
         let mut iter = self.elements.iter().peekable();
@@ -603,9 +576,9 @@ impl PyByteInner {
             let next = if let Some(k) = iter.peek() {
                 char::from(**k)
             } else if current.is_uppercase() {
-                return Ok(vm.new_bool(!prev_cased));
+                return !prev_cased;
             } else {
-                return Ok(vm.new_bool(prev_cased));
+                return prev_cased;
             };
 
             let is_cased = current.to_uppercase().next().unwrap() != current
@@ -613,13 +586,13 @@ impl PyByteInner {
             if (is_cased && next.is_uppercase() && !prev_cased)
                 || (!is_cased && next.is_lowercase())
             {
-                return Ok(vm.new_bool(false));
+                return false;
             }
 
             prev_cased = is_cased;
         }
 
-        Ok(vm.new_bool(true))
+        true
     }
 
     pub fn lower(&self, _vm: &VirtualMachine) -> Vec<u8> {
@@ -651,13 +624,11 @@ impl PyByteInner {
         new
     }
 
-    pub fn hex(&self, vm: &VirtualMachine) -> PyResult {
-        let bla = self
-            .elements
+    pub fn hex(&self, _vm: &VirtualMachine) -> String {
+        self.elements
             .iter()
             .map(|x| format!("{:02x}", x))
-            .collect::<String>();
-        Ok(vm.ctx.new_str(bla))
+            .collect::<String>()
     }
 
     pub fn fromhex(string: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -780,6 +751,7 @@ impl PyByteInner {
         Ok(vm.ctx.new_bytes(refs))
     }
 
+    #[inline]
     pub fn startsendswith(
         &self,
         arg: Either<PyByteInner, PyTupleRef>,
@@ -787,7 +759,7 @@ impl PyByteInner {
         end: OptionalArg<PyObjectRef>,
         endswith: bool, // true for endswith, false for startswith
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<bool> {
         let suff = match arg {
             Either::A(byte) => byte.elements,
             Either::B(tuple) => {
@@ -800,7 +772,7 @@ impl PyByteInner {
         };
 
         if suff.is_empty() {
-            return Ok(vm.new_bool(true));
+            return Ok(true);
         }
         let range = self.elements.get_slice_range(
             &is_valid_slice_arg(start, vm)?,
@@ -808,7 +780,7 @@ impl PyByteInner {
         );
 
         if range.end - range.start < suff.len() {
-            return Ok(vm.new_bool(false));
+            return Ok(false);
         }
 
         let offset = if endswith {
@@ -817,7 +789,7 @@ impl PyByteInner {
             0..suff.len()
         };
 
-        Ok(vm.new_bool(suff.as_slice() == &self.elements.do_slice(range)[offset]))
+        Ok(suff.as_slice() == &self.elements.do_slice(range)[offset])
     }
 
     pub fn find(
@@ -1161,7 +1133,7 @@ pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
 }
 
 pub trait ByteOr: ToPrimitive {
-    fn byte_or(&self, vm: &VirtualMachine) -> Result<u8, PyObjectRef> {
+    fn byte_or(&self, vm: &VirtualMachine) -> PyResult<u8> {
         match self.to_u8() {
             Some(value) => Ok(value),
             None => Err(vm.new_value_error("byte must be in range(0, 256)".to_string())),

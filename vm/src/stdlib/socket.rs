@@ -5,26 +5,23 @@ use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::time::Duration;
 
+use byteorder::{BigEndian, ByteOrder};
+use gethostname::gethostname;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::unistd::sethostname;
-
-use gethostname::gethostname;
-
-use byteorder::{BigEndian, ByteOrder};
+use num_bigint::Sign;
+use num_traits::ToPrimitive;
 
 use crate::function::PyFuncArgs;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
-use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
-use crate::vm::VirtualMachine;
-
 use crate::obj::objtype::PyClassRef;
+use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 #[cfg(unix)]
 use crate::stdlib::os::convert_nix_error;
-use num_bigint::Sign;
-use num_traits::ToPrimitive;
+use crate::vm::VirtualMachine;
 
 #[derive(Debug, Copy, Clone)]
 enum AddressFamily {

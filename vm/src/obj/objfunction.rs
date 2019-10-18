@@ -1,8 +1,8 @@
+use super::objcode::PyCodeRef;
+use super::objdict::PyDictRef;
+use super::objtuple::PyTupleRef;
+use super::objtype::PyClassRef;
 use crate::function::PyFuncArgs;
-use crate::obj::objcode::PyCodeRef;
-use crate::obj::objdict::PyDictRef;
-use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::scope::Scope;
 use crate::vm::VirtualMachine;
@@ -16,7 +16,6 @@ pub struct PyFunction {
     pub scope: Scope,
     pub defaults: Option<PyTupleRef>,
     pub kw_only_defaults: Option<PyDictRef>,
-    pub new_locals: bool,
 }
 
 impl PyFunction {
@@ -25,14 +24,12 @@ impl PyFunction {
         scope: Scope,
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
-        new_locals: bool,
     ) -> Self {
         PyFunction {
             code,
             scope,
             defaults,
             kw_only_defaults,
-            new_locals,
         }
     }
 }

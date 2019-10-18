@@ -165,6 +165,15 @@ assert isinstance(0.5.__round__(None), int)
 assert isinstance(1.5.__round__(None), int)
 assert 0.5.__round__(None) == 0
 assert 1.5.__round__(None) == 2
+assert 1.234.__round__(1) == 1.2
+assert 1.23456.__round__(4) == 1.2346
+assert 1.00000000001.__round__(10) == 1.0
+assert 1234.5.__round__(-2) == 1200
+assert 1.234.__round__(-1) == 0
+assert 1.23456789.__round__(15) == 1.23456789
+assert 1.2e300.__round__(-500) == 0
+assert 1.234.__round__(500) == 1.234
+assert 1.2e-300.__round__(299) == 0
 assert_raises(TypeError, lambda: 0.5.__round__(0.0))
 assert_raises(TypeError, lambda: 1.5.__round__(0.0))
 assert_raises(OverflowError, float('inf').__round__)
@@ -206,6 +215,26 @@ assert str(1.123456789) == '1.123456789'
 # Test special case for lexer, float starts with a dot:
 a = .5
 assert a == 0.5
+assert 3.14 == float('3.14')
+src = """
+a = 3._14
+"""
+
+with assert_raises(SyntaxError):
+    exec(src)
+src = """
+a = 3.__14
+"""
+
+with assert_raises(SyntaxError):
+    exec(src)
+
+src = """
+a = 3.1__4
+"""
+
+with assert_raises(SyntaxError):
+    exec(src)
 
 assert float.fromhex('0x0.0p+0') == 0.0
 assert float.fromhex('-0x0.0p+0') == -0.0
@@ -229,3 +258,34 @@ assert float('nan').hex() == 'nan'
 # Test float exponent:
 assert 1 if 1else 0 == 1
 
+a = 3.
+assert a.__eq__(3) is True
+assert a.__eq__(3.) is True
+assert a.__eq__(3.00000) is True
+assert a.__eq__(3.01) is False
+
+pi = 3.14
+assert pi.__eq__(3.14) is True
+assert pi.__ne__(3.14) is False
+assert pi.__eq__(3) is False
+assert pi.__ne__(3) is True
+assert pi.__eq__('pi') is NotImplemented
+assert pi.__ne__('pi') is NotImplemented
+
+assert pi.__eq__(float('inf')) is False
+assert pi.__ne__(float('inf')) is True
+assert float('inf').__eq__(pi) is False
+assert float('inf').__ne__(pi) is True
+assert float('inf').__eq__(float('inf')) is True
+assert float('inf').__ne__(float('inf')) is False
+assert float('inf').__eq__(float('nan')) is False
+assert float('inf').__ne__(float('nan')) is True
+
+assert pi.__eq__(float('nan')) is False
+assert pi.__ne__(float('nan')) is True
+assert float('nan').__eq__(pi) is False
+assert float('nan').__ne__(pi) is True
+assert float('nan').__eq__(float('nan')) is False
+assert float('nan').__ne__(float('nan')) is True
+assert float('nan').__eq__(float('inf')) is False
+assert float('nan').__ne__(float('inf')) is True

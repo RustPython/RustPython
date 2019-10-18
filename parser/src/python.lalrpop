@@ -39,7 +39,7 @@ FileLine: ast::Suite = {
 
 Suite: ast::Suite = {
     SimpleStatement,
-    "\n" indent <s:Statement+> dedent => s.into_iter().flatten().collect(),
+    "\n" Indent <s:Statement+> Dedent => s.into_iter().flatten().collect(),
 };
 
 Statement: ast::Suite = {
@@ -1124,8 +1124,8 @@ extern {
     type Error = LexicalError;
 
     enum lexer::Tok {
-        indent => lexer::Tok::Indent,
-        dedent => lexer::Tok::Dedent,
+        Indent => lexer::Tok::Indent,
+        Dedent => lexer::Tok::Dedent,
         StartProgram => lexer::Tok::StartProgram,
         StartStatement => lexer::Tok::StartStatement,
         StartExpression => lexer::Tok::StartExpression,

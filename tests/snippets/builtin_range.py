@@ -58,6 +58,12 @@ assert range(2) == range(0, 2)
 assert range(0, 10, 3) == range(0, 12, 3)
 assert range(20, 10, 3) == range(20, 12, 3)
 
+assert range(10).__eq__(range(0, 10, 1)) is True
+assert range(10).__ne__(range(0, 10, 1)) is False
+assert range(10).__eq__(range(0, 11, 1)) is False
+assert range(10).__ne__(range(0, 11, 1)) is True
+assert range(0, 10, 3).__eq__(range(0, 11, 3)) is True
+assert range(0, 10, 3).__ne__(range(0, 11, 3)) is False
 #__lt__
 assert range(1, 2, 3).__lt__(range(1, 2, 3)) == NotImplemented
 assert range(1, 2, 1).__lt__(range(1, 2)) == NotImplemented

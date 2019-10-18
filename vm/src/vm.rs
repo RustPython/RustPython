@@ -11,6 +11,12 @@ use std::fmt;
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
 
+use arr_macro::arr;
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
+#[cfg(feature = "rustpython-compiler")]
+use rustpython_compiler::{compile, error::CompileError};
+
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
 use crate::frame::{ExecutionResult, Frame, FrameRef};
@@ -29,8 +35,7 @@ use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
@@ -39,10 +44,6 @@ use crate::pyobject::{
 use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
-use arr_macro::arr;
-use num_bigint::BigInt;
-#[cfg(feature = "rustpython-compiler")]
-use rustpython_compiler::{compile, error::CompileError};
 
 // use objects::objects;
 
@@ -149,21 +150,14 @@ impl VirtualMachine {
 
         // make a new module without access to the vm; doesn't
         // set __spec__, __loader__, etc. attributes
-        let new_module = |name: &str, dict| {
-            PyObject::new(
-                PyModule {
-                    name: name.to_owned(),
-                },
-                ctx.types.module_type.clone(),
-                Some(dict),
-            )
-        };
+        let new_module =
+            |dict| PyObject::new(PyModule {}, ctx.types.module_type.clone(), Some(dict));
 
         // Hard-core modules:
         let builtins_dict = ctx.new_dict();
-        let builtins = new_module("builtins", builtins_dict.clone());
+        let builtins = new_module(builtins_dict.clone());
         let sysmod_dict = ctx.new_dict();
-        let sysmod = new_module("sys", sysmod_dict.clone());
+        let sysmod = new_module(sysmod_dict.clone());
 
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
         let frozen = RefCell::new(frozen::get_module_inits());
@@ -240,17 +234,6 @@ impl VirtualMachine {
         }
     }
 
-    pub fn frame_throw(
-        &self,
-        frame: FrameRef,
-        exception: PyObjectRef,
-    ) -> PyResult<ExecutionResult> {
-        self.frames.borrow_mut().push(frame.clone());
-        let result = frame.throw(self, exception);
-        self.frames.borrow_mut().pop();
-        result
-    }
-
     pub fn current_frame(&self) -> Option<Ref<FrameRef>> {
         let frames = self.frames.borrow();
         if frames.is_empty() {
@@ -293,24 +276,20 @@ impl VirtualMachine {
     }
 
     /// Create a new python int object.
-    pub fn new_int<T: Into<BigInt>>(&self, i: T) -> PyObjectRef {
+    #[inline]
+    pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyObjectRef {
         self.ctx.new_int(i)
     }
 
     /// Create a new python bool object.
+    #[inline]
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
         self.ctx.new_bool(b)
     }
 
     pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
         objmodule::init_module_dict(self, &dict, self.new_str(name.to_owned()), self.get_none());
-        PyObject::new(
-            PyModule {
-                name: name.to_owned(),
-            },
-            self.ctx.types.module_type.clone(),
-            Some(dict),
-        )
+        PyObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
     }
 
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
@@ -413,7 +392,9 @@ impl VirtualMachine {
 
     #[cfg(feature = "rustpython-compiler")]
     pub fn new_syntax_error(&self, error: &CompileError) -> PyObjectRef {
-        let syntax_error_type = if error.is_tab_error() {
+        let syntax_error_type = if error.is_indentation_error() {
+            self.ctx.exceptions.indentation_error.clone()
+        } else if error.is_tab_error() {
             self.ctx.exceptions.tab_error.clone()
         } else {
             self.ctx.exceptions.syntax_error.clone()
@@ -464,7 +445,7 @@ impl VirtualMachine {
         TryFromObject::try_from_object(self, str)
     }
 
-    pub fn to_pystr<'a, T: Into<&'a PyObjectRef>>(&'a self, obj: T) -> Result<String, PyObjectRef> {
+    pub fn to_pystr<'a, T: Into<&'a PyObjectRef>>(&'a self, obj: T) -> PyResult<String> {
         let py_str_obj = self.to_str(obj.into())?;
         Ok(py_str_obj.as_str().to_owned())
     }
@@ -663,14 +644,14 @@ impl VirtualMachine {
     ) -> PyResult {
         let code = &func.code;
 
-        let scope = if func.new_locals {
+        let scope = if func.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
             scope.new_child_scope(&self.ctx)
         } else {
             scope.clone()
         };
 
         self.fill_locals_from_args(
-            &code.code,
+            &code,
             &scope.get_locals(),
             func_args,
             &func.defaults,
@@ -681,7 +662,7 @@ impl VirtualMachine {
         let frame = Frame::new(code.clone(), scope).into_ref(self);
 
         // If we have a generator, create a new generator
-        if code.code.is_generator {
+        if code.flags.contains(bytecode::CodeFlags::IS_GENERATOR) {
             Ok(PyGenerator::new(frame, self).into_object())
         } else {
             self.run_frame_full(frame)
@@ -1191,7 +1172,7 @@ impl VirtualMachine {
     pub fn _ne(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__ne__", "__ne__", |vm, a, b| {
             let eq = vm._eq(a, b)?;
-            objbool::not(vm, &eq)
+            Ok(vm.new_bool(objbool::not(vm, &eq)?))
         })
     }
 
@@ -1233,8 +1214,7 @@ impl VirtualMachine {
         let iter = objiter::get_iter(self, &haystack)?;
         loop {
             if let Some(element) = objiter::get_next_object(self, &iter)? {
-                let equal = self._eq(needle.clone(), element.clone())?;
-                if objbool::get_value(&equal) {
+                if self.bool_eq(needle.clone(), element.clone())? {
                     return Ok(self.new_bool(true));
                 } else {
                     continue;
@@ -1267,20 +1247,38 @@ impl VirtualMachine {
     }
 
     pub fn bool_eq(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
-        let eq = self._eq(a.clone(), b.clone())?;
+        let eq = self._eq(a, b)?;
         let value = objbool::boolval(self, eq)?;
         Ok(value)
     }
 
-    pub fn bool_lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
-        let lt = self._lt(a.clone(), b.clone())?;
-        let value = objbool::boolval(self, lt)?;
+    pub fn identical_or_equal(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<bool> {
+        if a.is(b) {
+            Ok(true)
+        } else {
+            self.bool_eq(a.clone(), b.clone())
+        }
+    }
+
+    pub fn bool_seq_lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
+        let value = if objbool::boolval(self, self._lt(a.clone(), b.clone())?)? {
+            Some(true)
+        } else if !objbool::boolval(self, self._eq(a.clone(), b.clone())?)? {
+            Some(false)
+        } else {
+            None
+        };
         Ok(value)
     }
 
-    pub fn bool_gt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
-        let gt = self._gt(a.clone(), b.clone())?;
-        let value = objbool::boolval(self, gt)?;
+    pub fn bool_seq_gt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
+        let value = if objbool::boolval(self, self._gt(a.clone(), b.clone())?)? {
+            Some(true)
+        } else if !objbool::boolval(self, self._eq(a.clone(), b.clone())?)? {
+            Some(false)
+        } else {
+            None
+        };
         Ok(value)
     }
 }

@@ -1,10 +1,9 @@
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
+use super::objproperty::PropertyBuilder;
 use super::objstr::PyStringRef;
-use super::objtype;
-use crate::function::PyFuncArgs;
-use crate::obj::objproperty::PropertyBuilder;
-use crate::obj::objtype::PyClassRef;
+use super::objtype::{self, PyClassRef};
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
@@ -186,6 +185,8 @@ pub fn init(context: &PyContext) {
         "__format__" => context.new_rustfunc(object_format),
         "__getattribute__" => context.new_rustfunc(object_getattribute),
         "__subclasshook__" => context.new_classmethod(object_subclasshook),
+        "__reduce__" => context.new_rustfunc(object_reduce),
+        "__reduce_ex__" => context.new_rustfunc(object_reduce_ex),
         "__doc__" => context.new_str(object_doc.to_string()),
     });
 }
@@ -211,7 +212,7 @@ fn object_dict(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> 
     if let Some(ref dict) = object.dict {
         Ok(dict.clone())
     } else {
-        Err(vm.new_type_error("TypeError: no dictionary.".to_string()))
+        Err(vm.new_attribute_error("no dictionary.".to_string()))
     }
 }
 
@@ -229,4 +230,32 @@ fn object_getattribute(obj: PyObjectRef, name: PyStringRef, vm: &VirtualMachine)
     vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
     vm.generic_getattribute(obj.clone(), name.clone())?
         .ok_or_else(|| vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
+}
+
+fn object_reduce(obj: PyObjectRef, proto: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult {
+    common_reduce(obj, proto.unwrap_or(0), vm)
+}
+
+fn object_reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
+    let cls = obj.class();
+    if let Some(reduce) = objtype::class_get_attr(&cls, "__reduce__") {
+        let object_reduce =
+            objtype::class_get_attr(&vm.ctx.types.object_type, "__reduce__").unwrap();
+        if !reduce.is(&object_reduce) {
+            return vm.invoke(&reduce, vec![]);
+        }
+    }
+    common_reduce(obj, proto, vm)
+}
+
+fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
+    if proto >= 2 {
+        let reducelib = vm.import("__reducelib", &[], 0)?;
+        let reduce_2 = vm.get_attribute(reducelib, "reduce_2")?;
+        vm.invoke(&reduce_2, vec![obj])
+    } else {
+        let copyreg = vm.import("copyreg", &[], 0)?;
+        let reduce_ex = vm.get_attribute(copyreg, "_reduce_ex")?;
+        vm.invoke(&reduce_ex, vec![obj, vm.new_int(proto)])
+    }
 }

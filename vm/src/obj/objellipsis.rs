@@ -1,4 +1,4 @@
-use crate::obj::objtype::{issubclass, PyClassRef};
+use super::objtype::{issubclass, PyClassRef};
 use crate::pyobject::{PyContext, PyEllipsisRef, PyResult};
 use crate::vm::VirtualMachine;
 

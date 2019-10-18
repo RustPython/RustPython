@@ -1,12 +1,12 @@
+use num_bigint::BigInt;
+
+use super::objint::PyInt;
+use super::objtype::{class_has_attr, PyClassRef};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
-
-use crate::obj::objint::PyInt;
-use crate::obj::objtype::{class_has_attr, PyClassRef};
 use crate::vm::VirtualMachine;
-use num_bigint::BigInt;
 
 #[pyclass]
 #[derive(Debug)]
@@ -117,56 +117,42 @@ impl PySlice {
     }
 
     fn inner_eq(&self, other: &PySlice, vm: &VirtualMachine) -> PyResult<bool> {
-        if !vm.bool_eq(self.start(vm), other.start(vm))? {
+        if !vm.identical_or_equal(&self.start(vm), &other.start(vm))? {
             return Ok(false);
         }
-        if !vm.bool_eq(self.stop(vm), other.stop(vm))? {
+        if !vm.identical_or_equal(&self.stop(vm), &other.stop(vm))? {
             return Ok(false);
         }
-        if !vm.bool_eq(self.step(vm), other.step(vm))? {
+        if !vm.identical_or_equal(&self.step(vm), &other.step(vm))? {
             return Ok(false);
         }
         Ok(true)
     }
 
+    #[inline]
     fn inner_lte(&self, other: &PySlice, eq: bool, vm: &VirtualMachine) -> PyResult<bool> {
-        if vm.bool_lt(self.start(vm), other.start(vm))? {
-            return Ok(true);
-        } else if !vm.bool_eq(self.start(vm), other.start(vm))? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_lt(self.start(vm), other.start(vm))? {
+            return Ok(v);
         }
-
-        if vm.bool_lt(self.stop(vm), other.stop(vm))? {
-            return Ok(true);
-        } else if !vm.bool_eq(self.stop(vm), other.stop(vm))? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_lt(self.stop(vm), other.stop(vm))? {
+            return Ok(v);
         }
-
-        if vm.bool_lt(self.step(vm), other.step(vm))? {
-            return Ok(true);
-        } else if !vm.bool_eq(self.step(vm), other.step(vm))? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_lt(self.step(vm), other.step(vm))? {
+            return Ok(v);
         }
         Ok(eq)
     }
 
+    #[inline]
     fn inner_gte(&self, other: &PySlice, eq: bool, vm: &VirtualMachine) -> PyResult<bool> {
-        if vm.bool_gt(self.start(vm), other.start(vm))? {
-            return Ok(true);
-        } else if !vm.bool_eq(self.start(vm), other.start(vm))? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_gt(self.start(vm), other.start(vm))? {
+            return Ok(v);
         }
-
-        if vm.bool_gt(self.stop(vm), other.stop(vm))? {
-            return Ok(true);
-        } else if !vm.bool_eq(self.stop(vm), other.stop(vm))? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_gt(self.stop(vm), other.stop(vm))? {
+            return Ok(v);
         }
-
-        if vm.bool_gt(self.step(vm), other.step(vm))? {
-            return Ok(true);
-        } else if !vm.bool_eq(self.step(vm), other.step(vm))? {
-            return Ok(false);
+        if let Some(v) = vm.bool_seq_gt(self.step(vm), other.step(vm))? {
+            return Ok(v);
         }
         Ok(eq)
     }

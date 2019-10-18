@@ -7,10 +7,9 @@ use std::ops::Deref;
 
 use num_complex::Complex64;
 
-use rustpython_parser::{ast, parser};
+use rustpython_parser::{ast, mode::Mode, parser};
 
 use crate::obj::objlist::PyListRef;
-use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -19,9 +18,12 @@ use crate::vm::VirtualMachine;
 struct AstNode;
 type AstNodeRef = PyRef<AstNode>;
 
+const MODULE_NAME: &str = "_ast";
+pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
+
 impl PyValue for AstNode {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("ast", "AST")
+        vm.class(MODULE_NAME, "AST")
     }
 }
 
@@ -48,14 +50,17 @@ macro_rules! node {
     }
 }
 
-fn program_to_ast(vm: &VirtualMachine, program: &ast::Program) -> PyResult<AstNodeRef> {
-    let py_body = statements_to_ast(vm, &program.statements)?;
-    Ok(node!(vm, Module, { body => py_body }))
+fn top_to_ast(vm: &VirtualMachine, top: &ast::Top) -> PyResult<PyListRef> {
+    match top {
+        ast::Top::Program(program) => statements_to_ast(vm, &program.statements),
+        ast::Top::Statement(statements) => statements_to_ast(vm, statements),
+        ast::Top::Expression(_) => unimplemented!("top_to_ast unimplemented ast::Top::Expression"),
+    }
 }
 
 // Create a node class instance
 fn create_node(vm: &VirtualMachine, name: &str) -> PyResult<AstNodeRef> {
-    AstNode.into_ref_with_type(vm, vm.class("ast", name))
+    AstNode.into_ref_with_type(vm, vm.class(MODULE_NAME, name))
 }
 
 fn statements_to_ast(vm: &VirtualMachine, statements: &[ast::Statement]) -> PyResult<PyListRef> {
@@ -600,7 +605,7 @@ fn map_ast<T>(
     f: fn(vm: &VirtualMachine, &T) -> PyResult<AstNodeRef>,
     vm: &VirtualMachine,
     items: &[T],
-) -> PyResult<PyObjectRef> {
+) -> PyResult {
     let list: PyResult<Vec<PyObjectRef>> =
         items.iter().map(|x| Ok(f(vm, x)?.into_object())).collect();
     Ok(vm.ctx.new_list(list?))
@@ -630,20 +635,17 @@ fn string_to_ast(vm: &VirtualMachine, string: &ast::StringGroup) -> PyResult<Ast
     Ok(string)
 }
 
-fn ast_parse(source: PyStringRef, vm: &VirtualMachine) -> PyResult<AstNodeRef> {
-    let internal_ast = parser::parse_program(source.as_str())
-        .map_err(|err| vm.new_value_error(format!("{}", err)))?;
-    // source.clone();
-    program_to_ast(&vm, &internal_ast)
+pub(crate) fn parse(vm: &VirtualMachine, source: &str, mode: Mode) -> PyResult {
+    let ast = parser::parse(source, mode).map_err(|err| vm.new_value_error(format!("{}", err)))?;
+    let py_body = top_to_ast(vm, &ast)?;
+    Ok(node!(vm, Module, { body => py_body }).into_object())
 }
 
-#[allow(clippy::cognitive_complexity)]
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let ast_base = py_class!(ctx, "AST", ctx.object(), {});
-    py_module!(vm, "ast", {
-        "parse" => ctx.new_rustfunc(ast_parse),
+    py_module!(vm, MODULE_NAME, {
         "AST" => ast_base.clone(),
         // TODO: There's got to be a better way!
         "alias" => py_class!(ctx, "alias", ast_base.clone(), {}),
@@ -709,5 +711,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "withitem" => py_class!(ctx, "withitem", ast_base.clone(), {}),
         "Yield" => py_class!(ctx, "Yield", ast_base.clone(), {}),
         "YieldFrom" => py_class!(ctx, "YieldFrom", ast_base.clone(), {}),
+        "PyCF_ONLY_AST" => ctx.new_int(PY_COMPILE_FLAG_AST_ONLY),
     })
 }

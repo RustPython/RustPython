@@ -4,19 +4,18 @@ use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
+use super::objint::{PyInt, PyIntRef};
+use super::objiter;
+use super::objslice::{PySlice, PySliceRef};
+use super::objtype::PyClassRef;
+use super::objtuple::PyTuple;
+
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, IntoPyObject
 };
 use crate::vm::VirtualMachine;
-
-use super::objint::{PyInt, PyIntRef};
-use super::objiter;
-use super::objslice::{PySlice, PySliceRef};
-use super::objtype::{self, PyClassRef, PyClass};
-use super::objtuple::{PyTuple, PyTupleRef};
-use super::objsequence::{get_elements_tuple};
 
 /// range(stop) -> range object
 /// range(start, stop[, step]) -> range object
@@ -241,51 +240,64 @@ impl PyRange {
         }
     }
 
+    fn inner_eq(&self, rhs: &PyRange) -> bool {
+        if self.length() != rhs.length() {
+            return false;
+        }
+
+        if self.length().is_zero() {
+            return true;
+        }
+
+        if self.start.as_bigint() != rhs.start.as_bigint() {
+            return false;
+        }
+        let step = self.step.as_bigint();
+        if step.is_one() || step == rhs.step.as_bigint() {
+            return true;
+        }
+
+        false
+    }
+
     #[pymethod(name = "__eq__")]
-    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> bool {
-        if objtype::isinstance(&rhs, &vm.ctx.range_type()) {
-            let rhs = get_value(&rhs);
-
-            if self.length() != rhs.length() {
-                return false;
-            }
-
-            if self.length().is_zero() {
-                return true;
-            }
-
-            if self.start.as_bigint() != rhs.start.as_bigint() {
-                return false;
-            }
-            let step = self.step.as_bigint();
-            if step.is_one() || step == rhs.step.as_bigint() {
-                return true;
-            }
-
-            false
+    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if let Some(rhs) = rhs.payload::<PyRange>() {
+            let eq = self.inner_eq(rhs);
+            vm.ctx.new_bool(eq)
         } else {
-            false
+            vm.ctx.not_implemented()
+        }
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if let Some(rhs) = rhs.payload::<PyRange>() {
+            let eq = self.inner_eq(rhs);
+            vm.ctx.new_bool(!eq)
+        } else {
+            vm.ctx.not_implemented()
         }
     }
 
     #[pymethod(name = "__lt__")]
-    fn lt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn lt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn gt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn ge(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod(name = "__le__")]
-    fn le(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn le(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod(name = "__reduce__")]
@@ -299,10 +311,10 @@ impl PyRange {
     }
 
     #[pymethod(name = "index")]
-    fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyInt> {
+    fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
         if let Ok(int) = needle.downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
-                Some(idx) => Ok(PyInt::new(idx)),
+                Some(idx) => Ok(idx),
                 None => Err(vm.new_value_error(format!("{} is not in range", int))),
             }
         } else {
@@ -311,15 +323,15 @@ impl PyRange {
     }
 
     #[pymethod(name = "count")]
-    fn count(&self, item: PyObjectRef, _vm: &VirtualMachine) -> PyInt {
+    fn count(&self, item: PyObjectRef, _vm: &VirtualMachine) -> usize {
         if let Ok(int) = item.downcast::<PyInt>() {
             if self.index_of(int.as_bigint()).is_some() {
-                PyInt::new(1)
+                1
             } else {
-                PyInt::new(0)
+                0
             }
         } else {
-            PyInt::new(0)
+            0
         }
     }
 

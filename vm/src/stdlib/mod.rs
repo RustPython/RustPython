@@ -1,6 +1,6 @@
 pub mod array;
 #[cfg(feature = "rustpython-parser")]
-mod ast;
+pub(crate) mod ast;
 mod binascii;
 mod codecs;
 mod collections;
@@ -86,7 +86,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[cfg(feature = "rustpython-parser")]
     {
         modules.insert(
-            "ast".to_string(),
+            "_ast".to_string(),
             Box::new(ast::make_module) as StdlibInitFunc,
         );
         modules.insert("keyword".to_string(), Box::new(keyword::make_module));
@@ -106,7 +106,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("_os".to_string(), Box::new(os::make_module));
         modules.insert("socket".to_string(), Box::new(socket::make_module));
         modules.insert("signal".to_string(), Box::new(signal::make_module));
-        modules.insert("subprocess".to_string(), Box::new(subprocess::make_module));
+        modules.insert("_subprocess".to_string(), Box::new(subprocess::make_module));
         modules.insert("zlib".to_string(), Box::new(zlib::make_module));
     }
 

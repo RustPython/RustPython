@@ -11,12 +11,15 @@ A Python-3 (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream:
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Contributors](https://img.shields.io/github/contributors/RustPython/RustPython.svg)](https://github.com/RustPython/RustPython/graphs/contributors)
 [![Gitter](https://badges.gitter.im/RustPython/Lobby.svg)](https://gitter.im/rustpython/Lobby)
+[![docs.rs](https://docs.rs/rustpython/badge.svg)](https://docs.rs/rustpython/)
+[![Crates.io](https://img.shields.io/crates/v/rustpython)](https://crates.io/crates/rustpython)
+[![dependency status](https://deps.rs/crate/rustpython/0.1.1/status.svg)](https://deps.rs/crate/rustpython/0.1.1)
 
 ## Usage
 
 #### Check out our [online demo](https://rustpython.github.io/demo/) running on WebAssembly.
 
-RustPython requires Rust 1.36 or higher. 
+RustPython requires Rust latest stable version (e.g 1.38.0 at Oct 1st 2019). 
 To check Rust version: `rustc --version` If you wish to update,
 `rustup update stable`.
 

@@ -1,5 +1,8 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fmt;
+
+use indexmap::IndexMap;
+use itertools::Itertools;
 
 use crate::bytecode;
 use crate::function::PyFuncArgs;
@@ -19,8 +22,6 @@ use crate::pyobject::{
 };
 use crate::scope::{NameProtocol, Scope};
 use crate::vm::VirtualMachine;
-use indexmap::IndexMap;
-use itertools::Itertools;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::signal::check_signals;
@@ -78,13 +79,18 @@ enum UnwindReason {
     Continue,
 }
 
+#[pyclass]
 pub struct Frame {
-    pub code: bytecode::CodeObject,
+    pub code: PyCodeRef,
     // We need 1 stack per frame
-    stack: RefCell<Vec<PyObjectRef>>, // The main data frame of the stack machine
-    blocks: RefCell<Vec<Block>>,      // Block frames, for controlling loops and exceptions
-    pub scope: Scope,                 // Variables
-    pub lasti: RefCell<usize>,        // index of last instruction ran
+    /// The main data frame of the stack machine
+    stack: RefCell<Vec<PyObjectRef>>,
+    /// Block frames, for controlling loops and exceptions
+    blocks: RefCell<Vec<Block>>,
+    /// Variables
+    pub scope: Scope,
+    /// index of last instruction ran
+    pub lasti: Cell<usize>,
 }
 
 impl PyValue for Frame {
@@ -97,6 +103,38 @@ impl PyValue for Frame {
 pub enum ExecutionResult {
     Return(PyObjectRef),
     Yield(PyObjectRef),
+}
+
+impl ExecutionResult {
+    /// Extract an ExecutionResult from a PyResult returned from e.g. gen.__next__() or gen.send()
+    pub fn from_result(vm: &VirtualMachine, res: PyResult) -> PyResult<Self> {
+        match res {
+            Ok(val) => Ok(ExecutionResult::Yield(val)),
+            Err(err) => {
+                if objtype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                    objiter::stop_iter_value(vm, &err).map(ExecutionResult::Return)
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
+    /// Turn an ExecutionResult into a PyResult that would be returned from a generator or coroutine
+    pub fn into_result(self, vm: &VirtualMachine) -> PyResult {
+        match self {
+            ExecutionResult::Yield(value) => Ok(value),
+            ExecutionResult::Return(value) => {
+                let stop_iteration = vm.ctx.exceptions.stop_iteration.clone();
+                let args = if vm.is_none(&value) {
+                    vec![]
+                } else {
+                    vec![value]
+                };
+                Err(vm.new_exception_obj(stop_iteration, args).unwrap())
+            }
+        }
+    }
 }
 
 /// A valid execution result, or an exception
@@ -116,13 +154,13 @@ impl Frame {
         // locals.extend(callargs);
 
         Frame {
-            code: code.code.clone(),
+            code,
             stack: RefCell::new(vec![]),
             blocks: RefCell::new(vec![]),
             // save the callargs as locals
             // globals: locals.clone(),
             scope,
-            lasti: RefCell::new(0),
+            lasti: Cell::new(0),
         }
     }
 
@@ -179,17 +217,40 @@ impl Frame {
         }
     }
 
-    pub fn throw(&self, vm: &VirtualMachine, exception: PyObjectRef) -> PyResult<ExecutionResult> {
-        match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
-            Ok(None) => self.run(vm),
-            Ok(Some(result)) => Ok(result),
-            Err(exception) => Err(exception),
+    pub(crate) fn gen_throw(
+        &self,
+        vm: &VirtualMachine,
+        exc_type: PyClassRef,
+        exc_val: PyObjectRef,
+        exc_tb: PyObjectRef,
+    ) -> PyResult {
+        if let bytecode::Instruction::YieldFrom = self.code.instructions[self.lasti.get()] {
+            let coro = self.last_value();
+            vm.call_method(
+                &coro,
+                "throw",
+                vec![exc_type.into_object(), exc_val, exc_tb],
+            )
+            .or_else(|err| {
+                self.pop_value();
+                self.lasti.set(self.lasti.get() + 1);
+                let val = objiter::stop_iter_value(vm, &err)?;
+                self._send(coro, val, vm)
+            })
+        } else {
+            let exception = vm.new_exception_obj(exc_type, vec![exc_val])?;
+            match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
+                Ok(None) => self.run(vm),
+                Ok(Some(result)) => Ok(result),
+                Err(exception) => Err(exception),
+            }
+            .and_then(|res| res.into_result(vm))
         }
     }
 
     pub fn fetch_instruction(&self) -> &bytecode::Instruction {
-        let ins2 = &self.code.instructions[*self.lasti.borrow()];
-        *self.lasti.borrow_mut() += 1;
+        let ins2 = &self.code.instructions[self.lasti.get()];
+        self.lasti.set(self.lasti.get() + 1);
         ins2
     }
 
@@ -399,7 +460,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, *target),
-            bytecode::Instruction::MakeFunction { flags } => self.execute_make_function(vm, *flags),
+            bytecode::Instruction::MakeFunction => self.execute_make_function(vm),
             bytecode::Instruction::CallFunction { typ } => self.execute_call_function(vm, typ),
             bytecode::Instruction::Jump { target } => {
                 self.jump(*target);
@@ -948,20 +1009,35 @@ impl Frame {
         Err(exception)
     }
 
+    fn _send(&self, coro: PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if vm.is_none(&val) {
+            objiter::call_next(vm, &coro)
+        } else {
+            vm.call_method(&coro, "send", vec![val])
+        }
+    }
+
     fn execute_yield_from(&self, vm: &VirtualMachine) -> FrameResult {
         // Value send into iterator:
-        self.pop_value();
+        let val = self.pop_value();
 
-        let top_of_stack = self.last_value();
-        let next_obj = objiter::get_next_object(vm, &top_of_stack)?;
+        let coro = self.last_value();
 
-        match next_obj {
-            Some(value) => {
+        let result = self._send(coro, val, vm);
+
+        let result = ExecutionResult::from_result(vm, result)?;
+
+        match result {
+            ExecutionResult::Yield(value) => {
                 // Set back program counter:
-                *self.lasti.borrow_mut() -= 1;
+                self.lasti.set(self.lasti.get() - 1);
                 Ok(Some(ExecutionResult::Yield(value)))
             }
-            None => Ok(None),
+            ExecutionResult::Return(value) => {
+                self.pop_value();
+                self.push_value(value);
+                Ok(None)
+            }
         }
     }
 
@@ -1000,7 +1076,7 @@ impl Frame {
         let target_pc = self.code.label_map[&label];
         #[cfg(feature = "vm-tracing-logging")]
         trace!("jump from {:?} to {:?}", self.lasti, target_pc);
-        self.lasti.replace(target_pc);
+        self.lasti.set(target_pc);
     }
 
     /// The top of stack contains the iterator, lets push it forward
@@ -1029,27 +1105,25 @@ impl Frame {
             }
         }
     }
-    fn execute_make_function(
-        &self,
-        vm: &VirtualMachine,
-        flags: bytecode::FunctionOpArg,
-    ) -> FrameResult {
+    fn execute_make_function(&self, vm: &VirtualMachine) -> FrameResult {
         let qualified_name = self
             .pop_value()
             .downcast::<PyString>()
             .expect("qualified name to be a string");
-        let code_obj = self
+        let code_obj: PyCodeRef = self
             .pop_value()
             .downcast()
             .expect("Second to top value on the stack must be a code object");
 
-        let annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
+        let flags = code_obj.flags;
+
+        let annotations = if flags.contains(bytecode::CodeFlags::HAS_ANNOTATIONS) {
             self.pop_value()
         } else {
             vm.ctx.new_dict().into_object()
         };
 
-        let kw_only_defaults = if flags.contains(bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS) {
+        let kw_only_defaults = if flags.contains(bytecode::CodeFlags::HAS_KW_ONLY_DEFAULTS) {
             Some(
                 self.pop_value()
                     .downcast::<PyDict>()
@@ -1059,7 +1133,7 @@ impl Frame {
             None
         };
 
-        let defaults = if flags.contains(bytecode::FunctionOpArg::HAS_DEFAULTS) {
+        let defaults = if flags.contains(bytecode::CodeFlags::HAS_DEFAULTS) {
             Some(
                 self.pop_value()
                     .downcast::<PyTuple>()
@@ -1072,13 +1146,9 @@ impl Frame {
         // pop argc arguments
         // argument: name, args, globals
         let scope = self.scope.clone();
-        let func_obj = vm.ctx.new_function(
-            code_obj,
-            scope,
-            defaults,
-            kw_only_defaults,
-            flags.contains(bytecode::FunctionOpArg::NEW_LOCALS),
-        );
+        let func_obj = vm
+            .ctx
+            .new_function(code_obj, scope, defaults, kw_only_defaults);
 
         let name = qualified_name.as_str().split('.').next_back().unwrap();
         vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_string()))?;
@@ -1162,14 +1232,24 @@ impl Frame {
         a.get_id()
     }
 
-    fn _in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
+    fn _in(
+        &self,
+        vm: &VirtualMachine,
+        needle: PyObjectRef,
+        haystack: PyObjectRef,
+    ) -> PyResult<bool> {
         let found = vm._membership(haystack.clone(), needle)?;
-        Ok(vm.ctx.new_bool(objbool::boolval(vm, found)?))
+        Ok(objbool::boolval(vm, found)?)
     }
 
-    fn _not_in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
+    fn _not_in(
+        &self,
+        vm: &VirtualMachine,
+        needle: PyObjectRef,
+        haystack: PyObjectRef,
+    ) -> PyResult<bool> {
         let found = vm._membership(haystack.clone(), needle)?;
-        Ok(vm.ctx.new_bool(!objbool::boolval(vm, found)?))
+        Ok(!objbool::boolval(vm, found)?)
     }
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
@@ -1177,10 +1257,8 @@ impl Frame {
         a.is(&b)
     }
 
-    fn _is_not(&self, vm: &VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let result_bool = !a.is(&b);
-        let result = vm.ctx.new_bool(result_bool);
-        Ok(result)
+    fn _is_not(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
+        !a.is(&b)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -1199,9 +1277,9 @@ impl Frame {
             bytecode::ComparisonOperator::Greater => vm._gt(a, b)?,
             bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(a, b)?,
             bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
-            bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
-            bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
+            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)),
+            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
+            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
         };
 
         self.push_value(value);
@@ -1230,7 +1308,7 @@ impl Frame {
     }
 
     pub fn get_lineno(&self) -> bytecode::Location {
-        self.code.locations[*self.lasti.borrow()].clone()
+        self.code.locations[self.lasti.get()].clone()
     }
 
     fn push_block(&self, typ: BlockType) {

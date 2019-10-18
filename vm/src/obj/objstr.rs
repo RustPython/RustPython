@@ -4,14 +4,26 @@ extern crate unicode_xid;
 use std::cell::Cell;
 use std::char;
 use std::fmt;
+use std::mem::size_of;
 use std::ops::Range;
 use std::str::FromStr;
 use std::string::ToString;
 
 use num_traits::ToPrimitive;
 use unicode_casing::CharExt;
+use unicode_categories::UnicodeCategories;
 use unicode_xid::UnicodeXID;
 
+use super::objbytes::PyBytes;
+use super::objdict::PyDict;
+use super::objfloat;
+use super::objint::{self, PyInt};
+use super::objiter;
+use super::objnone::PyNone;
+use super::objsequence::PySliceableSequence;
+use super::objslice::PySlice;
+use super::objtuple;
+use super::objtype::{self, PyClassRef};
 use crate::cformat::{
     CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
     CNumberType,
@@ -24,19 +36,6 @@ use crate::pyobject::{
     PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-
-use super::objbytes::PyBytes;
-use super::objdict::PyDict;
-use super::objfloat;
-use super::objint::{self, PyInt};
-use super::objiter;
-use super::objnone::PyNone;
-use super::objsequence::PySliceableSequence;
-use super::objslice::PySlice;
-use super::objtuple;
-use super::objtype::{self, PyClassRef};
-
-use unicode_categories::UnicodeCategories;
 
 /// str(object='') -> str
 /// str(bytes_or_buffer[, encoding[, errors]]) -> str
@@ -285,6 +284,11 @@ impl PyString {
     #[pymethod(name = "__len__")]
     fn len(&self, _vm: &VirtualMachine) -> usize {
         self.value.chars().count()
+    }
+
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+        size_of::<Self>() + self.value.capacity() * size_of::<u8>()
     }
 
     #[pymethod(name = "__mul__")]
@@ -1260,7 +1264,7 @@ fn do_cformat_specifier(
     vm: &VirtualMachine,
     format_spec: &mut CFormatSpec,
     obj: PyObjectRef,
-) -> Result<String, PyObjectRef> {
+) -> PyResult<String> {
     use CNumberType::*;
     // do the formatting by type
     let format_type = &format_spec.format_type;

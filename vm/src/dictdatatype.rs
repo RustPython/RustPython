@@ -1,4 +1,3 @@
-use crate::obj::objbool;
 use crate::obj::objstr::PyString;
 use crate::pyhash;
 use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
@@ -10,6 +9,7 @@ use num_bigint::ToBigInt;
 /// And: http://code.activestate.com/recipes/578375/
 use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
+use std::mem::size_of;
 
 /// hash value of an object returned by __hash__
 type HashValue = pyhash::PyHash;
@@ -270,6 +270,10 @@ impl<T: Clone> Dict<T> {
             None => None,
         }
     }
+
+    pub fn sizeof(&self) -> usize {
+        size_of::<Self>() + self.size * size_of::<DictEntry<T>>()
+    }
 }
 
 enum LookupResult {
@@ -305,8 +309,7 @@ impl DictKey for &PyObjectRef {
     }
 
     fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
-        let result = vm._eq(self.clone(), other_key.clone())?;
-        objbool::boolval(vm, result)
+        vm.identical_or_equal(self, other_key)
     }
 }
 
@@ -399,7 +402,7 @@ mod tests {
         assert_eq!(true, dict.contains(&vm, "x").unwrap());
 
         let val = dict.get(&vm, "x").unwrap().unwrap();
-        vm._eq(val, value2)
+        vm.bool_eq(val, value2)
             .expect("retrieved value must be equal to inserted value.");
     }
 

@@ -19,17 +19,19 @@ use crate::vm::VirtualMachine;
 #[derive(Debug)]
 struct Popen {
     process: RefCell<subprocess::Popen>,
+    args: PyObjectRef,
 }
 
 impl PyValue for Popen {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("subprocess", "Popen")
+        vm.class("_subprocess", "Popen")
     }
 }
 
 type PopenRef = PyRef<Popen>;
 
 #[derive(FromArgs)]
+#[allow(dead_code)]
 struct PopenArgs {
     #[pyarg(positional_only)]
     args: Either<PyStringRef, PyListRef>,
@@ -40,7 +42,11 @@ struct PopenArgs {
     #[pyarg(positional_or_keyword, default = "None")]
     stderr: Option<i64>,
     #[pyarg(positional_or_keyword, default = "None")]
+    close_fds: Option<bool>, // TODO: use these unused options
+    #[pyarg(positional_or_keyword, default = "None")]
     cwd: Option<PyStringRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    start_new_session: Option<bool>,
 }
 
 impl IntoPyObject for subprocess::ExitStatus {
@@ -55,12 +61,19 @@ impl IntoPyObject for subprocess::ExitStatus {
     }
 }
 
+#[cfg(windows)]
+const NULL_DEVICE: &str = "nul";
+#[cfg(unix)]
+const NULL_DEVICE: &str = "/dev/null";
+
 fn convert_redirection(arg: Option<i64>, vm: &VirtualMachine) -> PyResult<subprocess::Redirection> {
     match arg {
         Some(fd) => match fd {
             -1 => Ok(subprocess::Redirection::Pipe),
-            -2 => panic!("TODO"),
-            -3 => panic!("TODO"),
+            -2 => Ok(subprocess::Redirection::Merge),
+            -3 => Ok(subprocess::Redirection::File(
+                File::open(NULL_DEVICE).unwrap(),
+            )),
             fd => {
                 if fd < 0 {
                     Err(vm.new_value_error(format!("Invalid fd: {}", fd)))
@@ -92,7 +105,7 @@ impl PopenRef {
         let stdin = convert_redirection(args.stdin, vm)?;
         let stdout = convert_redirection(args.stdout, vm)?;
         let stderr = convert_redirection(args.stderr, vm)?;
-        let command_list = match args.args {
+        let command_list = match &args.args {
             Either::A(command) => vec![command.as_str().to_string()],
             Either::B(command_list) => objsequence::get_elements_list(command_list.as_object())
                 .iter()
@@ -115,6 +128,7 @@ impl PopenRef {
 
         Popen {
             process: RefCell::new(process),
+            args: args.args.into_object(),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -137,7 +151,7 @@ impl PopenRef {
         }
         .map_err(|s| vm.new_os_error(format!("Could not start program: {}", s)))?;
         if timeout.is_none() {
-            let timeout_expired = vm.class("subprocess", "TimeoutExpired");
+            let timeout_expired = vm.try_class("_subprocess", "TimeoutExpired")?;
             Err(vm.new_exception(timeout_expired, "Timeout".to_string()))
         } else {
             Ok(())
@@ -173,18 +187,52 @@ impl PopenRef {
     #[allow(clippy::type_complexity)]
     fn communicate(
         self,
-        stdin: OptionalArg<PyBytesRef>,
+        args: PopenCommunicateArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(Option<Vec<u8>>, Option<Vec<u8>>)> {
+        let bytes = match args.input {
+            OptionalArg::Present(ref bytes) => Some(bytes.get_value()),
+            OptionalArg::Missing => None,
+        };
         self.process
             .borrow_mut()
-            .communicate_bytes(stdin.into_option().as_ref().map(|bytes| bytes.get_value()))
+            .communicate_bytes(bytes)
             .map_err(|err| convert_io_error(vm, err))
     }
 
     fn pid(self, _vm: &VirtualMachine) -> Option<u32> {
         self.process.borrow().pid()
     }
+
+    fn enter(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+
+    fn exit(
+        self,
+        _exception_type: PyObjectRef,
+        _exception_value: PyObjectRef,
+        _traceback: PyObjectRef,
+        _vm: &VirtualMachine,
+    ) {
+        let mut process = self.process.borrow_mut();
+        process.stdout.take();
+        process.stdin.take();
+        process.stderr.take();
+    }
+
+    fn args(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.args.clone()
+    }
+}
+
+#[derive(FromArgs)]
+#[allow(dead_code)]
+struct PopenCommunicateArgs {
+    #[pyarg(positional_or_keyword, optional = true)]
+    input: OptionalArg<PyBytesRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    timeout: OptionalArg<u64>,
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -205,16 +253,17 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "kill" => ctx.new_rustfunc(PopenRef::kill),
         "communicate" => ctx.new_rustfunc(PopenRef::communicate),
         "pid" => ctx.new_property(PopenRef::pid),
+        "__enter__" => ctx.new_rustfunc(PopenRef::enter),
+        "__exit__" => ctx.new_rustfunc(PopenRef::exit),
+        "args" => ctx.new_property(PopenRef::args),
     });
 
-    let module = py_module!(vm, "subprocess", {
+    py_module!(vm, "_subprocess", {
         "Popen" => popen,
         "SubprocessError" => subprocess_error,
         "TimeoutExpired" => timeout_expired,
         "PIPE" => ctx.new_int(-1),
         "STDOUT" => ctx.new_int(-2),
         "DEVNULL" => ctx.new_int(-3),
-    });
-
-    module
+    })
 }

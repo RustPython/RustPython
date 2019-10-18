@@ -60,6 +60,10 @@ def powtest(type):
                     # FIXME: num-bigint bug for this case
                     # https://github.com/rust-num/num-bigint/pull/113
                     continue
+                if i < 0 or k < 0:
+                    # FIXME: num-bigint bug for negative base or mod
+                    # https://github.com/rust-num/num-bigint/pull/114
+                    continue
                 if k != 0:
                     if type == float or j < 0:
                         assert_raises(TypeError, pow, type(i), j, k)
@@ -99,6 +103,10 @@ def test_other():
             if j == 1:
                 # FIXME: num-bigint bug for this case
                 # https://github.com/rust-num/num-bigint/pull/113
+                continue
+            if i < 0:
+                # FIXME: num-bigint bug for negative base
+                # https://github.com/rust-num/num-bigint/pull/114
                 continue
             for k in range(-7, 11):
                 if j >= 0 and k != 0:

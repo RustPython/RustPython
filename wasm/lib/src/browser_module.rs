@@ -24,7 +24,7 @@ enum FetchResponseFormat {
 }
 
 impl FetchResponseFormat {
-    fn from_str(vm: &VirtualMachine, s: &str) -> Result<Self, PyObjectRef> {
+    fn from_str(vm: &VirtualMachine, s: &str) -> PyResult<Self> {
         match s {
             "json" => Ok(FetchResponseFormat::Json),
             "text" => Ok(FetchResponseFormat::Text),

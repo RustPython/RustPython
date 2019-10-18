@@ -6,9 +6,10 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::rc::Rc;
 
+use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
-use num_traits::{One, Zero};
+use num_traits::{One, ToPrimitive, Zero};
 
 use crate::bytecode;
 use crate::dictdatatype::DictKey;
@@ -27,7 +28,6 @@ use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
-use crate::obj::objmodule::PyModule;
 use crate::obj::objnamespace::PyNamespace;
 use crate::obj::objnone::{PyNone, PyNoneRef};
 use crate::obj::objobject;
@@ -39,7 +39,6 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::scope::Scope;
 use crate::types::{create_type, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
-use indexmap::IndexMap;
 
 /* Python objects and references.
 
@@ -85,12 +84,12 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
             }
         }
 
-        if let Some(PyModule { ref name, .. }) = self.payload::<PyModule>() {
-            return write!(f, "module '{}'", name);
-        }
         write!(f, "'{}' object", self.class().name)
     }
 }
+
+const INT_CACHE_POOL_MIN: i32 = -5;
+const INT_CACHE_POOL_MAX: i32 = 256;
 
 #[derive(Debug)]
 pub struct PyContext {
@@ -104,6 +103,7 @@ pub struct PyContext {
 
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
+    pub int_cache_pool: Vec<PyObjectRef>,
 }
 
 pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
@@ -149,6 +149,10 @@ impl PyContext {
             create_type("NotImplementedType", &types.type_type, &types.object_type);
         let not_implemented = create_object(PyNotImplemented, &not_implemented_type);
 
+        let int_cache_pool = (INT_CACHE_POOL_MIN..=INT_CACHE_POOL_MAX)
+            .map(|v| create_object(PyInt::new(BigInt::from(v)), &types.int_type).into_object())
+            .collect();
+
         let true_value = create_object(PyInt::new(BigInt::one()), &types.bool_type);
         let false_value = create_object(PyInt::new(BigInt::zero()), &types.bool_type);
 
@@ -159,12 +163,13 @@ impl PyContext {
             false_value,
             not_implemented,
             none,
+            empty_tuple,
             ellipsis,
             ellipsis_type,
 
             types,
             exceptions,
-            empty_tuple,
+            int_cache_pool,
         };
         initialize_types(&context);
 
@@ -364,8 +369,26 @@ impl PyContext {
         self.types.object_type.clone()
     }
 
-    pub fn new_int<T: Into<BigInt>>(&self, i: T) -> PyObjectRef {
+    #[inline]
+    pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyObjectRef {
+        if let Some(i) = i.to_i32() {
+            if i >= INT_CACHE_POOL_MIN && i <= INT_CACHE_POOL_MAX {
+                let inner_idx = (i - INT_CACHE_POOL_MIN) as usize;
+                return self.int_cache_pool[inner_idx].clone();
+            }
+        }
         PyObject::new(PyInt::new(i), self.int_type(), None)
+    }
+
+    #[inline]
+    pub fn new_bigint(&self, i: &BigInt) -> PyObjectRef {
+        if let Some(i) = i.to_i32() {
+            if i >= INT_CACHE_POOL_MIN && i <= INT_CACHE_POOL_MAX {
+                let inner_idx = (i - INT_CACHE_POOL_MIN) as usize;
+                return self.int_cache_pool[inner_idx].clone();
+            }
+        }
+        PyObject::new(PyInt::new(i.clone()), self.int_type(), None)
     }
 
     pub fn new_float(&self, value: f64) -> PyObjectRef {
@@ -393,11 +416,12 @@ impl PyContext {
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
-        if b {
-            self.true_value.clone().into_object()
+        let value = if b {
+            &self.true_value
         } else {
-            self.false_value.clone().into_object()
-        }
+            &self.false_value
+        };
+        value.clone().into_object()
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
@@ -475,10 +499,9 @@ impl PyContext {
         scope: Scope,
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
-        new_locals: bool,
     ) -> PyObjectRef {
         PyObject::new(
-            PyFunction::new(code_obj, scope, defaults, kw_only_defaults, new_locals),
+            PyFunction::new(code_obj, scope, defaults, kw_only_defaults),
             self.function_type(),
             Some(self.new_dict()),
         )
@@ -503,7 +526,7 @@ impl PyContext {
 
     pub fn unwrap_constant(&self, value: &bytecode::Constant) -> PyObjectRef {
         match *value {
-            bytecode::Constant::Integer { ref value } => self.new_int(value.clone()),
+            bytecode::Constant::Integer { ref value } => self.new_bigint(value),
             bytecode::Constant::Float { ref value } => self.new_float(*value),
             bytecode::Constant::Complex { ref value } => self.new_complex(*value),
             bytecode::Constant::String { ref value } => self.new_str(value.clone()),

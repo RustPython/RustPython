@@ -1,9 +1,8 @@
-use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
-use crate::vm::VirtualMachine;
-
 use super::objbool;
 use super::objiter;
-use crate::obj::objtype::PyClassRef;
+use super::objtype::PyClassRef;
+use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::vm::VirtualMachine;
 
 pub type PyFilterRef = PyRef<PyFilter>;
 

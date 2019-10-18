@@ -8,12 +8,10 @@ use num_traits::ToPrimitive;
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbool;
-use crate::obj::objint;
-use crate::obj::objint::{PyInt, PyIntRef};
+use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objiter::{call_next, get_iter, new_stop_iteration};
 use crate::obj::objtuple::PyTuple;
-use crate::obj::objtype;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -640,10 +638,7 @@ struct PyItertoolsTeeData {
 }
 
 impl PyItertoolsTeeData {
-    fn new(
-        iterable: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> Result<Rc<PyItertoolsTeeData>, PyObjectRef> {
+    fn new(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Rc<PyItertoolsTeeData>> {
         Ok(Rc::new(PyItertoolsTeeData {
             iterable: get_iter(vm, &iterable)?,
             values: RefCell::new(vec![]),
@@ -674,7 +669,7 @@ impl PyValue for PyItertoolsTee {
 
 #[pyimpl]
 impl PyItertoolsTee {
-    fn from_iter(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn from_iter(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let it = get_iter(vm, &iterable)?;
         if it.class().is(&PyItertoolsTee::class(vm)) {
             return vm.call_method(&it, "__copy__", PyFuncArgs::from(vec![]));

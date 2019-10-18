@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 
-use crate::obj::objbyteinner::try_as_byte;
-use crate::obj::objtype::{issubclass, PyClassRef};
+use super::objbyteinner::try_as_byte;
+use super::objtype::{issubclass, PyClassRef};
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
