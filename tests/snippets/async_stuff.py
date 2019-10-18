@@ -19,11 +19,27 @@ class ContextManager:
 ls = []
 
 
+class AIterWrap:
+    def __init__(self, obj):
+        self._it = iter(obj)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            value = next(self._it)
+        except StopIteration:
+            raise StopAsyncIteration
+        return value
+
+
 async def a(s, m):
     async with ContextManager() as b:
         print(f"val = {b}")
     await asyncio.sleep(s)
-    for _ in range(0, 2):
+    async for i in AIterWrap(range(0, 2)):
+        print(i)
         ls.append(m)
         await asyncio.sleep(1)
 

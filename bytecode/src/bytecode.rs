@@ -278,6 +278,8 @@ pub enum Instruction {
     SetupAsyncWith {
         end: Label,
     },
+    GetAIter,
+    GetANext,
 }
 
 use self::Instruction::*;
@@ -315,6 +317,7 @@ pub enum ComparisonOperator {
     NotIn,
     Is,
     IsNot,
+    ExceptionMatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -558,6 +561,8 @@ impl Instruction {
             PopException => w!(PopException),
             Reverse { amount } => w!(Reverse, amount),
             GetAwaitable => w!(GetAwaitable),
+            GetAIter => w!(GetAIter),
+            GetANext => w!(GetANext),
         }
     }
 }

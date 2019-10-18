@@ -442,13 +442,7 @@ impl<O: OutputStream> Compiler<O> {
                 iter,
                 body,
                 orelse,
-            } => {
-                if *is_async {
-                    unimplemented!("async for");
-                } else {
-                    self.compile_for(target, iter, body, orelse)?
-                }
-            }
+            } => self.compile_for(target, iter, body, orelse, *is_async)?,
             Raise { exception, cause } => match exception {
                 Some(value) => {
                     self.compile_expression(value)?;
@@ -736,14 +730,9 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::Duplicate);
 
                 // Check exception type:
-                self.emit(Instruction::LoadName {
-                    name: String::from("isinstance"),
-                    scope: bytecode::NameScope::Global,
-                });
-                self.emit(Instruction::Rotate { amount: 2 });
                 self.compile_expression(exc_type)?;
-                self.emit(Instruction::CallFunction {
-                    typ: CallType::Positional(2),
+                self.emit(Instruction::CompareOperation {
+                    op: bytecode::ComparisonOperator::ExceptionMatch,
                 });
 
                 // We cannot handle this exception type:
@@ -1108,11 +1097,13 @@ impl<O: OutputStream> Compiler<O> {
         iter: &ast::Expression,
         body: &[ast::Statement],
         orelse: &Option<Vec<ast::Statement>>,
+        is_async: bool,
     ) -> Result<(), CompileError> {
         // Start loop
         let start_label = self.new_label();
         let else_label = self.new_label();
         let end_label = self.new_label();
+
         self.emit(Instruction::SetupLoop {
             start: start_label,
             end: end_label,
@@ -1121,19 +1112,57 @@ impl<O: OutputStream> Compiler<O> {
         // The thing iterated:
         self.compile_expression(iter)?;
 
-        // Retrieve Iterator
-        self.emit(Instruction::GetIter);
+        if is_async {
+            let check_asynciter_label = self.new_label();
+            let body_label = self.new_label();
 
-        self.set_label(start_label);
-        self.emit(Instruction::ForIter { target: else_label });
+            self.emit(Instruction::GetAIter);
 
-        // Start of loop iteration, set targets:
-        self.compile_store(target)?;
+            self.set_label(start_label);
+            self.emit(Instruction::SetupExcept {
+                handler: check_asynciter_label,
+            });
+            self.emit(Instruction::GetANext);
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::None,
+            });
+            self.emit(Instruction::YieldFrom);
+            self.compile_store(target)?;
+            self.emit(Instruction::PopBlock);
+            self.emit(Instruction::Jump { target: body_label });
 
-        let was_in_loop = self.in_loop;
-        self.in_loop = true;
-        self.compile_statements(body)?;
-        self.in_loop = was_in_loop;
+            self.set_label(check_asynciter_label);
+            self.emit(Instruction::Duplicate);
+            self.emit(Instruction::LoadName {
+                name: "StopAsyncIteration".to_string(),
+                scope: bytecode::NameScope::Global,
+            });
+            self.emit(Instruction::CompareOperation {
+                op: bytecode::ComparisonOperator::ExceptionMatch,
+            });
+            self.emit(Instruction::JumpIfTrue { target: else_label });
+            self.emit(Instruction::Raise { argc: 0 });
+
+            let was_in_loop = self.in_loop;
+            self.in_loop = true;
+            self.set_label(body_label);
+            self.compile_statements(body)?;
+            self.in_loop = was_in_loop;
+        } else {
+            // Retrieve Iterator
+            self.emit(Instruction::GetIter);
+
+            self.set_label(start_label);
+            self.emit(Instruction::ForIter { target: else_label });
+
+            // Start of loop iteration, set targets:
+            self.compile_store(target)?;
+
+            let was_in_loop = self.in_loop;
+            self.in_loop = true;
+            self.compile_statements(body)?;
+            self.in_loop = was_in_loop;
+        }
 
         self.emit(Instruction::Jump {
             target: start_label,
@@ -1144,6 +1173,9 @@ impl<O: OutputStream> Compiler<O> {
             self.compile_statements(orelse)?;
         }
         self.set_label(end_label);
+        if is_async {
+            self.emit(Instruction::Pop);
+        }
         Ok(())
     }
 

@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 
 use crate::bytecode;
-use crate::function::PyFuncArgs;
+use crate::function::{single_or_tuple_any, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objcoroutine::PyCoroutine;
@@ -278,7 +278,7 @@ impl Frame {
             trace!("=======");
         }
 
-        match &instruction {
+        match instruction {
             bytecode::Instruction::LoadConst { ref value } => {
                 let obj = vm.ctx.unwrap_constant(value);
                 self.push_value(obj);
@@ -503,8 +503,7 @@ impl Frame {
             }
             bytecode::Instruction::GetAwaitable => {
                 let awaited_obj = self.pop_value();
-                let awaitable = if awaited_obj.payload_is::<crate::obj::objcoroutine::PyCoroutine>()
-                {
+                let awaitable = if awaited_obj.payload_is::<PyCoroutine>() {
                     awaited_obj
                 } else {
                     let await_method =
@@ -515,6 +514,23 @@ impl Frame {
                             )
                         })?;
                     vm.invoke(&await_method, vec![])?
+                };
+                self.push_value(awaitable);
+                Ok(None)
+            }
+            bytecode::Instruction::GetAIter => {
+                let aiterable = self.pop_value();
+                let aiter = vm.call_method(&aiterable, "__aiter__", vec![])?;
+                self.push_value(aiter);
+                Ok(None)
+            }
+            bytecode::Instruction::GetANext => {
+                let aiter = self.last_value();
+                let awaitable = vm.call_method(&aiter, "__anext__", vec![])?;
+                let awaitable = if awaitable.payload_is::<PyCoroutine>() {
+                    awaitable
+                } else {
+                    vm.call_method(&awaitable, "__await__", vec![])?
                 };
                 self.push_value(awaitable);
                 Ok(None)
@@ -1251,6 +1267,25 @@ impl Frame {
         !a.is(&b)
     }
 
+    fn exc_match(
+        &self,
+        vm: &VirtualMachine,
+        exc: PyObjectRef,
+        exc_type: PyObjectRef,
+    ) -> PyResult<bool> {
+        single_or_tuple_any(
+            exc_type,
+            |cls: PyClassRef| vm.isinstance(&exc, &cls),
+            |o| {
+                format!(
+                    "isinstance() arg 2 must be a type or tuple of types, not {}",
+                    o.class()
+                )
+            },
+            vm,
+        )
+    }
+
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_compare(
         &self,
@@ -1266,10 +1301,11 @@ impl Frame {
             bytecode::ComparisonOperator::LessOrEqual => vm._le(a, b)?,
             bytecode::ComparisonOperator::Greater => vm._gt(a, b)?,
             bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(a, b)?,
-            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)),
-            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
-            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
+            bytecode::ComparisonOperator::Is => vm.new_bool(self._is(a, b)),
+            bytecode::ComparisonOperator::IsNot => vm.new_bool(self._is_not(a, b)),
+            bytecode::ComparisonOperator::In => vm.new_bool(self._in(vm, a, b)?),
+            bytecode::ComparisonOperator::NotIn => vm.new_bool(self._not_in(vm, a, b)?),
+            bytecode::ComparisonOperator::ExceptionMatch => vm.new_bool(self.exc_match(vm, a, b)?),
         };
 
         self.push_value(value);
