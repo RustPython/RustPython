@@ -264,6 +264,14 @@ fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
 
 fn math_modf(x: IntoPyFloat, _vm: &VirtualMachine) -> (f64, f64) {
     let x = x.to_f64();
+    if !x.is_finite() {
+        if x.is_infinite() {
+            return (0.0_f64.copysign(x), x);
+        } else if x.is_nan() {
+            return (x, x);
+        }
+    }
+
     (x.fract(), x.trunc())
 }
 
