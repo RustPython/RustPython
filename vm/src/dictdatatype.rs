@@ -37,7 +37,6 @@ impl<T> Default for Dict<T> {
 
 #[derive(Clone)]
 struct DictEntry<T> {
-    hash_index: HashIndex,
     hash: HashValue,
     key: PyObjectRef,
     value: T,
@@ -78,7 +77,6 @@ impl<T: Clone> Dict<T> {
     ) {
         let entry = DictEntry {
             hash: hash_value,
-            hash_index,
             key,
             value,
         };
