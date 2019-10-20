@@ -585,7 +585,8 @@ impl PyFloat {
                             hex += &ch.to_string();
                         }
                     }
-                    Ok(hexf_parse::parse_hexf64(&hex, false).unwrap())
+                    Ok(hexf_parse::parse_hexf64(&hex, false)
+                        .expect("invalid hexadecimal floating-point string"))
                 } else {
                     let res = match value.parse::<f64>() {
                         Ok(float_num) => Ok(float_num),
