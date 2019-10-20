@@ -38,3 +38,6 @@ with assert_raises(Exception):
   data = struct.pack('B2B', 65, 66)
 
 data = struct.pack('B1B', 65, 66)
+
+with assert_raises(Exception):
+  struct.pack('<IH', "14", 12)
