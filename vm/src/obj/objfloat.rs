@@ -416,8 +416,20 @@ impl PyFloat {
 
     #[pymethod(name = "__repr__")]
     fn repr(&self, vm: &VirtualMachine) -> String {
-        if self.is_integer(vm) {
-            format!("{:.1?}", self.value)
+        let value = format!("{:e}", self.value);
+        if let Some(position) = value.find('e') {
+            let significand = &value[..position];
+            let exponent = &value[position + 1..];
+            let exponent = exponent.parse::<i32>().unwrap();
+            if exponent < 16 && exponent > -5 {
+                if self.is_integer(vm) {
+                    format!("{:.1?}", self.value)
+                } else {
+                    self.value.to_string()
+                }
+            } else {
+                format!("{}e{:+#03}", significand, exponent)
+            }
         } else {
             self.value.to_string()
         }
