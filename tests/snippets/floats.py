@@ -236,6 +236,13 @@ a = 3.1__4
 with assert_raises(SyntaxError):
     exec(src)
 
+assert float.fromhex('0.0') == 0.0
+assert float.fromhex('-0.0') == 0.0
+assert float.fromhex('0x0p0') == 0.0
+assert float.fromhex('-0x0p0') == 0.0
+assert float.fromhex('0x0.p0') == 0.0
+assert float.fromhex('-0x0.p0') == 0.0
+assert float.fromhex('-0x0.0p+0') == -0.0
 assert float.fromhex('0x0.0p+0') == 0.0
 assert float.fromhex('-0x0.0p+0') == -0.0
 assert float.fromhex('0x1.000000p+0') == 1.0

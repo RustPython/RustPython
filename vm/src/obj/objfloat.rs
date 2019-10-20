@@ -575,7 +575,27 @@ impl PyFloat {
             "nan" => Ok(std::f64::NAN),
             "inf" => Ok(std::f64::INFINITY),
             "-inf" => Ok(std::f64::NEG_INFINITY),
-            _ => Err(vm.new_value_error("invalid hexadecimal floating-point string".to_string())),
+            value => {
+                if value.contains("0x") {
+                    let mut hex = "".to_string();
+                    for ch in value.chars() {
+                        if ch == 'p' {
+                            hex += ".p";
+                        } else {
+                            hex += &ch.to_string();
+                        }
+                    }
+                    Ok(hexf_parse::parse_hexf64(&hex, false).unwrap())
+                } else {
+                    let res = match value.parse::<f64>() {
+                        Ok(float_num) => Ok(float_num),
+                        _e => Err(vm.new_value_error(
+                            "invalid hexadecimal floating-point string".to_string(),
+                        )),
+                    };
+                    res
+                }
+            }
         })
     }
 
