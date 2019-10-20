@@ -576,7 +576,8 @@ impl PyFloat {
             "inf" => Ok(std::f64::INFINITY),
             "-inf" => Ok(std::f64::NEG_INFINITY),
             value => {
-                if value.contains("0x") {
+                let err_msg = "invalid hexadecimal floating-point string";
+                let res = if value.contains("0x") {
                     let mut hex = "".to_string();
                     for ch in value.chars() {
                         if ch == 'p' {
@@ -585,17 +586,18 @@ impl PyFloat {
                             hex += &ch.to_string();
                         }
                     }
-                    Ok(hexf_parse::parse_hexf64(&hex, false)
-                        .expect("invalid hexadecimal floating-point string"))
+
+                    match hexf_parse::parse_hexf64(&hex, false) {
+                        Ok(f) => Ok(f),
+                        _e => Err(vm.new_value_error(err_msg.to_string())),
+                    }
                 } else {
-                    let res = match value.parse::<f64>() {
-                        Ok(float_num) => Ok(float_num),
-                        _e => Err(vm.new_value_error(
-                            "invalid hexadecimal floating-point string".to_string(),
-                        )),
-                    };
-                    res
-                }
+                    match value.parse::<f64>() {
+                        Ok(f) => Ok(f),
+                        _e => Err(vm.new_value_error(err_msg.to_string())),
+                    }
+                };
+                res
             }
         })
     }
