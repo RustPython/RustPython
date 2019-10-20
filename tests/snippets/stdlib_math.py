@@ -246,3 +246,23 @@ assert math.modf(NINF) == (-0.0, NINF)
 modf_nan = math.modf(NAN)
 assert math.isnan(modf_nan[0])
 assert math.isnan(modf_nan[1])
+
+assert math.fmod(10, 1) == 0.0
+assert math.fmod(10, 0.5) == 0.0
+assert math.fmod(10, 1.5) == 1.0
+assert math.fmod(-10, 1) == -0.0
+assert math.fmod(-10, 0.5) == -0.0
+assert math.fmod(-10, 1.5) == -1.0
+assert math.isnan(math.fmod(NAN, 1.)) == True
+assert math.isnan(math.fmod(1., NAN)) == True
+assert math.isnan(math.fmod(NAN, NAN)) == True
+assert_raises(ValueError, lambda: math.fmod(1., 0.))
+assert_raises(ValueError, lambda: math.fmod(INF, 1.))
+assert_raises(ValueError, lambda: math.fmod(NINF, 1.))
+assert_raises(ValueError, lambda: math.fmod(INF, 0.))
+assert math.fmod(3.0, INF) == 3.0
+assert math.fmod(-3.0, INF) == -3.0
+assert math.fmod(3.0, NINF) == 3.0
+assert math.fmod(-3.0, NINF) == -3.0
+assert math.fmod(0.0, 3.0) == 0.0
+assert math.fmod(0.0, NINF) == 0.0

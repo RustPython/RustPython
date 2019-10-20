@@ -275,6 +275,20 @@ fn math_modf(x: IntoPyFloat, _vm: &VirtualMachine) -> (f64, f64) {
     (x.fract(), x.trunc())
 }
 
+fn math_fmod(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    let y = y.to_f64();
+    if y.is_infinite() && x.is_finite() {
+        return Ok(x);
+    }
+    let r = x % y;
+    if r.is_nan() && !x.is_nan() && !y.is_nan() {
+        return Err(vm.new_value_error("math domain error".to_string()));
+    }
+
+    Ok(r)
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -327,6 +341,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "frexp" => ctx.new_rustfunc(math_frexp),
         "ldexp" => ctx.new_rustfunc(math_ldexp),
         "modf" => ctx.new_rustfunc(math_modf),
+        "fmod" => ctx.new_rustfunc(math_fmod),
 
         // Rounding functions:
         "trunc" => ctx.new_rustfunc(math_trunc),
