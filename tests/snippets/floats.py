@@ -289,3 +289,14 @@ assert float('nan').__eq__(float('nan')) is False
 assert float('nan').__ne__(float('nan')) is True
 assert float('nan').__eq__(float('inf')) is False
 assert float('nan').__ne__(float('inf')) is True
+
+assert float(1e15).__repr__() == "1000000000000000.0"
+assert float(1e16).__repr__() == "1e+16"
+assert float(1e308).__repr__() == "1e+308"
+assert float(1e309).__repr__() == "inf"
+assert float(1e-323).__repr__() == "1e-323"
+assert float(1e-324).__repr__() == "0.0"
+assert float(1e-5).__repr__() == "1e-05"
+assert float(1e-4).__repr__() == "0.0001"
+assert float(1.2345678901234567890).__repr__() == "1.2345678901234567"
+assert float(1.2345678901234567890e308).__repr__() == "1.2345678901234567e+308"
