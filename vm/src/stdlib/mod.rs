@@ -43,6 +43,8 @@ mod os;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
 #[cfg(not(target_arch = "wasm32"))]
+mod select;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod signal;
 #[cfg(not(target_arch = "wasm32"))]
 mod subprocess;
@@ -106,6 +108,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("_os".to_string(), Box::new(os::make_module));
         modules.insert("socket".to_string(), Box::new(socket::make_module));
         modules.insert("signal".to_string(), Box::new(signal::make_module));
+        modules.insert("select".to_string(), Box::new(select::make_module));
         modules.insert("_subprocess".to_string(), Box::new(subprocess::make_module));
         modules.insert("zlib".to_string(), Box::new(zlib::make_module));
     }
