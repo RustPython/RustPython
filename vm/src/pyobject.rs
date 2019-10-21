@@ -941,6 +941,7 @@ where
 }
 
 impl TryFromObject for PyObjectRef {
+    #[inline]
     fn try_from_object(_vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         Ok(obj)
     }

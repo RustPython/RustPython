@@ -1043,7 +1043,7 @@ impl Frame {
 
     fn execute_unpack_ex(&self, vm: &VirtualMachine, before: usize, after: usize) -> FrameResult {
         let value = self.pop_value();
-        let elements = vm.extract_elements(&value)?;
+        let elements = vm.extract_elements::<PyObjectRef>(&value)?;
         let min_expected = before + after;
         if elements.len() < min_expected {
             Err(vm.new_value_error(format!(

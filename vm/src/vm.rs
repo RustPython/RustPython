@@ -808,17 +808,22 @@ impl VirtualMachine {
         Ok(())
     }
 
-    pub fn extract_elements(&self, value: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
+    pub fn extract_elements<T: TryFromObject>(&self, value: &PyObjectRef) -> PyResult<Vec<T>> {
         // Extract elements from item, if possible:
-        let elements = if objtype::isinstance(value, &self.ctx.tuple_type()) {
-            objsequence::get_elements_tuple(value).to_vec()
+        if objtype::isinstance(value, &self.ctx.tuple_type()) {
+            objsequence::get_elements_tuple(value)
+                .iter()
+                .map(|obj| T::try_from_object(self, obj.clone()))
+                .collect()
         } else if objtype::isinstance(value, &self.ctx.list_type()) {
-            objsequence::get_elements_list(value).to_vec()
+            objsequence::get_elements_list(value)
+                .iter()
+                .map(|obj| T::try_from_object(self, obj.clone()))
+                .collect()
         } else {
             let iter = objiter::get_iter(self, value)?;
-            objiter::get_all(self, &iter)?
-        };
-        Ok(elements)
+            objiter::get_all(self, &iter)
+        }
     }
 
     // get_attribute should be used for full attribute access (usually from user code).
