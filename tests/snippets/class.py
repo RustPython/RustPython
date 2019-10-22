@@ -174,6 +174,16 @@ class A:
     assert a == 2
 A.b()
 
+class A:
+    pass
+
+assert A.__doc__ == None
+
+class B:
+    "Docstring"
+
+assert B.__doc__ == "Docstring"
+
 # TODO: uncomment once free vars/cells are working
 # The symboltable sees that b() is referring to a in the nested scope,
 # so it marks it as non local. When it's executed, it walks up the scopes
