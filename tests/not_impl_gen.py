@@ -5,6 +5,7 @@
 import pkgutil
 import os
 import sys
+import warnings
 
 sys.path = list(
     filter(
@@ -61,10 +62,13 @@ def gen_methods(header, footer, output):
     output.write(footer.read())
 
 def get_module_methods(name):
-    try:
-        return set(dir(__import__(name))) if name not in ("this", "antigravity") else None
-    except ModuleNotFoundError:
-        return None
+    with warnings.catch_warnings():
+        # ignore warnings caused by importing deprecated modules
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        try:
+            return set(dir(__import__(name))) if name not in ("this", "antigravity") else None
+        except ModuleNotFoundError:
+            return None
 
 
 def gen_modules(header, footer, output):
