@@ -105,13 +105,13 @@ impl ByteInnerNewOptions {
                     obj => {
                         let elements = vm.extract_elements(&obj).or_else(|_| {
                             Err(vm.new_type_error(format!(
-                                "cannot convert {} object to bytes",
+                                "cannot convert '{}' object to bytes",
                                 obj.class().name
                             )))
                         });
 
                         let mut data_bytes = vec![];
-                        for elem in elements.unwrap() {
+                        for elem in elements? {
                             let v = objint::to_int(vm, &elem, &BigInt::from(10))?;
                             if let Some(i) = v.to_u8() {
                                 data_bytes.push(i);
