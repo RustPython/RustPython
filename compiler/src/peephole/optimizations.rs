@@ -52,7 +52,7 @@ pub fn operator(buf: &mut impl OptimizationBuffer) {
             (op!(Multiply), lc!(Float, lhs), lc!(Float, rhs)) => {
                 emitconst!(buf, [lhs_meta, rhs_meta], Float, lhs * rhs)
             }
-            (op!(Divide), lc!(Float, lhs), lc!(Float, rhs)) => {
+            (op!(Divide), lc!(Float, lhs), lc!(Float, rhs)) if rhs != 0.0 => {
                 emitconst!(buf, [lhs_meta, rhs_meta], Float, lhs / rhs)
             }
             (op!(Power), lc!(Float, lhs), lc!(Float, rhs)) => {

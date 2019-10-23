@@ -144,6 +144,10 @@ assert_raises(ZeroDivisionError, lambda: 2 / 0.0)
 assert_raises(ZeroDivisionError, lambda: 2 // 0.0)
 assert_raises(ZeroDivisionError, lambda: 2 % 0.0)
 # assert_raises(ZeroDivisionError, divmod, 2, 0.0)
+assert_raises(ZeroDivisionError, lambda: 2.0 / 0.0)
+assert_raises(ZeroDivisionError, lambda: 2.0 // 0.0)
+assert_raises(ZeroDivisionError, lambda: 2.0 % 0.0)
+assert_raises(ZeroDivisionError, divmod, 2.0, 0.0)
 
 assert 1.2.__int__() == 1
 assert 1.2.__float__() == 1.2
