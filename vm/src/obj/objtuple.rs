@@ -42,26 +42,23 @@ impl PyValue for PyTuple {
     }
 }
 
-impl<A> IntoPyObject for (A,)
-where
-    A: IntoPyObject,
-{
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_tuple(vec![self.0.into_pyobject(vm)?]))
-    }
+macro_rules! impl_intopyobj_tuple {
+    ($(($T:ident, $idx:tt)),+) => {
+        impl<$($T: IntoPyObject),*> IntoPyObject for ($($T,)*) {
+            fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+                Ok(vm.ctx.new_tuple(vec![$(self.$idx.into_pyobject(vm)?),*]))
+            }
+        }
+    };
 }
 
-impl<A, B> IntoPyObject for (A, B)
-where
-    A: IntoPyObject,
-    B: IntoPyObject,
-{
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_tuple(vec![self.0.into_pyobject(vm)?, self.1.into_pyobject(vm)?]))
-    }
-}
+impl_intopyobj_tuple!((A, 0));
+impl_intopyobj_tuple!((A, 0), (B, 1));
+impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2));
+impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3));
+impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4));
+impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5));
+impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6));
 
 impl PyTuple {
     pub fn fast_getitem(&self, idx: usize) -> PyObjectRef {
