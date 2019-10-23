@@ -5,8 +5,8 @@ use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::ToPrimitive;
 
-use super::objbytearray::PyByteArray;
-use super::objbytes::PyBytes;
+use super::objbytearray::{PyByteArray, PyByteArrayRef};
+use super::objbytes::{PyBytes, PyBytesRef};
 use super::objint::{self, PyInt, PyIntRef};
 use super::objlist::PyList;
 use super::objmemory::PyMemoryView;
@@ -1302,4 +1302,35 @@ fn split_slice_reverse<'a>(slice: &'a [u8], sep: &[u8], maxsplit: i32) -> Vec<&'
     }
     splitted.reverse();
     splitted
+}
+
+pub enum PyBytesLike {
+    Bytes(PyBytesRef),
+    Bytearray(PyByteArrayRef),
+    Vec(Vec<u8>),
+}
+
+impl TryFromObject for PyBytesLike {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match_class!(match obj {
+            b @ PyBytes => Ok(PyBytesLike::Bytes(b)),
+            b @ PyByteArray => Ok(PyBytesLike::Bytearray(b)),
+            m @ PyMemoryView => Ok(PyBytesLike::Vec(m.get_obj_value().unwrap())),
+            l @ PyList => Ok(PyBytesLike::Vec(l.get_byte_inner(vm)?.elements)),
+            obj => Err(vm.new_type_error(format!(
+                "a bytes-like object is required, not {}",
+                obj.class()
+            ))),
+        })
+    }
+}
+
+impl PyBytesLike {
+    pub fn to_cow(&self) -> std::borrow::Cow<[u8]> {
+        match self {
+            PyBytesLike::Bytes(b) => b.get_value().into(),
+            PyBytesLike::Bytearray(b) => b.inner.borrow().elements.clone().into(),
+            PyBytesLike::Vec(b) => b.as_slice().into(),
+        }
+    }
 }

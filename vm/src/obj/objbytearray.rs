@@ -37,7 +37,7 @@ use std::mem::size_of;
 pub struct PyByteArray {
     pub inner: RefCell<PyByteInner>,
 }
-type PyByteArrayRef = PyRef<PyByteArray>;
+pub type PyByteArrayRef = PyRef<PyByteArray>;
 
 impl PyByteArray {
     pub fn new(data: Vec<u8>) -> Self {
