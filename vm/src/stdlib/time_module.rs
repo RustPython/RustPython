@@ -31,7 +31,7 @@ fn time_sleep(seconds: f64, vm: &VirtualMachine) -> PyResult<()> {
     let interrupted = res == -1 && nix::errno::errno() == libc::EINTR;
 
     if interrupted {
-        crate::stdlib::signal::check_signals(vm)?;
+        vm.check_signals()?;
     }
 
     Ok(())
@@ -50,7 +50,7 @@ fn duration_to_f64(d: Duration) -> f64 {
 }
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-fn time_time(_vm: &VirtualMachine) -> f64 {
+pub fn get_time() -> f64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(v) => duration_to_f64(v),
         Err(err) => panic!("Time error: {:?}", err),
@@ -58,7 +58,7 @@ fn time_time(_vm: &VirtualMachine) -> f64 {
 }
 
 #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-fn time_time(_vm: &VirtualMachine) -> f64 {
+pub fn get_time() -> f64 {
     use wasm_bindgen::prelude::*;
     #[wasm_bindgen]
     extern "C" {
@@ -68,6 +68,10 @@ fn time_time(_vm: &VirtualMachine) -> f64 {
     }
     // Date.now returns unix time in milliseconds, we want it in seconds
     Date::now() / 1000.0
+}
+
+fn time_time(_vm: &VirtualMachine) -> f64 {
+    get_time()
 }
 
 fn time_monotonic(_vm: &VirtualMachine) -> f64 {
