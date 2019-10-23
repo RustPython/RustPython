@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::mem::size_of;
 use std::ops::Deref;
 
 use wtf8;
@@ -147,6 +148,11 @@ impl PyBytesRef {
             position: Cell::new(0),
             bytes: self,
         }
+    }
+
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(self, _vm: &VirtualMachine) -> PyResult<usize> {
+        Ok(size_of::<Self>() + self.inner.elements.len() * size_of::<u8>())
     }
 
     #[pymethod(name = "__add__")]
