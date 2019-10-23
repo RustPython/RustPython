@@ -48,6 +48,7 @@ pub enum CFormatPreconversor {
     Repr,
     Str,
     Ascii,
+    Bytes,
 }
 
 #[derive(Debug, PartialEq)]
@@ -542,6 +543,11 @@ fn parse_format_type(text: &str) -> Result<(CFormatType, &str, char), CFormatErr
         )),
         Some('s') => Ok((
             CFormatType::String(CFormatPreconversor::Str),
+            chars.as_str(),
+            next_char.unwrap(),
+        )),
+        Some('b') => Ok((
+            CFormatType::String(CFormatPreconversor::Bytes),
             chars.as_str(),
             next_char.unwrap(),
         )),

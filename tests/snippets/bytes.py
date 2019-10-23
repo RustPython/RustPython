@@ -608,3 +608,7 @@ assert b'\xc2\xae\x75\x73\x74'.decode('ascii', 'ignore') == 'ust'
 assert b'\xc2\xae\x75\x73\x74'.decode('utf-8') == '®ust'
 assert b'\xc2\xae\x75\x73\x74'.decode() == '®ust'
 assert b'\xe4\xb8\xad\xe6\x96\x87\xe5\xad\x97'.decode('utf-8') == '中文字'
+
+# mod
+assert b'rust%bpython%b' % (b' ', b'!') == b'rust python!'
+assert b'x=%i y=%f' % (1, 2.5) == b'x=1 y=2.500000'
