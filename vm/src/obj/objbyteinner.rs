@@ -1013,8 +1013,8 @@ impl PyByteInner {
         let mut done = 0;
 
         let slice = &self.elements;
-        while index <= slice.len() - old.len() {
-            if done == count {
+        loop {
+            if done == count || index > slice.len() - old.len() {
                 res.extend_from_slice(&slice[index..]);
                 break;
             }

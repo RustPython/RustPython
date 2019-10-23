@@ -581,6 +581,9 @@ assert b"123456789123".replace(b"23", b"XX", 1) == b"1XX456789123"
 assert b"123456789123".replace(b"23", b"XX", 0) == b"123456789123"
 assert b"123456789123".replace(b"23", b"XX", -1) == b"1XX4567891XX"
 assert b"123456789123".replace(b"23", b"") == b"14567891"
+assert b"123456789123".replace(b"23", b"X") == b"1X4567891X"
+assert b"rust  python".replace(b" ", b"-") == b"rust--python"
+assert b"rust  python".replace(b"  ", b"-") == b"rust-python"
 
 # title
 assert b"Hello world".title() == b"Hello World"
