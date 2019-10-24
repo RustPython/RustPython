@@ -37,6 +37,14 @@ Or use the interactive shell:
     >>>>> 2+2
     4
 
+You can also install and run RustPython with the following:
+
+    $ cargo install rustpython
+    $ rustpython
+    Welcome to the magnificent Rust Python interpreter
+    >>>>> 
+
+
 ### WASI
 
 You can compile RustPython to a standalone WebAssembly WASI module so it can run anywhere.
