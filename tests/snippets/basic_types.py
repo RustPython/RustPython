@@ -34,10 +34,11 @@ print(a)
 b = bytes([1, 2, 3])
 assert a == b
 
-try:
+with assert_raises(TypeError):
     bytes([object()])
-except TypeError:
-    pass
+
+with assert_raises(TypeError):
+    bytes(1.0)
 
 with assert_raises(ValueError):
     bytes(-1)
