@@ -86,8 +86,7 @@ subprocess = "0.1.18"
 num_cpus = "1.0"
 
 [target."cfg(windows)".dependencies]
-kernel32-sys = "0.2.2"
-winapi = { version = "0.3", features = ["winsock2"] }
+winapi = { version = "0.3", features = ["winsock2", "handleapi", "std"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
