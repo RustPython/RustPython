@@ -571,35 +571,28 @@ impl PyFloat {
 
     #[pymethod]
     fn fromhex(repr: PyStringRef, vm: &VirtualMachine) -> PyResult<f64> {
-        hexf_parse::parse_hexf64(repr.as_str(), false).or_else(|_| match repr.as_str() {
-            "nan" => Ok(std::f64::NAN),
-            "inf" => Ok(std::f64::INFINITY),
-            "-inf" => Ok(std::f64::NEG_INFINITY),
-            value => {
-                let err_msg = "invalid hexadecimal floating-point string";
-                let res = if value.contains("0x") {
-                    let mut hex = "".to_string();
-                    for ch in value.chars() {
-                        if ch == 'p' {
-                            hex += ".p";
-                        } else {
-                            hex += &ch.to_string();
+        hexf_parse::parse_hexf64(repr.as_str(), false)
+            .or_else(|_| repr.as_str().parse::<f64>())
+            .or_else(|_| match repr.as_str() {
+                "nan" => Ok(std::f64::NAN),
+                "inf" => Ok(std::f64::INFINITY),
+                "-inf" => Ok(std::f64::NEG_INFINITY),
+                value => {
+                    let mut hex = String::new();
+                    if value.contains("0x") {
+                        for ch in value.chars() {
+                            if ch == 'p' {
+                                hex.push_str(".p");
+                            } else {
+                                hex.push(ch);
+                            }
                         }
                     }
-
-                    match hexf_parse::parse_hexf64(&hex, false) {
-                        Ok(f) => Ok(f),
-                        _e => Err(vm.new_value_error(err_msg.to_string())),
-                    }
-                } else {
-                    match value.parse::<f64>() {
-                        Ok(f) => Ok(f),
-                        _e => Err(vm.new_value_error(err_msg.to_string())),
-                    }
-                };
-                res
-            }
-        })
+                    hexf_parse::parse_hexf64(hex.as_str(), false).map_err(|_| {
+                        vm.new_value_error("invalid hexadecimal floating-point string".to_string())
+                    })
+                }
+            })
     }
 
     #[pymethod]

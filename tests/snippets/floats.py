@@ -239,6 +239,8 @@ with assert_raises(SyntaxError):
 assert float.fromhex('0.0') == 0.0
 assert float.fromhex('-0.0') == 0.0
 assert float.fromhex('0x0p0') == 0.0
+assert float.fromhex('0x010p0') == 16.0
+assert float.fromhex('0x0.10p3') == 0.5
 assert float.fromhex('-0x0p0') == 0.0
 assert float.fromhex('0x0.p0') == 0.0
 assert float.fromhex('-0x0.p0') == 0.0
@@ -248,6 +250,7 @@ assert float.fromhex('0x1.000000p+0') == 1.0
 assert float.fromhex('-0x1.800000p+0') == -1.5
 assert float.fromhex('inf') == float('inf')
 assert math.isnan(float.fromhex('nan'))
+assert_raises(ValueError, lambda: float.fromhex('error'))
 
 assert (0.0).hex() == '0x0.0p+0'
 assert (-0.0).hex() == '-0x0.0p+0'
