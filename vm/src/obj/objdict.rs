@@ -65,6 +65,12 @@ impl PyDictRef {
                 for (key, value) in dict_obj {
                     dict.borrow_mut().insert(vm, &key, value)?;
                 }
+            } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
+                let keys = objiter::get_iter(vm, &vm.invoke(&keys?, vec![])?)?;
+                while let Some(key) = objiter::get_next_object(vm, &keys)? {
+                    let val = dict_obj.get_item(&key, vm)?;
+                    dict.borrow_mut().insert(vm, &key, val)?;
+                }
             } else {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
                 loop {
@@ -85,6 +91,7 @@ impl PyDictRef {
                 }
             }
         }
+
         let mut dict_borrowed = dict.borrow_mut();
         for (key, value) in kwargs.into_iter() {
             dict_borrowed.insert(vm, &vm.new_str(key), value)?;
