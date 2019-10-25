@@ -36,7 +36,7 @@ pub struct PySocket {
 
 impl PyValue for PySocket {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("socket", "socket")
+        vm.class("_socket", "socket")
     }
 }
 
@@ -126,7 +126,7 @@ impl PySocket {
         match self.sock.recv(&mut buffer) {
             Ok(_) => Ok(vm.ctx.new_bytes(buffer)),
             Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
-                let socket_timeout = vm.class("socket", "timeout");
+                let socket_timeout = vm.class("_socket", "timeout");
                 Err(vm.new_exception(socket_timeout, "Timed out".to_string()))
             }
             Err(err) => Err(convert_io_error(vm, err)),
@@ -139,7 +139,7 @@ impl PySocket {
         let addr = match self.sock.recv_from(&mut buffer) {
             Ok((_, addr)) => addr,
             Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
-                let socket_timeout = vm.class("socket", "timeout");
+                let socket_timeout = vm.class("_socket", "timeout");
                 return Err(vm.new_exception(socket_timeout, "Timed out".to_string()));
             }
             Err(err) => return Err(convert_io_error(vm, err)),
@@ -155,7 +155,7 @@ impl PySocket {
         match self.sock.send(bytes.to_cow().as_ref()) {
             Ok(i) => Ok(i),
             Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
-                let socket_timeout = vm.class("socket", "timeout");
+                let socket_timeout = vm.class("_socket", "timeout");
                 Err(vm.new_exception(socket_timeout, "Timed out".to_string()))
             }
             Err(err) => Err(convert_io_error(vm, err)),
@@ -351,7 +351,7 @@ where
     match addr.to_socket_addrs() {
         Ok(mut sock_addrs) => {
             if sock_addrs.len() == 0 {
-                let error_type = vm.class("socket", "gaierror");
+                let error_type = vm.class("_socket", "gaierror");
                 Err(vm.new_exception(
                     error_type,
                     "nodename nor servname provided, or not known".to_string(),
@@ -361,7 +361,7 @@ where
             }
         }
         Err(e) => {
-            let error_type = vm.class("socket", "gaierror");
+            let error_type = vm.class("_socket", "gaierror");
             Err(vm.new_exception(error_type, e.to_string()))
         }
     }
@@ -372,7 +372,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let socket_timeout = ctx.new_class("socket.timeout", vm.ctx.exceptions.os_error.clone());
     let socket_gaierror = ctx.new_class("socket.gaierror", vm.ctx.exceptions.os_error.clone());
 
-    let module = py_module!(vm, "socket", {
+    let module = py_module!(vm, "_socket", {
         "error" => ctx.exceptions.os_error.clone(),
         "timeout" => socket_timeout,
         "gaierror" => socket_gaierror,
