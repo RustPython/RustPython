@@ -727,11 +727,12 @@ impl PyString {
 
     #[pymethod]
     fn isupper(&self, _vm: &VirtualMachine) -> bool {
+        // TODO: assert not " ".isupper(), assert not "_".isupper()
         !self.value.is_empty()
             && self
                 .value
                 .chars()
-                .filter(|x| !x.is_ascii_whitespace())
+                .filter(|x| !x.is_ascii_whitespace() && *x != '_')
                 .all(char::is_uppercase)
     }
 
@@ -741,7 +742,7 @@ impl PyString {
             && self
                 .value
                 .chars()
-                .filter(|x| !x.is_ascii_whitespace())
+                .filter(|x| !x.is_ascii_whitespace() && *x != '_')
                 .all(char::is_lowercase)
     }
 
