@@ -69,6 +69,8 @@ def get_module_methods(name):
             return set(dir(__import__(name))) if name not in ("this", "antigravity") else None
         except ModuleNotFoundError:
             return None
+        except Exception as e:
+            print("!!! {} skipped because {}: {}".format(name, type(e).__name__, str(e)))
 
 
 def gen_modules(header, footer, output):
