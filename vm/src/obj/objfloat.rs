@@ -587,6 +587,8 @@ impl PyFloat {
                                 hex.push(ch);
                             }
                         }
+                    } else {
+                        hex = value.to_string();
                     }
                     hexf_parse::parse_hexf64(hex.as_str(), false).map_err(|_| {
                         vm.new_value_error("invalid hexadecimal floating-point string".to_string())
