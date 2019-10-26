@@ -6,13 +6,13 @@ use crate::vm::VirtualMachine;
 #[pyclass]
 #[derive(Debug)]
 pub struct PyTraceback {
-    next: Option<PyTracebackRef>,
-    frame: FrameRef,
-    lasti: usize,
-    lineno: usize,
+    pub next: Option<PyTracebackRef>,
+    pub frame: FrameRef,
+    pub lasti: usize,
+    pub lineno: usize,
 }
 
-type PyTracebackRef = PyRef<PyTraceback>;
+pub type PyTracebackRef = PyRef<PyTraceback>;
 
 impl PyValue for PyTraceback {
     fn class(vm: &VirtualMachine) -> PyClassRef {
