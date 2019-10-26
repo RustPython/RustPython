@@ -430,7 +430,7 @@ fn file_io_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     let handle = os::rust_file(raw_fd);
     let raw_handle = handle.into_raw_handle();
     unsafe {
-        kernel32::CloseHandle(raw_handle);
+        winapi::um::handleapi::CloseHandle(raw_handle);
     }
     vm.set_attr(&instance, "closefd", vm.new_bool(true))?;
     vm.set_attr(&instance, "closed", vm.new_bool(true))?;

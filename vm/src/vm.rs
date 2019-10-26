@@ -808,17 +808,22 @@ impl VirtualMachine {
         Ok(())
     }
 
-    pub fn extract_elements(&self, value: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
+    pub fn extract_elements<T: TryFromObject>(&self, value: &PyObjectRef) -> PyResult<Vec<T>> {
         // Extract elements from item, if possible:
-        let elements = if objtype::isinstance(value, &self.ctx.tuple_type()) {
-            objsequence::get_elements_tuple(value).to_vec()
+        if objtype::isinstance(value, &self.ctx.tuple_type()) {
+            objsequence::get_elements_tuple(value)
+                .iter()
+                .map(|obj| T::try_from_object(self, obj.clone()))
+                .collect()
         } else if objtype::isinstance(value, &self.ctx.list_type()) {
-            objsequence::get_elements_list(value).to_vec()
+            objsequence::get_elements_list(value)
+                .iter()
+                .map(|obj| T::try_from_object(self, obj.clone()))
+                .collect()
         } else {
             let iter = objiter::get_iter(self, value)?;
-            objiter::get_all(self, &iter)?
-        };
-        Ok(elements)
+            objiter::get_all(self, &iter)
+        }
     }
 
     // get_attribute should be used for full attribute access (usually from user code).
@@ -968,6 +973,20 @@ impl VirtualMachine {
             PyBuiltinFunction => true,
             obj => objtype::class_has_attr(&obj.class(), "__call__"),
         })
+    }
+
+    #[inline]
+    /// Checks for triggered signals and calls the appropriate handlers. A no-op on
+    /// platforms where signals are not supported.
+    pub fn check_signals(&self) -> PyResult<()> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::stdlib::signal::check_signals(self)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Ok(())
+        }
     }
 
     #[cfg(feature = "rustpython-compiler")]

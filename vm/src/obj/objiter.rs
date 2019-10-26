@@ -7,7 +7,7 @@ use std::cell::Cell;
 use super::objtuple::PyTuple;
 use super::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -60,14 +60,10 @@ pub fn get_next_object(
 }
 
 /* Retrieve all elements from an iterator */
-pub fn get_all(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
+pub fn get_all<T: TryFromObject>(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<T>> {
     let mut elements = vec![];
-    loop {
-        let element = get_next_object(vm, iter_obj)?;
-        match element {
-            Some(v) => elements.push(v),
-            None => break,
-        }
+    while let Some(element) = get_next_object(vm, iter_obj)? {
+        elements.push(T::try_from_object(vm, element)?);
     }
     Ok(elements)
 }
