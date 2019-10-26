@@ -71,7 +71,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "math".to_string() => Box::new(math::make_module),
         "platform".to_string() => Box::new(platform::make_module),
         "regex_crate".to_string() => Box::new(re::make_module),
-        "random".to_string() => Box::new(random::make_module),
+        "_random".to_string() => Box::new(random::make_module),
         "_string".to_string() => Box::new(string::make_module),
         "struct".to_string() => Box::new(pystruct::make_module),
         "_thread".to_string() => Box::new(thread::make_module),
