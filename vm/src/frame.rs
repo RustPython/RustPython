@@ -14,6 +14,7 @@ use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objstr::PyString;
+use crate::obj::objtraceback::PyTraceback;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
@@ -80,6 +81,7 @@ enum UnwindReason {
 }
 
 #[pyclass]
+#[derive(Clone)]
 pub struct Frame {
     pub code: PyCodeRef,
     // We need 1 stack per frame
@@ -167,12 +169,6 @@ impl Frame {
     // #[cfg_attr(feature = "flame-it", flame("Frame"))]
     pub fn run(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
-
-        let filename = &self.code.source_path.to_string();
-
-        // This is the name of the object being run:
-        let run_obj_name = &self.code.obj_name.to_string();
-
         // Execute until return or exception:
         loop {
             let lineno = self.get_lineno();
@@ -191,16 +187,21 @@ impl Frame {
                         &exception,
                         &vm.ctx.exceptions.base_exception_type
                     ));
+
                     let traceback = vm
                         .get_attribute(exception.clone(), "__traceback__")
                         .unwrap();
-                    vm_trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
-                    let raise_location = vm.ctx.new_tuple(vec![
-                        vm.ctx.new_str(filename.clone()),
-                        vm.ctx.new_int(lineno.row()),
-                        vm.ctx.new_str(run_obj_name.clone()),
-                    ]);
-                    objlist::PyListRef::try_from_object(vm, traceback)?.append(raise_location, vm);
+                    let new_traceback = PyTraceback::new(
+                        traceback,
+                        self.clone().into_ref(vm),
+                        self.lasti.get(),
+                        lineno.row(),
+                        vm,
+                    );
+                    vm.set_attr(&exception, "__traceback__", new_traceback.into_ref(vm))
+                        .unwrap();
+                    vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, lineno);
+
                     match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
                         Ok(None) => {}
                         Ok(Some(result)) => {

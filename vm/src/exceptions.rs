@@ -16,7 +16,7 @@ fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.set_attr(&exc_self, "args", exc_args)?;
 
     // TODO: have an actual `traceback` object for __traceback__
-    vm.set_attr(&exc_self, "__traceback__", vm.ctx.new_list(vec![]))?;
+    vm.set_attr(&exc_self, "__traceback__", vm.get_none())?;
     vm.set_attr(&exc_self, "__cause__", vm.get_none())?;
     vm.set_attr(&exc_self, "__context__", vm.get_none())?;
     vm.set_attr(&exc_self, "__suppress_context__", vm.new_bool(false))?;
