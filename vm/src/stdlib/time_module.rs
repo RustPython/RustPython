@@ -20,12 +20,11 @@ use crate::vm::VirtualMachine;
 #[cfg(unix)]
 fn time_sleep(seconds: f64, vm: &VirtualMachine) -> PyResult<()> {
     // this is basically std::thread::sleep, but that catches interrupts and we don't want to
-    let secs = seconds.trunc() as u64;
-    let nsecs = (seconds.fract() * 1e9) as i64;
+    let dur = Duration::from_secs_f64(seconds);
 
     let mut ts = libc::timespec {
-        tv_sec: std::cmp::min(libc::time_t::max_value() as u64, secs) as libc::time_t,
-        tv_nsec: nsecs,
+        tv_sec: std::cmp::min(libc::time_t::max_value() as u64, dur.as_secs()) as libc::time_t,
+        tv_nsec: dur.subsec_nanos().into(),
     };
     let res = unsafe { libc::nanosleep(&ts, &mut ts) };
     let interrupted = res == -1 && nix::errno::errno() == libc::EINTR;
@@ -39,20 +38,13 @@ fn time_sleep(seconds: f64, vm: &VirtualMachine) -> PyResult<()> {
 
 #[cfg(not(unix))]
 fn time_sleep(seconds: f64, _vm: &VirtualMachine) {
-    let secs: u64 = seconds.trunc() as u64;
-    let nanos: u32 = (seconds.fract() * 1e9) as u32;
-    let duration = Duration::new(secs, nanos);
-    std::thread::sleep(duration);
-}
-
-fn duration_to_f64(d: Duration) -> f64 {
-    (d.as_secs() as f64) + (f64::from(d.subsec_nanos()) / 1e9)
+    std::thread::sleep(Duration::from_secs_f64(seconds));
 }
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub fn get_time() -> f64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(v) => duration_to_f64(v),
+        Ok(v) => v.as_secs_f64(),
         Err(err) => panic!("Time error: {:?}", err),
     }
 }
@@ -77,22 +69,17 @@ fn time_time(_vm: &VirtualMachine) -> f64 {
 fn time_monotonic(_vm: &VirtualMachine) -> f64 {
     // TODO: implement proper monotonic time!
     match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(v) => duration_to_f64(v),
+        Ok(v) => v.as_secs_f64(),
         Err(err) => panic!("Time error: {:?}", err),
     }
-}
-
-fn pyfloat_to_secs_and_nanos(seconds: f64) -> (i64, u32) {
-    let secs: i64 = seconds.trunc() as i64;
-    let nanos: u32 = (seconds.fract() * 1e9) as u32;
-    (secs, nanos)
 }
 
 fn pyobj_to_naive_date_time(value: Either<f64, i64>) -> NaiveDateTime {
     match value {
         Either::A(float) => {
-            let (seconds, nanos) = pyfloat_to_secs_and_nanos(float);
-            NaiveDateTime::from_timestamp(seconds, nanos)
+            let secs = float.trunc() as i64;
+            let nsecs = (float.fract() * 1e9) as u32;
+            NaiveDateTime::from_timestamp(secs, nsecs)
         }
         Either::B(int) => NaiveDateTime::from_timestamp(int, 0),
     }
