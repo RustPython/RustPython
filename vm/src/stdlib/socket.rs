@@ -1,5 +1,5 @@
-use std::cell::Cell;
-use std::io;
+use std::cell::{Cell, Ref, RefCell};
+use std::io::{self, prelude::*};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
@@ -12,8 +12,7 @@ use socket2::{Domain, Socket, Type as SocketType};
 use super::os::convert_io_error;
 #[cfg(unix)]
 use super::os::convert_nix_error;
-use super::time_module::duration_to_f64;
-use crate::function::OptionalArg;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::PyStringRef;
@@ -30,8 +29,10 @@ type RawSocket = std::os::windows::raw::SOCKET;
 #[pyclass]
 #[derive(Debug)]
 pub struct PySocket {
-    timeout: Cell<Option<Duration>>,
-    sock: Socket,
+    kind: Cell<i32>,
+    family: Cell<i32>,
+    proto: Cell<i32>,
+    sock: RefCell<Socket>,
 }
 
 impl PyValue for PySocket {
@@ -44,43 +45,76 @@ pub type PySocketRef = PyRef<PySocket>;
 
 #[pyimpl]
 impl PySocket {
+    fn sock(&self) -> Ref<Socket> {
+        self.sock.borrow()
+    }
+
     #[pyslot(new)]
-    fn new(
-        cls: PyClassRef,
-        domain: OptionalArg<i32>,
-        socket_type: OptionalArg<i32>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        let domain = domain.unwrap_or(libc::AF_INET);
-        let socket_type = socket_type.unwrap_or(libc::SOCK_STREAM);
-        let domain = match domain {
-            libc::AF_INET => Domain::ipv4(),
-            libc::AF_INET6 => Domain::ipv6(),
-            #[cfg(unix)]
-            libc::AF_UNIX => Domain::unix(),
-            _ => return Err(vm.new_os_error(format!("Unknown address family value: {}", domain))),
-        };
-        let socket_type = match socket_type {
-            libc::SOCK_STREAM => SocketType::stream(),
-            libc::SOCK_DGRAM => SocketType::dgram(),
-            _ => return Err(vm.new_os_error(format!("Unknown socket kind value: {}", socket_type))),
-        };
-        let sock =
-            Socket::new(domain, socket_type, None).map_err(|err| convert_io_error(vm, err))?;
+    fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PySocket {
-            sock,
-            timeout: Cell::default(),
+            kind: Cell::default(),
+            family: Cell::default(),
+            proto: Cell::default(),
+            sock: RefCell::new(invalid_sock()),
         }
         .into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(name = "__init__")]
+    fn init(
+        &self,
+        family: i32,
+        socket_kind: i32,
+        proto: i32,
+        fileno: Option<RawSocket>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let sock = if let Some(fileno) = fileno {
+            #[cfg(unix)]
+            {
+                use std::os::unix::io::FromRawFd;
+                unsafe { Socket::from_raw_fd(fileno) }
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::io::FromRawHandle;
+                unsafe { Socket::from_raw_handle(fileno as *mut ffi::c_void) }
+            }
+        } else {
+            let domain = match family {
+                libc::AF_INET => Domain::ipv4(),
+                libc::AF_INET6 => Domain::ipv6(),
+                #[cfg(unix)]
+                libc::AF_UNIX => Domain::unix(),
+                _ => {
+                    return Err(vm.new_os_error(format!("Unknown address family value: {}", family)))
+                }
+            };
+            self.family.set(family);
+            let socket_type = match socket_kind {
+                libc::SOCK_STREAM => SocketType::stream(),
+                libc::SOCK_DGRAM => SocketType::dgram(),
+                _ => {
+                    return Err(
+                        vm.new_os_error(format!("Unknown socket kind value: {}", socket_kind))
+                    )
+                }
+            };
+            self.kind.set(socket_kind);
+            self.proto.set(proto);
+            Socket::new(domain, socket_type, None).map_err(|err| convert_io_error(vm, err))?
+        };
+        self.sock.replace(sock);
+        Ok(())
     }
 
     #[pymethod]
     fn connect(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
         let sock_addr = get_addr(vm, address)?;
-        let res = if let Some(duration) = self.timeout.get() {
-            self.sock.connect_timeout(&sock_addr, duration)
+        let res = if let Some(duration) = self.sock().read_timeout().unwrap() {
+            self.sock().connect_timeout(&sock_addr, duration)
         } else {
-            self.sock.connect(&sock_addr)
+            self.sock().connect(&sock_addr)
         };
         res.map_err(|err| convert_io_error(vm, err))
     }
@@ -88,7 +122,7 @@ impl PySocket {
     #[pymethod]
     fn bind(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
         let sock_addr = get_addr(vm, address)?;
-        self.sock
+        self.sock()
             .bind(&sock_addr)
             .map_err(|err| convert_io_error(vm, err))
     }
@@ -97,34 +131,29 @@ impl PySocket {
     fn listen(&self, backlog: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<()> {
         let backlog = backlog.unwrap_or(128);
         let backlog = if backlog < 0 { 0 } else { backlog };
-        self.sock
+        self.sock()
             .listen(backlog)
             .map_err(|err| convert_io_error(vm, err))
     }
 
     #[pymethod]
-    fn accept(&self, vm: &VirtualMachine) -> PyResult {
+    fn _accept(&self, vm: &VirtualMachine) -> PyResult {
         let (sock, addr) = self
-            .sock
+            .sock()
             .accept()
             .map_err(|err| convert_io_error(vm, err))?;
 
-        let socket = PySocket {
-            sock,
-            timeout: self.timeout.clone(),
-        }
-        .into_ref(vm);
-
+        let fd = vm.new_int(into_sock_fileno(sock));
         let addr_tuple = get_addr_tuple(vm, addr);
 
-        Ok(vm.ctx.new_tuple(vec![socket.into_object(), addr_tuple]))
+        Ok(vm.ctx.new_tuple(vec![fd, addr_tuple]))
     }
 
     #[pymethod]
     fn recv(&self, bufsize: usize, vm: &VirtualMachine) -> PyResult {
         let mut buffer = vec![0u8; bufsize];
-        match self.sock.recv(&mut buffer) {
-            Ok(_) => Ok(vm.ctx.new_bytes(buffer)),
+        match self.sock.borrow_mut().read_exact(&mut buffer) {
+            Ok(()) => Ok(vm.ctx.new_bytes(buffer)),
             Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
                 let socket_timeout = vm.class("_socket", "timeout");
                 Err(vm.new_exception(socket_timeout, "Timed out".to_string()))
@@ -136,7 +165,7 @@ impl PySocket {
     #[pymethod]
     fn recvfrom(&self, bufsize: usize, vm: &VirtualMachine) -> PyResult {
         let mut buffer = vec![0u8; bufsize];
-        let addr = match self.sock.recv_from(&mut buffer) {
+        let addr = match self.sock().recv_from(&mut buffer) {
             Ok((_, addr)) => addr,
             Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
                 let socket_timeout = vm.class("_socket", "timeout");
@@ -152,7 +181,7 @@ impl PySocket {
 
     #[pymethod]
     fn send(&self, bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
-        match self.sock.send(bytes.to_cow().as_ref()) {
+        match self.sock().send(bytes.to_cow().as_ref()) {
             Ok(i) => Ok(i),
             Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
                 let socket_timeout = vm.class("_socket", "timeout");
@@ -165,91 +194,67 @@ impl PySocket {
     #[pymethod]
     fn sendto(&self, bytes: PyBytesLike, address: Address, vm: &VirtualMachine) -> PyResult<()> {
         let addr = get_addr(vm, address)?;
-        self.sock
+        self.sock()
             .send_to(bytes.to_cow().as_ref(), &addr)
             .map_err(|err| convert_io_error(vm, err))?;
         Ok(())
     }
 
     #[pymethod]
-    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
-        let fd = self.clone().fileno(vm);
-        #[cfg(unix)]
-        let ret = unsafe { libc::close(fd) };
-        #[cfg(windows)]
-        let ret = {
-            extern "system" {
-                fn closesocket(s: std::os::windows::raw::SOCKET) -> c_int;
-            };
-            unsafe { closesocket(fd) }
-        };
-        if ret != 0 {
-            Err(convert_io_error(vm, io::Error::last_os_error()))
-        } else {
-            Ok(())
-        }
+    fn close(&self, _vm: &VirtualMachine) {
+        self.sock.replace(invalid_sock());
     }
 
     #[pymethod]
     fn fileno(&self, _vm: &VirtualMachine) -> RawSocket {
-        #[cfg(unix)]
-        {
-            use std::os::unix::io::AsRawFd;
-            self.sock.as_raw_fd()
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::io::AsRawSocket;
-            self.sock.as_raw_socket()
-        }
+        sock_fileno(&self.sock())
     }
 
     #[pymethod]
     fn getsockname(&self, vm: &VirtualMachine) -> PyResult {
         let addr = self
-            .sock
+            .sock()
             .local_addr()
+            .map_err(|err| convert_io_error(vm, err))?;
+
+        Ok(get_addr_tuple(vm, addr))
+    }
+    #[pymethod]
+    fn getpeername(&self, vm: &VirtualMachine) -> PyResult {
+        let addr = self
+            .sock()
+            .peer_addr()
             .map_err(|err| convert_io_error(vm, err))?;
 
         Ok(get_addr_tuple(vm, addr))
     }
 
     #[pymethod]
-    fn gettimeout(&self, _vm: &VirtualMachine) -> Option<f64> {
-        self.timeout.get().map(duration_to_f64)
+    fn gettimeout(&self, vm: &VirtualMachine) -> PyResult<Option<f64>> {
+        let dur = self
+            .sock()
+            .read_timeout()
+            .map_err(|err| convert_io_error(vm, err))?;
+        Ok(dur.map(|d| d.as_secs_f64()))
     }
 
     #[pymethod]
     fn setblocking(&self, block: bool, vm: &VirtualMachine) -> PyResult<()> {
-        self.sock
+        self.sock()
             .set_nonblocking(!block)
-            .map_err(|err| convert_io_error(vm, err))?;
-        if block {
-            self.timeout.set(None);
-        } else {
-            self.timeout.set(Some(Duration::from_secs(0)));
-        }
-        Ok(())
+            .map_err(|err| convert_io_error(vm, err))
     }
 
     #[pymethod]
-    fn getblocking(&self, _vm: &VirtualMachine) -> bool {
-        self.timeout.get().map_or(false, |d| d.as_secs() != 0)
+    fn getblocking(&self, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(self.gettimeout(vm)?.map_or(false, |t| t == 0.0))
     }
 
     #[pymethod]
-    fn settimeout(&self, timeout: f64, vm: &VirtualMachine) -> PyResult<()> {
-        let secs: u64 = timeout.trunc() as u64;
-        let nanos: u32 = (timeout.fract() * 1e9) as u32;
-        let duration = Duration::new(secs, nanos);
-
-        self.timeout.set(Some(duration));
-
-        self.sock
-            .set_nonblocking(duration.as_secs() == 0)
-            .map_err(|err| convert_io_error(vm, err))?;
-
-        Ok(())
+    fn settimeout(&self, timeout: Option<f64>, vm: &VirtualMachine) -> PyResult<()> {
+        self.sock()
+            .set_read_timeout(timeout.map(Duration::from_secs_f64))
+            .map_err(|err| convert_io_error(vm, err))
     }
 
     #[pymethod]
@@ -264,9 +269,22 @@ impl PySocket {
                 )
             }
         };
-        self.sock
+        self.sock()
             .shutdown(how)
             .map_err(|err| convert_io_error(vm, err))
+    }
+
+    #[pyproperty(name = "type")]
+    fn kind(&self, _vm: &VirtualMachine) -> i32 {
+        self.kind.get()
+    }
+    #[pyproperty]
+    fn family(&self, _vm: &VirtualMachine) -> i32 {
+        self.family.get()
+    }
+    #[pyproperty]
+    fn proto(&self, _vm: &VirtualMachine) -> i32 {
+        self.proto.get()
     }
 }
 
@@ -367,6 +385,44 @@ where
     }
 }
 
+fn sock_fileno(sock: &Socket) -> RawSocket {
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        sock.as_raw_fd()
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawSocket;
+        sock.as_raw_socket()
+    }
+}
+fn into_sock_fileno(sock: Socket) -> RawSocket {
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::IntoRawFd;
+        sock.into_raw_fd()
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::IntoRawSocket;
+        sock.into_raw_socket()
+    }
+}
+
+fn invalid_sock() -> Socket {
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::FromRawFd;
+        unsafe { Socket::from_raw_fd(-1) }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::FromRawHandle;
+        unsafe { Socket::from_raw_handle(winapi::um::winsock2::INVALID_SOCKET as RawSocket) }
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     let socket_timeout = ctx.new_class("socket.timeout", vm.ctx.exceptions.os_error.clone());
@@ -397,6 +453,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "inet_ntoa" => ctx.new_rustfunc(socket_inet_ntoa),
         "gethostname" => ctx.new_rustfunc(socket_gethostname),
         "htonl" => ctx.new_rustfunc(socket_htonl),
+        "getdefaulttimeout" => ctx.new_rustfunc(|vm: &VirtualMachine| vm.get_none()),
     });
 
     extend_module_platform_specific(vm, &module);
