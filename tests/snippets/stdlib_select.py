@@ -1,4 +1,4 @@
-from testutils import assert_raises
+from testutils import assert_raises, assert_equal
 
 import select
 import sys
@@ -25,7 +25,7 @@ if "win" in sys.platform:
 
 recvr = socket.socket()
 
-recvr.bind(("0.0.0.0", 9988))
+recvr.bind(("127.0.0.1", 9988))
 
 recvr.listen()
 
@@ -33,9 +33,9 @@ recvr.settimeout(10.0)
 
 sendr = socket.socket()
 
-sendr.connect(("0.0.0.0", 9988))
+sendr.connect(("127.0.0.1", 9988))
 sendr.send(b"aaaa")
 
 res = select.select([recvr], [sendr], [])
 
-assert res == ([recvr.fileno()], [sendr.fileno()], [])
+assert_equal(res, ([recvr], [sendr], []))

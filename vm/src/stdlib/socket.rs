@@ -26,6 +26,17 @@ type RawSocket = std::os::unix::io::RawFd;
 #[cfg(windows)]
 type RawSocket = std::os::windows::raw::SOCKET;
 
+#[cfg(unix)]
+use libc as c;
+#[cfg(windows)]
+mod c {
+    pub use winapi::shared::ws2def::*;
+    pub use winapi::um::winsock2::{
+        SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SOCK_DGRAM, SOCK_RAW,
+        SOCK_RDM, SOCK_STREAM, *,
+    };
+}
+
 #[pyclass]
 #[derive(Debug)]
 pub struct PySocket {
@@ -77,23 +88,23 @@ impl PySocket {
             }
             #[cfg(windows)]
             {
-                use std::os::windows::io::FromRawHandle;
-                unsafe { Socket::from_raw_handle(fileno as *mut ffi::c_void) }
+                use std::os::windows::io::FromRawSocket;
+                unsafe { Socket::from_raw_socket(fileno) }
             }
         } else {
             let domain = match family {
-                libc::AF_INET => Domain::ipv4(),
-                libc::AF_INET6 => Domain::ipv6(),
+                c::AF_INET => Domain::ipv4(),
+                c::AF_INET6 => Domain::ipv6(),
                 #[cfg(unix)]
-                libc::AF_UNIX => Domain::unix(),
+                c::AF_UNIX => Domain::unix(),
                 _ => {
                     return Err(vm.new_os_error(format!("Unknown address family value: {}", family)))
                 }
             };
             self.family.set(family);
             let socket_type = match socket_kind {
-                libc::SOCK_STREAM => SocketType::stream(),
-                libc::SOCK_DGRAM => SocketType::dgram(),
+                c::SOCK_STREAM => SocketType::stream(),
+                c::SOCK_DGRAM => SocketType::dgram(),
                 _ => {
                     return Err(
                         vm.new_os_error(format!("Unknown socket kind value: {}", socket_kind))
@@ -254,15 +265,19 @@ impl PySocket {
     fn settimeout(&self, timeout: Option<f64>, vm: &VirtualMachine) -> PyResult<()> {
         self.sock()
             .set_read_timeout(timeout.map(Duration::from_secs_f64))
-            .map_err(|err| convert_io_error(vm, err))
+            .map_err(|err| convert_io_error(vm, err))?;
+        self.sock()
+            .set_write_timeout(timeout.map(Duration::from_secs_f64))
+            .map_err(|err| convert_io_error(vm, err))?;
+        Ok(())
     }
 
     #[pymethod]
     fn shutdown(&self, how: i32, vm: &VirtualMachine) -> PyResult<()> {
         let how = match how {
-            libc::SHUT_RD => Shutdown::Read,
-            libc::SHUT_WR => Shutdown::Write,
-            libc::SHUT_RDWR => Shutdown::Both,
+            c::SHUT_RD => Shutdown::Read,
+            c::SHUT_WR => Shutdown::Write,
+            c::SHUT_RDWR => Shutdown::Both,
             _ => {
                 return Err(
                     vm.new_value_error("`how` must be SHUT_RD, SHUT_WR, or SHUT_RDWR".to_string())
@@ -418,8 +433,8 @@ fn invalid_sock() -> Socket {
     }
     #[cfg(windows)]
     {
-        use std::os::windows::io::FromRawHandle;
-        unsafe { Socket::from_raw_handle(winapi::um::winsock2::INVALID_SOCKET as RawSocket) }
+        use std::os::windows::io::FromRawSocket;
+        unsafe { Socket::from_raw_socket(winapi::um::winsock2::INVALID_SOCKET as RawSocket) }
     }
 }
 
@@ -432,22 +447,17 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "error" => ctx.exceptions.os_error.clone(),
         "timeout" => socket_timeout,
         "gaierror" => socket_gaierror,
-        "AF_INET" => ctx.new_int(libc::AF_INET),
-        "AF_INET6" => ctx.new_int(libc::AF_INET6),
-        "SOCK_STREAM" => ctx.new_int(libc::SOCK_STREAM),
-        "SOCK_DGRAM" => ctx.new_int(libc::SOCK_DGRAM),
-        "SHUT_RD" => ctx.new_int(libc::SHUT_RD),
-        "SHUT_WR" => ctx.new_int(libc::SHUT_WR),
-        "SHUT_RDWR" => ctx.new_int(libc::SHUT_RDWR),
-        "MSG_EOR" => ctx.new_int(libc::MSG_EOR),
-        "MSG_OOB" => ctx.new_int(libc::MSG_OOB),
-        "MSG_CONFIRM" => ctx.new_int(libc::MSG_CONFIRM),
-        "MSG_PEEK" => ctx.new_int(libc::MSG_PEEK),
-        "MSG_MORE" => ctx.new_int(libc::MSG_MORE),
-        "MSG_WAITALL" => ctx.new_int(libc::MSG_WAITALL),
-        "MSG_DONTWAIT" => ctx.new_int(libc::MSG_DONTWAIT),
-        "MSG_NOSIGNAL" => ctx.new_int(libc::MSG_NOSIGNAL),
-        "AI_ALL" => ctx.new_int(libc::AI_ALL),
+        "AF_INET" => ctx.new_int(c::AF_INET),
+        "AF_INET6" => ctx.new_int(c::AF_INET6),
+        "SOCK_STREAM" => ctx.new_int(c::SOCK_STREAM),
+        "SOCK_DGRAM" => ctx.new_int(c::SOCK_DGRAM),
+        "SHUT_RD" => ctx.new_int(c::SHUT_RD),
+        "SHUT_WR" => ctx.new_int(c::SHUT_WR),
+        "SHUT_RDWR" => ctx.new_int(c::SHUT_RDWR),
+        "MSG_OOB" => ctx.new_int(c::MSG_OOB),
+        "MSG_PEEK" => ctx.new_int(c::MSG_PEEK),
+        "MSG_WAITALL" => ctx.new_int(c::MSG_WAITALL),
+        "AI_ALL" => ctx.new_int(c::AI_ALL),
         "socket" => PySocket::make_class(ctx),
         "inet_aton" => ctx.new_rustfunc(socket_inet_aton),
         "inet_ntoa" => ctx.new_rustfunc(socket_inet_ntoa),

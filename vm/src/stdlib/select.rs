@@ -46,18 +46,19 @@ mod fd_ops {
 use fd_ops::*;
 
 struct Selectable {
+    obj: PyObjectRef,
     fno: RawFd,
 }
 
 impl TryFromObject for Selectable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let fno = RawFd::try_from_object(vm, obj.clone()).or_else(|_| {
-            let meth = vm.get_method_or_type_error(obj, "fileno", || {
+            let meth = vm.get_method_or_type_error(obj.clone(), "fileno", || {
                 "select arg must be an int or object with a fileno() method".to_string()
             })?;
             RawFd::try_from_object(vm, vm.invoke(&meth, vec![])?)
         })?;
-        Ok(Selectable { fno })
+        Ok(Selectable { obj, fno })
     }
 }
 
@@ -176,7 +177,7 @@ fn select_select(
         vm.ctx.new_list(
             list.into_iter()
                 .filter(|fd| set.contains(fd.fno))
-                .map(|fd| vm.new_int(fd.fno))
+                .map(|fd| fd.obj)
                 .collect(),
         )
     };
