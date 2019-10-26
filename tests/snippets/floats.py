@@ -304,3 +304,15 @@ assert float(1e-5).__repr__() == "1e-05"
 assert float(1e-4).__repr__() == "0.0001"
 assert float(1.2345678901234567890).__repr__() == "1.2345678901234567"
 assert float(1.2345678901234567890e308).__repr__() == "1.2345678901234567e+308"
+
+assert float('0_0') == 0.0
+assert float('.0') == 0.0
+assert float('0.') == 0.0
+
+assert_raises(ValueError, lambda: float('0._0'))
+assert_raises(ValueError, lambda: float('0_.0'))
+assert_raises(ValueError, lambda: float('._0'))
+assert_raises(ValueError, lambda: float('0_'))
+assert_raises(ValueError, lambda: float('0._'))
+assert_raises(ValueError, lambda: float('_.0'))
+assert_raises(ValueError, lambda: float('._0'))

@@ -597,31 +597,56 @@ impl PyFloat {
     }
 }
 
+fn str_to_float(vm: &VirtualMachine, literal: &str) -> PyResult<f64> {
+    if literal.starts_with('_') || literal.ends_with('_') {
+        return Err(invalid_convert(vm, literal));
+    }
+
+    let mut buf = String::with_capacity(literal.len());
+    let mut last_tok: Option<char> = None;
+    for c in literal.chars() {
+        if !(c.is_ascii_alphanumeric() || c == '_' || c == '+' || c == '-' || c == '.') {
+            return Err(invalid_convert(vm, literal));
+        }
+
+        if !c.is_ascii_alphanumeric() {
+            if let Some(l) = last_tok {
+                if !l.is_ascii_alphanumeric() {
+                    return Err(invalid_convert(vm, literal));
+                }
+            }
+        }
+
+        if c != '_' {
+            buf.push(c);
+        }
+        last_tok = Some(c);
+    }
+
+    if let Ok(f) = lexical::parse(buf.as_str()) {
+        Ok(f)
+    } else {
+        Err(invalid_convert(vm, literal))
+    }
+}
+
+fn invalid_convert(vm: &VirtualMachine, literal: &str) -> PyObjectRef {
+    vm.new_value_error(format!("could not convert string to float: '{}'", literal))
+}
+
 fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     let value = if objtype::isinstance(&obj, &vm.ctx.float_type()) {
         get_value(&obj)
     } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
         objint::get_float_value(&obj, vm)?
     } else if objtype::isinstance(&obj, &vm.ctx.str_type()) {
-        match lexical::parse(objstr::get_value(&obj).trim()) {
-            Ok(f) => f,
-            Err(_) => {
-                let arg_repr = vm.to_pystr(obj)?;
-                return Err(vm.new_value_error(format!(
-                    "could not convert string to float: '{}'",
-                    arg_repr
-                )));
-            }
-        }
+        str_to_float(vm, objstr::get_value(&obj).trim())?
     } else if objtype::isinstance(&obj, &vm.ctx.bytes_type()) {
         match lexical::parse(objbytes::get_value(&obj).as_slice()) {
             Ok(f) => f,
             Err(_) => {
                 let arg_repr = vm.to_pystr(obj)?;
-                return Err(vm.new_value_error(format!(
-                    "could not convert string to float: '{}'",
-                    arg_repr
-                )));
+                return Err(invalid_convert(vm, arg_repr.as_str()));
             }
         }
     } else {
