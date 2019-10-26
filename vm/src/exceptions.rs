@@ -272,6 +272,7 @@ pub struct ExceptionZoo {
     pub unicode_translate_error: PyClassRef,
     pub zero_division_error: PyClassRef,
     pub eof_error: PyClassRef,
+    pub memory_error: PyClassRef,
 
     pub warning: PyClassRef,
     pub bytes_warning: PyClassRef,
@@ -326,6 +327,7 @@ impl ExceptionZoo {
         let unicode_encode_error = create_type("UnicodeEncodeError", &type_type, &unicode_error);
         let unicode_translate_error =
             create_type("UnicodeTranslateError", &type_type, &unicode_error);
+        let memory_error = create_type("MemoryError", &type_type, &exception_type);
 
         let warning = create_type("Warning", &type_type, &exception_type);
         let bytes_warning = create_type("BytesWarning", &type_type, &warning);
@@ -376,6 +378,7 @@ impl ExceptionZoo {
             unicode_translate_error,
             zero_division_error,
             eof_error,
+            memory_error,
             warning,
             bytes_warning,
             unicode_warning,
