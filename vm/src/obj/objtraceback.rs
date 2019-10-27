@@ -48,7 +48,7 @@ impl PyTraceback {
 
     #[pyproperty(name = "tb_next")]
     fn next_get(&self, _vm: &VirtualMachine) -> Option<PyTracebackRef> {
-        self.next.as_ref().map(|x| x.clone())
+        self.next.as_ref().cloned()
     }
 }
 

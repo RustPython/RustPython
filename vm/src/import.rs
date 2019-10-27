@@ -106,28 +106,17 @@ fn remove_importlib_frames_inner(
     tb: Option<PyTracebackRef>,
     always_trim: bool,
 ) -> Option<PyTracebackRef> {
-    if tb.is_none() {
-        return None;
-    }
-    let traceback = tb.unwrap();
+    let traceback = tb.as_ref()?;;
     let file_name = traceback.frame.code.source_path.to_string();
-    if file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external" {
-        if always_trim || traceback.frame.code.obj_name == "_call_with_frames_removed" {
-            return remove_importlib_frames_inner(
-                vm,
-                traceback.next.as_ref().map(|x| x.clone()),
-                always_trim,
-            );
-        }
+    if (file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external")
+        && (always_trim || traceback.frame.code.obj_name == "_call_with_frames_removed")
+    {
+        return remove_importlib_frames_inner(vm, traceback.next.as_ref().cloned(), always_trim);
     }
 
     Some(
         PyTraceback::new(
-            remove_importlib_frames_inner(
-                vm,
-                traceback.next.as_ref().map(|x| x.clone()),
-                always_trim,
-            ),
+            remove_importlib_frames_inner(vm, traceback.next.as_ref().cloned(), always_trim),
             traceback.frame.clone(),
             traceback.lasti,
             traceback.lineno,
