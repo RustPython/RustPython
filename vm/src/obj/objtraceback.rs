@@ -1,6 +1,6 @@
 use crate::frame::FrameRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyRef, PyValue};
 use crate::vm::VirtualMachine;
 
 #[pyclass]
@@ -22,21 +22,7 @@ impl PyValue for PyTraceback {
 
 #[pyimpl]
 impl PyTraceback {
-    pub fn new(
-        next: PyObjectRef,
-        frame: FrameRef,
-        lasti: usize,
-        lineno: usize,
-        vm: &VirtualMachine,
-    ) -> Self {
-        let next = if vm.is_none(&next) {
-            None
-        } else {
-            let traceback: PyTracebackRef =
-                next.downcast().expect("next must be a traceback object");
-            Some(traceback)
-        };
-
+    pub fn new(next: Option<PyTracebackRef>, frame: FrameRef, lasti: usize, lineno: usize) -> Self {
         PyTraceback {
             next,
             frame,

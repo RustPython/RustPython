@@ -14,7 +14,7 @@ use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objstr::PyString;
-use crate::obj::objtraceback::PyTraceback;
+use crate::obj::objtraceback::{PyTraceback, PyTracebackRef};
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
@@ -191,12 +191,21 @@ impl Frame {
                     let traceback = vm
                         .get_attribute(exception.clone(), "__traceback__")
                         .unwrap();
+
+                    let next = if vm.is_none(&traceback) {
+                        None
+                    } else {
+                        let traceback: PyTracebackRef = traceback
+                            .downcast()
+                            .expect("next must be a traceback object");
+                        Some(traceback)
+                    };
+
                     let new_traceback = PyTraceback::new(
-                        traceback,
+                        next,
                         self.clone().into_ref(vm),
                         self.lasti.get(),
                         lineno.row(),
-                        vm,
                     );
                     vm.set_attr(&exception, "__traceback__", new_traceback.into_ref(vm))
                         .unwrap();
