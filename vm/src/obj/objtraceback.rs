@@ -6,7 +6,7 @@ use crate::vm::VirtualMachine;
 #[pyclass]
 #[derive(Debug)]
 pub struct PyTraceback {
-    pub next: Option<PyTracebackRef>,
+    pub next: Option<PyTracebackRef>, // TODO: Make mutable
     pub frame: FrameRef,
     pub lasti: usize,
     pub lineno: usize,

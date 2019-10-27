@@ -126,6 +126,7 @@ fn remove_importlib_frames_inner(
 }
 
 // TODO: This function should do nothing on verbose mode.
+// TODO: Fix this function after making PyTraceback.next mutable
 pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyObjectRef) -> PyObjectRef {
     let always_trim = objtype::isinstance(exc, &vm.ctx.exceptions.import_error);
 
