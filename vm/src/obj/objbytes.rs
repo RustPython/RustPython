@@ -2,8 +2,6 @@ use std::cell::Cell;
 use std::mem::size_of;
 use std::ops::Deref;
 
-use wtf8;
-
 use super::objbyteinner::{
     ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerPosition, ByteInnerSplitOptions, ByteInnerSplitlinesOptions,
@@ -12,7 +10,7 @@ use super::objbyteinner::{
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objslice::PySliceRef;
-use super::objstr::PyStringRef;
+use super::objstr::{PyString, PyStringRef};
 use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
 use crate::cformat::CFormatString;
@@ -21,7 +19,7 @@ use crate::obj::objstr::do_cformat_string;
 use crate::pyhash;
 use crate::pyobject::{
     Either, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::str::FromStr;
@@ -47,12 +45,6 @@ impl PyBytes {
         PyBytes {
             inner: PyByteInner { elements },
         }
-    }
-
-    pub fn from_string(value: &str, encoding: &str, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(PyBytes {
-            inner: PyByteInner::from_string(value, encoding, vm)?,
-        })
     }
 
     pub fn get_value(&self) -> &[u8] {
@@ -446,11 +438,9 @@ impl PyBytesRef {
         values_obj: PyObjectRef,
     ) -> PyResult {
         let final_string = do_cformat_string(vm, format_string, values_obj)?;
-        Ok(vm.ctx.new_bytes(
-            PyBytes::from_string(final_string.as_str(), "utf8", vm)?
-                .inner
-                .elements,
-        ))
+        Ok(vm
+            .ctx
+            .new_bytes(final_string.as_str().as_bytes().to_owned()))
     }
 
     #[pymethod(name = "__mod__")]
@@ -479,98 +469,18 @@ impl PyBytesRef {
         encoding: OptionalArg<PyStringRef>,
         errors: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<String> {
-        let mut strict_mod = true;
-        let replacing_char = match errors {
-            OptionalArg::Present(ref input) => match input.as_str() {
-                "replace" => {
-                    strict_mod = false;
-                    Some('\u{FFFD}')
-                }
-                "ignore" => {
-                    strict_mod = false;
-                    None
-                }
-                _ => None,
-            },
-            OptionalArg::Missing => None,
-        };
-        let encoding_type = match encoding {
-            OptionalArg::Present(ref input) => input.as_str(),
-            OptionalArg::Missing => "utf-8",
-        };
-
-        let decode_error = Err(vm.new_value_error("DecodeError".to_string()));
-
-        let mut decode_content = String::new();
-        match encoding_type {
-            "ascii" => {
-                for &b in self.get_value() {
-                    if b.is_ascii() {
-                        decode_content.push(b as char)
-                    } else if !strict_mod && replacing_char.is_some() {
-                        decode_content.push(replacing_char.unwrap())
-                    }
-                }
-            }
-            "utf-8" | "utf8" | "" => {
-                let mut p: u32 = 0u32;
-                let mut remaining_bytes = 0;
-                for &b in self.get_value() {
-                    if (b as u8) & 128 == 0 {
-                        if b.is_ascii() {
-                            decode_content.push(b as char)
-                        } else if !strict_mod && replacing_char.is_some() {
-                            decode_content.push(replacing_char.unwrap())
-                        }
-                    } else if (b as u8) & 192 == 128 {
-                        remaining_bytes -= 1;
-
-                        p += u32::from(b as u8 & 63) << (6 * remaining_bytes);
-
-                        if remaining_bytes == 0 {
-                            match wtf8::CodePoint::from_u32(p) {
-                                Some(cp) => {
-                                    if !strict_mod && replacing_char.is_some() {
-                                        decode_content.push(cp.to_char_lossy());
-                                    } else {
-                                        match cp.to_char() {
-                                            Some(c) => decode_content.push(c),
-                                            None => {
-                                                if strict_mod {
-                                                    return decode_error;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                None => {
-                                    if let Some(replacing_char) = replacing_char {
-                                        decode_content.push(replacing_char)
-                                    }
-                                }
-                            }
-                            p = 0u32;
-                        }
-                    } else if (b as u8) & 224 == 192 {
-                        remaining_bytes = 1;
-                        p = u32::from(b as u8 & 31) << 6;
-                    } else if (b as u8) & 240 == 224 {
-                        remaining_bytes = 2;
-                        p = u32::from(b as u8 & 15) << 12;
-                    } else if (b as u8) & 248 == 240 {
-                        remaining_bytes = 3;
-                        p = u32::from(b as u8 & 7) << 18;
-                    } else if !strict_mod && replacing_char.is_some() {
-                        decode_content.push(replacing_char.unwrap())
-                    }
-                }
-            }
-            _ => {
-                return Err(vm.new_lookup_error(format!("unknown encoding: {}", encoding_type)));
-            }
-        }
-        Ok(decode_content)
+    ) -> PyResult<PyStringRef> {
+        let encoding = encoding.into_option();
+        vm.decode(self.into_object(), encoding.clone(), errors.into_option())?
+            .downcast::<PyString>()
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
+                     encode arbitrary types",
+                    encoding.as_ref().map_or("utf-8", |s| s.as_str()),
+                    obj.class().name,
+                ))
+            })
     }
 }
 

@@ -15,7 +15,7 @@ use unicode_casing::CharExt;
 use unicode_categories::UnicodeCategories;
 use unicode_xid::UnicodeXID;
 
-use super::objbytes::PyBytes;
+use super::objbytes::{PyBytes, PyBytesRef};
 use super::objdict::PyDict;
 use super::objfloat;
 use super::objint::{self, PyInt, PyIntRef};
@@ -1175,27 +1175,12 @@ impl PyString {
 
     #[pymethod]
     fn encode(
-        &self,
-        encoding: OptionalArg<PyObjectRef>,
-        _errors: OptionalArg<PyObjectRef>,
+        zelf: PyRef<Self>,
+        encoding: OptionalArg<PyStringRef>,
+        errors: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
-    ) -> PyResult {
-        let encoding = encoding.map_or_else(
-            || Ok("utf-8".to_string()),
-            |v| {
-                if objtype::isinstance(&v, &vm.ctx.str_type()) {
-                    Ok(get_value(&v))
-                } else {
-                    Err(vm.new_type_error(format!(
-                        "encode() argument 1 must be str, not {}",
-                        v.class().name
-                    )))
-                }
-            },
-        )?;
-
-        let encoded = PyBytes::from_string(&self.value, &encoding, vm)?;
-        Ok(encoded.into_pyobject(vm)?)
+    ) -> PyResult<PyBytesRef> {
+        encode_string(zelf, encoding.into_option(), errors.into_option(), vm)
     }
 
     #[pymethod(name = "__iter__")]
@@ -1215,6 +1200,24 @@ impl PyString {
             string: zelf,
         }
     }
+}
+
+pub fn encode_string(
+    s: PyStringRef,
+    encoding: Option<PyStringRef>,
+    errors: Option<PyStringRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyBytesRef> {
+    vm.encode(s.into_object(), encoding.clone(), errors)?
+        .downcast::<PyBytes>()
+        .map_err(|obj| {
+            vm.new_type_error(format!(
+                "'{}' encoder returned '{}' instead of 'bytes'; use codecs.encode() to \
+                 encode arbitrary types",
+                encoding.as_ref().map_or("utf-8", |s| s.as_str()),
+                obj.class().name,
+            ))
+        })
 }
 
 impl PyValue for PyString {

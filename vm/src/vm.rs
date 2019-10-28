@@ -68,6 +68,7 @@ pub struct VirtualMachine {
     pub signal_handlers: RefCell<[PyObjectRef; NSIG]>,
     pub settings: PySettings,
     pub recursion_limit: Cell<usize>,
+    pub codec_registry: RefCell<Vec<PyObjectRef>>,
 }
 
 pub const NSIG: usize = 64;
@@ -183,6 +184,7 @@ impl VirtualMachine {
             signal_handlers,
             settings,
             recursion_limit: Cell::new(512),
+            codec_registry: RefCell::default(),
         };
 
         objmodule::init_module_dict(
@@ -352,6 +354,11 @@ impl VirtualMachine {
     pub fn new_unicode_decode_error(&self, msg: String) -> PyObjectRef {
         let unicode_decode_error = self.ctx.exceptions.unicode_decode_error.clone();
         self.new_exception(unicode_decode_error, msg)
+    }
+
+    pub fn new_unicode_encode_error(&self, msg: String) -> PyObjectRef {
+        let unicode_encode_error = self.ctx.exceptions.unicode_encode_error.clone();
+        self.new_exception(unicode_encode_error, msg)
     }
 
     /// Create a new python ValueError object. Useful for raising errors from
@@ -1011,6 +1018,43 @@ impl VirtualMachine {
                 compile_error.update_statement_info(source.trim_end().to_string());
                 compile_error
             })
+    }
+
+    fn call_codec_func(
+        &self,
+        func: &str,
+        obj: PyObjectRef,
+        encoding: Option<PyStringRef>,
+        errors: Option<PyStringRef>,
+    ) -> PyResult {
+        let codecsmodule = self.import("_codecs", &[], 0)?;
+        let func = self.get_attribute(codecsmodule, func)?;
+        let mut args = vec![
+            obj,
+            encoding.map_or_else(|| self.get_none(), |s| s.into_object()),
+        ];
+        if let Some(errors) = errors {
+            args.push(errors.into_object());
+        }
+        self.invoke(&func, args)
+    }
+
+    pub fn decode(
+        &self,
+        obj: PyObjectRef,
+        encoding: Option<PyStringRef>,
+        errors: Option<PyStringRef>,
+    ) -> PyResult {
+        self.call_codec_func("decode", obj, encoding, errors)
+    }
+
+    pub fn encode(
+        &self,
+        obj: PyObjectRef,
+        encoding: Option<PyStringRef>,
+        errors: Option<PyStringRef>,
+    ) -> PyResult {
+        self.call_codec_func("encode", obj, encoding, errors)
     }
 
     pub fn _sub(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {

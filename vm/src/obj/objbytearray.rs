@@ -569,7 +569,7 @@ impl PyByteArrayRef {
         let final_string = do_cformat_string(vm, format_string, values_obj)?;
         Ok(vm
             .ctx
-            .new_bytearray(PyByteInner::from_string(final_string.as_str(), "utf8", vm)?.elements))
+            .new_bytearray(final_string.as_str().as_bytes().to_owned()))
     }
 
     #[pymethod(name = "__mod__")]

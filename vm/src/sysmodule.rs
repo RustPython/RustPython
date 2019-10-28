@@ -107,7 +107,11 @@ fn sys_getsizeof(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
 }
 
 fn sys_getfilesystemencoding(_vm: &VirtualMachine) -> String {
-    // TODO: implmement non-utf-8 mode.
+    // TODO: implement non-utf-8 mode.
+    "utf-8".to_string()
+}
+
+fn sys_getdefaultencoding(_vm: &VirtualMachine) -> String {
     "utf-8".to_string()
 }
 
@@ -347,6 +351,7 @@ settrace() -- set the global debug tracing function
       "implementation" => implementation,
       "getfilesystemencoding" => ctx.new_rustfunc(sys_getfilesystemencoding),
       "getfilesystemencodeerrors" => ctx.new_rustfunc(sys_getfilesystemencodeerrors),
+      "getdefaultencoding" => ctx.new_rustfunc(sys_getdefaultencoding),
       "getprofile" => ctx.new_rustfunc(sys_getprofile),
       "gettrace" => ctx.new_rustfunc(sys_gettrace),
       "intern" => ctx.new_rustfunc(sys_intern),
