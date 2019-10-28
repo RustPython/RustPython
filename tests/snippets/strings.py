@@ -324,3 +324,6 @@ assert "a".__ne__("b")
 assert not "a".__ne__("a")
 assert not "".__ne__("")
 assert "".__ne__(1) == NotImplemented
+
+assert "A_B".isupper()
+assert "a_b".islower()

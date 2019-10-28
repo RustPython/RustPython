@@ -1,3 +1,4 @@
+use super::objiter;
 use super::objstr::PyStringRef;
 use super::objtype::{self, PyClassRef};
 use crate::function::OptionalArg;
@@ -76,6 +77,35 @@ impl PyMappingProxy {
                 Ok(vm.new_bool(objtype::class_has_attr(&class, key.as_str())))
             }
             MappingProxyInner::Dict(obj) => vm._membership(obj.clone(), key),
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    pub fn iter(&self, vm: &VirtualMachine) -> PyResult {
+        match &self.mapping {
+            MappingProxyInner::Dict(d) => objiter::get_iter(vm, d),
+            MappingProxyInner::Class(_c) => Err(vm.new_type_error("Can't get iter".to_string())),
+        }
+    }
+    #[pymethod]
+    pub fn items(&self, vm: &VirtualMachine) -> PyResult {
+        match &self.mapping {
+            MappingProxyInner::Dict(d) => vm.call_method(d, "items", vec![]),
+            MappingProxyInner::Class(_c) => Err(vm.new_type_error("Can't get iter".to_string())),
+        }
+    }
+    #[pymethod]
+    pub fn keys(&self, vm: &VirtualMachine) -> PyResult {
+        match &self.mapping {
+            MappingProxyInner::Dict(d) => vm.call_method(d, "keys", vec![]),
+            MappingProxyInner::Class(_c) => Err(vm.new_type_error("Can't get iter".to_string())),
+        }
+    }
+    #[pymethod]
+    pub fn values(&self, vm: &VirtualMachine) -> PyResult {
+        match &self.mapping {
+            MappingProxyInner::Dict(d) => vm.call_method(d, "values", vec![]),
+            MappingProxyInner::Class(_c) => Err(vm.new_type_error("Can't get iter".to_string())),
         }
     }
 }

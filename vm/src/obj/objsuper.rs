@@ -63,7 +63,7 @@ impl PySuper {
                             // This is a classmethod
                             return Ok(item);
                         }
-                        return Ok(vm.ctx.new_bound_method(item, inst.clone()));
+                        return vm.call_get_descriptor(item, inst.clone());
                     }
                 }
                 Err(vm.new_attribute_error(format!(
