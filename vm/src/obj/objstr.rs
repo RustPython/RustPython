@@ -728,24 +728,35 @@ impl PyString {
     #[pymethod]
     fn isupper(&self, _vm: &VirtualMachine) -> bool {
         // TODO: assert not " ".isupper(), assert not "_".isupper()
-        !self.value.is_empty()
+        if self.value.chars().all(char::is_numeric) {
+            false
+        }
+        else{
+            !self.value.is_empty()
             && self
                 .value
                 .chars()
-                .filter(|x| !x.is_ascii_whitespace() && *x != '_')
+                .filter(|x| !x.is_ascii_whitespace())
+                .filter(|x| !x.is_numeric())
                 .all(char::is_uppercase)
+        }
     }
 
     #[pymethod]
     fn islower(&self, _vm: &VirtualMachine) -> bool {
-        !self.value.is_empty()
+        if self.value.chars().all(char::is_numeric) {
+            false
+        }
+        else{
+            !self.value.is_empty()
             && self
                 .value
                 .chars()
-                .filter(|x| !x.is_ascii_whitespace() && *x != '_')
+                .filter(|x| !x.is_ascii_whitespace())
+                .filter(|x| !x.is_numeric())
                 .all(char::is_lowercase)
+        }
     }
-
     #[pymethod]
     fn isascii(&self, _vm: &VirtualMachine) -> bool {
         !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii())
