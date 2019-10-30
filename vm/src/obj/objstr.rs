@@ -13,6 +13,7 @@ use num_traits::ToPrimitive;
 use unicode_casing::CharExt;
 use unicode_categories::UnicodeCategories;
 use unicode_xid::UnicodeXID;
+use unic::ucd::is_cased;
 
 use super::objbytes::PyBytes;
 use super::objdict::PyDict;
@@ -725,37 +726,34 @@ impl PyString {
         !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii_whitespace())
     }
 
+    // Return true if all cased characters in the string are uppercase and there is at least one cased character, false otherwise.
     #[pymethod]
     fn isupper(&self, _vm: &VirtualMachine) -> bool {
         // TODO: assert not " ".isupper(), assert not "_".isupper()
-        if self.value.chars().all(char::is_numeric) {
-            false
+        let mut cased = false;
+        for c in self.value.chars() {
+            if is_cased(c) && c.is_uppercase(){
+                cased = true
+            }
+            else if is_cased(c) && c.is_lowercase(){
+                return false;
+            }
         }
-        else{
-            !self.value.is_empty()
-            && self
-                .value
-                .chars()
-                .filter(|x| !x.is_ascii_whitespace())
-                .filter(|x| !x.is_numeric())
-                .all(char::is_uppercase)
-        }
+        cased
     }
 
     #[pymethod]
     fn islower(&self, _vm: &VirtualMachine) -> bool {
-        if self.value.chars().all(char::is_numeric) {
-            false
+        let mut cased = false;
+        for c in self.value.chars() {
+            if is_cased(c) && c.is_lowercase(){
+                cased = true
+            }
+            else if is_cased(c) && c.is_uppercase(){
+                return false;
+            }
         }
-        else{
-            !self.value.is_empty()
-            && self
-                .value
-                .chars()
-                .filter(|x| !x.is_ascii_whitespace())
-                .filter(|x| !x.is_numeric())
-                .all(char::is_lowercase)
-        }
+        cased
     }
     #[pymethod]
     fn isascii(&self, _vm: &VirtualMachine) -> bool {
