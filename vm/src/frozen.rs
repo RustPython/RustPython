@@ -3,30 +3,33 @@ use std::collections::HashMap;
 
 pub fn get_module_inits() -> HashMap<String, FrozenModule> {
     let mut modules = HashMap::new();
-    modules.extend(py_compile_bytecode!(
+
+    macro_rules! ext_modules {
+        ($($t:tt)*) => {
+            modules.extend(py_compile_bytecode!($($t)*));
+        };
+    }
+
+    ext_modules!(
         source = "initialized = True; print(\"Hello world!\")\n",
         module_name = "__hello__",
-    ));
-    modules.extend(py_compile_bytecode!(
-        file = "Lib/_bootstrap.py",
-        module_name = "_frozen_importlib",
-    ));
-    modules.extend(py_compile_bytecode!(
-        file = "Lib/_bootstrap_external.py",
-        module_name = "_frozen_importlib_external",
-    ));
-    modules.extend(py_compile_bytecode!(
-        file = "../Lib/copyreg.py",
-        module_name = "copyreg",
-    ));
-    modules.extend(py_compile_bytecode!(
-        file = "Lib/__reducelib.py",
-        module_name = "__reducelib",
-    ));
+    );
 
+    // Python modules that the vm calls into, but are not actually part of the stdlib. They could
+    // in theory be implemented in Rust, but are easiest to do in Python for one reason or another.
+    // Includes _importlib_bootstrap and _importlib_bootstrap_external
+    ext_modules!(dir = "Lib/python_builtins/");
+
+    #[cfg(not(feature = "freeze-stdlib"))]
+    {
+        // core stdlib Python modules that the vm calls into, but are still used in Python
+        // application code, e.g. copyreg
+        ext_modules!(dir = "Lib/core_modules/");
+    }
+    // if we're on freeze-stdlib, the core stdlib modules will be included anyway
     #[cfg(feature = "freeze-stdlib")]
     {
-        modules.extend(py_compile_bytecode!(dir = "../Lib/"));
+        ext_modules!(dir = "../Lib/");
     }
 
     modules
