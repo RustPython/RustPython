@@ -753,6 +753,7 @@ impl PyString {
         }
         cased
     }
+    
     #[pymethod]
     fn isascii(&self, _vm: &VirtualMachine) -> bool {
         !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii())

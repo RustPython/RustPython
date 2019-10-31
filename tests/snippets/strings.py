@@ -325,5 +325,12 @@ assert not "a".__ne__("a")
 assert not "".__ne__("")
 assert "".__ne__(1) == NotImplemented
 
+# check non-cased characters
 assert "A_B".isupper()
 assert "a_b".islower()
+assert "A1".isupper()
+assert "1A".isupper()
+assert "a1".islower()
+assert "1a".islower()
+assert "가나다a".islower()
+assert "가나다A".isupper()
