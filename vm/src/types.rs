@@ -29,6 +29,7 @@ use crate::obj::objslice;
 use crate::obj::objstaticmethod;
 use crate::obj::objstr;
 use crate::obj::objsuper;
+use crate::obj::objtraceback;
 use crate::obj::objtuple;
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::obj::objweakproxy;
@@ -93,6 +94,7 @@ pub struct TypeZoo {
     pub weakref_type: PyClassRef,
     pub weakproxy_type: PyClassRef,
     pub mappingproxy_type: PyClassRef,
+    pub traceback_type: PyClassRef,
     pub object_type: PyClassRef,
 }
 
@@ -158,6 +160,7 @@ impl TypeZoo {
         let rangeiterator_type = create_type("range_iterator", &type_type, &object_type);
         let slice_type = create_type("slice", &type_type, &object_type);
         let mappingproxy_type = create_type("mappingproxy", &type_type, &object_type);
+        let traceback_type = create_type("traceback", &type_type, &object_type);
 
         Self {
             bool_type,
@@ -212,6 +215,7 @@ impl TypeZoo {
             weakref_type,
             weakproxy_type,
             type_type,
+            traceback_type,
         }
     }
 }
@@ -313,4 +317,5 @@ pub fn initialize_types(context: &PyContext) {
     objmodule::init(&context);
     objnamespace::init(&context);
     objmappingproxy::init(&context);
+    objtraceback::init(&context);
 }

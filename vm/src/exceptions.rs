@@ -1,5 +1,5 @@
 use crate::function::PyFuncArgs;
-use crate::obj::objsequence;
+use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
@@ -16,7 +16,7 @@ fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.set_attr(&exc_self, "args", exc_args)?;
 
     // TODO: have an actual `traceback` object for __traceback__
-    vm.set_attr(&exc_self, "__traceback__", vm.ctx.new_list(vec![]))?;
+    vm.set_attr(&exc_self, "__traceback__", vm.get_none())?;
     vm.set_attr(&exc_self, "__cause__", vm.get_none())?;
     vm.set_attr(&exc_self, "__context__", vm.get_none())?;
     vm.set_attr(&exc_self, "__suppress_context__", vm.new_bool(false))?;
@@ -83,44 +83,15 @@ fn print_source_line<W: Write>(mut output: W, filename: &str, lineno: usize) -> 
 }
 
 /// Print exception occurrence location from traceback element
-fn print_traceback_entry<W: Write>(
-    mut output: W,
-    vm: &VirtualMachine,
-    tb_entry: &PyObjectRef,
-) -> io::Result<()> {
-    if objtype::isinstance(&tb_entry, &vm.ctx.tuple_type()) {
-        let location_attrs = objsequence::get_elements_tuple(&tb_entry);
+fn print_traceback_entry<W: Write>(mut output: W, tb_entry: &PyTracebackRef) -> io::Result<()> {
+    let filename = tb_entry.frame.code.source_path.to_string();
+    writeln!(
+        output,
+        r##"  File "{}", line {}, in {}"##,
+        filename, tb_entry.lineno, tb_entry.frame.code.obj_name
+    )?;
+    print_source_line(output, &filename, tb_entry.lineno)?;
 
-        let filename = vm.to_str(&location_attrs[0]);
-        let filename = if let Ok(ref x) = filename {
-            x.as_str()
-        } else {
-            "<error>"
-        };
-
-        let lineno = vm.to_str(&location_attrs[1]);
-        let lineno = if let Ok(ref x) = lineno {
-            x.as_str()
-        } else {
-            "<error>"
-        };
-
-        let obj_name = vm.to_str(&location_attrs[2]);
-        let obj_name = if let Ok(ref x) = obj_name {
-            x.as_str()
-        } else {
-            "<error>"
-        };
-
-        writeln!(
-            output,
-            r##"  File "{}", line {}, in {}"##,
-            filename, lineno, obj_name
-        )?;
-        print_source_line(output, filename, lineno.parse().unwrap())?;
-    } else {
-        writeln!(output, "  File ??")?;
-    }
     Ok(())
 }
 
@@ -131,15 +102,15 @@ pub fn print_exception_inner<W: Write>(
     exc: &PyObjectRef,
 ) -> io::Result<()> {
     if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
-        if objtype::isinstance(&tb, &vm.ctx.list_type()) {
-            let mut tb_entries = objsequence::get_elements_list(&tb).to_vec();
-            tb_entries.reverse();
-
-            if !tb_entries.is_empty() {
-                writeln!(output, "Traceback (most recent call last):")?;
-            }
-            for exc_location in tb_entries.iter() {
-                print_traceback_entry(&mut output, vm, exc_location)?;
+        if objtype::isinstance(&tb, &vm.ctx.traceback_type()) {
+            writeln!(output, "Traceback (most recent call last):")?;
+            let mut tb: PyTracebackRef = tb.downcast().expect(" must be a traceback object");
+            loop {
+                print_traceback_entry(&mut output, &tb)?;
+                tb = match &tb.next {
+                    Some(tb) => tb.clone(),
+                    None => break,
+                };
             }
         }
     } else {
@@ -272,6 +243,7 @@ pub struct ExceptionZoo {
     pub unicode_translate_error: PyClassRef,
     pub zero_division_error: PyClassRef,
     pub eof_error: PyClassRef,
+    pub memory_error: PyClassRef,
 
     pub warning: PyClassRef,
     pub bytes_warning: PyClassRef,
@@ -326,6 +298,7 @@ impl ExceptionZoo {
         let unicode_encode_error = create_type("UnicodeEncodeError", &type_type, &unicode_error);
         let unicode_translate_error =
             create_type("UnicodeTranslateError", &type_type, &unicode_error);
+        let memory_error = create_type("MemoryError", &type_type, &exception_type);
 
         let warning = create_type("Warning", &type_type, &exception_type);
         let bytes_warning = create_type("BytesWarning", &type_type, &warning);
@@ -376,6 +349,7 @@ impl ExceptionZoo {
             unicode_translate_error,
             zero_division_error,
             eof_error,
+            memory_error,
             warning,
             bytes_warning,
             unicode_warning,

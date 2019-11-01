@@ -34,6 +34,7 @@ pub mod objslice;
 pub mod objstaticmethod;
 pub mod objstr;
 pub mod objsuper;
+pub mod objtraceback;
 pub mod objtuple;
 pub mod objtype;
 pub mod objweakproxy;

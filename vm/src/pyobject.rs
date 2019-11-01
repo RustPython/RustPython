@@ -349,6 +349,10 @@ impl PyContext {
         self.types.weakproxy_type.clone()
     }
 
+    pub fn traceback_type(&self) -> PyClassRef {
+        self.types.traceback_type.clone()
+    }
+
     pub fn type_type(&self) -> PyClassRef {
         self.types.type_type.clone()
     }
