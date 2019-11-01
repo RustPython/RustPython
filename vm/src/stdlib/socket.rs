@@ -113,7 +113,7 @@ impl PySocket {
             };
             self.kind.set(socket_kind);
             self.proto.set(proto);
-            Socket::new(domain, socket_type, None).map_err(|err| convert_io_error(vm, err))?
+            Socket::new(domain, socket_type, None).map_err(|err| convert_sock_error(vm, err))?
         };
         self.sock.replace(sock);
         Ok(())
@@ -127,7 +127,7 @@ impl PySocket {
         } else {
             self.sock().connect(&sock_addr)
         };
-        res.map_err(|err| convert_io_error(vm, err))
+        res.map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
@@ -135,7 +135,7 @@ impl PySocket {
         let sock_addr = get_addr(vm, address)?;
         self.sock()
             .bind(&sock_addr)
-            .map_err(|err| convert_io_error(vm, err))
+            .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
@@ -144,20 +144,18 @@ impl PySocket {
         let backlog = if backlog < 0 { 0 } else { backlog };
         self.sock()
             .listen(backlog)
-            .map_err(|err| convert_io_error(vm, err))
+            .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
-    fn _accept(&self, vm: &VirtualMachine) -> PyResult {
+    fn _accept(&self, vm: &VirtualMachine) -> PyResult<(RawSocket, AddrTuple)> {
         let (sock, addr) = self
             .sock()
             .accept()
-            .map_err(|err| convert_io_error(vm, err))?;
+            .map_err(|err| convert_sock_error(vm, err))?;
 
-        let fd = vm.new_int(into_sock_fileno(sock));
-        let addr_tuple = get_addr_tuple(vm, addr);
-
-        Ok(vm.ctx.new_tuple(vec![fd, addr_tuple]))
+        let fd = into_sock_fileno(sock);
+        Ok((fd, get_addr_tuple(addr)))
     }
 
     #[pymethod]
@@ -165,41 +163,24 @@ impl PySocket {
         let mut buffer = vec![0u8; bufsize];
         match self.sock.borrow_mut().read_exact(&mut buffer) {
             Ok(()) => Ok(vm.ctx.new_bytes(buffer)),
-            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
-                let socket_timeout = vm.class("_socket", "timeout");
-                Err(vm.new_exception(socket_timeout, "Timed out".to_string()))
-            }
-            Err(err) => Err(convert_io_error(vm, err)),
+            Err(err) => Err(convert_sock_error(vm, err)),
         }
     }
 
     #[pymethod]
-    fn recvfrom(&self, bufsize: usize, vm: &VirtualMachine) -> PyResult {
+    fn recvfrom(&self, bufsize: usize, vm: &VirtualMachine) -> PyResult<(Vec<u8>, AddrTuple)> {
         let mut buffer = vec![0u8; bufsize];
-        let addr = match self.sock().recv_from(&mut buffer) {
-            Ok((_, addr)) => addr,
-            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
-                let socket_timeout = vm.class("_socket", "timeout");
-                return Err(vm.new_exception(socket_timeout, "Timed out".to_string()));
-            }
-            Err(err) => return Err(convert_io_error(vm, err)),
-        };
-
-        let addr_tuple = get_addr_tuple(vm, addr);
-
-        Ok(vm.ctx.new_tuple(vec![vm.ctx.new_bytes(buffer), addr_tuple]))
+        match self.sock().recv_from(&mut buffer) {
+            Ok((_, addr)) => Ok((buffer, get_addr_tuple(addr))),
+            Err(err) => Err(convert_sock_error(vm, err)),
+        }
     }
 
     #[pymethod]
     fn send(&self, bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
-        match self.sock().send(bytes.to_cow().as_ref()) {
-            Ok(i) => Ok(i),
-            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
-                let socket_timeout = vm.class("_socket", "timeout");
-                Err(vm.new_exception(socket_timeout, "Timed out".to_string()))
-            }
-            Err(err) => Err(convert_io_error(vm, err)),
-        }
+        self.sock()
+            .send(bytes.to_cow().as_ref())
+            .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
@@ -207,7 +188,7 @@ impl PySocket {
         let addr = get_addr(vm, address)?;
         self.sock()
             .send_to(bytes.to_cow().as_ref(), &addr)
-            .map_err(|err| convert_io_error(vm, err))?;
+            .map_err(|err| convert_sock_error(vm, err))?;
         Ok(())
     }
 
@@ -222,22 +203,22 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn getsockname(&self, vm: &VirtualMachine) -> PyResult {
+    fn getsockname(&self, vm: &VirtualMachine) -> PyResult<AddrTuple> {
         let addr = self
             .sock()
             .local_addr()
-            .map_err(|err| convert_io_error(vm, err))?;
+            .map_err(|err| convert_sock_error(vm, err))?;
 
-        Ok(get_addr_tuple(vm, addr))
+        Ok(get_addr_tuple(addr))
     }
     #[pymethod]
-    fn getpeername(&self, vm: &VirtualMachine) -> PyResult {
+    fn getpeername(&self, vm: &VirtualMachine) -> PyResult<AddrTuple> {
         let addr = self
             .sock()
             .peer_addr()
-            .map_err(|err| convert_io_error(vm, err))?;
+            .map_err(|err| convert_sock_error(vm, err))?;
 
-        Ok(get_addr_tuple(vm, addr))
+        Ok(get_addr_tuple(addr))
     }
 
     #[pymethod]
@@ -245,7 +226,7 @@ impl PySocket {
         let dur = self
             .sock()
             .read_timeout()
-            .map_err(|err| convert_io_error(vm, err))?;
+            .map_err(|err| convert_sock_error(vm, err))?;
         Ok(dur.map(|d| d.as_secs_f64()))
     }
 
@@ -253,7 +234,7 @@ impl PySocket {
     fn setblocking(&self, block: bool, vm: &VirtualMachine) -> PyResult<()> {
         self.sock()
             .set_nonblocking(!block)
-            .map_err(|err| convert_io_error(vm, err))
+            .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
@@ -265,10 +246,10 @@ impl PySocket {
     fn settimeout(&self, timeout: Option<f64>, vm: &VirtualMachine) -> PyResult<()> {
         self.sock()
             .set_read_timeout(timeout.map(Duration::from_secs_f64))
-            .map_err(|err| convert_io_error(vm, err))?;
+            .map_err(|err| convert_sock_error(vm, err))?;
         self.sock()
             .set_write_timeout(timeout.map(Duration::from_secs_f64))
-            .map_err(|err| convert_io_error(vm, err))?;
+            .map_err(|err| convert_sock_error(vm, err))?;
         Ok(())
     }
 
@@ -286,7 +267,7 @@ impl PySocket {
         };
         self.sock()
             .shutdown(how)
-            .map_err(|err| convert_io_error(vm, err))
+            .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pyproperty(name = "type")]
@@ -329,19 +310,17 @@ impl TryFromObject for Address {
     }
 }
 
-fn get_addr_tuple<A: Into<socket2::SockAddr>>(vm: &VirtualMachine, addr: A) -> PyObjectRef {
-    let addr = addr.into();
-    let (port, ip) = if let Some(addr) = addr.as_inet() {
-        (addr.port(), addr.ip().to_string())
-    } else if let Some(addr) = addr.as_inet6() {
-        (addr.port(), addr.ip().to_string())
-    } else {
-        (0, String::new())
-    };
-    let port = vm.ctx.new_int(port);
-    let ip = vm.ctx.new_str(ip);
+type AddrTuple = (String, u16);
 
-    vm.ctx.new_tuple(vec![ip, port])
+fn get_addr_tuple<A: Into<socket2::SockAddr>>(addr: A) -> AddrTuple {
+    let addr = addr.into();
+    if let Some(addr) = addr.as_inet() {
+        (addr.ip().to_string(), addr.port())
+    } else if let Some(addr) = addr.as_inet6() {
+        (addr.ip().to_string(), addr.port())
+    } else {
+        (String::new(), 0)
+    }
 }
 
 fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
@@ -435,6 +414,15 @@ fn invalid_sock() -> Socket {
     {
         use std::os::windows::io::FromRawSocket;
         unsafe { Socket::from_raw_socket(winapi::um::winsock2::INVALID_SOCKET as RawSocket) }
+    }
+}
+
+fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
+    if err.kind() == io::ErrorKind::TimedOut {
+        let socket_timeout = vm.class("_socket", "timeout");
+        vm.new_exception(socket_timeout, "Timed out".to_string())
+    } else {
+        convert_io_error(vm, err)
     }
 }
 
