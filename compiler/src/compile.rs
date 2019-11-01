@@ -27,10 +27,30 @@ struct Compiler<O: OutputStream = BasicOutputStream> {
     source_path: Option<String>,
     current_source_location: ast::Location,
     current_qualified_path: Option<String>,
-    in_loop: bool,
-    in_function_def: bool,
-    in_async_func: bool,
+    ctx: CompileContext,
     optimize: u8,
+}
+
+#[derive(Clone, Copy)]
+struct CompileContext {
+    in_loop: bool,
+    func: FunctionContext,
+}
+
+#[derive(Clone, Copy)]
+enum FunctionContext {
+    NoFunction,
+    Function,
+    AsyncFunction,
+}
+
+impl CompileContext {
+    fn in_func(self) -> bool {
+        match self.func {
+            FunctionContext::NoFunction => false,
+            _ => true,
+        }
+    }
 }
 
 /// Compile a given sourcecode into a bytecode object.
@@ -125,9 +145,10 @@ impl<O: OutputStream> Compiler<O> {
             source_path: None,
             current_source_location: ast::Location::default(),
             current_qualified_path: None,
-            in_loop: false,
-            in_function_def: false,
-            in_async_func: false,
+            ctx: CompileContext {
+                in_loop: false,
+                func: FunctionContext::NoFunction,
+            },
             optimize,
         }
     }
@@ -510,7 +531,7 @@ impl<O: OutputStream> Compiler<O> {
                 }
             }
             Break => {
-                if !self.in_loop {
+                if !self.ctx.in_loop {
                     return Err(CompileError {
                         error: CompileErrorType::InvalidBreak,
                         location: statement.location.clone(),
@@ -519,7 +540,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::Break);
             }
             Continue => {
-                if !self.in_loop {
+                if !self.ctx.in_loop {
                     return Err(CompileError {
                         error: CompileErrorType::InvalidContinue,
                         location: statement.location.clone(),
@@ -528,7 +549,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::Continue);
             }
             Return { value } => {
-                if !self.in_function_def {
+                if !self.ctx.in_func() {
                     return Err(CompileError {
                         error: CompileErrorType::InvalidReturn,
                         location: statement.location.clone(),
@@ -814,17 +835,20 @@ impl<O: OutputStream> Compiler<O> {
         is_async: bool,
     ) -> Result<(), CompileError> {
         // Create bytecode for this function:
-        // remember to restore self.in_loop to the original after the function is compiled
-        let was_in_loop = self.in_loop;
-        let was_in_function_def = self.in_function_def;
+        // remember to restore self.ctx.in_loop to the original after the function is compiled
+        let prev_ctx = self.ctx;
 
-        let was_in_async_func = self.in_async_func;
-        self.in_async_func = is_async;
-        self.in_loop = false;
-        self.in_function_def = true;
+        self.ctx = CompileContext {
+            in_loop: false,
+            func: if is_async {
+                FunctionContext::AsyncFunction
+            } else {
+                FunctionContext::Function
+            },
+        };
 
-        let old_qualified_path = self.current_qualified_path.clone();
         let qualified_name = self.create_qualified_name(name, "");
+        let old_qualified_path = self.current_qualified_path.take();
         self.current_qualified_path = Some(self.create_qualified_name(name, ".<locals>"));
 
         self.prepare_decorators(decorator_list)?;
@@ -911,9 +935,7 @@ impl<O: OutputStream> Compiler<O> {
         self.store_name(name);
 
         self.current_qualified_path = old_qualified_path;
-        self.in_loop = was_in_loop;
-        self.in_function_def = was_in_function_def;
-        self.in_async_func = was_in_async_func;
+        self.ctx = prev_ctx;
         Ok(())
     }
 
@@ -925,11 +947,14 @@ impl<O: OutputStream> Compiler<O> {
         keywords: &[ast::Keyword],
         decorator_list: &[ast::Expression],
     ) -> Result<(), CompileError> {
-        let was_in_loop = self.in_loop;
-        self.in_loop = false;
+        let prev_ctx = self.ctx;
+        self.ctx = CompileContext {
+            func: FunctionContext::NoFunction,
+            in_loop: false,
+        };
 
-        let old_qualified_path = self.current_qualified_path.clone();
         let qualified_name = self.create_qualified_name(name, "");
+        let old_qualified_path = self.current_qualified_path.take();
         self.current_qualified_path = Some(qualified_name.clone());
 
         self.prepare_decorators(decorator_list)?;
@@ -1033,7 +1058,7 @@ impl<O: OutputStream> Compiler<O> {
 
         self.store_name(name);
         self.current_qualified_path = old_qualified_path;
-        self.in_loop = was_in_loop;
+        self.ctx = prev_ctx;
         Ok(())
     }
 
@@ -1075,10 +1100,10 @@ impl<O: OutputStream> Compiler<O> {
 
         self.compile_jump_if(test, false, else_label)?;
 
-        let was_in_loop = self.in_loop;
-        self.in_loop = true;
+        let was_in_loop = self.ctx.in_loop;
+        self.ctx.in_loop = true;
         self.compile_statements(body)?;
-        self.in_loop = was_in_loop;
+        self.ctx.in_loop = was_in_loop;
         self.emit(Instruction::Jump {
             target: start_label,
         });
@@ -1143,11 +1168,11 @@ impl<O: OutputStream> Compiler<O> {
             self.emit(Instruction::JumpIfTrue { target: else_label });
             self.emit(Instruction::Raise { argc: 0 });
 
-            let was_in_loop = self.in_loop;
-            self.in_loop = true;
+            let was_in_loop = self.ctx.in_loop;
+            self.ctx.in_loop = true;
             self.set_label(body_label);
             self.compile_statements(body)?;
-            self.in_loop = was_in_loop;
+            self.ctx.in_loop = was_in_loop;
         } else {
             // Retrieve Iterator
             self.emit(Instruction::GetIter);
@@ -1158,10 +1183,10 @@ impl<O: OutputStream> Compiler<O> {
             // Start of loop iteration, set targets:
             self.compile_store(target)?;
 
-            let was_in_loop = self.in_loop;
-            self.in_loop = true;
+            let was_in_loop = self.ctx.in_loop;
+            self.ctx.in_loop = true;
             self.compile_statements(body)?;
-            self.in_loop = was_in_loop;
+            self.ctx.in_loop = was_in_loop;
         }
 
         self.emit(Instruction::Jump {
@@ -1617,7 +1642,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::BuildSlice { size });
             }
             Yield { value } => {
-                if !self.in_function_def || self.in_async_func {
+                if !self.ctx.in_func() {
                     return Err(CompileError {
                         error: CompileErrorType::InvalidYield,
                         location: self.current_source_location.clone(),
@@ -1683,12 +1708,11 @@ impl<O: OutputStream> Compiler<O> {
                 self.load_name(name);
             }
             Lambda { args, body } => {
-                let was_in_loop = self.in_loop;
-                let was_in_function_def = self.in_function_def;
-                let was_in_async_func = self.in_async_func;
-                self.in_async_func = false;
-                self.in_loop = false;
-                self.in_function_def = true;
+                let prev_ctx = self.ctx;
+                self.ctx = CompileContext {
+                    in_loop: false,
+                    func: FunctionContext::Function,
+                };
 
                 let name = "<lambda>".to_string();
                 self.enter_function(&name, args)?;
@@ -1707,9 +1731,7 @@ impl<O: OutputStream> Compiler<O> {
                 // Turn code object into function object:
                 self.emit(Instruction::MakeFunction);
 
-                self.in_loop = was_in_loop;
-                self.in_function_def = was_in_function_def;
-                self.in_async_func = was_in_async_func;
+                self.ctx = prev_ctx;
             }
             Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
