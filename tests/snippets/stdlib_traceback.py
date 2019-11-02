@@ -15,3 +15,13 @@ try:
 except KeyError as ex2:
 	tb = traceback.extract_tb(ex2.__traceback__)
 	assert tb[1].line == "1/0"
+
+
+try:
+	try:
+		1/0
+	except ZeroDivisionError as ex:
+		 raise ex.with_traceback(None)
+except ZeroDivisionError as ex2:
+	tb = traceback.extract_tb(ex2.__traceback__)
+	assert len(tb) == 1

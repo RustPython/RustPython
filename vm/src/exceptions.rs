@@ -210,10 +210,14 @@ fn exception_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn exception_with_traceback(
     zelf: PyObjectRef,
-    tb: PyTracebackRef,
+    tb: Option<PyTracebackRef>,
     vm: &VirtualMachine,
 ) -> PyResult {
-    vm.set_attr(&zelf, "__traceback__", tb)?;
+    vm.set_attr(
+        &zelf,
+        "__traceback__",
+        tb.map_or(vm.get_none(), |tb| tb.into_object()),
+    )?;
     Ok(zelf)
 }
 
