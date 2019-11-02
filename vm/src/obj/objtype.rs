@@ -321,12 +321,7 @@ fn type_new_slot(metatype: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) ->
         bases
     };
 
-    let mut attributes = dict.to_attributes();
-
-    // insert __doc__ as None if it is not included in attributes
-    if !attributes.contains_key("__doc__") {
-        attributes.insert("__doc__".to_string(), vm.ctx.none());
-    }
+    let attributes = dict.to_attributes();
 
     let mut winner = metatype.clone();
     for base in &bases {
