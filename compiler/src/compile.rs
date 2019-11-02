@@ -1015,22 +1015,23 @@ impl<O: OutputStream> Compiler<O> {
     }
 
     fn store_docstring(&mut self, doc_str: Option<String>) {
-        if let Some(doc_string) = doc_str {
-            // Duplicate top of stack (the function or class object)
-            self.emit(Instruction::Duplicate);
+        // Duplicate top of stack (the function or class object)
+        self.emit(Instruction::Duplicate);
 
-            // Doc string value:
-            self.emit(Instruction::LoadConst {
-                value: bytecode::Constant::String {
-                    value: doc_string.to_string(),
+        // Doc string value:
+        self.emit(Instruction::LoadConst {
+            value: match doc_str {
+                Some(doc) => bytecode::Constant::String {
+                    value: doc.to_string(),
                 },
-            });
+                None => bytecode::Constant::None, // set docstring None if not declared
+            },
+        });
 
-            self.emit(Instruction::Rotate { amount: 2 });
-            self.emit(Instruction::StoreAttr {
-                name: "__doc__".to_string(),
-            });
-        }
+        self.emit(Instruction::Rotate { amount: 2 });
+        self.emit(Instruction::StoreAttr {
+            name: "__doc__".to_string(),
+        });
     }
 
     fn compile_while(

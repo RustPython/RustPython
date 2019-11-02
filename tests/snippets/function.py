@@ -95,3 +95,8 @@ assert f8() == 10
 
 with assert_raises(SyntaxError):
     exec('print(keyword=10, 20)')
+
+def f9():
+    pass
+
+assert f9.__doc__ == None
