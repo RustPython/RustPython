@@ -3,20 +3,20 @@
 if __name__ != 'test.support':
     raise ImportError('support must be imported from the test package')
 
-import asyncio.events
+# import asyncio.events
 import collections.abc
 import contextlib
 import datetime
 import errno
-import faulthandler
+# import faulthandler
 import fnmatch
 import functools
-import gc
+# import gc
 import importlib
 import importlib.util
 import io
-import logging.handlers
-import nntplib
+# import logging.handlers
+# import nntplib
 import os
 import platform
 import re
@@ -27,13 +27,13 @@ import struct
 import subprocess
 import sys
 import sysconfig
-import tempfile
+# import tempfile
 import _thread
-import threading
+# import threading
 import time
 import types
 import unittest
-import urllib.error
+# import urllib.error
 import warnings
 
 from .testresult import get_test_runner
@@ -757,22 +757,22 @@ def bind_unix_socket(sock, addr):
         sock.close()
         raise unittest.SkipTest('cannot bind AF_UNIX sockets')
 
-def _is_ipv6_enabled():
-    """Check whether IPv6 is enabled on this host."""
-    if socket.has_ipv6:
-        sock = None
-        try:
-            sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-            sock.bind((HOSTv6, 0))
-            return True
-        except OSError:
-            pass
-        finally:
-            if sock:
-                sock.close()
-    return False
+# def _is_ipv6_enabled():
+#     """Check whether IPv6 is enabled on this host."""
+#     if socket.has_ipv6:
+#         sock = None
+#         try:
+#             sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+#             sock.bind((HOSTv6, 0))
+#             return True
+#         except OSError:
+#             pass
+#         finally:
+#             if sock:
+#                 sock.close()
+#     return False
 
-IPV6_ENABLED = _is_ipv6_enabled()
+# IPV6_ENABLED = _is_ipv6_enabled()
 
 def system_must_validate_cert(f):
     """Skip the test on TLS certificate validation failures."""
@@ -801,10 +801,10 @@ PIPE_MAX_SIZE = 4 * 1024 * 1024 + 1
 # for a discussion of this number).
 SOCK_MAX_SIZE = 16 * 1024 * 1024 + 1
 
-# decorator for skipping tests on non-IEEE 754 platforms
-requires_IEEE_754 = unittest.skipUnless(
-    float.__getformat__("double").startswith("IEEE"),
-    "test requires IEEE 754 doubles")
+# # decorator for skipping tests on non-IEEE 754 platforms
+# requires_IEEE_754 = unittest.skipUnless(
+#     float.__getformat__("double").startswith("IEEE"),
+#     "test requires IEEE 754 doubles")
 
 requires_zlib = unittest.skipUnless(zlib, 'requires zlib')
 
@@ -929,35 +929,35 @@ elif sys.platform != 'darwin':
         # the byte 0xff. Skip some unicode filename tests.
         pass
 
-# TESTFN_UNDECODABLE is a filename (bytes type) that should *not* be able to be
-# decoded from the filesystem encoding (in strict mode). It can be None if we
-# cannot generate such filename (ex: the latin1 encoding can decode any byte
-# sequence). On UNIX, TESTFN_UNDECODABLE can be decoded by os.fsdecode() thanks
-# to the surrogateescape error handler (PEP 383), but not from the filesystem
-# encoding in strict mode.
-TESTFN_UNDECODABLE = None
-for name in (
-    # b'\xff' is not decodable by os.fsdecode() with code page 932. Windows
-    # accepts it to create a file or a directory, or don't accept to enter to
-    # such directory (when the bytes name is used). So test b'\xe7' first: it is
-    # not decodable from cp932.
-    b'\xe7w\xf0',
-    # undecodable from ASCII, UTF-8
-    b'\xff',
-    # undecodable from iso8859-3, iso8859-6, iso8859-7, cp424, iso8859-8, cp856
-    # and cp857
-    b'\xae\xd5'
-    # undecodable from UTF-8 (UNIX and Mac OS X)
-    b'\xed\xb2\x80', b'\xed\xb4\x80',
-    # undecodable from shift_jis, cp869, cp874, cp932, cp1250, cp1251, cp1252,
-    # cp1253, cp1254, cp1255, cp1257, cp1258
-    b'\x81\x98',
-):
-    try:
-        name.decode(TESTFN_ENCODING)
-    except UnicodeDecodeError:
-        TESTFN_UNDECODABLE = os.fsencode(TESTFN) + name
-        break
+# # TESTFN_UNDECODABLE is a filename (bytes type) that should *not* be able to be
+# # decoded from the filesystem encoding (in strict mode). It can be None if we
+# # cannot generate such filename (ex: the latin1 encoding can decode any byte
+# # sequence). On UNIX, TESTFN_UNDECODABLE can be decoded by os.fsdecode() thanks
+# # to the surrogateescape error handler (PEP 383), but not from the filesystem
+# # encoding in strict mode.
+# TESTFN_UNDECODABLE = None
+# for name in (
+#     # b'\xff' is not decodable by os.fsdecode() with code page 932. Windows
+#     # accepts it to create a file or a directory, or don't accept to enter to
+#     # such directory (when the bytes name is used). So test b'\xe7' first: it is
+#     # not decodable from cp932.
+#     b'\xe7w\xf0',
+#     # undecodable from ASCII, UTF-8
+#     b'\xff',
+#     # undecodable from iso8859-3, iso8859-6, iso8859-7, cp424, iso8859-8, cp856
+#     # and cp857
+#     b'\xae\xd5'
+#     # undecodable from UTF-8 (UNIX and Mac OS X)
+#     b'\xed\xb2\x80', b'\xed\xb4\x80',
+#     # undecodable from shift_jis, cp869, cp874, cp932, cp1250, cp1251, cp1252,
+#     # cp1253, cp1254, cp1255, cp1257, cp1258
+#     b'\x81\x98',
+# ):
+#     try:
+#         name.decode(TESTFN_ENCODING)
+#     except UnicodeDecodeError:
+#         TESTFN_UNDECODABLE = os.fsencode(TESTFN) + name
+#         break
 
 if FS_NONASCII:
     TESTFN_NONASCII = TESTFN + '-' + FS_NONASCII
@@ -2414,33 +2414,33 @@ def optim_args_from_interpreter_flags():
 # Support for assertions about logging.
 #============================================================
 
-class TestHandler(logging.handlers.BufferingHandler):
-    def __init__(self, matcher):
-        # BufferingHandler takes a "capacity" argument
-        # so as to know when to flush. As we're overriding
-        # shouldFlush anyway, we can set a capacity of zero.
-        # You can call flush() manually to clear out the
-        # buffer.
-        logging.handlers.BufferingHandler.__init__(self, 0)
-        self.matcher = matcher
+# class TestHandler(logging.handlers.BufferingHandler):
+#     def __init__(self, matcher):
+#         # BufferingHandler takes a "capacity" argument
+#         # so as to know when to flush. As we're overriding
+#         # shouldFlush anyway, we can set a capacity of zero.
+#         # You can call flush() manually to clear out the
+#         # buffer.
+#         logging.handlers.BufferingHandler.__init__(self, 0)
+#         self.matcher = matcher
 
-    def shouldFlush(self):
-        return False
+#     def shouldFlush(self):
+#         return False
 
-    def emit(self, record):
-        self.format(record)
-        self.buffer.append(record.__dict__)
+#     def emit(self, record):
+#         self.format(record)
+#         self.buffer.append(record.__dict__)
 
-    def matches(self, **kwargs):
-        """
-        Look for a saved dict whose keys/values match the supplied arguments.
-        """
-        result = False
-        for d in self.buffer:
-            if self.matcher.matches(d, **kwargs):
-                result = True
-                break
-        return result
+#     def matches(self, **kwargs):
+#         """
+#         Look for a saved dict whose keys/values match the supplied arguments.
+#         """
+#         result = False
+#         for d in self.buffer:
+#             if self.matcher.matches(d, **kwargs):
+#                 result = True
+#                 break
+#         return result
 
 class Matcher(object):
 
@@ -2794,23 +2794,23 @@ def run_in_subinterp(code):
     return _testcapi.run_in_subinterp(code)
 
 
-def check_free_after_iterating(test, iter, cls, args=()):
-    class A(cls):
-        def __del__(self):
-            nonlocal done
-            done = True
-            try:
-                next(it)
-            except StopIteration:
-                pass
+# def check_free_after_iterating(test, iter, cls, args=()):
+#     class A(cls):
+#         def __del__(self):
+#             nonlocal done
+#             done = True
+#             try:
+#                 next(it)
+#             except StopIteration:
+#                 pass
 
-    done = False
-    it = iter(A(*args))
-    # Issue 26494: Shouldn't crash
-    test.assertRaises(StopIteration, next, it)
-    # The sequence should be deallocated just after the end of iterating
-    gc_collect()
-    test.assertTrue(done)
+#     done = False
+#     it = iter(A(*args))
+#     # Issue 26494: Shouldn't crash
+#     test.assertRaises(StopIteration, next, it)
+#     # The sequence should be deallocated just after the end of iterating
+#     gc_collect()
+#     test.assertTrue(done)
 
 
 def missing_compiler_executable(cmd_names=[]):
@@ -2994,9 +2994,9 @@ def maybe_get_event_loop_policy():
     """Return the global event loop policy if one is set, else return None."""
     return asyncio.events._event_loop_policy
 
-# Helpers for testing hashing.
-NHASHBITS = sys.hash_info.width # number of bits in hash() result
-assert NHASHBITS in (32, 64)
+# # Helpers for testing hashing.
+# NHASHBITS = sys.hash_info.width # number of bits in hash() result
+# assert NHASHBITS in (32, 64)
 
 # Return mean and sdev of number of collisions when tossing nballs balls
 # uniformly at random into nbins bins.  By definition, the number of

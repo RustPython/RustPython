@@ -43,7 +43,8 @@ class RegressionTestResult(unittest.TextTestResult):
     def startTest(self, test):
         super().startTest(test)
         self.__e = e = ET.SubElement(self.__suite, 'testcase')
-        self.__start_time = time.perf_counter()
+        # self.__start_time = time.perf_counter()
+        self.__start_time = time.time()
         if self.__verbose:
             self.stream.write(f'{self.getDescription(test)} ... ')
             self.stream.flush()
@@ -57,7 +58,8 @@ class RegressionTestResult(unittest.TextTestResult):
         e.set('status', args.pop('status', 'run'))
         e.set('result', args.pop('result', 'completed'))
         if self.__start_time:
-            e.set('time', f'{time.perf_counter() - self.__start_time:0.6f}')
+            # e.set('time', f'{time.perf_counter() - self.__start_time:0.6f}')
+            e.set('time', f'{time.time() - self.__start_time}')
 
         if capture:
             if self._stdout_buffer is not None:
