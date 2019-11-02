@@ -583,30 +583,56 @@ impl PyFloat {
 
     #[pymethod]
     fn fromhex(repr: PyStringRef, vm: &VirtualMachine) -> PyResult<f64> {
-        hexf_parse::parse_hexf64(repr.as_str(), false)
-            .or_else(|_| repr.as_str().parse::<f64>())
-            .or_else(|_| match repr.as_str() {
+        hexf_parse::parse_hexf64(repr.as_str().trim(), false).or_else(|_| {
+            match repr.as_str().to_lowercase().trim() {
                 "nan" => Ok(std::f64::NAN),
+                "+nan" => Ok(std::f64::NAN),
+                "-nan" => Ok(std::f64::NAN),
                 "inf" => Ok(std::f64::INFINITY),
+                "infinity" => Ok(std::f64::INFINITY),
+                "+inf" => Ok(std::f64::INFINITY),
+                "+infinity" => Ok(std::f64::INFINITY),
                 "-inf" => Ok(std::f64::NEG_INFINITY),
+                "-infinity" => Ok(std::f64::NEG_INFINITY),
                 value => {
                     let mut hex = String::new();
-                    if value.contains("0x") {
-                        for ch in value.chars() {
-                            if ch == 'p' {
-                                hex.push_str(".p");
-                            } else {
-                                hex.push(ch);
-                            }
+                    let has_0x = value.contains("0x");
+                    let has_p = value.contains('p');
+                    let has_dot = value.contains('.');
+                    let mut start = 0;
+
+                    if !has_0x && value.starts_with('-') {
+                        hex.push_str("-0x");
+                        start += 1;
+                    } else if !has_0x {
+                        hex.push_str("0x");
+                        if value.starts_with('+') {
+                            start += 1;
                         }
-                    } else {
-                        hex = value.to_string();
                     }
+
+                    for (index, ch) in value.chars().enumerate() {
+                        if ch == 'p' && has_dot {
+                            hex.push_str("p");
+                        } else if ch == 'p' && !has_dot {
+                            hex.push_str(".p");
+                        } else if index >= start {
+                            hex.push(ch);
+                        }
+                    }
+
+                    if !has_p && has_dot {
+                        hex.push_str("p0");
+                    } else if !has_p && !has_dot {
+                        hex.push_str(".p0")
+                    }
+
                     hexf_parse::parse_hexf64(hex.as_str(), false).map_err(|_| {
                         vm.new_value_error("invalid hexadecimal floating-point string".to_string())
                     })
                 }
-            })
+            }
+        })
     }
 
     #[pymethod]
