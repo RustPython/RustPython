@@ -10,6 +10,7 @@ use std::str::FromStr;
 use std::string::ToString;
 
 use num_traits::ToPrimitive;
+use unic::ucd::is_cased;
 use unicode_casing::CharExt;
 use unicode_categories::UnicodeCategories;
 use unicode_xid::UnicodeXID;
@@ -725,25 +726,32 @@ impl PyString {
         !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii_whitespace())
     }
 
+    // Return true if all cased characters in the string are uppercase and there is at least one cased character, false otherwise.
     #[pymethod]
     fn isupper(&self, _vm: &VirtualMachine) -> bool {
-        // TODO: assert not " ".isupper(), assert not "_".isupper()
-        !self.value.is_empty()
-            && self
-                .value
-                .chars()
-                .filter(|x| !x.is_ascii_whitespace() && *x != '_')
-                .all(char::is_uppercase)
+        let mut cased = false;
+        for c in self.value.chars() {
+            if is_cased(c) && c.is_uppercase() {
+                cased = true
+            } else if is_cased(c) && c.is_lowercase() {
+                return false;
+            }
+        }
+        cased
     }
 
+    // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.
     #[pymethod]
     fn islower(&self, _vm: &VirtualMachine) -> bool {
-        !self.value.is_empty()
-            && self
-                .value
-                .chars()
-                .filter(|x| !x.is_ascii_whitespace() && *x != '_')
-                .all(char::is_lowercase)
+        let mut cased = false;
+        for c in self.value.chars() {
+            if is_cased(c) && c.is_lowercase() {
+                cased = true
+            } else if is_cased(c) && c.is_uppercase() {
+                return false;
+            }
+        }
+        cased
     }
 
     #[pymethod]
