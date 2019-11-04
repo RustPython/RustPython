@@ -208,6 +208,19 @@ fn exception_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(joined_str))
 }
 
+fn exception_with_traceback(
+    zelf: PyObjectRef,
+    tb: Option<PyTracebackRef>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    vm.set_attr(
+        &zelf,
+        "__traceback__",
+        tb.map_or(vm.get_none(), |tb| tb.into_object()),
+    )?;
+    Ok(zelf)
+}
+
 #[derive(Debug)]
 pub struct ExceptionZoo {
     pub arithmetic_error: PyClassRef,
@@ -400,7 +413,8 @@ fn import_error_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let base_exception_type = &context.exceptions.base_exception_type;
     extend_class!(context, base_exception_type, {
-        "__init__" => context.new_rustfunc(exception_init)
+        "__init__" => context.new_rustfunc(exception_init),
+        "with_traceback" => context.new_rustfunc(exception_with_traceback)
     });
 
     let exception_type = &context.exceptions.exception_type;
