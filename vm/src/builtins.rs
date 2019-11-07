@@ -10,12 +10,15 @@ use std::str;
 use num_bigint::Sign;
 use num_traits::{Signed, ToPrimitive, Zero};
 
+use rustyline::{error::ReadlineError, Editor};
+
 use crate::obj::objbool::{self, IntoPyBool};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
+use crate::obj::objstr;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 #[cfg(feature = "rustpython-compiler")]
@@ -319,7 +322,53 @@ fn builtin_id(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.context().new_int(obj.get_id()))
 }
 
+
 // builtin_input
+/// Read a string from standard input.  The trailing newline is stripped.
+/// 
+/// The prompt string, if given, is printed to standard output without a
+/// trailing newline before reading input.
+///
+/// If the user hits EOF (*nix: Ctrl-D, Windows: Ctrl-Z+Return), raise EOFError.
+/// On *nix systems, readline is used if available.
+/// 
+/// # Remarks
+/// The goal is to fulfill all tasks done in cpython.
+/// Hopefully there are 1 to 1 solutions for each part of the function
+fn builtin_input(prompt_object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    /*
+    PyObject *fin = _PySys_GetObjectId(&PyId_stdin);
+    PyObject *fout = _PySys_GetObjectId(&PyId_stdout);
+    PyObject *ferr = _PySys_GetObjectId(&PyId_stderr);
+    PyObject *tmp;
+    long fd;
+    int tty;
+    */
+    let prompt = objstr::get_value(&prompt_object);
+
+    let mut rl = Editor::<()>::new();
+    let readline = rl.readline(&prompt);
+    match readline {
+        Ok(line) => {
+            Ok(vm.ctx.new_str(line))
+        },
+        Err(ReadlineError::Interrupted) => {
+            let keyboard_interrupt = vm
+                .new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())
+                .unwrap();
+            Err(keyboard_interrupt)
+        },
+        Err(ReadlineError::Eof) => {
+            Ok(vm.ctx.new_str("\x04".to_string()))
+        },
+        Err(err) => {
+            let runtime_error = vm
+                .new_empty_exception(vm.ctx.exceptions.runtime_error.clone())
+                .unwrap();
+            Err(runtime_error)
+        }
+    }
+}
 
 fn builtin_isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
     single_or_tuple_any(
@@ -801,6 +850,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "hex" => ctx.new_rustfunc(builtin_hex),
         "id" => ctx.new_rustfunc(builtin_id),
         "int" => ctx.int_type(),
+        "input" => ctx.new_rustfunc(builtin_input),
         "isinstance" => ctx.new_rustfunc(builtin_isinstance),
         "issubclass" => ctx.new_rustfunc(builtin_issubclass),
         "iter" => ctx.new_rustfunc(builtin_iter),
