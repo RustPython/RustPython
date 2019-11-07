@@ -220,17 +220,11 @@ fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 ///
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
-///
-/// # Remarks
-///
-/// Currently the code is applying ceil to the float using rust's builtin
-/// method and then converts to integral using python float's __int__ method.
-///
 fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if objtype::isinstance(&value, &vm.ctx.float_type()) {
         let v = objfloat::get_value(&value);
-        let v = vm.ctx.new_float(v.ceil());
-        try_magic_method("__int__", vm, &v)
+        let v = objfloat::try_to_bigint(v.ceil(), vm)?;
+        Ok(vm.ctx.new_int(v))
     } else {
         try_magic_method("__ceil__", vm, &value)
     }
@@ -242,17 +236,11 @@ fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 ///
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
-///
-/// # Remarks
-///
-/// Currently the code is applying floor to the float using rust's builtin
-/// method and then converts to integral using python float's __int__ method.
-///
 fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if objtype::isinstance(&value, &vm.ctx.float_type()) {
         let v = objfloat::get_value(&value);
-        let v = vm.ctx.new_float(v.floor());
-        try_magic_method("__int__", vm, &v)
+        let v = objfloat::try_to_bigint(v.floor(), vm)?;
+        Ok(vm.ctx.new_int(v))
     } else {
         try_magic_method("__floor__", vm, &value)
     }
