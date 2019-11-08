@@ -135,6 +135,11 @@ fn select_select(
     let (wlist, mut w) = seq2set(&wlist)?;
     let (xlist, mut x) = seq2set(&xlist)?;
 
+    if rlist.is_empty() && wlist.is_empty() && xlist.is_empty() {
+        let empty = vm.ctx.new_list(vec![]);
+        return Ok((empty.clone(), empty.clone(), empty));
+    }
+
     let nfds = [&mut r, &mut w, &mut x]
         .iter_mut()
         .filter_map(|set| set.highest())

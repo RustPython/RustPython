@@ -7,7 +7,7 @@ use byteorder::{BigEndian, ByteOrder};
 use gethostname::gethostname;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::unistd::sethostname;
-use socket2::{Domain, Socket, Type as SocketType};
+use socket2::{Domain, Protocol, Socket, Type as SocketType};
 
 use super::os::convert_io_error;
 #[cfg(unix)]
@@ -27,7 +27,31 @@ type RawSocket = std::os::unix::io::RawFd;
 type RawSocket = std::os::windows::raw::SOCKET;
 
 #[cfg(unix)]
-use libc as c;
+mod c {
+    pub use libc::*;
+    // TODO: open a PR to add these constants to libc; then just use libc
+    #[cfg(target_os = "android")]
+    pub const AI_PASSIVE: c_int = 0x00000001;
+    #[cfg(target_os = "android")]
+    pub const AI_CANONNAME: c_int = 0x00000002;
+    #[cfg(target_os = "android")]
+    pub const AI_NUMERICHOST: c_int = 0x00000004;
+    #[cfg(target_os = "android")]
+    pub const AI_NUMERICSERV: c_int = 0x00000008;
+    #[cfg(target_os = "android")]
+    pub const AI_MASK: c_int =
+        AI_PASSIVE | AI_CANONNAME | AI_NUMERICHOST | AI_NUMERICSERV | AI_ADDRCONFIG;
+    #[cfg(target_os = "android")]
+    pub const AI_ALL: c_int = 0x00000100;
+    #[cfg(target_os = "android")]
+    pub const AI_V4MAPPED_CFG: c_int = 0x00000200;
+    #[cfg(target_os = "android")]
+    pub const AI_ADDRCONFIG: c_int = 0x00000400;
+    #[cfg(target_os = "android")]
+    pub const AI_V4MAPPED: c_int = 0x00000800;
+    #[cfg(target_os = "android")]
+    pub const AI_DEFAULT: c_int = AI_V4MAPPED_CFG | AI_ADDRCONFIG;
+}
 #[cfg(windows)]
 mod c {
     pub use winapi::shared::ws2def::*;
@@ -92,28 +116,17 @@ impl PySocket {
                 unsafe { Socket::from_raw_socket(fileno) }
             }
         } else {
-            let domain = match family {
-                c::AF_INET => Domain::ipv4(),
-                c::AF_INET6 => Domain::ipv6(),
-                #[cfg(unix)]
-                c::AF_UNIX => Domain::unix(),
-                _ => {
-                    return Err(vm.new_os_error(format!("Unknown address family value: {}", family)))
-                }
-            };
+            let sock = Socket::new(
+                Domain::from(family),
+                SocketType::from(socket_kind),
+                Some(Protocol::from(proto)),
+            )
+            .map_err(|err| convert_sock_error(vm, err))?;
+
             self.family.set(family);
-            let socket_type = match socket_kind {
-                c::SOCK_STREAM => SocketType::stream(),
-                c::SOCK_DGRAM => SocketType::dgram(),
-                _ => {
-                    return Err(
-                        vm.new_os_error(format!("Unknown socket kind value: {}", socket_kind))
-                    )
-                }
-            };
             self.kind.set(socket_kind);
             self.proto.set(proto);
-            Socket::new(domain, socket_type, None).map_err(|err| convert_sock_error(vm, err))?
+            sock
         };
         self.sock.replace(sock);
         Ok(())
@@ -435,6 +448,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "error" => ctx.exceptions.os_error.clone(),
         "timeout" => socket_timeout,
         "gaierror" => socket_gaierror,
+        "AF_UNSPEC" => ctx.new_int(0),
         "AF_INET" => ctx.new_int(c::AF_INET),
         "AF_INET6" => ctx.new_int(c::AF_INET6),
         "SOCK_STREAM" => ctx.new_int(c::SOCK_STREAM),
@@ -446,6 +460,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "MSG_PEEK" => ctx.new_int(c::MSG_PEEK),
         "MSG_WAITALL" => ctx.new_int(c::MSG_WAITALL),
         "AI_ALL" => ctx.new_int(c::AI_ALL),
+        "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
         "socket" => PySocket::make_class(ctx),
         "inet_aton" => ctx.new_rustfunc(socket_inet_aton),
         "inet_ntoa" => ctx.new_rustfunc(socket_inet_ntoa),

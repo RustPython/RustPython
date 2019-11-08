@@ -32,6 +32,7 @@ num-rational = "0.2.2"
 num-iter = "0.1.39"
 rand = "0.7"
 rand_distr = "0.2"
+getrandom = "0.1"
 log = "0.4"
 rustpython-derive = {path = "../derive", version = "0.1.1"}
 rustpython-parser = {path = "../parser", optional = true, version = "0.1.1"}

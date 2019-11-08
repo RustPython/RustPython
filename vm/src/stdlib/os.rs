@@ -1090,6 +1090,17 @@ pub fn os_ttyname(fd: i32, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    let mut buf = vec![0u8; size];
+    match getrandom::getrandom(&mut buf) {
+        Ok(()) => Ok(buf),
+        Err(e) => match e.raw_os_error() {
+            Some(errno) => Err(convert_io_error(vm, io::Error::from_raw_os_error(errno))),
+            None => Err(vm.new_os_error("Getting random failed".to_string())),
+        },
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1214,6 +1225,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "getpid" => ctx.new_rustfunc(os_getpid),
         "cpu_count" => ctx.new_rustfunc(os_cpu_count),
         "_exit" => ctx.new_rustfunc(os_exit),
+        "urandom" => ctx.new_rustfunc(os_urandom),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
