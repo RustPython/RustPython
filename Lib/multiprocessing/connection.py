@@ -780,7 +780,8 @@ def XmlClient(*args, **kwds):
 # Wait
 #
 
-if sys.platform == 'win32':
+# XXX RustPython TODO: implement all the functions in this block
+if sys.platform == 'win32' and False:
 
     def _exhaustive_wait(handles, timeout):
         # Return ALL handles which are currently signalled.  (Only

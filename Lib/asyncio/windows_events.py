@@ -14,7 +14,8 @@ from . import proactor_events
 from . import selector_events
 from . import tasks
 from . import windows_utils
-from . import _overlapped
+# XXX RustPython TODO: _overlapped
+# from . import _overlapped
 from .coroutines import coroutine
 from .log import logger
 

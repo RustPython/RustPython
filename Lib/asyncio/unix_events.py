@@ -309,16 +309,16 @@ class _UnixSelectorEventLoop(selector_events.BaseSelectorEventLoop):
         return server
 
 
-if hasattr(os, 'set_blocking'):
-    def _set_nonblocking(fd):
-        os.set_blocking(fd, False)
-else:
-    import fcntl
+#if hasattr(os, 'set_blocking'):
+#    def _set_nonblocking(fd):
+#        os.set_blocking(fd, False)
+#else:
+#    import fcntl
 
-    def _set_nonblocking(fd):
-        flags = fcntl.fcntl(fd, fcntl.F_GETFL)
-        flags = flags | os.O_NONBLOCK
-        fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+#    def _set_nonblocking(fd):
+#        flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+#        flags = flags | os.O_NONBLOCK
+#        fcntl.fcntl(fd, fcntl.F_SETFL, flags)
 
 
 class _UnixReadPipeTransport(transports.ReadTransport):
@@ -659,20 +659,20 @@ class _UnixWritePipeTransport(transports._FlowControlMixin,
             self._loop = None
 
 
-if hasattr(os, 'set_inheritable'):
-    # Python 3.4 and newer
-    _set_inheritable = os.set_inheritable
-else:
-    import fcntl
-
-    def _set_inheritable(fd, inheritable):
-        cloexec_flag = getattr(fcntl, 'FD_CLOEXEC', 1)
-
-        old = fcntl.fcntl(fd, fcntl.F_GETFD)
-        if not inheritable:
-            fcntl.fcntl(fd, fcntl.F_SETFD, old | cloexec_flag)
-        else:
-            fcntl.fcntl(fd, fcntl.F_SETFD, old & ~cloexec_flag)
+#if hasattr(os, 'set_inheritable'):
+#    # Python 3.4 and newer
+#    _set_inheritable = os.set_inheritable
+#else:
+#    import fcntl
+#
+#    def _set_inheritable(fd, inheritable):
+#        cloexec_flag = getattr(fcntl, 'FD_CLOEXEC', 1)
+#
+#        old = fcntl.fcntl(fd, fcntl.F_GETFD)
+#        if not inheritable:
+#            fcntl.fcntl(fd, fcntl.F_SETFD, old | cloexec_flag)
+#        else:
+#            fcntl.fcntl(fd, fcntl.F_SETFD, old & ~cloexec_flag)
 
 
 class _UnixSubprocessTransport(base_subprocess.BaseSubprocessTransport):

@@ -243,7 +243,7 @@ class BaseEventLoop(events.AbstractEventLoop):
         # Identifier of the thread running the event loop, or None if the
         # event loop is not running
         self._thread_id = None
-        self._clock_resolution = time.get_clock_info('monotonic').resolution
+        self._clock_resolution = 1e-06 #time.get_clock_info('monotonic').resolution
         self._exception_handler = None
         self.set_debug((not sys.flags.ignore_environment
                         and bool(os.environ.get('PYTHONASYNCIODEBUG'))))
