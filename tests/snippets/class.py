@@ -33,6 +33,10 @@ class Bar:
         assert __class__ is Bar
         return self.x
 
+    def doc_func(self):
+        "doc string"
+        pass
+
     @classmethod
     def fubar(cls, x):
         assert __class__ is cls
@@ -48,6 +52,8 @@ class Bar:
 assert Bar.__doc__ == " W00t "
 
 bar = Bar(42)
+assert bar.get_x.__doc__ == None
+assert bar.doc_func.__doc__ == "doc string"
 
 bar.fubar(2)
 Bar.fubar(2)

@@ -1,5 +1,6 @@
 use super::objcode::PyCodeRef;
 use super::objdict::PyDictRef;
+use super::objstr::PyStringRef;
 use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
 use crate::function::PyFuncArgs;
@@ -69,6 +70,10 @@ impl PyMethod {
     pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         PyMethod { object, function }
     }
+
+    fn getattribute(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        vm.get_attribute(self.function.clone(), name.clone())
+    }
 }
 
 impl PyValue for PyMethod {
@@ -91,6 +96,11 @@ pub fn init(context: &PyContext) {
     extend_class!(context, builtin_function_or_method_type, {
         "__get__" => context.new_rustfunc(bind_method),
         "__call__" => context.new_rustfunc(PyFunctionRef::call),
+    });
+
+    let method_type = &context.types.bound_method_type;
+    extend_class!(context, method_type, {
+        "__getattribute__" => context.new_rustfunc(PyMethod::getattribute),
     });
 }
 
