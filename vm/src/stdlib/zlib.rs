@@ -1,5 +1,5 @@
 use crate::function::OptionalArg;
-use crate::obj::{objbytes::PyBytesRef, objint::PyIntRef};
+use crate::obj::objbytes::PyBytesRef;
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
 use crate::types::create_type;
 use crate::vm::VirtualMachine;
@@ -8,7 +8,6 @@ use adler32::RollingAdler32 as Adler32;
 use crc32fast::Hasher as Crc32;
 use flate2::{write::ZlibEncoder, Compression, Decompress, FlushDecompress, Status};
 use libz_sys as libz;
-use num_traits::cast::ToPrimitive;
 
 use std::io::Write;
 
@@ -41,18 +40,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 /// Compute an Adler-32 checksum of data.
-fn zlib_adler32(
-    data: PyBytesRef,
-    begin_state: OptionalArg<PyIntRef>,
-    vm: &VirtualMachine,
-) -> PyResult<PyObjectRef> {
+fn zlib_adler32(data: PyBytesRef, begin_state: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
     let data = data.get_value();
 
-    let begin_state = begin_state
-        .into_option()
-        .as_ref()
-        .map(|v| v.as_bigint().to_i32().unwrap())
-        .unwrap_or(1);
+    let begin_state = begin_state.unwrap_or(1);
 
     let mut hasher = Adler32::from_value(begin_state as u32);
     hasher.update_buffer(data);
@@ -63,18 +54,10 @@ fn zlib_adler32(
 }
 
 /// Compute a CRC-32 checksum of data.
-fn zlib_crc32(
-    data: PyBytesRef,
-    begin_state: OptionalArg<PyIntRef>,
-    vm: &VirtualMachine,
-) -> PyResult<PyObjectRef> {
+fn zlib_crc32(data: PyBytesRef, begin_state: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
     let data = data.get_value();
 
-    let begin_state = begin_state
-        .into_option()
-        .as_ref()
-        .map(|v| v.as_bigint().to_i32().unwrap())
-        .unwrap_or(0);
+    let begin_state = begin_state.unwrap_or(0);
 
     let mut hasher = Crc32::new_with_initial(begin_state as u32);
     hasher.update(data);
@@ -85,18 +68,10 @@ fn zlib_crc32(
 }
 
 /// Returns a bytes object containing compressed data.
-fn zlib_compress(
-    data: PyBytesRef,
-    level: OptionalArg<PyIntRef>,
-    vm: &VirtualMachine,
-) -> PyResult<PyObjectRef> {
+fn zlib_compress(data: PyBytesRef, level: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
     let input_bytes = data.get_value();
 
-    let level = level
-        .into_option()
-        .as_ref()
-        .map(|v| v.as_bigint().to_i32().unwrap())
-        .unwrap_or(libz::Z_DEFAULT_COMPRESSION);
+    let level = level.unwrap_or(libz::Z_DEFAULT_COMPRESSION);
 
     let compression = match level {
         valid_level @ libz::Z_NO_COMPRESSION..=libz::Z_BEST_COMPRESSION => {
@@ -116,23 +91,14 @@ fn zlib_compress(
 /// Returns a bytes object containing the uncompressed data.
 fn zlib_decompress(
     data: PyBytesRef,
-    wbits: OptionalArg<PyIntRef>,
-    bufsize: OptionalArg<PyIntRef>,
+    wbits: OptionalArg<u8>,
+    bufsize: OptionalArg<usize>,
     vm: &VirtualMachine,
-) -> PyResult<PyObjectRef> {
+) -> PyResult {
     let encoded_bytes = data.get_value();
 
-    let wbits = wbits
-        .into_option()
-        .as_ref()
-        .map(|wbits| wbits.as_bigint().to_u8().unwrap())
-        .unwrap_or(MAX_WBITS);
-
-    let bufsize = bufsize
-        .into_option()
-        .as_ref()
-        .map(|bufsize| bufsize.as_bigint().to_usize().unwrap())
-        .unwrap_or(DEF_BUF_SIZE);
+    let wbits = wbits.unwrap_or(MAX_WBITS);
+    let bufsize = bufsize.unwrap_or(DEF_BUF_SIZE);
 
     let mut decompressor = Decompress::new_with_window_bits(true, wbits);
     let mut decoded_bytes = Vec::with_capacity(bufsize);

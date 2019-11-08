@@ -1,34 +1,24 @@
-use crate::obj::objint::PyIntRef;
-use crate::obj::objnone::PyNoneRef;
-use crate::obj::objslice::PySliceRef;
-use crate::obj::objtuple::PyTupleRef;
-use crate::pyhash;
-use crate::pyobject::Either;
-use crate::pyobject::PyRef;
-use crate::pyobject::PyValue;
-use crate::pyobject::TryFromObject;
-use crate::pyobject::{PyIterable, PyObjectRef};
-use core::convert::TryFrom;
-use core::ops::Range;
+use std::convert::TryFrom;
+use std::ops::Range;
+
 use num_bigint::BigInt;
-
-use crate::function::OptionalArg;
-use crate::pyobject::{PyResult, TypeProtocol};
-use crate::vm::VirtualMachine;
-
-use super::objint;
-use super::objsequence::{is_valid_slice_arg, PySliceableSequence};
-use super::objstr::{PyString, PyStringRef};
-
-use crate::obj::objint::PyInt;
 use num_integer::Integer;
 use num_traits::ToPrimitive;
 
-use super::objbytearray::PyByteArray;
-use super::objbytes::PyBytes;
+use super::objbytearray::{PyByteArray, PyByteArrayRef};
+use super::objbytes::{PyBytes, PyBytesRef};
+use super::objint::{self, PyInt, PyIntRef};
+use super::objlist::PyList;
 use super::objmemory::PyMemoryView;
-
-use super::objsequence;
+use super::objnone::PyNoneRef;
+use super::objsequence::{self, is_valid_slice_arg, PySliceableSequence};
+use super::objslice::PySliceRef;
+use super::objstr::{PyString, PyStringRef};
+use super::objtuple::PyTupleRef;
+use crate::function::OptionalArg;
+use crate::pyhash;
+use crate::pyobject::{Either, PyIterable, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 #[derive(Debug, Default, Clone)]
 pub struct PyByteInner {
@@ -47,27 +37,12 @@ impl TryFromObject for PyByteInner {
             k @ PyMemoryView => Ok(PyByteInner {
                 elements: k.get_obj_value().unwrap()
             }),
+            l @ PyList => l.get_byte_inner(vm),
             obj => Err(vm.new_type_error(format!(
                 "a bytes-like object is required, not {}",
                 obj.class()
             ))),
         })
-    }
-}
-
-impl<B: PyValue> TryFromObject for Either<PyByteInner, PyRef<B>> {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match PyByteInner::try_from_object(vm, obj.clone()) {
-            Ok(a) => Ok(Either::A(a)),
-            Err(_) => match obj.clone().downcast::<B>() {
-                Ok(b) => Ok(Either::B(b)),
-                Err(_) => Err(vm.new_type_error(format!(
-                    "a bytes-like object or {} is required, not {}",
-                    B::class(vm),
-                    obj.class()
-                ))),
-            },
-        }
     }
 }
 
@@ -117,7 +92,9 @@ impl ByteInnerNewOptions {
             let value = if let OptionalArg::Present(ival) = self.val_option {
                 match_class!(match ival.clone() {
                     i @ PyInt => {
-                        let size = objint::get_value(&i.into_object()).to_usize().unwrap();
+                        let size = objint::get_value(&i.into_object())
+                            .to_usize()
+                            .ok_or_else(|| vm.new_value_error("negative count".to_string()))?;
                         Ok(vec![0; size])
                     }
                     _l @ PyString => {
@@ -128,14 +105,14 @@ impl ByteInnerNewOptions {
                     obj => {
                         let elements = vm.extract_elements(&obj).or_else(|_| {
                             Err(vm.new_type_error(format!(
-                                "cannot convert {} object to bytes",
+                                "cannot convert '{}' object to bytes",
                                 obj.class().name
                             )))
                         });
 
                         let mut data_bytes = vec![];
-                        for elem in elements.unwrap() {
-                            let v = objint::to_int(vm, &elem, 10)?;
+                        for elem in elements? {
+                            let v = objint::to_int(vm, &elem, &BigInt::from(10))?;
                             if let Some(i) = v.to_u8() {
                                 data_bytes.push(i);
                             } else {
@@ -279,7 +256,7 @@ pub struct ByteInnerSplitOptions {
     #[pyarg(positional_or_keyword, optional = true)]
     sep: OptionalArg<Option<PyByteInner>>,
     #[pyarg(positional_or_keyword, optional = true)]
-    maxsplit: OptionalArg<PyIntRef>,
+    maxsplit: OptionalArg<i32>,
 }
 
 impl ByteInnerSplitOptions {
@@ -290,7 +267,7 @@ impl ByteInnerSplitOptions {
         };
 
         let maxsplit = if let OptionalArg::Present(value) = self.maxsplit {
-            value.as_bigint().to_i32().unwrap()
+            value
         } else {
             -1
         };
@@ -425,7 +402,11 @@ impl PyByteInner {
             .collect::<Vec<u8>>()
     }
 
-    pub fn contains(&self, needle: Either<PyByteInner, PyIntRef>, vm: &VirtualMachine) -> PyResult {
+    pub fn contains(
+        &self,
+        needle: Either<PyByteInner, PyIntRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
         match needle {
             Either::A(byte) => {
                 let other = &byte.elements[..];
@@ -434,25 +415,19 @@ impl PyByteInner {
                         && *i == other[0]
                         && &self.elements[n..n + other.len()] == other
                     {
-                        return Ok(vm.new_bool(true));
+                        return Ok(true);
                     }
                 }
-                Ok(vm.new_bool(false))
+                Ok(false)
             }
-            Either::B(int) => {
-                if self.elements.contains(&int.as_bigint().byte_or(vm)?) {
-                    Ok(vm.new_bool(true))
-                } else {
-                    Ok(vm.new_bool(false))
-                }
-            }
+            Either::B(int) => Ok(self.elements.contains(&int.as_bigint().byte_or(vm)?)),
         }
     }
 
-    pub fn getitem(&self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    pub fn getitem(&self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult {
         match needle {
             Either::A(int) => {
-                if let Some(idx) = self.elements.get_pos(int.as_bigint().to_i32().unwrap()) {
+                if let Some(idx) = self.elements.get_pos(int) {
                     Ok(vm.new_int(self.elements[idx]))
                 } else {
                     Err(vm.new_index_error("index out of range".to_string()))
@@ -464,8 +439,8 @@ impl PyByteInner {
         }
     }
 
-    fn setindex(&mut self, int: PyIntRef, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(idx) = self.elements.get_pos(int.as_bigint().to_i32().unwrap()) {
+    fn setindex(&mut self, int: i32, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(idx) = self.elements.get_pos(int) {
             let result = match_class!(match object {
                 i @ PyInt => {
                     if let Some(value) = i.as_bigint().to_u8() {
@@ -518,7 +493,7 @@ impl PyByteInner {
 
     pub fn setitem(
         &mut self,
-        needle: Either<PyIntRef, PySliceRef>,
+        needle: Either<i32, PySliceRef>,
         object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -528,67 +503,51 @@ impl PyByteInner {
         }
     }
 
-    pub fn isalnum(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty()
-                && self
-                    .elements
-                    .iter()
-                    .all(|x| char::from(*x).is_alphanumeric()),
-        ))
+    pub fn isalnum(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty()
+            && self
+                .elements
+                .iter()
+                .all(|x| char::from(*x).is_alphanumeric())
     }
 
-    pub fn isalpha(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty()
-                && self.elements.iter().all(|x| char::from(*x).is_alphabetic()),
-        ))
+    pub fn isalpha(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_alphabetic())
     }
 
-    pub fn isascii(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_ascii()),
-        ))
+    pub fn isascii(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_ascii())
     }
 
-    pub fn isdigit(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_digit(10)),
-        ))
+    pub fn isdigit(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_digit(10))
     }
 
-    pub fn islower(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty()
-                && self
-                    .elements
-                    .iter()
-                    .filter(|x| !char::from(**x).is_whitespace())
-                    .all(|x| char::from(*x).is_lowercase()),
-        ))
+    pub fn islower(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty()
+            && self
+                .elements
+                .iter()
+                .filter(|x| !char::from(**x).is_whitespace())
+                .all(|x| char::from(*x).is_lowercase())
     }
 
-    pub fn isspace(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty()
-                && self.elements.iter().all(|x| char::from(*x).is_whitespace()),
-        ))
+    pub fn isspace(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_whitespace())
     }
 
-    pub fn isupper(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_bool(
-            !self.elements.is_empty()
-                && self
-                    .elements
-                    .iter()
-                    .filter(|x| !char::from(**x).is_whitespace())
-                    .all(|x| char::from(*x).is_uppercase()),
-        ))
+    pub fn isupper(&self, _vm: &VirtualMachine) -> bool {
+        !self.elements.is_empty()
+            && self
+                .elements
+                .iter()
+                .filter(|x| !char::from(**x).is_whitespace())
+                .all(|x| char::from(*x).is_uppercase())
     }
 
-    pub fn istitle(&self, vm: &VirtualMachine) -> PyResult {
+    pub fn istitle(&self, _vm: &VirtualMachine) -> bool {
         if self.elements.is_empty() {
-            return Ok(vm.new_bool(false));
+            return false;
         }
 
         let mut iter = self.elements.iter().peekable();
@@ -599,9 +558,9 @@ impl PyByteInner {
             let next = if let Some(k) = iter.peek() {
                 char::from(**k)
             } else if current.is_uppercase() {
-                return Ok(vm.new_bool(!prev_cased));
+                return !prev_cased;
             } else {
-                return Ok(vm.new_bool(prev_cased));
+                return prev_cased;
             };
 
             let is_cased = current.to_uppercase().next().unwrap() != current
@@ -609,13 +568,13 @@ impl PyByteInner {
             if (is_cased && next.is_uppercase() && !prev_cased)
                 || (!is_cased && next.is_lowercase())
             {
-                return Ok(vm.new_bool(false));
+                return false;
             }
 
             prev_cased = is_cased;
         }
 
-        Ok(vm.new_bool(true))
+        true
     }
 
     pub fn lower(&self, _vm: &VirtualMachine) -> Vec<u8> {
@@ -647,13 +606,11 @@ impl PyByteInner {
         new
     }
 
-    pub fn hex(&self, vm: &VirtualMachine) -> PyResult {
-        let bla = self
-            .elements
+    pub fn hex(&self, _vm: &VirtualMachine) -> String {
+        self.elements
             .iter()
             .map(|x| format!("{:02x}", x))
-            .collect::<String>();
-        Ok(vm.ctx.new_str(bla))
+            .collect::<String>()
     }
 
     pub fn fromhex(string: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -776,6 +733,7 @@ impl PyByteInner {
         Ok(vm.ctx.new_bytes(refs))
     }
 
+    #[inline]
     pub fn startsendswith(
         &self,
         arg: Either<PyByteInner, PyTupleRef>,
@@ -783,7 +741,7 @@ impl PyByteInner {
         end: OptionalArg<PyObjectRef>,
         endswith: bool, // true for endswith, false for startswith
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<bool> {
         let suff = match arg {
             Either::A(byte) => byte.elements,
             Either::B(tuple) => {
@@ -796,7 +754,7 @@ impl PyByteInner {
         };
 
         if suff.is_empty() {
-            return Ok(vm.new_bool(true));
+            return Ok(true);
         }
         let range = self.elements.get_slice_range(
             &is_valid_slice_arg(start, vm)?,
@@ -804,7 +762,7 @@ impl PyByteInner {
         );
 
         if range.end - range.start < suff.len() {
-            return Ok(vm.new_bool(false));
+            return Ok(false);
         }
 
         let offset = if endswith {
@@ -813,7 +771,7 @@ impl PyByteInner {
             0..suff.len()
         };
 
-        Ok(vm.new_bool(suff.as_slice() == &self.elements.do_slice(range)[offset]))
+        Ok(suff.as_slice() == &self.elements.do_slice(range)[offset])
     }
 
     pub fn find(
@@ -1055,8 +1013,8 @@ impl PyByteInner {
         let mut done = 0;
 
         let slice = &self.elements;
-        while index <= slice.len() - old.len() {
-            if done == count {
+        loop {
+            if done == count || index > slice.len() - old.len() {
                 res.extend_from_slice(&slice[index..]);
                 break;
             }
@@ -1097,15 +1055,11 @@ impl PyByteInner {
         res
     }
 
-    pub fn repeat(&self, n: PyIntRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub fn repeat(&self, n: isize, _vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if self.elements.is_empty() {
             // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
             return Ok(vec![]);
         }
-
-        let n = n.as_bigint().to_isize().ok_or_else(|| {
-            vm.new_overflow_error("can't multiply bytes that many times".to_string())
-        })?;
 
         if n <= 0 {
             Ok(vec![])
@@ -1121,15 +1075,11 @@ impl PyByteInner {
         }
     }
 
-    pub fn irepeat(&mut self, n: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn irepeat(&mut self, n: isize, _vm: &VirtualMachine) -> PyResult<()> {
         if self.elements.is_empty() {
             // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
             return Ok(());
         }
-
-        let n = n.as_bigint().to_isize().ok_or_else(|| {
-            vm.new_overflow_error("can't multiply bytes that many times".to_string())
-        })?;
 
         if n <= 0 {
             self.elements.clear();
@@ -1157,7 +1107,7 @@ pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
 }
 
 pub trait ByteOr: ToPrimitive {
-    fn byte_or(&self, vm: &VirtualMachine) -> Result<u8, PyObjectRef> {
+    fn byte_or(&self, vm: &VirtualMachine) -> PyResult<u8> {
         match self.to_u8() {
             Some(value) => Ok(value),
             None => Err(vm.new_value_error("byte must be in range(0, 256)".to_string())),
@@ -1352,4 +1302,35 @@ fn split_slice_reverse<'a>(slice: &'a [u8], sep: &[u8], maxsplit: i32) -> Vec<&'
     }
     splitted.reverse();
     splitted
+}
+
+pub enum PyBytesLike {
+    Bytes(PyBytesRef),
+    Bytearray(PyByteArrayRef),
+    Vec(Vec<u8>),
+}
+
+impl TryFromObject for PyBytesLike {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match_class!(match obj {
+            b @ PyBytes => Ok(PyBytesLike::Bytes(b)),
+            b @ PyByteArray => Ok(PyBytesLike::Bytearray(b)),
+            m @ PyMemoryView => Ok(PyBytesLike::Vec(m.get_obj_value().unwrap())),
+            l @ PyList => Ok(PyBytesLike::Vec(l.get_byte_inner(vm)?.elements)),
+            obj => Err(vm.new_type_error(format!(
+                "a bytes-like object is required, not {}",
+                obj.class()
+            ))),
+        })
+    }
+}
+
+impl PyBytesLike {
+    pub fn to_cow(&self) -> std::borrow::Cow<[u8]> {
+        match self {
+            PyBytesLike::Bytes(b) => b.get_value().into(),
+            PyBytesLike::Bytearray(b) => b.inner.borrow().elements.clone().into(),
+            PyBytesLike::Vec(b) => b.as_slice().into(),
+        }
+    }
 }

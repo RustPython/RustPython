@@ -1,10 +1,8 @@
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objint::PyIntRef;
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use crc::{crc32, Hasher32};
-use num_traits::ToPrimitive;
 
 fn hex_nibble(n: u8) -> u8 {
     match n {
@@ -45,8 +43,8 @@ fn binascii_unhexlify(hexstr: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     for i in (0..hex_bytes.len()).step_by(2) {
         let n1 = unhex_nibble(hex_bytes[i]);
         let n2 = unhex_nibble(hex_bytes[i + 1]);
-        if n1.is_some() && n2.is_some() {
-            unhex.push(n1.unwrap() << 4 | n2.unwrap());
+        if let (Some(n1), Some(n2)) = (n1, n2) {
+            unhex.push(n1 << 4 | n2);
         } else {
             return Err(vm.new_value_error("Non-hexadecimal digit found".to_string()));
         }
@@ -55,12 +53,9 @@ fn binascii_unhexlify(hexstr: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_bytes(unhex))
 }
 
-fn binascii_crc32(data: PyBytesRef, value: OptionalArg<PyIntRef>, vm: &VirtualMachine) -> PyResult {
+fn binascii_crc32(data: PyBytesRef, value: OptionalArg<u32>, vm: &VirtualMachine) -> PyResult {
     let bytes = data.get_value();
-    let crc = match value {
-        OptionalArg::Missing => 0u32,
-        OptionalArg::Present(value) => value.as_bigint().to_u32().unwrap(),
-    };
+    let crc = value.unwrap_or(0u32);
 
     let mut digest = crc32::Digest::new_with_initial(crc32::IEEE, crc);
     digest.write(&bytes);

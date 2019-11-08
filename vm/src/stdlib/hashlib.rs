@@ -41,8 +41,8 @@ impl PyHasher {
         }
     }
 
-    #[pymethod(name = "__new__")]
-    fn py_new(_cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    #[pyslot(new)]
+    fn tp_new(_cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(PyHasher::new("md5", HashWrapper::md5())
             .into_ref(vm)
             .into_object())
@@ -204,8 +204,7 @@ struct HashWrapper {
 impl HashWrapper {
     fn new<D: 'static>(d: D) -> Self
     where
-        D: DynDigest,
-        D: Sized,
+        D: DynDigest + Sized,
     {
         HashWrapper { inner: Box::new(d) }
     }

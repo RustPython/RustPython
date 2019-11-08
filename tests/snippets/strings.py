@@ -1,5 +1,6 @@
 from testutils import assert_raises
 
+assert "".__eq__(1) == NotImplemented
 assert "a" == 'a'
 assert """a""" == "a"
 assert len(""" " "" " "" """) == 11
@@ -262,7 +263,7 @@ assert "abcdefg".isprintable()
 assert not "abcdefg\n".isprintable()
 assert "ʹ".isprintable()
 
-# test unicode iterals
+# test unicode literals
 assert "\xac" == "¬"
 assert "\u0037" == "7"
 assert "\u0040" == "@"
@@ -311,3 +312,25 @@ assert index_str[0] == 'R'
 assert index_str[-1] == 'n'
 
 assert_raises(TypeError, lambda: index_str['a'])
+
+assert chr(9).__repr__() == "'\\t'"
+assert chr(99).__repr__() == "'c'"
+assert chr(999).__repr__() == "'ϧ'"
+assert chr(9999).__repr__() == "'✏'"
+assert chr(99999).__repr__() == "'𘚟'"
+assert chr(999999).__repr__() == "'\\U000f423f'"
+
+assert "a".__ne__("b")
+assert not "a".__ne__("a")
+assert not "".__ne__("")
+assert "".__ne__(1) == NotImplemented
+
+# check non-cased characters
+assert "A_B".isupper()
+assert "a_b".islower()
+assert "A1".isupper()
+assert "1A".isupper()
+assert "a1".islower()
+assert "1a".islower()
+assert "가나다a".islower()
+assert "가나다A".isupper()

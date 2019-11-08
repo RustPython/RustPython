@@ -1,25 +1,26 @@
 use std::fmt;
+use std::mem::size_of;
 use std::str;
 
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
 
+use super::objbool::IntoPyBool;
+use super::objbyteinner::PyByteInner;
+use super::objbytes::PyBytes;
+use super::objfloat;
+use super::objint;
+use super::objstr::{PyString, PyStringRef};
+use super::objtype::{self, PyClassRef};
 use crate::format::FormatSpec;
-use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
-use crate::obj::objtype::PyClassRef;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-
-use super::objbyteinner::PyByteInner;
-use super::objbytes::PyBytes;
-use super::objint;
-use super::objstr::{PyString, PyStringRef};
-use super::objtype;
 
 /// int(x=0) -> integer
 /// int(x, base=10) -> integer
@@ -87,7 +88,8 @@ macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
         impl TryFromObject for $t {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                match PyRef::<PyInt>::try_from_object(vm, obj)?.value.$to_prim() {
+                let int = PyIntRef::try_from_object(vm, obj)?;
+                match int.value.$to_prim() {
                     Some(value) => Ok(value),
                     None => Err(
                         vm.new_overflow_error(concat!(
@@ -116,15 +118,17 @@ impl_try_from_object_int!(
 
 #[allow(clippy::collapsible_if)]
 fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
-    let result = if int2.value.is_negative() {
+    if int2.value.is_negative() {
         let v1 = int1.float(vm)?;
         let v2 = int2.float(vm)?;
-        vm.ctx.new_float(v1.pow(v2))
+        objfloat::float_pow(v1, v2, vm)
     } else {
-        if let Some(v2) = int2.value.to_u64() {
+        Ok(if let Some(v2) = int2.value.to_u64() {
             vm.ctx.new_int(int1.value.pow(v2))
-        } else if int1.value.is_one() || int1.value.is_zero() {
-            vm.ctx.new_int(int1.value.clone())
+        } else if int1.value.is_one() {
+            vm.ctx.new_int(1)
+        } else if int1.value.is_zero() {
+            vm.ctx.new_int(0)
         } else if int1.value == BigInt::from(-1) {
             if int2.value.is_odd() {
                 vm.ctx.new_int(-1)
@@ -135,9 +139,8 @@ fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
             // missing feature: BigInt exp
             // practically, exp over u64 is not possible to calculate anyway
             vm.ctx.not_implemented()
-        }
-    };
-    Ok(result)
+        })
+    }
 }
 
 fn inner_mod(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
@@ -179,6 +182,11 @@ fn inner_rshift(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
 
 #[pyimpl]
 impl PyInt {
+    #[pyslot(new)]
+    fn tp_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+        PyInt::new(options.get_int_value(vm)?).into_ref_with_type(vm, cls)
+    }
+
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
@@ -566,6 +574,11 @@ impl PyInt {
         !self.value.is_zero()
     }
 
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+        size_of::<Self>() + ((self.value.bits() + 7) & !7) / 8
+    }
+
     #[pymethod]
     fn bit_length(&self, _vm: &VirtualMachine) -> usize {
         self.value.bits()
@@ -578,29 +591,21 @@ impl PyInt {
 
     #[pymethod]
     #[allow(clippy::match_bool)]
-    fn from_bytes(
-        bytes: PyByteInner,
-        byteorder: PyStringRef,
-        kwargs: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<BigInt> {
-        let mut signed = false;
-        for (key, value) in kwargs.into_iter() {
-            if key == "signed" {
-                signed = match_class!(match value {
-                    b @ PyInt => !b.as_bigint().is_zero(),
-                    _ => false,
-                });
-            }
-        }
-        let x = match byteorder.as_str() {
+    fn from_bytes(args: IntFromByteArgs, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let signed = if let OptionalArg::Present(signed) = args.signed {
+            signed.to_bool()
+        } else {
+            false
+        };
+
+        let x = match args.byteorder.as_str() {
             "big" => match signed {
-                true => BigInt::from_signed_bytes_be(&bytes.elements),
-                false => BigInt::from_bytes_be(Sign::Plus, &bytes.elements),
+                true => BigInt::from_signed_bytes_be(&args.bytes.elements),
+                false => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
             },
             "little" => match signed {
-                true => BigInt::from_signed_bytes_le(&bytes.elements),
-                false => BigInt::from_bytes_le(Sign::Plus, &bytes.elements),
+                true => BigInt::from_signed_bytes_le(&args.bytes.elements),
+                false => BigInt::from_bytes_le(Sign::Plus, &args.bytes.elements),
             },
             _ => {
                 return Err(
@@ -610,36 +615,30 @@ impl PyInt {
         };
         Ok(x)
     }
+
     #[pymethod]
     #[allow(clippy::match_bool)]
-    fn to_bytes(
-        &self,
-        length: PyIntRef,
-        byteorder: PyStringRef,
-        kwargs: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyBytes> {
-        let mut signed = false;
+    fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        let signed = if let OptionalArg::Present(signed) = args.signed {
+            signed.to_bool()
+        } else {
+            false
+        };
+
         let value = self.as_bigint();
-        for (key, value) in kwargs.into_iter() {
-            if key == "signed" {
-                signed = match_class!(match value {
-                    b @ PyInt => !b.as_bigint().is_zero(),
-                    _ => false,
-                });
-            }
-        }
         if value.sign() == Sign::Minus && !signed {
             return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_string()));
         }
-        let byte_len;
-        if let Some(temp) = length.as_bigint().to_usize() {
-            byte_len = temp;
-        } else {
-            return Err(vm.new_value_error("length parameter is illegal".to_string()));
-        }
 
-        let mut origin_bytes = match byteorder.as_str() {
+        let byte_len = if let Some(byte_len) = args.length.as_bigint().to_usize() {
+            byte_len
+        } else {
+            return Err(
+                vm.new_overflow_error("Python int too large to convert to C ssize_t".to_string())
+            );
+        };
+
+        let mut origin_bytes = match args.byteorder.as_str() {
             "big" => match signed {
                 true => value.to_signed_bytes_be(),
                 false => value.to_bytes_be().1,
@@ -654,17 +653,19 @@ impl PyInt {
                 );
             }
         };
+
         let origin_len = origin_bytes.len();
         if origin_len > byte_len {
-            return Err(vm.new_value_error("int too big to convert".to_string()));
+            return Err(vm.new_overflow_error("int too big to convert".to_string()));
         }
 
         let mut append_bytes = match value.sign() {
             Sign::Minus => vec![255u8; byte_len - origin_len],
             _ => vec![0u8; byte_len - origin_len],
         };
+
         let mut bytes = vec![];
-        match byteorder.as_str() {
+        match args.byteorder.as_str() {
             "big" => {
                 bytes = append_bytes;
                 bytes.append(&mut origin_bytes);
@@ -675,12 +676,11 @@ impl PyInt {
             }
             _ => (),
         }
-
         Ok(PyBytes::new(bytes))
     }
     #[pyproperty]
     fn real(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self.value.clone())
+        vm.ctx.new_bigint(&self.value)
     }
 
     #[pyproperty]
@@ -704,7 +704,7 @@ struct IntOptions {
     #[pyarg(positional_only, optional = true)]
     val_options: OptionalArg<PyObjectRef>,
     #[pyarg(positional_or_keyword, optional = true)]
-    base: OptionalArg<u32>,
+    base: OptionalArg<PyIntRef>,
 }
 
 impl IntOptions {
@@ -720,9 +720,9 @@ impl IntOptions {
                 }
                 base
             } else {
-                10
+                PyInt::new(10).into_ref(vm)
             };
-            to_int(vm, &val, base)
+            to_int(vm, &val, base.as_bigint())
         } else if let OptionalArg::Present(_) = self.base {
             Err(vm.new_type_error("int() missing string argument".to_string()))
         } else {
@@ -731,13 +731,35 @@ impl IntOptions {
     }
 }
 
-fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-    PyInt::new(options.get_int_value(vm)?).into_ref_with_type(vm, cls)
+#[derive(FromArgs)]
+struct IntFromByteArgs {
+    #[pyarg(positional_or_keyword)]
+    bytes: PyByteInner,
+    #[pyarg(positional_or_keyword)]
+    byteorder: PyStringRef,
+    #[pyarg(keyword_only, optional = true)]
+    signed: OptionalArg<IntoPyBool>,
+}
+
+#[derive(FromArgs)]
+struct IntToByteArgs {
+    #[pyarg(positional_or_keyword)]
+    length: PyIntRef,
+    #[pyarg(positional_or_keyword)]
+    byteorder: PyStringRef,
+    #[pyarg(keyword_only, optional = true)]
+    signed: OptionalArg<IntoPyBool>,
 }
 
 // Casting function:
-pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
-    if base != 0 && (base < 2 || base > 36) {
+pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult<BigInt> {
+    let base_u32 = match base.to_u32() {
+        Some(base_u32) => base_u32,
+        None => {
+            return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()))
+        }
+    };
+    if base_u32 != 0 && (base_u32 < 2 || base_u32 > 36) {
         return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()));
     }
 
@@ -772,38 +794,55 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
     })
 }
 
-fn str_to_int(vm: &VirtualMachine, literal: &str, mut base: u32) -> PyResult<BigInt> {
+fn str_to_int(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<BigInt> {
     let mut buf = validate_literal(vm, literal, base)?;
     let is_signed = buf.starts_with('+') || buf.starts_with('-');
     let radix_range = if is_signed { 1..3 } else { 0..2 };
     let radix_candidate = buf.get(radix_range.clone());
 
+    let mut base_u32 = match base.to_u32() {
+        Some(base_u32) => base_u32,
+        None => return Err(invalid_literal(vm, literal, base)),
+    };
+
     // try to find base
     if let Some(radix_candidate) = radix_candidate {
         if let Some(matched_radix) = detect_base(&radix_candidate) {
-            if base != 0 && base != matched_radix {
-                return Err(invalid_literal(vm, literal, base));
-            } else {
-                base = matched_radix;
-            }
+            if base_u32 == 0 || base_u32 == matched_radix {
+                /* If base is 0 or equal radix number, it means radix is validate
+                 * So change base to radix number and remove radix from literal
+                 */
+                base_u32 = matched_radix;
+                buf.drain(radix_range);
 
-            buf.drain(radix_range);
+                /* first underscore with radix is validate
+                 * e.g : int(`0x_1`, base=0) = int('1', base=16)
+                 */
+                if buf.starts_with('_') {
+                    buf.remove(0);
+                }
+            } else if (matched_radix == 2 && base_u32 < 12)
+                || (matched_radix == 8 && base_u32 < 25)
+                || (matched_radix == 16 && base_u32 < 34)
+            {
+                return Err(invalid_literal(vm, literal, base));
+            }
         }
     }
 
     // base still not found, try to use default
-    if base == 0 {
+    if base_u32 == 0 {
         if buf.starts_with('0') {
             return Err(invalid_literal(vm, literal, base));
         }
 
-        base = 10;
+        base_u32 = 10;
     }
 
-    BigInt::from_str_radix(&buf, base).map_err(|_err| invalid_literal(vm, literal, base))
+    BigInt::from_str_radix(&buf, base_u32).map_err(|_err| invalid_literal(vm, literal, base))
 }
 
-fn validate_literal(vm: &VirtualMachine, literal: &str, base: u32) -> PyResult<String> {
+fn validate_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<String> {
     if literal.starts_with('_') || literal.ends_with('_') {
         return Err(invalid_literal(vm, literal, base));
     }
@@ -835,7 +874,7 @@ fn detect_base(literal: &str) -> Option<u32> {
     }
 }
 
-fn invalid_literal(vm: &VirtualMachine, literal: &str, base: u32) -> PyObjectRef {
+fn invalid_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyObjectRef {
     vm.new_value_error(format!(
         "invalid literal for int() with base {}: '{}'",
         base, literal
@@ -903,7 +942,4 @@ fn get_py_int(obj: &PyObjectRef) -> &PyInt {
 
 pub fn init(context: &PyContext) {
     PyInt::extend_class(context, &context.types.int_type);
-    extend_class!(context, &context.types.int_type, {
-        "__new__" => context.new_rustfunc(int_new),
-    });
 }

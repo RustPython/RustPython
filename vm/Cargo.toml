@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-vm"
-version = "0.1.0"
+version = "0.1.1"
 description = "Rust Python virtual machine."
 authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
@@ -30,49 +30,53 @@ num-traits = "0.2.8"
 num-integer = "0.1.41"
 num-rational = "0.2.2"
 num-iter = "0.1.39"
-rand = "0.5"
-log = "0.3"
-rustpython-derive = {path = "../derive", version = "0.1.0"}
-rustpython-parser = {path = "../parser", optional = true, version = "0.1.0"}
-rustpython-compiler = {path = "../compiler", optional = true, version = "0.1.0"}
-rustpython-bytecode = { path = "../bytecode", version = "0.1.0"}
+rand = "0.7"
+rand_distr = "0.2"
+log = "0.4"
+rustpython-derive = {path = "../derive", version = "0.1.1"}
+rustpython-parser = {path = "../parser", optional = true, version = "0.1.1"}
+rustpython-compiler = {path = "../compiler", optional = true, version = "0.1.1"}
+rustpython-bytecode = { path = "../bytecode", version = "0.1.1"}
 serde = { version = "1.0.66", features = ["derive"] }
 serde_json = "1.0.26"
 byteorder = "1.2.6"
 regex = "1"
 rustc_version_runtime = "0.1.*"
-statrs = "0.10.0"
+statrs = "0.12.0"
 caseless = "0.2.1"
-chrono = "=0.4.7"
-unicode-segmentation = "1.2.1"
-unicode-xid = "0.1.0"
+chrono = { version = "=0.4.9", features = ["wasmbind"] }
+unicode-xid = "0.2.0"
 lazy_static = "^1.0.1"
-lexical = "2.0.0"
+lexical = "4"
 itertools = "^0.8.0"
-hex = "0.3.2"
+hex = "0.4.0"
 hexf-parse = "0.1.0"
 indexmap = "1.0.2"
 crc = "^1.0.0"
-bincode = "1.1.4"
 unicode_categories = "0.1.1"
-unicode_names2 = "0.2.2"
+unicode_names2 = "0.3.0"
 unicode-casing = "0.1.0"
 unic = "0.9.0"
 maplit = "1.0"
 proc-macro-hack = { version = "0.5", optional = true }
 bitflags = "1.1"
 libc = "0.2"
-nix = "0.14.1"
+nix = "0.15.0"
 wtf8 = "0.0.3"
 arr_macro = "0.1.2"
 rustyline = "=5.0.1"
 dirs = "2.0"
+csv = "1.1.1"
+paste = "0.1"
 
 flame = { version = "0.2", optional = true }
 flamer = { version = "0.3", optional = true }
 
 [target.'cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))'.dependencies]
 pwd = "1"
+
+[target.'cfg(unix)'.dependencies]
+exitcode = "1.1.2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 crc32fast = "1.2.0"
@@ -81,10 +85,12 @@ flate2 = { version = "1.0", features = ["zlib"], default-features = false }
 libz-sys = "1.0.25"
 gethostname = "0.2.0"
 subprocess = "0.1.18"
-num_cpus = "1.0"
+num_cpus = "1"
+socket2 = { version = "0.3", features = ["unix"] }
 
-[target."cfg(windows)".dependencies]
-kernel32-sys = "0.2.2"
+[target."cfg(windows)".dependencies.winapi]
+version = "0.3"
+features = ["winsock2", "handleapi", "ws2def", "std"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

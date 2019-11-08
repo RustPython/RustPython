@@ -4,12 +4,18 @@
 //!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
 //!
 
-use std::cell::{Ref, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
 use std::fmt;
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
+
+use arr_macro::arr;
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
+#[cfg(feature = "rustpython-compiler")]
+use rustpython_compiler::{compile, error::CompileError};
 
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
@@ -20,6 +26,7 @@ use crate::import;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::{PyCode, PyCodeRef};
+use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator::PyGenerator;
@@ -29,8 +36,7 @@ use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
-use crate::obj::objtype;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
@@ -39,11 +45,13 @@ use crate::pyobject::{
 use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
+
 use arr_macro::arr;
 use num_bigint::BigInt;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::{compile, error::CompileError};
 use rustyline::{error::ReadlineError, Config, Editor};
+
 
 // use objects::objects;
 
@@ -68,6 +76,7 @@ pub struct VirtualMachine {
     pub settings: PySettings,
     pub repl: RefCell<Editor<()>>,
     pub repl_history_path: std::path::PathBuf,
+    pub recursion_limit: Cell<usize>,
 }
 
 pub const NSIG: usize = 64;
@@ -151,21 +160,14 @@ impl VirtualMachine {
 
         // make a new module without access to the vm; doesn't
         // set __spec__, __loader__, etc. attributes
-        let new_module = |name: &str, dict| {
-            PyObject::new(
-                PyModule {
-                    name: name.to_owned(),
-                },
-                ctx.types.module_type.clone(),
-                Some(dict),
-            )
-        };
+        let new_module =
+            |dict| PyObject::new(PyModule {}, ctx.types.module_type.clone(), Some(dict));
 
         // Hard-core modules:
         let builtins_dict = ctx.new_dict();
-        let builtins = new_module("builtins", builtins_dict.clone());
+        let builtins = new_module(builtins_dict.clone());
         let sysmod_dict = ctx.new_dict();
-        let sysmod = new_module("sys", sysmod_dict.clone());
+        let sysmod = new_module(sysmod_dict.clone());
 
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
         let frozen = RefCell::new(frozen::get_module_inits());
@@ -213,6 +215,7 @@ impl VirtualMachine {
             settings,
             repl: RefCell::new(repl),
             repl_history_path: repl_history_path,
+            recursion_limit: Cell::new(512),
         };
 
         objmodule::init_module_dict(
@@ -273,21 +276,19 @@ impl VirtualMachine {
     }
 
     pub fn run_frame(&self, frame: FrameRef) -> PyResult<ExecutionResult> {
+        self.check_recursive_call("")?;
         self.frames.borrow_mut().push(frame.clone());
         let result = frame.run(self);
         self.frames.borrow_mut().pop();
         result
     }
 
-    pub fn frame_throw(
-        &self,
-        frame: FrameRef,
-        exception: PyObjectRef,
-    ) -> PyResult<ExecutionResult> {
-        self.frames.borrow_mut().push(frame.clone());
-        let result = frame.throw(self, exception);
-        self.frames.borrow_mut().pop();
-        result
+    fn check_recursive_call(&self, _where: &str) -> PyResult<()> {
+        if self.frames.borrow().len() > self.recursion_limit.get() {
+            Err(self.new_recursion_error(format!("maximum recursion depth exceeded {}", _where)))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn current_frame(&self) -> Option<Ref<FrameRef>> {
@@ -332,28 +333,24 @@ impl VirtualMachine {
     }
 
     /// Create a new python int object.
-    pub fn new_int<T: Into<BigInt>>(&self, i: T) -> PyObjectRef {
+    #[inline]
+    pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyObjectRef {
         self.ctx.new_int(i)
     }
 
     /// Create a new python bool object.
+    #[inline]
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
         self.ctx.new_bool(b)
     }
 
     pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
         objmodule::init_module_dict(self, &dict, self.new_str(name.to_owned()), self.get_none());
-        PyObject::new(
-            PyModule {
-                name: name.to_owned(),
-            },
-            self.ctx.types.module_type.clone(),
-            Some(dict),
-        )
+        PyObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
     }
 
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
-    fn new_exception_obj(&self, exc_type: PyClassRef, args: Vec<PyObjectRef>) -> PyResult {
+    pub fn new_exception_obj(&self, exc_type: PyClassRef, args: Vec<PyObjectRef>) -> PyResult {
         // TODO: add repr of args into logging?
         vm_trace!("New exception created: {}", exc_type.name);
         self.invoke(&exc_type.into_object(), args)
@@ -435,6 +432,11 @@ impl VirtualMachine {
         self.new_exception(not_implemented_error, msg)
     }
 
+    pub fn new_recursion_error(&self, msg: String) -> PyObjectRef {
+        let recursion_error = self.ctx.exceptions.recursion_error.clone();
+        self.new_exception(recursion_error, msg)
+    }
+
     pub fn new_zero_division_error(&self, msg: String) -> PyObjectRef {
         let zero_division_error = self.ctx.exceptions.zero_division_error.clone();
         self.new_exception(zero_division_error, msg)
@@ -447,7 +449,13 @@ impl VirtualMachine {
 
     #[cfg(feature = "rustpython-compiler")]
     pub fn new_syntax_error(&self, error: &CompileError) -> PyObjectRef {
-        let syntax_error_type = self.ctx.exceptions.syntax_error.clone();
+        let syntax_error_type = if error.is_indentation_error() {
+            self.ctx.exceptions.indentation_error.clone()
+        } else if error.is_tab_error() {
+            self.ctx.exceptions.tab_error.clone()
+        } else {
+            self.ctx.exceptions.syntax_error.clone()
+        };
         let syntax_error = self.new_exception(syntax_error_type, error.to_string());
         let lineno = self.new_int(error.location.row());
         self.set_attr(&syntax_error, "lineno", lineno).unwrap();
@@ -494,7 +502,7 @@ impl VirtualMachine {
         TryFromObject::try_from_object(self, str)
     }
 
-    pub fn to_pystr<'a, T: Into<&'a PyObjectRef>>(&'a self, obj: T) -> Result<String, PyObjectRef> {
+    pub fn to_pystr<'a, T: Into<&'a PyObjectRef>>(&'a self, obj: T) -> PyResult<String> {
         let py_str_obj = self.to_str(obj.into())?;
         Ok(py_str_obj.as_str().to_owned())
     }
@@ -620,15 +628,9 @@ impl VirtualMachine {
     fn _invoke(&self, func_ref: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", func_ref, args);
 
-        if let Some(PyFunction {
-            ref code,
-            ref scope,
-            ref defaults,
-            ref kw_only_defaults,
-        }) = func_ref.payload()
-        {
+        if let Some(py_func) = func_ref.payload() {
             self.trace_event(TraceEvent::Call)?;
-            let res = self.invoke_python_function(code, scope, defaults, kw_only_defaults, args);
+            let res = self.invoke_python_function(py_func, args);
             self.trace_event(TraceEvent::Return)?;
             res
         } else if let Some(PyMethod {
@@ -639,10 +641,13 @@ impl VirtualMachine {
             self.invoke(&function, args.insert(object.clone()))
         } else if let Some(PyBuiltinFunction { ref value }) = func_ref.payload() {
             value(self, args)
-        } else {
-            // TODO: is it safe to just invoke __call__ otherwise?
-            vm_trace!("invoke __call__ for: {:?}", &func_ref.payload);
+        } else if self.is_callable(&func_ref) {
             self.call_method(&func_ref, "__call__", args)
+        } else {
+            Err(self.new_type_error(format!(
+                "'{}' object is not callable",
+                func_ref.class().name
+            )))
         }
     }
 
@@ -684,51 +689,43 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn invoke_python_function(
+    pub fn invoke_python_function(&self, func: &PyFunction, func_args: PyFuncArgs) -> PyResult {
+        self.invoke_python_function_with_scope(func, func_args, &func.scope)
+    }
+
+    pub fn invoke_python_function_with_scope(
         &self,
-        code: &PyCodeRef,
-        scope: &Scope,
-        defaults: &Option<PyTupleRef>,
-        kw_only_defaults: &Option<PyDictRef>,
+        func: &PyFunction,
         func_args: PyFuncArgs,
+        scope: &Scope,
     ) -> PyResult {
-        let scope = scope.new_child_scope(&self.ctx);
+        let code = &func.code;
+
+        let scope = if func.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
+            scope.new_child_scope(&self.ctx)
+        } else {
+            scope.clone()
+        };
+
         self.fill_locals_from_args(
-            &code.code,
+            &code,
             &scope.get_locals(),
             func_args,
-            defaults,
-            kw_only_defaults,
+            &func.defaults,
+            &func.kw_only_defaults,
         )?;
 
         // Construct frame:
         let frame = Frame::new(code.clone(), scope).into_ref(self);
 
         // If we have a generator, create a new generator
-        if code.code.is_generator {
+        if code.flags.contains(bytecode::CodeFlags::IS_GENERATOR) {
             Ok(PyGenerator::new(frame, self).into_object())
+        } else if code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
+            Ok(PyCoroutine::new(frame, self).into_object())
         } else {
             self.run_frame_full(frame)
         }
-    }
-
-    pub fn invoke_with_locals(
-        &self,
-        function: &PyObjectRef,
-        cells: PyDictRef,
-        locals: PyDictRef,
-    ) -> PyResult {
-        if let Some(PyFunction { code, scope, .. }) = &function.payload() {
-            let scope = scope
-                .new_child_scope_with_locals(cells)
-                .new_child_scope_with_locals(locals);
-            let frame = Frame::new(code.clone(), scope).into_ref(self);
-            return self.run_frame_full(frame);
-        }
-        panic!(
-            "invoke_with_locals: expected python function, got: {:?}",
-            *function
-        );
     }
 
     fn fill_locals_from_args(
@@ -870,17 +867,22 @@ impl VirtualMachine {
         Ok(())
     }
 
-    pub fn extract_elements(&self, value: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
+    pub fn extract_elements<T: TryFromObject>(&self, value: &PyObjectRef) -> PyResult<Vec<T>> {
         // Extract elements from item, if possible:
-        let elements = if objtype::isinstance(value, &self.ctx.tuple_type()) {
-            objsequence::get_elements_tuple(value).to_vec()
+        if objtype::isinstance(value, &self.ctx.tuple_type()) {
+            objsequence::get_elements_tuple(value)
+                .iter()
+                .map(|obj| T::try_from_object(self, obj.clone()))
+                .collect()
         } else if objtype::isinstance(value, &self.ctx.list_type()) {
-            objsequence::get_elements_list(value).to_vec()
+            objsequence::get_elements_list(value)
+                .iter()
+                .map(|obj| T::try_from_object(self, obj.clone()))
+                .collect()
         } else {
             let iter = objiter::get_iter(self, value)?;
-            objiter::get_all(self, &iter)?
-        };
-        Ok(elements)
+            objiter::get_all(self, &iter)
+        }
     }
 
     // get_attribute should be used for full attribute access (usually from user code).
@@ -1030,6 +1032,20 @@ impl VirtualMachine {
             PyBuiltinFunction => true,
             obj => objtype::class_has_attr(&obj.class(), "__call__"),
         })
+    }
+
+    #[inline]
+    /// Checks for triggered signals and calls the appropriate handlers. A no-op on
+    /// platforms where signals are not supported.
+    pub fn check_signals(&self) -> PyResult<()> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::stdlib::signal::check_signals(self)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Ok(())
+        }
     }
 
     #[cfg(feature = "rustpython-compiler")]
@@ -1234,7 +1250,7 @@ impl VirtualMachine {
     pub fn _ne(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__ne__", "__ne__", |vm, a, b| {
             let eq = vm._eq(a, b)?;
-            objbool::not(vm, &eq)
+            Ok(vm.new_bool(objbool::not(vm, &eq)?))
         })
     }
 
@@ -1276,8 +1292,7 @@ impl VirtualMachine {
         let iter = objiter::get_iter(self, &haystack)?;
         loop {
             if let Some(element) = objiter::get_next_object(self, &iter)? {
-                let equal = self._eq(needle.clone(), element.clone())?;
-                if objbool::get_value(&equal) {
+                if self.bool_eq(needle.clone(), element.clone())? {
                     return Ok(self.new_bool(true));
                 } else {
                     continue;
@@ -1307,6 +1322,42 @@ impl VirtualMachine {
 
     pub fn current_exception(&self) -> Option<PyObjectRef> {
         self.exceptions.borrow().last().cloned()
+    }
+
+    pub fn bool_eq(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
+        let eq = self._eq(a, b)?;
+        let value = objbool::boolval(self, eq)?;
+        Ok(value)
+    }
+
+    pub fn identical_or_equal(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<bool> {
+        if a.is(b) {
+            Ok(true)
+        } else {
+            self.bool_eq(a.clone(), b.clone())
+        }
+    }
+
+    pub fn bool_seq_lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
+        let value = if objbool::boolval(self, self._lt(a.clone(), b.clone())?)? {
+            Some(true)
+        } else if !objbool::boolval(self, self._eq(a.clone(), b.clone())?)? {
+            Some(false)
+        } else {
+            None
+        };
+        Ok(value)
+    }
+
+    pub fn bool_seq_gt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
+        let value = if objbool::boolval(self, self._gt(a.clone(), b.clone())?)? {
+            Some(true)
+        } else if !objbool::boolval(self, self._eq(a.clone(), b.clone())?)? {
+            Some(false)
+        } else {
+            None
+        };
+        Ok(value)
     }
 }
 

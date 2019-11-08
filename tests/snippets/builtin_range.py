@@ -35,6 +35,12 @@ assert range(10, 100, 3)[4:1000:5] == range(22, 100, 15)
 assert range(10)[:] == range(10)
 assert range(10, 0, -2)[0:5:2] == range(10, 0, -4)
 assert range(10)[10:11] == range(10,10)
+assert range(0, 10, -1)[::-1] == range(1, 1)
+assert range(0, 10)[::-1] == range(9, -1, -1)
+assert range(0, -10)[::-1] == range(-1, -1, -1)
+assert range(0, -10)[::-1][::-1] == range(0, 0)
+assert_raises(ValueError, lambda: range(0, 10)[::0], _msg='slice step cannot be zero')
+assert_raises(TypeError, lambda: range(0, 10)['a':], _msg='slice indices must be integers or None or have an __index__ method')
 
 # count tests
 assert range(10).count(2) == 1
@@ -52,6 +58,12 @@ assert range(2) == range(0, 2)
 assert range(0, 10, 3) == range(0, 12, 3)
 assert range(20, 10, 3) == range(20, 12, 3)
 
+assert range(10).__eq__(range(0, 10, 1)) is True
+assert range(10).__ne__(range(0, 10, 1)) is False
+assert range(10).__eq__(range(0, 11, 1)) is False
+assert range(10).__ne__(range(0, 11, 1)) is True
+assert range(0, 10, 3).__eq__(range(0, 11, 3)) is True
+assert range(0, 10, 3).__ne__(range(0, 11, 3)) is False
 #__lt__
 assert range(1, 2, 3).__lt__(range(1, 2, 3)) == NotImplemented
 assert range(1, 2, 1).__lt__(range(1, 2)) == NotImplemented
@@ -96,6 +108,12 @@ assert list(reversed(range(5))) == [4, 3, 2, 1, 0]
 assert list(reversed(range(5, 0, -1))) == [1, 2, 3, 4, 5]
 assert list(reversed(range(1,10,5))) == [6, 1]
 
+# __reduce__
+assert range(10).__reduce__()[0] == range
+assert range(10).__reduce__()[1] == (0, 10, 1)
+assert range(10, 1, -2).__reduce__()[0] == range
+assert range(10, 1, -2).__reduce__()[1] == (10, 1, -2)
+
 # range retains the original int refs
 i = 2**64
 assert range(i).stop is i
@@ -107,3 +125,15 @@ assert range(10)[-2:4] == range(8, 4)
 assert range(10)[-6:-2] == range(4, 8)
 assert range(50, 0, -2)[-5] == 10
 assert range(50, 0, -2)[-5:3:5] == range(10, 44, -10)
+
+assert hash(range(10)) == hash((10, 0, 1))
+assert hash(range(10)) == hash(range(10))
+assert hash(range(100)[20:30]) == hash(range(20, 30))
+assert hash(range(10, 10)) == hash(range(0, 0))
+assert hash(range(1, 2, 100)) == hash(range(1, 6, 100))
+
+a = {}
+for i in range(100):
+    a[range(10)] = 1
+
+assert len(a.keys()) == 1

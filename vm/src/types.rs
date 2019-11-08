@@ -4,6 +4,7 @@ use crate::obj::objbytes;
 use crate::obj::objclassmethod;
 use crate::obj::objcode;
 use crate::obj::objcomplex;
+use crate::obj::objcoroutine;
 use crate::obj::objdict;
 use crate::obj::objellipsis;
 use crate::obj::objenumerate;
@@ -29,6 +30,7 @@ use crate::obj::objslice;
 use crate::obj::objstaticmethod;
 use crate::obj::objstr;
 use crate::obj::objsuper;
+use crate::obj::objtraceback;
 use crate::obj::objtuple;
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::obj::objweakproxy;
@@ -49,6 +51,8 @@ pub struct TypeZoo {
     pub bool_type: PyClassRef,
     pub classmethod_type: PyClassRef,
     pub code_type: PyClassRef,
+    pub coroutine_type: PyClassRef,
+    pub coroutine_wrapper_type: PyClassRef,
     pub dict_type: PyClassRef,
     pub enumerate_type: PyClassRef,
     pub filter_type: PyClassRef,
@@ -93,6 +97,7 @@ pub struct TypeZoo {
     pub weakref_type: PyClassRef,
     pub weakproxy_type: PyClassRef,
     pub mappingproxy_type: PyClassRef,
+    pub traceback_type: PyClassRef,
     pub object_type: PyClassRef,
 }
 
@@ -120,6 +125,8 @@ impl TypeZoo {
         let weakref_type = create_type("ref", &type_type, &object_type);
         let weakproxy_type = create_type("weakproxy", &type_type, &object_type);
         let generator_type = create_type("generator", &type_type, &object_type);
+        let coroutine_type = create_type("coroutine", &type_type, &object_type);
+        let coroutine_wrapper_type = create_type("coroutine_wrapper", &type_type, &object_type);
         let bound_method_type = create_type("method", &type_type, &object_type);
         let str_type = create_type("str", &type_type, &object_type);
         let list_type = create_type("list", &type_type, &object_type);
@@ -158,6 +165,7 @@ impl TypeZoo {
         let rangeiterator_type = create_type("range_iterator", &type_type, &object_type);
         let slice_type = create_type("slice", &type_type, &object_type);
         let mappingproxy_type = create_type("mappingproxy", &type_type, &object_type);
+        let traceback_type = create_type("traceback", &type_type, &object_type);
 
         Self {
             bool_type,
@@ -167,6 +175,8 @@ impl TypeZoo {
             bytes_type,
             bytesiterator_type,
             code_type,
+            coroutine_type,
+            coroutine_wrapper_type,
             complex_type,
             classmethod_type,
             int_type,
@@ -212,6 +222,7 @@ impl TypeZoo {
             weakref_type,
             weakproxy_type,
             type_type,
+            traceback_type,
         }
     }
 }
@@ -232,9 +243,11 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             dict: None,
             payload: PyClass {
                 name: String::from("object"),
+                bases: vec![],
                 mro: vec![],
-                subclasses: RefCell::new(vec![]),
+                subclasses: RefCell::default(),
                 attributes: RefCell::new(PyAttributes::new()),
+                slots: RefCell::default(),
             },
         }
         .into_ref();
@@ -244,9 +257,11 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             dict: None,
             payload: PyClass {
                 name: String::from("type"),
+                bases: vec![object_type.clone().downcast().unwrap()],
                 mro: vec![object_type.clone().downcast().unwrap()],
-                subclasses: RefCell::new(vec![]),
+                subclasses: RefCell::default(),
                 attributes: RefCell::new(PyAttributes::new()),
+                slots: RefCell::default(),
             },
         }
         .into_ref();
@@ -283,6 +298,7 @@ pub fn initialize_types(context: &PyContext) {
     objstaticmethod::init(&context);
     objclassmethod::init(&context);
     objgenerator::init(&context);
+    objcoroutine::init(&context);
     objint::init(&context);
     objfloat::init(&context);
     objcomplex::init(&context);
@@ -294,7 +310,6 @@ pub fn initialize_types(context: &PyContext) {
     objrange::init(&context);
     objslice::init(&context);
     objsuper::init(&context);
-    objtuple::init(&context);
     objiter::init(&context);
     objellipsis::init(&context);
     objenumerate::init(&context);
@@ -310,4 +325,5 @@ pub fn initialize_types(context: &PyContext) {
     objmodule::init(&context);
     objnamespace::init(&context);
     objmappingproxy::init(&context);
+    objtraceback::init(&context);
 }

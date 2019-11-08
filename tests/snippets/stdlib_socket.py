@@ -145,5 +145,6 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
 	connector.connect(("127.0.0.1", listener.getsockname()[1]))
 	(connection, addr) = listener.accept()
 	connection.settimeout(1.0)
-	with assert_raises(OSError):
+	with assert_raises(OSError): # TODO: check that it raises a socket.timeout
+		# testing that it doesn't work with the timeout; that it stops blocking eventually
 		connection.recv(len(MESSAGE_A))

@@ -118,7 +118,6 @@ macro_rules! no_kwargs {
 macro_rules! py_module {
     ( $vm:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {{
         let module = $vm.new_module($module_name, $vm.ctx.new_dict());
-        $vm.set_attr(&module, "__name__", $vm.ctx.new_str($module_name.to_string())).unwrap();
         $(
             $vm.set_attr(&module, $name, $value).unwrap();
         )*
@@ -137,12 +136,10 @@ macro_rules! extend_module {
 
 #[macro_export]
 macro_rules! py_class {
-    ( $ctx:expr, $class_name:expr, $class_base:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+    ( $ctx:expr, $class_name:expr, $class_base:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         {
             let py_class = $ctx.new_class($class_name, $class_base);
-            $(
-                py_class.set_str_attr($name, $value);
-            )*
+            $crate::extend_class!($ctx, &py_class, { $($name => $value),* });
             py_class
         }
     }
@@ -150,12 +147,20 @@ macro_rules! py_class {
 
 #[macro_export]
 macro_rules! extend_class {
-    ( $ctx:expr, $class:expr, { $($name:expr => $value:expr),* $(,)* }) => {
-        let class = $class;
+    ( $ctx:expr, $class:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         $(
-            class.set_str_attr($name, $value);
+            $crate::extend_class!(@set_attr($ctx, $class, $name, $value));
         )*
-    }
+    };
+
+    (@set_attr($ctx:expr, $class:expr, (slot $slot_name:ident), $value:expr)) => {
+        $class.slots.borrow_mut().$slot_name = Some(
+            $crate::function::IntoPyNativeFunc::into_func($value)
+        );
+    };
+    (@set_attr($ctx:expr, $class:expr, $name:expr, $value:expr)) => {
+        $class.set_str_attr($name, $value);
+    };
 }
 
 #[macro_export]

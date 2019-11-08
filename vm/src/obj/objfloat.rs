@@ -1,20 +1,19 @@
-use super::objbytes;
-use super::objint;
-use super::objstr;
-use super::objtype;
-use crate::function::OptionalArg;
-use crate::obj::objstr::PyStringRef;
-use crate::obj::objtype::PyClassRef;
-use crate::pyhash;
-use crate::pyobject::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
 use hexf_parse;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
-use num_traits::{float::Float, sign::Signed, ToPrimitive, Zero};
+use num_traits::{float::Float, pow, sign::Signed, ToPrimitive, Zero};
+
+use super::objbytes;
+use super::objint::{self, PyIntRef};
+use super::objstr::{self, PyStringRef};
+use super::objtype::{self, PyClassRef};
+use crate::function::{OptionalArg, OptionalOption};
+use crate::pyhash;
+use crate::pyobject::{
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
+};
+use crate::vm::VirtualMachine;
 
 /// Convert a string or number to a floating point number, if possible.
 #[pyclass(name = "float")]
@@ -154,23 +153,64 @@ fn inner_gt_int(value: f64, other_int: &BigInt) -> bool {
     }
 }
 
+pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
+    if v1.is_zero() {
+        let msg = format!("{} cannot be raised to a negative power", v1);
+        Err(vm.new_zero_division_error(msg))
+    } else {
+        v1.powf(v2).into_pyobject(vm)
+    }
+}
+
 #[pyimpl]
 #[allow(clippy::trivially_copy_pass_by_ref)]
 impl PyFloat {
+    #[pyslot(new)]
+    fn tp_new(
+        cls: PyClassRef,
+        arg: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyFloatRef> {
+        let float_val = match arg {
+            OptionalArg::Present(val) => to_float(vm, &val),
+            OptionalArg::Missing => Ok(0f64),
+        };
+        PyFloat::from(float_val?).into_ref_with_type(vm, cls)
+    }
+
+    fn float_eq(&self, other: PyObjectRef) -> bool {
+        let other = get_value(&other);
+        self.value == other
+    }
+
+    fn int_eq(&self, other: PyObjectRef) -> bool {
+        let other_int = objint::get_value(&other);
+        let value = self.value;
+        if let (Some(self_int), Some(other_float)) = (value.to_bigint(), other_int.to_f64()) {
+            value == other_float && self_int == *other_int
+        } else {
+            false
+        }
+    }
+
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        let value = self.value;
         let result = if objtype::isinstance(&other, &vm.ctx.float_type()) {
-            let other = get_value(&other);
-            value == other
+            self.float_eq(other)
         } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let other_int = objint::get_value(&other);
+            self.int_eq(other)
+        } else {
+            return vm.ctx.not_implemented();
+        };
+        vm.ctx.new_bool(result)
+    }
 
-            if let (Some(self_int), Some(other_float)) = (value.to_bigint(), other_int.to_f64()) {
-                value == other_float && self_int == *other_int
-            } else {
-                false
-            }
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        let result = if objtype::isinstance(&other, &vm.ctx.float_type()) {
+            !self.float_eq(other)
+        } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
+            !self.int_eq(other)
         } else {
             return vm.ctx.not_implemented();
         };
@@ -316,40 +356,6 @@ impl PyFloat {
         )
     }
 
-    #[pymethod(name = "__new__")]
-    fn float_new(cls: PyClassRef, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyFloatRef> {
-        let value = if objtype::isinstance(&arg, &vm.ctx.float_type()) {
-            get_value(&arg)
-        } else if objtype::isinstance(&arg, &vm.ctx.int_type()) {
-            objint::get_float_value(&arg, vm)?
-        } else if objtype::isinstance(&arg, &vm.ctx.str_type()) {
-            match lexical::try_parse(objstr::get_value(&arg).trim()) {
-                Ok(f) => f,
-                Err(_) => {
-                    let arg_repr = vm.to_pystr(&arg)?;
-                    return Err(vm.new_value_error(format!(
-                        "could not convert string to float: '{}'",
-                        arg_repr
-                    )));
-                }
-            }
-        } else if objtype::isinstance(&arg, &vm.ctx.bytes_type()) {
-            match lexical::try_parse(objbytes::get_value(&arg).as_slice()) {
-                Ok(f) => f,
-                Err(_) => {
-                    let arg_repr = vm.to_pystr(&arg)?;
-                    return Err(vm.new_value_error(format!(
-                        "could not convert string to float: '{}'",
-                        arg_repr
-                    )));
-                }
-            }
-        } else {
-            return Err(vm.new_type_error(format!("can't convert {} to float", arg.class().name)));
-        };
-        PyFloat { value }.into_ref_with_type(vm, cls)
-    }
-
     #[pymethod(name = "__mod__")]
     fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         try_float(&other, vm)?.map_or_else(
@@ -380,7 +386,7 @@ impl PyFloat {
     fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         try_float(&other, vm)?.map_or_else(
             || Ok(vm.ctx.not_implemented()),
-            |other| self.value.powf(other).into_pyobject(vm),
+            |other| float_pow(self.value, other, vm),
         )
     }
 
@@ -388,7 +394,7 @@ impl PyFloat {
     fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         try_float(&other, vm)?.map_or_else(
             || Ok(vm.ctx.not_implemented()),
-            |other| other.powf(self.value).into_pyobject(vm),
+            |other| float_pow(other, self.value, vm),
         )
     }
 
@@ -410,8 +416,20 @@ impl PyFloat {
 
     #[pymethod(name = "__repr__")]
     fn repr(&self, vm: &VirtualMachine) -> String {
-        if self.is_integer(vm) {
-            format!("{:.1?}", self.value)
+        let value = format!("{:e}", self.value);
+        if let Some(position) = value.find('e') {
+            let significand = &value[..position];
+            let exponent = &value[position + 1..];
+            let exponent = exponent.parse::<i32>().unwrap();
+            if exponent < 16 && exponent > -5 {
+                if self.is_integer(vm) {
+                    format!("{:.1?}", self.value)
+                } else {
+                    self.value.to_string()
+                }
+            } else {
+                format!("{}e{:+#03}", significand, exponent)
+            }
         } else {
             self.value.to_string()
         }
@@ -452,27 +470,10 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__round__")]
-    fn round(&self, ndigits: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let ndigits = match ndigits {
-            OptionalArg::Missing => None,
-            OptionalArg::Present(ref value) => {
-                if !vm.get_none().is(value) {
-                    if !objtype::isinstance(value, &vm.ctx.int_type()) {
-                        return Err(vm.new_type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
-                            value.class().name
-                        )));
-                    };
-                    // Only accept int type ndigits
-                    let ndigits = objint::get_value(value);
-                    Some(ndigits)
-                } else {
-                    None
-                }
-            }
-        };
-
+    fn round(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
+        let ndigits = ndigits.flat_option();
         if let Some(ndigits) = ndigits {
+            let ndigits = ndigits.as_bigint();
             if ndigits.is_zero() {
                 let fract = self.value.fract();
                 let value = if (fract.abs() - 0.5).abs() < std::f64::EPSILON {
@@ -486,7 +487,29 @@ impl PyFloat {
                 };
                 Ok(vm.ctx.new_float(value))
             } else {
-                Ok(vm.ctx.not_implemented())
+                let ndigits = match ndigits {
+                    ndigits if *ndigits > i32::max_value().to_bigint().unwrap() => i32::max_value(),
+                    ndigits if *ndigits < i32::min_value().to_bigint().unwrap() => i32::min_value(),
+                    _ => ndigits.to_i32().unwrap(),
+                };
+                if (self.value > 1e+16_f64 && ndigits >= 0i32)
+                    || (ndigits + self.value.log10().floor() as i32 > 16i32)
+                {
+                    return Ok(vm.ctx.new_float(self.value));
+                }
+                if ndigits >= 0i32 {
+                    Ok(vm.ctx.new_float(
+                        (self.value * pow(10.0, ndigits as usize)).round()
+                            / pow(10.0, ndigits as usize),
+                    ))
+                } else {
+                    let result = (self.value / pow(10.0, (-ndigits) as usize)).round()
+                        * pow(10.0, (-ndigits) as usize);
+                    if result.is_nan() {
+                        return Ok(vm.ctx.new_float(0.0));
+                    }
+                    Ok(vm.ctx.new_float(result))
+                }
             }
         } else {
             let fract = self.value.fract();
@@ -553,18 +576,62 @@ impl PyFloat {
         }
 
         let ratio = Ratio::from_float(value).unwrap();
-        let numer = vm.ctx.new_int(ratio.numer().clone());
-        let denom = vm.ctx.new_int(ratio.denom().clone());
+        let numer = vm.ctx.new_bigint(ratio.numer());
+        let denom = vm.ctx.new_bigint(ratio.denom());
         Ok(vm.ctx.new_tuple(vec![numer, denom]))
     }
 
     #[pymethod]
     fn fromhex(repr: PyStringRef, vm: &VirtualMachine) -> PyResult<f64> {
-        hexf_parse::parse_hexf64(repr.as_str(), false).or_else(|_| match repr.as_str() {
-            "nan" => Ok(std::f64::NAN),
-            "inf" => Ok(std::f64::INFINITY),
-            "-inf" => Ok(std::f64::NEG_INFINITY),
-            _ => Err(vm.new_value_error("invalid hexadecimal floating-point string".to_string())),
+        hexf_parse::parse_hexf64(repr.as_str().trim(), false).or_else(|_| {
+            match repr.as_str().to_lowercase().trim() {
+                "nan" => Ok(std::f64::NAN),
+                "+nan" => Ok(std::f64::NAN),
+                "-nan" => Ok(std::f64::NAN),
+                "inf" => Ok(std::f64::INFINITY),
+                "infinity" => Ok(std::f64::INFINITY),
+                "+inf" => Ok(std::f64::INFINITY),
+                "+infinity" => Ok(std::f64::INFINITY),
+                "-inf" => Ok(std::f64::NEG_INFINITY),
+                "-infinity" => Ok(std::f64::NEG_INFINITY),
+                value => {
+                    let mut hex = String::new();
+                    let has_0x = value.contains("0x");
+                    let has_p = value.contains('p');
+                    let has_dot = value.contains('.');
+                    let mut start = 0;
+
+                    if !has_0x && value.starts_with('-') {
+                        hex.push_str("-0x");
+                        start += 1;
+                    } else if !has_0x {
+                        hex.push_str("0x");
+                        if value.starts_with('+') {
+                            start += 1;
+                        }
+                    }
+
+                    for (index, ch) in value.chars().enumerate() {
+                        if ch == 'p' && has_dot {
+                            hex.push_str("p");
+                        } else if ch == 'p' && !has_dot {
+                            hex.push_str(".p");
+                        } else if index >= start {
+                            hex.push(ch);
+                        }
+                    }
+
+                    if !has_p && has_dot {
+                        hex.push_str("p0");
+                    } else if !has_p && !has_dot {
+                        hex.push_str(".p0")
+                    }
+
+                    hexf_parse::parse_hexf64(hex.as_str(), false).map_err(|_| {
+                        vm.new_value_error("invalid hexadecimal floating-point string".to_string())
+                    })
+                }
+            }
         })
     }
 
@@ -572,6 +639,64 @@ impl PyFloat {
     fn hex(&self, _vm: &VirtualMachine) -> String {
         to_hex(self.value)
     }
+}
+
+fn str_to_float(vm: &VirtualMachine, literal: &str) -> PyResult<f64> {
+    if literal.starts_with('_') || literal.ends_with('_') {
+        return Err(invalid_convert(vm, literal));
+    }
+
+    let mut buf = String::with_capacity(literal.len());
+    let mut last_tok: Option<char> = None;
+    for c in literal.chars() {
+        if !(c.is_ascii_alphanumeric() || c == '_' || c == '+' || c == '-' || c == '.') {
+            return Err(invalid_convert(vm, literal));
+        }
+
+        if !c.is_ascii_alphanumeric() {
+            if let Some(l) = last_tok {
+                if !l.is_ascii_alphanumeric() {
+                    return Err(invalid_convert(vm, literal));
+                }
+            }
+        }
+
+        if c != '_' {
+            buf.push(c);
+        }
+        last_tok = Some(c);
+    }
+
+    if let Ok(f) = lexical::parse(buf.as_str()) {
+        Ok(f)
+    } else {
+        Err(invalid_convert(vm, literal))
+    }
+}
+
+fn invalid_convert(vm: &VirtualMachine, literal: &str) -> PyObjectRef {
+    vm.new_value_error(format!("could not convert string to float: '{}'", literal))
+}
+
+fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
+    let value = if objtype::isinstance(&obj, &vm.ctx.float_type()) {
+        get_value(&obj)
+    } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
+        objint::get_float_value(&obj, vm)?
+    } else if objtype::isinstance(&obj, &vm.ctx.str_type()) {
+        str_to_float(vm, objstr::get_value(&obj).trim())?
+    } else if objtype::isinstance(&obj, &vm.ctx.bytes_type()) {
+        match lexical::parse(objbytes::get_value(&obj).as_slice()) {
+            Ok(f) => f,
+            Err(_) => {
+                let arg_repr = vm.to_pystr(obj)?;
+                return Err(invalid_convert(vm, arg_repr.as_str()));
+            }
+        }
+    } else {
+        return Err(vm.new_type_error(format!("can't convert {} to float", obj.class().name)));
+    };
+    Ok(value)
 }
 
 fn to_hex(value: f64) -> String {

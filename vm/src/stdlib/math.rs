@@ -11,9 +11,9 @@ use num_traits::cast::ToPrimitive;
 use num_traits::{One, Zero};
 
 use crate::function::OptionalArg;
-use crate::obj::objfloat::{IntoPyFloat, PyFloatRef};
+use crate::obj::objfloat::{self, IntoPyFloat, PyFloatRef};
 use crate::obj::objint::PyIntRef;
-use crate::obj::{objfloat, objtype};
+use crate::obj::objtype;
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -39,6 +39,69 @@ make_math_func!(math_fabs, abs);
 make_math_func_bool!(math_isfinite, is_finite);
 make_math_func_bool!(math_isinf, is_infinite);
 make_math_func_bool!(math_isnan, is_nan);
+
+#[derive(FromArgs)]
+struct IsCloseArgs {
+    #[pyarg(positional_only, optional = false)]
+    a: IntoPyFloat,
+    #[pyarg(positional_only, optional = false)]
+    b: IntoPyFloat,
+    #[pyarg(keyword_only, optional = true)]
+    rel_tol: OptionalArg<IntoPyFloat>,
+    #[pyarg(keyword_only, optional = true)]
+    abs_tol: OptionalArg<IntoPyFloat>,
+}
+
+#[allow(clippy::float_cmp)]
+fn math_isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
+    let a = args.a.to_f64();
+    let b = args.b.to_f64();
+    let rel_tol = match args.rel_tol {
+        OptionalArg::Missing => 1e-09,
+        OptionalArg::Present(ref value) => value.to_f64(),
+    };
+
+    let abs_tol = match args.abs_tol {
+        OptionalArg::Missing => 0.0,
+        OptionalArg::Present(ref value) => value.to_f64(),
+    };
+
+    if rel_tol < 0.0 || abs_tol < 0.0 {
+        return Err(vm.new_value_error("tolerances must be non-negative".to_string()));
+    }
+
+    if a == b {
+        /* short circuit exact equality -- needed to catch two infinities of
+           the same sign. And perhaps speeds things up a bit sometimes.
+        */
+        return Ok(true);
+    }
+
+    /* This catches the case of two infinities of opposite sign, or
+       one infinity and one finite number. Two infinities of opposite
+       sign would otherwise have an infinite relative tolerance.
+       Two infinities of the same sign are caught by the equality check
+       above.
+    */
+
+    if a.is_infinite() || b.is_infinite() {
+        return Ok(false);
+    }
+
+    let diff = (b - a).abs();
+
+    Ok((diff <= (rel_tol * b).abs()) || (diff <= (rel_tol * a).abs()) || (diff <= abs_tol))
+}
+
+fn math_copysign(a: IntoPyFloat, b: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+    let a = a.to_f64();
+    let b = b.to_f64();
+    if a.is_nan() || b.is_nan() {
+        a
+    } else {
+        a.copysign(b)
+    }
+}
 
 // Power and logarithmic functions:
 make_math_func!(math_exp, exp);
@@ -201,7 +264,29 @@ fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
 
 fn math_modf(x: IntoPyFloat, _vm: &VirtualMachine) -> (f64, f64) {
     let x = x.to_f64();
+    if !x.is_finite() {
+        if x.is_infinite() {
+            return (0.0_f64.copysign(x), x);
+        } else if x.is_nan() {
+            return (x, x);
+        }
+    }
+
     (x.fract(), x.trunc())
+}
+
+fn math_fmod(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    let y = y.to_f64();
+    if y.is_infinite() && x.is_finite() {
+        return Ok(x);
+    }
+    let r = x % y;
+    if r.is_nan() && !x.is_nan() && !y.is_nan() {
+        return Err(vm.new_value_error("math domain error".to_string()));
+    }
+
+    Ok(r)
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -213,6 +298,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "isfinite" => ctx.new_rustfunc(math_isfinite),
         "isinf" => ctx.new_rustfunc(math_isinf),
         "isnan" => ctx.new_rustfunc(math_isnan),
+        "isclose" => ctx.new_rustfunc(math_isclose),
+        "copysign" => ctx.new_rustfunc(math_copysign),
 
         // Power and logarithmic functions:
         "exp" => ctx.new_rustfunc(math_exp),
@@ -254,6 +341,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "frexp" => ctx.new_rustfunc(math_frexp),
         "ldexp" => ctx.new_rustfunc(math_ldexp),
         "modf" => ctx.new_rustfunc(math_modf),
+        "fmod" => ctx.new_rustfunc(math_fmod),
 
         // Rounding functions:
         "trunc" => ctx.new_rustfunc(math_trunc),

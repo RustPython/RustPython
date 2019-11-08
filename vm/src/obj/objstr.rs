@@ -4,15 +4,27 @@ extern crate unicode_xid;
 use std::cell::Cell;
 use std::char;
 use std::fmt;
+use std::mem::size_of;
 use std::ops::Range;
 use std::str::FromStr;
 use std::string::ToString;
 
 use num_traits::ToPrimitive;
+use unic::ucd::is_cased;
 use unicode_casing::CharExt;
-use unicode_segmentation::UnicodeSegmentation;
+use unicode_categories::UnicodeCategories;
 use unicode_xid::UnicodeXID;
 
+use super::objbytes::PyBytes;
+use super::objdict::PyDict;
+use super::objfloat;
+use super::objint::{self, PyInt, PyIntRef};
+use super::objiter;
+use super::objnone::PyNone;
+use super::objsequence::PySliceableSequence;
+use super::objslice::PySliceRef;
+use super::objtuple;
+use super::objtype::{self, PyClassRef};
 use crate::cformat::{
     CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
     CNumberType,
@@ -21,23 +33,10 @@ use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatStri
 use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-
-use super::objbytes::PyBytes;
-use super::objdict::PyDict;
-use super::objfloat;
-use super::objint::{self, PyInt};
-use super::objiter;
-use super::objnone::PyNone;
-use super::objsequence::PySliceableSequence;
-use super::objslice::PySlice;
-use super::objtuple;
-use super::objtype::{self, PyClassRef};
-
-use unicode_categories::UnicodeCategories;
 
 /// str(object='') -> str
 /// str(bytes_or_buffer[, encoding[, errors]]) -> str
@@ -176,8 +175,8 @@ impl PyString {
     // TODO: should with following format
     // class str(object='')
     // class str(object=b'', encoding='utf-8', errors='strict')
-    #[pymethod(name = "__new__")]
-    fn new(
+    #[pyslot(new)]
+    fn tp_new(
         cls: PyClassRef,
         object: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
@@ -208,11 +207,20 @@ impl PyString {
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> bool {
+    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            self.value == get_value(&rhs)
+            vm.new_bool(self.value == get_value(&rhs))
         } else {
-            false
+            vm.ctx.not_implemented()
+        }
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
+            vm.new_bool(self.value != get_value(&rhs))
+        } else {
+            vm.ctx.not_implemented()
         }
     }
 
@@ -222,8 +230,34 @@ impl PyString {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        subscript(vm, &self.value, needle)
+    fn getitem(&self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+        match needle {
+            Either::A(pos) => match pos.as_bigint().to_isize() {
+                Some(pos) => {
+                    let index: usize = if pos.is_negative() {
+                        (self.value.chars().count() as isize + pos) as usize
+                    } else {
+                        pos.abs() as usize
+                    };
+
+                    if let Some(character) = self.value.chars().nth(index) {
+                        Ok(vm.new_str(character.to_string()))
+                    } else {
+                        Err(vm.new_index_error("string index out of range".to_string()))
+                    }
+                }
+                None => Err(
+                    vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string())
+                ),
+            },
+            Either::B(slice) => {
+                let string = self
+                    .value
+                    .to_string()
+                    .get_slice_items(vm, slice.as_object())?;
+                Ok(vm.new_str(string))
+            }
+        }
     }
 
     #[pymethod(name = "__gt__")]
@@ -279,15 +313,16 @@ impl PyString {
         self.value.chars().count()
     }
 
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+        size_of::<Self>() + self.value.capacity() * size_of::<u8>()
+    }
+
     #[pymethod(name = "__mul__")]
-    fn mul(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        if !objtype::isinstance(&val, &vm.ctx.int_type()) {
-            return Err(vm.new_type_error(format!("Cannot multiply {} and {}", self, val)));
-        }
-        objint::get_value(&val)
-            .to_isize()
-            .map(|multiplier| multiplier.max(0))
-            .and_then(|multiplier| multiplier.to_usize())
+    fn mul(&self, multiplier: isize, vm: &VirtualMachine) -> PyResult<String> {
+        multiplier
+            .max(0)
+            .to_usize()
             .map(|multiplier| self.value.repeat(multiplier))
             .ok_or_else(|| {
                 vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_string())
@@ -295,7 +330,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__rmul__")]
-    fn rmul(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn rmul(&self, val: isize, vm: &VirtualMachine) -> PyResult<String> {
         self.mul(val, vm)
     }
 
@@ -319,16 +354,36 @@ impl PyString {
                 formatted.push('\\');
                 formatted.push(c);
             } else if c == '\n' {
-                formatted.push('\\');
-                formatted.push('n');
+                formatted.push_str("\\n")
             } else if c == '\t' {
-                formatted.push('\\');
-                formatted.push('t');
+                formatted.push_str("\\t");
             } else if c == '\r' {
-                formatted.push('\\');
-                formatted.push('r');
-            } else {
+                formatted.push_str("\\r");
+            } else if c < ' ' || c as u32 == 0x7F {
+                formatted.push_str(&format!("\\x{:02x}", c as u32));
+            } else if c.is_ascii() {
                 formatted.push(c);
+            } else if c.is_other() || c.is_separator() {
+                // According to python following categories aren't printable:
+                // * Cc (Other, Control)
+                // * Cf (Other, Format)
+                // * Cs (Other, Surrogate)
+                // * Co (Other, Private Use)
+                // * Cn (Other, Not Assigned)
+                // * Zl Separator, Line ('\u2028', LINE SEPARATOR)
+                // * Zp Separator, Paragraph ('\u2029', PARAGRAPH SEPARATOR)
+                // * Zs (Separator, Space) other than ASCII space('\x20').
+                let code = c as u32;
+                let escaped = if code < 0xff {
+                    format!("\\U{:02x}", code)
+                } else if code < 0xffff {
+                    format!("\\U{:04x}", code)
+                } else {
+                    format!("\\U{:08x}", code)
+                };
+                formatted.push_str(&escaped);
+            } else {
+                formatted.push(c)
             }
         }
         formatted.push(quote_char);
@@ -671,24 +726,32 @@ impl PyString {
         !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii_whitespace())
     }
 
+    // Return true if all cased characters in the string are uppercase and there is at least one cased character, false otherwise.
     #[pymethod]
     fn isupper(&self, _vm: &VirtualMachine) -> bool {
-        !self.value.is_empty()
-            && self
-                .value
-                .chars()
-                .filter(|x| !x.is_ascii_whitespace())
-                .all(char::is_uppercase)
+        let mut cased = false;
+        for c in self.value.chars() {
+            if is_cased(c) && c.is_uppercase() {
+                cased = true
+            } else if is_cased(c) && c.is_lowercase() {
+                return false;
+            }
+        }
+        cased
     }
 
+    // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.
     #[pymethod]
     fn islower(&self, _vm: &VirtualMachine) -> bool {
-        !self.value.is_empty()
-            && self
-                .value
-                .chars()
-                .filter(|x| !x.is_ascii_whitespace())
-                .all(char::is_lowercase)
+        let mut cased = false;
+        for c in self.value.chars() {
+            if is_cased(c) && c.is_lowercase() {
+                cased = true
+            } else if is_cased(c) && c.is_uppercase() {
+                return false;
+            }
+        }
+        cased
     }
 
     #[pymethod]
@@ -1232,7 +1295,7 @@ fn do_cformat_specifier(
     vm: &VirtualMachine,
     format_spec: &mut CFormatSpec,
     obj: PyObjectRef,
-) -> Result<String, PyObjectRef> {
+) -> PyResult<String> {
     use CNumberType::*;
     // do the formatting by type
     let format_type = &format_spec.format_type;
@@ -1326,9 +1389,7 @@ fn try_update_quantity_from_tuple(
                         Ok(tuple_index)
                     }
                 }
-                None => {
-                    Err(vm.new_type_error("not enough arguments for format string".to_string()))
-                }
+                None => Err(vm.new_type_error("not enough arguments for format string".to_string())),
             }
         }
         _ => Ok(tuple_index),
@@ -1497,43 +1558,39 @@ impl PySliceableSequence for String {
     type Sliced = String;
 
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
-        to_graphemes(self)
-            .get(range)
-            .map_or(String::default(), |c| c.join(""))
+        self.chars()
+            .skip(range.start)
+            .take(range.end - range.start)
+            .collect()
     }
 
     fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
-        to_graphemes(self)
-            .get_mut(range)
-            .map_or(String::default(), |slice| {
-                slice.reverse();
-                slice.join("")
-            })
+        let count = self.chars().count();
+
+        self.chars()
+            .rev()
+            .skip(count - range.end)
+            .take(range.end - range.start)
+            .collect()
     }
 
     fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        if let Some(s) = to_graphemes(self).get(range) {
-            return s
-                .iter()
-                .cloned()
-                .step_by(step)
-                .collect::<Vec<String>>()
-                .join("");
-        }
-        String::default()
+        self.chars()
+            .skip(range.start)
+            .take(range.end - range.start)
+            .step_by(step)
+            .collect()
     }
 
     fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        if let Some(s) = to_graphemes(self).get(range) {
-            return s
-                .iter()
-                .rev()
-                .cloned()
-                .step_by(step)
-                .collect::<Vec<String>>()
-                .join("");
-        }
-        String::default()
+        let count = self.chars().count();
+
+        self.chars()
+            .rev()
+            .skip(count - range.end)
+            .take(range.end - range.start)
+            .step_by(step)
+            .collect()
     }
 
     fn empty() -> Self::Sliced {
@@ -1541,45 +1598,11 @@ impl PySliceableSequence for String {
     }
 
     fn len(&self) -> usize {
-        to_graphemes(self).len()
+        self.chars().count()
     }
 
     fn is_empty(&self) -> bool {
         self.is_empty()
-    }
-}
-
-/// Convert a string-able `value` to a vec of graphemes
-/// represents the string according to user perceived characters
-fn to_graphemes<S: AsRef<str>>(value: S) -> Vec<String> {
-    UnicodeSegmentation::graphemes(value.as_ref(), true)
-        .map(String::from)
-        .collect()
-}
-
-pub fn subscript(vm: &VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
-    if objtype::isinstance(&b, &vm.ctx.int_type()) {
-        match objint::get_value(&b).to_i32() {
-            Some(pos) => {
-                let graphemes = to_graphemes(value);
-                if let Some(idx) = graphemes.get_pos(pos) {
-                    Ok(vm.new_str(graphemes[idx].to_string()))
-                } else {
-                    Err(vm.new_index_error("string index out of range".to_string()))
-                }
-            }
-            None => {
-                Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
-            }
-        }
-    } else if b.payload::<PySlice>().is_some() {
-        let string = value.to_string().get_slice_items(vm, &b)?;
-        Ok(vm.new_str(string))
-    } else {
-        Err(vm.new_type_error(format!(
-            "indexing type {:?} with index {:?} is not supported",
-            value, b
-        )))
     }
 }
 

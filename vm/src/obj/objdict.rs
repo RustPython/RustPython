@@ -1,20 +1,18 @@
 use std::cell::{Cell, RefCell};
 use std::fmt;
 
+use super::objiter;
+use super::objstr;
+use super::objtype::{self, PyClassRef};
+use crate::dictdatatype::{self, DictKey};
 use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyIterable, PyObjectRef,
-    PyRef, PyResult, PyValue,
+    IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
-use super::objbool;
-use super::objiter;
-use super::objstr;
-use super::objtype;
-use crate::dictdatatype::{self, DictKey};
-use crate::obj::objtype::PyClassRef;
-use crate::pyobject::PyClassImpl;
+use std::mem::size_of;
 
 pub type DictContentType = dictdatatype::Dict;
 
@@ -67,6 +65,12 @@ impl PyDictRef {
                 for (key, value) in dict_obj {
                     dict.borrow_mut().insert(vm, &key, value)?;
                 }
+            } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
+                let keys = objiter::get_iter(vm, &vm.invoke(&keys?, vec![])?)?;
+                while let Some(key) = objiter::get_next_object(vm, &keys)? {
+                    let val = dict_obj.get_item(&key, vm)?;
+                    dict.borrow_mut().insert(vm, &key, val)?;
+                }
             } else {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
                 loop {
@@ -87,6 +91,7 @@ impl PyDictRef {
                 }
             }
         }
+
         let mut dict_borrowed = dict.borrow_mut();
         for (key, value) in kwargs.into_iter() {
             dict_borrowed.insert(vm, &vm.new_str(key), value)?;
@@ -124,8 +129,7 @@ impl PyDictRef {
                     if v1.is(&v2) {
                         continue;
                     }
-                    let value = objbool::boolval(vm, vm._eq(v1, v2)?)?;
-                    if !value {
+                    if !vm.bool_eq(v1, v2)? {
                         return Ok(false);
                     }
                 }
@@ -146,8 +150,21 @@ impl PyDictRef {
         }
     }
 
+    fn ne(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(other) = other.payload::<PyDict>() {
+            let neq = !self.inner_eq(other, vm)?;
+            Ok(vm.ctx.new_bool(neq))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
     fn len(self, _vm: &VirtualMachine) -> usize {
         self.entries.borrow().len()
+    }
+
+    fn sizeof(self, _vm: &VirtualMachine) -> usize {
+        size_of::<Self>() + self.entries.borrow().sizeof()
     }
 
     fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
@@ -270,7 +287,7 @@ impl PyDictRef {
         }
     }
 
-    fn copy(self, _vm: &VirtualMachine) -> PyDict {
+    pub fn copy(self, _vm: &VirtualMachine) -> PyDict {
         PyDict {
             entries: self.entries.clone(),
         }
@@ -572,12 +589,14 @@ pub fn init(context: &PyContext) {
     extend_class!(context, &context.types.dict_type, {
         "__bool__" => context.new_rustfunc(PyDictRef::bool),
         "__len__" => context.new_rustfunc(PyDictRef::len),
+        "__sizeof__" => context.new_rustfunc(PyDictRef::sizeof),
         "__contains__" => context.new_rustfunc(PyDictRef::contains),
         "__delitem__" => context.new_rustfunc(PyDictRef::inner_delitem),
         "__eq__" => context.new_rustfunc(PyDictRef::eq),
+        "__ne__" => context.new_rustfunc(PyDictRef::ne),
         "__getitem__" => context.new_rustfunc(PyDictRef::inner_getitem),
         "__iter__" => context.new_rustfunc(PyDictRef::iter),
-        "__new__" => context.new_rustfunc(PyDictRef::new),
+        (slot new) => PyDictRef::new,
         "__repr__" => context.new_rustfunc(PyDictRef::repr),
         "__setitem__" => context.new_rustfunc(PyDictRef::inner_setitem),
         "__hash__" => context.new_rustfunc(PyDictRef::hash),

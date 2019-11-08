@@ -43,6 +43,11 @@ assert B.__subclasses__() == [D]
 assert C.__subclasses__() == [D]
 assert D.__subclasses__() == []
 
+assert D.__bases__ == (B, C)
+assert A.__bases__ == (object,)
+assert B.__bases__ == (A,)
+
+
 del D
 
 try: # gc sweep is needed here for CPython...
@@ -56,3 +61,28 @@ assert C.__subclasses__() == []
 assert type in object.__subclasses__()
 
 assert cls.__name__ == 'Cls'
+
+# mro
+assert int.mro() == [int, object]
+assert bool.mro() == [bool, int, object]
+assert object.mro() == [object]
+
+class A:
+    pass
+
+class B(A):
+    pass
+
+assert A.mro() == [A, object]
+assert B.mro() == [B, A, object]
+
+class AA:
+    pass
+
+class BB(AA):
+    pass
+
+class C(B, BB):
+    pass
+
+assert C.mro() == [C, B, A, BB, AA, object]

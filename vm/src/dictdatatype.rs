@@ -1,4 +1,3 @@
-use crate::obj::objbool;
 use crate::obj::objstr::PyString;
 use crate::pyhash;
 use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
@@ -10,6 +9,7 @@ use num_bigint::ToBigInt;
 /// And: http://code.activestate.com/recipes/578375/
 use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
+use std::mem::size_of;
 
 /// hash value of an object returned by __hash__
 type HashValue = pyhash::PyHash;
@@ -49,6 +49,25 @@ pub struct DictSize {
 }
 
 impl<T: Clone> Dict<T> {
+    fn resize(&mut self) {
+        let mut new_indices = HashMap::with_capacity(self.size);
+        let mut new_entries = Vec::with_capacity(self.size);
+        for maybe_entry in self.entries.drain(0..) {
+            if let Some(entry) = maybe_entry {
+                let mut hash_index = entry.hash;
+                // Faster version of lookup. No equality checks here.
+                // We assume dict doesn't contatins any duplicate keys
+                while new_indices.contains_key(&hash_index) {
+                    hash_index = Self::next_index(entry.hash, hash_index);
+                }
+                new_indices.insert(hash_index, new_entries.len());
+                new_entries.push(Some(entry));
+            }
+        }
+        self.indices = new_indices;
+        self.entries = new_entries;
+    }
+
     fn unchecked_push(
         &mut self,
         hash_index: HashIndex,
@@ -79,6 +98,9 @@ impl<T: Clone> Dict<T> {
         key: K,
         value: T,
     ) -> PyResult<()> {
+        if self.indices.len() > 2 * self.size {
+            self.resize();
+        }
         match self.lookup(vm, key)? {
             LookupResult::Existing(index) => {
                 // Update existing key
@@ -240,12 +262,16 @@ impl<T: Clone> Dict<T> {
             }
 
             // Update i to next probe location:
-            hash_index = hash_index
-                .wrapping_mul(5)
-                .wrapping_add(perturb)
-                .wrapping_add(1);
+            hash_index = Self::next_index(perturb, hash_index)
             // warn!("Perturb value: {}", i);
         }
+    }
+
+    fn next_index(perturb: HashValue, hash_index: HashIndex) -> HashIndex {
+        hash_index
+            .wrapping_mul(5)
+            .wrapping_add(perturb)
+            .wrapping_add(1)
     }
 
     /// Retrieve and delete a key
@@ -269,6 +295,10 @@ impl<T: Clone> Dict<T> {
             }
             None => None,
         }
+    }
+
+    pub fn sizeof(&self) -> usize {
+        size_of::<Self>() + self.size * size_of::<DictEntry<T>>()
     }
 }
 
@@ -305,8 +335,7 @@ impl DictKey for &PyObjectRef {
     }
 
     fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
-        let result = vm._eq(self.clone(), other_key.clone())?;
-        objbool::boolval(vm, result)
+        vm.identical_or_equal(self, other_key)
     }
 }
 
@@ -399,7 +428,7 @@ mod tests {
         assert_eq!(true, dict.contains(&vm, "x").unwrap());
 
         let val = dict.get(&vm, "x").unwrap().unwrap();
-        vm._eq(val, value2)
+        vm.bool_eq(val, value2)
             .expect("retrieved value must be equal to inserted value.");
     }
 

@@ -13,12 +13,10 @@ use std::io::{Cursor, Read, Write};
 use std::iter::Peekable;
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use num_bigint::BigInt;
-use num_traits::ToPrimitive;
 
 use crate::function::PyFuncArgs;
-use crate::obj::{objbool, objbytes, objfloat, objint, objstr, objtype};
-use crate::pyobject::{PyObjectRef, PyResult};
+use crate::obj::{objbytes, objstr, objtype};
+use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
 use crate::VirtualMachine;
 
 #[derive(Debug)]
@@ -56,8 +54,7 @@ fn parse_format_string(fmt: String) -> Result<FormatSpec, String> {
 /// See also: https://docs.python.org/3/library/struct.html?highlight=struct#byte-order-size-and-alignment
 fn parse_endiannes<I>(chars: &mut Peekable<I>) -> Endianness
 where
-    I: Sized,
-    I: Iterator<Item = char>,
+    I: Sized + Iterator<Item = char>,
 {
     match chars.peek() {
         Some('@') => {
@@ -86,160 +83,97 @@ where
 
 fn parse_format_codes<I>(chars: &mut Peekable<I>) -> Result<Vec<FormatCode>, String>
 where
-    I: Sized,
-    I: Iterator<Item = char>,
+    I: Sized + Iterator<Item = char>,
 {
     let mut codes = vec![];
-    for c in chars {
+    while chars.peek().is_some() {
+        // determine repeat operator:
+        let repeat = match chars.peek() {
+            Some('0'..='9') => {
+                let mut repeat = 0;
+                while let Some('0'..='9') = chars.peek() {
+                    if let Some(c) = chars.next() {
+                        let current_digit = c.to_digit(10).unwrap();
+                        repeat = repeat * 10 + current_digit;
+                    }
+                }
+                Some(repeat)
+            }
+            _ => None,
+        };
+
+        // determine format char:
+        let c = chars.next();
         match c {
-            'b' | 'B' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'f' | 'd' => {
-                codes.push(FormatCode { code: c })
+            Some(c) if is_supported_format_character(c) => {
+                if let Some(repeat) = repeat {
+                    for _ in 0..repeat {
+                        codes.push(FormatCode { code: c })
+                    }
+                } else {
+                    codes.push(FormatCode { code: c })
+                }
             }
-            c => {
-                return Err(format!("Illegal format code {:?}", c));
-            }
+            _ => return Err(format!("Illegal format code {:?}", c)),
         }
     }
 
     Ok(codes)
 }
 
-fn get_int(vm: &VirtualMachine, arg: &PyObjectRef) -> PyResult<BigInt> {
-    objint::to_int(vm, arg, 10)
+fn is_supported_format_character(c: char) -> bool {
+    match c {
+        'b' | 'B' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'f' | 'd' => true,
+        _ => false,
+    }
 }
 
-fn pack_i8(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
-    let v = get_int(vm, arg)?.to_i8().unwrap();
-    data.write_i8(v).unwrap();
-    Ok(())
+macro_rules! make_pack_no_endianess {
+    ($T:ty) => {
+        paste::item! {
+            fn [<pack_ $T>](vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
+                let v = $T::try_from_object(vm, arg.clone())?;
+                data.[<write_$T>](v).unwrap();
+                Ok(())
+            }
+        }
+    };
 }
 
-fn pack_u8(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
-    let v = get_int(vm, arg)?.to_u8().unwrap();
-    data.write_u8(v).unwrap();
-    Ok(())
+macro_rules! make_pack_with_endianess {
+    ($T:ty) => {
+        paste::item! {
+            fn [<pack_ $T>]<Endianness>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()>
+            where
+                Endianness: byteorder::ByteOrder,
+            {
+                let v = $T::try_from_object(vm, arg.clone())?;
+                data.[<write_$T>]::<Endianness>(v).unwrap();
+                Ok(())
+            }
+        }
+    };
 }
+
+make_pack_no_endianess!(i8);
+make_pack_no_endianess!(u8);
+make_pack_with_endianess!(i16);
+make_pack_with_endianess!(u16);
+make_pack_with_endianess!(i32);
+make_pack_with_endianess!(u32);
+make_pack_with_endianess!(i64);
+make_pack_with_endianess!(u64);
+make_pack_with_endianess!(f32);
+make_pack_with_endianess!(f64);
 
 fn pack_bool(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
-    if objtype::isinstance(&arg, &vm.ctx.bool_type()) {
-        let v = if objbool::get_value(arg) { 1 } else { 0 };
-        data.write_u8(v).unwrap();
-        Ok(())
+    let v = if bool::try_from_object(vm, arg.clone())? {
+        1
     } else {
-        Err(vm.new_type_error("Expected boolean".to_string()))
-    }
-}
-
-fn pack_i16<Endianness>(
-    vm: &VirtualMachine,
-    arg: &PyObjectRef,
-    data: &mut dyn Write,
-) -> PyResult<()>
-where
-    Endianness: byteorder::ByteOrder,
-{
-    let v = get_int(vm, arg)?.to_i16().unwrap();
-    data.write_i16::<Endianness>(v).unwrap();
+        0
+    };
+    data.write_u8(v).unwrap();
     Ok(())
-}
-
-fn pack_u16<Endianness>(
-    vm: &VirtualMachine,
-    arg: &PyObjectRef,
-    data: &mut dyn Write,
-) -> PyResult<()>
-where
-    Endianness: byteorder::ByteOrder,
-{
-    let v = get_int(vm, arg)?.to_u16().unwrap();
-    data.write_u16::<Endianness>(v).unwrap();
-    Ok(())
-}
-
-fn pack_i32<Endianness>(
-    vm: &VirtualMachine,
-    arg: &PyObjectRef,
-    data: &mut dyn Write,
-) -> PyResult<()>
-where
-    Endianness: byteorder::ByteOrder,
-{
-    let v = get_int(vm, arg)?.to_i32().unwrap();
-    data.write_i32::<Endianness>(v).unwrap();
-    Ok(())
-}
-
-fn pack_u32<Endianness>(
-    vm: &VirtualMachine,
-    arg: &PyObjectRef,
-    data: &mut dyn Write,
-) -> PyResult<()>
-where
-    Endianness: byteorder::ByteOrder,
-{
-    let v = get_int(vm, arg)?.to_u32().unwrap();
-    data.write_u32::<Endianness>(v).unwrap();
-    Ok(())
-}
-
-fn pack_i64<Endianness>(
-    vm: &VirtualMachine,
-    arg: &PyObjectRef,
-    data: &mut dyn Write,
-) -> PyResult<()>
-where
-    Endianness: byteorder::ByteOrder,
-{
-    let v = get_int(vm, arg)?.to_i64().unwrap();
-    data.write_i64::<Endianness>(v).unwrap();
-    Ok(())
-}
-
-fn pack_u64<Endianness>(
-    vm: &VirtualMachine,
-    arg: &PyObjectRef,
-    data: &mut dyn Write,
-) -> PyResult<()>
-where
-    Endianness: byteorder::ByteOrder,
-{
-    let v = get_int(vm, arg)?.to_u64().unwrap();
-    data.write_u64::<Endianness>(v).unwrap();
-    Ok(())
-}
-
-fn pack_f32<Endianness>(
-    vm: &VirtualMachine,
-    arg: &PyObjectRef,
-    data: &mut dyn Write,
-) -> PyResult<()>
-where
-    Endianness: byteorder::ByteOrder,
-{
-    let v = get_float(vm, arg)? as f32;
-    data.write_f32::<Endianness>(v).unwrap();
-    Ok(())
-}
-
-fn pack_f64<Endianness>(
-    vm: &VirtualMachine,
-    arg: &PyObjectRef,
-    data: &mut dyn Write,
-) -> PyResult<()>
-where
-    Endianness: byteorder::ByteOrder,
-{
-    let v = get_float(vm, arg)?;
-    data.write_f64::<Endianness>(v).unwrap();
-    Ok(())
-}
-
-fn get_float(vm: &VirtualMachine, arg: &PyObjectRef) -> PyResult<f64> {
-    if objtype::isinstance(&arg, &vm.ctx.float_type()) {
-        Ok(objfloat::get_value(arg))
-    } else {
-        Err(vm.new_type_error("Expected float".to_string()))
-    }
 }
 
 fn pack_item<Endianness>(
@@ -281,7 +215,7 @@ fn struct_pack(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         if objtype::isinstance(&fmt_arg, &vm.ctx.str_type()) {
             let fmt_str = objstr::get_value(&fmt_arg);
 
-            let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;;
+            let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;
 
             if format_spec.codes.len() + 1 == args.args.len() {
                 // Create data vector:

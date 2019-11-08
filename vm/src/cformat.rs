@@ -1,4 +1,3 @@
-use crate::format::get_num_digits;
 /// Implementation of Printf-Style string formatting
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 use num_bigint::{BigInt, Sign};
@@ -6,6 +5,8 @@ use num_traits::Signed;
 use std::cmp;
 use std::fmt;
 use std::str::FromStr;
+
+use crate::format::get_num_digits;
 
 #[derive(Debug, PartialEq)]
 pub enum CFormatErrorType {
@@ -225,14 +226,13 @@ impl CFormatSpec {
             "-"
         };
 
-        // TODO: Support precision
         let magnitude_string = match self.format_type {
             CFormatType::Float(CFloatType::PointDecimal) => {
-                if Some(CFormatQuantity::Amount(6)) != self.precision {
-                    return Err("Not yet implemented for %#.#f types".to_string());
-                } else {
-                    format!("{:.6}", magnitude)
-                }
+                let precision = match self.precision {
+                    Some(CFormatQuantity::Amount(p)) => p,
+                    _ => 6,
+                };
+                format!("{:.*}", precision, magnitude)
             }
             CFormatType::Float(CFloatType::Exponent(_)) => {
                 return Err("Not yet implemented for %e and %E".to_string())

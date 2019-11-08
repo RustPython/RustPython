@@ -1,3 +1,6 @@
+from testutils import assert_raises
+
+
 # Spec: https://docs.python.org/2/library/types.html
 print(None)
 # TypeType
@@ -31,10 +34,14 @@ print(a)
 b = bytes([1, 2, 3])
 assert a == b
 
-try:
+with assert_raises(TypeError):
     bytes([object()])
-except TypeError:
-    pass
+
+with assert_raises(TypeError):
+    bytes(1.0)
+
+with assert_raises(ValueError):
+    bytes(-1)
 
 a = bytearray([1, 2, 3])
 # assert a[1] == 2

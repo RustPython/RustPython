@@ -4,13 +4,12 @@
 
 use std::cell::Cell;
 
+use super::objtuple::PyTuple;
+use super::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-
-use super::objtype;
-use super::objtype::PyClassRef;
 
 /*
  * This helper function is called at multiple places. First, it is called
@@ -61,14 +60,10 @@ pub fn get_next_object(
 }
 
 /* Retrieve all elements from an iterator */
-pub fn get_all(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
+pub fn get_all<T: TryFromObject>(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<T>> {
     let mut elements = vec![];
-    loop {
-        let element = get_next_object(vm, iter_obj)?;
-        match element {
-            Some(v) => elements.push(v),
-            None => break,
-        }
+    while let Some(element) = get_next_object(vm, iter_obj)? {
+        elements.push(T::try_from_object(vm, element)?);
     }
     Ok(elements)
 }
@@ -76,6 +71,17 @@ pub fn get_all(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<PyOb
 pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
     let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
     vm.new_exception(stop_iteration_type, "End of iterator".to_string())
+}
+
+pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyObjectRef) -> PyResult {
+    let args = vm.get_attribute(exc.clone(), "args")?;
+    let args: &PyTuple = args.payload().unwrap();
+    let val = args
+        .elements
+        .first()
+        .cloned()
+        .unwrap_or_else(|| vm.get_none());
+    Ok(val)
 }
 
 #[pyclass]

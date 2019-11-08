@@ -2,8 +2,9 @@
  * The mythical generator.
  */
 
+use super::objtype::{isinstance, issubclass, PyClassRef};
 use crate::frame::{ExecutionResult, FrameRef};
-use crate::obj::objtype::{isinstance, PyClassRef};
+use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -38,38 +39,62 @@ impl PyGenerator {
     }
 
     #[pymethod]
-    fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.frame.push_value(value.clone());
 
-        let result = vm.run_frame(self.frame.clone())?;
-        handle_execution_result(result, vm)
+        vm.run_frame(self.frame.clone())?.into_result(vm)
     }
 
     #[pymethod]
     fn throw(
         &self,
-        _exc_type: PyObjectRef,
-        exc_val: PyObjectRef,
-        _exc_tb: PyObjectRef,
+        exc_type: PyClassRef,
+        exc_val: OptionalArg,
+        exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult {
         // TODO what should we do with the other parameters? CPython normalises them with
         //      PyErr_NormalizeException, do we want to do the same.
-        if !isinstance(&exc_val, &vm.ctx.exceptions.base_exception_type) {
+        if !issubclass(&exc_type, &vm.ctx.exceptions.base_exception_type) {
             return Err(vm.new_type_error("Can't throw non exception".to_string()));
         }
-        let result = vm.frame_throw(self.frame.clone(), exc_val)?;
-        handle_execution_result(result, vm)
+        vm.frames.borrow_mut().push(self.frame.clone());
+        let result = self
+            .frame
+            .gen_throw(
+                vm,
+                exc_type,
+                exc_val.unwrap_or(vm.get_none()),
+                exc_tb.unwrap_or(vm.get_none()),
+            )
+            .and_then(|res| res.into_result(vm));
+        vm.frames.borrow_mut().pop();
+        result
     }
-}
 
-fn handle_execution_result(result: ExecutionResult, vm: &VirtualMachine) -> PyResult {
-    match result {
-        ExecutionResult::Yield(value) => Ok(value),
-        ExecutionResult::Return(_value) => {
-            // Stop iteration!
-            let stop_iteration = vm.ctx.exceptions.stop_iteration.clone();
-            Err(vm.new_exception(stop_iteration, "End of generator".to_string()))
+    #[pymethod]
+    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+        vm.frames.borrow_mut().push(self.frame.clone());
+        let result = self.frame.gen_throw(
+            vm,
+            vm.ctx.exceptions.generator_exit.clone(),
+            vm.get_none(),
+            vm.get_none(),
+        );
+        vm.frames.borrow_mut().pop();
+        match result {
+            Ok(ExecutionResult::Yield(_)) => Err(vm.new_exception(
+                vm.ctx.exceptions.runtime_error.clone(),
+                "generator ignored GeneratorExit".to_string(),
+            )),
+            Err(e) => {
+                if isinstance(&e, &vm.ctx.exceptions.generator_exit) {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            }
+            _ => Ok(()),
         }
     }
 }

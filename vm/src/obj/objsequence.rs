@@ -1,20 +1,18 @@
-use crate::function::OptionalArg;
-use crate::obj::objnone::PyNone;
 use std::cell::RefCell;
 use std::marker::Sized;
 use std::ops::{Deref, DerefMut, Range};
 
-use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
-
-use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use super::objbool;
 use super::objint::{PyInt, PyIntRef};
 use super::objlist::PyList;
+use super::objnone::PyNone;
 use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
+use crate::function::OptionalArg;
+use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 pub trait PySliceableSequence {
     type Sliced;
@@ -66,11 +64,7 @@ pub trait PySliceableSequence {
         start..stop
     }
 
-    fn get_slice_items(
-        &self,
-        vm: &VirtualMachine,
-        slice: &PyObjectRef,
-    ) -> Result<Self::Sliced, PyObjectRef>
+    fn get_slice_items(&self, vm: &VirtualMachine, slice: &PyObjectRef) -> PyResult<Self::Sliced>
     where
         Self: Sized,
     {
@@ -285,15 +279,14 @@ pub fn seq_equal(
     vm: &VirtualMachine,
     zelf: &dyn SimpleSeq,
     other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
+) -> PyResult<bool> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            if !a.is(b) {
-                let eq = vm._eq(a.clone(), b.clone())?;
-                let value = objbool::boolval(vm, eq)?;
-                if !value {
-                    return Ok(false);
-                }
+            if a.is(b) {
+                continue;
+            }
+            if !vm.bool_eq(a.clone(), b.clone())? {
+                return Ok(false);
             }
         }
         Ok(true)
@@ -302,99 +295,42 @@ pub fn seq_equal(
     }
 }
 
-pub fn seq_lt(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
-    if zelf.len() == other.len() {
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let lt = vm._lt(a.clone(), b.clone())?;
-            let value = objbool::boolval(vm, lt)?;
-            if !value {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    } else {
-        // This case is more complicated because it can still return true if
-        // `zelf` is the head of `other` e.g. [1,2,3] < [1,2,3,4] should return true
-        let mut head = true; // true if `zelf` is the head of `other`
-
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let lt = vm._lt(a.clone(), b.clone())?;
-            let eq = vm._eq(a.clone(), b.clone())?;
-            let lt_value = objbool::boolval(vm, lt)?;
-            let eq_value = objbool::boolval(vm, eq)?;
-
-            if !lt_value && !eq_value {
-                return Ok(false);
-            } else if !eq_value {
-                head = false;
-            }
-        }
-
-        if head {
-            Ok(zelf.len() < other.len())
-        } else {
-            Ok(true)
+pub fn seq_lt(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
+    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+        if let Some(v) = vm.bool_seq_lt(a.clone(), b.clone())? {
+            return Ok(v);
         }
     }
+    Ok(zelf.len() < other.len())
 }
 
-pub fn seq_gt(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
-    if zelf.len() == other.len() {
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let gt = vm._gt(a.clone(), b.clone())?;
-            let value = objbool::boolval(vm, gt)?;
-            if !value {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    } else {
-        let mut head = true; // true if `other` is the head of `zelf`
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            // This case is more complicated because it can still return true if
-            // `other` is the head of `zelf` e.g. [1,2,3,4] > [1,2,3] should return true
-            let gt = vm._gt(a.clone(), b.clone())?;
-            let eq = vm._eq(a.clone(), b.clone())?;
-            let gt_value = objbool::boolval(vm, gt)?;
-            let eq_value = objbool::boolval(vm, eq)?;
-
-            if !gt_value && !eq_value {
-                return Ok(false);
-            } else if !eq_value {
-                head = false;
-            }
-        }
-
-        if head {
-            Ok(zelf.len() > other.len())
-        } else {
-            Ok(true)
+pub fn seq_gt(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
+    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+        if let Some(v) = vm.bool_seq_gt(a.clone(), b.clone())? {
+            return Ok(v);
         }
     }
+    Ok(zelf.len() > other.len())
 }
 
-pub fn seq_ge(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
-    Ok(seq_gt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
+pub fn seq_ge(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
+    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+        if let Some(v) = vm.bool_seq_gt(a.clone(), b.clone())? {
+            return Ok(v);
+        }
+    }
+
+    Ok(zelf.len() >= other.len())
 }
 
-pub fn seq_le(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
-    Ok(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
+pub fn seq_le(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
+    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+        if let Some(v) = vm.bool_seq_lt(a.clone(), b.clone())? {
+            return Ok(v);
+        }
+    }
+
+    Ok(zelf.len() <= other.len())
 }
 
 pub struct SeqMul<'a> {
@@ -465,11 +401,11 @@ pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<
     panic!("Cannot extract elements from non-sequence");
 }
 
-//Check if given arg could be used with PySciceableSequance.get_slice_range()
+//Check if given arg could be used with PySliceableSequence.get_slice_range()
 pub fn is_valid_slice_arg(
     arg: OptionalArg<PyObjectRef>,
     vm: &VirtualMachine,
-) -> Result<Option<BigInt>, PyObjectRef> {
+) -> PyResult<Option<BigInt>> {
     if let OptionalArg::Present(value) = arg {
         match_class!(match value {
             i @ PyInt => Ok(Some(i.as_bigint().clone())),

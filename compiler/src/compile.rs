@@ -6,11 +6,13 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use crate::error::{CompileError, CompileErrorType};
+pub use crate::mode::Mode;
 use crate::output_stream::{CodeObjectStream, OutputStream};
 use crate::peephole::PeepholeOptimizer;
 use crate::symboltable::{
     make_symbol_table, statements_to_symbol_table, Symbol, SymbolScope, SymbolTable,
 };
+use itertools::Itertools;
 use num_complex::Complex64;
 use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Label, Varargs};
 use rustpython_parser::{ast, parser};
@@ -25,9 +27,30 @@ struct Compiler<O: OutputStream = BasicOutputStream> {
     source_path: Option<String>,
     current_source_location: ast::Location,
     current_qualified_path: Option<String>,
-    in_loop: bool,
-    in_function_def: bool,
+    ctx: CompileContext,
     optimize: u8,
+}
+
+#[derive(Clone, Copy)]
+struct CompileContext {
+    in_loop: bool,
+    func: FunctionContext,
+}
+
+#[derive(Clone, Copy)]
+enum FunctionContext {
+    NoFunction,
+    Function,
+    AsyncFunction,
+}
+
+impl CompileContext {
+    fn in_func(self) -> bool {
+        match self.func {
+            FunctionContext::NoFunction => false,
+            _ => true,
+        }
+    }
 }
 
 /// Compile a given sourcecode into a bytecode object.
@@ -104,36 +127,6 @@ pub fn compile_program_single(
     })
 }
 
-#[derive(Clone, Copy)]
-pub enum Mode {
-    Exec,
-    Eval,
-    Single,
-}
-
-impl std::str::FromStr for Mode {
-    type Err = ModeParseError;
-    fn from_str(s: &str) -> Result<Self, ModeParseError> {
-        match s {
-            "exec" => Ok(Mode::Exec),
-            "eval" => Ok(Mode::Eval),
-            "single" => Ok(Mode::Single),
-            _ => Err(ModeParseError { _priv: () }),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct ModeParseError {
-    _priv: (),
-}
-
-impl std::fmt::Display for ModeParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, r#"mode should be "exec", "eval", or "single""#)
-    }
-}
-
 impl<O> Default for Compiler<O>
 where
     O: OutputStream,
@@ -152,8 +145,10 @@ impl<O: OutputStream> Compiler<O> {
             source_path: None,
             current_source_location: ast::Location::default(),
             current_qualified_path: None,
-            in_loop: false,
-            in_function_def: false,
+            ctx: CompileContext {
+                in_loop: false,
+                func: FunctionContext::NoFunction,
+            },
             optimize,
         }
     }
@@ -165,6 +160,7 @@ impl<O: OutputStream> Compiler<O> {
     fn push_new_code_object(&mut self, obj_name: String) {
         let line_number = self.get_source_line_number();
         self.push_output(CodeObject::new(
+            Default::default(),
             Vec::new(),
             Varargs::None,
             Vec::new(),
@@ -410,13 +406,26 @@ impl<O: OutputStream> Compiler<O> {
                 items,
                 body,
             } => {
-                if *is_async {
-                    unimplemented!("async with");
-                } else {
-                    let end_label = self.new_label();
-                    for item in items {
+                let is_async = *is_async;
+
+                let end_labels = items
+                    .iter()
+                    .map(|item| {
+                        let end_label = self.new_label();
                         self.compile_expression(&item.context_expr)?;
-                        self.emit(Instruction::SetupWith { end: end_label });
+
+                        if is_async {
+                            self.emit(Instruction::BeforeAsyncWith);
+                            self.emit(Instruction::GetAwaitable);
+                            self.emit(Instruction::LoadConst {
+                                value: bytecode::Constant::None,
+                            });
+                            self.emit(Instruction::YieldFrom);
+                            self.emit(Instruction::SetupAsyncWith { end: end_label });
+                        } else {
+                            self.emit(Instruction::SetupWith { end: end_label });
+                        }
+
                         match &item.optional_vars {
                             Some(var) => {
                                 self.compile_store(var)?;
@@ -425,13 +434,27 @@ impl<O: OutputStream> Compiler<O> {
                                 self.emit(Instruction::Pop);
                             }
                         }
+                        Ok(end_label)
+                    })
+                    .collect::<Result<Vec<_>, CompileError>>()?;
+
+                self.compile_statements(body)?;
+
+                for end_label in end_labels {
+                    self.emit(Instruction::PopBlock);
+                    self.emit(Instruction::EnterFinally);
+                    self.set_label(end_label);
+                    self.emit(Instruction::WithCleanupStart);
+
+                    if is_async {
+                        self.emit(Instruction::GetAwaitable);
+                        self.emit(Instruction::LoadConst {
+                            value: bytecode::Constant::None,
+                        });
+                        self.emit(Instruction::YieldFrom);
                     }
 
-                    self.compile_statements(body)?;
-                    for _ in 0..items.len() {
-                        self.emit(Instruction::CleanupWith { end: end_label });
-                    }
-                    self.set_label(end_label);
+                    self.emit(Instruction::WithCleanupFinish);
                 }
             }
             For {
@@ -440,13 +463,7 @@ impl<O: OutputStream> Compiler<O> {
                 iter,
                 body,
                 orelse,
-            } => {
-                if *is_async {
-                    unimplemented!("async for");
-                } else {
-                    self.compile_for(target, iter, body, orelse)?
-                }
-            }
+            } => self.compile_for(target, iter, body, orelse, *is_async)?,
             Raise { exception, cause } => match exception {
                 Some(value) => {
                     self.compile_expression(value)?;
@@ -478,11 +495,7 @@ impl<O: OutputStream> Compiler<O> {
                 decorator_list,
                 returns,
             } => {
-                if *is_async {
-                    unimplemented!("async def");
-                } else {
-                    self.compile_function_def(name, args, body, decorator_list, returns)?
-                }
+                self.compile_function_def(name, args, body, decorator_list, returns, *is_async)?;
             }
             ClassDef {
                 name,
@@ -518,7 +531,7 @@ impl<O: OutputStream> Compiler<O> {
                 }
             }
             Break => {
-                if !self.in_loop {
+                if !self.ctx.in_loop {
                     return Err(CompileError {
                         error: CompileErrorType::InvalidBreak,
                         location: statement.location.clone(),
@@ -527,7 +540,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::Break);
             }
             Continue => {
-                if !self.in_loop {
+                if !self.ctx.in_loop {
                     return Err(CompileError {
                         error: CompileErrorType::InvalidContinue,
                         location: statement.location.clone(),
@@ -536,7 +549,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::Continue);
             }
             Return { value } => {
-                if !self.in_function_def {
+                if !self.ctx.in_func() {
                     return Err(CompileError {
                         error: CompileErrorType::InvalidReturn,
                         location: statement.location.clone(),
@@ -623,11 +636,7 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
-    fn enter_function(
-        &mut self,
-        name: &str,
-        args: &ast::Parameters,
-    ) -> Result<bytecode::FunctionOpArg, CompileError> {
+    fn enter_function(&mut self, name: &str, args: &ast::Parameters) -> Result<(), CompileError> {
         let have_defaults = !args.defaults.is_empty();
         if have_defaults {
             // Construct a tuple:
@@ -657,11 +666,21 @@ impl<O: OutputStream> Compiler<O> {
             self.emit(Instruction::BuildMap {
                 size: num_kw_only_defaults,
                 unpack: false,
+                for_call: false,
             });
+        }
+
+        let mut flags = bytecode::CodeFlags::default();
+        if have_defaults {
+            flags |= bytecode::CodeFlags::HAS_DEFAULTS;
+        }
+        if num_kw_only_defaults > 0 {
+            flags |= bytecode::CodeFlags::HAS_KW_ONLY_DEFAULTS;
         }
 
         let line_number = self.get_source_line_number();
         self.push_output(CodeObject::new(
+            flags,
             args.args.iter().map(|a| a.arg.clone()).collect(),
             compile_varargs(&args.vararg),
             args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
@@ -672,15 +691,7 @@ impl<O: OutputStream> Compiler<O> {
         ));
         self.enter_scope();
 
-        let mut flags = bytecode::FunctionOpArg::empty();
-        if have_defaults {
-            flags |= bytecode::FunctionOpArg::HAS_DEFAULTS;
-        }
-        if num_kw_only_defaults > 0 {
-            flags |= bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS;
-        }
-
-        Ok(flags)
+        Ok(())
     }
 
     fn prepare_decorators(
@@ -740,14 +751,9 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::Duplicate);
 
                 // Check exception type:
-                self.emit(Instruction::LoadName {
-                    name: String::from("isinstance"),
-                    scope: bytecode::NameScope::Global,
-                });
-                self.emit(Instruction::Rotate { amount: 2 });
                 self.compile_expression(exc_type)?;
-                self.emit(Instruction::CallFunction {
-                    typ: CallType::Positional(2),
+                self.emit(Instruction::CompareOperation {
+                    op: bytecode::ComparisonOperator::ExceptionMatch,
                 });
 
                 // We cannot handle this exception type:
@@ -826,21 +832,28 @@ impl<O: OutputStream> Compiler<O> {
         body: &[ast::Statement],
         decorator_list: &[ast::Expression],
         returns: &Option<ast::Expression>, // TODO: use type hint somehow..
+        is_async: bool,
     ) -> Result<(), CompileError> {
         // Create bytecode for this function:
-        // remember to restore self.in_loop to the original after the function is compiled
-        let was_in_loop = self.in_loop;
-        let was_in_function_def = self.in_function_def;
-        self.in_loop = false;
-        self.in_function_def = true;
+        // remember to restore self.ctx.in_loop to the original after the function is compiled
+        let prev_ctx = self.ctx;
 
-        let old_qualified_path = self.current_qualified_path.clone();
+        self.ctx = CompileContext {
+            in_loop: false,
+            func: if is_async {
+                FunctionContext::AsyncFunction
+            } else {
+                FunctionContext::Function
+            },
+        };
+
         let qualified_name = self.create_qualified_name(name, "");
+        let old_qualified_path = self.current_qualified_path.take();
         self.current_qualified_path = Some(self.create_qualified_name(name, ".<locals>"));
 
         self.prepare_decorators(decorator_list)?;
 
-        let mut flags = self.enter_function(name, args)?;
+        self.enter_function(name, args)?;
 
         let (body, doc_str) = get_doc(body);
 
@@ -859,7 +872,7 @@ impl<O: OutputStream> Compiler<O> {
             }
         }
 
-        let code = self.pop_code_object();
+        let mut code = self.pop_code_object();
         self.leave_scope();
 
         // Prepare type annotations:
@@ -891,11 +904,16 @@ impl<O: OutputStream> Compiler<O> {
         }
 
         if num_annotations > 0 {
-            flags |= bytecode::FunctionOpArg::HAS_ANNOTATIONS;
+            code.flags |= bytecode::CodeFlags::HAS_ANNOTATIONS;
             self.emit(Instruction::BuildMap {
                 size: num_annotations,
                 unpack: false,
+                for_call: false,
             });
+        }
+
+        if is_async {
+            code.flags |= bytecode::CodeFlags::IS_COROUTINE;
         }
 
         self.emit(Instruction::LoadConst {
@@ -910,15 +928,14 @@ impl<O: OutputStream> Compiler<O> {
         });
 
         // Turn code object into function object:
-        self.emit(Instruction::MakeFunction { flags });
+        self.emit(Instruction::MakeFunction);
         self.store_docstring(doc_str);
         self.apply_decorators(decorator_list);
 
         self.store_name(name);
 
         self.current_qualified_path = old_qualified_path;
-        self.in_loop = was_in_loop;
-        self.in_function_def = was_in_function_def;
+        self.ctx = prev_ctx;
         Ok(())
     }
 
@@ -930,17 +947,21 @@ impl<O: OutputStream> Compiler<O> {
         keywords: &[ast::Keyword],
         decorator_list: &[ast::Expression],
     ) -> Result<(), CompileError> {
-        let was_in_loop = self.in_loop;
-        self.in_loop = false;
+        let prev_ctx = self.ctx;
+        self.ctx = CompileContext {
+            func: FunctionContext::NoFunction,
+            in_loop: false,
+        };
 
-        let old_qualified_path = self.current_qualified_path.clone();
         let qualified_name = self.create_qualified_name(name, "");
+        let old_qualified_path = self.current_qualified_path.take();
         self.current_qualified_path = Some(qualified_name.clone());
 
         self.prepare_decorators(decorator_list)?;
         self.emit(Instruction::LoadBuildClass);
         let line_number = self.get_source_line_number();
         self.push_output(CodeObject::new(
+            Default::default(),
             vec![],
             Varargs::None,
             vec![],
@@ -955,10 +976,19 @@ impl<O: OutputStream> Compiler<O> {
 
         self.emit(Instruction::LoadName {
             name: "__name__".to_string(),
-            scope: bytecode::NameScope::Free,
+            scope: bytecode::NameScope::Global,
         });
         self.emit(Instruction::StoreName {
             name: "__module__".to_string(),
+            scope: bytecode::NameScope::Free,
+        });
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::String {
+                value: qualified_name.clone(),
+            },
+        });
+        self.emit(Instruction::StoreName {
+            name: "__qualname__".to_string(),
             scope: bytecode::NameScope::Free,
         });
         self.compile_statements(new_body)?;
@@ -967,7 +997,8 @@ impl<O: OutputStream> Compiler<O> {
         });
         self.emit(Instruction::ReturnValue);
 
-        let code = self.pop_code_object();
+        let mut code = self.pop_code_object();
+        code.flags &= !bytecode::CodeFlags::NEW_LOCALS;
         self.leave_scope();
 
         self.emit(Instruction::LoadConst {
@@ -982,9 +1013,7 @@ impl<O: OutputStream> Compiler<O> {
         });
 
         // Turn code object into function object:
-        self.emit(Instruction::MakeFunction {
-            flags: bytecode::FunctionOpArg::empty(),
-        });
+        self.emit(Instruction::MakeFunction);
 
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::String {
@@ -1029,27 +1058,28 @@ impl<O: OutputStream> Compiler<O> {
 
         self.store_name(name);
         self.current_qualified_path = old_qualified_path;
-        self.in_loop = was_in_loop;
+        self.ctx = prev_ctx;
         Ok(())
     }
 
     fn store_docstring(&mut self, doc_str: Option<String>) {
-        if let Some(doc_string) = doc_str {
-            // Duplicate top of stack (the function or class object)
-            self.emit(Instruction::Duplicate);
+        // Duplicate top of stack (the function or class object)
+        self.emit(Instruction::Duplicate);
 
-            // Doc string value:
-            self.emit(Instruction::LoadConst {
-                value: bytecode::Constant::String {
-                    value: doc_string.to_string(),
+        // Doc string value:
+        self.emit(Instruction::LoadConst {
+            value: match doc_str {
+                Some(doc) => bytecode::Constant::String {
+                    value: doc.to_string(),
                 },
-            });
+                None => bytecode::Constant::None, // set docstring None if not declared
+            },
+        });
 
-            self.emit(Instruction::Rotate { amount: 2 });
-            self.emit(Instruction::StoreAttr {
-                name: "__doc__".to_string(),
-            });
-        }
+        self.emit(Instruction::Rotate { amount: 2 });
+        self.emit(Instruction::StoreAttr {
+            name: "__doc__".to_string(),
+        });
     }
 
     fn compile_while(
@@ -1070,10 +1100,10 @@ impl<O: OutputStream> Compiler<O> {
 
         self.compile_jump_if(test, false, else_label)?;
 
-        let was_in_loop = self.in_loop;
-        self.in_loop = true;
+        let was_in_loop = self.ctx.in_loop;
+        self.ctx.in_loop = true;
         self.compile_statements(body)?;
-        self.in_loop = was_in_loop;
+        self.ctx.in_loop = was_in_loop;
         self.emit(Instruction::Jump {
             target: start_label,
         });
@@ -1092,11 +1122,13 @@ impl<O: OutputStream> Compiler<O> {
         iter: &ast::Expression,
         body: &[ast::Statement],
         orelse: &Option<Vec<ast::Statement>>,
+        is_async: bool,
     ) -> Result<(), CompileError> {
         // Start loop
         let start_label = self.new_label();
         let else_label = self.new_label();
         let end_label = self.new_label();
+
         self.emit(Instruction::SetupLoop {
             start: start_label,
             end: end_label,
@@ -1105,19 +1137,57 @@ impl<O: OutputStream> Compiler<O> {
         // The thing iterated:
         self.compile_expression(iter)?;
 
-        // Retrieve Iterator
-        self.emit(Instruction::GetIter);
+        if is_async {
+            let check_asynciter_label = self.new_label();
+            let body_label = self.new_label();
 
-        self.set_label(start_label);
-        self.emit(Instruction::ForIter { target: else_label });
+            self.emit(Instruction::GetAIter);
 
-        // Start of loop iteration, set targets:
-        self.compile_store(target)?;
+            self.set_label(start_label);
+            self.emit(Instruction::SetupExcept {
+                handler: check_asynciter_label,
+            });
+            self.emit(Instruction::GetANext);
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::None,
+            });
+            self.emit(Instruction::YieldFrom);
+            self.compile_store(target)?;
+            self.emit(Instruction::PopBlock);
+            self.emit(Instruction::Jump { target: body_label });
 
-        let was_in_loop = self.in_loop;
-        self.in_loop = true;
-        self.compile_statements(body)?;
-        self.in_loop = was_in_loop;
+            self.set_label(check_asynciter_label);
+            self.emit(Instruction::Duplicate);
+            self.emit(Instruction::LoadName {
+                name: "StopAsyncIteration".to_string(),
+                scope: bytecode::NameScope::Global,
+            });
+            self.emit(Instruction::CompareOperation {
+                op: bytecode::ComparisonOperator::ExceptionMatch,
+            });
+            self.emit(Instruction::JumpIfTrue { target: else_label });
+            self.emit(Instruction::Raise { argc: 0 });
+
+            let was_in_loop = self.ctx.in_loop;
+            self.ctx.in_loop = true;
+            self.set_label(body_label);
+            self.compile_statements(body)?;
+            self.ctx.in_loop = was_in_loop;
+        } else {
+            // Retrieve Iterator
+            self.emit(Instruction::GetIter);
+
+            self.set_label(start_label);
+            self.emit(Instruction::ForIter { target: else_label });
+
+            // Start of loop iteration, set targets:
+            self.compile_store(target)?;
+
+            let was_in_loop = self.ctx.in_loop;
+            self.ctx.in_loop = true;
+            self.compile_statements(body)?;
+            self.ctx.in_loop = was_in_loop;
+        }
 
         self.emit(Instruction::Jump {
             target: start_label,
@@ -1128,6 +1198,9 @@ impl<O: OutputStream> Compiler<O> {
             self.compile_statements(orelse)?;
         }
         self.set_label(end_label);
+        if is_async {
+            self.emit(Instruction::Pop);
+        }
         Ok(())
     }
 
@@ -1429,6 +1502,53 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
+    fn compile_dict(
+        &mut self,
+        pairs: &[(Option<ast::Expression>, ast::Expression)],
+    ) -> Result<(), CompileError> {
+        let mut size = 0;
+        let mut has_unpacking = false;
+        for (is_unpacking, subpairs) in &pairs.iter().group_by(|e| e.0.is_none()) {
+            if is_unpacking {
+                for (_, value) in subpairs {
+                    self.compile_expression(value)?;
+                    size += 1;
+                }
+                has_unpacking = true;
+            } else {
+                let mut subsize = 0;
+                for (key, value) in subpairs {
+                    if let Some(key) = key {
+                        self.compile_expression(key)?;
+                        self.compile_expression(value)?;
+                        subsize += 1;
+                    }
+                }
+                self.emit(Instruction::BuildMap {
+                    size: subsize,
+                    unpack: false,
+                    for_call: false,
+                });
+                size += 1;
+            }
+        }
+        if size == 0 {
+            self.emit(Instruction::BuildMap {
+                size,
+                unpack: false,
+                for_call: false,
+            });
+        }
+        if size > 1 || has_unpacking {
+            self.emit(Instruction::BuildMap {
+                size,
+                unpack: true,
+                for_call: false,
+            });
+        }
+        Ok(())
+    }
+
     fn compile_expression(&mut self, expression: &ast::Expression) -> Result<(), CompileError> {
         trace!("Compiling {:?}", expression);
         self.set_source_location(&expression.location);
@@ -1512,27 +1632,7 @@ impl<O: OutputStream> Compiler<O> {
                 });
             }
             Dict { elements } => {
-                let size = elements.len();
-                let has_double_star = elements.iter().any(|e| e.0.is_none());
-                for (key, value) in elements {
-                    if let Some(key) = key {
-                        self.compile_expression(key)?;
-                        self.compile_expression(value)?;
-                        if has_double_star {
-                            self.emit(Instruction::BuildMap {
-                                size: 1,
-                                unpack: false,
-                            });
-                        }
-                    } else {
-                        // dict unpacking
-                        self.compile_expression(value)?;
-                    }
-                }
-                self.emit(Instruction::BuildMap {
-                    size,
-                    unpack: has_double_star,
-                });
+                self.compile_dict(elements)?;
             }
             Slice { elements } => {
                 let size = elements.len();
@@ -1542,7 +1642,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::BuildSlice { size });
             }
             Yield { value } => {
-                if !self.in_function_def {
+                if !self.ctx.in_func() {
                     return Err(CompileError {
                         error: CompileErrorType::InvalidYield,
                         location: self.current_source_location.clone(),
@@ -1557,8 +1657,13 @@ impl<O: OutputStream> Compiler<O> {
                 };
                 self.emit(Instruction::YieldValue);
             }
-            Await { .. } => {
-                unimplemented!("await");
+            Await { value } => {
+                self.compile_expression(value)?;
+                self.emit(Instruction::GetAwaitable);
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::None,
+                });
+                self.emit(Instruction::YieldFrom);
             }
             YieldFrom { value } => {
                 self.mark_generator();
@@ -1603,9 +1708,14 @@ impl<O: OutputStream> Compiler<O> {
                 self.load_name(name);
             }
             Lambda { args, body } => {
+                let prev_ctx = self.ctx;
+                self.ctx = CompileContext {
+                    in_loop: false,
+                    func: FunctionContext::Function,
+                };
+
                 let name = "<lambda>".to_string();
-                // no need to worry about the self.loop_depth because there are no loops in lambda expressions
-                let flags = self.enter_function(&name, args)?;
+                self.enter_function(&name, args)?;
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
@@ -1619,7 +1729,9 @@ impl<O: OutputStream> Compiler<O> {
                     value: bytecode::Constant::String { value: name },
                 });
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction { flags });
+                self.emit(Instruction::MakeFunction);
+
+                self.ctx = prev_ctx;
             }
             Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
@@ -1649,6 +1761,45 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
+    fn compile_keywords(&mut self, keywords: &[ast::Keyword]) -> Result<(), CompileError> {
+        let mut size = 0;
+        for (is_unpacking, subkeywords) in &keywords.iter().group_by(|e| e.name.is_none()) {
+            if is_unpacking {
+                for keyword in subkeywords {
+                    self.compile_expression(&keyword.value)?;
+                    size += 1;
+                }
+            } else {
+                let mut subsize = 0;
+                for keyword in subkeywords {
+                    if let Some(name) = &keyword.name {
+                        self.emit(Instruction::LoadConst {
+                            value: bytecode::Constant::String {
+                                value: name.to_string(),
+                            },
+                        });
+                        self.compile_expression(&keyword.value)?;
+                        subsize += 1;
+                    }
+                }
+                self.emit(Instruction::BuildMap {
+                    size: subsize,
+                    unpack: false,
+                    for_call: false,
+                });
+                size += 1;
+            }
+        }
+        if size > 1 {
+            self.emit(Instruction::BuildMap {
+                size,
+                unpack: true,
+                for_call: true,
+            });
+        }
+        Ok(())
+    }
+
     fn compile_call(
         &mut self,
         function: &ast::Expression,
@@ -1671,31 +1822,7 @@ impl<O: OutputStream> Compiler<O> {
 
             // Create an optional map with kw-args:
             if !keywords.is_empty() {
-                for keyword in keywords {
-                    if let Some(name) = &keyword.name {
-                        self.emit(Instruction::LoadConst {
-                            value: bytecode::Constant::String {
-                                value: name.to_string(),
-                            },
-                        });
-                        self.compile_expression(&keyword.value)?;
-                        if has_double_star {
-                            self.emit(Instruction::BuildMap {
-                                size: 1,
-                                unpack: false,
-                            });
-                        }
-                    } else {
-                        // This means **kwargs!
-                        self.compile_expression(&keyword.value)?;
-                    }
-                }
-
-                self.emit(Instruction::BuildMap {
-                    size: keywords.len(),
-                    unpack: has_double_star,
-                });
-
+                self.compile_keywords(keywords)?;
                 self.emit(Instruction::CallFunction {
                     typ: CallType::Ex(true),
                 });
@@ -1785,6 +1912,7 @@ impl<O: OutputStream> Compiler<O> {
         let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
         self.push_output(CodeObject::new(
+            Default::default(),
             vec![".0".to_string()],
             Varargs::None,
             vec![],
@@ -1814,6 +1942,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::BuildMap {
                     size: 0,
                     unpack: false,
+                    for_call: false,
                 });
             }
         }
@@ -1919,9 +2048,7 @@ impl<O: OutputStream> Compiler<O> {
         });
 
         // Turn code object into function object:
-        self.emit(Instruction::MakeFunction {
-            flags: bytecode::FunctionOpArg::empty(),
-        });
+        self.emit(Instruction::MakeFunction);
 
         // Evaluate iterated item:
         self.compile_expression(&generators[0].iter)?;

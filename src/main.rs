@@ -5,20 +5,23 @@ extern crate env_logger;
 extern crate log;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
-use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
-use rustpython_parser::error::ParseErrorType;
+use rustpython_compiler::compile;
 use rustpython_vm::{
-    import, print_exception,
-    pyobject::{ItemProtocol, PyObjectRef, PyResult},
+    import, match_class,
+    obj::{objint::PyInt, objtuple::PyTuple, objtype},
+    print_exception,
+    pyobject::{ItemProtocol, PyResult},
     scope::Scope,
     util, PySettings, VirtualMachine,
 };
-use std::convert::TryInto;
 
+use std::convert::TryInto;
 use std::env;
 use std::path::PathBuf;
 use std::process;
 use std::str::FromStr;
+
+mod shell;
 
 fn main() {
     #[cfg(feature = "flame-it")]
@@ -30,17 +33,51 @@ fn main() {
     let vm = VirtualMachine::new(settings);
 
     let res = run_rustpython(&vm, &matches);
+
     vm.save_repl();
     // See if any exception leaked out:
     handle_exception(&vm, res);
+
 
     #[cfg(feature = "flame-it")]
     {
         main_guard.end();
         if let Err(e) = write_profile(&matches) {
             error!("Error writing profile information: {}", e);
-            process::exit(1);
         }
+    }
+
+    // See if any exception leaked out:
+    if let Err(err) = res {
+        if objtype::isinstance(&err, &vm.ctx.exceptions.system_exit) {
+            let args = vm.get_attribute(err.clone(), "args").unwrap();
+            let args = args.downcast::<PyTuple>().expect("'args' must be a tuple");
+            match args.elements.len() {
+                0 => return,
+                1 => match_class!(match args.elements[0].clone() {
+                    i @ PyInt => {
+                        use num_traits::cast::ToPrimitive;
+                        process::exit(i.as_bigint().to_i32().unwrap());
+                    }
+                    arg => {
+                        if vm.is_none(&arg) {
+                            return;
+                        }
+                        if let Ok(s) = vm.to_str(&arg) {
+                            println!("{}", s);
+                        }
+                    }
+                }),
+                _ => {
+                    if let Ok(r) = vm.to_repr(args.as_object()) {
+                        println!("{}", r);
+                    }
+                }
+            }
+        } else {
+            print_exception(&vm, &err);
+        }
+        process::exit(1);
     }
 }
 
@@ -290,7 +327,8 @@ fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>>
 }
 
 fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
-    import::init_importlib(&vm, true)?;
+    // We only include the standard library bytecode in WASI
+    import::init_importlib(&vm, cfg!(not(target_os = "wasi")))?;
 
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
         let sys_path = vm.get_attribute(vm.sys_module.clone(), "path")?;
@@ -333,7 +371,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     } else if let Some(filename) = matches.value_of("script") {
         run_script(&vm, scope, filename)?
     } else {
-        run_shell(&vm, scope)?;
+        shell::run_shell(&vm, scope)?;
     }
 
     Ok(())
@@ -348,13 +386,6 @@ fn _run_string(vm: &VirtualMachine, scope: Scope, source: &str, source_path: Str
         .globals
         .set_item("__file__", vm.new_str(source_path), vm)?;
     vm.run_code_obj(code_obj, scope)
-}
-
-fn handle_exception<T>(vm: &VirtualMachine, result: PyResult<T>) {
-    if let Err(err) = result {
-        print_exception(vm, &err);
-        process::exit(1);
-    }
 }
 
 fn run_command(vm: &VirtualMachine, scope: Scope, source: String) -> PyResult<()> {
@@ -432,6 +463,7 @@ fn test_run_script() {
     let r = run_script(&vm, vm.new_scope_with_builtins(), "tests/snippets/dir_main");
     assert!(r.is_ok());
 }
+
 
 enum ShellExecResult {
     Ok,
@@ -544,3 +576,4 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
 
     Ok(())
 }
+

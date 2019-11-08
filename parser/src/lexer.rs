@@ -1,5 +1,6 @@
-//! This module takes care of lexing python source text. This means source
-//! code is translated into separate tokens.
+//! This module takes care of lexing python source text.
+//!
+//! This means source code is translated into separate tokens.
 
 extern crate unic_emoji_char;
 extern crate unicode_xid;
@@ -8,6 +9,7 @@ pub use super::token::Tok;
 use crate::error::{LexicalError, LexicalErrorType};
 use crate::location::Location;
 use num_bigint::BigInt;
+use num_traits::identities::Zero;
 use num_traits::Num;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -37,9 +39,7 @@ impl IndentationLevel {
             } else {
                 Err(LexicalError {
                     location,
-                    error: LexicalErrorType::OtherError(
-                        "inconsistent use of tabs and spaces in indentation".to_string(),
-                    ),
+                    error: LexicalErrorType::TabError,
                 })
             }
         } else if self.tabs > other.tabs {
@@ -48,9 +48,7 @@ impl IndentationLevel {
             } else {
                 Err(LexicalError {
                     location,
-                    error: LexicalErrorType::OtherError(
-                        "inconsistent use of tabs and spaces in indentation".to_string(),
-                    ),
+                    error: LexicalErrorType::TabError,
                 })
             }
         } else {
@@ -352,7 +350,7 @@ where
     /// Lex a normal number, that is, no octal, hex or binary number.
     fn lex_normal_number(&mut self) -> LexResult {
         let start_pos = self.get_pos();
-
+        let start_is_zero = self.chr0 == Some('0');
         // Normal number:
         let mut value_text = self.radix_run(10);
 
@@ -360,6 +358,12 @@ where
         if self.chr0 == Some('.') || self.at_exponent() {
             // Take '.':
             if self.chr0 == Some('.') {
+                if self.chr1 == Some('_') {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::OtherError("Invalid Syntax".to_string()),
+                        location: self.get_pos(),
+                    });
+                }
                 value_text.push(self.next_char().unwrap());
                 value_text.push_str(&self.radix_run(10));
             }
@@ -403,6 +407,12 @@ where
             } else {
                 let end_pos = self.get_pos();
                 let value = value_text.parse::<BigInt>().unwrap();
+                if start_is_zero && !value.is_zero() {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::OtherError("Invalid Token".to_string()),
+                        location: self.get_pos(),
+                    });
+                }
                 Ok((start_pos, Tok::Int { value }, end_pos))
             }
         }
@@ -413,6 +423,7 @@ where
     /// like this: '1_2_3_4' == '1234'
     fn radix_run(&mut self, radix: u32) -> String {
         let mut value_text = String::new();
+
         loop {
             if let Some(c) = self.take_number(radix) {
                 value_text.push(c);
@@ -781,11 +792,8 @@ where
                                 break;
                             }
                             Ordering::Greater => {
-                                // TODO: handle wrong indentations
                                 return Err(LexicalError {
-                                    error: LexicalErrorType::OtherError(
-                                        "Non matching indentation levels!".to_string(),
-                                    ),
+                                    error: LexicalErrorType::IndentationError,
                                     location: self.get_pos(),
                                 });
                             }

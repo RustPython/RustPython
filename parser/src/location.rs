@@ -1,5 +1,8 @@
+//! Datatypes to support source location information.
+
 use std::fmt;
 
+/// A location somewhere in the sourcecode.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Location {
     row: usize,

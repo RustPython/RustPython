@@ -88,3 +88,46 @@ l = list(g)
 # print(l)
 assert l == [99]
 assert r == ['a', 66, None]
+
+def binary(n):
+    if n <= 1:
+        return 1
+    l = yield from binary(n - 1)
+    r = yield from binary(n - 1)
+    return l + 1 + r
+
+with assert_raises(StopIteration):
+    try:
+        next(binary(5))
+    except StopIteration as stopiter:
+        # TODO: StopIteration.value
+        assert stopiter.args[0] == 31
+        raise
+
+class SpamException(Exception):
+    pass
+
+l = []
+
+def writer():
+    while True:
+        try:
+            w = (yield)
+        except SpamException:
+            l.append('***')
+        else:
+            l.append(f'>> {w}')
+
+def wrapper(coro):
+    yield from coro
+
+w = writer()
+wrap = wrapper(w)
+wrap.send(None)  # "prime" the coroutine
+for i in [0, 1, 2, 'spam', 4]:
+    if i == 'spam':
+        wrap.throw(SpamException)
+    else:
+        wrap.send(i)
+
+assert l == ['>> 0', '>> 1', '>> 2', '***', '>> 4']

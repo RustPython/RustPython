@@ -9,7 +9,6 @@ use arr_macro::arr;
 use nix::unistd::alarm as sig_alarm;
 
 use libc;
-
 #[cfg(not(windows))]
 use libc::{SIG_DFL, SIG_ERR, SIG_IGN};
 
@@ -38,7 +37,7 @@ fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
     }
 }
 
-fn signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+fn signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     assert_in_range(signalnum, vm)?;
 
     let sig_handler = match usize::try_from_object(vm, handler.clone()).ok() {
@@ -76,7 +75,7 @@ fn signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult
     Ok(old_handler)
 }
 
-fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult {
     assert_in_range(signalnum, vm)?;
     Ok(vm.signal_handlers.borrow()[signalnum as usize].clone())
 }

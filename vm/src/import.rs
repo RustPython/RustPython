@@ -4,7 +4,8 @@
 use rand::Rng;
 
 use crate::bytecode::CodeObject;
-use crate::obj::{objcode, objsequence, objstr, objtype};
+use crate::obj::objtraceback::{PyTraceback, PyTracebackRef};
+use crate::obj::{objcode, objtype};
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
 use crate::scope::Scope;
 use crate::version::get_git_revision;
@@ -100,36 +101,40 @@ pub fn import_codeobj(
     Ok(module)
 }
 
+fn remove_importlib_frames_inner(
+    vm: &VirtualMachine,
+    tb: Option<PyTracebackRef>,
+    always_trim: bool,
+) -> Option<PyTracebackRef> {
+    let traceback = tb.as_ref()?;;
+    let file_name = traceback.frame.code.source_path.to_string();
+    if (file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external")
+        && (always_trim || traceback.frame.code.obj_name == "_call_with_frames_removed")
+    {
+        return remove_importlib_frames_inner(vm, traceback.next.as_ref().cloned(), always_trim);
+    }
+
+    Some(
+        PyTraceback::new(
+            remove_importlib_frames_inner(vm, traceback.next.as_ref().cloned(), always_trim),
+            traceback.frame.clone(),
+            traceback.lasti,
+            traceback.lineno,
+        )
+        .into_ref(vm),
+    )
+}
+
 // TODO: This function should do nothing on verbose mode.
+// TODO: Fix this function after making PyTraceback.next mutable
 pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyObjectRef) -> PyObjectRef {
     let always_trim = objtype::isinstance(exc, &vm.ctx.exceptions.import_error);
 
     if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
-        if objtype::isinstance(&tb, &vm.ctx.list_type()) {
-            let tb_entries = objsequence::get_elements_list(&tb).to_vec();
-            let mut in_importlib = false;
-            let new_tb = tb_entries
-                .iter()
-                .filter(|tb_entry| {
-                    let location_attrs = objsequence::get_elements_tuple(&tb_entry);
-                    let file_name = objstr::get_value(&location_attrs[0]);
-                    if file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external"
-                    {
-                        let run_obj_name = objstr::get_value(&location_attrs[2]);
-                        if run_obj_name == "_call_with_frames_removed" {
-                            in_importlib = true;
-                        }
-                        !always_trim && !in_importlib
-                    } else {
-                        in_importlib = false;
-                        true
-                    }
-                })
-                .cloned()
-                .collect();
-            vm.set_attr(exc, "__traceback__", vm.ctx.new_list(new_tb))
-                .unwrap();
-        }
+        let base_tb: PyTracebackRef = tb.downcast().expect("must be a traceback object");
+        let trimed_tb = remove_importlib_frames_inner(vm, Some(base_tb), always_trim)
+            .map_or(vm.get_none(), |x| x.into_object());
+        vm.set_attr(exc, "__traceback__", trimed_tb).unwrap();
     }
     exc.clone()
 }

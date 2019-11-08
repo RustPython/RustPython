@@ -7,7 +7,7 @@ use std::iter::FromIterator;
 
 use crate::ast;
 use crate::fstring::parse_located_fstring;
-use crate::function::parse_args;
+use crate::function::{parse_args, parse_params};
 use crate::error::LexicalError;
 use crate::lexer;
 use crate::location;
@@ -39,7 +39,7 @@ FileLine: ast::Suite = {
 
 Suite: ast::Suite = {
     SimpleStatement,
-    "\n" indent <s:Statement+> dedent => s.into_iter().flatten().collect(),
+    "\n" Indent <s:Statement+> Dedent => s.into_iter().flatten().collect(),
 };
 
 Statement: ast::Suite = {
@@ -455,23 +455,23 @@ Parameters: ast::Parameters = {
 // Note that this is a macro which is used once for function defs, and
 // once for lambda defs.
 ParameterList<ArgType>: ast::Parameters = {
-    <param1:ParameterDefs<ArgType>> <args2:("," ParameterListStarArgs<ArgType>)?> ","? => {
-        let (names, default_elements) = param1;
+    <param1:ParameterDefs<ArgType>> <args2:("," ParameterListStarArgs<ArgType>)?> ","? =>? {
+        let (names, default_elements) = parse_params(param1)?;
 
         // Now gather rest of parameters:
         let (vararg, kwonlyargs, kw_defaults, kwarg) = args2.map_or((None, vec![], vec![], None), |x| x.1);
 
-        ast::Parameters {
+        Ok(ast::Parameters {
             args: names,
             kwonlyargs,
             vararg: vararg.into(),
             kwarg: kwarg.into(),
             defaults: default_elements,
             kw_defaults: kw_defaults,
-        }
+        })
     },
-    <param1:ParameterDefs<ArgType>> <kw:("," KwargParameter<ArgType>)> ","? => {
-        let (names, default_elements) = param1;
+    <param1:ParameterDefs<ArgType>> <kw:("," KwargParameter<ArgType>)> ","? =>? {
+        let (names, default_elements) = parse_params(param1)?;
 
         // Now gather rest of parameters:
         let vararg = None;
@@ -479,14 +479,14 @@ ParameterList<ArgType>: ast::Parameters = {
         let kw_defaults = vec![];
         let kwarg = Some(kw.1);
 
-        ast::Parameters {
+        Ok(ast::Parameters {
             args: names,
             kwonlyargs,
             vararg: vararg.into(),
             kwarg: kwarg.into(),
             defaults: default_elements,
             kw_defaults: kw_defaults,
-        }
+        })
     },
     <params:ParameterListStarArgs<ArgType>> ","? => {
         let (vararg, kwonlyargs, kw_defaults, kwarg) = params;
@@ -513,27 +513,9 @@ ParameterList<ArgType>: ast::Parameters = {
 
 // Use inline here to make sure the "," is not creating an ambiguity.
 #[inline]
-ParameterDefs<ArgType>: (Vec<ast::Parameter>, Vec<ast::Expression>) = {
+ParameterDefs<ArgType>: Vec<(ast::Parameter, Option<ast::Expression>)> = {
     <args:OneOrMore<ParameterDef<ArgType>>> => {
-        let mut names = vec![];
-        let mut default_elements = vec![];
-
-        for (name, default) in args.into_iter() {
-            if let Some(default) = default {
-                default_elements.push(default);
-            } else {
-                if default_elements.len() > 0 {
-                    // Once we have started with defaults, all remaining arguments must
-                    // have defaults
-                    panic!("non-default argument follows default argument: {}", &name.arg);
-                }
-            }
-            names.push(name);
-        }
-
-        //Ok(
-            (names, default_elements)
-        //)
+        args
     }
 };
 
@@ -1142,8 +1124,8 @@ extern {
     type Error = LexicalError;
 
     enum lexer::Tok {
-        indent => lexer::Tok::Indent,
-        dedent => lexer::Tok::Dedent,
+        Indent => lexer::Tok::Indent,
+        Dedent => lexer::Tok::Dedent,
         StartProgram => lexer::Tok::StartProgram,
         StartStatement => lexer::Tok::StartStatement,
         StartExpression => lexer::Tok::StartExpression,

@@ -9,32 +9,36 @@ use std::str;
 
 use num_bigint::Sign;
 use num_traits::{Signed, ToPrimitive, Zero};
+#[cfg(feature = "rustpython-compiler")]
+use rustpython_compiler::compile;
+
 
 use rustyline::error::ReadlineError;
 
+
+use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
+
 use crate::obj::objbool::{self, IntoPyBool};
+use crate::obj::objbyteinner::PyByteInner;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
+use crate::obj::objfunction::PyFunctionRef;
 use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objstr;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
-#[cfg(feature = "rustpython-compiler")]
-use rustpython_compiler::compile;
-
-use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
+use crate::pyhash;
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
 use crate::scope::Scope;
-use crate::vm::VirtualMachine;
-
-use crate::obj::objbyteinner::PyByteInner;
+use crate::stdlib::ast;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
+use crate::vm::VirtualMachine;
 
 fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let method = vm.get_method_or_type_error(x.clone(), "__abs__", || {
@@ -126,22 +130,41 @@ struct CompileArgs {
     optimize: OptionalArg<PyIntRef>,
 }
 
-#[cfg(feature = "rustpython-compiler")]
-fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef> {
+fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
     // TODO: compile::compile should probably get bytes
     let source = match &args.source {
         Either::A(string) => string.as_str(),
         Either::B(bytes) => str::from_utf8(bytes).unwrap(),
     };
 
-    let mode = args
-        .mode
-        .as_str()
-        .parse::<compile::Mode>()
-        .map_err(|err| vm.new_value_error(err.to_string()))?;
+    let mode_str = args.mode.as_str();
 
-    vm.compile(source, mode, args.filename.as_str().to_string())
-        .map_err(|err| vm.new_syntax_error(&err))
+    let flags = args
+        .flags
+        .map_or(Ok(0), |v| i32::try_from_object(vm, v.into_object()))?;
+
+    if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
+        #[cfg(feature = "rustpython-compiler")]
+        {
+            let mode = mode_str
+                .parse::<compile::Mode>()
+                .map_err(|err| vm.new_value_error(err.to_string()))?;
+
+            vm.compile(&source, mode, args.filename.as_str().to_string())
+                .map(|o| o.into_object())
+                .map_err(|err| vm.new_syntax_error(&err))
+        }
+        #[cfg(not(feature = "rustpython-compiler"))]
+        {
+            Err(vm.new_value_error("PyCF_ONLY_AST flag is required without compiler support"))
+        }
+    } else {
+        use rustpython_parser::parser;
+        let mode = mode_str
+            .parse::<parser::Mode>()
+            .map_err(|err| vm.new_value_error(err.to_string()))?;
+        ast::parse(&vm, &source, mode)
+    }
 }
 
 fn builtin_delattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -301,8 +324,8 @@ fn builtin_hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> 
     }
 }
 
-fn builtin_hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    vm._hash(&obj).and_then(|v| Ok(vm.new_int(v)))
+fn builtin_hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+    vm._hash(&obj)
 }
 
 // builtin_help
@@ -310,7 +333,7 @@ fn builtin_hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn builtin_hex(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
     let n = number.as_bigint();
     let s = if n.is_negative() {
-        format!("-0x{:x}", n.abs())
+        format!("-0x{:x}", -n)
     } else {
         format!("0x{:x}", n)
     };
@@ -318,8 +341,8 @@ fn builtin_hex(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-fn builtin_id(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    Ok(vm.context().new_int(obj.get_id()))
+fn builtin_id(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
+    obj.get_id()
 }
 
 // builtin_input
@@ -403,7 +426,8 @@ fn builtin_len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn builtin_locals(vm: &VirtualMachine) -> PyDictRef {
-    vm.get_locals()
+    let locals = vm.get_locals();
+    locals.copy(vm).into_ref(vm)
 }
 
 fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -418,11 +442,8 @@ fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
-        if default.is_none() {
-            return Err(vm.new_value_error("max() arg is an empty sequence".to_string()));
-        } else {
-            return Ok(default.unwrap());
-        }
+        return default
+            .ok_or_else(|| vm.new_value_error("max() arg is an empty sequence".to_string()));
     }
 
     let key_func = args.get_optional_kwarg("key");
@@ -467,11 +488,8 @@ fn builtin_min(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
-        if default.is_none() {
-            return Err(vm.new_value_error("min() arg is an empty sequence".to_string()));
-        } else {
-            return Ok(default.unwrap());
-        }
+        return default
+            .ok_or_else(|| vm.new_value_error("min() arg is an empty sequence".to_string()));
     }
 
     let key_func = args.get_optional_kwarg("key");
@@ -534,7 +552,7 @@ fn builtin_oct(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-fn builtin_ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) -> PyResult {
+fn builtin_ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) -> PyResult<u32> {
     match string {
         Either::A(bytes) => {
             let bytes_len = bytes.elements.len();
@@ -544,7 +562,7 @@ fn builtin_ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) ->
                     bytes_len
                 )));
             }
-            Ok(vm.context().new_int(bytes.elements[0]))
+            Ok(u32::from(bytes.elements[0]))
         }
         Either::B(string) => {
             let string = string.as_str();
@@ -556,7 +574,7 @@ fn builtin_ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) ->
                 )));
             }
             match string.chars().next() {
-                Some(character) => Ok(vm.context().new_int(character as i32)),
+                Some(character) => Ok(character as u32),
                 None => Err(vm.new_type_error(
                     "ord() could not guess the integer representing this character".to_string(),
                 )),
@@ -644,14 +662,9 @@ impl Printer for std::io::StdoutLock<'_> {
     }
 }
 
-pub fn builtin_exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
-    if let OptionalArg::Present(exit_code_obj) = exit_code_arg {
-        match i32::try_from_object(&vm, exit_code_obj.clone()) {
-            Ok(code) => std::process::exit(code),
-            _ => println!("{}", vm.to_str(&exit_code_obj)?.as_str()),
-        }
-    }
-    std::process::exit(0);
+pub fn builtin_exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    let code = exit_code_arg.unwrap_or_else(|| vm.new_int(0));
+    Err(vm.new_exception_obj(vm.ctx.exceptions.system_exit.clone(), vec![code])?)
 }
 
 pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
@@ -722,24 +735,20 @@ fn builtin_round(
     ndigits: OptionalArg<Option<PyIntRef>>,
     vm: &VirtualMachine,
 ) -> PyResult {
-    match ndigits {
+    let rounded = match ndigits {
         OptionalArg::Present(ndigits) => match ndigits {
             Some(int) => {
                 let ndigits = vm.call_method(int.as_object(), "__int__", vec![])?;
-                let rounded = vm.call_method(&number, "__round__", vec![ndigits])?;
-                Ok(rounded)
+                vm.call_method(&number, "__round__", vec![ndigits])?
             }
-            None => {
-                let rounded = &vm.call_method(&number, "__round__", vec![])?;
-                Ok(vm.ctx.new_int(objint::get_value(rounded).clone()))
-            }
+            None => vm.call_method(&number, "__round__", vec![])?,
         },
         OptionalArg::Missing => {
             // without a parameter, the result type is coerced to int
-            let rounded = &vm.call_method(&number, "__round__", vec![])?;
-            Ok(vm.ctx.new_int(objint::get_value(rounded).clone()))
+            vm.call_method(&number, "__round__", vec![])?
         }
-    }
+    };
+    Ok(rounded)
 }
 
 fn builtin_setattr(
@@ -799,7 +808,6 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     #[cfg(feature = "rustpython-compiler")]
     {
         extend_module!(vm, module, {
-            "compile" => ctx.new_rustfunc(builtin_compile),
             "eval" => ctx.new_rustfunc(builtin_eval),
             "exec" => ctx.new_rustfunc(builtin_exec),
         });
@@ -822,6 +830,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "callable" => ctx.new_rustfunc(builtin_callable),
         "chr" => ctx.new_rustfunc(builtin_chr),
         "classmethod" => ctx.classmethod_type(),
+        "compile" => ctx.new_rustfunc(builtin_compile),
         "complex" => ctx.complex_type(),
         "delattr" => ctx.new_rustfunc(builtin_delattr),
         "dict" => ctx.dict_type(),
@@ -877,6 +886,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "exit" => ctx.new_rustfunc(builtin_exit),
         "quit" => ctx.new_rustfunc(builtin_exit),
         "__import__" => ctx.new_rustfunc(builtin_import),
+        "__build_class__" => ctx.new_rustfunc(builtin_build_class_),
 
         // Constants
         "NotImplemented" => ctx.not_implemented(),
@@ -893,7 +903,10 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "RuntimeError" => ctx.exceptions.runtime_error.clone(),
         "ReferenceError" => ctx.exceptions.reference_error.clone(),
         "SyntaxError" =>  ctx.exceptions.syntax_error.clone(),
+        "IndentationError" =>  ctx.exceptions.indentation_error.clone(),
+        "TabError" =>  ctx.exceptions.tab_error.clone(),
         "NotImplementedError" => ctx.exceptions.not_implemented_error.clone(),
+        "RecursionError" => ctx.exceptions.recursion_error.clone(),
         "TypeError" => ctx.exceptions.type_error.clone(),
         "ValueError" => ctx.exceptions.value_error.clone(),
         "IndexError" => ctx.exceptions.index_error.clone(),
@@ -902,6 +915,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone(),
         "FileExistsError" => ctx.exceptions.file_exists_error.clone(),
         "StopIteration" => ctx.exceptions.stop_iteration.clone(),
+        "StopAsyncIteration" => ctx.exceptions.stop_async_iteration.clone(),
         "SystemError" => ctx.exceptions.system_error.clone(),
         "PermissionError" => ctx.exceptions.permission_error.clone(),
         "UnicodeError" => ctx.exceptions.unicode_error.clone(),
@@ -913,6 +927,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "OSError" => ctx.exceptions.os_error.clone(),
         "ModuleNotFoundError" => ctx.exceptions.module_not_found_error.clone(),
         "EOFError" => ctx.exceptions.eof_error.clone(),
+        "MemoryError" => ctx.exceptions.memory_error.clone(),
 
         // Warnings
         "Warning" => ctx.exceptions.warning.clone(),
@@ -928,11 +943,13 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "UserWarning" => ctx.exceptions.user_warning.clone(),
 
         "KeyboardInterrupt" => ctx.exceptions.keyboard_interrupt.clone(),
+        "GeneratorExit" => ctx.exceptions.generator_exit.clone(),
+        "SystemExit" => ctx.exceptions.system_exit.clone(),
     });
 }
 
 pub fn builtin_build_class_(
-    function: PyObjectRef,
+    function: PyFunctionRef,
     qualified_name: PyStringRef,
     bases: Args<PyClassRef>,
     mut kwargs: KwArgs,
@@ -969,10 +986,12 @@ pub fn builtin_build_class_(
 
     let cells = vm.ctx.new_dict();
 
-    vm.invoke_with_locals(&function, cells.clone(), namespace.clone())?;
+    let scope = function
+        .scope
+        .new_child_scope_with_locals(cells.clone())
+        .new_child_scope_with_locals(namespace.clone());
 
-    namespace.set_item("__name__", name_obj.clone(), vm)?;
-    namespace.set_item("__qualname__", qualified_name.into_object(), vm)?;
+    vm.invoke_python_function_with_scope(&function, vec![].into(), &scope)?;
 
     let class = vm.call_method(
         metaclass.as_object(),

@@ -1,11 +1,13 @@
-use crate::obj::objproperty::PyPropertyRef;
-use crate::obj::objstr::PyStringRef;
-use crate::obj::objtype::{class_get_attr, class_has_attr, PyClassRef};
+use super::objproperty::PyPropertyRef;
+use super::objstr::PyStringRef;
+use super::objtype::{class_get_attr, class_has_attr, PyClassRef};
 use crate::pyobject::{
-    IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
+#[pyclass(name = "NoneType")]
 #[derive(Debug)]
 pub struct PyNone;
 pub type PyNoneRef = PyRef<PyNone>;
@@ -33,15 +35,24 @@ impl<T: IntoPyObject> IntoPyObject for Option<T> {
     }
 }
 
+#[pyimpl]
 impl PyNoneRef {
+    #[pyslot(new)]
+    fn tp_new(_: PyClassRef, vm: &VirtualMachine) -> PyNoneRef {
+        vm.ctx.none.clone()
+    }
+
+    #[pymethod(name = "__repr__")]
     fn repr(self, _vm: &VirtualMachine) -> PyResult<String> {
         Ok("None".to_string())
     }
 
+    #[pymethod(name = "__bool__")]
     fn bool(self, _vm: &VirtualMachine) -> PyResult<bool> {
         Ok(false)
     }
 
+    #[pymethod(name = "__getattribute__")]
     fn get_attribute(self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         vm_trace!("None.__getattribute__({:?}, {:?})", self, name);
         let cls = self.class();
@@ -100,17 +111,26 @@ impl PyNoneRef {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self.as_object(), name)))
         }
     }
-}
 
-fn none_new(_: PyClassRef, vm: &VirtualMachine) -> PyNoneRef {
-    vm.ctx.none.clone()
+    #[pymethod(name = "__eq__")]
+    fn eq(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if vm.is_none(&rhs) {
+            vm.ctx.new_bool(true)
+        } else {
+            vm.ctx.not_implemented()
+        }
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if vm.is_none(&rhs) {
+            vm.ctx.new_bool(false)
+        } else {
+            vm.ctx.not_implemented()
+        }
+    }
 }
 
 pub fn init(context: &PyContext) {
-    extend_class!(context, &context.none.class(), {
-        "__new__" => context.new_rustfunc(none_new),
-        "__repr__" => context.new_rustfunc(PyNoneRef::repr),
-        "__bool__" => context.new_rustfunc(PyNoneRef::bool),
-        "__getattribute__" => context.new_rustfunc(PyNoneRef::get_attribute)
-    });
+    PyNoneRef::extend_class(context, &context.none.class());
 }

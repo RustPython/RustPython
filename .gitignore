@@ -14,3 +14,5 @@ tests/snippets/resources
 flame-graph.html
 flame.txt
 flamescope.json
+/wapm.lock
+/wapm_packages

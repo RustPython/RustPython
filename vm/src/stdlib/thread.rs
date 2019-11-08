@@ -1,9 +1,16 @@
 /// Implementation of the _thread module, currently noop implementation as RustPython doesn't yet
 /// support threading
-use super::super::pyobject::PyObjectRef;
 use crate::function::PyFuncArgs;
-use crate::pyobject::PyResult;
+use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
+
+#[cfg(not(target_os = "windows"))]
+const PY_TIMEOUT_MAX: isize = std::isize::MAX;
+
+#[cfg(target_os = "windows")]
+const PY_TIMEOUT_MAX: isize = 0xffffffff * 1_000_000;
+
+const TIMEOUT_MAX: f64 = (PY_TIMEOUT_MAX / 1_000_000_000) as f64;
 
 fn rlock_acquire(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
@@ -54,5 +61,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "RLock" => rlock_type,
         "get_ident" => ctx.new_rustfunc(get_ident),
         "allocate_lock" => ctx.new_rustfunc(allocate_lock),
+        "TIMEOUT_MAX" => ctx.new_float(TIMEOUT_MAX),
     })
 }

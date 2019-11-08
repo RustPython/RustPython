@@ -1,30 +1,27 @@
-use crate::obj::objint::PyIntRef;
-use crate::obj::objslice::PySliceRef;
-use crate::obj::objstr::PyStringRef;
-use crate::obj::objtuple::PyTupleRef;
-use crate::pyhash;
-
-use crate::pyobject::Either;
-use crate::vm::VirtualMachine;
-use core::cell::Cell;
+use std::cell::Cell;
+use std::mem::size_of;
 use std::ops::Deref;
 
-use crate::function::OptionalArg;
-use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject,
-};
+use wtf8;
 
 use super::objbyteinner::{
     ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
     ByteInnerPosition, ByteInnerSplitOptions, ByteInnerSplitlinesOptions,
     ByteInnerTranslateOptions, PyByteInner,
 };
+use super::objint::PyIntRef;
 use super::objiter;
-
+use super::objslice::PySliceRef;
+use super::objstr::PyStringRef;
+use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
-
-use wtf8;
+use crate::function::OptionalArg;
+use crate::pyhash;
+use crate::pyobject::{
+    Either, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject,
+};
+use crate::vm::VirtualMachine;
 
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
@@ -97,8 +94,8 @@ pub fn init(context: &PyContext) {
 
 #[pyimpl]
 impl PyBytesRef {
-    #[pymethod(name = "__new__")]
-    fn bytes_new(
+    #[pyslot(new)]
+    fn tp_new(
         cls: PyClassRef,
         options: ByteInnerNewOptions,
         vm: &VirtualMachine,
@@ -153,6 +150,11 @@ impl PyBytesRef {
         }
     }
 
+    #[pymethod(name = "__sizeof__")]
+    fn sizeof(self, _vm: &VirtualMachine) -> PyResult<usize> {
+        Ok(size_of::<Self>() + self.inner.elements.len() * size_of::<u8>())
+    }
+
     #[pymethod(name = "__add__")]
     fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Ok(other) = PyByteInner::try_from_object(vm, other) {
@@ -163,52 +165,56 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "__contains__")]
-    fn contains(self, needle: Either<PyByteInner, PyIntRef>, vm: &VirtualMachine) -> PyResult {
+    fn contains(
+        self,
+        needle: Either<PyByteInner, PyIntRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
         self.inner.contains(needle, vm)
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    fn getitem(self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult {
         self.inner.getitem(needle, vm)
     }
 
     #[pymethod(name = "isalnum")]
-    fn isalnum(self, vm: &VirtualMachine) -> PyResult {
+    fn isalnum(self, vm: &VirtualMachine) -> bool {
         self.inner.isalnum(vm)
     }
 
     #[pymethod(name = "isalpha")]
-    fn isalpha(self, vm: &VirtualMachine) -> PyResult {
+    fn isalpha(self, vm: &VirtualMachine) -> bool {
         self.inner.isalpha(vm)
     }
 
     #[pymethod(name = "isascii")]
-    fn isascii(self, vm: &VirtualMachine) -> PyResult {
+    fn isascii(self, vm: &VirtualMachine) -> bool {
         self.inner.isascii(vm)
     }
 
     #[pymethod(name = "isdigit")]
-    fn isdigit(self, vm: &VirtualMachine) -> PyResult {
+    fn isdigit(self, vm: &VirtualMachine) -> bool {
         self.inner.isdigit(vm)
     }
 
     #[pymethod(name = "islower")]
-    fn islower(self, vm: &VirtualMachine) -> PyResult {
+    fn islower(self, vm: &VirtualMachine) -> bool {
         self.inner.islower(vm)
     }
 
     #[pymethod(name = "isspace")]
-    fn isspace(self, vm: &VirtualMachine) -> PyResult {
+    fn isspace(self, vm: &VirtualMachine) -> bool {
         self.inner.isspace(vm)
     }
 
     #[pymethod(name = "isupper")]
-    fn isupper(self, vm: &VirtualMachine) -> PyResult {
+    fn isupper(self, vm: &VirtualMachine) -> bool {
         self.inner.isupper(vm)
     }
 
     #[pymethod(name = "istitle")]
-    fn istitle(self, vm: &VirtualMachine) -> PyResult {
+    fn istitle(self, vm: &VirtualMachine) -> bool {
         self.inner.istitle(vm)
     }
 
@@ -233,7 +239,7 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "hex")]
-    fn hex(self, vm: &VirtualMachine) -> PyResult {
+    fn hex(self, vm: &VirtualMachine) -> String {
         self.inner.hex(vm)
     }
 
@@ -273,7 +279,7 @@ impl PyBytesRef {
         start: OptionalArg<PyObjectRef>,
         end: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<bool> {
         self.inner.startsendswith(suffix, start, end, true, vm)
     }
 
@@ -284,7 +290,7 @@ impl PyBytesRef {
         start: OptionalArg<PyObjectRef>,
         end: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<bool> {
         self.inner.startsendswith(prefix, start, end, false, vm)
     }
 
@@ -421,12 +427,12 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "__mul__")]
-    fn repeat(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    fn repeat(self, n: isize, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_bytes(self.inner.repeat(n, vm)?))
     }
 
     #[pymethod(name = "__rmul__")]
-    fn rmul(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    fn rmul(self, n: isize, vm: &VirtualMachine) -> PyResult {
         self.repeat(n, vm)
     }
 
@@ -509,8 +515,8 @@ impl PyBytesRef {
                                     }
                                 }
                                 None => {
-                                    if replacing_char.is_none() {
-                                        decode_content.push(replacing_char.unwrap())
+                                    if let Some(replacing_char) = replacing_char {
+                                        decode_content.push(replacing_char)
                                     }
                                 }
                             }

@@ -66,19 +66,17 @@ pub mod pyobject;
 pub mod scope;
 pub mod stdlib;
 mod sysmodule;
-mod traceback;
 pub mod types;
 pub mod util;
 mod version;
 mod vm;
 
 // pub use self::pyobject::Executor;
-pub use self::exceptions::print_exception;
+pub use self::exceptions::{print_exception, write_exception};
 pub use self::vm::{PySettings, VirtualMachine};
 pub use rustpython_bytecode::*;
 
 #[doc(hidden)]
 pub mod __exports {
-    pub use bincode;
     pub use maplit::hashmap;
 }

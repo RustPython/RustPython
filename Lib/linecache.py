@@ -133,8 +133,11 @@ def updatecache(filename, module_globals=None):
         else:
             return []
     try:
-        with tokenize.open(fullname) as fp:
-            lines = fp.readlines()
+        # TODO: Change this back 
+        # with tokenize.open(fullname) as fp:
+        #    lines = fp.readlines()
+        with open(fullname, "r") as fp:
+            lines = fp.read().split("\n")
     except OSError:
         return []
     if lines and not lines[-1].endswith('\n'):

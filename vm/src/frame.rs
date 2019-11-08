@@ -1,30 +1,28 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fmt;
 
-use crate::builtins;
+use indexmap::IndexMap;
+use itertools::Itertools;
+
 use crate::bytecode;
-use crate::function::PyFuncArgs;
+use crate::function::{single_or_tuple_any, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
+use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objdict::{PyDict, PyDictRef};
+use crate::obj::objgenerator::PyGenerator;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
-use crate::obj::objstr;
-use crate::obj::objstr::PyString;
+use crate::obj::objstr::{self, PyString};
+use crate::obj::objtraceback::{PyTraceback, PyTracebackRef};
 use crate::obj::objtuple::PyTuple;
-use crate::obj::objtype;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::scope::{NameProtocol, Scope};
 use crate::vm::VirtualMachine;
-use indexmap::IndexMap;
-use itertools::Itertools;
-
-#[cfg(not(target_arch = "wasm32"))]
-use crate::stdlib::signal::check_signals;
 
 #[derive(Clone, Debug)]
 struct Block {
@@ -51,10 +49,6 @@ enum BlockType {
     FinallyHandler {
         reason: Option<UnwindReason>,
     },
-    With {
-        end: bytecode::Label,
-        context_manager: PyObjectRef,
-    },
     ExceptHandler,
 }
 
@@ -79,13 +73,19 @@ enum UnwindReason {
     Continue,
 }
 
+#[pyclass]
+#[derive(Clone)]
 pub struct Frame {
-    pub code: bytecode::CodeObject,
+    pub code: PyCodeRef,
     // We need 1 stack per frame
-    stack: RefCell<Vec<PyObjectRef>>, // The main data frame of the stack machine
-    blocks: RefCell<Vec<Block>>,      // Block frames, for controlling loops and exceptions
-    pub scope: Scope,                 // Variables
-    pub lasti: RefCell<usize>,        // index of last instruction ran
+    /// The main data frame of the stack machine
+    stack: RefCell<Vec<PyObjectRef>>,
+    /// Block frames, for controlling loops and exceptions
+    blocks: RefCell<Vec<Block>>,
+    /// Variables
+    pub scope: Scope,
+    /// index of last instruction ran
+    pub lasti: Cell<usize>,
 }
 
 impl PyValue for Frame {
@@ -98,6 +98,38 @@ impl PyValue for Frame {
 pub enum ExecutionResult {
     Return(PyObjectRef),
     Yield(PyObjectRef),
+}
+
+impl ExecutionResult {
+    /// Extract an ExecutionResult from a PyResult returned from e.g. gen.__next__() or gen.send()
+    pub fn from_result(vm: &VirtualMachine, res: PyResult) -> PyResult<Self> {
+        match res {
+            Ok(val) => Ok(ExecutionResult::Yield(val)),
+            Err(err) => {
+                if objtype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                    objiter::stop_iter_value(vm, &err).map(ExecutionResult::Return)
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
+    /// Turn an ExecutionResult into a PyResult that would be returned from a generator or coroutine
+    pub fn into_result(self, vm: &VirtualMachine) -> PyResult {
+        match self {
+            ExecutionResult::Yield(value) => Ok(value),
+            ExecutionResult::Return(value) => {
+                let stop_iteration = vm.ctx.exceptions.stop_iteration.clone();
+                let args = if vm.is_none(&value) {
+                    vec![]
+                } else {
+                    vec![value]
+                };
+                Err(vm.new_exception_obj(stop_iteration, args).unwrap())
+            }
+        }
+    }
 }
 
 /// A valid execution result, or an exception
@@ -117,25 +149,19 @@ impl Frame {
         // locals.extend(callargs);
 
         Frame {
-            code: code.code.clone(),
+            code,
             stack: RefCell::new(vec![]),
             blocks: RefCell::new(vec![]),
             // save the callargs as locals
             // globals: locals.clone(),
             scope,
-            lasti: RefCell::new(0),
+            lasti: Cell::new(0),
         }
     }
 
     // #[cfg_attr(feature = "flame-it", flame("Frame"))]
     pub fn run(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
-
-        let filename = &self.code.source_path.to_string();
-
-        // This is the name of the object being run:
-        let run_obj_name = &self.code.obj_name.to_string();
-
         // Execute until return or exception:
         loop {
             let lineno = self.get_lineno();
@@ -154,16 +180,30 @@ impl Frame {
                         &exception,
                         &vm.ctx.exceptions.base_exception_type
                     ));
+
                     let traceback = vm
                         .get_attribute(exception.clone(), "__traceback__")
                         .unwrap();
-                    vm_trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
-                    let raise_location = vm.ctx.new_tuple(vec![
-                        vm.ctx.new_str(filename.clone()),
-                        vm.ctx.new_int(lineno.row()),
-                        vm.ctx.new_str(run_obj_name.clone()),
-                    ]);
-                    objlist::PyListRef::try_from_object(vm, traceback)?.append(raise_location, vm);
+
+                    let next = if vm.is_none(&traceback) {
+                        None
+                    } else {
+                        let traceback: PyTracebackRef = traceback
+                            .downcast()
+                            .expect("next must be a traceback object");
+                        Some(traceback)
+                    };
+
+                    let new_traceback = PyTraceback::new(
+                        next,
+                        self.clone().into_ref(vm),
+                        self.lasti.get(),
+                        lineno.row(),
+                    );
+                    vm.set_attr(&exception, "__traceback__", new_traceback.into_ref(vm))
+                        .unwrap();
+                    vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, lineno);
+
                     match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
                         Ok(None) => {}
                         Ok(Some(result)) => {
@@ -180,24 +220,46 @@ impl Frame {
         }
     }
 
-    pub fn throw(&self, vm: &VirtualMachine, exception: PyObjectRef) -> PyResult<ExecutionResult> {
-        match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
-            Ok(None) => self.run(vm),
-            Ok(Some(result)) => Ok(result),
-            Err(exception) => Err(exception),
+    pub(crate) fn gen_throw(
+        &self,
+        vm: &VirtualMachine,
+        exc_type: PyClassRef,
+        exc_val: PyObjectRef,
+        exc_tb: PyObjectRef,
+    ) -> PyResult<ExecutionResult> {
+        if let bytecode::Instruction::YieldFrom = self.code.instructions[self.lasti.get()] {
+            let coro = self.last_value();
+            vm.call_method(
+                &coro,
+                "throw",
+                vec![exc_type.into_object(), exc_val, exc_tb],
+            )
+            .or_else(|err| {
+                self.pop_value();
+                self.lasti.set(self.lasti.get() + 1);
+                let val = objiter::stop_iter_value(vm, &err)?;
+                self._send(coro, val, vm)
+            })
+            .map(ExecutionResult::Yield)
+        } else {
+            let exception = vm.new_exception_obj(exc_type, vec![exc_val])?;
+            match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
+                Ok(None) => self.run(vm),
+                Ok(Some(result)) => Ok(result),
+                Err(exception) => Err(exception),
+            }
         }
     }
 
     pub fn fetch_instruction(&self) -> &bytecode::Instruction {
-        let ins2 = &self.code.instructions[*self.lasti.borrow()];
-        *self.lasti.borrow_mut() += 1;
+        let ins2 = &self.code.instructions[self.lasti.get()];
+        self.lasti.set(self.lasti.get() + 1);
         ins2
     }
 
     /// Execute a single instruction.
     fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
-        #[cfg(not(target_arch = "wasm32"))]
-        check_signals(vm)?;
+        vm.check_signals()?;
 
         let instruction = self.fetch_instruction();
 
@@ -216,7 +278,7 @@ impl Frame {
             trace!("=======");
         }
 
-        match &instruction {
+        match instruction {
             bytecode::Instruction::LoadConst { ref value } => {
                 let obj = vm.ctx.unwrap_constant(value);
                 self.push_value(obj);
@@ -285,9 +347,11 @@ impl Frame {
                 self.push_value(list_obj);
                 Ok(None)
             }
-            bytecode::Instruction::BuildMap { size, unpack } => {
-                self.execute_build_map(vm, *size, *unpack)
-            }
+            bytecode::Instruction::BuildMap {
+                size,
+                unpack,
+                for_call,
+            } => self.execute_build_map(vm, *size, *unpack, *for_call),
             bytecode::Instruction::BuildSlice { size } => self.execute_build_slice(vm, *size),
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
@@ -363,29 +427,69 @@ impl Frame {
             }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
+                let exit = vm.get_attribute(context_manager.clone(), "__exit__")?;
+                self.push_value(exit);
                 // Call enter:
-                let obj = vm.call_method(&context_manager, "__enter__", vec![])?;
-                self.push_block(BlockType::With {
-                    end: *end,
-                    context_manager: context_manager.clone(),
-                });
-                self.push_value(obj);
+                let enter_res = vm.call_method(&context_manager, "__enter__", vec![])?;
+                self.push_block(BlockType::Finally { handler: *end });
+                self.push_value(enter_res);
                 Ok(None)
             }
-            bytecode::Instruction::CleanupWith { end: end1 } => {
-                let block = self.pop_block();
-                if let BlockType::With {
-                    end: end2,
-                    context_manager,
-                } = &block.typ
-                {
-                    debug_assert!(end1 == end2);
-                    self.call_context_manager_exit(vm, &context_manager, None)?;
-                } else {
-                    unreachable!("Block stack is incorrect, expected a with block");
-                }
+            bytecode::Instruction::BeforeAsyncWith => {
+                let mgr = self.pop_value();
+                let aexit = vm.get_attribute(mgr.clone(), "__aexit__")?;
+                self.push_value(aexit);
+                let aenter_res = vm.call_method(&mgr, "__aenter__", vec![])?;
+                self.push_value(aenter_res);
 
                 Ok(None)
+            }
+            bytecode::Instruction::SetupAsyncWith { end } => {
+                self.push_block(BlockType::Finally { handler: *end });
+                Ok(None)
+            }
+            bytecode::Instruction::WithCleanupStart => {
+                let block = self.current_block().unwrap();
+                let reason = match block.typ {
+                    BlockType::FinallyHandler { reason } => reason,
+                    _ => panic!("WithCleanupStart expects a FinallyHandler block on stack"),
+                };
+                let exc = reason.and_then(|reason| match reason {
+                    UnwindReason::Raising { exception } => Some(exception),
+                    _ => None,
+                });
+
+                let exit = self.pop_value();
+
+                let args = if let Some(exc) = exc {
+                    let exc_type = exc.class().into_object();
+                    let exc_val = exc.clone();
+                    let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
+                    vec![exc_type, exc_val, exc_tb]
+                } else {
+                    vec![vm.ctx.none(), vm.ctx.none(), vm.ctx.none()]
+                };
+                let exit_res = vm.invoke(&exit, args)?;
+                self.push_value(exit_res);
+
+                Ok(None)
+            }
+            bytecode::Instruction::WithCleanupFinish => {
+                let block = self.pop_block();
+                let reason = match block.typ {
+                    BlockType::FinallyHandler { reason } => reason,
+                    _ => panic!("WithCleanupFinish expects a FinallyHandler block on stack"),
+                };
+
+                let suppress_exception = objbool::boolval(vm, self.pop_value())?;
+                if suppress_exception {
+                    // suppress exception
+                    Ok(None)
+                } else if let Some(reason) = reason {
+                    self.unwind_blocks(vm, reason)
+                } else {
+                    Ok(None)
+                }
             }
             bytecode::Instruction::PopBlock => {
                 self.pop_block();
@@ -397,8 +501,42 @@ impl Frame {
                 self.push_value(iter_obj);
                 Ok(None)
             }
+            bytecode::Instruction::GetAwaitable => {
+                let awaited_obj = self.pop_value();
+                let awaitable = if awaited_obj.payload_is::<PyCoroutine>() {
+                    awaited_obj
+                } else {
+                    let await_method =
+                        vm.get_method_or_type_error(awaited_obj.clone(), "__await__", || {
+                            format!(
+                                "object {} can't be used in 'await' expression",
+                                awaited_obj.class().name,
+                            )
+                        })?;
+                    vm.invoke(&await_method, vec![])?
+                };
+                self.push_value(awaitable);
+                Ok(None)
+            }
+            bytecode::Instruction::GetAIter => {
+                let aiterable = self.pop_value();
+                let aiter = vm.call_method(&aiterable, "__aiter__", vec![])?;
+                self.push_value(aiter);
+                Ok(None)
+            }
+            bytecode::Instruction::GetANext => {
+                let aiter = self.last_value();
+                let awaitable = vm.call_method(&aiter, "__anext__", vec![])?;
+                let awaitable = if awaitable.payload_is::<PyCoroutine>() {
+                    awaitable
+                } else {
+                    vm.call_method(&awaitable, "__await__", vec![])?
+                };
+                self.push_value(awaitable);
+                Ok(None)
+            }
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, *target),
-            bytecode::Instruction::MakeFunction { flags } => self.execute_make_function(vm, *flags),
+            bytecode::Instruction::MakeFunction => self.execute_make_function(vm),
             bytecode::Instruction::CallFunction { typ } => self.execute_call_function(vm, typ),
             bytecode::Instruction::Jump { target } => {
                 self.jump(*target);
@@ -460,7 +598,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
-                self.push_value(vm.ctx.new_rustfunc(builtins::builtin_build_class_));
+                self.push_value(vm.get_attribute(vm.builtins.clone(), "__build_class__")?);
                 Ok(None)
             }
             bytecode::Instruction::UnpackSequence { size } => {
@@ -577,7 +715,7 @@ impl Frame {
     /// unwinding a block.
     /// Optionally returns an exception.
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn unwind_blocks(&self, vm: &VirtualMachine, mut reason: UnwindReason) -> FrameResult {
+    fn unwind_blocks(&self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             match block.typ {
@@ -613,60 +751,6 @@ impl Frame {
                         return Ok(None);
                     }
                 }
-                BlockType::With {
-                    context_manager,
-                    end,
-                } => {
-                    self.pop_block();
-                    match &reason {
-                        UnwindReason::Raising { exception } => {
-                            match self.call_context_manager_exit(
-                                vm,
-                                &context_manager,
-                                Some(exception.clone()),
-                            ) {
-                                Ok(exit_result_obj) => {
-                                    match objbool::boolval(vm, exit_result_obj) {
-                                        // If __exit__ method returned True, suppress the exception and continue execution.
-                                        Ok(suppress_exception) => {
-                                            if suppress_exception {
-                                                self.jump(end);
-                                                return Ok(None);
-                                            } else {
-                                                // go on with the stack unwinding.
-                                            }
-                                        }
-                                        Err(exit_exc) => {
-                                            reason = UnwindReason::Raising {
-                                                exception: exit_exc,
-                                            };
-                                            // return Err(exit_exc);
-                                        }
-                                    }
-                                }
-                                Err(exit_exc) => {
-                                    // TODO: what about original exception?
-                                    reason = UnwindReason::Raising {
-                                        exception: exit_exc,
-                                    };
-                                    // return Err(exit_exc);
-                                }
-                            }
-                        }
-                        _ => {
-                            match self.call_context_manager_exit(vm, &context_manager, None) {
-                                Ok(..) => {}
-                                Err(exit_exc) => {
-                                    // __exit__ went wrong,
-                                    reason = UnwindReason::Raising {
-                                        exception: exit_exc,
-                                    };
-                                    // return Err(exc);
-                                }
-                            }
-                        }
-                    }
-                }
                 BlockType::FinallyHandler { .. } => {
                     self.pop_block();
                 }
@@ -685,26 +769,6 @@ impl Frame {
                 panic!("Internal error: break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),
         }
-    }
-
-    fn call_context_manager_exit(
-        &self,
-        vm: &VirtualMachine,
-        context_manager: &PyObjectRef,
-        exc: Option<PyObjectRef>,
-    ) -> PyResult {
-        // TODO: do we want to put the exit call on the stack?
-        // TODO: what happens when we got an error during execution of __exit__?
-        let (exc_type, exc_val, exc_tb) = if let Some(exc) = exc {
-            let exc_type = exc.class().into_object();
-            let exc_val = exc.clone();
-            let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
-            (exc_type, exc_val, exc_tb)
-        } else {
-            (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
-        };
-
-        vm.call_method(context_manager, "__exit__", vec![exc_type, exc_val, exc_tb])
     }
 
     fn store_name(
@@ -810,13 +874,30 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_build_map(&self, vm: &VirtualMachine, size: usize, unpack: bool) -> FrameResult {
+    #[allow(clippy::collapsible_if)]
+    fn execute_build_map(
+        &self,
+        vm: &VirtualMachine,
+        size: usize,
+        unpack: bool,
+        for_call: bool,
+    ) -> FrameResult {
         let map_obj = vm.ctx.new_dict();
         if unpack {
             for obj in self.pop_multiple(size) {
                 // Take all key-value pairs from the dict:
                 let dict: PyDictRef = obj.downcast().expect("Need a dictionary to build a map.");
                 for (key, value) in dict {
+                    if for_call {
+                        if map_obj.contains_key(&key, vm) {
+                            let key_repr = vm.to_repr(&key)?;
+                            let msg = format!(
+                                "got multiple values for keyword argument {}",
+                                key_repr.as_str()
+                            );
+                            return Err(vm.new_type_error(msg));
+                        }
+                    }
                     map_obj.set_item(&key, value, vm).unwrap();
                 }
             }
@@ -930,26 +1011,45 @@ impl Frame {
         Err(exception)
     }
 
+    fn _send(&self, coro: PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(gen) = coro.payload::<PyGenerator>() {
+            gen.send(val, vm)
+        } else if let Some(coro) = coro.payload::<PyCoroutine>() {
+            coro.send(val, vm)
+        } else if vm.is_none(&val) {
+            objiter::call_next(vm, &coro)
+        } else {
+            vm.call_method(&coro, "send", vec![val])
+        }
+    }
+
     fn execute_yield_from(&self, vm: &VirtualMachine) -> FrameResult {
         // Value send into iterator:
-        self.pop_value();
+        let val = self.pop_value();
 
-        let top_of_stack = self.last_value();
-        let next_obj = objiter::get_next_object(vm, &top_of_stack)?;
+        let coro = self.last_value();
 
-        match next_obj {
-            Some(value) => {
+        let result = self._send(coro, val, vm);
+
+        let result = ExecutionResult::from_result(vm, result)?;
+
+        match result {
+            ExecutionResult::Yield(value) => {
                 // Set back program counter:
-                *self.lasti.borrow_mut() -= 1;
+                self.lasti.set(self.lasti.get() - 1);
                 Ok(Some(ExecutionResult::Yield(value)))
             }
-            None => Ok(None),
+            ExecutionResult::Return(value) => {
+                self.pop_value();
+                self.push_value(value);
+                Ok(None)
+            }
         }
     }
 
     fn execute_unpack_ex(&self, vm: &VirtualMachine, before: usize, after: usize) -> FrameResult {
         let value = self.pop_value();
-        let elements = vm.extract_elements(&value)?;
+        let elements = vm.extract_elements::<PyObjectRef>(&value)?;
         let min_expected = before + after;
         if elements.len() < min_expected {
             Err(vm.new_value_error(format!(
@@ -982,7 +1082,7 @@ impl Frame {
         let target_pc = self.code.label_map[&label];
         #[cfg(feature = "vm-tracing-logging")]
         trace!("jump from {:?} to {:?}", self.lasti, target_pc);
-        self.lasti.replace(target_pc);
+        self.lasti.set(target_pc);
     }
 
     /// The top of stack contains the iterator, lets push it forward
@@ -1011,27 +1111,25 @@ impl Frame {
             }
         }
     }
-    fn execute_make_function(
-        &self,
-        vm: &VirtualMachine,
-        flags: bytecode::FunctionOpArg,
-    ) -> FrameResult {
+    fn execute_make_function(&self, vm: &VirtualMachine) -> FrameResult {
         let qualified_name = self
             .pop_value()
             .downcast::<PyString>()
             .expect("qualified name to be a string");
-        let code_obj = self
+        let code_obj: PyCodeRef = self
             .pop_value()
             .downcast()
             .expect("Second to top value on the stack must be a code object");
 
-        let annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
+        let flags = code_obj.flags;
+
+        let annotations = if flags.contains(bytecode::CodeFlags::HAS_ANNOTATIONS) {
             self.pop_value()
         } else {
             vm.ctx.new_dict().into_object()
         };
 
-        let kw_only_defaults = if flags.contains(bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS) {
+        let kw_only_defaults = if flags.contains(bytecode::CodeFlags::HAS_KW_ONLY_DEFAULTS) {
             Some(
                 self.pop_value()
                     .downcast::<PyDict>()
@@ -1041,7 +1139,7 @@ impl Frame {
             None
         };
 
-        let defaults = if flags.contains(bytecode::FunctionOpArg::HAS_DEFAULTS) {
+        let defaults = if flags.contains(bytecode::CodeFlags::HAS_DEFAULTS) {
             Some(
                 self.pop_value()
                     .downcast::<PyTuple>()
@@ -1140,14 +1238,24 @@ impl Frame {
         a.get_id()
     }
 
-    fn _in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
+    fn _in(
+        &self,
+        vm: &VirtualMachine,
+        needle: PyObjectRef,
+        haystack: PyObjectRef,
+    ) -> PyResult<bool> {
         let found = vm._membership(haystack.clone(), needle)?;
-        Ok(vm.ctx.new_bool(objbool::boolval(vm, found)?))
+        Ok(objbool::boolval(vm, found)?)
     }
 
-    fn _not_in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
+    fn _not_in(
+        &self,
+        vm: &VirtualMachine,
+        needle: PyObjectRef,
+        haystack: PyObjectRef,
+    ) -> PyResult<bool> {
         let found = vm._membership(haystack.clone(), needle)?;
-        Ok(vm.ctx.new_bool(!objbool::boolval(vm, found)?))
+        Ok(!objbool::boolval(vm, found)?)
     }
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
@@ -1155,10 +1263,27 @@ impl Frame {
         a.is(&b)
     }
 
-    fn _is_not(&self, vm: &VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let result_bool = !a.is(&b);
-        let result = vm.ctx.new_bool(result_bool);
-        Ok(result)
+    fn _is_not(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
+        !a.is(&b)
+    }
+
+    fn exc_match(
+        &self,
+        vm: &VirtualMachine,
+        exc: PyObjectRef,
+        exc_type: PyObjectRef,
+    ) -> PyResult<bool> {
+        single_or_tuple_any(
+            exc_type,
+            |cls: PyClassRef| vm.isinstance(&exc, &cls),
+            |o| {
+                format!(
+                    "isinstance() arg 2 must be a type or tuple of types, not {}",
+                    o.class()
+                )
+            },
+            vm,
+        )
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -1176,10 +1301,11 @@ impl Frame {
             bytecode::ComparisonOperator::LessOrEqual => vm._le(a, b)?,
             bytecode::ComparisonOperator::Greater => vm._gt(a, b)?,
             bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(a, b)?,
-            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
-            bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
-            bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
+            bytecode::ComparisonOperator::Is => vm.new_bool(self._is(a, b)),
+            bytecode::ComparisonOperator::IsNot => vm.new_bool(self._is_not(a, b)),
+            bytecode::ComparisonOperator::In => vm.new_bool(self._in(vm, a, b)?),
+            bytecode::ComparisonOperator::NotIn => vm.new_bool(self._not_in(vm, a, b)?),
+            bytecode::ComparisonOperator::ExceptionMatch => vm.new_bool(self.exc_match(vm, a, b)?),
         };
 
         self.push_value(value);
@@ -1208,7 +1334,7 @@ impl Frame {
     }
 
     pub fn get_lineno(&self) -> bytecode::Location {
-        self.code.locations[*self.lasti.borrow()].clone()
+        self.code.locations[self.lasti.get()].clone()
     }
 
     fn push_block(&self, typ: BlockType) {

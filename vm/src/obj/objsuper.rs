@@ -6,17 +6,15 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 */
 
+use super::objfunction::PyMethod;
+use super::objstr::PyStringRef;
+use super::objtype::{self, PyClass, PyClassRef};
 use crate::function::OptionalArg;
-use crate::obj::objfunction::PyMethod;
-use crate::obj::objstr::PyStringRef;
-use crate::obj::objtype::{PyClass, PyClassRef};
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::scope::NameProtocol;
 use crate::vm::VirtualMachine;
-
-use super::objtype;
 
 pub type PySuperRef = PyRef<PySuper>;
 
@@ -65,7 +63,7 @@ impl PySuper {
                             // This is a classmethod
                             return Ok(item);
                         }
-                        return Ok(vm.ctx.new_bound_method(item, inst.clone()));
+                        return vm.call_get_descriptor(item, inst.clone());
                     }
                 }
                 Err(vm.new_attribute_error(format!(
@@ -78,8 +76,8 @@ impl PySuper {
         }
     }
 
-    #[pymethod(name = "__new__")]
-    fn new(
+    #[pyslot(new)]
+    fn tp_new(
         cls: PyClassRef,
         py_type: OptionalArg<PyClassRef>,
         py_obj: OptionalArg<PyObjectRef>,
