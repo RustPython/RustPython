@@ -1,5 +1,6 @@
 """The asyncio package, tracking PEP 3156."""
 
+# flake8: noqa
 import sys
 
 import selectors
@@ -11,6 +12,7 @@ if sys.platform == 'win32' and False:
     except ImportError:
         import _overlapped  # Will also be exported.
 
+
 # This relies on each of the submodules having an __all__ variable.
 from .base_events import *
 from .coroutines import *
@@ -18,6 +20,7 @@ from .events import *
 from .futures import *
 from .locks import *
 from .protocols import *
+from .runners import *
 from .queues import *
 from .streams import *
 from .subprocess import *
@@ -30,6 +33,7 @@ __all__ = (base_events.__all__ +
            futures.__all__ +
            locks.__all__ +
            protocols.__all__ +
+           runners.__all__ +
            queues.__all__ +
            streams.__all__ +
            subprocess.__all__ +
