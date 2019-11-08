@@ -77,7 +77,7 @@ fn object_setattr(
     }
 
     if let Some(ref dict) = obj.clone().dict {
-        dict.set_item(attr_name.as_str(), value, vm)?;
+        dict.borrow().set_item(attr_name.as_str(), value, vm)?;
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
@@ -98,7 +98,7 @@ fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine)
     }
 
     if let Some(ref dict) = obj.dict {
-        dict.del_item(attr_name.as_str(), vm)?;
+        dict.borrow().del_item(attr_name.as_str(), vm)?;
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
@@ -130,7 +130,7 @@ pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
     if let Some(object_dict) = &obj.dict {
         vm.invoke(
             &vm.get_attribute(dict.clone().into_object(), "update")?,
-            object_dict.clone().into_object(),
+            object_dict.borrow().clone().into_object(),
         )?;
     }
 
@@ -210,20 +210,22 @@ fn object_class_setter(
 
 fn object_dict(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
     if let Some(ref dict) = object.dict {
-        Ok(dict.clone())
+        Ok(dict.borrow().clone())
     } else {
         Err(vm.new_attribute_error("no dictionary.".to_string()))
     }
 }
 
-fn object_dict_setter(
-    _instance: PyObjectRef,
-    _value: PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult {
-    Err(vm.new_not_implemented_error(
-        "Setting __dict__ attribute on an object isn't yet implemented".to_string(),
-    ))
+fn object_dict_setter(instance: PyObjectRef, value: PyDictRef, vm: &VirtualMachine) -> PyResult {
+    if let Some(dict) = &instance.dict {
+        *dict.borrow_mut() = value;
+        Ok(vm.get_none())
+    } else {
+        Err(vm.new_attribute_error(format!(
+            "'{}' object has no attribute '__dict__'",
+            instance.class().name
+        )))
+    }
 }
 
 fn object_getattribute(obj: PyObjectRef, name: PyStringRef, vm: &VirtualMachine) -> PyResult {

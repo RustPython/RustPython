@@ -952,7 +952,7 @@ impl VirtualMachine {
         }
 
         let attr = if let Some(ref dict) = obj.dict {
-            dict.get_item_option(name_str.as_str(), self)?
+            dict.borrow().get_item_option(name_str.as_str(), self)?
         } else {
             None
         };

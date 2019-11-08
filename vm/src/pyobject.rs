@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
@@ -522,7 +522,7 @@ impl PyContext {
     pub fn new_instance(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
             typ: class,
-            dict,
+            dict: dict.map(RefCell::new),
             payload: objobject::PyInstance,
         }
         .into_ref()
@@ -566,7 +566,7 @@ where
     T: ?Sized + PyObjectPayload,
 {
     pub typ: PyClassRef,
-    pub dict: Option<PyDictRef>, // __dict__ member
+    pub dict: Option<RefCell<PyDictRef>>, // __dict__ member
     pub payload: T,
 }
 
@@ -1038,7 +1038,12 @@ where
 {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
-        PyObject { typ, dict, payload }.into_ref()
+        PyObject {
+            typ,
+            dict: dict.map(RefCell::new),
+            payload,
+        }
+        .into_ref()
     }
 
     // Move this object into a reference object, transferring ownership.

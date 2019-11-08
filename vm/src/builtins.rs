@@ -252,9 +252,15 @@ fn make_scope(vm: &VirtualMachine, scope: ScopeArgs) -> PyResult<Scope> {
     let globals = match globals {
         Some(dict) => {
             if !dict.contains_key("__builtins__", vm) {
-                let builtins_dict = vm.builtins.dict.as_ref().unwrap().as_object();
-                dict.set_item("__builtins__", builtins_dict.clone(), vm)
-                    .unwrap();
+                let builtins_dict = vm
+                    .builtins
+                    .dict
+                    .as_ref()
+                    .unwrap()
+                    .borrow()
+                    .as_object()
+                    .clone();
+                dict.set_item("__builtins__", builtins_dict, vm).unwrap();
             }
             dict
         }

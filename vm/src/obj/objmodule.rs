@@ -50,7 +50,7 @@ impl PyModuleRef {
         let zelf = PyModule {}.into_ref_with_type(vm, cls)?;
         init_module_dict(
             vm,
-            zelf.as_object().dict.as_ref().unwrap(),
+            &zelf.as_object().dict.as_ref().unwrap().borrow(),
             name.into_object(),
             doc.flat_option()
                 .map_or_else(|| vm.get_none(), PyRef::into_object),
