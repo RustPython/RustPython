@@ -30,11 +30,6 @@ assert math.trunc(2.2) == 2
 assert math.ceil(3.3) == 4
 assert math.floor(4.4) == 4
 
-# Check if the type of the resulting number is correct
-assert type(math.trunc(2.2)) == int
-assert type(math.ceil(3.3)) == int
-assert type(math.floor(4.4)) == int
-
 class A(object):
     def __trunc__(self):
         return 2
