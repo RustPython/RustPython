@@ -40,7 +40,7 @@ dict_keyiterator = type(iter({}.keys()))
 dict_valueiterator = type(iter({}.values()))
 dict_itemiterator = type(iter({}.items()))
 list_iterator = type(iter([]))
-# list_reverseiterator = type(iter(reversed([])))
+list_reverseiterator = type(iter(reversed([])))
 range_iterator = type(iter(range(0)))
 longrange_iterator = type(iter(range(1 << 1000)))
 set_iterator = type(iter(set()))
@@ -53,13 +53,14 @@ dict_values = type({}.values())
 dict_items = type({}.items())
 ## misc ##
 mappingproxy = type(type.__dict__)
-# generator = type((lambda: (yield))())
+generator = type((lambda: (yield))())
 ## coroutine ##
-# async def _coro(): pass
-# _coro = _coro()
-# coroutine = type(_coro)
-# _coro.close()  # Prevent ResourceWarning
-# del _coro
+async def _coro(): pass
+_coro = _coro()
+coroutine = type(_coro)
+_coro.close()  # Prevent ResourceWarning
+del _coro
+# XXX RustPython TODO: async generators
 # ## asynchronous generator ##
 # async def _ag(): yield
 # _ag = _ag()
@@ -96,145 +97,145 @@ class Hashable(metaclass=ABCMeta):
         return NotImplemented
 
 
-# class Awaitable(metaclass=ABCMeta):
+class Awaitable(metaclass=ABCMeta):
 
-#     __slots__ = ()
+    __slots__ = ()
 
-#     @abstractmethod
-#     def __await__(self):
-#         yield
+    @abstractmethod
+    def __await__(self):
+        yield
 
-#     @classmethod
-#     def __subclasshook__(cls, C):
-#         if cls is Awaitable:
-#             return _check_methods(C, "__await__")
-#         return NotImplemented
-
-
-# class Coroutine(Awaitable):
-
-#     __slots__ = ()
-
-#     @abstractmethod
-#     def send(self, value):
-#         """Send a value into the coroutine.
-#         Return next yielded value or raise StopIteration.
-#         """
-#         raise StopIteration
-
-#     @abstractmethod
-#     def throw(self, typ, val=None, tb=None):
-#         """Raise an exception in the coroutine.
-#         Return next yielded value or raise StopIteration.
-#         """
-#         if val is None:
-#             if tb is None:
-#                 raise typ
-#             val = typ()
-#         if tb is not None:
-#             val = val.with_traceback(tb)
-#         raise val
-
-#     def close(self):
-#         """Raise GeneratorExit inside coroutine.
-#         """
-#         try:
-#             self.throw(GeneratorExit)
-#         except (GeneratorExit, StopIteration):
-#             pass
-#         else:
-#             raise RuntimeError("coroutine ignored GeneratorExit")
-
-#     @classmethod
-#     def __subclasshook__(cls, C):
-#         if cls is Coroutine:
-#             return _check_methods(C, '__await__', 'send', 'throw', 'close')
-#         return NotImplemented
+    @classmethod
+    def __subclasshook__(cls, C):
+        if cls is Awaitable:
+            return _check_methods(C, "__await__")
+        return NotImplemented
 
 
-# Coroutine.register(coroutine)
+class Coroutine(Awaitable):
+
+    __slots__ = ()
+
+    @abstractmethod
+    def send(self, value):
+        """Send a value into the coroutine.
+        Return next yielded value or raise StopIteration.
+        """
+        raise StopIteration
+
+    @abstractmethod
+    def throw(self, typ, val=None, tb=None):
+        """Raise an exception in the coroutine.
+        Return next yielded value or raise StopIteration.
+        """
+        if val is None:
+            if tb is None:
+                raise typ
+            val = typ()
+        if tb is not None:
+            val = val.with_traceback(tb)
+        raise val
+
+    def close(self):
+        """Raise GeneratorExit inside coroutine.
+        """
+        try:
+            self.throw(GeneratorExit)
+        except (GeneratorExit, StopIteration):
+            pass
+        else:
+            raise RuntimeError("coroutine ignored GeneratorExit")
+
+    @classmethod
+    def __subclasshook__(cls, C):
+        if cls is Coroutine:
+            return _check_methods(C, '__await__', 'send', 'throw', 'close')
+        return NotImplemented
 
 
-# class AsyncIterable(metaclass=ABCMeta):
-
-#     __slots__ = ()
-
-#     @abstractmethod
-#     def __aiter__(self):
-#         return AsyncIterator()
-
-#     @classmethod
-#     def __subclasshook__(cls, C):
-#         if cls is AsyncIterable:
-#             return _check_methods(C, "__aiter__")
-#         return NotImplemented
+Coroutine.register(coroutine)
 
 
-# class AsyncIterator(AsyncIterable):
+class AsyncIterable(metaclass=ABCMeta):
 
-#     __slots__ = ()
+    __slots__ = ()
 
-#     @abstractmethod
-#     async def __anext__(self):
-#         """Return the next item or raise StopAsyncIteration when exhausted."""
-#         raise StopAsyncIteration
+    @abstractmethod
+    def __aiter__(self):
+        return AsyncIterator()
 
-#     def __aiter__(self):
-#         return self
-
-#     @classmethod
-#     def __subclasshook__(cls, C):
-#         if cls is AsyncIterator:
-#             return _check_methods(C, "__anext__", "__aiter__")
-#         return NotImplemented
+    @classmethod
+    def __subclasshook__(cls, C):
+        if cls is AsyncIterable:
+            return _check_methods(C, "__aiter__")
+        return NotImplemented
 
 
-# class AsyncGenerator(AsyncIterator):
+class AsyncIterator(AsyncIterable):
 
-#     __slots__ = ()
+    __slots__ = ()
 
-#     async def __anext__(self):
-#         """Return the next item from the asynchronous generator.
-#         When exhausted, raise StopAsyncIteration.
-#         """
-#         return await self.asend(None)
+    @abstractmethod
+    async def __anext__(self):
+        """Return the next item or raise StopAsyncIteration when exhausted."""
+        raise StopAsyncIteration
 
-#     @abstractmethod
-#     async def asend(self, value):
-#         """Send a value into the asynchronous generator.
-#         Return next yielded value or raise StopAsyncIteration.
-#         """
-#         raise StopAsyncIteration
+    def __aiter__(self):
+        return self
 
-#     @abstractmethod
-#     async def athrow(self, typ, val=None, tb=None):
-#         """Raise an exception in the asynchronous generator.
-#         Return next yielded value or raise StopAsyncIteration.
-#         """
-#         if val is None:
-#             if tb is None:
-#                 raise typ
-#             val = typ()
-#         if tb is not None:
-#             val = val.with_traceback(tb)
-#         raise val
+    @classmethod
+    def __subclasshook__(cls, C):
+        if cls is AsyncIterator:
+            return _check_methods(C, "__anext__", "__aiter__")
+        return NotImplemented
 
-#     async def aclose(self):
-#         """Raise GeneratorExit inside coroutine.
-#         """
-#         try:
-#             await self.athrow(GeneratorExit)
-#         except (GeneratorExit, StopAsyncIteration):
-#             pass
-#         else:
-#             raise RuntimeError("asynchronous generator ignored GeneratorExit")
 
-#     @classmethod
-#     def __subclasshook__(cls, C):
-#         if cls is AsyncGenerator:
-#             return _check_methods(C, '__aiter__', '__anext__',
-#                                   'asend', 'athrow', 'aclose')
-#         return NotImplemented
+class AsyncGenerator(AsyncIterator):
+
+    __slots__ = ()
+
+    async def __anext__(self):
+        """Return the next item from the asynchronous generator.
+        When exhausted, raise StopAsyncIteration.
+        """
+        return await self.asend(None)
+
+    @abstractmethod
+    async def asend(self, value):
+        """Send a value into the asynchronous generator.
+        Return next yielded value or raise StopAsyncIteration.
+        """
+        raise StopAsyncIteration
+
+    @abstractmethod
+    async def athrow(self, typ, val=None, tb=None):
+        """Raise an exception in the asynchronous generator.
+        Return next yielded value or raise StopAsyncIteration.
+        """
+        if val is None:
+            if tb is None:
+                raise typ
+            val = typ()
+        if tb is not None:
+            val = val.with_traceback(tb)
+        raise val
+
+    async def aclose(self):
+        """Raise GeneratorExit inside coroutine.
+        """
+        try:
+            await self.athrow(GeneratorExit)
+        except (GeneratorExit, StopAsyncIteration):
+            pass
+        else:
+            raise RuntimeError("asynchronous generator ignored GeneratorExit")
+
+    @classmethod
+    def __subclasshook__(cls, C):
+        if cls is AsyncGenerator:
+            return _check_methods(C, '__aiter__', '__anext__',
+                                  'asend', 'athrow', 'aclose')
+        return NotImplemented
 
 
 # AsyncGenerator.register(async_generator)
@@ -274,20 +275,20 @@ class Iterator(Iterable):
             return _check_methods(C, '__iter__', '__next__')
         return NotImplemented
 
-# Iterator.register(bytes_iterator)
-# Iterator.register(bytearray_iterator)
+Iterator.register(bytes_iterator)
+Iterator.register(bytearray_iterator)
 # Iterator.register(callable_iterator)
-# Iterator.register(dict_keyiterator)
-# Iterator.register(dict_valueiterator)
-# Iterator.register(dict_itemiterator)
-# Iterator.register(list_iterator)
-# Iterator.register(list_reverseiterator)
-# Iterator.register(range_iterator)
-# Iterator.register(longrange_iterator)
-# Iterator.register(set_iterator)
-# Iterator.register(str_iterator)
-# Iterator.register(tuple_iterator)
-# Iterator.register(zip_iterator)
+Iterator.register(dict_keyiterator)
+Iterator.register(dict_valueiterator)
+Iterator.register(dict_itemiterator)
+Iterator.register(list_iterator)
+Iterator.register(list_reverseiterator)
+Iterator.register(range_iterator)
+Iterator.register(longrange_iterator)
+Iterator.register(set_iterator)
+Iterator.register(str_iterator)
+Iterator.register(tuple_iterator)
+Iterator.register(zip_iterator)
 
 
 class Reversible(Iterable):
@@ -353,8 +354,7 @@ class Generator(Iterator):
                                   'send', 'throw', 'close')
         return NotImplemented
 
-# Generator.register(generator)
-
+Generator.register(generator)
 
 class Sized(metaclass=ABCMeta):
 

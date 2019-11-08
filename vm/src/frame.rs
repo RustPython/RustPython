@@ -5,19 +5,19 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 
 use crate::bytecode;
-use crate::function::PyFuncArgs;
+use crate::function::{single_or_tuple_any, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
+use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objdict::{PyDict, PyDictRef};
+use crate::obj::objgenerator::PyGenerator;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
-use crate::obj::objstr;
-use crate::obj::objstr::PyString;
+use crate::obj::objstr::{self, PyString};
 use crate::obj::objtraceback::{PyTraceback, PyTracebackRef};
 use crate::obj::objtuple::PyTuple;
-use crate::obj::objtype;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
@@ -48,10 +48,6 @@ enum BlockType {
     /// Active finally sequence
     FinallyHandler {
         reason: Option<UnwindReason>,
-    },
-    With {
-        end: bytecode::Label,
-        context_manager: PyObjectRef,
     },
     ExceptHandler,
 }
@@ -230,7 +226,7 @@ impl Frame {
         exc_type: PyClassRef,
         exc_val: PyObjectRef,
         exc_tb: PyObjectRef,
-    ) -> PyResult {
+    ) -> PyResult<ExecutionResult> {
         if let bytecode::Instruction::YieldFrom = self.code.instructions[self.lasti.get()] {
             let coro = self.last_value();
             vm.call_method(
@@ -244,6 +240,7 @@ impl Frame {
                 let val = objiter::stop_iter_value(vm, &err)?;
                 self._send(coro, val, vm)
             })
+            .map(ExecutionResult::Yield)
         } else {
             let exception = vm.new_exception_obj(exc_type, vec![exc_val])?;
             match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
@@ -251,7 +248,6 @@ impl Frame {
                 Ok(Some(result)) => Ok(result),
                 Err(exception) => Err(exception),
             }
-            .and_then(|res| res.into_result(vm))
         }
     }
 
@@ -282,7 +278,7 @@ impl Frame {
             trace!("=======");
         }
 
-        match &instruction {
+        match instruction {
             bytecode::Instruction::LoadConst { ref value } => {
                 let obj = vm.ctx.unwrap_constant(value);
                 self.push_value(obj);
@@ -431,29 +427,69 @@ impl Frame {
             }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
+                let exit = vm.get_attribute(context_manager.clone(), "__exit__")?;
+                self.push_value(exit);
                 // Call enter:
-                let obj = vm.call_method(&context_manager, "__enter__", vec![])?;
-                self.push_block(BlockType::With {
-                    end: *end,
-                    context_manager: context_manager.clone(),
-                });
-                self.push_value(obj);
+                let enter_res = vm.call_method(&context_manager, "__enter__", vec![])?;
+                self.push_block(BlockType::Finally { handler: *end });
+                self.push_value(enter_res);
                 Ok(None)
             }
-            bytecode::Instruction::CleanupWith { end: end1 } => {
-                let block = self.pop_block();
-                if let BlockType::With {
-                    end: end2,
-                    context_manager,
-                } = &block.typ
-                {
-                    debug_assert!(end1 == end2);
-                    self.call_context_manager_exit(vm, &context_manager, None)?;
-                } else {
-                    unreachable!("Block stack is incorrect, expected a with block");
-                }
+            bytecode::Instruction::BeforeAsyncWith => {
+                let mgr = self.pop_value();
+                let aexit = vm.get_attribute(mgr.clone(), "__aexit__")?;
+                self.push_value(aexit);
+                let aenter_res = vm.call_method(&mgr, "__aenter__", vec![])?;
+                self.push_value(aenter_res);
 
                 Ok(None)
+            }
+            bytecode::Instruction::SetupAsyncWith { end } => {
+                self.push_block(BlockType::Finally { handler: *end });
+                Ok(None)
+            }
+            bytecode::Instruction::WithCleanupStart => {
+                let block = self.current_block().unwrap();
+                let reason = match block.typ {
+                    BlockType::FinallyHandler { reason } => reason,
+                    _ => panic!("WithCleanupStart expects a FinallyHandler block on stack"),
+                };
+                let exc = reason.and_then(|reason| match reason {
+                    UnwindReason::Raising { exception } => Some(exception),
+                    _ => None,
+                });
+
+                let exit = self.pop_value();
+
+                let args = if let Some(exc) = exc {
+                    let exc_type = exc.class().into_object();
+                    let exc_val = exc.clone();
+                    let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
+                    vec![exc_type, exc_val, exc_tb]
+                } else {
+                    vec![vm.ctx.none(), vm.ctx.none(), vm.ctx.none()]
+                };
+                let exit_res = vm.invoke(&exit, args)?;
+                self.push_value(exit_res);
+
+                Ok(None)
+            }
+            bytecode::Instruction::WithCleanupFinish => {
+                let block = self.pop_block();
+                let reason = match block.typ {
+                    BlockType::FinallyHandler { reason } => reason,
+                    _ => panic!("WithCleanupFinish expects a FinallyHandler block on stack"),
+                };
+
+                let suppress_exception = objbool::boolval(vm, self.pop_value())?;
+                if suppress_exception {
+                    // suppress exception
+                    Ok(None)
+                } else if let Some(reason) = reason {
+                    self.unwind_blocks(vm, reason)
+                } else {
+                    Ok(None)
+                }
             }
             bytecode::Instruction::PopBlock => {
                 self.pop_block();
@@ -463,6 +499,40 @@ impl Frame {
                 let iterated_obj = self.pop_value();
                 let iter_obj = objiter::get_iter(vm, &iterated_obj)?;
                 self.push_value(iter_obj);
+                Ok(None)
+            }
+            bytecode::Instruction::GetAwaitable => {
+                let awaited_obj = self.pop_value();
+                let awaitable = if awaited_obj.payload_is::<PyCoroutine>() {
+                    awaited_obj
+                } else {
+                    let await_method =
+                        vm.get_method_or_type_error(awaited_obj.clone(), "__await__", || {
+                            format!(
+                                "object {} can't be used in 'await' expression",
+                                awaited_obj.class().name,
+                            )
+                        })?;
+                    vm.invoke(&await_method, vec![])?
+                };
+                self.push_value(awaitable);
+                Ok(None)
+            }
+            bytecode::Instruction::GetAIter => {
+                let aiterable = self.pop_value();
+                let aiter = vm.call_method(&aiterable, "__aiter__", vec![])?;
+                self.push_value(aiter);
+                Ok(None)
+            }
+            bytecode::Instruction::GetANext => {
+                let aiter = self.last_value();
+                let awaitable = vm.call_method(&aiter, "__anext__", vec![])?;
+                let awaitable = if awaitable.payload_is::<PyCoroutine>() {
+                    awaitable
+                } else {
+                    vm.call_method(&awaitable, "__await__", vec![])?
+                };
+                self.push_value(awaitable);
                 Ok(None)
             }
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, *target),
@@ -645,7 +715,7 @@ impl Frame {
     /// unwinding a block.
     /// Optionally returns an exception.
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn unwind_blocks(&self, vm: &VirtualMachine, mut reason: UnwindReason) -> FrameResult {
+    fn unwind_blocks(&self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             match block.typ {
@@ -681,60 +751,6 @@ impl Frame {
                         return Ok(None);
                     }
                 }
-                BlockType::With {
-                    context_manager,
-                    end,
-                } => {
-                    self.pop_block();
-                    match &reason {
-                        UnwindReason::Raising { exception } => {
-                            match self.call_context_manager_exit(
-                                vm,
-                                &context_manager,
-                                Some(exception.clone()),
-                            ) {
-                                Ok(exit_result_obj) => {
-                                    match objbool::boolval(vm, exit_result_obj) {
-                                        // If __exit__ method returned True, suppress the exception and continue execution.
-                                        Ok(suppress_exception) => {
-                                            if suppress_exception {
-                                                self.jump(end);
-                                                return Ok(None);
-                                            } else {
-                                                // go on with the stack unwinding.
-                                            }
-                                        }
-                                        Err(exit_exc) => {
-                                            reason = UnwindReason::Raising {
-                                                exception: exit_exc,
-                                            };
-                                            // return Err(exit_exc);
-                                        }
-                                    }
-                                }
-                                Err(exit_exc) => {
-                                    // TODO: what about original exception?
-                                    reason = UnwindReason::Raising {
-                                        exception: exit_exc,
-                                    };
-                                    // return Err(exit_exc);
-                                }
-                            }
-                        }
-                        _ => {
-                            match self.call_context_manager_exit(vm, &context_manager, None) {
-                                Ok(..) => {}
-                                Err(exit_exc) => {
-                                    // __exit__ went wrong,
-                                    reason = UnwindReason::Raising {
-                                        exception: exit_exc,
-                                    };
-                                    // return Err(exc);
-                                }
-                            }
-                        }
-                    }
-                }
                 BlockType::FinallyHandler { .. } => {
                     self.pop_block();
                 }
@@ -753,26 +769,6 @@ impl Frame {
                 panic!("Internal error: break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),
         }
-    }
-
-    fn call_context_manager_exit(
-        &self,
-        vm: &VirtualMachine,
-        context_manager: &PyObjectRef,
-        exc: Option<PyObjectRef>,
-    ) -> PyResult {
-        // TODO: do we want to put the exit call on the stack?
-        // TODO: what happens when we got an error during execution of __exit__?
-        let (exc_type, exc_val, exc_tb) = if let Some(exc) = exc {
-            let exc_type = exc.class().into_object();
-            let exc_val = exc.clone();
-            let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
-            (exc_type, exc_val, exc_tb)
-        } else {
-            (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
-        };
-
-        vm.call_method(context_manager, "__exit__", vec![exc_type, exc_val, exc_tb])
     }
 
     fn store_name(
@@ -1016,7 +1012,11 @@ impl Frame {
     }
 
     fn _send(&self, coro: PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if vm.is_none(&val) {
+        if let Some(gen) = coro.payload::<PyGenerator>() {
+            gen.send(val, vm)
+        } else if let Some(coro) = coro.payload::<PyCoroutine>() {
+            coro.send(val, vm)
+        } else if vm.is_none(&val) {
             objiter::call_next(vm, &coro)
         } else {
             vm.call_method(&coro, "send", vec![val])
@@ -1267,6 +1267,25 @@ impl Frame {
         !a.is(&b)
     }
 
+    fn exc_match(
+        &self,
+        vm: &VirtualMachine,
+        exc: PyObjectRef,
+        exc_type: PyObjectRef,
+    ) -> PyResult<bool> {
+        single_or_tuple_any(
+            exc_type,
+            |cls: PyClassRef| vm.isinstance(&exc, &cls),
+            |o| {
+                format!(
+                    "isinstance() arg 2 must be a type or tuple of types, not {}",
+                    o.class()
+                )
+            },
+            vm,
+        )
+    }
+
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_compare(
         &self,
@@ -1282,10 +1301,11 @@ impl Frame {
             bytecode::ComparisonOperator::LessOrEqual => vm._le(a, b)?,
             bytecode::ComparisonOperator::Greater => vm._gt(a, b)?,
             bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(a, b)?,
-            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)),
-            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
-            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
+            bytecode::ComparisonOperator::Is => vm.new_bool(self._is(a, b)),
+            bytecode::ComparisonOperator::IsNot => vm.new_bool(self._is_not(a, b)),
+            bytecode::ComparisonOperator::In => vm.new_bool(self._in(vm, a, b)?),
+            bytecode::ComparisonOperator::NotIn => vm.new_bool(self._not_in(vm, a, b)?),
+            bytecode::ComparisonOperator::ExceptionMatch => vm.new_bool(self.exc_match(vm, a, b)?),
         };
 
         self.push_value(value);

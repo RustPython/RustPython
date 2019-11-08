@@ -244,6 +244,7 @@ pub struct ExceptionZoo {
     pub reference_error: PyClassRef,
     pub runtime_error: PyClassRef,
     pub stop_iteration: PyClassRef,
+    pub stop_async_iteration: PyClassRef,
     pub syntax_error: PyClassRef,
     pub indentation_error: PyClassRef,
     pub tab_error: PyClassRef,
@@ -271,6 +272,7 @@ pub struct ExceptionZoo {
     pub user_warning: PyClassRef,
 
     pub keyboard_interrupt: PyClassRef,
+    pub generator_exit: PyClassRef,
     pub system_exit: PyClassRef,
 }
 
@@ -291,6 +293,7 @@ impl ExceptionZoo {
         let runtime_error = create_type("RuntimeError", &type_type, &exception_type);
         let reference_error = create_type("ReferenceError", &type_type, &exception_type);
         let stop_iteration = create_type("StopIteration", &type_type, &exception_type);
+        let stop_async_iteration = create_type("StopAsyncIteration", &type_type, &exception_type);
         let syntax_error = create_type("SyntaxError", &type_type, &exception_type);
         let system_error = create_type("SystemError", &type_type, &exception_type);
         let type_error = create_type("TypeError", &type_type, &exception_type);
@@ -327,6 +330,7 @@ impl ExceptionZoo {
         let user_warning = create_type("UserWarning", &type_type, &warning);
 
         let keyboard_interrupt = create_type("KeyboardInterrupt", &type_type, &base_exception_type);
+        let generator_exit = create_type("GeneratorExit", &type_type, &base_exception_type);
         let system_exit = create_type("SystemExit", &type_type, &base_exception_type);
 
         ExceptionZoo {
@@ -350,6 +354,7 @@ impl ExceptionZoo {
             permission_error,
             runtime_error,
             stop_iteration,
+            stop_async_iteration,
             syntax_error,
             indentation_error,
             tab_error,
@@ -376,6 +381,7 @@ impl ExceptionZoo {
             reference_error,
             user_warning,
             keyboard_interrupt,
+            generator_exit,
             system_exit,
         }
     }

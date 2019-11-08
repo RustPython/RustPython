@@ -4,6 +4,7 @@ use crate::obj::objbytes;
 use crate::obj::objclassmethod;
 use crate::obj::objcode;
 use crate::obj::objcomplex;
+use crate::obj::objcoroutine;
 use crate::obj::objdict;
 use crate::obj::objellipsis;
 use crate::obj::objenumerate;
@@ -50,6 +51,8 @@ pub struct TypeZoo {
     pub bool_type: PyClassRef,
     pub classmethod_type: PyClassRef,
     pub code_type: PyClassRef,
+    pub coroutine_type: PyClassRef,
+    pub coroutine_wrapper_type: PyClassRef,
     pub dict_type: PyClassRef,
     pub enumerate_type: PyClassRef,
     pub filter_type: PyClassRef,
@@ -122,6 +125,8 @@ impl TypeZoo {
         let weakref_type = create_type("ref", &type_type, &object_type);
         let weakproxy_type = create_type("weakproxy", &type_type, &object_type);
         let generator_type = create_type("generator", &type_type, &object_type);
+        let coroutine_type = create_type("coroutine", &type_type, &object_type);
+        let coroutine_wrapper_type = create_type("coroutine_wrapper", &type_type, &object_type);
         let bound_method_type = create_type("method", &type_type, &object_type);
         let str_type = create_type("str", &type_type, &object_type);
         let list_type = create_type("list", &type_type, &object_type);
@@ -170,6 +175,8 @@ impl TypeZoo {
             bytes_type,
             bytesiterator_type,
             code_type,
+            coroutine_type,
+            coroutine_wrapper_type,
             complex_type,
             classmethod_type,
             int_type,
@@ -291,6 +298,7 @@ pub fn initialize_types(context: &PyContext) {
     objstaticmethod::init(&context);
     objclassmethod::init(&context);
     objgenerator::init(&context);
+    objcoroutine::init(&context);
     objint::init(&context);
     objfloat::init(&context);
     objcomplex::init(&context);

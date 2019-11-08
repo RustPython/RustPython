@@ -55,6 +55,7 @@ bitflags! {
         const HAS_ANNOTATIONS = 0x04;
         const NEW_LOCALS = 0x08;
         const IS_GENERATOR = 0x10;
+        const IS_COROUTINE = 0x20;
     }
 }
 
@@ -217,9 +218,8 @@ pub enum Instruction {
     SetupWith {
         end: Label,
     },
-    CleanupWith {
-        end: Label,
-    },
+    WithCleanupStart,
+    WithCleanupFinish,
     PopBlock,
     Raise {
         argc: usize,
@@ -273,6 +273,13 @@ pub enum Instruction {
     Reverse {
         amount: usize,
     },
+    GetAwaitable,
+    BeforeAsyncWith,
+    SetupAsyncWith {
+        end: Label,
+    },
+    GetAIter,
+    GetANext,
 }
 
 use self::Instruction::*;
@@ -310,6 +317,7 @@ pub enum ComparisonOperator {
     NotIn,
     Is,
     IsNot,
+    ExceptionMatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -526,7 +534,10 @@ impl Instruction {
             EnterFinally => w!(EnterFinally),
             EndFinally => w!(EndFinally),
             SetupWith { end } => w!(SetupWith, label_map[end]),
-            CleanupWith { end } => w!(CleanupWith, label_map[end]),
+            WithCleanupStart => w!(WithCleanupStart),
+            WithCleanupFinish => w!(WithCleanupFinish),
+            BeforeAsyncWith => w!(BeforeAsyncWith),
+            SetupAsyncWith { end } => w!(SetupAsyncWith, label_map[end]),
             PopBlock => w!(PopBlock),
             Raise { argc } => w!(Raise, argc),
             BuildString { size } => w!(BuildString, size),
@@ -549,6 +560,9 @@ impl Instruction {
             FormatValue { spec, .. } => w!(FormatValue, spec), // TODO: write conversion
             PopException => w!(PopException),
             Reverse { amount } => w!(Reverse, amount),
+            GetAwaitable => w!(GetAwaitable),
+            GetAIter => w!(GetAIter),
+            GetANext => w!(GetANext),
         }
     }
 }

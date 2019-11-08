@@ -8,6 +8,7 @@ pub mod objbytes;
 pub mod objclassmethod;
 pub mod objcode;
 pub mod objcomplex;
+pub mod objcoroutine;
 pub mod objdict;
 pub mod objellipsis;
 pub mod objenumerate;

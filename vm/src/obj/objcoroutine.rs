@@ -1,41 +1,27 @@
-/*
- * The mythical generator.
- */
-
 use super::objtype::{isinstance, issubclass, PyClassRef};
 use crate::frame::{ExecutionResult, FrameRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-pub type PyGeneratorRef = PyRef<PyGenerator>;
+pub type PyCoroutineRef = PyRef<PyCoroutine>;
 
-#[pyclass(name = "generator")]
+#[pyclass(name = "coroutine")]
 #[derive(Debug)]
-pub struct PyGenerator {
+pub struct PyCoroutine {
     frame: FrameRef,
 }
 
-impl PyValue for PyGenerator {
+impl PyValue for PyCoroutine {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.generator_type()
+        vm.ctx.types.coroutine_type.clone()
     }
 }
 
 #[pyimpl]
-impl PyGenerator {
-    pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyGeneratorRef {
-        PyGenerator { frame }.into_ref(vm)
-    }
-
-    #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyGeneratorRef, _vm: &VirtualMachine) -> PyGeneratorRef {
-        zelf
-    }
-
-    #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        self.send(vm.get_none(), vm)
+impl PyCoroutine {
+    pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyCoroutineRef {
+        PyCoroutine { frame }.into_ref(vm)
     }
 
     #[pymethod]
@@ -97,8 +83,55 @@ impl PyGenerator {
             _ => Ok(()),
         }
     }
+
+    #[pymethod(name = "__await__")]
+    fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyCoroutineWrapper {
+        PyCoroutineWrapper { coro: zelf }
+    }
+}
+
+#[pyclass(name = "coroutine_wrapper")]
+#[derive(Debug)]
+pub struct PyCoroutineWrapper {
+    coro: PyCoroutineRef,
+}
+
+impl PyValue for PyCoroutineWrapper {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.types.coroutine_wrapper_type.clone()
+    }
+}
+
+#[pyimpl]
+impl PyCoroutineWrapper {
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        self.coro.send(vm.get_none(), vm)
+    }
+
+    #[pymethod]
+    fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.coro.send(val, vm)
+    }
+
+    #[pymethod]
+    fn throw(
+        &self,
+        exc_type: PyClassRef,
+        exc_val: OptionalArg,
+        exc_tb: OptionalArg,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.coro.throw(exc_type, exc_val, exc_tb, vm)
+    }
 }
 
 pub fn init(ctx: &PyContext) {
-    PyGenerator::extend_class(ctx, &ctx.types.generator_type);
+    PyCoroutine::extend_class(ctx, &ctx.types.coroutine_type);
+    PyCoroutineWrapper::extend_class(ctx, &ctx.types.coroutine_wrapper_type);
 }
