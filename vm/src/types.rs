@@ -37,8 +37,7 @@ use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::pyobject::{PyAttributes, PyContext, PyObject, PyObjectRef};
 use std::cell::RefCell;
-use std::mem;
-use std::ptr;
+use std::mem::MaybeUninit;
 
 /// Holder of references to builtin types.
 #[derive(Debug)]
@@ -232,7 +231,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
     // (and yes, this will never get dropped. TODO?)
     let (type_type, object_type) = unsafe {
         let object_type = PyObject {
-            typ: mem::uninitialized(), // !
+            typ: MaybeUninit::uninit(), // !
             dict: None,
             payload: PyClass {
                 name: String::from("object"),
@@ -246,7 +245,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
         .into_ref();
 
         let type_type = PyObject {
-            typ: mem::uninitialized(), // !
+            typ: MaybeUninit::uninit(), // !
             dict: None,
             payload: PyClass {
                 name: String::from("type"),
@@ -265,8 +264,8 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
         let type_type: PyClassRef = type_type.downcast().unwrap();
         let object_type: PyClassRef = object_type.downcast().unwrap();
 
-        ptr::write(&mut (*object_type_ptr).typ, type_type.clone());
-        ptr::write(&mut (*type_type_ptr).typ, type_type.clone());
+        (*object_type_ptr).typ.as_mut_ptr().write(type_type.clone());
+        (*type_type_ptr).typ.as_mut_ptr().write(type_type.clone());
 
         (type_type, object_type)
     };

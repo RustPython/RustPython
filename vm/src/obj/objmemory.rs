@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-
 use super::objbyteinner::try_as_byte;
 use super::objtype::{issubclass, PyClassRef};
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
@@ -26,7 +24,7 @@ impl PyMemoryView {
         bytes_object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyMemoryViewRef> {
-        let object_type = bytes_object.typ.borrow();
+        let object_type = unsafe { &*bytes_object.typ.as_ptr() };
 
         if issubclass(object_type, &vm.ctx.types.memoryview_type)
             || issubclass(object_type, &vm.ctx.types.bytes_type)
