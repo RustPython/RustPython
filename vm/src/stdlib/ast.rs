@@ -625,8 +625,12 @@ fn comprehension_to_ast(
 
 fn string_to_ast(vm: &VirtualMachine, string: &ast::StringGroup) -> PyResult<AstNodeRef> {
     let string = match string {
-        ast::StringGroup::Constant { value } => node!(vm, Str, { s => vm.ctx.new_str(value.clone()) }),
-        ast::StringGroup::FormattedValue { value, .. } => node!(vm, FormattedValue, { value => expression_to_ast(vm, value)? }),
+        ast::StringGroup::Constant { value } => {
+            node!(vm, Str, { s => vm.ctx.new_str(value.clone()) })
+        }
+        ast::StringGroup::FormattedValue { value, .. } => {
+            node!(vm, FormattedValue, { value => expression_to_ast(vm, value)? })
+        }
         ast::StringGroup::Joined { values } => {
             let py_values = map_ast(string_to_ast, vm, &values)?;
             node!(vm, JoinedStr, { values => py_values })

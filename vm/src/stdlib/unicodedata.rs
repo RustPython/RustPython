@@ -54,7 +54,9 @@ fn name(
     } else {
         match default {
             OptionalArg::Present(obj) => Ok(obj),
-            OptionalArg::Missing => Err(vm.new_value_error("character name not found!".to_string())),
+            OptionalArg::Missing => {
+                Err(vm.new_value_error("character name not found!".to_string()))
+            }
         }
     }
 }
