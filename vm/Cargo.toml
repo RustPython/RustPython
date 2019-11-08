@@ -66,6 +66,7 @@ nix = "0.14.1"
 wtf8 = "0.0.3"
 arr_macro = "0.1.2"
 rustyline = "=5.0.1"
+dirs = "2.0"
 
 flame = { version = "0.2", optional = true }
 flamer = { version = "0.3", optional = true }

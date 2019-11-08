@@ -30,6 +30,7 @@ fn main() {
     let vm = VirtualMachine::new(settings);
 
     let res = run_rustpython(&vm, &matches);
+    vm.save_repl();
     // See if any exception leaked out:
     handle_exception(&vm, res);
 
@@ -462,7 +463,7 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResul
 }
 
 fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
-    use rustyline::{error::ReadlineError, Editor};
+    use rustyline::error::ReadlineError;
 
     println!(
         "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
@@ -471,27 +472,6 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
 
     // Read a single line:
     let mut input = String::new();
-    let mut repl = Editor::<()>::new();
-
-    // Retrieve a `history_path_str` dependent on the OS
-    let repl_history_path = match dirs::config_dir() {
-        Some(mut path) => {
-            path.push("rustpython");
-            path.push("repl_history.txt");
-            path
-        }
-        None => ".repl_history.txt".into(),
-    };
-
-    if !repl_history_path.exists() {
-        if let Some(parent) = repl_history_path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-    }
-
-    if repl.load_history(&repl_history_path).is_err() {
-        println!("No previous history.");
-    }
 
     let mut continuing = false;
 
@@ -504,11 +484,9 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             Ok(ref s) => s.as_str(),
             Err(_) => "",
         };
-        let result = match repl.readline(prompt) {
+        let result = match vm.readline(prompt) {
             Ok(line) => {
                 debug!("You entered {:?}", line);
-
-                repl.add_history_entry(line.trim_end());
 
                 let stop_continuing = line.is_empty();
 
@@ -563,7 +541,6 @@ fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             print_exception(vm, &exc);
         }
     }
-    repl.save_history(&repl_history_path).unwrap();
 
     Ok(())
 }

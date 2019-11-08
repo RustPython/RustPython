@@ -43,6 +43,7 @@ use arr_macro::arr;
 use num_bigint::BigInt;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::{compile, error::CompileError};
+use rustyline::{error::ReadlineError, Config, Editor};
 
 // use objects::objects;
 
@@ -65,6 +66,8 @@ pub struct VirtualMachine {
     pub use_tracing: RefCell<bool>,
     pub signal_handlers: RefCell<[PyObjectRef; NSIG]>,
     pub settings: PySettings,
+    pub repl: RefCell<Editor<()>>,
+    pub repl_history_path: std::path::PathBuf,
 }
 
 pub const NSIG: usize = 64;
@@ -171,6 +174,28 @@ impl VirtualMachine {
         let trace_func = RefCell::new(ctx.none());
         let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
 
+        let config = Config::builder().auto_add_history(true).build();
+        let mut repl = Editor::with_config(config);
+
+        // Retrieve a `history_path_str` dependent on the OS
+        let repl_history_path = match dirs::config_dir() {
+            Some(mut path) => {
+                path.push("rustpython");
+                path.push("repl_history.txt");
+                path
+            }
+            None => "repl_history.txt".into(),
+        };
+
+        if !repl_history_path.exists() {
+            if let Some(parent) = repl_history_path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+        }
+
+        if repl.load_history(&repl_history_path).is_err() {
+            // Should some logging go here?
+        }
         let vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
@@ -186,6 +211,8 @@ impl VirtualMachine {
             use_tracing: RefCell::new(false),
             signal_handlers,
             settings,
+            repl: RefCell::new(repl),
+            repl_history_path: repl_history_path,
         };
 
         objmodule::init_module_dict(
@@ -208,6 +235,29 @@ impl VirtualMachine {
         import::import_builtin(&vm, "signal").expect("Couldn't initialize signal module");
 
         vm
+    }
+
+    /// Call rustyline's readline returning the result.
+    ///
+    ///  `prompt` - A string to display to the terminal.
+    ///
+    /// # Remark
+    /// Done in this way in order to prevent problems with multiple points in
+    /// the program trying to mutably borrow the editor. Such as when in
+    /// interactive mode and using the input() function.
+    pub fn readline(&self, prompt: &str) -> Result<String, ReadlineError> {
+        self.repl.borrow_mut().readline(prompt)
+    }
+
+    /// Save repl history.
+    ///
+    /// # Remark
+    /// May need to log failure?
+    pub fn save_repl(&self) {
+        let repl = self.repl.borrow_mut();
+        if repl.save_history(&self.repl_history_path).is_err() {
+            // Some logging maybe?
+        }
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {

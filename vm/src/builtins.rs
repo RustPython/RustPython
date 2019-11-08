@@ -10,7 +10,7 @@ use std::str;
 use num_bigint::Sign;
 use num_traits::{Signed, ToPrimitive, Zero};
 
-use rustyline::{error::ReadlineError, Editor};
+use rustyline::error::ReadlineError;
 
 use crate::obj::objbool::{self, IntoPyBool};
 use crate::obj::objbytes::PyBytesRef;
@@ -322,50 +322,39 @@ fn builtin_id(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.context().new_int(obj.get_id()))
 }
 
-
 // builtin_input
 /// Read a string from standard input.  The trailing newline is stripped.
-/// 
+///
 /// The prompt string, if given, is printed to standard output without a
 /// trailing newline before reading input.
 ///
 /// If the user hits EOF (*nix: Ctrl-D, Windows: Ctrl-Z+Return), raise EOFError.
-/// On *nix systems, readline is used if available.
-/// 
-/// # Remarks
-/// The goal is to fulfill all tasks done in cpython.
-/// Hopefully there are 1 to 1 solutions for each part of the function
-fn builtin_input(prompt_object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    /*
-    PyObject *fin = _PySys_GetObjectId(&PyId_stdin);
-    PyObject *fout = _PySys_GetObjectId(&PyId_stdout);
-    PyObject *ferr = _PySys_GetObjectId(&PyId_stderr);
-    PyObject *tmp;
-    long fd;
-    int tty;
-    */
-    let prompt = objstr::get_value(&prompt_object);
+fn builtin_input(prompt_option: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    let prompt = if let OptionalArg::Present(prompt_object) = prompt_option {
+        objstr::get_value(&prompt_object)
+    } else {
+        String::new()
+    };
 
-    let mut rl = Editor::<()>::new();
-    let readline = rl.readline(&prompt);
-    match readline {
-        Ok(line) => {
-            Ok(vm.ctx.new_str(line))
-        },
+    match vm.readline(&prompt) {
+        Ok(line) => Ok(vm.new_str(line.trim_end().to_string())),
         Err(ReadlineError::Interrupted) => {
             let keyboard_interrupt = vm
                 .new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())
                 .unwrap();
             Err(keyboard_interrupt)
-        },
+        }
         Err(ReadlineError::Eof) => {
-            Ok(vm.ctx.new_str("\x04".to_string()))
-        },
-        Err(err) => {
-            let runtime_error = vm
+            let error_eof = vm
+                .new_empty_exception(vm.ctx.exceptions.eof_error.clone())
+                .unwrap();
+            Err(error_eof)
+        }
+        Err(_err) => {
+            let undefined_error = vm
                 .new_empty_exception(vm.ctx.exceptions.runtime_error.clone())
                 .unwrap();
-            Err(runtime_error)
+            Err(undefined_error)
         }
     }
 }
