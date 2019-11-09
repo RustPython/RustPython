@@ -3,7 +3,6 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
-use std::mem::MaybeUninit;
 use std::ops::Deref;
 use std::rc::Rc;
 
@@ -522,7 +521,7 @@ impl PyContext {
 
     pub fn new_instance(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: MaybeUninit::new(class),
+            typ: class,
             dict,
             payload: objobject::PyInstance,
         }
@@ -566,7 +565,7 @@ pub struct PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    pub typ: MaybeUninit<PyClassRef>,
+    pub typ: PyClassRef,
     pub dict: Option<PyDictRef>, // __dict__ member
     pub payload: T,
 }
@@ -793,13 +792,13 @@ where
     T: ?Sized + PyObjectPayload,
 {
     fn class(&self) -> PyClassRef {
-        unsafe { (*self.typ.as_ptr()).clone() }
+        self.typ.clone()
     }
 }
 
 impl<T> TypeProtocol for PyRef<T> {
     fn class(&self) -> PyClassRef {
-        unsafe { (*self.obj.typ.as_ptr()).clone() }
+        self.obj.typ.clone()
     }
 }
 
@@ -1039,12 +1038,7 @@ where
 {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
-        PyObject {
-            typ: MaybeUninit::new(typ),
-            dict,
-            payload,
-        }
-        .into_ref()
+        PyObject { typ, dict, payload }.into_ref()
     }
 
     // Move this object into a reference object, transferring ownership.

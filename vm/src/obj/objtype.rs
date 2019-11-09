@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
-use std::mem::MaybeUninit;
 
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
@@ -506,7 +505,7 @@ pub fn new(
             slots: RefCell::default(),
         },
         dict: None,
-        typ: MaybeUninit::new(typ),
+        typ,
     }
     .into_ref();
 
