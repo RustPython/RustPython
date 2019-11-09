@@ -106,7 +106,7 @@ fn remove_importlib_frames_inner(
     tb: Option<PyTracebackRef>,
     always_trim: bool,
 ) -> Option<PyTracebackRef> {
-    let traceback = tb.as_ref()?;;
+    let traceback = tb.as_ref()?;
     let file_name = traceback.frame.code.source_path.to_string();
     if (file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external")
         && (always_trim || traceback.frame.code.obj_name == "_call_with_frames_removed")

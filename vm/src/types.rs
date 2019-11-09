@@ -239,7 +239,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
     // (and yes, this will never get dropped. TODO?)
     let (type_type, object_type) = unsafe {
         let object_type = PyObject {
-            typ: mem::uninitialized(), // !
+            typ: mem::MaybeUninit::uninit().assume_init(), // !
             dict: None,
             payload: PyClass {
                 name: String::from("object"),
@@ -253,7 +253,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
         .into_ref();
 
         let type_type = PyObject {
-            typ: mem::uninitialized(), // !
+            typ: mem::MaybeUninit::uninit().assume_init(), // !
             dict: None,
             payload: PyClass {
                 name: String::from("type"),
