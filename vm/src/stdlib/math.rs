@@ -275,18 +275,65 @@ fn math_modf(x: IntoPyFloat, _vm: &VirtualMachine) -> (f64, f64) {
     (x.fract(), x.trunc())
 }
 
+fn fmod(x: f64, y: f64) -> f64 {
+    if y.is_infinite() && x.is_finite() {
+        return x;
+    }
+
+    x % y
+}
+
 fn math_fmod(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
     let x = x.to_f64();
     let y = y.to_f64();
-    if y.is_infinite() && x.is_finite() {
-        return Ok(x);
-    }
-    let r = x % y;
+
+    let r = fmod(x, y);
+
     if r.is_nan() && !x.is_nan() && !y.is_nan() {
         return Err(vm.new_value_error("math domain error".to_string()));
     }
 
     Ok(r)
+}
+
+fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    let x = x.to_f64();
+    let y = y.to_f64();
+    if x.is_finite() && y.is_finite() {
+        if y == 0.0 {
+            return Ok(std::f64::NAN);
+        }
+
+        let absx = x.abs();
+        let absy = y.abs();
+        let modulus = absx % absy;
+
+        let c = absy - modulus;
+        let r;
+        if modulus < c {
+            r = modulus;
+        } else if modulus > c {
+            r = -c;
+        } else {
+            r = modulus - 2.0 * fmod(0.5 * (absx - modulus), absy);
+        }
+
+        return Ok(1.0_f64.copysign(x) * r);
+    }
+
+    if x.is_nan() {
+        return Ok(x);
+    }
+    if y.is_nan() {
+        return Ok(y);
+    }
+    if x.is_infinite() {
+        return Ok(std::f64::NAN);
+    }
+    if y.is_infinite() {
+        return Err(vm.new_value_error("math domain error".to_string()));
+    }
+    Ok(x)
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -342,6 +389,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "ldexp" => ctx.new_rustfunc(math_ldexp),
         "modf" => ctx.new_rustfunc(math_modf),
         "fmod" => ctx.new_rustfunc(math_fmod),
+        "remainder" => ctx.new_rustfunc(math_remainder),
 
         // Rounding functions:
         "trunc" => ctx.new_rustfunc(math_trunc),
