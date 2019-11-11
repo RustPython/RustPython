@@ -1,4 +1,4 @@
-from testutils import assert_raises, assert_equal
+from testutils import assert_raises
 
 import select
 import sys
@@ -36,6 +36,9 @@ sendr = socket.socket()
 sendr.connect(("127.0.0.1", 9988))
 sendr.send(b"aaaa")
 
-res = select.select([recvr], [sendr], [])
+rres, wres, xres = select.select([recvr], [sendr], [])
 
-assert_equal(res, ([recvr], [sendr], []))
+if "win" not in sys.platform:
+    assert recvr in rres
+
+assert sendr in wres
