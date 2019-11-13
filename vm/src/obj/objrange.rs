@@ -339,77 +339,19 @@ impl PyRange {
     fn getitem(&self, subscript: RangeIndex, vm: &VirtualMachine) -> PyResult {
         match subscript {
             RangeIndex::Slice(slice) => {
-                let range_start = self.start.as_bigint();
-                let range_step = self.step.as_bigint();
-                let range_length = &self.length();
+                let (mut substart, mut substop, mut substep) =
+                    slice.inner_indices(&self.length(), vm)?;
+                let range_step = self.step(vm);
+                let range_start = self.start(vm);
 
-                let substep = if let Some(slice_step) = slice.step_index(vm)? {
-                    if slice_step.is_zero() {
-                        return Err(vm.new_value_error("slice step cannot be zero".to_string()));
-                    }
-                    slice_step
-                } else {
-                    BigInt::one()
-                };
-
-                let negative_step = substep.is_negative();
-                let lower_bound = if negative_step {
-                    -BigInt::one()
-                } else {
-                    BigInt::zero()
-                };
-                let upper_bound = if negative_step {
-                    &lower_bound + range_length
-                } else {
-                    range_length.clone()
-                };
-
-                let substart = if let Some(slice_start) = slice.start_index(vm)? {
-                    if slice_start.is_negative() {
-                        let tmp = slice_start + range_length;
-                        if tmp < lower_bound {
-                            lower_bound.clone()
-                        } else {
-                            tmp.clone()
-                        }
-                    } else if slice_start > upper_bound {
-                        upper_bound.clone()
-                    } else {
-                        slice_start.clone()
-                    }
-                } else if negative_step {
-                    upper_bound.clone()
-                } else {
-                    lower_bound.clone()
-                };
-
-                let substop = if let Some(slice_stop) = slice.stop_index(vm)? {
-                    if slice_stop.is_negative() {
-                        let tmp = slice_stop + range_length;
-                        if tmp < lower_bound {
-                            lower_bound.clone()
-                        } else {
-                            tmp.clone()
-                        }
-                    } else if slice_stop > upper_bound {
-                        upper_bound.clone()
-                    } else {
-                        slice_stop.clone()
-                    }
-                } else if negative_step {
-                    lower_bound.clone()
-                } else {
-                    upper_bound.clone()
-                };
-
-                let step = range_step * &substep;
-                let start = range_start + (&substart * range_step);
-                let stop = range_start + (&substop * range_step);
+                substep *= range_step.as_bigint();
+                substart = (substart * range_step.as_bigint()) + range_start.as_bigint();
+                substop = (substop * range_step.as_bigint()) + range_start.as_bigint();
 
                 Ok(PyRange {
-                    start: PyInt::new(start).into_ref(vm),
-                    stop: PyInt::new(stop).into_ref(vm),
-                    step: PyInt::new(step).into_ref(vm),
+                    start: PyInt::new(substart).into_ref(vm),
+                    stop: PyInt::new(substop).into_ref(vm),
+                    step: PyInt::new(substep).into_ref(vm),
                 }
                 .into_ref(vm)
                 .into_object())

@@ -1,4 +1,5 @@
 from testutils import assert_raises
+import itertools
 
 a = slice(10)
 assert a.start == None
@@ -90,3 +91,40 @@ def dict_slice():
     d[slice(0)] = 3
 
 assert_raises(TypeError, dict_slice)
+
+assert slice(None           ).indices(10) == (0, 10,  1)
+assert slice(None,  None,  2).indices(10) == (0, 10,  2)
+assert slice(1,     None,  2).indices(10) == (1, 10,  2)
+assert slice(None,  None, -1).indices(10) == (9, -1, -1)
+assert slice(None,  None, -2).indices(10) == (9, -1, -2)
+assert slice(3,     None, -2).indices(10) == (3, -1, -2)
+
+# issue 3004 tests
+assert slice(None, -9).indices(10) == (0, 1, 1)
+assert slice(None, -10).indices(10) == (0, 0, 1)
+assert slice(None, -11).indices(10) == (0, 0, 1)
+assert slice(None, -10, -1).indices(10) == (9, 0, -1)
+assert slice(None, -11, -1).indices(10) == (9, -1, -1)
+assert slice(None, -12, -1).indices(10) == (9, -1, -1)
+assert slice(None, 9).indices(10) == (0, 9, 1)
+assert slice(None, 10).indices(10) == (0, 10, 1)
+assert slice(None, 11).indices(10) == (0, 10, 1)
+assert slice(None, 8, -1).indices(10) == (9, 8, -1)
+assert slice(None, 9, -1).indices(10) == (9, 9, -1)
+assert slice(None, 10, -1).indices(10) == (9, 9, -1)
+
+assert \
+    slice(-100,  100).indices(10) == \
+    slice(None      ).indices(10)
+
+assert \
+    slice(100,  -100,  -1).indices(10) == \
+    slice(None, None, -1).indices(10)
+
+assert slice(-100, 100, 2).indices(10) == (0, 10,  2)
+
+try:
+	slice(None, None, 0)
+	assert "zero step" == "throws an exception"
+except:
+	pass
