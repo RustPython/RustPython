@@ -244,7 +244,8 @@ impl PyBytesIORef {
     }
 
     fn write(self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
-        match self.buffer(vm)?.write(data.to_cow().as_ref()) {
+        let mut buffer = self.buffer(vm)?;
+        match data.with_ref(|b| buffer.write(b)) {
             Some(value) => Ok(value),
             None => Err(vm.new_type_error("Error Writing Bytes".to_string())),
         }
@@ -358,11 +359,10 @@ fn io_base_readline(
     let read = vm.get_attribute(instance, "read")?;
     while size < 0 || res.len() < size as usize {
         let read_res = PyBytesLike::try_from_object(vm, vm.invoke(&read, vec![vm.new_int(1)])?)?;
-        let b = read_res.to_cow();
-        if b.is_empty() {
+        if read_res.with_ref(|b| b.is_empty()) {
             break;
         }
-        res.extend_from_slice(b.as_ref());
+        read_res.with_ref(|b| res.extend_from_slice(b));
         if res.ends_with(b"\n") {
             break;
         }
@@ -643,8 +643,8 @@ mod fileio {
     ) -> PyResult<usize> {
         let mut handle = fio_get_fileno(&instance, vm)?;
 
-        let len = handle
-            .write(obj.to_cow().as_ref())
+        let len = obj
+            .with_ref(|b| handle.write(b))
             .map_err(|e| os::convert_io_error(vm, e))?;
 
         fio_set_fileno(&instance, handle, vm)?;

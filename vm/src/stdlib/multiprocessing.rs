@@ -41,15 +41,9 @@ fn multiprocessing_send(
     buf: PyBytesLike,
     vm: &VirtualMachine,
 ) -> PyResult<libc::c_int> {
-    let buf = buf.to_cow();
-    let ret = unsafe {
-        winsock2::send(
-            socket as SOCKET,
-            buf.as_ptr() as *const _,
-            buf.len() as i32,
-            0,
-        )
-    };
+    let ret = buf.with_ref(|b| unsafe {
+        winsock2::send(socket as SOCKET, b.as_ptr() as *const _, b.len() as i32, 0)
+    });
     if ret < 0 {
         Err(super::os::convert_io_error(
             vm,

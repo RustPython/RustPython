@@ -1418,7 +1418,6 @@ fn split_slice_reverse<'a>(slice: &'a [u8], sep: &[u8], maxsplit: i32) -> Vec<&'
 pub enum PyBytesLike {
     Bytes(PyBytesRef),
     Bytearray(PyByteArrayRef),
-    Vec(Vec<u8>),
 }
 
 impl TryFromObject for PyBytesLike {
@@ -1426,8 +1425,6 @@ impl TryFromObject for PyBytesLike {
         match_class!(match obj {
             b @ PyBytes => Ok(PyBytesLike::Bytes(b)),
             b @ PyByteArray => Ok(PyBytesLike::Bytearray(b)),
-            m @ PyMemoryView => Ok(PyBytesLike::Vec(m.get_obj_value().unwrap())),
-            l @ PyList => Ok(PyBytesLike::Vec(l.get_byte_inner(vm)?.elements)),
             obj => Err(vm.new_type_error(format!(
                 "a bytes-like object is required, not {}",
                 obj.class()
@@ -1441,7 +1438,14 @@ impl PyBytesLike {
         match self {
             PyBytesLike::Bytes(b) => b.get_value().into(),
             PyBytesLike::Bytearray(b) => b.inner.borrow().elements.clone().into(),
-            PyBytesLike::Vec(b) => b.as_slice().into(),
+        }
+    }
+
+    #[inline]
+    pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+        match self {
+            PyBytesLike::Bytes(b) => f(b.get_value()),
+            PyBytesLike::Bytearray(b) => f(&b.inner.borrow().elements),
         }
     }
 }
