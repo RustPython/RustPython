@@ -18,7 +18,9 @@ use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use crate::pyobject::{
+    Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -191,8 +193,17 @@ impl PySocket {
 
     #[pymethod]
     fn send(&self, bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        // TODO: use PyBytesLike.with_ref() instead of to_cow()
         self.sock()
             .send(bytes.to_cow().as_ref())
+            .map_err(|err| convert_sock_error(vm, err))
+    }
+
+    #[pymethod]
+    fn sendall(&self, bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+        self.sock
+            .borrow_mut()
+            .write_all(bytes.to_cow().as_ref())
             .map_err(|err| convert_sock_error(vm, err))
     }
 
@@ -368,6 +379,65 @@ fn socket_htonl(host: u32, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_int(host.to_be()))
 }
 
+#[derive(FromArgs)]
+struct GAIOptions {
+    #[pyarg(positional_only)]
+    host: Option<PyStringRef>,
+    #[pyarg(positional_only)]
+    port: Option<Either<PyStringRef, i32>>,
+
+    #[pyarg(positional_only, default = "0")]
+    family: i32,
+    #[pyarg(positional_only, default = "0")]
+    ty: i32,
+    #[pyarg(positional_only, default = "0")]
+    proto: i32,
+    #[pyarg(positional_only, default = "0")]
+    flags: i32,
+}
+
+fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
+    let hints = dns_lookup::AddrInfoHints {
+        socktype: opts.ty,
+        protocol: opts.proto,
+        address: opts.family,
+        flags: opts.flags,
+    };
+
+    let host = opts.host.as_ref().map(|s| s.as_str());
+    let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<str> {
+        match p {
+            Either::A(ref s) => s.as_str().into(),
+            Either::B(i) => i.to_string().into(),
+        }
+    });
+    let port = port.as_ref().map(|p| p.as_ref());
+
+    let addrs = dns_lookup::getaddrinfo(host, port, Some(hints)).map_err(|err| {
+        let error_type = vm.class("_socket", "gaierror");
+        vm.new_exception(error_type, io::Error::from(err).to_string())
+    })?;
+
+    let list = addrs
+        .map(|ai| {
+            ai.map(|ai| {
+                vm.ctx.new_tuple(vec![
+                    vm.new_int(ai.address),
+                    vm.new_int(ai.socktype),
+                    vm.new_int(ai.protocol),
+                    match ai.canonname {
+                        Some(s) => vm.new_str(s),
+                        None => vm.get_none(),
+                    },
+                    get_addr_tuple(ai.sockaddr).into_pyobject(vm).unwrap(),
+                ])
+            })
+        })
+        .collect::<io::Result<Vec<_>>>()
+        .map_err(|e| convert_sock_error(vm, e))?;
+    Ok(vm.ctx.new_list(list))
+}
+
 fn get_addr<T, I>(vm: &VirtualMachine, addr: T) -> PyResult<socket2::SockAddr>
 where
     T: ToSocketAddrs<Iter = I>,
@@ -467,6 +537,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "gethostname" => ctx.new_rustfunc(socket_gethostname),
         "htonl" => ctx.new_rustfunc(socket_htonl),
         "getdefaulttimeout" => ctx.new_rustfunc(|vm: &VirtualMachine| vm.get_none()),
+        "getaddrinfo" => ctx.new_rustfunc(socket_getaddrinfo),
     });
 
     extend_module_platform_specific(vm, &module);
