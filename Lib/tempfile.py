@@ -42,7 +42,8 @@ import io as _io
 import os as _os
 import shutil as _shutil
 import errno as _errno
-from random import Random as _Random
+# XXX RustPython TODO: _random
+#from random import Random as _Random
 import weakref as _weakref
 
 try:
@@ -156,7 +157,11 @@ class _RandomNameSequence:
 
     def __next__(self):
         c = self.characters
-        choose = self.rng.choice
+        def choose(s):
+            import math, random
+            return s[math.floor(random.random() * len(s))]
+        # XXX RustPython TODO: proper random impl
+        # choose = self.rng.choose
         letters = [choose(c) for dummy in range(8)]
         return ''.join(letters)
 

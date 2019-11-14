@@ -15,7 +15,7 @@ import sys
 import socket
 import struct
 import time
-#import tempfile
+import tempfile
 import itertools
 
 import _multiprocessing
