@@ -11,6 +11,7 @@ use num_traits::ToPrimitive;
 use super::os;
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbytearray::PyByteArray;
+use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes;
 use crate::obj::objbytes::PyBytes;
 use crate::obj::objint::{self, PyIntRef};
@@ -173,11 +174,11 @@ impl PyValue for PyBytesIO {
 }
 
 impl PyBytesIORef {
-    fn write(self, data: objbytes::PyBytesRef, vm: &VirtualMachine) -> PyResult {
-        let bytes = data.get_value();
+    fn write(self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
+        let bytes = data.to_cow();
 
-        match self.buffer.borrow_mut().write(bytes) {
-            Some(value) => Ok(vm.ctx.new_int(value)),
+        match self.buffer.borrow_mut().write(&bytes) {
+            Some(value) => Ok(value),
             None => Err(vm.new_type_error("Error Writing Bytes".to_string())),
         }
     }

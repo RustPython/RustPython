@@ -42,9 +42,21 @@ def test_04():
     assert f.seek(0) == 0
     assert f.read(4) == b'Test'
 
+def test_05():
+    """
+        Tests that the write method accpets bytearray
+    """
+    bytes_string =  b'Test String 5'
+
+    f = BytesIO()
+    f.write(bytearray(bytes_string))
+
+    assert f.getvalue() == bytes_string
+
 if __name__ == "__main__":
     test_01()
     test_02()
     test_03()
     test_04()
+    test_05()
 
