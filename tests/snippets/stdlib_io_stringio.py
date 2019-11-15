@@ -51,8 +51,22 @@ def test_04():
     assert f.seek(0) == 0
     assert f.read(4) == 'Test'
 
+def test_05():
+    """
+        Tests readline
+    """
+    string =  'Test String 6\nnew line is here\nfinished'
+
+    f = StringIO(string)
+
+    assert f.readline() == 'Test String 6\n'
+    assert f.readline() == 'new line is here\n'
+    assert f.readline() == 'finished'
+    assert f.readline() == ''
+
 if __name__ == "__main__":
     test_01()
     test_02()
     test_03()
     test_04()
+    test_05()

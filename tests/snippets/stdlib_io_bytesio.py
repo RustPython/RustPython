@@ -55,10 +55,26 @@ def test_05():
 
     assert f.getvalue() == bytes_string
 
+
+def test_06():
+    """
+        Tests readline
+    """
+    bytes_string =  b'Test String 6\nnew line is here\nfinished'
+
+    f = BytesIO(bytes_string)
+
+    assert f.readline() == b'Test String 6\n'
+    assert f.readline() == b'new line is here\n'
+    assert f.readline() == b'finished'
+    assert f.readline() == b''
+
+
 if __name__ == "__main__":
     test_01()
     test_02()
     test_03()
     test_04()
     test_05()
+    test_06()
 

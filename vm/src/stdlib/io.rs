@@ -86,6 +86,15 @@ impl BufferedIO {
     fn tell(&self) -> u64 {
         self.cursor.position()
     }
+
+    fn readline(&mut self) -> Option<String> {
+        let mut buf = String::new();
+
+        match self.cursor.read_line(&mut buf) {
+            Ok(_) => Some(buf),
+            Err(_) => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -149,6 +158,13 @@ impl PyStringIORef {
 
     fn tell(self, _vm: &VirtualMachine) -> u64 {
         self.buffer.borrow().tell()
+    }
+
+    fn readline(self, vm: &VirtualMachine) -> PyResult<String> {
+        match self.buffer.borrow_mut().readline() {
+            Some(line) => Ok(line),
+            None => Err(vm.new_value_error("Error Performing Operation".to_string())),
+        }
     }
 }
 
@@ -219,6 +235,13 @@ impl PyBytesIORef {
 
     fn tell(self, _vm: &VirtualMachine) -> u64 {
         self.buffer.borrow().tell()
+    }
+
+    fn readline(self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        match self.buffer.borrow_mut().readline() {
+            Some(line) => Ok(line.as_bytes().to_vec()),
+            None => Err(vm.new_value_error("Error Performing Operation".to_string())),
+        }
     }
 }
 
@@ -735,6 +758,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "write" => ctx.new_rustfunc(PyStringIORef::write),
         "getvalue" => ctx.new_rustfunc(PyStringIORef::getvalue),
         "tell" => ctx.new_rustfunc(PyStringIORef::tell),
+        "readline" => ctx.new_rustfunc(PyStringIORef::readline),
     });
 
     //BytesIO: in-memory bytes
@@ -746,7 +770,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "seekable" => ctx.new_rustfunc(PyBytesIORef::seekable),
         "write" => ctx.new_rustfunc(PyBytesIORef::write),
         "getvalue" => ctx.new_rustfunc(PyBytesIORef::getvalue),
-        "tell" => ctx.new_rustfunc(PyBytesIORef::tell)
+        "tell" => ctx.new_rustfunc(PyBytesIORef::tell),
+        "readline" => ctx.new_rustfunc(PyBytesIORef::readline),
     });
 
     py_module!(vm, "_io", {
