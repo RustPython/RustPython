@@ -10,6 +10,7 @@ def test_01():
     f = StringIO()
     f.write(string)
 
+    assert f.tell() == len(string)
     assert f.getvalue() == string
 
 def test_02():
@@ -46,6 +47,7 @@ def test_04():
     f = StringIO(string)
 
     assert f.read(4) == 'Test'
+    assert f.tell() == 4
     assert f.seek(0) == 0
     assert f.read(4) == 'Test'
 

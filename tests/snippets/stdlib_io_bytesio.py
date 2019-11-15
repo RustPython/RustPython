@@ -7,6 +7,7 @@ def test_01():
     f = BytesIO()
     f.write(bytes_string)
 
+    assert f.tell() == len(bytes_string)
     assert f.getvalue() == bytes_string
 
 def test_02():
@@ -39,6 +40,7 @@ def test_04():
     f = BytesIO(string)
 
     assert f.read(4) == b'Test'
+    assert f.tell() == 4
     assert f.seek(0) == 0
     assert f.read(4) == b'Test'
 

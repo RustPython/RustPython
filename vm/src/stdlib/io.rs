@@ -82,6 +82,10 @@ impl BufferedIO {
 
         Some(buffer)
     }
+
+    fn tell(&self) -> u64 {
+        self.cursor.position()
+    }
 }
 
 #[derive(Debug)]
@@ -141,6 +145,10 @@ impl PyStringIORef {
             Ok(value) => Ok(vm.ctx.new_str(value)),
             Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_string())),
         }
+    }
+
+    fn tell(self, _vm: &VirtualMachine) -> u64 {
+        self.buffer.borrow().tell()
     }
 }
 
@@ -207,6 +215,10 @@ impl PyBytesIORef {
 
     fn seekable(self, _vm: &VirtualMachine) -> bool {
         true
+    }
+
+    fn tell(self, _vm: &VirtualMachine) -> u64 {
+        self.buffer.borrow().tell()
     }
 }
 
@@ -721,7 +733,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "seekable" => ctx.new_rustfunc(PyStringIORef::seekable),
         "read" => ctx.new_rustfunc(PyStringIORef::read),
         "write" => ctx.new_rustfunc(PyStringIORef::write),
-        "getvalue" => ctx.new_rustfunc(PyStringIORef::getvalue)
+        "getvalue" => ctx.new_rustfunc(PyStringIORef::getvalue),
+        "tell" => ctx.new_rustfunc(PyStringIORef::tell),
     });
 
     //BytesIO: in-memory bytes
@@ -732,7 +745,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "seek" => ctx.new_rustfunc(PyBytesIORef::seek),
         "seekable" => ctx.new_rustfunc(PyBytesIORef::seekable),
         "write" => ctx.new_rustfunc(PyBytesIORef::write),
-        "getvalue" => ctx.new_rustfunc(PyBytesIORef::getvalue)
+        "getvalue" => ctx.new_rustfunc(PyBytesIORef::getvalue),
+        "tell" => ctx.new_rustfunc(PyBytesIORef::tell)
     });
 
     py_module!(vm, "_io", {
