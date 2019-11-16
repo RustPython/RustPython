@@ -42,6 +42,16 @@ From PyPy v1.0.0
 """
 #from unicodecodec import *
 
+__all__ = ['register', 'lookup', 'lookup_error', 'register_error', 'encode', 'decode',
+           'latin_1_encode', 'mbcs_decode', 'readbuffer_encode', 'escape_encode',
+           'utf_8_decode', 'raw_unicode_escape_decode', 'utf_7_decode',
+           'unicode_escape_encode', 'latin_1_decode', 'utf_16_decode',
+           'unicode_escape_decode', 'ascii_decode', 'charmap_encode',
+           'unicode_internal_encode', 'unicode_internal_decode', 'utf_16_ex_decode',
+           'escape_decode', 'charmap_decode', 'utf_7_encode', 'mbcs_encode',
+           'ascii_encode', 'utf_16_encode', 'raw_unicode_escape_encode', 'utf_8_encode',
+           'utf_16_le_encode', 'utf_16_be_encode', 'utf_16_le_decode', 'utf_16_be_decode',]
+
 import sys
 #/* --- Registry ----------------------------------------------------------- */
 codec_search_path = []
@@ -434,6 +444,28 @@ def utf_16_be_decode( data, errors='strict', byteorder=0, final = 0):
     res, consumed, byteorder = PyUnicode_DecodeUTF16Stateful(data, len(data), errors, 'big', final)
     res = ''.join(res)
     return res, consumed
+
+
+class _PretendCFunction:
+    def __init__(self, f):
+        self.__f = f
+    @property
+    def _f(self):
+        return self.__dict__['__f']
+    def __repr__(self):
+        return repr(self._f)
+    def __str__(self):
+        return str(self._f)
+    def __call__(self, *args, **kwargs):
+        return self._f(*args, **kwargs)
+
+_mod = globals()
+for exp in __all__:
+    if exp.endswith('_encode') or exp.endswith('_decode'):
+        # encodings expect most of these to be builtin functions, so we pretend they are
+        _mod[exp] = _PretendCFunction(_mod[exp])
+del _mod, exp
+
 
 def strict_errors(exc):
     if isinstance(exc, Exception):
