@@ -51,3 +51,15 @@ assert exc.name == 'name'
 assert exc.path == 'path'
 assert exc.msg == 'hello'
 assert exc.args == ('hello',)
+
+
+class NewException(Exception):
+
+	def __init__(self, value):
+		self.value = value
+
+
+try:
+	raise NewException("test")
+except NewException as e:
+	assert e.value == "test"
