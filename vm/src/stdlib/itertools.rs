@@ -733,14 +733,14 @@ impl PyItertoolsTee {
 
 #[pyclass]
 #[derive(Debug)]
-struct PyIterToolsProduct {
+struct PyItertoolsProduct {
     pools: Vec<Vec<PyObjectRef>>,
     idxs: RefCell<Vec<usize>>,
     cur: Cell<usize>,
     stop: Cell<bool>,
 }
 
-impl PyValue for PyIterToolsProduct {
+impl PyValue for PyItertoolsProduct {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("itertools", "product")
     }
@@ -753,7 +753,7 @@ struct ProductArgs {
 }
 
 #[pyimpl]
-impl PyIterToolsProduct {
+impl PyItertoolsProduct {
     #[pyslot(new)]
     fn tp_new(
         cls: PyClassRef,
@@ -780,7 +780,7 @@ impl PyIterToolsProduct {
 
         let l = pools.len();
 
-        PyIterToolsProduct {
+        PyItertoolsProduct {
             pools,
             idxs: RefCell::new(vec![0; l]),
             cur: Cell::new(l - 1),
@@ -851,6 +851,9 @@ impl PyIterToolsProduct {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
+    let accumulate = ctx.new_class("accumulate", ctx.object());
+    PyItertoolsAccumulate::extend_class(ctx, &accumulate);
+
     let chain = PyItertoolsChain::make_class(ctx);
 
     let compress = PyItertoolsCompress::make_class(ctx);
@@ -861,6 +864,14 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let dropwhile = ctx.new_class("dropwhile", ctx.object());
     PyItertoolsDropwhile::extend_class(ctx, &dropwhile);
 
+    let islice = PyItertoolsIslice::make_class(ctx);
+
+    let filterfalse = ctx.new_class("filterfalse", ctx.object());
+    PyItertoolsFilterFalse::extend_class(ctx, &filterfalse);
+
+    let product = ctx.new_class("product", ctx.object());
+    PyItertoolsProduct::extend_class(ctx, &product);
+
     let repeat = ctx.new_class("repeat", ctx.object());
     PyItertoolsRepeat::extend_class(ctx, &repeat);
 
@@ -869,30 +880,20 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let takewhile = ctx.new_class("takewhile", ctx.object());
     PyItertoolsTakewhile::extend_class(ctx, &takewhile);
 
-    let islice = PyItertoolsIslice::make_class(ctx);
-
-    let filterfalse = ctx.new_class("filterfalse", ctx.object());
-    PyItertoolsFilterFalse::extend_class(ctx, &filterfalse);
-
-    let accumulate = ctx.new_class("accumulate", ctx.object());
-    PyItertoolsAccumulate::extend_class(ctx, &accumulate);
-
     let tee = ctx.new_class("tee", ctx.object());
     PyItertoolsTee::extend_class(ctx, &tee);
-    let product = ctx.new_class("product", ctx.object());
-    PyIterToolsProduct::extend_class(ctx, &product);
 
     py_module!(vm, "itertools", {
+        "accumulate" => accumulate,
         "chain" => chain,
         "compress" => compress,
         "count" => count,
         "dropwhile" => dropwhile,
+        "islice" => islice,
+        "filterfalse" => filterfalse,
         "repeat" => repeat,
         "starmap" => starmap,
         "takewhile" => takewhile,
-        "islice" => islice,
-        "filterfalse" => filterfalse,
-        "accumulate" => accumulate,
         "tee" => tee,
         "product" => product,
     })
