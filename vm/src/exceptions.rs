@@ -91,6 +91,16 @@ impl PyBaseException {
         self.suppress_context.set(suppress_context);
         Ok(vm.get_none())
     }
+
+    #[pymethod]
+    fn with_traceback(
+        zelf: PyRef<Self>,
+        tb: Option<PyTracebackRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult {
+        zelf.traceback.replace(tb);
+        Ok(zelf.as_object().clone())
+    }
 }
 
 fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -284,19 +294,6 @@ fn exception_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         _ => format!("{}({})", exc_name, args_repr.join(", ")),
     };
     Ok(vm.new_str(joined_str))
-}
-
-fn exception_with_traceback(
-    zelf: PyObjectRef,
-    tb: Option<PyTracebackRef>,
-    vm: &VirtualMachine,
-) -> PyResult {
-    vm.set_attr(
-        &zelf,
-        "__traceback__",
-        tb.map_or(vm.get_none(), |tb| tb.into_object()),
-    )?;
-    Ok(zelf)
 }
 
 #[derive(Debug)]
@@ -499,7 +496,6 @@ pub fn init(context: &PyContext) {
     PyBaseException::extend_class(context, base_exception_type);
     extend_class!(context, base_exception_type, {
         "__init__" => context.new_rustfunc(exception_init),
-        "with_traceback" => context.new_rustfunc(exception_with_traceback)
     });
 
     let exception_type = &context.exceptions.exception_type;
