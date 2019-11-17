@@ -548,13 +548,13 @@ impl DirEntryRef {
             .is_symlink())
     }
 
-    fn stat(
-        self,
-        dir_fd: DirFd,
-        follow_symlinks: FollowSymlinks,
-        vm: &VirtualMachine,
-    ) -> PyResult<StatResult> {
-        os_stat(self.path(vm).try_into_ref(vm)?, dir_fd, follow_symlinks, vm)
+    fn stat(self, dir_fd: DirFd, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
+        os_stat(
+            Either::A(self.path(vm).try_into_ref(vm)?),
+            dir_fd,
+            follow_symlinks,
+            vm,
+        )
     }
 }
 
@@ -629,6 +629,7 @@ fn os_scandir(path: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+#[pystruct_sequence(name = "os.stat_result")]
 #[derive(Debug)]
 struct StatResult {
     st_mode: u32,
@@ -639,57 +640,15 @@ struct StatResult {
     st_gid: u32,
     st_size: u64,
     st_atime: f64,
-    st_ctime: f64,
     st_mtime: f64,
+    st_ctime: f64,
 }
 
-impl PyValue for StatResult {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("_os", "stat_result")
-    }
-}
-
-type StatResultRef = PyRef<StatResult>;
-
-impl StatResultRef {
-    fn st_mode(self, _vm: &VirtualMachine) -> u32 {
-        self.st_mode
-    }
-
-    fn st_ino(self, _vm: &VirtualMachine) -> u64 {
-        self.st_ino
-    }
-
-    fn st_dev(self, _vm: &VirtualMachine) -> u64 {
-        self.st_dev
-    }
-
-    fn st_nlink(self, _vm: &VirtualMachine) -> u64 {
-        self.st_nlink
-    }
-
-    fn st_uid(self, _vm: &VirtualMachine) -> u32 {
-        self.st_uid
-    }
-
-    fn st_gid(self, _vm: &VirtualMachine) -> u32 {
-        self.st_gid
-    }
-
-    fn st_size(self, _vm: &VirtualMachine) -> u64 {
-        self.st_size
-    }
-
-    fn st_atime(self, _vm: &VirtualMachine) -> f64 {
-        self.st_atime
-    }
-
-    fn st_ctime(self, _vm: &VirtualMachine) -> f64 {
-        self.st_ctime
-    }
-
-    fn st_mtime(self, _vm: &VirtualMachine) -> f64 {
-        self.st_mtime
+impl StatResult {
+    fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
+        self.into_struct_sequence(vm, vm.class("_os", "stat_result"))
+            .unwrap()
+            .into_object()
     }
 }
 
@@ -712,80 +671,58 @@ fn to_seconds_from_nanos(secs: i64, nanos: i64) -> f64 {
 }
 
 #[cfg(unix)]
-macro_rules! os_unix_stat_inner {
-    ( $path:expr, $follow_symlinks:expr, $vm:expr ) => {{
-        #[allow(clippy::match_bool)]
-        fn get_stats(path: &str, follow_symlinks: bool) -> io::Result<StatResult> {
-            let meta = match follow_symlinks {
-                true => fs::metadata(path)?,
-                false => fs::symlink_metadata(path)?,
-            };
-
-            Ok(StatResult {
-                st_mode: meta.st_mode(),
-                st_ino: meta.st_ino(),
-                st_dev: meta.st_dev(),
-                st_nlink: meta.st_nlink(),
-                st_uid: meta.st_uid(),
-                st_gid: meta.st_gid(),
-                st_size: meta.st_size(),
-                st_atime: to_seconds_from_unix_epoch(meta.accessed()?),
-                st_mtime: to_seconds_from_unix_epoch(meta.modified()?),
-                st_ctime: to_seconds_from_nanos(meta.st_ctime(), meta.st_ctime_nsec()),
-            })
-        }
-
-        get_stats($path.as_str(), $follow_symlinks.follow_symlinks)
-            .map_err(|err| convert_io_error($vm, err))
-    }};
-}
-
-#[cfg(target_os = "linux")]
 fn os_stat(
-    path: PyStringRef,
+    file: Either<PyStringRef, i64>,
     dir_fd: DirFd,
     follow_symlinks: FollowSymlinks,
     vm: &VirtualMachine,
-) -> PyResult<StatResult> {
-    use std::os::linux::fs::MetadataExt;
-    let path = make_path(vm, path, &dir_fd);
-    os_unix_stat_inner!(path, follow_symlinks, vm)
-}
-
-#[cfg(target_os = "macos")]
-fn os_stat(
-    path: PyStringRef,
-    dir_fd: DirFd,
-    follow_symlinks: FollowSymlinks,
-    vm: &VirtualMachine,
-) -> PyResult<StatResult> {
-    use std::os::macos::fs::MetadataExt;
-    let path = make_path(vm, path, &dir_fd);
-    os_unix_stat_inner!(path, follow_symlinks, vm)
-}
-
-#[cfg(target_os = "android")]
-fn os_stat(
-    path: PyStringRef,
-    dir_fd: DirFd,
-    follow_symlinks: FollowSymlinks,
-    vm: &VirtualMachine,
-) -> PyResult<StatResult> {
+) -> PyResult {
+    #[cfg(target_os = "android")]
     use std::os::android::fs::MetadataExt;
-    let path = make_path(vm, path, &dir_fd);
-    os_unix_stat_inner!(path, follow_symlinks, vm)
-}
-
-#[cfg(target_os = "redox")]
-fn os_stat(
-    path: PyStringRef,
-    dir_fd: DirFd,
-    follow_symlinks: FollowSymlinks,
-    vm: &VirtualMachine,
-) -> PyResult<StatResult> {
+    #[cfg(target_os = "android")]
+    use std::os::android::fs::MetadataExt;
+    #[cfg(target_os = "linux")]
+    use std::os::linux::fs::MetadataExt;
+    #[cfg(target_os = "macos")]
+    use std::os::macos::fs::MetadataExt;
+    #[cfg(target_os = "redox")]
     use std::os::redox::fs::MetadataExt;
-    let path = make_path(vm, path, &dir_fd);
-    os_unix_stat_inner!(path, follow_symlinks, vm)
+
+    let get_stats = move || -> io::Result<PyObjectRef> {
+        let meta = match file {
+            Either::A(path) => {
+                let path = make_path(vm, path, &dir_fd);
+                let path = path.as_str();
+                if follow_symlinks.follow_symlinks {
+                    fs::metadata(path)?
+                } else {
+                    fs::symlink_metadata(path)?
+                }
+            }
+            Either::B(fno) => {
+                let file = rust_file(fno);
+                let meta = file.metadata()?;
+                raw_file_number(file);
+                meta
+            }
+        };
+
+        Ok(StatResult {
+            st_mode: meta.st_mode(),
+            st_ino: meta.st_ino(),
+            st_dev: meta.st_dev(),
+            st_nlink: meta.st_nlink(),
+            st_uid: meta.st_uid(),
+            st_gid: meta.st_gid(),
+            st_size: meta.st_size(),
+            st_atime: to_seconds_from_unix_epoch(meta.accessed()?),
+            st_mtime: to_seconds_from_unix_epoch(meta.modified()?),
+            st_ctime: to_seconds_from_nanos(meta.st_ctime(), meta.st_ctime_nsec()),
+        }
+        .into_obj(vm))
+    };
+
+    get_stats().map_err(|err| convert_io_error(vm, err))
 }
 
 // Copied from CPython fileutils.c
@@ -811,17 +748,25 @@ fn attributes_to_mode(attr: u32) -> u32 {
 
 #[cfg(windows)]
 fn os_stat(
-    path: PyStringRef,
+    file: Either<PyStringRef, i64>,
     _dir_fd: DirFd, // TODO: error
     follow_symlinks: FollowSymlinks,
     vm: &VirtualMachine,
-) -> PyResult<StatResult> {
+) -> PyResult {
     use std::os::windows::fs::MetadataExt;
 
-    fn get_stats(path: &str, follow_symlinks: bool) -> io::Result<StatResult> {
-        let meta = match follow_symlinks {
-            true => fs::metadata(path)?,
-            false => fs::symlink_metadata(path)?,
+    let get_stats = move || -> io::Result<PyObjectRef> {
+        let meta = match file {
+            Either::A(path) => match follow_symlinks {
+                true => fs::metadata(path)?,
+                false => fs::symlink_metadata(path)?,
+            },
+            Either::B(fno) => {
+                let file = rust_file(fno);
+                let meta = file.metadata()?;
+                raw_file_number(file);
+                meta
+            }
         };
 
         Ok(StatResult {
@@ -835,11 +780,11 @@ fn os_stat(
             st_atime: to_seconds_from_unix_epoch(meta.accessed()?),
             st_mtime: to_seconds_from_unix_epoch(meta.modified()?),
             st_ctime: to_seconds_from_unix_epoch(meta.created()?),
-        })
-    }
+        }
+        .into_obj(vm))
+    };
 
-    get_stats(path.as_str(), follow_symlinks.follow_symlinks)
-        .map_err(|s| vm.new_os_error(s.to_string()))
+    get_stats().map_err(|e| convert_io_error(vm, e))
 }
 
 #[cfg(not(any(
@@ -854,13 +799,13 @@ fn os_stat(
     _dir_fd: DirFd,
     _follow_symlinks: FollowSymlinks,
     _vm: &VirtualMachine,
-) -> PyResult<StatResult> {
+) -> PyResult {
     unimplemented!();
 }
 
-fn os_lstat(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<StatResult> {
+fn os_lstat(file: Either<PyStringRef, i64>, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
     os_stat(
-        path,
+        file,
         dir_fd,
         FollowSymlinks {
             follow_symlinks: false,
@@ -1216,18 +1161,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "stat" => ctx.new_rustfunc(DirEntryRef::stat),
     });
 
-    let stat_result = py_class!(ctx, "stat_result", ctx.object(), {
-         "st_mode" => ctx.new_property(StatResultRef::st_mode),
-         "st_ino" => ctx.new_property(StatResultRef::st_ino),
-         "st_dev" => ctx.new_property(StatResultRef::st_dev),
-         "st_nlink" => ctx.new_property(StatResultRef::st_nlink),
-         "st_uid" => ctx.new_property(StatResultRef::st_uid),
-         "st_gid" => ctx.new_property(StatResultRef::st_gid),
-         "st_size" => ctx.new_property(StatResultRef::st_size),
-         "st_atime" => ctx.new_property(StatResultRef::st_atime),
-         "st_ctime" => ctx.new_property(StatResultRef::st_ctime),
-         "st_mtime" => ctx.new_property(StatResultRef::st_mtime),
-    });
+    let stat_result = StatResult::make_class(ctx);
 
     struct SupportFunc<'a> {
         name: &'a str,
@@ -1278,6 +1212,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "rmdir", os_rmdir, Some(false), Some(false), None),
         SupportFunc::new(vm, "scandir", os_scandir, Some(false), None, None),
         SupportFunc::new(vm, "stat", os_stat, Some(false), Some(false), Some(false)),
+        SupportFunc::new(vm, "fstat", os_stat, Some(false), Some(false), Some(false)),
         SupportFunc::new(vm, "symlink", os_symlink, None, Some(false), None),
         // truncate Some None None
         SupportFunc::new(vm, "unlink", os_remove, Some(false), Some(false), None),
