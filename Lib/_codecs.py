@@ -37,6 +37,8 @@ Written by Marc-Andre Lemburg (mal@lemburg.com).
 
 Copyright (c) Corporation for National Research Initiatives.
 
+From PyPy v1.0.0
+
 """
 #from unicodecodec import *
 
@@ -47,7 +49,7 @@ codec_search_cache = {}
 codec_error_registry = {}
 codec_need_encodings = [True]
 
-def codec_register( search_function ):
+def register( search_function ):
     """register(search_function)
     
     Register a codec search function. Search functions are expected to take
@@ -55,12 +57,12 @@ def codec_register( search_function ):
     a tuple of functions (encoder, decoder, stream_reader, stream_writer).
     """
 
-    if callable(search_function):
-        codec_search_path.append(search_function)
+    if not callable(search_function):
+        raise TypeError("argument must be callable")
+    codec_search_path.append(search_function)
 
-register = codec_register
 
-def codec_lookup(encoding):
+def lookup(encoding):
     """lookup(encoding) -> (encoder, decoder, stream_reader, stream_writer)
     Looks up a codec tuple in the Python codec registry and returns
     a tuple of functions.
@@ -78,17 +80,13 @@ def codec_lookup(encoding):
         for search in codec_search_path:
             result = search(normalized_encoding)
             if result:
-                if not (type(result) == tuple and len(result) == 4):
-                    raise TypeError("codec search functions must return 4-tuples")
-                else:
-                    codec_search_cache[normalized_encoding] = result 
-                    return result
+                codec_search_cache[normalized_encoding] = result 
+                return result
         if not result:
             raise LookupError("unknown encoding: %s" % encoding)
     return result
     
 
-lookup = codec_lookup
 
 def encode(v, encoding=None, errors='strict'):
     """encode(obj, [encoding[,errors]]) -> object
@@ -102,15 +100,15 @@ def encode(v, encoding=None, errors='strict'):
     """
     if encoding == None:
         encoding = sys.getdefaultencoding()
-    if isinstance(encoding, str):
-        encoder = lookup(encoding)[0]
-        if encoder and isinstance(errors, str):
-            res = encoder(v, errors)
-            return res[0]
-        else:
-            raise TypeError("Errors must be a string")
-    else:
+    if not isinstance(encoding, str):
         raise TypeError("Encoding must be a string")
+    if not isinstance(errors, str):
+        raise TypeError("Errors must be a string")
+    codec = lookup(encoding)
+    res = codec.encode(v, errors)
+    if not isinstance(res, tuple) or len(res) != 2:
+        raise TypeError("encoder must return a tuple (object, integer)")
+    return res[0]
 
 def decode(obj, encoding=None, errors='strict'):
     """decode(obj, [encoding[,errors]]) -> object
@@ -124,23 +122,22 @@ def decode(obj, encoding=None, errors='strict'):
     """
     if encoding == None:
         encoding = sys.getdefaultencoding()
-    if isinstance(encoding, str):
-        decoder = lookup(encoding)[1]
-        if decoder and isinstance(errors, str):
-            res = decoder(obj, errors)
-            if not isinstance(res, tuple) or len(res) != 2:
-                raise TypeError("encoder must return a tuple (object, integer)")
-            return res[0]
-        else:
-            raise TypeError("Errors must be a string")
-    else:
+    if not isinstance(encoding, str):
         raise TypeError("Encoding must be a string")
+    if not isinstance(errors, str):
+        raise TypeError("Errors must be a string")
+    codec = lookup(encoding)
+    res = codec.decode(obj, errors)
+    if not isinstance(res, tuple) or len(res) != 2:
+        raise TypeError("encoder must return a tuple (object, integer)")
+    return res[0]
+
 
 def latin_1_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeLatin1(obj, len(obj), errors)
-    res = ''.join(res)
+    res = bytes(res)
     return res, len(res)
 # XXX MBCS codec might involve ctypes ?
 def mbcs_decode():
@@ -189,7 +186,7 @@ def unicode_escape_encode( obj, errors='strict'):
     """None
     """
     res = unicodeescape_string(obj, len(obj), 0)
-    res = ''.join(res)
+    res = bytes(res)
     return res, len(res)
 
 def latin_1_decode( data, errors='strict'):
@@ -229,7 +226,7 @@ def charmap_encode(obj, errors='strict', mapping='latin-1'):
     """
 
     res = PyUnicode_EncodeCharmap(obj, len(obj), mapping, errors)
-    res = ''.join(res)
+    res = bytes(res)
     return res, len(res)
 
 if sys.maxunicode == 65535:
@@ -241,17 +238,17 @@ def unicode_internal_encode( obj, errors='strict'):
     """None
     """
     if type(obj) == str:
-        p = []
+        p = bytearray()
         t = [ord(x) for x in obj]
         for i in t:
-            bytes = []
+            b = bytearray()
             for j in range(unicode_bytes):
-                bytes += chr(i%256)
+                b.append(i%256)
                 i >>= 8
             if sys.byteorder == "big":
-                bytes.reverse()
-            p += bytes
-        res = ''.join(p)
+                b.reverse()
+            p += b
+        res = bytes(p)
         return res, len(res)
     else:
         res = "You can do better than this" # XXX make this right
@@ -350,13 +347,6 @@ def escape_decode(data, errors='strict'):
     res = ''.join(res)    
     return res, len(res)
 
-def charbuffer_encode( obj, errors='strict'):
-    """None
-    """
-    res = str(obj)
-    res = ''.join(res)
-    return res, len(res)
-
 def charmap_decode( data, errors='strict', mapping=None):
     """None
     """
@@ -369,7 +359,7 @@ def utf_7_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeUTF7(obj, len(obj), 0, 0, errors)
-    res = ''.join(res)
+    res = bytes(res)
     return res, len(res)
 
 def mbcs_encode( obj, errors='strict'):
@@ -387,42 +377,42 @@ def ascii_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeASCII(obj, len(obj), errors)
-    res = ''.join(res)
+    res = bytes(res)
     return res, len(res)
 
 def utf_16_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeUTF16(obj, len(obj), errors, 'native')
-    res = ''.join(res)
+    res = bytes(res)
     return res, len(res)
 
 def raw_unicode_escape_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeRawUnicodeEscape(obj, len(obj))
-    res = ''.join(res)
+    res = bytes(res)
     return res, len(res)
 
 def utf_8_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeUTF8(obj, len(obj), errors)
-    res = ''.join(res)
+    res = bytes(res)
     return res, len(res)
 
 def utf_16_le_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeUTF16(obj, len(obj), errors, 'little')
-    res = ''.join(res)
+    res = bytes(res)
     return res, len(res)
 
 def utf_16_be_encode( obj, errors='strict'):
     """None
     """
     res = PyUnicode_EncodeUTF16(obj, len(obj), errors, 'big')
-    res = ''.join(res)
+    res = bytes(res)
     return res, len(res)
 
 def utf_16_le_decode( data, errors='strict', byteorder=0, final = 0):
@@ -842,15 +832,15 @@ def PyUnicode_DecodeASCII(s, size, errors):
     pos = 0
     while pos < len(s):
         c = s[pos]
-        if ord(c) < 128:
-            p += chr(ord(c))
+        if c < 128:
+            p += chr(c)
             pos += 1
         else:
             
             res = unicode_call_errorhandler(
                     errors, "ascii", "ordinal not in range(128)",
                     s,  pos, pos+1)
-            p += [chr(ord(x)) for x in res[0]]
+            p += res[0]
             pos = res[1]
     return p
 
@@ -1083,12 +1073,12 @@ def PyUnicode_DecodeUTF8Stateful(s, size, errors, final):
     pos = 0
     while pos < size:
         ch = s[pos]
-        if ord(ch) < 0x80:
-            p += ch
+        if ch < 0x80:
+            p += chr(ch)
             pos += 1
             continue
         
-        n = utf8_code_length[ord(ch)]
+        n = utf8_code_length[ch]
         startinpos =  pos 
         if (startinpos + n > size):
             if not final:
@@ -1118,7 +1108,7 @@ def PyUnicode_DecodeUTF8Stateful(s, size, errors, final):
             p += res[0]
             pos = res[1]
         elif n == 2:
-            if ((ord(s[pos+1]) & 0xc0) != 0x80):
+            if ((s[pos+1] & 0xc0) != 0x80):
                 errmsg = "invalid data"
                 endinpos = startinpos+2
                 res = unicode_call_errorhandler(
@@ -1127,7 +1117,7 @@ def PyUnicode_DecodeUTF8Stateful(s, size, errors, final):
                 p += res[0]
                 pos = res[1]
             else:
-                c = ((ord(s[pos]) & 0x1f) << 6) + (ord(s[pos+1]) & 0x3f)
+                c = ((s[pos] & 0x1f) << 6) + (s[pos+1] & 0x3f)
                 if c < 0x80:
                     errmsg = "illegal encoding"
                     endinpos = startinpos+2
@@ -1141,8 +1131,8 @@ def PyUnicode_DecodeUTF8Stateful(s, size, errors, final):
                     pos += n
                     #break
         elif n == 3:
-            if ((ord(s[pos+1]) & 0xc0) != 0x80 or
-                    (ord(s[pos+2]) & 0xc0) != 0x80):
+            if ((s[pos+1] & 0xc0) != 0x80 or
+                    (s[pos+2] & 0xc0) != 0x80):
                 errmsg = "invalid data"
                 endinpos = startinpos+3
                 res = unicode_call_errorhandler(
@@ -1151,9 +1141,9 @@ def PyUnicode_DecodeUTF8Stateful(s, size, errors, final):
                 p += res[0]
                 pos = res[1]
             else:
-                c = ((ord(s[pos]) & 0x0f) << 12) + \
-                        ((ord(s[pos+1]) & 0x3f) << 6) +\
-                        (ord(s[pos+2]) & 0x3f)       
+                c = ((s[pos] & 0x0f) << 12) + \
+                        ((s[pos+1] & 0x3f) << 6) +\
+                        (s[pos+2] & 0x3f)       
                         
 ##              /* Note: UTF-8 encodings of surrogates are considered
 ##                 legal UTF-8 sequences;
@@ -1175,9 +1165,9 @@ def PyUnicode_DecodeUTF8Stateful(s, size, errors, final):
                     pos += n
         elif n == 4:
 ##        case 4:
-            if ((ord(s[pos+1]) & 0xc0) != 0x80 or
-                (ord(s[pos+2]) & 0xc0) != 0x80 or
-                (ord(s[pos+3]) & 0xc0) != 0x80):
+            if ((s[pos+1] & 0xc0) != 0x80 or
+                (s[pos+2] & 0xc0) != 0x80 or
+                (s[pos+3] & 0xc0) != 0x80):
                 
                 errmsg = "invalid data"
                 startinpos = pos
@@ -1188,8 +1178,8 @@ def PyUnicode_DecodeUTF8Stateful(s, size, errors, final):
                 p += res[0]
                 pos = res[1]
             else:
-                c = ((ord(s[pos+0]) & 0x7) << 18) + ((ord(s[pos+1]) & 0x3f) << 12) +\
-                     ((ord(s[pos+2]) & 0x3f) << 6) + (ord(s[pos+3]) & 0x3f)
+                c = ((s[pos+0] & 0x7) << 18) + ((s[pos+1] & 0x3f) << 12) +\
+                     ((s[pos+2] & 0x3f) << 6) + (s[pos+3] & 0x3f)
                 #/* validate and convert to UTF-16 */
                 if ((c < 0x10000) or (c > 0x10ffff)):
                     #/* minimum value allowed for 4 byte encoding */
@@ -1239,18 +1229,18 @@ def PyUnicode_EncodeUTF8(s, size, errors):
 
     #assert(s != None)
     assert(size >= 0)
-    p = []
+    p = bytearray()
     i = 0
     while i < size:
         ch = s[i]
         i += 1
         if (ord(ch) < 0x80):
 ##         /* Encode ASCII */
-            p += chr(ord(ch))
+            p.append(ord(ch))
         elif (ord(ch) < 0x0800) :
 ##            /* Encode Latin-1 */
-            p += chr((0xc0 | (ord(ch) >> 6)))
-            p += chr((0x80 | (ord(ch) & 0x3f)))
+            p.append(0xc0 | (ord(ch) >> 6))
+            p.append(0x80 | (ord(ch) & 0x3f))
         else:
 ##            /* Encode UCS2 Unicode ordinals */
             if (ord(ch) < 0x10000):
@@ -1262,24 +1252,24 @@ def PyUnicode_EncodeUTF8(s, size, errors):
                     if (0xDC00 <= ord(ch2) and ord(ch2) <= 0xDFFF) :
                         ch3 = ((ord(ch) - 0xD800) << 10 | (ord(ch2) - 0xDC00)) + 0x10000
                         i += 1
-                        p.extend(encodeUCS4(ch3))
+                        p += encodeUCS4(ch3)
                         continue
 ##                    /* Fall through: handles isolated high surrogates */
-                p += (chr((0xe0 | (ord(ch) >> 12))))
-                p += (chr((0x80 | ((ord(ch) >> 6) & 0x3f))))
-                p += (chr((0x80 | (ord(ch) & 0x3f))))
+                p.append(0xe0 | (ord(ch) >> 12))
+                p.append(0x80 | ((ord(ch) >> 6) & 0x3f))
+                p.append(0x80 | (ord(ch) & 0x3f))
                 continue
             else:
-                p.extend(encodeUCS4(ord(ch)))
+                p += encodeUCS4(ord(ch))
     return p
 
 def encodeUCS4(ch):
 ##      /* Encode UCS4 Unicode ordinals */
-    p = []
-    p +=  (chr((0xf0 | (ch >> 18))))
-    p +=  (chr((0x80 | ((ch >> 12) & 0x3f))))
-    p +=  (chr((0x80 | ((ch >> 6) & 0x3f))))
-    p +=  (chr((0x80 | (ch & 0x3f))))
+    p = bytearray()
+    p.append(0xf0 | (ch >> 18))
+    p.append(0x80 | ((ch >> 12) & 0x3f))
+    p.append(0x80 | ((ch >> 6) & 0x3f))
+    p.append(0x80 | (ch & 0x3f))
     return p
 
 #/* --- Latin-1 Codec ------------------------------------------------------ */
@@ -1291,7 +1281,7 @@ def PyUnicode_DecodeLatin1(s, size, errors):
     pos = 0
     p = []
     while (pos < size):
-        p += chr(ord(s[pos]))
+        p += chr(s[pos])
         pos += 1
     return p
 
@@ -1305,15 +1295,15 @@ def unicode_encode_ucs1(p, size, errors, limit):
         encoding = "ascii"
     
     if (size == 0):
-        return ['']
-    res = []
+        return []
+    res = bytearray()
     pos = 0
     while pos < len(p):
     #for ch in p:
         ch = p[pos]
         
         if ord(ch) < limit:
-            res += chr(ord(ch))
+            res.append(ord(ch))
             pos += 1
         else:
             #/* startpos for collecting unencodable chars */
@@ -1481,7 +1471,7 @@ def PyUnicode_EncodeRawUnicodeEscape(s, size):
     if (size == 0):
         return ''
 
-    p = []
+    p = bytearray()
     for ch in s:
 #       /* Map 32-bit characters to '\Uxxxxxxxx' */
         if (ord(ch) >= 0x10000):
@@ -1490,12 +1480,10 @@ def PyUnicode_EncodeRawUnicodeEscape(s, size):
             p += '%08x' % (ord(ch))
         elif (ord(ch) >= 256) :
 #       /* Map 16-bit characters to '\uxxxx' */
-            p += '\\'
-            p += 'u'
-            p += '%04x' % (ord(ch))
+            p += b'\\u%04x' % (ord(ch))
 #       /* Copy everything else as-is */
         else:
-            p += chr(ord(ch))
+            p.append(ord(ch))
     
     #p += '\0'
     return p
