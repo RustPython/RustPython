@@ -15,13 +15,16 @@ use super::objslice::PySliceRef;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
+use crate::cformat::CFormatString;
 use crate::function::OptionalArg;
+use crate::obj::objstr::do_cformat_string;
 use crate::pyhash;
 use crate::pyobject::{
     Either, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject,
 };
 use crate::vm::VirtualMachine;
+use std::str::FromStr;
 
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
@@ -434,6 +437,33 @@ impl PyBytesRef {
     #[pymethod(name = "__rmul__")]
     fn rmul(self, n: isize, vm: &VirtualMachine) -> PyResult {
         self.repeat(n, vm)
+    }
+
+    fn do_cformat(
+        &self,
+        vm: &VirtualMachine,
+        format_string: CFormatString,
+        values_obj: PyObjectRef,
+    ) -> PyResult {
+        let final_string = do_cformat_string(vm, format_string, values_obj)?;
+        Ok(vm.ctx.new_bytes(
+            PyBytes::from_string(final_string.as_str(), "utf8", vm)?
+                .inner
+                .elements,
+        ))
+    }
+
+    #[pymethod(name = "__mod__")]
+    fn modulo(self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let format_string_text = std::str::from_utf8(&self.inner.elements).unwrap();
+        let format_string = CFormatString::from_str(format_string_text)
+            .map_err(|err| vm.new_value_error(err.to_string()))?;
+        self.do_cformat(vm, format_string, values.clone())
+    }
+
+    #[pymethod(name = "__rmod__")]
+    fn rmod(self, _values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
     }
 
     /// Return a string decoded from the given bytes.

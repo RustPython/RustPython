@@ -8,6 +8,7 @@ pub enum FormatPreconversor {
     Str,
     Repr,
     Ascii,
+    Bytes,
 }
 
 impl FormatPreconversor {
@@ -16,6 +17,7 @@ impl FormatPreconversor {
             's' => Some(FormatPreconversor::Str),
             'r' => Some(FormatPreconversor::Repr),
             'a' => Some(FormatPreconversor::Ascii),
+            'b' => Some(FormatPreconversor::Bytes),
             _ => None,
         }
     }

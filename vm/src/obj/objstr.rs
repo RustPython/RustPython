@@ -1278,6 +1278,7 @@ fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &
         Some(FormatPreconversor::Str) => vm.call_method(&argument, "__str__", vec![])?,
         Some(FormatPreconversor::Repr) => vm.call_method(&argument, "__repr__", vec![])?,
         Some(FormatPreconversor::Ascii) => vm.call_method(&argument, "__repr__", vec![])?,
+        Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", vec![])?,
         None => argument,
     };
     let returned_type = vm.ctx.new_str(new_format_spec.to_string());
@@ -1306,6 +1307,7 @@ fn do_cformat_specifier(
                 CFormatPreconversor::Str => vm.call_method(&obj.clone(), "__str__", vec![])?,
                 CFormatPreconversor::Repr => vm.call_method(&obj.clone(), "__repr__", vec![])?,
                 CFormatPreconversor::Ascii => vm.call_method(&obj.clone(), "__repr__", vec![])?,
+                CFormatPreconversor::Bytes => vm.call_method(&obj.clone(), "decode", vec![])?,
             };
             Ok(format_spec.format_string(get_value(&result)))
         }
@@ -1398,11 +1400,11 @@ fn try_update_quantity_from_tuple(
     }
 }
 
-fn do_cformat(
+pub fn do_cformat_string(
     vm: &VirtualMachine,
     mut format_string: CFormatString,
     values_obj: PyObjectRef,
-) -> PyResult {
+) -> PyResult<String> {
     let mut final_string = String::new();
     let num_specifiers = format_string
         .format_parts
@@ -1501,7 +1503,17 @@ fn do_cformat(
             vm.new_type_error("not all arguments converted during string formatting".to_string())
         );
     }
-    Ok(vm.ctx.new_str(final_string))
+    Ok(final_string)
+}
+
+fn do_cformat(
+    vm: &VirtualMachine,
+    format_string: CFormatString,
+    values_obj: PyObjectRef,
+) -> PyResult {
+    Ok(vm
+        .ctx
+        .new_str(do_cformat_string(vm, format_string, values_obj)?))
 }
 
 fn perform_format(
