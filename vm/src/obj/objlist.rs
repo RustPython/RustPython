@@ -584,23 +584,23 @@ impl PyListRef {
         }
     }
 
-    fn delitem(self, subscript: SequenceIndex, vm: &VirtualMachine) -> PyResult {
+    fn delitem(self, subscript: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
         match subscript {
             SequenceIndex::Int(index) => self.delindex(index, vm),
             SequenceIndex::Slice(slice) => self.delslice(slice, vm),
         }
     }
 
-    fn delindex(self, index: i32, vm: &VirtualMachine) -> PyResult {
+    fn delindex(self, index: i32, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(pos_index) = self.get_pos(index) {
             self.elements.borrow_mut().remove(pos_index);
-            Ok(vm.get_none())
+            Ok(())
         } else {
             Err(vm.new_index_error("Index out of bounds!".to_string()))
         }
     }
 
-    fn delslice(self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult {
+    fn delslice(self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
         let start = slice.start_index(vm)?;
         let stop = slice.stop_index(vm)?;
         let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
@@ -614,20 +614,20 @@ impl PyListRef {
                 match step.to_i32() {
                     Some(1) => {
                         self._del_slice(range);
-                        Ok(vm.get_none())
+                        Ok(())
                     }
                     Some(num) => {
                         self._del_stepped_slice(range, num as usize);
-                        Ok(vm.get_none())
+                        Ok(())
                     }
                     None => {
                         self._del_slice(range.start..range.start + 1);
-                        Ok(vm.get_none())
+                        Ok(())
                     }
                 }
             } else {
                 // no del to do
-                Ok(vm.get_none())
+                Ok(())
             }
         } else {
             // calculate the range for the reverse slice, first the bounds needs to be made
@@ -651,20 +651,20 @@ impl PyListRef {
                 match (-step).to_i32() {
                     Some(1) => {
                         self._del_slice(range);
-                        Ok(vm.get_none())
+                        Ok(())
                     }
                     Some(num) => {
                         self._del_stepped_slice_reverse(range, num as usize);
-                        Ok(vm.get_none())
+                        Ok(())
                     }
                     None => {
                         self._del_slice(range.end - 1..range.end);
-                        Ok(vm.get_none())
+                        Ok(())
                     }
                 }
             } else {
                 // no del to do
-                Ok(vm.get_none())
+                Ok(())
             }
         }
     }
