@@ -34,7 +34,7 @@ use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -170,17 +170,20 @@ impl PyStringReverseIterator {
     }
 }
 
+#[derive(FromArgs)]
+struct StrArgs {
+    #[pyarg(positional_or_keyword, optional = true)]
+    object: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    encoding: OptionalArg<PyStringRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    errors: OptionalArg<PyStringRef>,
+}
+
 #[pyimpl]
 impl PyString {
-    // TODO: should with following format
-    // class str(object='')
-    // class str(object=b'', encoding='utf-8', errors='strict')
     #[pyslot(new)]
-    fn tp_new(
-        cls: PyClassRef,
-        object: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStringRef> {
+    fn tp_new(cls: PyClassRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
         let string: PyStringRef = match args.object {
             OptionalArg::Present(input) => {
                 if let OptionalArg::Present(enc) = args.encoding {
@@ -203,10 +206,9 @@ impl PyString {
             }
         };
         if string.class().is(&cls) {
-            TryFromObject::try_from_object(vm, string)
+            Ok(string)
         } else {
-            let payload = string.payload::<PyString>().unwrap();
-            payload.clone().into_ref_with_type(vm, cls)
+            PyString::from(string.as_str()).into_ref_with_type(vm, cls)
         }
     }
     #[pymethod(name = "__add__")]

@@ -153,7 +153,7 @@ impl PyBytesRef {
     #[pymethod(name = "__add__")]
     fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Ok(other) = PyByteInner::try_from_object(vm, other) {
-            Ok(vm.ctx.new_bytearray(self.inner.add(other)))
+            Ok(vm.ctx.new_bytes(self.inner.add(other)))
         } else {
             Ok(vm.ctx.not_implemented())
         }

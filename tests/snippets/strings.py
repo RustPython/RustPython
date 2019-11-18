@@ -23,6 +23,10 @@ assert str(2.1) == "2.1"
 assert str() == ""
 assert str("abc") == "abc"
 
+assert_raises(TypeError, lambda: str("abc", "utf-8"))
+assert str(b"abc", "utf-8") == "abc"
+assert str(b"abc", encoding="ascii") == "abc"
+
 assert repr("a") == "'a'"
 assert repr("can't") == '"can\'t"'
 assert repr('"won\'t"') == "'\"won\\'t\"'"
