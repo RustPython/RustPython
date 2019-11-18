@@ -13,6 +13,7 @@ use super::os::convert_io_error;
 #[cfg(unix)]
 use super::os::convert_nix_error;
 use crate::function::{OptionalArg, PyFuncArgs};
+use crate::obj::objbytearray::PyByteArrayRef;
 use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::PyStringRef;
@@ -174,12 +175,20 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn recv(&self, bufsize: usize, vm: &VirtualMachine) -> PyResult {
+    fn recv(&self, bufsize: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let mut buffer = vec![0u8; bufsize];
         match self.sock.borrow_mut().read_exact(&mut buffer) {
-            Ok(()) => Ok(vm.ctx.new_bytes(buffer)),
+            Ok(()) => Ok(buffer),
             Err(err) => Err(convert_sock_error(vm, err)),
         }
+    }
+
+    #[pymethod]
+    fn recv_into(&self, buf: PyByteArrayRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let mut buffer = buf.inner.borrow_mut();
+        self.sock()
+            .recv(&mut buffer.elements)
+            .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
