@@ -25,6 +25,7 @@ use std::os::unix::io::RawFd;
 
 use super::errno::errors;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
+use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::PyIntRef;
@@ -347,17 +348,21 @@ fn os_fsync(fd: i64, vm: &VirtualMachine) -> PyResult<()> {
 fn os_read(fd: i64, n: usize, vm: &VirtualMachine) -> PyResult {
     let mut buffer = vec![0u8; n];
     let mut file = rust_file(fd);
-    file.read_exact(&mut buffer)
+    let n = file
+        .read(&mut buffer)
         .map_err(|err| convert_io_error(vm, err))?;
+    buffer.truncate(n);
 
     // Avoid closing the fd
     raw_file_number(file);
     Ok(vm.ctx.new_bytes(buffer))
 }
 
-fn os_write(fd: i64, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+fn os_write(fd: i64, data: PyBytesLike, vm: &VirtualMachine) -> PyResult {
     let mut file = rust_file(fd);
-    let written = file.write(&data).map_err(|err| convert_io_error(vm, err))?;
+    let written = data
+        .with_ref(|b| file.write(b))
+        .map_err(|err| convert_io_error(vm, err))?;
 
     // Avoid closing the fd
     raw_file_number(file);
@@ -757,14 +762,14 @@ fn os_stat(
 
     let get_stats = move || -> io::Result<PyObjectRef> {
         let meta = match file {
-            Either::A(path) => match follow_symlinks {
-                true => fs::metadata(path)?,
-                false => fs::symlink_metadata(path)?,
+            Either::A(path) => match follow_symlinks.follow_symlinks {
+                true => fs::metadata(path.as_str())?,
+                false => fs::symlink_metadata(path.as_str())?,
             },
             Either::B(fno) => {
-                let file = rust_file(fno);
-                let meta = file.metadata()?;
-                raw_file_number(file);
+                let f = rust_file(fno);
+                let meta = f.metadata()?;
+                raw_file_number(f);
                 meta
             }
         };
@@ -795,7 +800,7 @@ fn os_stat(
     windows
 )))]
 fn os_stat(
-    _path: PyStringRef,
+    _file: Either<PyStringRef, i64>,
     _dir_fd: DirFd,
     _follow_symlinks: FollowSymlinks,
     _vm: &VirtualMachine,
@@ -1138,6 +1143,24 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     }
 }
 
+fn os_isatty(fd: i32, _vm: &VirtualMachine) -> bool {
+    unsafe { libc::isatty(fd) != 0 }
+}
+
+fn os_lseek(
+    fd: libc::c_int,
+    position: libc::c_long,
+    how: libc::c_int,
+    vm: &VirtualMachine,
+) -> PyResult<libc::c_long> {
+    let res = unsafe { libc::lseek(fd, position, how) };
+    if res < 0 {
+        Err(convert_io_error(vm, io::Error::last_os_error()))
+    } else {
+        Ok(res)
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1253,6 +1276,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "cpu_count" => ctx.new_rustfunc(os_cpu_count),
         "_exit" => ctx.new_rustfunc(os_exit),
         "urandom" => ctx.new_rustfunc(os_urandom),
+        "isatty" => ctx.new_rustfunc(os_isatty),
+        "lseek" => ctx.new_rustfunc(os_lseek),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
@@ -1260,10 +1285,14 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "O_APPEND" => ctx.new_int(libc::O_APPEND),
         "O_EXCL" => ctx.new_int(libc::O_EXCL),
         "O_CREAT" => ctx.new_int(libc::O_CREAT),
+        "O_TRUNC" => ctx.new_int(libc::O_TRUNC),
         "F_OK" => ctx.new_int(0),
         "R_OK" => ctx.new_int(4),
         "W_OK" => ctx.new_int(2),
         "X_OK" => ctx.new_int(1),
+        "SEEK_SET" => ctx.new_int(libc::SEEK_SET),
+        "SEEK_CUR" => ctx.new_int(libc::SEEK_CUR),
+        "SEEK_END" => ctx.new_int(libc::SEEK_END),
     });
 
     for support in support_funcs {
@@ -1341,9 +1370,6 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
         "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
         "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
-        "SEEK_SET" => ctx.new_int(Whence::SeekSet as i8),
-        "SEEK_CUR" => ctx.new_int(Whence::SeekCur as i8),
-        "SEEK_END" => ctx.new_int(Whence::SeekEnd as i8),
     });
 
     #[cfg(not(target_os = "redox"))]
