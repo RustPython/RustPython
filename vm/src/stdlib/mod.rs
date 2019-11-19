@@ -48,6 +48,8 @@ mod select;
 pub mod signal;
 #[cfg(not(target_arch = "wasm32"))]
 mod subprocess;
+#[cfg(windows)]
+mod winapi;
 #[cfg(not(target_arch = "wasm32"))]
 mod zlib;
 
@@ -117,6 +119,12 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
     {
         modules.insert("pwd".to_string(), Box::new(pwd::make_module));
+    }
+
+    // Windows-only
+    #[cfg(windows)]
+    {
+        modules.insert("_winapi".to_string(), Box::new(winapi::make_module));
     }
 
     modules

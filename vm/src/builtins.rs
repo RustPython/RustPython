@@ -252,9 +252,15 @@ fn make_scope(vm: &VirtualMachine, scope: ScopeArgs) -> PyResult<Scope> {
     let globals = match globals {
         Some(dict) => {
             if !dict.contains_key("__builtins__", vm) {
-                let builtins_dict = vm.builtins.dict.as_ref().unwrap().as_object();
-                dict.set_item("__builtins__", builtins_dict.clone(), vm)
-                    .unwrap();
+                let builtins_dict = vm
+                    .builtins
+                    .dict
+                    .as_ref()
+                    .unwrap()
+                    .borrow()
+                    .as_object()
+                    .clone();
+                dict.set_item("__builtins__", builtins_dict, vm).unwrap();
             }
             dict
         }
@@ -870,22 +876,30 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "IndexError" => ctx.exceptions.index_error.clone(),
         "ImportError" => ctx.exceptions.import_error.clone(),
         "LookupError" => ctx.exceptions.lookup_error.clone(),
-        "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone(),
-        "FileExistsError" => ctx.exceptions.file_exists_error.clone(),
         "StopIteration" => ctx.exceptions.stop_iteration.clone(),
         "StopAsyncIteration" => ctx.exceptions.stop_async_iteration.clone(),
         "SystemError" => ctx.exceptions.system_error.clone(),
-        "PermissionError" => ctx.exceptions.permission_error.clone(),
         "UnicodeError" => ctx.exceptions.unicode_error.clone(),
         "UnicodeDecodeError" => ctx.exceptions.unicode_decode_error.clone(),
         "UnicodeEncodeError" => ctx.exceptions.unicode_encode_error.clone(),
         "UnicodeTranslateError" => ctx.exceptions.unicode_translate_error.clone(),
         "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
         "KeyError" => ctx.exceptions.key_error.clone(),
-        "OSError" => ctx.exceptions.os_error.clone(),
         "ModuleNotFoundError" => ctx.exceptions.module_not_found_error.clone(),
         "EOFError" => ctx.exceptions.eof_error.clone(),
         "MemoryError" => ctx.exceptions.memory_error.clone(),
+
+        "OSError" => ctx.exceptions.os_error.clone(),
+        "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone(),
+        "PermissionError" => ctx.exceptions.permission_error.clone(),
+        "FileExistsError" => ctx.exceptions.file_exists_error.clone(),
+        "BlockingIOError" => ctx.exceptions.blocking_io_error.clone(),
+        "InterruptedError" => ctx.exceptions.interrupted_error.clone(),
+        "ConnectionError" => ctx.exceptions.connection_error.clone(),
+        "ConnectionResetError" => ctx.exceptions.connection_reset_error.clone(),
+        "ConnectionRefusedError" => ctx.exceptions.connection_refused_error.clone(),
+        "ConnectionAbortedError" => ctx.exceptions.connection_aborted_error.clone(),
+        "BrokenPipeError" => ctx.exceptions.broken_pipe_error.clone(),
 
         // Warnings
         "Warning" => ctx.exceptions.warning.clone(),

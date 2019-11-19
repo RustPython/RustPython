@@ -580,9 +580,15 @@ impl VirtualMachine {
         } else if let Some(PyMethod {
             ref function,
             ref object,
+            actually_bind,
         }) = func_ref.payload()
         {
-            self.invoke(&function, args.insert(object.clone()))
+            let args = if *actually_bind {
+                args.insert(object.clone())
+            } else {
+                args
+            };
+            self.invoke(&function, args)
         } else if let Some(PyBuiltinFunction { ref value }) = func_ref.payload() {
             value(self, args)
         } else if self.is_callable(&func_ref) {
@@ -952,7 +958,7 @@ impl VirtualMachine {
         }
 
         let attr = if let Some(ref dict) = obj.dict {
-            dict.get_item_option(name_str.as_str(), self)?
+            dict.borrow().get_item_option(name_str.as_str(), self)?
         } else {
             None
         };
@@ -1302,6 +1308,28 @@ impl VirtualMachine {
             None
         };
         Ok(value)
+    }
+
+    #[doc(hidden)]
+    pub fn __module_set_attr(
+        &self,
+        module: &PyObjectRef,
+        attr_name: impl TryIntoRef<PyString>,
+        attr_value: impl Into<PyObjectRef>,
+    ) -> PyResult<()> {
+        let val = attr_value.into();
+        let val = if val
+            .class()
+            .is(&self.ctx.types.builtin_function_or_method_type)
+        {
+            PyMethod::new_nobind(module.clone(), val)
+                .into_ref(self)
+                .into_object()
+        } else {
+            val
+        };
+        self.set_attr(module, attr_name, val)?;
+        Ok(())
     }
 }
 

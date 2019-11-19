@@ -65,6 +65,13 @@ impl Default for CodeFlags {
     }
 }
 
+impl CodeFlags {
+    pub const NAME_MAPPING: &'static [(&'static str, CodeFlags)] = &[
+        ("GENERATOR", CodeFlags::IS_GENERATOR),
+        ("COROUTINE", CodeFlags::IS_COROUTINE),
+    ];
+}
+
 #[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Label(usize);
 

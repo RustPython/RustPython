@@ -116,22 +116,22 @@ macro_rules! no_kwargs {
 
 #[macro_export]
 macro_rules! py_module {
-    ( $vm:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {{
+    ( $vm:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)? }) => {{
         let module = $vm.new_module($module_name, $vm.ctx.new_dict());
-        $(
-            $vm.set_attr(&module, $name, $value).unwrap();
-        )*
+        $crate::extend_module!($vm, module, { $($name => $value),* });
         module
     }};
 }
 
 #[macro_export]
 macro_rules! extend_module {
-    ( $vm:expr, $module:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+    ( $vm:expr, $module:expr, { $($name:expr => $value:expr),* $(,)? }) => {{
+        #[allow(unused_variables)]
+        let module: &$crate::pyobject::PyObjectRef = &$module;
         $(
-            $vm.set_attr(&$module, $name, $value).unwrap();
+            $vm.__module_set_attr(&module, $name, $value).unwrap();
         )*
-    }
+    }};
 }
 
 #[macro_export]

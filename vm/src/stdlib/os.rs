@@ -21,6 +21,7 @@ use nix::pty::openpty;
 #[cfg(unix)]
 use nix::unistd::{self, Gid, Pid, Uid, Whence};
 
+use super::errno::errors;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objdict::PyDictRef;
@@ -152,21 +153,21 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
-    let os_error = match err.kind() {
-        ErrorKind::NotFound => {
-            let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
-            vm.new_exception(exc_type, err.to_string())
-        }
-        ErrorKind::PermissionDenied => {
-            let exc_type = vm.ctx.exceptions.permission_error.clone();
-            vm.new_exception(exc_type, err.to_string())
-        }
-        ErrorKind::AlreadyExists => {
-            let exc_type = vm.ctx.exceptions.file_exists_error.clone();
-            vm.new_exception(exc_type, err.to_string())
-        }
-        _ => vm.new_os_error(err.to_string()),
+    #[allow(unreachable_patterns)] // some errors are just aliases of each other
+    let exc_type = match err.kind() {
+        ErrorKind::NotFound => vm.ctx.exceptions.file_not_found_error.clone(),
+        ErrorKind::PermissionDenied => vm.ctx.exceptions.permission_error.clone(),
+        ErrorKind::AlreadyExists => vm.ctx.exceptions.file_exists_error.clone(),
+        ErrorKind::WouldBlock => vm.ctx.exceptions.blocking_io_error.clone(),
+        _ => match err.raw_os_error() {
+            Some(errors::EAGAIN)
+            | Some(errors::EALREADY)
+            | Some(errors::EWOULDBLOCK)
+            | Some(errors::EINPROGRESS) => vm.ctx.exceptions.blocking_io_error.clone(),
+            _ => vm.ctx.exceptions.os_error.clone(),
+        },
     };
+    let os_error = vm.new_exception(exc_type, err.to_string());
     if let Some(errno) = err.raw_os_error() {
         vm.set_attr(&os_error, "errno", vm.ctx.new_int(errno))
             .unwrap();
@@ -1089,6 +1090,17 @@ pub fn os_ttyname(fd: i32, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    let mut buf = vec![0u8; size];
+    match getrandom::getrandom(&mut buf) {
+        Ok(()) => Ok(buf),
+        Err(e) => match e.raw_os_error() {
+            Some(errno) => Err(convert_io_error(vm, io::Error::from_raw_os_error(errno))),
+            None => Err(vm.new_os_error("Getting random failed".to_string())),
+        },
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1213,6 +1225,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "getpid" => ctx.new_rustfunc(os_getpid),
         "cpu_count" => ctx.new_rustfunc(os_cpu_count),
         "_exit" => ctx.new_rustfunc(os_exit),
+        "urandom" => ctx.new_rustfunc(os_urandom),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),

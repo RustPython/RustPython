@@ -228,8 +228,6 @@ pub struct ExceptionZoo {
     pub attribute_error: PyClassRef,
     pub base_exception_type: PyClassRef,
     pub exception_type: PyClassRef,
-    pub file_not_found_error: PyClassRef,
-    pub file_exists_error: PyClassRef,
     pub import_error: PyClassRef,
     pub index_error: PyClassRef,
     pub key_error: PyClassRef,
@@ -238,9 +236,7 @@ pub struct ExceptionZoo {
     pub name_error: PyClassRef,
     pub not_implemented_error: PyClassRef,
     pub recursion_error: PyClassRef,
-    pub os_error: PyClassRef,
     pub overflow_error: PyClassRef,
-    pub permission_error: PyClassRef,
     pub reference_error: PyClassRef,
     pub runtime_error: PyClassRef,
     pub stop_iteration: PyClassRef,
@@ -258,6 +254,18 @@ pub struct ExceptionZoo {
     pub zero_division_error: PyClassRef,
     pub eof_error: PyClassRef,
     pub memory_error: PyClassRef,
+
+    pub os_error: PyClassRef,
+    pub file_not_found_error: PyClassRef,
+    pub permission_error: PyClassRef,
+    pub file_exists_error: PyClassRef,
+    pub blocking_io_error: PyClassRef,
+    pub interrupted_error: PyClassRef,
+    pub connection_error: PyClassRef,
+    pub connection_reset_error: PyClassRef,
+    pub connection_refused_error: PyClassRef,
+    pub connection_aborted_error: PyClassRef,
+    pub broken_pipe_error: PyClassRef,
 
     pub warning: PyClassRef,
     pub bytes_warning: PyClassRef,
@@ -289,7 +297,6 @@ impl ExceptionZoo {
         let key_error = create_type("KeyError", &type_type, &exception_type);
         let lookup_error = create_type("LookupError", &type_type, &exception_type);
         let name_error = create_type("NameError", &type_type, &exception_type);
-        let os_error = create_type("OSError", &type_type, &exception_type);
         let runtime_error = create_type("RuntimeError", &type_type, &exception_type);
         let reference_error = create_type("ReferenceError", &type_type, &exception_type);
         let stop_iteration = create_type("StopIteration", &type_type, &exception_type);
@@ -303,9 +310,6 @@ impl ExceptionZoo {
         let module_not_found_error = create_type("ModuleNotFoundError", &type_type, &import_error);
         let not_implemented_error = create_type("NotImplementedError", &type_type, &runtime_error);
         let recursion_error = create_type("RecursionError", &type_type, &runtime_error);
-        let file_not_found_error = create_type("FileNotFoundError", &type_type, &os_error);
-        let permission_error = create_type("PermissionError", &type_type, &os_error);
-        let file_exists_error = create_type("FileExistsError", &type_type, &os_error);
         let eof_error = create_type("EOFError", &type_type, &exception_type);
         let indentation_error = create_type("IndentationError", &type_type, &syntax_error);
         let tab_error = create_type("TabError", &type_type, &indentation_error);
@@ -315,6 +319,23 @@ impl ExceptionZoo {
         let unicode_translate_error =
             create_type("UnicodeTranslateError", &type_type, &unicode_error);
         let memory_error = create_type("MemoryError", &type_type, &exception_type);
+
+        // os errors
+        let os_error = create_type("OSError", &type_type, &exception_type);
+
+        let file_not_found_error = create_type("FileNotFoundError", &type_type, &os_error);
+        let permission_error = create_type("PermissionError", &type_type, &os_error);
+        let file_exists_error = create_type("FileExistsError", &type_type, &os_error);
+        let blocking_io_error = create_type("BlockingIOError", &type_type, &os_error);
+        let interrupted_error = create_type("InterruptedError", &type_type, &os_error);
+        let connection_error = create_type("ConnectionError", &type_type, &os_error);
+        let connection_reset_error =
+            create_type("ConnectionResetError", &type_type, &connection_error);
+        let connection_refused_error =
+            create_type("ConnectionRefusedError", &type_type, &connection_error);
+        let connection_aborted_error =
+            create_type("ConnectionAbortedError", &type_type, &connection_error);
+        let broken_pipe_error = create_type("BrokenPipeError", &type_type, &connection_error);
 
         let warning = create_type("Warning", &type_type, &exception_type);
         let bytes_warning = create_type("BytesWarning", &type_type, &warning);
@@ -339,8 +360,6 @@ impl ExceptionZoo {
             attribute_error,
             base_exception_type,
             exception_type,
-            file_not_found_error,
-            file_exists_error,
             import_error,
             index_error,
             key_error,
@@ -349,9 +368,7 @@ impl ExceptionZoo {
             name_error,
             not_implemented_error,
             recursion_error,
-            os_error,
             overflow_error,
-            permission_error,
             runtime_error,
             stop_iteration,
             stop_async_iteration,
@@ -368,6 +385,17 @@ impl ExceptionZoo {
             zero_division_error,
             eof_error,
             memory_error,
+            os_error,
+            file_not_found_error,
+            permission_error,
+            file_exists_error,
+            blocking_io_error,
+            interrupted_error,
+            connection_error,
+            connection_reset_error,
+            connection_refused_error,
+            connection_aborted_error,
+            broken_pipe_error,
             warning,
             bytes_warning,
             unicode_warning,

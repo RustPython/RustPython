@@ -86,6 +86,10 @@ impl PyCodeRef {
     fn co_name(self, _vm: &VirtualMachine) -> String {
         self.code.obj_name.clone()
     }
+
+    fn co_flags(self, _vm: &VirtualMachine) -> u8 {
+        self.code.flags.bits()
+    }
 }
 
 pub fn init(context: &PyContext) {
@@ -99,5 +103,6 @@ pub fn init(context: &PyContext) {
         "co_firstlineno" => context.new_property(PyCodeRef::co_firstlineno),
         "co_kwonlyargcount" => context.new_property(PyCodeRef::co_kwonlyargcount),
         "co_name" => context.new_property(PyCodeRef::co_name),
+        "co_flags" => context.new_property(PyCodeRef::co_flags),
     });
 }
