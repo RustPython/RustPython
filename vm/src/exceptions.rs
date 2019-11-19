@@ -10,11 +10,11 @@ use crate::types::create_type;
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::cell::{Cell, RefCell};
+use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 
 #[pyclass]
-#[derive(Debug)]
 pub struct PyBaseException {
     traceback: RefCell<Option<PyTracebackRef>>,
     cause: RefCell<Option<PyObjectRef>>,
@@ -22,6 +22,14 @@ pub struct PyBaseException {
     suppress_context: Cell<bool>,
     args: RefCell<PyObjectRef>,
 }
+
+impl fmt::Debug for PyBaseException {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: implement more detailed, non-recursive Debug formatter
+        f.write_str("PyBaseException")
+    }
+}
+
 pub type PyBaseExceptionRef = PyRef<PyBaseException>;
 
 impl PyValue for PyBaseException {
