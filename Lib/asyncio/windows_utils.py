@@ -9,11 +9,12 @@ if sys.platform != 'win32':  # pragma: no cover
 
 import _winapi
 import itertools
-import msvcrt
+# XXX RustPython TODO: msvcrt
+# import msvcrt
 import os
 import socket
 import subprocess
-import tempfile
+# import tempfile
 import warnings
 
 

@@ -39,6 +39,8 @@ use crate::vm::VirtualMachine;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod io;
 #[cfg(not(target_arch = "wasm32"))]
+mod multiprocessing;
+#[cfg(not(target_arch = "wasm32"))]
 mod os;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
@@ -109,6 +111,10 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("_io".to_string(), Box::new(io::make_module));
         modules.insert("_os".to_string(), Box::new(os::make_module));
         modules.insert("_socket".to_string(), Box::new(socket::make_module));
+        modules.insert(
+            "_multiprocessing".to_string(),
+            Box::new(multiprocessing::make_module),
+        );
         modules.insert("signal".to_string(), Box::new(signal::make_module));
         modules.insert("select".to_string(), Box::new(select::make_module));
         modules.insert("_subprocess".to_string(), Box::new(subprocess::make_module));
