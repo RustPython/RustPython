@@ -13,13 +13,16 @@ use super::objslice::PySliceRef;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
+use crate::cformat::CFormatString;
 use crate::function::OptionalArg;
+use crate::obj::objstr::do_cformat_string;
 use crate::pyobject::{
     Either, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject,
 };
 use crate::vm::VirtualMachine;
 use std::mem::size_of;
+use std::str::FromStr;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\
 ///  bytearray(string, encoding[, errors]) -> bytearray\n\
@@ -555,6 +558,31 @@ impl PyByteArrayRef {
     #[pymethod(name = "__imul__")]
     fn irepeat(self, n: isize, vm: &VirtualMachine) -> PyResult<()> {
         self.inner.borrow_mut().irepeat(n, vm)
+    }
+
+    fn do_cformat(
+        &self,
+        vm: &VirtualMachine,
+        format_string: CFormatString,
+        values_obj: PyObjectRef,
+    ) -> PyResult {
+        let final_string = do_cformat_string(vm, format_string, values_obj)?;
+        Ok(vm
+            .ctx
+            .new_bytearray(PyByteInner::from_string(final_string.as_str(), "utf8", vm)?.elements))
+    }
+
+    #[pymethod(name = "__mod__")]
+    fn modulo(self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let format_string =
+            CFormatString::from_str(std::str::from_utf8(&self.inner.borrow().elements).unwrap())
+                .map_err(|err| vm.new_value_error(err.to_string()))?;
+        self.do_cformat(vm, format_string, values.clone())
+    }
+
+    #[pymethod(name = "__rmod__")]
+    fn rmod(self, _values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
     }
 
     #[pymethod(name = "reverse")]

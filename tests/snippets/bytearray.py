@@ -706,3 +706,7 @@ a[1:3] = b'test'
 assert a == bytearray(b'\x00testt')
 a[:6] = memoryview(b'test')
 assert a == bytearray(b'test')
+
+# mod
+assert bytearray('rust%bpython%b', 'utf-8') % (b' ', b'!') == bytearray(b'rust python!')
+assert bytearray('x=%i y=%f', 'utf-8') % (1, 2.5) == bytearray(b'x=1 y=2.500000')
