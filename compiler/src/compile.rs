@@ -255,6 +255,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.compile_expression(expression)?;
             } else {
                 return Err(CompileError {
+                    statement: None,
                     error: CompileErrorType::ExpectExpr,
                     location: statement.location.clone(),
                 });
@@ -533,6 +534,7 @@ impl<O: OutputStream> Compiler<O> {
             Break => {
                 if !self.ctx.in_loop {
                     return Err(CompileError {
+                        statement: None,
                         error: CompileErrorType::InvalidBreak,
                         location: statement.location.clone(),
                     });
@@ -542,6 +544,7 @@ impl<O: OutputStream> Compiler<O> {
             Continue => {
                 if !self.ctx.in_loop {
                     return Err(CompileError {
+                        statement: None,
                         error: CompileErrorType::InvalidContinue,
                         location: statement.location.clone(),
                     });
@@ -551,6 +554,7 @@ impl<O: OutputStream> Compiler<O> {
             Return { value } => {
                 if !self.ctx.in_func() {
                     return Err(CompileError {
+                        statement: None,
                         error: CompileErrorType::InvalidReturn,
                         location: statement.location.clone(),
                     });
@@ -628,6 +632,7 @@ impl<O: OutputStream> Compiler<O> {
             }
             _ => {
                 return Err(CompileError {
+                    statement: None,
                     error: CompileErrorType::Delete(expression.name()),
                     location: self.current_source_location.clone(),
                 });
@@ -1331,6 +1336,7 @@ impl<O: OutputStream> Compiler<O> {
                     if let ast::ExpressionType::Starred { .. } = &element.node {
                         if seen_star {
                             return Err(CompileError {
+                                statement: None,
                                 error: CompileErrorType::StarArgs,
                                 location: self.current_source_location.clone(),
                             });
@@ -1360,6 +1366,7 @@ impl<O: OutputStream> Compiler<O> {
             }
             _ => {
                 return Err(CompileError {
+                    statement: None,
                     error: CompileErrorType::Assign(target.name()),
                     location: self.current_source_location.clone(),
                 });
@@ -1644,6 +1651,7 @@ impl<O: OutputStream> Compiler<O> {
             Yield { value } => {
                 if !self.ctx.in_func() {
                     return Err(CompileError {
+                        statement: Option::None,
                         error: CompileErrorType::InvalidYield,
                         location: self.current_source_location.clone(),
                     });
@@ -1738,6 +1746,7 @@ impl<O: OutputStream> Compiler<O> {
             }
             Starred { .. } => {
                 return Err(CompileError {
+                    statement: Option::None,
                     error: CompileErrorType::SyntaxError(std::string::String::from(
                         "Invalid starred expression",
                     )),

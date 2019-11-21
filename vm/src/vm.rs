@@ -1007,6 +1007,10 @@ impl VirtualMachine {
     ) -> Result<PyCodeRef, CompileError> {
         compile::compile(source, mode, source_path, self.settings.optimize)
             .map(|codeobj| PyCode::new(codeobj).into_ref(self))
+            .map_err(|mut compile_error| {
+                compile_error.update_statement_info(source.trim_end().to_string());
+                compile_error
+            })
     }
 
     pub fn _sub(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {

@@ -142,6 +142,7 @@ pub struct SymbolTableError {
 impl From<SymbolTableError> for CompileError {
     fn from(error: SymbolTableError) -> Self {
         CompileError {
+            statement: None,
             error: CompileErrorType::SyntaxError(error.error),
             location: error.location,
         }
