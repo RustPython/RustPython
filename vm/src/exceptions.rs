@@ -3,24 +3,131 @@ use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::types::create_type;
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
+use std::cell::{Cell, RefCell};
+use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 
-fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let exc_self = args.args[0].clone();
-    let exc_args = vm.ctx.new_tuple(args.args[1..].to_vec());
-    vm.set_attr(&exc_self, "args", exc_args)?;
+#[pyclass]
+pub struct PyBaseException {
+    traceback: RefCell<Option<PyTracebackRef>>,
+    cause: RefCell<Option<PyObjectRef>>,
+    context: RefCell<Option<PyObjectRef>>,
+    suppress_context: Cell<bool>,
+    args: RefCell<PyObjectRef>,
+}
 
-    // TODO: have an actual `traceback` object for __traceback__
-    vm.set_attr(&exc_self, "__traceback__", vm.get_none())?;
-    vm.set_attr(&exc_self, "__cause__", vm.get_none())?;
-    vm.set_attr(&exc_self, "__context__", vm.get_none())?;
-    vm.set_attr(&exc_self, "__suppress_context__", vm.new_bool(false))?;
-    Ok(vm.get_none())
+impl fmt::Debug for PyBaseException {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: implement more detailed, non-recursive Debug formatter
+        f.write_str("PyBaseException")
+    }
+}
+
+pub type PyBaseExceptionRef = PyRef<PyBaseException>;
+
+impl PyValue for PyBaseException {
+    const HAVE_DICT: bool = true;
+
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.exceptions.base_exception_type.clone()
+    }
+}
+
+#[pyimpl]
+impl PyBaseException {
+    #[pyslot(new)]
+    fn tp_new(
+        cls: PyClassRef,
+        _args: PyFuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBaseExceptionRef> {
+        PyBaseException {
+            traceback: RefCell::new(None),
+            cause: RefCell::new(None),
+            context: RefCell::new(None),
+            suppress_context: Cell::new(false),
+            args: RefCell::new(vm.ctx.new_tuple(vec![])),
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(name = "__init__")]
+    fn init(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        self.args.replace(vm.ctx.new_tuple(args.args.to_vec()));
+        Ok(())
+    }
+
+    #[pyproperty]
+    fn args(&self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.args.borrow().clone()
+    }
+
+    #[pyproperty(setter)]
+    fn set_args(&self, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.args.replace(args);
+        Ok(vm.get_none())
+    }
+
+    #[pyproperty(name = "__traceback__")]
+    fn get_traceback(&self, _vm: &VirtualMachine) -> Option<PyTracebackRef> {
+        self.traceback.borrow().clone()
+    }
+
+    #[pyproperty(name = "__traceback__", setter)]
+    fn set_traceback(&self, traceback: Option<PyTracebackRef>, vm: &VirtualMachine) -> PyResult {
+        self.traceback.replace(traceback);
+        Ok(vm.get_none())
+    }
+
+    #[pyproperty(name = "__cause__")]
+    fn get_cause(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+        self.cause.borrow().clone()
+    }
+
+    #[pyproperty(name = "__cause__", setter)]
+    fn set_cause(&self, cause: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+        self.cause.replace(cause);
+        Ok(vm.get_none())
+    }
+
+    #[pyproperty(name = "__context__")]
+    fn get_context(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+        self.context.borrow().clone()
+    }
+
+    #[pyproperty(name = "__context__", setter)]
+    fn set_context(&self, context: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+        self.context.replace(context);
+        Ok(vm.get_none())
+    }
+
+    #[pyproperty(name = "__suppress_context__")]
+    fn get_suppress_context(&self, _vm: &VirtualMachine) -> bool {
+        self.suppress_context.get()
+    }
+
+    #[pyproperty(name = "__suppress_context__", setter)]
+    fn set_suppress_context(&self, suppress_context: bool, vm: &VirtualMachine) -> PyResult {
+        self.suppress_context.set(suppress_context);
+        Ok(vm.get_none())
+    }
+
+    #[pymethod]
+    fn with_traceback(
+        zelf: PyRef<Self>,
+        tb: Option<PyTracebackRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult {
+        zelf.traceback.replace(tb);
+        Ok(zelf.as_object().clone())
+    }
 }
 
 /// Print exception chain
@@ -206,19 +313,6 @@ fn exception_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         _ => format!("{}({})", exc_name, args_repr.join(", ")),
     };
     Ok(vm.new_str(joined_str))
-}
-
-fn exception_with_traceback(
-    zelf: PyObjectRef,
-    tb: Option<PyTracebackRef>,
-    vm: &VirtualMachine,
-) -> PyResult {
-    vm.set_attr(
-        &zelf,
-        "__traceback__",
-        tb.map_or(vm.get_none(), |tb| tb.into_object()),
-    )?;
-    Ok(zelf)
 }
 
 #[derive(Debug)]
@@ -416,10 +510,9 @@ impl ExceptionZoo {
 }
 
 fn import_error_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    // TODO: call super().__init__(*args) instead
-    exception_init(vm, args.clone())?;
-
     let exc_self = args.args[0].clone();
+
+    vm.set_attr(&exc_self, "args", vm.ctx.new_tuple(args.args[1..].to_vec()))?;
     vm.set_attr(
         &exc_self,
         "name",
@@ -446,10 +539,7 @@ fn import_error_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let base_exception_type = &context.exceptions.base_exception_type;
-    extend_class!(context, base_exception_type, {
-        "__init__" => context.new_rustfunc(exception_init),
-        "with_traceback" => context.new_rustfunc(exception_with_traceback)
-    });
+    PyBaseException::extend_class(context, base_exception_type);
 
     let exception_type = &context.exceptions.exception_type;
     extend_class!(context, exception_type, {
