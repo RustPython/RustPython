@@ -16,7 +16,7 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytearray::PyByteArrayRef;
 use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
@@ -335,10 +335,14 @@ impl TryFromObject for Address {
         if tuple.elements.len() != 2 {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_string()))
         } else {
-            Ok(Address {
-                host: PyStringRef::try_from_object(vm, tuple.elements[0].clone())?,
-                port: u16::try_from_object(vm, tuple.elements[1].clone())?,
-            })
+            let host = PyStringRef::try_from_object(vm, tuple.elements[0].clone())?;
+            let host = if host.as_str().is_empty() {
+                PyString::from("0.0.0.0").into_ref(vm)
+            } else {
+                host
+            };
+            let port = u16::try_from_object(vm, tuple.elements[1].clone())?;
+            Ok(Address { host, port })
         }
     }
 }
@@ -447,6 +451,26 @@ fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_list(list))
 }
 
+fn socket_gethostbyaddr(
+    addr: PyStringRef,
+    vm: &VirtualMachine,
+) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
+    // TODO: figure out how to do this properly
+    let ai = dns_lookup::getaddrinfo(Some(addr.as_str()), None, None)
+        .map_err(|e| convert_sock_error(vm, e.into()))?
+        .next()
+        .unwrap()
+        .map_err(|e| convert_sock_error(vm, e))?;
+    let (hostname, _) =
+        dns_lookup::getnameinfo(&ai.sockaddr, 0).map_err(|e| convert_sock_error(vm, e.into()))?;
+    Ok((
+        hostname,
+        vm.ctx.new_list(vec![]),
+        vm.ctx
+            .new_list(vec![vm.new_str(ai.sockaddr.ip().to_string())]),
+    ))
+}
+
 fn get_addr<T, I>(vm: &VirtualMachine, addr: T) -> PyResult<socket2::SockAddr>
 where
     T: ToSocketAddrs<Iter = I>,
@@ -547,6 +571,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "htonl" => ctx.new_rustfunc(socket_htonl),
         "getdefaulttimeout" => ctx.new_rustfunc(|vm: &VirtualMachine| vm.get_none()),
         "getaddrinfo" => ctx.new_rustfunc(socket_getaddrinfo),
+        "gethostbyaddr" => ctx.new_rustfunc(socket_gethostbyaddr),
     });
 
     extend_module_platform_specific(vm, &module);
