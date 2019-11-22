@@ -953,6 +953,86 @@ impl PyItertoolsCombinations {
     }
 }
 
+#[pyclass]
+#[derive(Debug)]
+struct PyItertoolsZiplongest {
+    iterators: Vec<PyObjectRef>,
+    fillvalue: PyObjectRef,
+    numactive: RefCell<usize>,
+}
+
+impl PyValue for PyItertoolsZiplongest {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "zip_longest")
+    }
+}
+
+#[derive(FromArgs)]
+struct ZiplongestArgs {
+    #[pyarg(keyword_only, optional = true)]
+    fillvalue: OptionalArg<PyObjectRef>,
+}
+
+#[pyimpl]
+impl PyItertoolsZiplongest {
+    #[pyslot(new)]
+    fn tp_new(
+        cls: PyClassRef,
+        iterables: Args,
+        args: ZiplongestArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        let fillvalue = match args.fillvalue.into_option() {
+            Some(i) => i,
+            None => vm.get_none(),
+        };
+
+        let iterators = iterables
+            .into_iter()
+            .map(|iterable| get_iter(vm, &iterable))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let numactive = RefCell::new(iterators.len());
+
+        PyItertoolsZiplongest {
+            iterators,
+            fillvalue,
+            numactive,
+        }.into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm:&VirtualMachine) -> PyResult {
+        if self.iterators.is_empty() {
+            Err(new_stop_iteration(vm))
+        } else {
+            let mut next_obj: PyObjectRef;
+            let mut result: Vec<PyObjectRef> = Vec::new();
+            let mut numactive = self.numactive.clone().into_inner();
+
+            for idx in 0..self.iterators.len(){
+                next_obj = match call_next(vm, &self.iterators[idx]) {
+                    Ok(obj) => obj,
+                    Err(_) => {
+                        numactive -= 1;
+                        if numactive == 0 {
+                            return Err(new_stop_iteration(vm));
+                        }
+                        self.fillvalue.clone()
+                    }
+                };
+                result.push(next_obj);
+            }
+            Ok(vm.ctx.new_tuple(result))
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -991,6 +1071,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let tee = ctx.new_class("tee", ctx.object());
     PyItertoolsTee::extend_class(ctx, &tee);
 
+    let zip_longest = ctx.new_class("zip_longest", ctx.object());
+    PyItertoolsZiplongest::extend_class(ctx, &zip_longest);
+
     py_module!(vm, "itertools", {
         "accumulate" => accumulate,
         "chain" => chain,
@@ -1005,5 +1088,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "takewhile" => takewhile,
         "tee" => tee,
         "product" => product,
+        "zip_longest" => zip_longest,
     })
 }
