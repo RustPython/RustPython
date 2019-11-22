@@ -7,13 +7,21 @@ use std::fmt;
 
 #[derive(Debug)]
 pub struct CompileError {
+    pub statement: Option<String>,
     pub error: CompileErrorType,
     pub location: Location,
+}
+
+impl CompileError {
+    pub fn update_statement_info(&mut self, statement: String) {
+        self.statement = Some(statement);
+    }
 }
 
 impl From<ParseError> for CompileError {
     fn from(error: ParseError) -> Self {
         CompileError {
+            statement: None,
             error: CompileErrorType::Parse(error.error),
             location: error.location,
         }
@@ -70,21 +78,31 @@ impl CompileError {
 
 impl fmt::Display for CompileError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self.error {
-            CompileErrorType::Assign(target) => write!(f, "can't assign to {}", target),
-            CompileErrorType::Delete(target) => write!(f, "can't delete {}", target),
-            CompileErrorType::ExpectExpr => write!(f, "Expecting expression, got statement"),
-            CompileErrorType::Parse(err) => write!(f, "{}", err),
-            CompileErrorType::SyntaxError(err) => write!(f, "{}", err),
-            CompileErrorType::StarArgs => write!(f, "Two starred expressions in assignment"),
-            CompileErrorType::InvalidBreak => write!(f, "'break' outside loop"),
-            CompileErrorType::InvalidContinue => write!(f, "'continue' outside loop"),
-            CompileErrorType::InvalidReturn => write!(f, "'return' outside function"),
-            CompileErrorType::InvalidYield => write!(f, "'yield' outside function"),
-        }?;
+        let error_desc = match &self.error {
+            CompileErrorType::Assign(target) => format!("can't assign to {}", target),
+            CompileErrorType::Delete(target) => format!("can't delete {}", target),
+            CompileErrorType::ExpectExpr => "Expecting expression, got statement".to_string(),
+            CompileErrorType::Parse(err) => err.to_string(),
+            CompileErrorType::SyntaxError(err) => err.to_string(),
+            CompileErrorType::StarArgs => "Two starred expressions in assignment".to_string(),
+            CompileErrorType::InvalidBreak => "'break' outside loop".to_string(),
+            CompileErrorType::InvalidContinue => "'continue' outside loop".to_string(),
+            CompileErrorType::InvalidReturn => "'return' outside function".to_string(),
+            CompileErrorType::InvalidYield => "'yield' outside function".to_string(),
+        };
 
-        // Print line number:
-        write!(f, " at {}", self.location)
+        if self.statement.is_some() && self.location.column() > 0 {
+            // visualize the error, when location and statement are provided
+            write!(
+                f,
+                "\n{}\n{}",
+                self.statement.clone().unwrap(),
+                self.location.visualize(&error_desc)
+            )
+        } else {
+            // print line number
+            write!(f, "{} at {}", error_desc, self.location)
+        }
     }
 }
 
