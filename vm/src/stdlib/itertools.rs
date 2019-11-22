@@ -5,6 +5,7 @@ use std::ops::{AddAssign, SubAssign};
 use std::rc::Rc;
 
 use num_bigint::BigInt;
+use num_traits::sign::Signed;
 use num_traits::ToPrimitive;
 
 use crate::function::{Args, OptionalArg, PyFuncArgs};
@@ -733,14 +734,14 @@ impl PyItertoolsTee {
 
 #[pyclass]
 #[derive(Debug)]
-struct PyIterToolsProduct {
+struct PyItertoolsProduct {
     pools: Vec<Vec<PyObjectRef>>,
     idxs: RefCell<Vec<usize>>,
     cur: Cell<usize>,
     stop: Cell<bool>,
 }
 
-impl PyValue for PyIterToolsProduct {
+impl PyValue for PyItertoolsProduct {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("itertools", "product")
     }
@@ -753,7 +754,7 @@ struct ProductArgs {
 }
 
 #[pyimpl]
-impl PyIterToolsProduct {
+impl PyItertoolsProduct {
     #[pyslot(new)]
     fn tp_new(
         cls: PyClassRef,
@@ -780,7 +781,7 @@ impl PyIterToolsProduct {
 
         let l = pools.len();
 
-        PyIterToolsProduct {
+        PyItertoolsProduct {
             pools,
             idxs: RefCell::new(vec![0; l]),
             cur: Cell::new(l - 1),
@@ -848,18 +849,136 @@ impl PyIterToolsProduct {
     }
 }
 
+#[pyclass]
+#[derive(Debug)]
+struct PyItertoolsCombinations {
+    pool: Vec<PyObjectRef>,
+    indices: RefCell<Vec<usize>>,
+    r: Cell<usize>,
+    exhausted: Cell<bool>,
+}
+
+impl PyValue for PyItertoolsCombinations {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "combinations")
+    }
+}
+
+#[pyimpl]
+impl PyItertoolsCombinations {
+    #[pyslot(new)]
+    fn tp_new(
+        cls: PyClassRef,
+        iterable: PyObjectRef,
+        r: PyIntRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        let iter = get_iter(vm, &iterable)?;
+        let pool = get_all(vm, &iter)?;
+
+        let r = r.as_bigint();
+        if r.is_negative() {
+            return Err(vm.new_value_error("r must be non-negative".to_string()));
+        }
+        let r = r.to_usize().unwrap();
+
+        let n = pool.len();
+
+        PyItertoolsCombinations {
+            pool,
+            indices: RefCell::new((0..r).collect()),
+            r: Cell::new(r),
+            exhausted: Cell::new(r > n),
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        // stop signal
+        if self.exhausted.get() {
+            return Err(new_stop_iteration(vm));
+        }
+
+        let n = self.pool.len();
+        let r = self.r.get();
+
+        let res = PyTuple::from(
+            self.pool
+                .iter()
+                .enumerate()
+                .filter(|(idx, _)| self.indices.borrow().contains(&idx))
+                .map(|(_, num)| num.clone())
+                .collect::<Vec<PyObjectRef>>(),
+        );
+
+        let mut indices = self.indices.borrow_mut();
+        let mut sentinel = false;
+
+        // Scan indices right-to-left until finding one that is not at its maximum (i + n - r).
+        let mut idx = r - 1;
+        loop {
+            if indices[idx] != idx + n - r {
+                sentinel = true;
+                break;
+            }
+
+            if idx != 0 {
+                idx -= 1;
+            } else {
+                break;
+            }
+        }
+        // If no suitable index is found, then the indices are all at
+        // their maximum value and we're done.
+        if !sentinel {
+            self.exhausted.set(true);
+        }
+
+        // Increment the current index which we know is not at its
+        // maximum.  Then move back to the right setting each index
+        // to its lowest possible value (one higher than the index
+        // to its left -- this maintains the sort order invariant).
+        indices[idx] += 1;
+        for j in idx + 1..r {
+            indices[j] = indices[j - 1] + 1;
+        }
+
+        Ok(res.into_ref(vm).into_object())
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
+
+    let accumulate = ctx.new_class("accumulate", ctx.object());
+    PyItertoolsAccumulate::extend_class(ctx, &accumulate);
 
     let chain = PyItertoolsChain::make_class(ctx);
 
     let compress = PyItertoolsCompress::make_class(ctx);
+
+    let combinations = ctx.new_class("combinations", ctx.object());
+    PyItertoolsCombinations::extend_class(ctx, &combinations);
 
     let count = ctx.new_class("count", ctx.object());
     PyItertoolsCount::extend_class(ctx, &count);
 
     let dropwhile = ctx.new_class("dropwhile", ctx.object());
     PyItertoolsDropwhile::extend_class(ctx, &dropwhile);
+
+    let islice = PyItertoolsIslice::make_class(ctx);
+
+    let filterfalse = ctx.new_class("filterfalse", ctx.object());
+    PyItertoolsFilterFalse::extend_class(ctx, &filterfalse);
+
+    let product = ctx.new_class("product", ctx.object());
+    PyItertoolsProduct::extend_class(ctx, &product);
 
     let repeat = ctx.new_class("repeat", ctx.object());
     PyItertoolsRepeat::extend_class(ctx, &repeat);
@@ -869,30 +988,21 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let takewhile = ctx.new_class("takewhile", ctx.object());
     PyItertoolsTakewhile::extend_class(ctx, &takewhile);
 
-    let islice = PyItertoolsIslice::make_class(ctx);
-
-    let filterfalse = ctx.new_class("filterfalse", ctx.object());
-    PyItertoolsFilterFalse::extend_class(ctx, &filterfalse);
-
-    let accumulate = ctx.new_class("accumulate", ctx.object());
-    PyItertoolsAccumulate::extend_class(ctx, &accumulate);
-
     let tee = ctx.new_class("tee", ctx.object());
     PyItertoolsTee::extend_class(ctx, &tee);
-    let product = ctx.new_class("product", ctx.object());
-    PyIterToolsProduct::extend_class(ctx, &product);
 
     py_module!(vm, "itertools", {
+        "accumulate" => accumulate,
         "chain" => chain,
         "compress" => compress,
+        "combinations" => combinations,
         "count" => count,
         "dropwhile" => dropwhile,
+        "islice" => islice,
+        "filterfalse" => filterfalse,
         "repeat" => repeat,
         "starmap" => starmap,
         "takewhile" => takewhile,
-        "islice" => islice,
-        "filterfalse" => filterfalse,
-        "accumulate" => accumulate,
         "tee" => tee,
         "product" => product,
     })
