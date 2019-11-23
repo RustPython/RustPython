@@ -105,23 +105,37 @@ fn remove_importlib_frames_inner(
     vm: &VirtualMachine,
     tb: Option<PyTracebackRef>,
     always_trim: bool,
-) -> Option<PyTracebackRef> {
-    let traceback = tb.as_ref()?;
+) -> (Option<PyTracebackRef>, bool) {
+    if tb.is_none() {
+        return (None, false);
+    }
+    let traceback = tb.unwrap();
     let file_name = traceback.frame.code.source_path.to_string();
-    if (file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external")
-        && (always_trim || traceback.frame.code.obj_name == "_call_with_frames_removed")
-    {
-        return remove_importlib_frames_inner(vm, traceback.next.as_ref().cloned(), always_trim);
+
+    let (inner_tb, mut now_in_importlib) =
+        remove_importlib_frames_inner(vm, traceback.next.as_ref().cloned(), always_trim);
+    if file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external" {
+        if traceback.frame.code.obj_name == "_call_with_frames_removed" {
+            now_in_importlib = true;
+        }
+        if always_trim || now_in_importlib {
+            return (inner_tb, now_in_importlib);
+        }
+    } else {
+        now_in_importlib = false;
     }
 
-    Some(
-        PyTraceback::new(
-            remove_importlib_frames_inner(vm, traceback.next.as_ref().cloned(), always_trim),
-            traceback.frame.clone(),
-            traceback.lasti,
-            traceback.lineno,
-        )
-        .into_ref(vm),
+    (
+        Some(
+            PyTraceback::new(
+                inner_tb,
+                traceback.frame.clone(),
+                traceback.lasti,
+                traceback.lineno,
+            )
+            .into_ref(vm),
+        ),
+        now_in_importlib,
     )
 }
 
@@ -133,6 +147,7 @@ pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyObjectRef) -> PyObje
     if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
         let base_tb: PyTracebackRef = tb.downcast().expect("must be a traceback object");
         let trimed_tb = remove_importlib_frames_inner(vm, Some(base_tb), always_trim)
+            .0
             .map_or(vm.get_none(), |x| x.into_object());
         vm.set_attr(exc, "__traceback__", trimed_tb).unwrap();
     }
