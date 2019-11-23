@@ -170,20 +170,52 @@ impl PyStringReverseIterator {
     }
 }
 
+#[derive(FromArgs)]
+struct StrArgs {
+    #[pyarg(positional_or_keyword, optional = true)]
+    object: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    encoding: OptionalArg<PyStringRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    errors: OptionalArg<PyStringRef>,
+}
+
 #[pyimpl]
 impl PyString {
-    // TODO: should with following format
-    // class str(object='')
-    // class str(object=b'', encoding='utf-8', errors='strict')
     #[pyslot(new)]
-    fn tp_new(
-        cls: PyClassRef,
-        object: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStringRef> {
-        let string = match object {
-            OptionalArg::Present(ref input) => vm.to_str(input)?.into_object(),
-            OptionalArg::Missing => vm.new_str("".to_string()),
+    fn tp_new(cls: PyClassRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
+        let string = if args.encoding.is_present() || args.errors.is_present() {
+            let bytes = match args.object {
+                OptionalArg::Present(bytes) => {
+                    if !vm.isinstance(&bytes, &vm.ctx.bytes_type())? {
+                        return Err(vm.new_type_error(format!(
+                            "decoding {} is not supported",
+                            bytes.class()
+                        )));
+                    } else {
+                        bytes
+                    }
+                }
+                OptionalArg::Missing => vm.ctx.new_bytes(vec![]),
+            };
+
+            vm.call_method(
+                &bytes,
+                "decode",
+                vec![
+                    args.encoding
+                        .unwrap_or(PyString::from("utf-8").into_ref(vm))
+                        .into_object(),
+                    args.errors
+                        .unwrap_or(PyString::from("strict").into_ref(vm))
+                        .into_object(),
+                ],
+            )?
+        } else {
+            match args.object {
+                OptionalArg::Present(ref input) => vm.to_str(input)?.into_object(),
+                OptionalArg::Missing => vm.new_str("".to_string()),
+            }
         };
         if string.class().is(&cls) {
             TryFromObject::try_from_object(vm, string)
