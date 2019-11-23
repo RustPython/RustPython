@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 use std::io;
 use winapi::shared::winerror;
 use winapi::um::winnt::HANDLE;

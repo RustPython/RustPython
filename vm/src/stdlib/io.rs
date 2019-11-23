@@ -166,6 +166,10 @@ impl PyStringIORef {
             None => Err(vm.new_value_error("Error Performing Operation".to_string())),
         }
     }
+
+    fn close(self, _vm: &VirtualMachine) {
+        // TODO: discard the text buffer on close
+    }
 }
 
 fn string_io_new(
@@ -759,6 +763,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getvalue" => ctx.new_rustfunc(PyStringIORef::getvalue),
         "tell" => ctx.new_rustfunc(PyStringIORef::tell),
         "readline" => ctx.new_rustfunc(PyStringIORef::readline),
+        "close" => ctx.new_rustfunc(PyStringIORef::close),
     });
 
     //BytesIO: in-memory bytes

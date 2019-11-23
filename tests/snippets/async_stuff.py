@@ -1,4 +1,4 @@
-import asyncio_slow as asyncio
+import asyncio
 
 
 class ContextManager:
@@ -55,13 +55,13 @@ loop.run_until_complete(
 assert ls == [
     1,
     3,
+    1,
+    3,
+    1,
+    3,
+    1,
+    3,
     "hello1",
-    1,
-    3,
-    1,
-    3,
-    1,
-    3,
     "hello2",
     "hello1",
     "hello3",

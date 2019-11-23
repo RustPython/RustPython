@@ -1,4 +1,5 @@
 use crate::function::PyFuncArgs;
+use crate::obj::objiter;
 use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype;
@@ -550,5 +551,11 @@ pub fn init(context: &PyContext) {
     let import_error_type = &context.exceptions.import_error;
     extend_class!(context, import_error_type, {
         "__init__" => context.new_rustfunc(import_error_init)
+    });
+
+    extend_class!(context, &context.exceptions.stop_iteration, {
+        "value" => context.new_rustfunc(|obj: PyObjectRef, vm: &VirtualMachine| {
+            objiter::stop_iter_value(vm, &obj)
+        }),
     });
 }
