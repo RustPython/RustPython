@@ -998,11 +998,12 @@ impl PyItertoolsZiplongest {
             iterators,
             fillvalue,
             numactive,
-        }.into_ref_with_type(vm, cls)
+        }
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]
-    fn next(&self, vm:&VirtualMachine) -> PyResult {
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
         if self.iterators.is_empty() {
             Err(new_stop_iteration(vm))
         } else {
@@ -1010,7 +1011,7 @@ impl PyItertoolsZiplongest {
             let mut result: Vec<PyObjectRef> = Vec::new();
             let mut numactive = self.numactive.clone().into_inner();
 
-            for idx in 0..self.iterators.len(){
+            for idx in 0..self.iterators.len() {
                 next_obj = match call_next(vm, &self.iterators[idx]) {
                     Ok(obj) => obj,
                     Err(_) => {
