@@ -11,6 +11,7 @@ use num_traits::ToPrimitive;
 use super::os;
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbytearray::PyByteArray;
+use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes;
 use crate::obj::objbytes::PyBytes;
 use crate::obj::objint::{self, PyIntRef};
@@ -81,6 +82,19 @@ impl BufferedIO {
 
         Some(buffer)
     }
+
+    fn tell(&self) -> u64 {
+        self.cursor.position()
+    }
+
+    fn readline(&mut self) -> Option<String> {
+        let mut buf = String::new();
+
+        match self.cursor.read_line(&mut buf) {
+            Ok(_) => Some(buf),
+            Err(_) => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -141,6 +155,17 @@ impl PyStringIORef {
             Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_string())),
         }
     }
+
+    fn tell(self, _vm: &VirtualMachine) -> u64 {
+        self.buffer.borrow().tell()
+    }
+
+    fn readline(self, vm: &VirtualMachine) -> PyResult<String> {
+        match self.buffer.borrow_mut().readline() {
+            Some(line) => Ok(line),
+            None => Err(vm.new_value_error("Error Performing Operation".to_string())),
+        }
+    }
 }
 
 fn string_io_new(
@@ -173,11 +198,11 @@ impl PyValue for PyBytesIO {
 }
 
 impl PyBytesIORef {
-    fn write(self, data: objbytes::PyBytesRef, vm: &VirtualMachine) -> PyResult {
-        let bytes = data.get_value();
+    fn write(self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
+        let bytes = data.to_cow();
 
-        match self.buffer.borrow_mut().write(bytes) {
-            Some(value) => Ok(vm.ctx.new_int(value)),
+        match self.buffer.borrow_mut().write(&bytes) {
+            Some(value) => Ok(value),
             None => Err(vm.new_type_error("Error Writing Bytes".to_string())),
         }
     }
@@ -206,6 +231,17 @@ impl PyBytesIORef {
 
     fn seekable(self, _vm: &VirtualMachine) -> bool {
         true
+    }
+
+    fn tell(self, _vm: &VirtualMachine) -> u64 {
+        self.buffer.borrow().tell()
+    }
+
+    fn readline(self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        match self.buffer.borrow_mut().readline() {
+            Some(line) => Ok(line.as_bytes().to_vec()),
+            None => Err(vm.new_value_error("Error Performing Operation".to_string())),
+        }
     }
 }
 
@@ -720,7 +756,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "seekable" => ctx.new_rustfunc(PyStringIORef::seekable),
         "read" => ctx.new_rustfunc(PyStringIORef::read),
         "write" => ctx.new_rustfunc(PyStringIORef::write),
-        "getvalue" => ctx.new_rustfunc(PyStringIORef::getvalue)
+        "getvalue" => ctx.new_rustfunc(PyStringIORef::getvalue),
+        "tell" => ctx.new_rustfunc(PyStringIORef::tell),
+        "readline" => ctx.new_rustfunc(PyStringIORef::readline),
     });
 
     //BytesIO: in-memory bytes
@@ -731,7 +769,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "seek" => ctx.new_rustfunc(PyBytesIORef::seek),
         "seekable" => ctx.new_rustfunc(PyBytesIORef::seekable),
         "write" => ctx.new_rustfunc(PyBytesIORef::write),
-        "getvalue" => ctx.new_rustfunc(PyBytesIORef::getvalue)
+        "getvalue" => ctx.new_rustfunc(PyBytesIORef::getvalue),
+        "tell" => ctx.new_rustfunc(PyBytesIORef::tell),
+        "readline" => ctx.new_rustfunc(PyBytesIORef::readline),
     });
 
     py_module!(vm, "_io", {

@@ -7,6 +7,7 @@ def test_01():
     f = BytesIO()
     f.write(bytes_string)
 
+    assert f.tell() == len(bytes_string)
     assert f.getvalue() == bytes_string
 
 def test_02():
@@ -39,12 +40,41 @@ def test_04():
     f = BytesIO(string)
 
     assert f.read(4) == b'Test'
+    assert f.tell() == 4
     assert f.seek(0) == 0
     assert f.read(4) == b'Test'
+
+def test_05():
+    """
+        Tests that the write method accpets bytearray
+    """
+    bytes_string =  b'Test String 5'
+
+    f = BytesIO()
+    f.write(bytearray(bytes_string))
+
+    assert f.getvalue() == bytes_string
+
+
+def test_06():
+    """
+        Tests readline
+    """
+    bytes_string =  b'Test String 6\nnew line is here\nfinished'
+
+    f = BytesIO(bytes_string)
+
+    assert f.readline() == b'Test String 6\n'
+    assert f.readline() == b'new line is here\n'
+    assert f.readline() == b'finished'
+    assert f.readline() == b''
+
 
 if __name__ == "__main__":
     test_01()
     test_02()
     test_03()
     test_04()
+    test_05()
+    test_06()
 
