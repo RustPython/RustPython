@@ -9,7 +9,7 @@ before_cache:
     fi
   - rm -rf ~/.cargo/registry/src
 
-matrix:
+jobs:
   fast_finish: true
   include:
     - name: Run Rust tests(linux)
@@ -42,7 +42,7 @@ matrix:
     # installing rust ourselves is a lot easier than installing Python)
     - name: Python test snippets
       language: python
-      python: 3.6
+      python: 3.8
       cache:
         - pip
         - cargo
@@ -76,7 +76,7 @@ matrix:
 
     - name: Lint Python code with flake8
       language: python
-      python: 3.6
+      python: 3.8
       cache: pip
       env: JOBCACHE=9
       install: pip install flake8
@@ -134,7 +134,7 @@ matrix:
 
     - name: Code Coverage
       language: python
-      python: 3.6
+      python: 3.8
       cache:
         - pip
         - cargo
@@ -149,7 +149,7 @@ matrix:
 
     - name: Test WASM
       language: python
-      python: 3.6
+      python: 3.8
       cache:
         - pip
         - cargo
