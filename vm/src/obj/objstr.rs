@@ -181,9 +181,26 @@ impl PyString {
         object: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStringRef> {
-        let string = match object {
-            OptionalArg::Present(ref input) => vm.to_str(input)?.into_object(),
-            OptionalArg::Missing => vm.new_str("".to_string()),
+        let string: PyStringRef = match args.object {
+            OptionalArg::Present(input) => {
+                if let OptionalArg::Present(enc) = args.encoding {
+                    vm.decode(input, Some(enc.clone()), args.errors.into_option())?
+                        .downcast()
+                        .map_err(|obj| {
+                            vm.new_type_error(format!(
+                                "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
+                                 encode arbitrary types",
+                                enc,
+                                obj.class().name,
+                            ))
+                        })?
+                } else {
+                    vm.to_str(&input)?
+                }
+            }
+            OptionalArg::Missing => {
+                PyString::from(String::new()).into_ref_with_type(vm, cls.clone())?
+            }
         };
         if string.class().is(&cls) {
             TryFromObject::try_from_object(vm, string)
