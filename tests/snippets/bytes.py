@@ -270,6 +270,8 @@ assert (
 with assert_raises(TypeError):
     b"".join((b"km", "kl"))
 
+assert b"abc".join((b"123", b"xyz")) == b"123abcxyz"
+
 
 # endswith startswith
 assert b"abcde".endswith(b"de")

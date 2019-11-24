@@ -290,7 +290,7 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "join")]
-    fn join(self, iter: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn join(self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow().join(iter, vm)
     }
 

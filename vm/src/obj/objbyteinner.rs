@@ -826,11 +826,14 @@ impl PyByteInner {
         Ok(total)
     }
 
-    pub fn join(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult {
+    pub fn join(&self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult {
         let mut refs = vec![];
         for v in iter.iter(vm)? {
             let v = v?;
-            refs.extend(PyByteInner::try_from_object(vm, v)?.elements)
+            if !refs.is_empty() {
+                refs.extend(&self.elements);
+            }
+            refs.extend(v.elements);
         }
 
         Ok(vm.ctx.new_bytes(refs))
