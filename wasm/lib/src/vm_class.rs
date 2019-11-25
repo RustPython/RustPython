@@ -230,11 +230,13 @@ impl WASMVirtualMachine {
                         .map_err(|err| convert::js_to_py(vm, err))?;
                         Ok(vm.get_none())
                     })
-            } else if stdout.is_undefined() || stdout.is_null() {
+            } else if stdout.is_null() {
                 fn noop(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
                     Ok(vm.get_none())
                 }
                 vm.ctx.new_rustfunc(noop)
+            } else if stdout.is_undefined() {
+                vm.ctx.new_rustfunc(wasm_builtins::builtin_print_console)
             } else {
                 return Err(error());
             };
