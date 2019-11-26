@@ -958,7 +958,7 @@ impl PyItertoolsCombinations {
 struct PyItertoolsZiplongest {
     iterators: Vec<PyObjectRef>,
     fillvalue: PyObjectRef,
-    numactive: RefCell<usize>,
+    numactive: Cell<usize>,
 }
 
 impl PyValue for PyItertoolsZiplongest {
@@ -992,7 +992,7 @@ impl PyItertoolsZiplongest {
             .map(|iterable| get_iter(vm, &iterable))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let numactive = RefCell::new(iterators.len());
+        let numactive = Cell::new(iterators.len());
 
         PyItertoolsZiplongest {
             iterators,
@@ -1007,14 +1007,16 @@ impl PyItertoolsZiplongest {
         if self.iterators.is_empty() {
             Err(new_stop_iteration(vm))
         } else {
-            let mut next_obj: PyObjectRef;
             let mut result: Vec<PyObjectRef> = Vec::new();
-            let mut numactive = self.numactive.clone().into_inner();
+            let mut numactive = self.numactive.get();
 
             for idx in 0..self.iterators.len() {
-                next_obj = match call_next(vm, &self.iterators[idx]) {
+                let next_obj = match call_next(vm, &self.iterators[idx]) {
                     Ok(obj) => obj,
-                    Err(_) => {
+                    Err(err) => {
+                        if !objtype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                            return Err(err);
+                        }
                         numactive -= 1;
                         if numactive == 0 {
                             return Err(new_stop_iteration(vm));
