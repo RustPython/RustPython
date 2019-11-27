@@ -19,6 +19,7 @@ jobs:
       architecture: 'x64'
 
   - script: |
+      powershell.exe scripts/symlinks-to-hardlinks.ps1
       "C:\Program Files\Git\mingw64\bin\curl.exe" -sSf -o rustup-init.exe https://win.rustup.rs/
       .\rustup-init.exe -y
       set PATH=%PATH%;%USERPROFILE%\.cargo\bin
