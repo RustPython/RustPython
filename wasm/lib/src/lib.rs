@@ -61,8 +61,10 @@ const TS_CMT_START: &'static str = "/*";
 /// -   `vars?`: `{ [key: string]: any }`: Variables passed to the VM that can be
 ///     accessed in Python with the variable `js_vars`. Functions do work, and
 ///     receive the Python kwargs as the `this` argument.
-/// -   `stdout?`: `(out: string) => void`: A function to replace the native print
-///     function, by default `console.log`.
+/// -   `stdout?`: `"console" | ((out: string) => void) | null`: A function to replace the
+///     native print native print function, and it will be `console.log` when giving
+///     `undefined` or "console", and it will be a dumb function when giving null.
+
 pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
     let options = options.unwrap_or_else(Object::new);
     let js_vars = {
@@ -75,18 +77,9 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
             return Err(TypeError::new("vars must be an object").into());
         }
     };
-    let stdout = {
-        let prop = Reflect::get(&options, &"stdout".into())?;
-        if prop.is_undefined() {
-            None
-        } else {
-            Some(prop)
-        }
-    };
-
     let vm = VMStore::init(PY_EVAL_VM_ID.into(), Some(true));
 
-    vm.set_stdout(stdout.unwrap_or(JsValue::UNDEFINED))?;
+    vm.set_stdout(Reflect::get(&options, &"stdout".into())?)?;
 
     if let Some(js_vars) = js_vars {
         vm.add_to_scope("js_vars".into(), js_vars.into())?;
