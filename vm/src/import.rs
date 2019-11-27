@@ -106,14 +106,16 @@ fn remove_importlib_frames_inner(
     tb: Option<PyTracebackRef>,
     always_trim: bool,
 ) -> (Option<PyTracebackRef>, bool) {
-    if tb.is_none() {
+    let traceback = if let Some(tb) = tb {
+        tb
+    } else {
         return (None, false);
-    }
-    let traceback = tb.unwrap();
-    let file_name = traceback.frame.code.source_path.to_string();
+    };
+
+    let file_name = &traceback.frame.code.source_path;
 
     let (inner_tb, mut now_in_importlib) =
-        remove_importlib_frames_inner(vm, traceback.next.as_ref().cloned(), always_trim);
+        remove_importlib_frames_inner(vm, traceback.next.clone(), always_trim);
     if file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external" {
         if traceback.frame.code.obj_name == "_call_with_frames_removed" {
             now_in_importlib = true;
