@@ -44,6 +44,9 @@ impl StoredVirtualMachine {
             setup_browser_module(&vm);
         }
 
+        // sys module needs to be updated because js_module and browser_module is setted
+        vm.update_sysmodule();
+
         import::init_importlib(&vm, false).unwrap();
 
         StoredVirtualMachine {

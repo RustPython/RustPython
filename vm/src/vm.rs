@@ -209,6 +209,12 @@ impl VirtualMachine {
         vm
     }
 
+    /// `update_sysmodule` should be called when the `vm.stdlib_inits` are changed,
+    /// and then the `builtin_module_names` of `sys` module will be updated.
+    pub fn update_sysmodule(&self) {
+        sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
+    }
+
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
         let frame = Frame::new(code, scope).into_ref(self);
         self.run_frame_full(frame)
