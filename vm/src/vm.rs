@@ -147,7 +147,7 @@ impl Default for PySettings {
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
     pub fn new(settings: PySettings) -> VirtualMachine {
-        flame_guard!("init VirtualMachine");
+        flame_guard!("new VirtualMachine");
         let ctx = PyContext::new();
 
         // make a new module without access to the vm; doesn't
@@ -200,19 +200,27 @@ impl VirtualMachine {
             vm.get_none(),
         );
 
-        builtins::make_module(&vm, builtins.clone());
-        sysmodule::make_module(&vm, sysmod, builtins);
-
-        #[cfg(not(target_arch = "wasm32"))]
-        import::import_builtin(&vm, "signal").expect("Couldn't initialize signal module");
-
         vm
     }
 
-    /// `update_sysmodule` should be called when the `vm.stdlib_inits` are changed,
-    /// and then the `builtin_module_names` of `sys` module will be updated.
-    pub fn update_sysmodule(&self) {
+    pub fn initialize(&mut self, external: bool) -> &Self {
+        flame_guard!("init VirtualMachine");
+
+        builtins::make_module(self, self.builtins.clone());
         sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
+
+        #[cfg(not(target_arch = "wasm32"))]
+        import::import_builtin(self, "signal").expect("Couldn't initialize signal module");
+
+        if external {
+            // We only include the standard library bytecode in WASI
+            import::init_importlib(self, cfg!(not(target_os = "wasi")))
+                .expect("Couldn't initialize importlib");
+        } else {
+            import::init_importlib(self, false).expect("Couldn't initialize importlib");
+        }
+
+        self
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {

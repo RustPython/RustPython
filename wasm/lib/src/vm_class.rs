@@ -7,7 +7,6 @@ use wasm_bindgen::prelude::*;
 
 use rustpython_compiler::compile;
 use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::import;
 use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::VirtualMachine;
@@ -44,10 +43,7 @@ impl StoredVirtualMachine {
             setup_browser_module(&vm);
         }
 
-        // sys module needs to be updated because js_module and browser_module is setted
-        vm.update_sysmodule();
-
-        import::init_importlib(&vm, false).unwrap();
+        vm.initialize(false);
 
         StoredVirtualMachine {
             vm,
