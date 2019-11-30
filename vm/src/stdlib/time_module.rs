@@ -2,19 +2,16 @@
 /// See also:
 /// https://docs.python.org/3/library/time.html
 use std::fmt;
-use std::ops::Range;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use chrono::naive::NaiveDateTime;
+use chrono::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 use chrono::{Datelike, Timelike};
 
 use crate::function::OptionalArg;
-use crate::obj::objint::PyInt;
-use crate::obj::objsequence::{get_sequence_index, PySliceableSequence};
-use crate::obj::objslice::PySlice;
 use crate::obj::objstr::PyStringRef;
+use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{Either, PyClassImpl, PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -86,28 +83,24 @@ fn pyobj_to_naive_date_time(value: Either<f64, i64>) -> NaiveDateTime {
 }
 
 /// https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
-fn time_gmtime(
-    secs: OptionalArg<Either<f64, i64>>,
-    _vm: &VirtualMachine,
-) -> PyResult<PyStructTime> {
+fn time_gmtime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyObjectRef {
     let default = chrono::offset::Utc::now().naive_utc();
     let instant = match secs {
         OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs),
         OptionalArg::Missing => default,
     };
-    let value = PyStructTime::new(instant, 0);
-    Ok(value)
+    PyStructTime::new(vm, instant, 0).into_obj(vm)
 }
 
-fn time_localtime(secs: OptionalArg<Either<f64, i64>>, _vm: &VirtualMachine) -> PyStructTime {
+fn time_localtime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyObjectRef {
     let instant = optional_or_localtime(secs);
     // TODO: isdst flag must be valid value here
     // https://docs.python.org/3/library/time.html#time.localtime
-    PyStructTime::new(instant, -1)
+    PyStructTime::new(vm, instant, -1).into_obj(vm)
 }
 
-fn time_mktime(t: PyStructTimeRef, vm: &VirtualMachine) -> PyResult {
-    let datetime = t.get_date_time();
+fn time_mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult {
+    let datetime = t.to_date_time(vm)?;
     let seconds_since_epoch = datetime.timestamp() as f64;
     Ok(vm.ctx.new_float(seconds_since_epoch))
 }
@@ -123,10 +116,10 @@ fn optional_or_localtime(secs: OptionalArg<Either<f64, i64>>) -> NaiveDateTime {
 
 const CFMT: &str = "%a %b %e %H:%M:%S %Y";
 
-fn time_asctime(t: OptionalArg<PyStructTimeRef>, vm: &VirtualMachine) -> PyResult {
+fn time_asctime(t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
     let default = chrono::offset::Local::now().naive_local();
     let instant = match t {
-        OptionalArg::Present(t) => t.get_date_time(),
+        OptionalArg::Present(t) => t.to_date_time(vm)?,
         OptionalArg::Missing => default,
     };
     let formatted_time = instant.format(&CFMT).to_string();
@@ -140,12 +133,12 @@ fn time_ctime(secs: OptionalArg<Either<f64, i64>>, _vm: &VirtualMachine) -> Stri
 
 fn time_strftime(
     format: PyStringRef,
-    t: OptionalArg<PyStructTimeRef>,
+    t: OptionalArg<PyStructTime>,
     vm: &VirtualMachine,
 ) -> PyResult {
     let default = chrono::offset::Local::now().naive_local();
     let instant = match t {
-        OptionalArg::Present(t) => t.get_date_time(),
+        OptionalArg::Present(t) => t.to_date_time(vm)?,
         OptionalArg::Missing => default,
     };
     let formatted_time = instant.format(format.as_str()).to_string();
@@ -156,24 +149,29 @@ fn time_strptime(
     string: PyStringRef,
     format: OptionalArg<PyStringRef>,
     vm: &VirtualMachine,
-) -> PyResult<PyStructTime> {
+) -> PyResult {
     let format = match format {
         OptionalArg::Present(ref format) => format.as_str(),
         OptionalArg::Missing => "%a %b %H:%M:%S %Y",
     };
     let instant = NaiveDateTime::parse_from_str(string.as_str(), format)
         .map_err(|e| vm.new_value_error(format!("Parse error: {:?}", e)))?;
-    let struct_time = PyStructTime::new(instant, -1);
-    Ok(struct_time)
+    Ok(PyStructTime::new(vm, instant, -1).into_obj(vm))
 }
 
-#[pyclass(name = "struct_time")]
+#[pystruct_sequence(name = "time.struct_time")]
+#[allow(dead_code)]
 struct PyStructTime {
-    tm: NaiveDateTime,
-    isdst: i32,
+    tm_year: PyObjectRef,
+    tm_mon: PyObjectRef,
+    tm_mday: PyObjectRef,
+    tm_hour: PyObjectRef,
+    tm_min: PyObjectRef,
+    tm_sec: PyObjectRef,
+    tm_wday: PyObjectRef,
+    tm_yday: PyObjectRef,
+    tm_isdst: PyObjectRef,
 }
-
-type PyStructTimeRef = PyRef<PyStructTime>;
 
 impl fmt::Debug for PyStructTime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -181,211 +179,68 @@ impl fmt::Debug for PyStructTime {
     }
 }
 
-impl PyValue for PyStructTime {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("time", "struct_time")
-    }
-}
-
-#[pyimpl]
 impl PyStructTime {
-    fn new(tm: NaiveDateTime, isdst: i32) -> Self {
-        PyStructTime { tm, isdst }
-    }
-
-    #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> String {
-        // TODO: extract year day and isdst somehow..
-        format!(
-            "time.struct_time(tm_year={}, tm_mon={}, tm_mday={}, tm_hour={}, tm_min={}, tm_sec={}, tm_wday={}, tm_yday={}, tm_isdst={})",
-            self._year(), self._mon(), self._mday(),
-            self._hour(), self._min(), self._sec(),
-            self._wday(), self._yday(), self._isdst(),
-        )
-    }
-
-    fn get_date_time(&self) -> NaiveDateTime {
-        self.tm
-    }
-
-    #[pymethod(name = "__len__")]
-    fn len(&self, _vm: &VirtualMachine) -> usize {
-        9
-    }
-
-    #[pymethod(name = "__getitem__")]
-    fn getitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if subscript.payload::<PyInt>().is_some() {
-            let needle = subscript.downcast().unwrap();
-            let index = get_sequence_index(vm, &needle, 9)?;
-            let tm_fn = TM_FUNCTIONS[index];
-            Ok(vm.new_int(tm_fn(self)))
-        } else if subscript.payload::<PySlice>().is_some() {
-            let values = self.get_slice_items(vm, &subscript)?;
-            let objs = values.iter().map(|v| vm.new_int(*v));
-            Ok(vm.ctx.new_tuple(objs.collect()))
-        } else {
-            Err(vm.new_type_error(format!(
-                "TypeError: tuple indices must be integers or slices, {}",
-                subscript.class().name
-            )))
+    fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
+        PyStructTime {
+            tm_year: vm.ctx.new_int(tm.year()),
+            tm_mon: vm.ctx.new_int(tm.month()),
+            tm_mday: vm.ctx.new_int(tm.day()),
+            tm_hour: vm.ctx.new_int(tm.hour()),
+            tm_min: vm.ctx.new_int(tm.minute()),
+            tm_sec: vm.ctx.new_int(tm.second()),
+            tm_wday: vm.ctx.new_int(tm.weekday().num_days_from_monday()),
+            tm_yday: vm.ctx.new_int(tm.ordinal()),
+            tm_isdst: vm.ctx.new_int(isdst),
         }
     }
 
-    #[inline]
-    fn _year(&self) -> i32 {
-        self.tm.date().year()
+    fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
+        let invalid = || vm.new_value_error("invalid struct_time parameter".to_string());
+        macro_rules! field {
+            ($field:ident) => {
+                TryFromObject::try_from_object(vm, self.$field.clone())?
+            };
+        }
+        let dt = NaiveDateTime::new(
+            NaiveDate::from_ymd_opt(field!(tm_year), field!(tm_mon), field!(tm_mday))
+                .ok_or_else(invalid)?,
+            NaiveTime::from_hms_opt(field!(tm_hour), field!(tm_min), field!(tm_sec))
+                .ok_or_else(invalid)?,
+        );
+        Ok(dt)
     }
 
-    #[inline]
-    fn _mon(&self) -> i32 {
-        self.tm.date().month() as i32
+    fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
+        self.into_struct_sequence(vm, vm.class("time", "struct_time"))
+            .unwrap()
+            .into_object()
     }
 
-    #[inline]
-    fn _mday(&self) -> i32 {
-        self.tm.date().day() as i32
-    }
-
-    #[inline]
-    fn _hour(&self) -> i32 {
-        self.tm.time().hour() as i32
-    }
-
-    #[inline]
-    fn _min(&self) -> i32 {
-        self.tm.time().minute() as i32
-    }
-
-    #[inline]
-    fn _sec(&self) -> i32 {
-        self.tm.time().second() as i32
-    }
-
-    #[inline]
-    fn _wday(&self) -> i32 {
-        self.tm.date().weekday().num_days_from_monday() as i32
-    }
-
-    #[inline]
-    fn _yday(&self) -> i32 {
-        self.tm.date().ordinal() as i32
-    }
-
-    #[inline]
-    fn _isdst(&self) -> i32 {
-        self.isdst
-    }
-
-    #[pyproperty(name = "tm_year")]
-    fn tm_year(&self, _vm: &VirtualMachine) -> i32 {
-        self._year()
-    }
-
-    #[pyproperty(name = "tm_mon")]
-    fn tm_mon(&self, _vm: &VirtualMachine) -> u32 {
-        self._mon() as u32
-    }
-
-    #[pyproperty(name = "tm_mday")]
-    fn tm_mday(&self, _vm: &VirtualMachine) -> u32 {
-        self._mday() as u32
-    }
-
-    #[pyproperty(name = "tm_hour")]
-    fn tm_hour(&self, _vm: &VirtualMachine) -> u32 {
-        self._hour() as u32
-    }
-
-    #[pyproperty(name = "tm_min")]
-    fn tm_min(&self, _vm: &VirtualMachine) -> u32 {
-        self._min() as u32
-    }
-
-    #[pyproperty(name = "tm_sec")]
-    fn tm_sec(&self, _vm: &VirtualMachine) -> u32 {
-        self._sec() as u32
-    }
-
-    #[pyproperty(name = "tm_wday")]
-    fn tm_wday(&self, _vm: &VirtualMachine) -> u32 {
-        self._wday() as u32
-    }
-
-    #[pyproperty(name = "tm_yday")]
-    fn tm_yday(&self, _vm: &VirtualMachine) -> u32 {
-        self._yday() as u32
-    }
-
-    #[pyproperty(name = "tm_isdst")]
-    fn tm_isdst(&self, _vm: &VirtualMachine) -> i32 {
-        self._isdst()
+    fn tp_new(cls: PyClassRef, seq: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        Self::try_from_object(vm, seq)?.into_struct_sequence(vm, cls)
     }
 }
 
-type TmFunction = fn(&PyStructTime) -> i32;
-const TM_FUNCTIONS: [TmFunction; 9] = [
-    PyStructTime::_year,
-    PyStructTime::_mon,
-    PyStructTime::_mday,
-    PyStructTime::_hour,
-    PyStructTime::_min,
-    PyStructTime::_sec,
-    PyStructTime::_wday,
-    PyStructTime::_yday,
-    PyStructTime::_isdst,
-];
-
-impl PySliceableSequence for PyStructTime {
-    type Sliced = Vec<i32>;
-
-    fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
-        if let Some(fs) = TM_FUNCTIONS.get(range) {
-            fs.iter().map(|f| f(self)).collect()
-        } else {
-            vec![]
+impl TryFromObject for PyStructTime {
+    fn try_from_object(vm: &VirtualMachine, seq: PyObjectRef) -> PyResult<Self> {
+        let seq = vm.extract_elements::<PyObjectRef>(&seq)?;
+        if seq.len() != 9 {
+            return Err(
+                vm.new_type_error("time.struct_time() takes a sequence of length 9".to_string())
+            );
         }
-    }
-
-    fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
-        if let Some(fs) = TM_FUNCTIONS.get(range) {
-            fs.iter().rev().map(|f| f(self)).collect()
-        } else {
-            vec![]
-        }
-    }
-
-    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        if let Some(fs) = TM_FUNCTIONS.get(range) {
-            fs.iter().cloned().step_by(step).map(|f| f(self)).collect()
-        } else {
-            vec![]
-        }
-    }
-
-    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        if let Some(fs) = TM_FUNCTIONS.get(range) {
-            fs.iter()
-                .rev()
-                .cloned()
-                .step_by(step)
-                .map(|f| f(self))
-                .collect()
-        } else {
-            vec![]
-        }
-    }
-
-    fn empty() -> Self::Sliced {
-        panic!("struct_time is not empty");
-    }
-
-    fn len(&self) -> usize {
-        TM_FUNCTIONS.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        false
+        let mut i = seq.into_iter();
+        Ok(PyStructTime {
+            tm_year: i.next().unwrap(),
+            tm_mon: i.next().unwrap(),
+            tm_mday: i.next().unwrap(),
+            tm_hour: i.next().unwrap(),
+            tm_min: i.next().unwrap(),
+            tm_sec: i.next().unwrap(),
+            tm_wday: i.next().unwrap(),
+            tm_yday: i.next().unwrap(),
+            tm_isdst: i.next().unwrap(),
+        })
     }
 }
 
@@ -393,6 +248,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let struct_time_type = PyStructTime::make_class(ctx);
+
+    // TODO: allow $[pyimpl]s for struct_sequences
+    extend_class!(ctx, struct_time_type, {
+        (slot new) => PyStructTime::tp_new,
+    });
 
     py_module!(vm, "time", {
         "asctime" => ctx.new_rustfunc(time_asctime),

@@ -826,12 +826,13 @@ impl VirtualMachine {
 
     pub fn extract_elements<T: TryFromObject>(&self, value: &PyObjectRef) -> PyResult<Vec<T>> {
         // Extract elements from item, if possible:
-        if objtype::isinstance(value, &self.ctx.tuple_type()) {
+        let cls = value.class();
+        if cls.is(&self.ctx.tuple_type()) {
             objsequence::get_elements_tuple(value)
                 .iter()
                 .map(|obj| T::try_from_object(self, obj.clone()))
                 .collect()
-        } else if objtype::isinstance(value, &self.ctx.list_type()) {
+        } else if cls.is(&self.ctx.list_type()) {
             objsequence::get_elements_list(value)
                 .iter()
                 .map(|obj| T::try_from_object(self, obj.clone()))

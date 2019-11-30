@@ -439,11 +439,12 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             let property = quote! {
                 class.set_str_attr(
                     #field_name_str,
-                    ::rustpython_vm::obj::objproperty::PropertyBuilder::new(ctx)
-                        .add_getter(|zelf: &::rustpython_vm::obj::objtuple::PyTuple,
-                                     _vm: &::rustpython_vm::vm::VirtualMachine|
-                                     zelf.fast_getitem(#idx))
-                        .create(),
+                    ctx.new_property(
+                        |zelf: &::rustpython_vm::obj::objtuple::PyTuple,
+                         _vm: &::rustpython_vm::VirtualMachine| {
+                            zelf.fast_getitem(#idx)
+                        }
+                   ),
                 );
             };
             properties.push(property);
@@ -459,7 +460,7 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
         #class_def
         impl #ty {
             pub fn into_struct_sequence(&self,
-                vm: &::rustpython_vm::vm::VirtualMachine,
+                vm: &::rustpython_vm::VirtualMachine,
                 cls: ::rustpython_vm::obj::objtype::PyClassRef,
             ) -> ::rustpython_vm::pyobject::PyResult<::rustpython_vm::obj::objtuple::PyTupleRef> {
                 let tuple = ::rustpython_vm::obj::objtuple::PyTuple::from(
