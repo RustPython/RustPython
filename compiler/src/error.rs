@@ -91,18 +91,17 @@ impl fmt::Display for CompileError {
             CompileErrorType::InvalidYield => "'yield' outside function".to_string(),
         };
 
-        if self.statement.is_some() && self.location.column() > 0 {
-            // visualize the error, when location and statement are provided
-            write!(
-                f,
-                "\n{}\n{}",
-                self.statement.clone().unwrap(),
-                self.location.visualize(&error_desc)
-            )
-        } else {
-            // print line number
-            write!(f, "{} at {}", error_desc, self.location)
+        if let Some(statement) = &self.statement {
+            if self.location.column() > 0 {
+                if let Some(line) = statement.lines().nth(self.location.row() - 1) {
+                    // visualize the error, when location and statement are provided
+                    return write!(f, "\n{}\n{}", line, self.location.visualize(&error_desc));
+                }
+            }
         }
+
+        // print line number
+        write!(f, "{} at {}", error_desc, self.location)
     }
 }
 
