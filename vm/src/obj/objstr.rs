@@ -15,7 +15,7 @@ use unicode_casing::CharExt;
 use unicode_categories::UnicodeCategories;
 use unicode_xid::UnicodeXID;
 
-use super::objbytes::PyBytes;
+use super::objbytes::{PyBytes, PyBytesRef};
 use super::objdict::PyDict;
 use super::objfloat;
 use super::objint::{self, PyInt, PyIntRef};
@@ -34,7 +34,7 @@ use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -170,26 +170,45 @@ impl PyStringReverseIterator {
     }
 }
 
+#[derive(FromArgs)]
+struct StrArgs {
+    #[pyarg(positional_or_keyword, optional = true)]
+    object: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    encoding: OptionalArg<PyStringRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    errors: OptionalArg<PyStringRef>,
+}
+
 #[pyimpl]
 impl PyString {
-    // TODO: should with following format
-    // class str(object='')
-    // class str(object=b'', encoding='utf-8', errors='strict')
     #[pyslot(new)]
-    fn tp_new(
-        cls: PyClassRef,
-        object: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStringRef> {
-        let string = match object {
-            OptionalArg::Present(ref input) => vm.to_str(input)?.into_object(),
-            OptionalArg::Missing => vm.new_str("".to_string()),
+    fn tp_new(cls: PyClassRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
+        let string: PyStringRef = match args.object {
+            OptionalArg::Present(input) => {
+                if let OptionalArg::Present(enc) = args.encoding {
+                    vm.decode(input, Some(enc.clone()), args.errors.into_option())?
+                        .downcast()
+                        .map_err(|obj| {
+                            vm.new_type_error(format!(
+                                "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
+                                 encode arbitrary types",
+                                enc,
+                                obj.class().name,
+                            ))
+                        })?
+                } else {
+                    vm.to_str(&input)?
+                }
+            }
+            OptionalArg::Missing => {
+                PyString::from(String::new()).into_ref_with_type(vm, cls.clone())?
+            }
         };
         if string.class().is(&cls) {
-            TryFromObject::try_from_object(vm, string)
+            Ok(string)
         } else {
-            let payload = string.payload::<PyString>().unwrap();
-            payload.clone().into_ref_with_type(vm, cls)
+            PyString::from(string.as_str()).into_ref_with_type(vm, cls)
         }
     }
     #[pymethod(name = "__add__")]
@@ -1175,27 +1194,12 @@ impl PyString {
 
     #[pymethod]
     fn encode(
-        &self,
-        encoding: OptionalArg<PyObjectRef>,
-        _errors: OptionalArg<PyObjectRef>,
+        zelf: PyRef<Self>,
+        encoding: OptionalArg<PyStringRef>,
+        errors: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
-    ) -> PyResult {
-        let encoding = encoding.map_or_else(
-            || Ok("utf-8".to_string()),
-            |v| {
-                if objtype::isinstance(&v, &vm.ctx.str_type()) {
-                    Ok(get_value(&v))
-                } else {
-                    Err(vm.new_type_error(format!(
-                        "encode() argument 1 must be str, not {}",
-                        v.class().name
-                    )))
-                }
-            },
-        )?;
-
-        let encoded = PyBytes::from_string(&self.value, &encoding, vm)?;
-        Ok(encoded.into_pyobject(vm)?)
+    ) -> PyResult<PyBytesRef> {
+        encode_string(zelf, encoding.into_option(), errors.into_option(), vm)
     }
 
     #[pymethod(name = "__iter__")]
@@ -1215,6 +1219,24 @@ impl PyString {
             string: zelf,
         }
     }
+}
+
+pub fn encode_string(
+    s: PyStringRef,
+    encoding: Option<PyStringRef>,
+    errors: Option<PyStringRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyBytesRef> {
+    vm.encode(s.into_object(), encoding.clone(), errors)?
+        .downcast::<PyBytes>()
+        .map_err(|obj| {
+            vm.new_type_error(format!(
+                "'{}' encoder returned '{}' instead of 'bytes'; use codecs.encode() to \
+                 encode arbitrary types",
+                encoding.as_ref().map_or("utf-8", |s| s.as_str()),
+                obj.class().name,
+            ))
+        })
 }
 
 impl PyValue for PyString {

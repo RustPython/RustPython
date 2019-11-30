@@ -2,7 +2,6 @@ pub mod array;
 #[cfg(feature = "rustpython-parser")]
 pub(crate) mod ast;
 mod binascii;
-mod codecs;
 mod collections;
 mod csv;
 mod dis;
@@ -65,7 +64,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "array".to_string() => Box::new(array::make_module) as StdlibInitFunc,
         "binascii".to_string() => Box::new(binascii::make_module),
         "dis".to_string() => Box::new(dis::make_module),
-        "_codecs".to_string() => Box::new(codecs::make_module),
         "_collections".to_string() => Box::new(collections::make_module),
         "_csv".to_string() => Box::new(csv::make_module),
         "_functools".to_string() => Box::new(functools::make_module),

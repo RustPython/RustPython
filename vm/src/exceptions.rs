@@ -5,7 +5,8 @@ use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::types::create_type;
 use crate::vm::VirtualMachine;
@@ -21,7 +22,7 @@ pub struct PyBaseException {
     cause: RefCell<Option<PyObjectRef>>,
     context: RefCell<Option<PyObjectRef>>,
     suppress_context: Cell<bool>,
-    args: RefCell<PyObjectRef>,
+    args: RefCell<PyTupleRef>,
 }
 
 impl fmt::Debug for PyBaseException {
@@ -54,25 +55,26 @@ impl PyBaseException {
             cause: RefCell::new(None),
             context: RefCell::new(None),
             suppress_context: Cell::new(false),
-            args: RefCell::new(vm.ctx.new_tuple(vec![])),
+            args: RefCell::new(PyTuple::from(vec![]).into_ref(vm)),
         }
         .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__init__")]
     fn init(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        self.args.replace(vm.ctx.new_tuple(args.args.to_vec()));
+        self.args.replace(PyTuple::from(args.args).into_ref(vm));
         Ok(())
     }
 
     #[pyproperty]
-    fn args(&self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn args(&self, _vm: &VirtualMachine) -> PyTupleRef {
         self.args.borrow().clone()
     }
 
     #[pyproperty(setter)]
-    fn set_args(&self, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.args.replace(args);
+    fn set_args(&self, args: PyIterable, vm: &VirtualMachine) -> PyResult {
+        let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
+        self.args.replace(PyTuple::from(args).into_ref(vm));
         Ok(vm.get_none())
     }
 
@@ -538,24 +540,62 @@ fn import_error_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-pub fn init(context: &PyContext) {
-    let base_exception_type = &context.exceptions.base_exception_type;
-    PyBaseException::extend_class(context, base_exception_type);
+fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    vm.get_none()
+}
 
-    let exception_type = &context.exceptions.exception_type;
-    extend_class!(context, exception_type, {
-        "__str__" => context.new_rustfunc(exception_str),
-        "__repr__" => context.new_rustfunc(exception_repr),
+fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef, &VirtualMachine) -> PyResult {
+    move |exc, vm| {
+        exc.args
+            .borrow()
+            .elements
+            .get(idx)
+            .cloned()
+            .ok_or_else(|| vm.new_value_error(format!("couldn't get arg {} of exception", idx)))
+    }
+}
+
+pub fn init(ctx: &PyContext) {
+    let excs = &ctx.exceptions;
+
+    PyBaseException::extend_class(ctx, &excs.base_exception_type);
+
+    extend_class!(ctx, &excs.exception_type, {
+        "__str__" => ctx.new_rustfunc(exception_str),
+        "__repr__" => ctx.new_rustfunc(exception_repr),
     });
 
-    let import_error_type = &context.exceptions.import_error;
-    extend_class!(context, import_error_type, {
-        "__init__" => context.new_rustfunc(import_error_init)
+    extend_class!(ctx, &excs.import_error, {
+        "__init__" => ctx.new_rustfunc(import_error_init)
     });
 
-    extend_class!(context, &context.exceptions.stop_iteration, {
-        "value" => context.new_rustfunc(|obj: PyObjectRef, vm: &VirtualMachine| {
+    extend_class!(ctx, &excs.stop_iteration, {
+        "value" => ctx.new_rustfunc(|obj: PyObjectRef, vm: &VirtualMachine| {
             objiter::stop_iter_value(vm, &obj)
         }),
+    });
+
+    extend_class!(ctx, &excs.unicode_decode_error, {
+        "encoding" => ctx.new_property(make_arg_getter(0)),
+        "object" => ctx.new_property(make_arg_getter(1)),
+        "start" => ctx.new_property(make_arg_getter(2)),
+        "end" => ctx.new_property(make_arg_getter(3)),
+        "reason" => ctx.new_property(make_arg_getter(4)),
+    });
+
+    extend_class!(ctx, &excs.unicode_encode_error, {
+        "encoding" => ctx.new_property(make_arg_getter(0)),
+        "object" => ctx.new_property(make_arg_getter(1)),
+        "start" => ctx.new_property(make_arg_getter(2)),
+        "end" => ctx.new_property(make_arg_getter(3)),
+        "reason" => ctx.new_property(make_arg_getter(4)),
+    });
+
+    extend_class!(ctx, &excs.unicode_translate_error, {
+        "encoding" => ctx.new_property(none_getter),
+        "object" => ctx.new_property(make_arg_getter(0)),
+        "start" => ctx.new_property(make_arg_getter(1)),
+        "end" => ctx.new_property(make_arg_getter(2)),
+        "reason" => ctx.new_property(make_arg_getter(3)),
     });
 }

@@ -341,7 +341,7 @@ where
 /// An argument that may or may not be provided by the caller.
 ///
 /// This style of argument is not possible in pure Python.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum OptionalArg<T = PyObjectRef> {
     Present(T),
     Missing,
