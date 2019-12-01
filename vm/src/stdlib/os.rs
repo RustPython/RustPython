@@ -20,6 +20,8 @@ use nix::errno::Errno;
 use nix::pty::openpty;
 #[cfg(unix)]
 use nix::unistd::{self, Gid, Pid, Uid, Whence};
+#[cfg(unix)]
+use std::os::unix::io::RawFd;
 
 use super::errno::errors;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
@@ -926,6 +928,96 @@ fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 #[cfg(unix)]
+fn os_get_inheritable(fd: RawFd, vm: &VirtualMachine) -> PyResult<bool> {
+    use nix::fcntl::fcntl;
+    use nix::fcntl::FcntlArg;
+    let flags = fcntl(fd, FcntlArg::F_GETFD);
+    match flags {
+        Ok(ret) => Ok((ret & libc::FD_CLOEXEC) == 0),
+        Err(err) => Err(convert_nix_error(vm, err)),
+    }
+}
+
+#[cfg(unix)]
+fn os_set_inheritable(fd: RawFd, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
+    let _set_flag = || {
+        use nix::fcntl::fcntl;
+        use nix::fcntl::FcntlArg;
+        use nix::fcntl::FdFlag;
+
+        let flags = FdFlag::from_bits_truncate(fcntl(fd, FcntlArg::F_GETFD)?);
+        let mut new_flags = flags;
+        new_flags.set(FdFlag::from_bits_truncate(libc::FD_CLOEXEC), !inheritable);
+        if flags != new_flags {
+            fcntl(fd, FcntlArg::F_SETFD(new_flags))?;
+        }
+        Ok(())
+    };
+    _set_flag().or_else(|err| Err(convert_nix_error(vm, err)))
+}
+
+#[cfg(unix)]
+fn os_get_blocking(fd: RawFd, vm: &VirtualMachine) -> PyResult<bool> {
+    use nix::fcntl::fcntl;
+    use nix::fcntl::FcntlArg;
+    let flags = fcntl(fd, FcntlArg::F_GETFL);
+    match flags {
+        Ok(ret) => Ok((ret & libc::O_NONBLOCK) == 0),
+        Err(err) => Err(convert_nix_error(vm, err)),
+    }
+}
+
+#[cfg(unix)]
+fn os_set_blocking(fd: RawFd, blocking: bool, vm: &VirtualMachine) -> PyResult<()> {
+    let _set_flag = || {
+        use nix::fcntl::fcntl;
+        use nix::fcntl::FcntlArg;
+        use nix::fcntl::OFlag;
+
+        let flags = OFlag::from_bits_truncate(fcntl(fd, FcntlArg::F_GETFL)?);
+        let mut new_flags = flags;
+        new_flags.set(OFlag::from_bits_truncate(libc::O_NONBLOCK), !blocking);
+        if flags != new_flags {
+            fcntl(fd, FcntlArg::F_SETFL(new_flags))?;
+        }
+        Ok(())
+    };
+    _set_flag().or_else(|err| Err(convert_nix_error(vm, err)))
+}
+
+#[cfg(unix)]
+fn os_pipe(vm: &VirtualMachine) -> PyResult<(RawFd, RawFd)> {
+    use nix::unistd::close;
+    use nix::unistd::pipe;
+    let (rfd, wfd) = pipe().map_err(|err| convert_nix_error(vm, err))?;
+    os_set_inheritable(rfd, false, vm)
+        .and_then(|_| os_set_inheritable(wfd, false, vm))
+        .or_else(|err| {
+            let _ = close(rfd);
+            let _ = close(wfd);
+            Err(err)
+        })?;
+    Ok((rfd, wfd))
+}
+
+// cfg from nix
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "emscripten",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn os_pipe2(flags: libc::c_int, vm: &VirtualMachine) -> PyResult<(RawFd, RawFd)> {
+    use nix::fcntl::OFlag;
+    use nix::unistd::pipe2;
+    let oflags = OFlag::from_bits_truncate(flags);
+    pipe2(oflags).map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(unix)]
 fn os_system(command: PyStringRef, _vm: &VirtualMachine) -> PyResult<i32> {
     use libc::system;
     use std::ffi::CString;
@@ -1277,12 +1369,17 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
     extend_module!(vm, module, {
         "access" => ctx.new_rustfunc(os_access),
         "chmod" => ctx.new_rustfunc(os_chmod),
+        "get_inheritable" => ctx.new_rustfunc(os_get_inheritable), // TODO: windows
+        "get_blocking" => ctx.new_rustfunc(os_get_blocking),
         "getppid" => ctx.new_rustfunc(os_getppid),
         "getgid" => ctx.new_rustfunc(os_getgid),
         "getegid" => ctx.new_rustfunc(os_getegid),
         "getpgid" => ctx.new_rustfunc(os_getpgid),
         "getuid" => ctx.new_rustfunc(os_getuid),
         "geteuid" => ctx.new_rustfunc(os_geteuid),
+        "pipe" => ctx.new_rustfunc(os_pipe), //TODO: windows
+        "set_inheritable" => ctx.new_rustfunc(os_set_inheritable), // TODO: windows
+        "set_blocking" => ctx.new_rustfunc(os_set_blocking),
         "setgid" => ctx.new_rustfunc(os_setgid),
         "setpgid" => ctx.new_rustfunc(os_setpgid),
         "setuid" => ctx.new_rustfunc(os_setuid),
@@ -1305,6 +1402,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "EX_NOPERM" => ctx.new_int(exitcode::NOPERM as i8),
         "EX_CONFIG" => ctx.new_int(exitcode::CONFIG as i8),
         "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
+        "O_NONBLOCK" => ctx.new_int(libc::O_NONBLOCK),
         "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
         "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
         "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
@@ -1334,6 +1432,19 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
     extend_module!(vm, module, {
         "SEEK_DATA" => ctx.new_int(Whence::SeekData as i8),
         "SEEK_HOLE" => ctx.new_int(Whence::SeekHole as i8)
+    });
+    // cfg from nix
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "emscripten",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    extend_module!(vm, module, {
+        "pipe2" => ctx.new_rustfunc(os_pipe2),
     });
 
     module
