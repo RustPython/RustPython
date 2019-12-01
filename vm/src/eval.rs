@@ -22,8 +22,7 @@ mod tests {
     #[test]
     fn test_print_42() {
         let source = String::from("print('Hello world')");
-        let mut uninitialized_vm = VirtualMachine::default();
-        let vm = uninitialized_vm.initialize(true);
+        let vm = VirtualMachine::default();
 
         let vars = vm.new_scope_with_builtins();
         let result = eval(&vm, &source, vars, "<unittest>").expect("this should pass");

@@ -203,7 +203,7 @@ impl VirtualMachine {
         vm
     }
 
-    pub fn initialize(&mut self, external: bool) -> &Self {
+    pub fn initialize(&self, external: bool) -> PyResult<()> {
         flame_guard!("init VirtualMachine");
 
         builtins::make_module(self, self.builtins.clone());
@@ -212,15 +212,15 @@ impl VirtualMachine {
         #[cfg(not(target_arch = "wasm32"))]
         import::import_builtin(self, "signal").expect("Couldn't initialize signal module");
 
-        if external {
-            // We only include the standard library bytecode in WASI
-            import::init_importlib(self, cfg!(not(target_os = "wasi")))
-                .expect("Couldn't initialize importlib");
-        } else {
-            import::init_importlib(self, false).expect("Couldn't initialize importlib");
-        }
+        import::init_importlib(self, external)?;
 
-        self
+        Ok(())
+    }
+
+    pub fn without_external() -> Self {
+        let vm = VirtualMachine::new(Default::default());
+        vm.initialize(false).expect("Initialize vm failed");
+        vm
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
@@ -1402,7 +1402,9 @@ impl VirtualMachine {
 
 impl Default for VirtualMachine {
     fn default() -> Self {
-        VirtualMachine::new(Default::default())
+        let vm = VirtualMachine::new(Default::default());
+        vm.initialize(true).expect("Initialize vm failed");
+        vm
     }
 }
 

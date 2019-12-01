@@ -9,7 +9,7 @@ use rustpython_compiler::compile;
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::scope::{NameProtocol, Scope};
-use rustpython_vm::VirtualMachine;
+use rustpython_vm::{PySettings, VirtualMachine};
 
 use crate::browser_module::setup_browser_module;
 use crate::convert;
@@ -26,7 +26,19 @@ pub(crate) struct StoredVirtualMachine {
 
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
-        let mut vm: VirtualMachine = Default::default();
+        let mut vm: VirtualMachine = VirtualMachine::new(PySettings {
+            debug: false,
+            inspect: false,
+            optimize: 0,
+            no_user_site: false,
+            no_site: false,
+            ignore_environment: false,
+            verbose: 0,
+            quiet: false,
+            dont_write_bytecode: false,
+            path_list: vec![],
+            argv: vec![],
+        });
         vm.wasm_id = Some(id);
         let scope = vm.new_scope_with_builtins();
 
@@ -43,7 +55,7 @@ impl StoredVirtualMachine {
             setup_browser_module(&vm);
         }
 
-        vm.initialize(false);
+        vm.initialize(false).expect("Initialize vm failed");
 
         StoredVirtualMachine {
             vm,

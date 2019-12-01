@@ -30,9 +30,8 @@ fn main() {
     let app = App::new("RustPython");
     let matches = parse_arguments(app);
     let settings = create_settings(&matches);
-    let mut uninitialized_vm = VirtualMachine::new(settings);
+    let vm = VirtualMachine::new(settings);
 
-    let vm = uninitialized_vm.initialize(true);
     let res = run_rustpython(&vm, &matches);
 
     #[cfg(feature = "flame-it")]
@@ -325,6 +324,9 @@ fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>>
 }
 
 fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
+    // We only include the standard library bytecode in WASI when initializing
+    vm.initialize(cfg!(not(target_os = "wasi")))?;
+
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
         let sys_path = vm.get_attribute(vm.sys_module.clone(), "path")?;
         for (i, path) in std::env::split_paths(paths).enumerate() {
@@ -444,8 +446,7 @@ fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<
 
 #[test]
 fn test_run_script() {
-    let mut uninitialized_vm: VirtualMachine = Default::default();
-    let vm = uninitialized_vm.initialize(true);
+    let vm: VirtualMachine = Default::default();
 
     // test file run
     let r = run_script(
