@@ -9,6 +9,7 @@ mod errno;
 mod functools;
 mod hashlib;
 mod imp;
+pub mod io;
 mod itertools;
 mod json;
 #[cfg(feature = "rustpython-parser")]
@@ -35,8 +36,6 @@ use std::collections::HashMap;
 
 use crate::vm::VirtualMachine;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub mod io;
 #[cfg(not(target_arch = "wasm32"))]
 mod multiprocessing;
 #[cfg(not(target_arch = "wasm32"))]
@@ -70,6 +69,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "errno".to_string() => Box::new(errno::make_module),
         "hashlib".to_string() => Box::new(hashlib::make_module),
         "itertools".to_string() => Box::new(itertools::make_module),
+        "_io".to_string() => Box::new(io::make_module),
         "json".to_string() => Box::new(json::make_module),
         "marshal".to_string() => Box::new(marshal::make_module),
         "math".to_string() => Box::new(math::make_module),
@@ -106,7 +106,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     // disable some modules on WASM
     #[cfg(not(target_arch = "wasm32"))]
     {
-        modules.insert("_io".to_string(), Box::new(io::make_module));
         modules.insert("_os".to_string(), Box::new(os::make_module));
         modules.insert("_socket".to_string(), Box::new(socket::make_module));
         modules.insert(

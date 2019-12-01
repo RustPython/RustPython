@@ -78,7 +78,10 @@ class BufferedIOBase(_io._BufferedIOBase, IOBase):
 class TextIOBase(_io._TextIOBase, IOBase):
     __doc__ = _io._TextIOBase.__doc__
 
-RawIOBase.register(FileIO)
+try:
+    RawIOBase.register(FileIO)
+except NameError:
+    pass
 
 for klass in (BytesIO, BufferedReader, BufferedWriter):#, BufferedRandom,
               #BufferedRWPair):

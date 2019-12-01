@@ -9,7 +9,6 @@ use std::io::SeekFrom;
 
 use num_traits::ToPrimitive;
 
-use super::os;
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objbytearray::PyByteArray;
@@ -500,163 +499,191 @@ fn buffered_reader_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult
     Ok(())
 }
 
-fn compute_c_flag(mode: &str) -> u32 {
-    let flag = match mode.chars().next() {
-        Some(mode) => match mode {
-            'w' => libc::O_WRONLY | libc::O_CREAT,
-            'x' => libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
-            'a' => libc::O_APPEND,
-            '+' => libc::O_RDWR,
-            _ => libc::O_RDONLY,
-        },
-        None => libc::O_RDONLY,
-    };
-    flag as u32
-}
+// disable FileIO on WASM
+#[cfg(not(target_arch = "wasm32"))]
+mod fileio {
+    use super::super::os;
+    use super::*;
 
-fn file_io_init(
-    file_io: PyObjectRef,
-    name: Either<PyStringRef, i64>,
-    mode: OptionalArg<PyStringRef>,
-    vm: &VirtualMachine,
-) -> PyResult {
-    let (name, file_no) = match name {
-        Either::A(name) => {
-            let mode = match mode {
-                OptionalArg::Present(mode) => compute_c_flag(mode.as_str()),
-                OptionalArg::Missing => libc::O_RDONLY as _,
-            };
-            (
-                name.clone().into_object(),
-                os::os_open(
-                    name,
-                    mode as _,
-                    OptionalArg::Missing,
-                    OptionalArg::Missing,
-                    vm,
-                )?,
-            )
+    fn compute_c_flag(mode: &str) -> u32 {
+        let flag = match mode.chars().next() {
+            Some(mode) => match mode {
+                'w' => libc::O_WRONLY | libc::O_CREAT,
+                'x' => libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+                'a' => libc::O_APPEND,
+                '+' => libc::O_RDWR,
+                _ => libc::O_RDONLY,
+            },
+            None => libc::O_RDONLY,
+        };
+        flag as u32
+    }
+
+    fn file_io_init(
+        file_io: PyObjectRef,
+        name: Either<PyStringRef, i64>,
+        mode: OptionalArg<PyStringRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let (name, file_no) = match name {
+            Either::A(name) => {
+                let mode = match mode {
+                    OptionalArg::Present(mode) => compute_c_flag(mode.as_str()),
+                    OptionalArg::Missing => libc::O_RDONLY as _,
+                };
+                (
+                    name.clone().into_object(),
+                    os::os_open(
+                        name,
+                        mode as _,
+                        OptionalArg::Missing,
+                        OptionalArg::Missing,
+                        vm,
+                    )?,
+                )
+            }
+            Either::B(fno) => (vm.new_int(fno), fno),
+        };
+
+        vm.set_attr(&file_io, "name", name)?;
+        vm.set_attr(&file_io, "__fileno", vm.new_int(file_no))?;
+        vm.set_attr(&file_io, "closefd", vm.new_bool(false))?;
+        vm.set_attr(&file_io, "closed", vm.new_bool(false))?;
+        Ok(vm.get_none())
+    }
+
+    fn fio_get_fileno(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult<fs::File> {
+        io_base_checkclosed(instance.clone(), OptionalArg::Missing, vm)?;
+        let fileno = i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
+        Ok(os::rust_file(fileno))
+    }
+    fn fio_set_fileno(instance: &PyObjectRef, f: fs::File, vm: &VirtualMachine) -> PyResult<()> {
+        let updated = os::raw_file_number(f);
+        vm.set_attr(&instance, "__fileno", vm.ctx.new_int(updated))?;
+        Ok(())
+    }
+
+    fn file_io_read(
+        instance: PyObjectRef,
+        read_byte: OptionalOption<i64>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let read_byte = byte_count(read_byte);
+
+        let mut handle = fio_get_fileno(&instance, vm)?;
+
+        let bytes = if read_byte < 0 {
+            let mut bytes = vec![];
+            handle
+                .read_to_end(&mut bytes)
+                .map_err(|e| os::convert_io_error(vm, e))?;
+            bytes
+        } else {
+            let mut bytes = vec![0; read_byte as usize];
+            let n = handle
+                .read(&mut bytes)
+                .map_err(|e| os::convert_io_error(vm, e))?;
+            bytes.truncate(n);
+            bytes
+        };
+        fio_set_fileno(&instance, handle, vm)?;
+
+        Ok(bytes)
+    }
+
+    fn file_io_readinto(
+        instance: PyObjectRef,
+        obj: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if !obj.readonly() {
+            return Err(vm.new_type_error(
+                "readinto() argument must be read-write bytes-like object".to_string(),
+            ));
         }
-        Either::B(fno) => (vm.new_int(fno), fno),
-    };
 
-    vm.set_attr(&file_io, "name", name)?;
-    vm.set_attr(&file_io, "__fileno", vm.new_int(file_no))?;
-    vm.set_attr(&file_io, "closefd", vm.new_bool(false))?;
-    vm.set_attr(&file_io, "closed", vm.new_bool(false))?;
-    Ok(vm.get_none())
-}
+        //extract length of buffer
+        let py_length = vm.call_method(&obj, "__len__", PyFuncArgs::default())?;
+        let length = objint::get_value(&py_length).to_u64().unwrap();
 
-fn fio_get_fileno(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult<fs::File> {
-    io_base_checkclosed(instance.clone(), OptionalArg::Missing, vm)?;
-    let fileno = i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
-    Ok(os::rust_file(fileno))
-}
-fn fio_set_fileno(instance: &PyObjectRef, f: fs::File, vm: &VirtualMachine) -> PyResult<()> {
-    let updated = os::raw_file_number(f);
-    vm.set_attr(&instance, "__fileno", vm.ctx.new_int(updated))?;
-    Ok(())
-}
+        let handle = fio_get_fileno(&instance, vm)?;
 
-fn file_io_read(
-    instance: PyObjectRef,
-    read_byte: OptionalOption<i64>,
-    vm: &VirtualMachine,
-) -> PyResult<Vec<u8>> {
-    let read_byte = byte_count(read_byte);
+        let mut f = handle.take(length);
+        if let Some(bytes) = obj.payload::<PyByteArray>() {
+            //TODO: Implement for MemoryView
 
-    let mut handle = fio_get_fileno(&instance, vm)?;
+            let value_mut = &mut bytes.inner.borrow_mut().elements;
+            value_mut.clear();
+            match f.read_to_end(value_mut) {
+                Ok(_) => {}
+                Err(_) => return Err(vm.new_value_error("Error reading from Take".to_string())),
+            }
+        };
 
-    let bytes = if read_byte < 0 {
-        let mut bytes = vec![];
-        handle
-            .read_to_end(&mut bytes)
-            .map_err(|e| os::convert_io_error(vm, e))?;
-        bytes
-    } else {
-        let mut bytes = vec![0; read_byte as usize];
-        let n = handle
-            .read(&mut bytes)
-            .map_err(|e| os::convert_io_error(vm, e))?;
-        bytes.truncate(n);
-        bytes
-    };
-    fio_set_fileno(&instance, handle, vm)?;
+        fio_set_fileno(&instance, f.into_inner(), vm)?;
 
-    Ok(bytes)
-}
-
-fn file_io_readinto(instance: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-    if !obj.readonly() {
-        return Err(vm.new_type_error(
-            "readinto() argument must be read-write bytes-like object".to_string(),
-        ));
+        Ok(())
     }
 
-    //extract length of buffer
-    let py_length = vm.call_method(&obj, "__len__", PyFuncArgs::default())?;
-    let length = objint::get_value(&py_length).to_u64().unwrap();
+    fn file_io_write(
+        instance: PyObjectRef,
+        obj: PyBytesLike,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        let mut handle = fio_get_fileno(&instance, vm)?;
 
-    let handle = fio_get_fileno(&instance, vm)?;
+        let len = handle
+            .write(obj.to_cow().as_ref())
+            .map_err(|e| os::convert_io_error(vm, e))?;
 
-    let mut f = handle.take(length);
-    if let Some(bytes) = obj.payload::<PyByteArray>() {
-        //TODO: Implement for MemoryView
+        fio_set_fileno(&instance, handle, vm)?;
 
-        let value_mut = &mut bytes.inner.borrow_mut().elements;
-        value_mut.clear();
-        match f.read_to_end(value_mut) {
-            Ok(_) => {}
-            Err(_) => return Err(vm.new_value_error("Error reading from Take".to_string())),
+        //return number of bytes written
+        Ok(len)
+    }
+
+    #[cfg(windows)]
+    fn file_io_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let raw_handle = i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
+        unsafe {
+            winapi::um::handleapi::CloseHandle(raw_handle as _);
         }
-    };
-
-    fio_set_fileno(&instance, f.into_inner(), vm)?;
-
-    Ok(())
-}
-
-fn file_io_write(instance: PyObjectRef, obj: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
-    let mut handle = fio_get_fileno(&instance, vm)?;
-
-    let len = handle
-        .write(obj.to_cow().as_ref())
-        .map_err(|e| os::convert_io_error(vm, e))?;
-
-    fio_set_fileno(&instance, handle, vm)?;
-
-    //return number of bytes written
-    Ok(len)
-}
-
-#[cfg(windows)]
-fn file_io_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-    let raw_handle = i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
-    unsafe {
-        winapi::um::handleapi::CloseHandle(raw_handle as _);
+        vm.set_attr(&instance, "closefd", vm.new_bool(true))?;
+        vm.set_attr(&instance, "closed", vm.new_bool(true))?;
+        Ok(())
     }
-    vm.set_attr(&instance, "closefd", vm.new_bool(true))?;
-    vm.set_attr(&instance, "closed", vm.new_bool(true))?;
-    Ok(())
-}
 
-#[cfg(unix)]
-fn file_io_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-    let raw_fd = i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
-    unsafe {
-        libc::close(raw_fd as _);
+    #[cfg(unix)]
+    fn file_io_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let raw_fd = i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
+        unsafe {
+            libc::close(raw_fd as _);
+        }
+        vm.set_attr(&instance, "closefd", vm.new_bool(true))?;
+        vm.set_attr(&instance, "closed", vm.new_bool(true))?;
+        Ok(())
     }
-    vm.set_attr(&instance, "closefd", vm.new_bool(true))?;
-    vm.set_attr(&instance, "closed", vm.new_bool(true))?;
-    Ok(())
-}
 
-fn file_io_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
-    true
-}
+    fn file_io_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+        true
+    }
 
-fn file_io_fileno(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    vm.get_attribute(instance, "__fileno")
+    fn file_io_fileno(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm.get_attribute(instance, "__fileno")
+    }
+
+    pub fn make_fileio(ctx: &crate::pyobject::PyContext, raw_io_base: PyClassRef) -> PyClassRef {
+        py_class!(ctx, "FileIO", raw_io_base, {
+            "__init__" => ctx.new_rustfunc(file_io_init),
+            "name" => ctx.str_type(),
+            "read" => ctx.new_rustfunc(file_io_read),
+            "readinto" => ctx.new_rustfunc(file_io_readinto),
+            "write" => ctx.new_rustfunc(file_io_write),
+            "close" => ctx.new_rustfunc(file_io_close),
+            "seekable" => ctx.new_rustfunc(file_io_seekable),
+            "fileno" => ctx.new_rustfunc(file_io_fileno),
+        })
+    }
 }
 
 fn buffered_writer_write(instance: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -850,7 +877,12 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     // Construct a FileIO (subclass of RawIOBase)
     // This is subsequently consumed by a Buffered Class.
-    let file_io_class = vm.get_attribute(io_module.clone(), "FileIO").unwrap();
+    let file_io_class = vm.get_attribute(io_module.clone(), "FileIO").map_err(|_| {
+        // TODO: UnsupportedOperation here
+        vm.new_os_error(
+            "Couldn't get FileIO, io.open likely isn't supported on your platform".to_string(),
+        )
+    })?;
     let file_io_obj = vm.invoke(
         &file_io_class,
         vec![file.clone(), vm.ctx.new_str(mode.clone())],
@@ -927,19 +959,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     //TextIO Base has no public constructor
     let text_io_base = py_class!(ctx, "_TextIOBase", io_base.clone(), {});
 
-    // RawBaseIO Subclasses
-    // TODO Fix name?
-    let file_io = py_class!(ctx, "FileIO", raw_io_base.clone(), {
-        "__init__" => ctx.new_rustfunc(file_io_init),
-        "name" => ctx.str_type(),
-        "read" => ctx.new_rustfunc(file_io_read),
-        "readinto" => ctx.new_rustfunc(file_io_readinto),
-        "write" => ctx.new_rustfunc(file_io_write),
-        "close" => ctx.new_rustfunc(file_io_close),
-        "seekable" => ctx.new_rustfunc(file_io_seekable),
-        "fileno" => ctx.new_rustfunc(file_io_fileno),
-    });
-
     // BufferedIOBase Subclasses
     let buffered_reader = py_class!(ctx, "BufferedReader", buffered_io_base.clone(), {
         //workaround till the buffered classes can be fixed up to be more
@@ -1001,20 +1020,26 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "close" => ctx.new_rustfunc(PyBytesIORef::close),
     });
 
-    py_module!(vm, "_io", {
+    let module = py_module!(vm, "_io", {
         "open" => ctx.new_rustfunc(io_open),
         "_IOBase" => io_base,
-        "_RawIOBase" => raw_io_base,
+        "_RawIOBase" => raw_io_base.clone(),
         "_BufferedIOBase" => buffered_io_base,
         "_TextIOBase" => text_io_base,
-        "FileIO" => file_io,
         "BufferedReader" => buffered_reader,
         "BufferedWriter" => buffered_writer,
         "TextIOWrapper" => text_io_wrapper,
         "StringIO" => string_io,
         "BytesIO" => bytes_io,
         "DEFAULT_BUFFER_SIZE" => ctx.new_int(8 * 1024),
-    })
+    });
+
+    #[cfg(not(target_arch = "wasm32"))]
+    extend_module!(vm, module, {
+        "FileIO" => fileio::make_fileio(ctx, raw_io_base),
+    });
+
+    module
 }
 
 #[cfg(test)]
