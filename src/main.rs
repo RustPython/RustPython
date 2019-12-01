@@ -29,7 +29,11 @@ fn main() {
     env_logger::init();
     let app = App::new("RustPython");
     let matches = parse_arguments(app);
-    let settings = create_settings(&matches);
+    let mut settings = create_settings(&matches);
+
+    // We only include the standard library bytecode in WASI when initializing
+    settings.initialize_with_external_importer = Some(cfg!(not(target_os = "wasi")));
+
     let vm = VirtualMachine::new(settings);
 
     let res = run_rustpython(&vm, &matches);
@@ -324,9 +328,6 @@ fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>>
 }
 
 fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
-    // We only include the standard library bytecode in WASI when initializing
-    vm.initialize(cfg!(not(target_os = "wasi")))?;
-
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
         let sys_path = vm.get_attribute(vm.sys_module.clone(), "path")?;
         for (i, path) in std::env::split_paths(paths).enumerate() {

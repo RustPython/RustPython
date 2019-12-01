@@ -69,6 +69,7 @@ pub struct VirtualMachine {
     pub settings: PySettings,
     pub recursion_limit: Cell<usize>,
     pub codec_registry: RefCell<Vec<PyObjectRef>>,
+    pub initialized: bool,
 }
 
 pub const NSIG: usize = 64;
@@ -107,6 +108,18 @@ pub struct PySettings {
 
     /// sys.argv
     pub argv: Vec<String>,
+
+    /// Initialize VM after VM created
+    /// - Some(true):
+    ///     VM will be created and initialized with the importers, which require external
+    ///     filesystem access
+    /// - Some(false):
+    ///     VM will be created and initialized with the importers wihout external filesystem access
+    /// - None:
+    ///     VM will be created but not initialized, so it is ready to be injected with modules.
+    ///     After injection, the `initialize_as_external` or `initialize_without_external`
+    ///     should be called, such that the VM will be ready to use.
+    pub initialize_with_external_importer: Option<bool>,
 }
 
 /// Trace events for sys.settrace and sys.setprofile.
@@ -140,6 +153,7 @@ impl Default for PySettings {
             dont_write_bytecode: false,
             path_list: vec![],
             argv: vec![],
+            initialize_with_external_importer: Some(true),
         }
     }
 }
@@ -167,8 +181,9 @@ impl VirtualMachine {
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
         let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
+        let initialize_parameter = settings.initialize_with_external_importer;
 
-        let vm = VirtualMachine {
+        let mut vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
             stdlib_inits,
@@ -185,6 +200,7 @@ impl VirtualMachine {
             settings,
             recursion_limit: Cell::new(512),
             codec_registry: RefCell::default(),
+            initialized: false,
         };
 
         objmodule::init_module_dict(
@@ -199,12 +215,19 @@ impl VirtualMachine {
             vm.new_str("sys".to_owned()),
             vm.get_none(),
         );
-
+        if let Some(with_external_importer) = initialize_parameter {
+            vm._initialize(with_external_importer);
+            vm.initialized = true;
+        }
         vm
     }
 
-    pub fn initialize(&self, external: bool) -> PyResult<()> {
+    fn _initialize(&mut self, with_external_importer: bool) {
         flame_guard!("init VirtualMachine");
+
+        if self.initialized {
+            panic!("Double Initialize Error");
+        }
 
         builtins::make_module(self, self.builtins.clone());
         sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
@@ -212,15 +235,17 @@ impl VirtualMachine {
         #[cfg(not(target_arch = "wasm32"))]
         import::import_builtin(self, "signal").expect("Couldn't initialize signal module");
 
-        import::init_importlib(self, external)?;
+        import::init_importlib(self, with_external_importer).expect("Initialize importlib fail");
 
-        Ok(())
+        self.initialized = true;
     }
 
-    pub fn without_external() -> Self {
-        let vm = VirtualMachine::new(Default::default());
-        vm.initialize(false).expect("Initialize vm failed");
-        vm
+    pub fn initialize_with_external_importer(&mut self) {
+        self._initialize(true);
+    }
+
+    pub fn initialize_without_external_importer(&mut self) {
+        self._initialize(false);
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
@@ -1402,9 +1427,7 @@ impl VirtualMachine {
 
 impl Default for VirtualMachine {
     fn default() -> Self {
-        let vm = VirtualMachine::new(Default::default());
-        vm.initialize(true).expect("Initialize vm failed");
-        vm
+        VirtualMachine::new(Default::default())
     }
 }
 
