@@ -251,69 +251,6 @@ with TestWithTempDir() as tmpdir:
 	assert os.path.basename(fname) == FILE_NAME
 	assert os.path.dirname(fname) == tmpdir
 
-	# os.get_blocking, os.set_blocking
-	# TODO: windows support should be added for below functions
-	# os.pipe, 
-	# os.set_inheritable, os.get_inheritable, 
-	if os.name != "nt":
-		rfd, wfd = os.pipe()
-		try:
-			os.write(wfd, CONTENT2)
-			assert os.read(rfd, len(CONTENT2)) == CONTENT2
-			assert not os.get_inheritable(rfd)
-			assert not os.get_inheritable(wfd)
-			os.set_inheritable(rfd, True)
-			os.set_inheritable(wfd, True)
-			assert os.get_inheritable(rfd)
-			assert os.get_inheritable(wfd)
-			os.set_inheritable(rfd, True)
-			os.set_inheritable(wfd, True)
-			os.set_inheritable(rfd, True)
-			os.set_inheritable(wfd, True)
-			assert os.get_inheritable(rfd)
-			assert os.get_inheritable(wfd)
-
-			assert os.get_blocking(rfd)
-			assert os.get_blocking(wfd)
-			os.set_blocking(rfd, False)
-			os.set_blocking(wfd, False)
-			assert not os.get_blocking(rfd)
-			assert not os.get_blocking(wfd)
-			os.set_blocking(rfd, True)
-			os.set_blocking(wfd, True)
-			os.set_blocking(rfd, True)
-			os.set_blocking(wfd, True)
-			assert os.get_blocking(rfd)
-			assert os.get_blocking(wfd)
-		finally:
-			os.close(rfd)
-			os.close(wfd)
-	
-	# os.pipe2
-	if sys.platform.startswith('linux') or sys.platform.startswith('freebsd'):
-		rfd, wfd = os.pipe2(0)
-		try:
-			os.write(wfd, CONTENT2)
-			assert os.read(rfd, len(CONTENT2)) == CONTENT2
-			assert os.get_inheritable(rfd)
-			assert os.get_inheritable(wfd)
-			assert os.get_blocking(rfd)
-			assert os.get_blocking(wfd)
-		finally:
-			os.close(rfd)
-			os.close(wfd)
-		rfd, wfd = os.pipe2(os.O_CLOEXEC | os.O_NONBLOCK)
-		try:
-			os.write(wfd, CONTENT2)
-			assert os.read(rfd, len(CONTENT2)) == CONTENT2
-			assert not os.get_inheritable(rfd)
-			assert not os.get_inheritable(wfd)
-			assert not os.get_blocking(rfd)
-			assert not os.get_blocking(wfd)
-		finally:
-			os.close(rfd)
-			os.close(wfd)
-
 	with TestWithTempCurrentDir():
 		os.chdir(tmpdir)
 		assert os.getcwd() == os.path.realpath(tmpdir)
@@ -352,6 +289,69 @@ if "win" not in sys.platform:
     assert_raises(OSError, lambda: os.ttyname(9999))
     os.close(b)
     os.close(a)
+
+    # os.get_blocking, os.set_blocking
+    # TODO: windows support should be added for below functions
+    # os.pipe,
+    # os.set_inheritable, os.get_inheritable,
+    rfd, wfd = os.pipe()
+    try:
+        os.write(wfd, CONTENT2)
+        assert os.read(rfd, len(CONTENT2)) == CONTENT2
+        assert not os.get_inheritable(rfd)
+        assert not os.get_inheritable(wfd)
+        os.set_inheritable(rfd, True)
+        os.set_inheritable(wfd, True)
+        assert os.get_inheritable(rfd)
+        assert os.get_inheritable(wfd)
+        os.set_inheritable(rfd, True)
+        os.set_inheritable(wfd, True)
+        os.set_inheritable(rfd, True)
+        os.set_inheritable(wfd, True)
+        assert os.get_inheritable(rfd)
+        assert os.get_inheritable(wfd)
+
+        assert os.get_blocking(rfd)
+        assert os.get_blocking(wfd)
+        os.set_blocking(rfd, False)
+        os.set_blocking(wfd, False)
+        assert not os.get_blocking(rfd)
+        assert not os.get_blocking(wfd)
+        os.set_blocking(rfd, True)
+        os.set_blocking(wfd, True)
+        os.set_blocking(rfd, True)
+        os.set_blocking(wfd, True)
+        assert os.get_blocking(rfd)
+        assert os.get_blocking(wfd)
+    finally:
+        os.close(rfd)
+        os.close(wfd)
+
+# os.pipe2
+if sys.platform.startswith('linux') or sys.platform.startswith('freebsd'):
+    rfd, wfd = os.pipe2(0)
+    try:
+        os.write(wfd, CONTENT2)
+        assert os.read(rfd, len(CONTENT2)) == CONTENT2
+        assert os.get_inheritable(rfd)
+        assert os.get_inheritable(wfd)
+        assert os.get_blocking(rfd)
+        assert os.get_blocking(wfd)
+    finally:
+        os.close(rfd)
+        os.close(wfd)
+    rfd, wfd = os.pipe2(os.O_CLOEXEC | os.O_NONBLOCK)
+    try:
+        os.write(wfd, CONTENT2)
+        assert os.read(rfd, len(CONTENT2)) == CONTENT2
+        assert not os.get_inheritable(rfd)
+        assert not os.get_inheritable(wfd)
+        assert not os.get_blocking(rfd)
+        assert not os.get_blocking(wfd)
+    finally:
+        os.close(rfd)
+        os.close(wfd)
+
 
 with TestWithTempDir() as tmpdir:
     for i in range(0, 4):
