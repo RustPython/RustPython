@@ -989,15 +989,21 @@ fn os_set_blocking(fd: RawFd, blocking: bool, vm: &VirtualMachine) -> PyResult<(
 fn os_pipe(vm: &VirtualMachine) -> PyResult<(RawFd, RawFd)> {
     use nix::unistd::close;
     use nix::unistd::pipe;
-    let (rfd, wfd) = pipe().map_err(|err| convert_nix_error(vm, err))?;
-    os_set_inheritable(rfd, false, vm)
-        .and_then(|_| os_set_inheritable(wfd, false, vm))
-        .or_else(|err| {
-            let _ = close(rfd);
-            let _ = close(wfd);
-            Err(err)
-        })?;
-    Ok((rfd, wfd))
+    match pipe() {
+        Err(err) => Err(convert_nix_error(vm, err)),
+        Ok(ok) => {
+            os_set_inheritable(ok.0, false, vm)
+                .and_then(|_| os_set_inheritable(ok.1, false, vm))
+                .or_else(|err| {
+                    close(ok.0)
+                        .and_then(|_| close(ok.1))
+                        .or_else(|err| dbg!(Err(err)))
+                        .ok();
+                    Err(err)
+                })?;
+            Ok(ok)
+        }
+    }
 }
 
 // cfg from nix
