@@ -86,6 +86,7 @@ gethostname = "0.2.0"
 subprocess = "0.1.18"
 num_cpus = "1"
 socket2 = { version = "0.3", features = ["unix"] }
+dns-lookup = "1.0"
 
 [target."cfg(windows)".dependencies.winapi]
 version = "0.3"
