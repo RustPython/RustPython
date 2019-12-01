@@ -344,3 +344,46 @@ with assert_raises(StopIteration):
 
 with assert_raises(ValueError):
     itertools.combinations([1, 2, 3, 4], -2)
+
+# itertools.zip_longest tests
+zl = itertools.zip_longest
+assert list(zl(['a', 'b', 'c'], range(3), [9, 8, 7])) \
+       == [('a', 0, 9), ('b', 1, 8), ('c', 2, 7)]
+assert list(zl(['a', 'b', 'c'], range(3), [9, 8, 7, 99])) \
+       == [('a', 0, 9), ('b', 1, 8), ('c', 2, 7), (None, None, 99)]
+assert list(zl(['a', 'b', 'c'], range(3), [9, 8, 7, 99], fillvalue='d')) \
+       == [('a', 0, 9), ('b', 1, 8), ('c', 2, 7), ('d', 'd', 99)]
+
+assert list(zl(['a', 'b', 'c'])) == [('a',), ('b',), ('c',)]
+assert list(zl()) == []
+
+assert list(zl(*zl(['a', 'b', 'c'], range(1, 4)))) \
+       == [('a', 'b', 'c'), (1, 2, 3)]
+assert list(zl(*zl(['a', 'b', 'c'], range(1, 5)))) \
+       == [('a', 'b', 'c', None), (1, 2, 3, 4)]
+assert list(zl(*zl(['a', 'b', 'c'], range(1, 5), fillvalue=100))) \
+       == [('a', 'b', 'c', 100), (1, 2, 3, 4)]
+
+
+# test infinite iterator
+class Counter(object):
+    def __init__(self, counter=0):
+        self.counter = counter
+
+    def __next__(self):
+        self.counter += 1
+        return self.counter
+
+    def __iter__(self):
+        return self
+
+
+it = zl(Counter(), Counter(3))
+assert next(it) == (1, 4)
+assert next(it) == (2, 5)
+
+it = zl([1,2], [3])
+assert next(it) == (1, 3)
+assert next(it) == (2, None)
+with assert_raises(StopIteration):
+    next(it)
