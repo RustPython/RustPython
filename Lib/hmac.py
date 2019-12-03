@@ -4,7 +4,8 @@ Implements the HMAC algorithm as described by RFC 2104.
 """
 
 import warnings as _warnings
-from _operator import _compare_digest as compare_digest
+# XXX RustPython TODO: _operator
+#from _operator import _compare_digest as compare_digest
 import hashlib as _hashlib
 
 trans_5C = bytes((x ^ 0x5C) for x in range(256))

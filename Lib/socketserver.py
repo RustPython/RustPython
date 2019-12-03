@@ -773,8 +773,10 @@ class _SocketWriter(BufferedIOBase):
 
     def write(self, b):
         self._sock.sendall(b)
-        with memoryview(b) as view:
-            return view.nbytes
+        # XXX RustPython TODO: implement memoryview properly
+        #with memoryview(b) as view:
+        #    return view.nbytes
+        return len(b)
 
     def fileno(self):
         return self._sock.fileno()
