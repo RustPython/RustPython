@@ -1,7 +1,7 @@
 /*
  * I/O core tools.
  */
-use std::cell::{Cell, RefCell};
+use std::cell::{RefCell, RefMut};
 use std::fs;
 use std::io::prelude::*;
 use std::io::Cursor;
@@ -102,8 +102,7 @@ impl BufferedIO {
 
 #[derive(Debug)]
 struct PyStringIO {
-    buffer: RefCell<BufferedIO>,
-    closed: Cell<bool>,
+    buffer: RefCell<Option<BufferedIO>>,
 }
 
 type PyStringIORef = PyRef<PyStringIO>;
@@ -115,11 +114,20 @@ impl PyValue for PyStringIO {
 }
 
 impl PyStringIORef {
+    fn buffer(&self, vm: &VirtualMachine) -> PyResult<RefMut<BufferedIO>> {
+        let buffer = self.buffer.borrow_mut();
+        if buffer.is_some() {
+            Ok(RefMut::map(buffer, |opt| opt.as_mut().unwrap()))
+        } else {
+            Err(vm.new_value_error("I/O operation on closed file.".to_string()))
+        }
+    }
+
     //write string to underlying vector
     fn write(self, data: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let bytes = data.as_str().as_bytes();
 
-        match self.buffer.borrow_mut().write(bytes) {
+        match self.buffer(vm)?.write(bytes) {
             Some(value) => Ok(vm.ctx.new_int(value)),
             None => Err(vm.new_type_error("Error Writing String".to_string())),
         }
@@ -127,7 +135,7 @@ impl PyStringIORef {
 
     //return the entire contents of the underlying
     fn getvalue(self, vm: &VirtualMachine) -> PyResult {
-        match String::from_utf8(self.buffer.borrow().getvalue()) {
+        match String::from_utf8(self.buffer(vm)?.getvalue()) {
             Ok(result) => Ok(vm.ctx.new_str(result)),
             Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_string())),
         }
@@ -135,7 +143,7 @@ impl PyStringIORef {
 
     //skip to the jth position
     fn seek(self, offset: u64, vm: &VirtualMachine) -> PyResult {
-        match self.buffer.borrow_mut().seek(offset) {
+        match self.buffer(vm)?.seek(offset) {
             Some(value) => Ok(vm.ctx.new_int(value)),
             None => Err(vm.new_value_error("Error Performing Operation".to_string())),
         }
@@ -149,7 +157,7 @@ impl PyStringIORef {
     //If k is undefined || k == -1, then we read all bytes until the end of the file.
     //This also increments the stream position by the value of k
     fn read(self, bytes: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult {
-        let data = match self.buffer.borrow_mut().read(byte_count(bytes)) {
+        let data = match self.buffer(vm)?.read(byte_count(bytes)) {
             Some(value) => value,
             None => Vec::new(),
         };
@@ -160,30 +168,30 @@ impl PyStringIORef {
         }
     }
 
-    fn tell(self, _vm: &VirtualMachine) -> u64 {
-        self.buffer.borrow().tell()
+    fn tell(self, vm: &VirtualMachine) -> PyResult<u64> {
+        Ok(self.buffer(vm)?.tell())
     }
 
     fn readline(self, vm: &VirtualMachine) -> PyResult<String> {
-        match self.buffer.borrow_mut().readline() {
+        match self.buffer(vm)?.readline() {
             Some(line) => Ok(line),
             None => Err(vm.new_value_error("Error Performing Operation".to_string())),
         }
     }
 
-    fn truncate(self, size: OptionalOption<usize>, _vm: &VirtualMachine) {
-        let mut buffer = self.buffer.borrow_mut();
+    fn truncate(self, size: OptionalOption<usize>, vm: &VirtualMachine) -> PyResult<()> {
+        let mut buffer = self.buffer(vm)?;
         let size = size.flat_option().unwrap_or_else(|| buffer.tell() as usize);
         buffer.cursor.get_mut().truncate(size);
+        Ok(())
     }
 
     fn closed(self, _vm: &VirtualMachine) -> bool {
-        self.closed.get()
+        self.buffer.borrow().is_none()
     }
 
     fn close(self, _vm: &VirtualMachine) {
-        self.buffer.borrow_mut().cursor.get_mut().clear();
-        self.closed.set(true);
+        self.buffer.replace(None);
     }
 }
 
@@ -207,16 +215,14 @@ fn string_io_new(
     };
 
     PyStringIO {
-        buffer: RefCell::new(BufferedIO::new(Cursor::new(raw_string.into_bytes()))),
-        closed: Cell::new(false),
+        buffer: RefCell::new(Some(BufferedIO::new(Cursor::new(raw_string.into_bytes())))),
     }
     .into_ref_with_type(vm, cls)
 }
 
 #[derive(Debug)]
 struct PyBytesIO {
-    buffer: RefCell<BufferedIO>,
-    closed: Cell<bool>,
+    buffer: RefCell<Option<BufferedIO>>,
 }
 
 type PyBytesIORef = PyRef<PyBytesIO>;
@@ -228,24 +234,31 @@ impl PyValue for PyBytesIO {
 }
 
 impl PyBytesIORef {
-    fn write(self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
-        let bytes = data.to_cow();
+    fn buffer(&self, vm: &VirtualMachine) -> PyResult<RefMut<BufferedIO>> {
+        let buffer = self.buffer.borrow_mut();
+        if buffer.is_some() {
+            Ok(RefMut::map(buffer, |opt| opt.as_mut().unwrap()))
+        } else {
+            Err(vm.new_value_error("I/O operation on closed file.".to_string()))
+        }
+    }
 
-        match self.buffer.borrow_mut().write(&bytes) {
+    fn write(self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
+        match self.buffer(vm)?.write(data.to_cow().as_ref()) {
             Some(value) => Ok(value),
             None => Err(vm.new_type_error("Error Writing Bytes".to_string())),
         }
     }
     //Retrieves the entire bytes object value from the underlying buffer
     fn getvalue(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.buffer.borrow().getvalue()))
+        Ok(vm.ctx.new_bytes(self.buffer(vm)?.getvalue()))
     }
 
     //Takes an integer k (bytes) and returns them from the underlying buffer
     //If k is undefined || k == -1, then we read all bytes until the end of the file.
     //This also increments the stream position by the value of k
     fn read(self, bytes: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult {
-        match self.buffer.borrow_mut().read(byte_count(bytes)) {
+        match self.buffer(vm)?.read(byte_count(bytes)) {
             Some(value) => Ok(vm.ctx.new_bytes(value)),
             None => Err(vm.new_value_error("Error Retrieving Value".to_string())),
         }
@@ -253,7 +266,7 @@ impl PyBytesIORef {
 
     //skip to the jth position
     fn seek(self, offset: u64, vm: &VirtualMachine) -> PyResult {
-        match self.buffer.borrow_mut().seek(offset) {
+        match self.buffer(vm)?.seek(offset) {
             Some(value) => Ok(vm.ctx.new_int(value)),
             None => Err(vm.new_value_error("Error Performing Operation".to_string())),
         }
@@ -263,24 +276,23 @@ impl PyBytesIORef {
         true
     }
 
-    fn tell(self, _vm: &VirtualMachine) -> u64 {
-        self.buffer.borrow().tell()
+    fn tell(self, vm: &VirtualMachine) -> PyResult<u64> {
+        Ok(self.buffer(vm)?.tell())
     }
 
     fn readline(self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        match self.buffer.borrow_mut().readline() {
+        match self.buffer(vm)?.readline() {
             Some(line) => Ok(line.as_bytes().to_vec()),
             None => Err(vm.new_value_error("Error Performing Operation".to_string())),
         }
     }
 
     fn closed(self, _vm: &VirtualMachine) -> bool {
-        self.closed.get()
+        self.buffer.borrow().is_none()
     }
 
     fn close(self, _vm: &VirtualMachine) {
-        self.buffer.borrow_mut().cursor.get_mut().clear();
-        self.closed.set(true);
+        self.buffer.replace(None);
     }
 }
 
@@ -295,8 +307,7 @@ fn bytes_io_new(
     };
 
     PyBytesIO {
-        buffer: RefCell::new(BufferedIO::new(Cursor::new(raw_bytes))),
-        closed: Cell::new(false),
+        buffer: RefCell::new(Some(BufferedIO::new(Cursor::new(raw_bytes)))),
     }
     .into_ref_with_type(vm, cls)
 }
