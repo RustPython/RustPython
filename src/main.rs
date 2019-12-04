@@ -279,7 +279,7 @@ fn get_paths(env_variable_name: &str) -> Vec<String> {
 
 #[cfg(feature = "flame-it")]
 fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
-    use std::fs::File;
+    use std::{fs, io};
 
     enum ProfileFormat {
         Html,
@@ -306,11 +306,13 @@ fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>>
         ProfileFormat::Speedscope => "flamescope.json".as_ref(),
     });
 
-    let profile_output: Box<dyn std::io::Write> = if profile_output == "-" {
-        Box::new(std::io::stdout())
+    let profile_output: Box<dyn io::Write> = if profile_output == "-" {
+        Box::new(io::stdout())
     } else {
-        Box::new(File::create(profile_output)?)
+        Box::new(fs::File::create(profile_output)?)
     };
+
+    let profile_output = io::BufWriter::new(profile_output);
 
     match profile_format {
         ProfileFormat::Html => flame::dump_html(profile_output)?,
