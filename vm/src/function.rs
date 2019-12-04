@@ -569,17 +569,35 @@ pub fn single_or_tuple_any<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>>(
     message: fn(&PyObjectRef) -> String,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
-    match_class!(match obj {
-        obj @ T => predicate(obj),
-        tuple @ PyTuple => {
-            for obj in tuple.elements.iter() {
-                let inner_val = PyRef::<T>::try_from_object(vm, obj.clone())?;
-                if predicate(inner_val)? {
-                    return Ok(true);
+    // TODO: figure out some way to have recursive calls without... this
+    use std::marker::PhantomData;
+    struct Checker<'vm, T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>> {
+        predicate: F,
+        message: fn(&PyObjectRef) -> String,
+        vm: &'vm VirtualMachine,
+        t: PhantomData<T>,
+    }
+    impl<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>> Checker<'_, T, F> {
+        fn check(&self, obj: PyObjectRef) -> PyResult<bool> {
+            match_class!(match obj {
+                obj @ T => (self.predicate)(obj),
+                tuple @ PyTuple => {
+                    for obj in tuple.elements.iter() {
+                        if self.check(obj.clone())? {
+                            return Ok(true);
+                        }
+                    }
+                    Ok(false)
                 }
-            }
-            Ok(false)
+                obj => Err(self.vm.new_type_error((self.message)(&obj))),
+            })
         }
-        obj => Err(vm.new_type_error(message(&obj))),
-    })
+    }
+    let checker = Checker {
+        predicate,
+        message,
+        vm,
+        t: PhantomData,
+    };
+    checker.check(obj)
 }
