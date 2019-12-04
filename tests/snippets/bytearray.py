@@ -271,6 +271,9 @@ assert bytearray(b"").join(
 ) == bytearray(b"jiljlkmoomkaaaa")
 with assert_raises(TypeError):
     bytearray(b"").join((b"km", "kl"))
+assert bytearray(b"abc").join((
+    bytearray(b"123"), bytearray(b"xyz")
+)) == bytearray(b"123abcxyz")
 
 
 # endswith startswith

@@ -263,7 +263,7 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "join")]
-    fn join(self, iter: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn join(self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult {
         self.inner.join(iter, vm)
     }
 

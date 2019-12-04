@@ -1,9 +1,9 @@
 use std::convert::TryFrom;
 use std::ops::Range;
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, ToBigInt};
 use num_integer::Integer;
-use num_traits::ToPrimitive;
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::objbytearray::{PyByteArray, PyByteArrayRef};
 use super::objbytes::{PyBytes, PyBytesRef};
@@ -86,15 +86,20 @@ impl ByteInnerNewOptions {
                         );
                     }
                     obj => {
+                        // TODO: only support this method in the bytes() constructor
+                        if let Some(bytes_method) = vm.get_method(obj.clone(), "__bytes__") {
+                            let bytes = vm.invoke(&bytes_method?, vec![])?;
+                            return PyByteInner::try_from_object(vm, bytes);
+                        }
                         let elements = vm.extract_elements(&obj).or_else(|_| {
                             Err(vm.new_type_error(format!(
                                 "cannot convert '{}' object to bytes",
                                 obj.class().name
                             )))
-                        });
+                        })?;
 
                         let mut data_bytes = vec![];
-                        for elem in elements? {
+                        for elem in elements {
                             let v = objint::to_int(vm, &elem, &BigInt::from(10))?;
                             if let Some(i) = v.to_u8() {
                                 data_bytes.push(i);
@@ -472,6 +477,140 @@ impl PyByteInner {
         }
     }
 
+    pub fn delitem(
+        &mut self,
+        needle: Either<i32, PySliceRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match needle {
+            Either::A(int) => {
+                if let Some(idx) = self.elements.get_pos(int) {
+                    self.elements.remove(idx);
+                    Ok(())
+                } else {
+                    Err(vm.new_index_error("index out of range".to_string()))
+                }
+            }
+            Either::B(slice) => self.delslice(slice, vm),
+        }
+    }
+
+    // TODO: deduplicate this with the code in objlist
+    fn delslice(&mut self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
+        let start = slice.start_index(vm)?;
+        let stop = slice.stop_index(vm)?;
+        let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
+
+        if step.is_zero() {
+            Err(vm.new_value_error("slice step cannot be zero".to_string()))
+        } else if step.is_positive() {
+            let range = self.elements.get_slice_range(&start, &stop);
+            if range.start < range.end {
+                #[allow(clippy::range_plus_one)]
+                match step.to_i32() {
+                    Some(1) => {
+                        self._del_slice(range);
+                        Ok(())
+                    }
+                    Some(num) => {
+                        self._del_stepped_slice(range, num as usize);
+                        Ok(())
+                    }
+                    None => {
+                        self._del_slice(range.start..range.start + 1);
+                        Ok(())
+                    }
+                }
+            } else {
+                // no del to do
+                Ok(())
+            }
+        } else {
+            // calculate the range for the reverse slice, first the bounds needs to be made
+            // exclusive around stop, the lower number
+            let start = start.as_ref().map(|x| {
+                if *x == (-1).to_bigint().unwrap() {
+                    self.elements.len() + BigInt::one() //.to_bigint().unwrap()
+                } else {
+                    x + 1
+                }
+            });
+            let stop = stop.as_ref().map(|x| {
+                if *x == (-1).to_bigint().unwrap() {
+                    self.elements.len().to_bigint().unwrap()
+                } else {
+                    x + 1
+                }
+            });
+            let range = self.elements.get_slice_range(&stop, &start);
+            if range.start < range.end {
+                match (-step).to_i32() {
+                    Some(1) => {
+                        self._del_slice(range);
+                        Ok(())
+                    }
+                    Some(num) => {
+                        self._del_stepped_slice_reverse(range, num as usize);
+                        Ok(())
+                    }
+                    None => {
+                        self._del_slice(range.end - 1..range.end);
+                        Ok(())
+                    }
+                }
+            } else {
+                // no del to do
+                Ok(())
+            }
+        }
+    }
+
+    fn _del_slice(&mut self, range: Range<usize>) {
+        self.elements.drain(range);
+    }
+
+    fn _del_stepped_slice(&mut self, range: Range<usize>, step: usize) {
+        // no easy way to delete stepped indexes so here is what we'll do
+        let mut deleted = 0;
+        let elements = &mut self.elements;
+        let mut indexes = range.clone().step_by(step).peekable();
+
+        for i in range.clone() {
+            // is this an index to delete?
+            if indexes.peek() == Some(&i) {
+                // record and move on
+                indexes.next();
+                deleted += 1;
+            } else {
+                // swap towards front
+                elements.swap(i - deleted, i);
+            }
+        }
+        // then drain (the values to delete should now be contiguous at the end of the range)
+        elements.drain((range.end - deleted)..range.end);
+    }
+
+    fn _del_stepped_slice_reverse(&mut self, range: Range<usize>, step: usize) {
+        // no easy way to delete stepped indexes so here is what we'll do
+        let mut deleted = 0;
+        let elements = &mut self.elements;
+        let mut indexes = range.clone().rev().step_by(step).peekable();
+
+        for i in range.clone().rev() {
+            // is this an index to delete?
+            if indexes.peek() == Some(&i) {
+                // record and move on
+                indexes.next();
+                deleted += 1;
+            } else {
+                // swap towards back
+                elements.swap(i + deleted, i);
+            }
+        }
+        // then drain (the values to delete should now be contiguous at teh start of the range)
+        elements.drain(range.start..(range.start + deleted));
+    }
+
     pub fn isalnum(&self, _vm: &VirtualMachine) -> bool {
         !self.elements.is_empty()
             && self
@@ -692,11 +831,14 @@ impl PyByteInner {
         Ok(total)
     }
 
-    pub fn join(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult {
+    pub fn join(&self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult {
         let mut refs = vec![];
         for v in iter.iter(vm)? {
             let v = v?;
-            refs.extend(PyByteInner::try_from_object(vm, v)?.elements)
+            if !refs.is_empty() {
+                refs.extend(&self.elements);
+            }
+            refs.extend(v.elements);
         }
 
         Ok(vm.ctx.new_bytes(refs))

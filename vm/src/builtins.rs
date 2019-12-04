@@ -25,8 +25,8 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
 use crate::pyobject::{
-    Either, IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    Either, IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::stdlib::ast;
@@ -598,13 +598,13 @@ pub struct PrintOptions {
 }
 
 trait Printer {
-    fn write(&mut self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()>;
+    fn write(&mut self, vm: &VirtualMachine, obj: PyStringRef) -> PyResult<()>;
     fn flush(&mut self, vm: &VirtualMachine) -> PyResult<()>;
 }
 
 impl Printer for &'_ PyObjectRef {
-    fn write(&mut self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
-        vm.call_method(self, "write", vec![obj])?;
+    fn write(&mut self, vm: &VirtualMachine, obj: PyStringRef) -> PyResult<()> {
+        vm.call_method(self, "write", vec![obj.into_object()])?;
         Ok(())
     }
 
@@ -615,14 +615,13 @@ impl Printer for &'_ PyObjectRef {
 }
 
 impl Printer for std::io::StdoutLock<'_> {
-    fn write(&mut self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
-        let s = vm.to_str(&obj)?;
-        write!(self, "{}", s.as_str()).unwrap();
+    fn write(&mut self, _vm: &VirtualMachine, s: PyStringRef) -> PyResult<()> {
+        write!(self, "{}", s).unwrap();
         Ok(())
     }
 
     fn flush(&mut self, _vm: &VirtualMachine) -> PyResult<()> {
-        <Self as std::io::Write>::flush(self).unwrap();
+        <Self as io::Write>::flush(self).unwrap();
         Ok(())
     }
 }
@@ -643,10 +642,7 @@ pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) 
 
     let sep = options
         .sep
-        .as_ref()
-        .map_or(" ", |sep| sep.as_str())
-        .into_pyobject(vm)
-        .unwrap();
+        .unwrap_or_else(|| PyString::from(" ").into_ref(vm));
 
     let mut first = true;
     for object in objects {
@@ -656,15 +652,12 @@ pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) 
             printer.write(vm, sep.clone())?;
         }
 
-        printer.write(vm, object)?;
+        printer.write(vm, vm.to_str(&object)?)?;
     }
 
     let end = options
         .end
-        .as_ref()
-        .map_or("\n", |end| end.as_str())
-        .into_pyobject(vm)
-        .unwrap();
+        .unwrap_or_else(|| PyString::from("\n").into_ref(vm));
     printer.write(vm, end)?;
 
     if options.flush.to_bool() {

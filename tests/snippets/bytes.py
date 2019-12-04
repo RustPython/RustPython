@@ -270,6 +270,8 @@ assert (
 with assert_raises(TypeError):
     b"".join((b"km", "kl"))
 
+assert b"abc".join((b"123", b"xyz")) == b"123abcxyz"
+
 
 # endswith startswith
 assert b"abcde".endswith(b"de")
@@ -612,3 +614,9 @@ assert b'\xe4\xb8\xad\xe6\x96\x87\xe5\xad\x97'.decode('utf-8') == '中文字'
 # mod
 assert b'rust%bpython%b' % (b' ', b'!') == b'rust python!'
 assert b'x=%i y=%f' % (1, 2.5) == b'x=1 y=2.500000'
+
+class A:
+    def __bytes__(self):
+        return b"bytess"
+
+assert bytes(A()) == b"bytess"

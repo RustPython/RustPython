@@ -449,8 +449,12 @@ impl VirtualMachine {
 
     // Container of the virtual machine state:
     pub fn to_str(&self, obj: &PyObjectRef) -> PyResult<PyStringRef> {
-        let str = self.call_method(&obj, "__str__", vec![])?;
-        TryFromObject::try_from_object(self, str)
+        if obj.class().is(&self.ctx.types.str_type) {
+            Ok(obj.clone().downcast().unwrap())
+        } else {
+            let s = self.call_method(&obj, "__str__", vec![])?;
+            PyStringRef::try_from_object(self, s)
+        }
     }
 
     pub fn to_pystr<'a, T: Into<&'a PyObjectRef>>(&'a self, obj: T) -> PyResult<String> {

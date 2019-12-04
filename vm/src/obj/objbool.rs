@@ -3,7 +3,7 @@ use num_traits::Zero;
 
 use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    IntoPyObject, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -29,6 +29,12 @@ impl TryFromObject for bool {
 
 /// Convert Python bool into Rust bool.
 pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
+    if obj.is(&vm.ctx.true_value) {
+        return Ok(true);
+    }
+    if obj.is(&vm.ctx.false_value) {
+        return Ok(false);
+    }
     let rs_bool = match vm.get_method(obj.clone(), "__bool__") {
         Some(method_or_err) => {
             // If descriptor returns Error, propagate it further

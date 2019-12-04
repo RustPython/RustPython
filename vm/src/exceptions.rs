@@ -390,9 +390,9 @@ impl ExceptionZoo {
         let assertion_error = create_type("AssertionError", &type_type, &exception_type);
         let attribute_error = create_type("AttributeError", &type_type, &exception_type);
         let import_error = create_type("ImportError", &type_type, &exception_type);
-        let index_error = create_type("IndexError", &type_type, &exception_type);
-        let key_error = create_type("KeyError", &type_type, &exception_type);
         let lookup_error = create_type("LookupError", &type_type, &exception_type);
+        let index_error = create_type("IndexError", &type_type, &lookup_error);
+        let key_error = create_type("KeyError", &type_type, &lookup_error);
         let name_error = create_type("NameError", &type_type, &exception_type);
         let runtime_error = create_type("RuntimeError", &type_type, &exception_type);
         let reference_error = create_type("ReferenceError", &type_type, &exception_type);

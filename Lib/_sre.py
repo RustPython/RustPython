@@ -70,6 +70,16 @@ class SRE_Pattern(object):
         else:
             return None
 
+    def fullmatch(self, string):
+        """If the whole string matches the regular expression pattern, return a
+        corresponding match object. Return None if the string does not match the
+        pattern; note that this is different from a zero-length match."""
+        match = self.match(string)
+        if match and match.start() == 0 and match.end() == len(string):
+            return match
+        else:
+            return None
+
     def search(self, string, pos=0, endpos=sys.maxsize):
         """Scan through string looking for a location where this regular
         expression produces a match, and return a corresponding MatchObject
@@ -123,7 +133,7 @@ class SRE_Pattern(object):
                                 last_pos == state.string_position and n > 0):
                 # the above ignores empty matches on latest position
                 if callable(filter):
-                    sublist.append(list(filter(SRE_Match(self, state))))
+                    sublist.extend(filter(SRE_Match(self, state)))
                 else:
                     sublist.append(filter)
                 last_pos = state.string_position
@@ -334,6 +344,8 @@ class SRE_Match(object):
 class _State(object):
 
     def __init__(self, string, start, end, flags):
+        if isinstance(string, bytes):
+            string = string.decode()
         self.string = string
         if start < 0:
             start = 0

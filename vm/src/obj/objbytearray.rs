@@ -187,6 +187,11 @@ impl PyByteArrayRef {
         self.inner.borrow_mut().setitem(needle, value, vm)
     }
 
+    #[pymethod(name = "__delitem__")]
+    fn delitem(self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner.borrow_mut().delitem(needle, vm)
+    }
+
     #[pymethod(name = "isalnum")]
     fn isalnum(self, vm: &VirtualMachine) -> bool {
         self.inner.borrow().isalnum(vm)
@@ -285,7 +290,7 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "join")]
-    fn join(self, iter: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn join(self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow().join(iter, vm)
     }
 
