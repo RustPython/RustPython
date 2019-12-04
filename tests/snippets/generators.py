@@ -131,3 +131,13 @@ for i in [0, 1, 2, 'spam', 4]:
         wrap.send(i)
 
 assert l == ['>> 0', '>> 1', '>> 2', '***', '>> 4']
+
+def a():
+  yield
+
+g = a()
+
+next(g)
+assert_raises(TypeError, g.throw, TypeError)
+assert_raises(StopIteration, next, g)
+assert_raises(TypeError, g.throw, TypeError)
