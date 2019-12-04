@@ -70,7 +70,7 @@ pub fn get_all<T: TryFromObject>(vm: &VirtualMachine, iter_obj: &PyObjectRef) ->
 
 pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
     let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-    vm.new_exception(stop_iteration_type, "End of iterator".to_string())
+    vm.new_empty_exception(stop_iteration_type).unwrap()
 }
 
 pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyObjectRef) -> PyResult {
