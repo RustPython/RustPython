@@ -85,6 +85,8 @@ impl ByteInnerNewOptions {
                             vm.new_type_error("string argument without an encoding".to_string())
                         );
                     }
+                    i @ PyBytes => Ok(i.get_value().to_vec()),
+                    j @ PyByteArray => Ok(j.inner.borrow().elements.to_vec()),
                     obj => {
                         // TODO: only support this method in the bytes() constructor
                         if let Some(bytes_method) = vm.get_method(obj.clone(), "__bytes__") {
