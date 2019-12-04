@@ -127,6 +127,14 @@ impl PySequenceIterator {
     }
 }
 
+pub fn seq_iter_method(obj: PyObjectRef, _vm: &VirtualMachine) -> PySequenceIterator {
+    PySequenceIterator {
+        position: Cell::new(0),
+        obj,
+        reversed: false,
+    }
+}
+
 pub fn init(context: &PyContext) {
     PySequenceIterator::extend_class(context, &context.types.iter_type);
 }
