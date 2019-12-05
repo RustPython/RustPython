@@ -171,10 +171,11 @@ pub fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
         },
     };
     let os_error = vm.new_exception(exc_type, err.to_string());
-    if let Some(errno) = err.raw_os_error() {
-        vm.set_attr(&os_error, "errno", vm.ctx.new_int(errno))
-            .unwrap();
-    }
+    let errno = match err.raw_os_error() {
+        Some(errno) => vm.new_int(errno),
+        None => vm.get_none(),
+    };
+    vm.set_attr(&os_error, "errno", errno).unwrap();
     os_error
 }
 
