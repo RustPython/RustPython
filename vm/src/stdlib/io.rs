@@ -288,6 +288,13 @@ impl PyBytesIORef {
         }
     }
 
+    fn truncate(self, size: OptionalOption<usize>, vm: &VirtualMachine) -> PyResult<()> {
+        let mut buffer = self.buffer(vm)?;
+        let size = size.flat_option().unwrap_or_else(|| buffer.tell() as usize);
+        buffer.cursor.get_mut().truncate(size);
+        Ok(())
+    }
+
     fn closed(self, _vm: &VirtualMachine) -> bool {
         self.buffer.borrow().is_none()
     }
@@ -1027,6 +1034,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getvalue" => ctx.new_rustfunc(PyBytesIORef::getvalue),
         "tell" => ctx.new_rustfunc(PyBytesIORef::tell),
         "readline" => ctx.new_rustfunc(PyBytesIORef::readline),
+        "truncate" => ctx.new_rustfunc(PyBytesIORef::truncate),
         "closed" => ctx.new_property(PyBytesIORef::closed),
         "close" => ctx.new_rustfunc(PyBytesIORef::close),
     });
