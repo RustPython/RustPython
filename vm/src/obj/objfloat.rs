@@ -89,7 +89,7 @@ fn inner_mod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
     }
 }
 
-fn try_to_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
+pub fn try_to_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
     match value.to_bigint() {
         Some(int) => Ok(int),
         None => {

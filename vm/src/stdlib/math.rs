@@ -214,19 +214,33 @@ fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     try_magic_method("__trunc__", vm, &value)
 }
 
+/// Applies ceiling to a float, returning an Integral.
+///
+/// # Arguments
+///
+/// * `value` - Either a float or a python object which implements __ceil__
+/// * `vm` - Represents the python state.
 fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if objtype::isinstance(&value, &vm.ctx.float_type()) {
         let v = objfloat::get_value(&value);
-        Ok(vm.ctx.new_float(v.ceil()))
+        let v = objfloat::try_to_bigint(v.ceil(), vm)?;
+        Ok(vm.ctx.new_int(v))
     } else {
         try_magic_method("__ceil__", vm, &value)
     }
 }
 
+/// Applies floor to a float, returning an Integral.
+///
+/// # Arguments
+///
+/// * `value` - Either a float or a python object which implements __ceil__
+/// * `vm` - Represents the python state.
 fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if objtype::isinstance(&value, &vm.ctx.float_type()) {
         let v = objfloat::get_value(&value);
-        Ok(vm.ctx.new_float(v.floor()))
+        let v = objfloat::try_to_bigint(v.floor(), vm)?;
+        Ok(vm.ctx.new_int(v))
     } else {
         try_magic_method("__floor__", vm, &value)
     }

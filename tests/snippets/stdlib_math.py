@@ -34,6 +34,10 @@ assert math.trunc(2.2) == 2
 assert math.ceil(3.3) == 4
 assert math.floor(4.4) == 4
 
+assert isinstance(math.trunc(2.2), int)
+assert isinstance(math.ceil(3.3), int)
+assert isinstance(math.floor(4.4), int)
+
 class A(object):
     def __trunc__(self):
         return 2
