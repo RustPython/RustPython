@@ -12,7 +12,7 @@ use rustpython_vm::{
     print_exception,
     pyobject::{ItemProtocol, PyResult},
     scope::Scope,
-    util, PySettings, VirtualMachine,
+    util, InitParameter, PySettings, VirtualMachine,
 };
 
 use std::convert::TryInto;
@@ -32,7 +32,9 @@ fn main() {
     let mut settings = create_settings(&matches);
 
     // We only include the standard library bytecode in WASI when initializing
-    settings.initialize_with_external_importer = Some(cfg!(not(target_os = "wasi")));
+    if cfg!(target_os = "wasi") {
+        settings.initialization_parameter = InitParameter::InitializeInternal;
+    }
 
     let vm = VirtualMachine::new(settings);
 

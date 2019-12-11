@@ -74,6 +74,13 @@ pub struct VirtualMachine {
 
 pub const NSIG: usize = 64;
 
+#[derive(Copy, Clone)]
+pub enum InitParameter {
+    NoInitialize,
+    InitializeInternal,
+    InitializeExternal,
+}
+
 /// Struct containing all kind of settings for the python vm.
 pub struct PySettings {
     /// -d command line switch
@@ -109,17 +116,9 @@ pub struct PySettings {
     /// sys.argv
     pub argv: Vec<String>,
 
-    /// Initialize VM after VM created
-    /// - Some(true):
-    ///     VM will be created and initialized with the importers, which require external
-    ///     filesystem access
-    /// - Some(false):
-    ///     VM will be created and initialized with the importers wihout external filesystem access
-    /// - None:
-    ///     VM will be created but not initialized, so it is ready to be injected with modules.
-    ///     After injection, the `initialize_as_external` or `initialize_without_external`
-    ///     should be called, such that the VM will be ready to use.
-    pub initialize_with_external_importer: Option<bool>,
+    /// Initialization parameter to decide to initialize or not,
+    /// and to decide the importer required external filesystem access or not
+    pub initialization_parameter: InitParameter,
 }
 
 /// Trace events for sys.settrace and sys.setprofile.
@@ -153,7 +152,7 @@ impl Default for PySettings {
             dont_write_bytecode: false,
             path_list: vec![],
             argv: vec![],
-            initialize_with_external_importer: Some(true),
+            initialization_parameter: InitParameter::InitializeExternal,
         }
     }
 }
@@ -181,7 +180,7 @@ impl VirtualMachine {
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
         let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
-        let initialize_parameter = settings.initialize_with_external_importer;
+        let initialize_parameter = settings.initialization_parameter;
 
         let mut vm = VirtualMachine {
             builtins: builtins.clone(),
@@ -215,37 +214,32 @@ impl VirtualMachine {
             vm.new_str("sys".to_owned()),
             vm.get_none(),
         );
-        if let Some(with_external_importer) = initialize_parameter {
-            vm._initialize(with_external_importer);
-            vm.initialized = true;
-        }
+        vm.initialize(initialize_parameter);
         vm
     }
 
-    fn _initialize(&mut self, with_external_importer: bool) {
+    pub fn initialize(&mut self, initialize_parameter: InitParameter) {
         flame_guard!("init VirtualMachine");
 
-        if self.initialized {
-            panic!("Double Initialize Error");
+        match initialize_parameter {
+            InitParameter::NoInitialize => {}
+            _ => {
+                if self.initialized {
+                    panic!("Double Initialize Error");
+                }
+
+                builtins::make_module(self, self.builtins.clone());
+                sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
+
+                #[cfg(not(target_arch = "wasm32"))]
+                import::import_builtin(self, "signal").expect("Couldn't initialize signal module");
+
+                import::init_importlib(self, initialize_parameter)
+                    .expect("Initialize importlib fail");
+
+                self.initialized = true;
+            }
         }
-
-        builtins::make_module(self, self.builtins.clone());
-        sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
-
-        #[cfg(not(target_arch = "wasm32"))]
-        import::import_builtin(self, "signal").expect("Couldn't initialize signal module");
-
-        import::init_importlib(self, with_external_importer).expect("Initialize importlib fail");
-
-        self.initialized = true;
-    }
-
-    pub fn initialize_with_external_importer(&mut self) {
-        self._initialize(true);
-    }
-
-    pub fn initialize_without_external_importer(&mut self) {
-        self._initialize(false);
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {

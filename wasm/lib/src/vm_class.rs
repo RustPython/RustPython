@@ -9,7 +9,7 @@ use rustpython_compiler::compile;
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::scope::{NameProtocol, Scope};
-use rustpython_vm::{PySettings, VirtualMachine};
+use rustpython_vm::{InitParameter, PySettings, VirtualMachine};
 
 use crate::browser_module::setup_browser_module;
 use crate::convert;
@@ -28,9 +28,8 @@ impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
         let mut settings = PySettings::default();
 
-        // The VM will not be initialized.
-        // It will be initialized after js module injected.
-        settings.initialize_with_external_importer = None;
+        // After js, browser modules injected, the VM will not be initialized.
+        settings.initialization_parameter = InitParameter::NoInitialize;
 
         let mut vm: VirtualMachine = VirtualMachine::new(settings);
 
@@ -50,7 +49,7 @@ impl StoredVirtualMachine {
             setup_browser_module(&vm);
         }
 
-        vm.initialize_without_external_importer();
+        vm.initialize(InitParameter::InitializeInternal);
 
         StoredVirtualMachine {
             vm,
