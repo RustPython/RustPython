@@ -505,7 +505,7 @@ pub enum StringGroup {
     FormattedValue {
         value: Box<Expression>,
         conversion: Option<ConversionFlag>,
-        spec: String,
+        spec: Option<Box<StringGroup>>,
     },
     Joined {
         values: Vec<StringGroup>,

@@ -16,6 +16,9 @@ assert fr'x={4*10}\n' == 'x=40\\n'
 assert f'{16:0>+#10x}' == '00000+0x10'
 assert f"{{{(lambda x: f'hello, {x}')('world}')}" == '{hello, world}'
 
+spec = "0>+#10x"
+assert f"{16:{spec}}{foo}" == '00000+0x10bar'
+
 # Normally `!` cannot appear outside of delimiters in the expression but
 # cpython makes an exception for `!=`, so we should too.
 

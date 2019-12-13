@@ -616,7 +616,7 @@ impl Frame {
             bytecode::Instruction::UnpackEx { before, after } => {
                 self.execute_unpack_ex(vm, *before, *after)
             }
-            bytecode::Instruction::FormatValue { conversion, spec } => {
+            bytecode::Instruction::FormatValue { conversion } => {
                 use bytecode::ConversionFlag::*;
                 let value = match conversion {
                     Some(Str) => vm.to_str(&self.pop_value())?.into_object(),
@@ -625,7 +625,7 @@ impl Frame {
                     None => self.pop_value(),
                 };
 
-                let spec = vm.new_str(spec.clone());
+                let spec = vm.to_str(&self.pop_value())?.into_object();
                 let formatted = vm.call_method(&value, "__format__", vec![spec])?;
                 self.push_value(formatted);
                 Ok(None)
