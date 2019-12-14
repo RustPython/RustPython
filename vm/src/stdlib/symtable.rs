@@ -25,7 +25,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 /// See docs: https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.symtable
 fn symtable_symtable(
     source: PyStringRef,
-    _filename: PyStringRef,
+    filename: PyStringRef,
     mode: PyStringRef,
     vm: &VirtualMachine,
 ) -> PyResult<PySymbolTableRef> {
@@ -33,8 +33,10 @@ fn symtable_symtable(
         .as_str()
         .parse::<compile::Mode>()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
-    let symtable =
-        source_to_symtable(source.as_str(), mode).map_err(|err| vm.new_syntax_error(&err))?;
+    let symtable = source_to_symtable(source.as_str(), mode).map_err(|mut err| {
+        err.update_source_path(filename.as_str());
+        vm.new_syntax_error(&err)
+    })?;
 
     let py_symbol_table = to_py_symbol_table(symtable);
     Ok(py_symbol_table.into_ref(vm))

@@ -565,6 +565,14 @@ pub fn init(ctx: &PyContext) {
         "__repr__" => ctx.new_rustfunc(exception_repr),
     });
 
+    extend_class!(ctx, &excs.syntax_error, {
+        "msg" => ctx.new_property(make_arg_getter(0)),
+        "filename" => ctx.new_property(make_arg_getter(1)),
+        "lineno" => ctx.new_property(make_arg_getter(2)),
+        "offset" => ctx.new_property(make_arg_getter(3)),
+        "text" => ctx.new_property(make_arg_getter(4)),
+    });
+
     extend_class!(ctx, &excs.import_error, {
         "__init__" => ctx.new_rustfunc(import_error_init)
     });

@@ -145,6 +145,7 @@ impl From<SymbolTableError> for CompileError {
             statement: None,
             error: CompileErrorType::SyntaxError(error.error),
             location: error.location,
+            source_path: None,
         }
     }
 }

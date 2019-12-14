@@ -409,7 +409,17 @@ impl VirtualMachine {
         };
         let syntax_error = self.new_exception(syntax_error_type, error.to_string());
         let lineno = self.new_int(error.location.row());
+        let offset = self.new_int(error.location.column());
         self.set_attr(&syntax_error, "lineno", lineno).unwrap();
+        self.set_attr(&syntax_error, "offset", offset).unwrap();
+        if let Some(v) = error.statement.as_ref() {
+            self.set_attr(&syntax_error, "text", self.new_str(v.to_owned()))
+                .unwrap();
+        }
+        if let Some(path) = error.source_path.as_ref() {
+            self.set_attr(&syntax_error, "filename", self.new_str(path.to_owned()))
+                .unwrap();
+        }
         syntax_error
     }
 

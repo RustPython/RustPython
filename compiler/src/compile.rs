@@ -63,17 +63,21 @@ pub fn compile(
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source)?;
-            compile_program(ast, source_path, optimize)
+            compile_program(ast, source_path.clone(), optimize)
         }
         Mode::Eval => {
             let statement = parser::parse_statement(source)?;
-            compile_statement_eval(statement, source_path, optimize)
+            compile_statement_eval(statement, source_path.clone(), optimize)
         }
         Mode::Single => {
             let ast = parser::parse_program(source)?;
-            compile_program_single(ast, source_path, optimize)
+            compile_program_single(ast, source_path.clone(), optimize)
         }
     }
+    .map_err(|mut err| {
+        err.update_source_path(&source_path);
+        err
+    })
 }
 
 /// A helper function for the shared code of the different compile functions
@@ -258,6 +262,7 @@ impl<O: OutputStream> Compiler<O> {
                     statement: None,
                     error: CompileErrorType::ExpectExpr,
                     location: statement.location.clone(),
+                    source_path: None,
                 });
             }
         }
@@ -537,6 +542,7 @@ impl<O: OutputStream> Compiler<O> {
                         statement: None,
                         error: CompileErrorType::InvalidBreak,
                         location: statement.location.clone(),
+                        source_path: None,
                     });
                 }
                 self.emit(Instruction::Break);
@@ -547,6 +553,7 @@ impl<O: OutputStream> Compiler<O> {
                         statement: None,
                         error: CompileErrorType::InvalidContinue,
                         location: statement.location.clone(),
+                        source_path: None,
                     });
                 }
                 self.emit(Instruction::Continue);
@@ -557,6 +564,7 @@ impl<O: OutputStream> Compiler<O> {
                         statement: None,
                         error: CompileErrorType::InvalidReturn,
                         location: statement.location.clone(),
+                        source_path: None,
                     });
                 }
                 match value {
@@ -635,6 +643,7 @@ impl<O: OutputStream> Compiler<O> {
                     statement: None,
                     error: CompileErrorType::Delete(expression.name()),
                     location: self.current_source_location.clone(),
+                    source_path: None,
                 });
             }
         }
@@ -1339,6 +1348,7 @@ impl<O: OutputStream> Compiler<O> {
                                 statement: None,
                                 error: CompileErrorType::StarArgs,
                                 location: self.current_source_location.clone(),
+                                source_path: None,
                             });
                         } else {
                             seen_star = true;
@@ -1369,6 +1379,7 @@ impl<O: OutputStream> Compiler<O> {
                     statement: None,
                     error: CompileErrorType::Assign(target.name()),
                     location: self.current_source_location.clone(),
+                    source_path: None,
                 });
             }
         }
@@ -1654,6 +1665,7 @@ impl<O: OutputStream> Compiler<O> {
                         statement: Option::None,
                         error: CompileErrorType::InvalidYield,
                         location: self.current_source_location.clone(),
+                        source_path: Option::None,
                     });
                 }
                 self.mark_generator();
@@ -1751,6 +1763,7 @@ impl<O: OutputStream> Compiler<O> {
                         "Invalid starred expression",
                     )),
                     location: self.current_source_location.clone(),
+                    source_path: Option::None,
                 });
             }
             IfExpression { test, body, orelse } => {
