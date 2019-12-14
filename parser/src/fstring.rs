@@ -51,12 +51,11 @@ impl<'a> FStringParser<'a> {
                             '{' => {
                                 if in_nested {
                                     return Err(ExpressionNestedTooDeeply);
-                                } else {
-                                    in_nested = true;
-                                    nested = true;
-                                    self.chars.next();
-                                    continue;
                                 }
+                                in_nested = true;
+                                nested = true;
+                                self.chars.next();
+                                continue;
                             }
                             '}' => {
                                 if in_nested {
@@ -295,6 +294,9 @@ mod tests {
     fn test_parse_invalid_fstring() {
         assert_eq!(parse_fstring("{"), Err(UnclosedLbrace));
         assert_eq!(parse_fstring("}"), Err(UnopenedRbrace));
+        assert_eq!(parse_fstring("{a:{a:{b}}"), Err(ExpressionNestedTooDeeply));
+        assert_eq!(parse_fstring("{a:b}}"), Err(UnopenedRbrace));
+        assert_eq!(parse_fstring("{a:{b}"), Err(UnclosedLbrace));
 
         // TODO: check for InvalidExpression enum?
         assert!(parse_fstring("{class}").is_err());
