@@ -105,104 +105,56 @@ fn hashlib_new(
     }
 }
 
-fn md5(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    let hasher = PyHasher::new("md5", HashWrapper::md5());
-
+fn init(
+    hasher: PyHasher,
+    data: OptionalArg<PyBytesRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyHasher> {
     if let OptionalArg::Present(data) = data {
         hasher.update(data, vm)?;
     }
 
     Ok(hasher)
+}
+
+fn md5(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    init(PyHasher::new("md5", HashWrapper::md5()), data, vm)
 }
 
 fn sha1(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    let hasher = PyHasher::new("sha1", HashWrapper::sha1());
-
-    if let OptionalArg::Present(data) = data {
-        hasher.update(data, vm)?;
-    }
-
-    Ok(hasher)
+    init(PyHasher::new("sha1", HashWrapper::sha1()), data, vm)
 }
 
 fn sha224(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    let hasher = PyHasher::new("sha224", HashWrapper::sha224());
-
-    if let OptionalArg::Present(data) = data {
-        hasher.update(data, vm)?;
-    }
-
-    Ok(hasher)
+    init(PyHasher::new("sha224", HashWrapper::sha224()), data, vm)
 }
 
 fn sha256(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    let hasher = PyHasher::new("sha256", HashWrapper::sha256());
-
-    if let OptionalArg::Present(data) = data {
-        hasher.update(data, vm)?;
-    }
-
-    Ok(hasher)
+    init(PyHasher::new("sha256", HashWrapper::sha256()), data, vm)
 }
 
 fn sha384(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    let hasher = PyHasher::new("sha384", HashWrapper::sha384());
-
-    if let OptionalArg::Present(data) = data {
-        hasher.update(data, vm)?;
-    }
-
-    Ok(hasher)
+    init(PyHasher::new("sha384", HashWrapper::sha384()), data, vm)
 }
 
 fn sha512(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    let hasher = PyHasher::new("sha512", HashWrapper::sha512());
-
-    if let OptionalArg::Present(data) = data {
-        hasher.update(data, vm)?;
-    }
-
-    Ok(hasher)
+    init(PyHasher::new("sha512", HashWrapper::sha512()), data, vm)
 }
 
 fn sha3_224(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    let hasher = PyHasher::new("sha3_224", HashWrapper::sha3_224());
-
-    if let OptionalArg::Present(data) = data {
-        hasher.update(data, vm)?;
-    }
-
-    Ok(hasher)
+    init(PyHasher::new("sha3_224", HashWrapper::sha3_224()), data, vm)
 }
 
 fn sha3_256(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    let hasher = PyHasher::new("sha3_256", HashWrapper::sha3_256());
-
-    if let OptionalArg::Present(data) = data {
-        hasher.update(data, vm)?;
-    }
-
-    Ok(hasher)
+    init(PyHasher::new("sha3_256", HashWrapper::sha3_256()), data, vm)
 }
 
 fn sha3_384(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    let hasher = PyHasher::new("sha3_384", HashWrapper::sha3_384());
-
-    if let OptionalArg::Present(data) = data {
-        hasher.update(data, vm)?;
-    }
-
-    Ok(hasher)
+    init(PyHasher::new("sha3_384", HashWrapper::sha3_384()), data, vm)
 }
 
 fn sha3_512(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    let hasher = PyHasher::new("sha3_512", HashWrapper::sha3_512());
-
-    if let OptionalArg::Present(data) = data {
-        hasher.update(data, vm)?;
-    }
-
-    Ok(hasher)
+    init(PyHasher::new("sha3_512", HashWrapper::sha3_512()), data, vm)
 }
 
 fn shake128(_data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
@@ -215,24 +167,12 @@ fn shake256(_data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyH
 
 fn blake2b(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
     // TODO: handle parameters
-    let hasher = PyHasher::new("blake2b", HashWrapper::blake2b());
-
-    if let OptionalArg::Present(data) = data {
-        hasher.update(data, vm)?;
-    }
-
-    Ok(hasher)
+    init(PyHasher::new("blake2b", HashWrapper::blake2b()), data, vm)
 }
 
 fn blake2s(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
     // TODO: handle parameters
-    let hasher = PyHasher::new("blake2s", HashWrapper::blake2s());
-
-    if let OptionalArg::Present(data) = data {
-        hasher.update(data, vm)?;
-    }
-
-    Ok(hasher)
+    init(PyHasher::new("blake2s", HashWrapper::blake2s()), data, vm)
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
