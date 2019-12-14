@@ -10,7 +10,6 @@ use super::objbool::IntoPyBool;
 use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
 use super::objfloat;
-use super::objint;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::{self, PyClassRef};
 use crate::format::FormatSpec;
@@ -500,7 +499,7 @@ impl PyInt {
                         )));
                     };
                     // Only accept int type _ndigits
-                    let _ndigits = objint::get_value(value);
+                    let _ndigits = get_value(value);
                     Some(_ndigits)
                 } else {
                     return Err(_vm.new_type_error(format!(
@@ -524,7 +523,7 @@ impl PyInt {
     }
 
     #[pymethod(name = "__float__")]
-    fn float(&self, vm: &VirtualMachine) -> PyResult<f64> {
+    pub fn float(&self, vm: &VirtualMachine) -> PyResult<f64> {
         self.value
             .to_f64()
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))
@@ -886,10 +885,6 @@ pub fn get_value(obj: &PyObjectRef) -> &BigInt {
     &get_py_int(obj).value
 }
 
-pub fn get_float_value(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-    get_py_int(obj).float(vm)
-}
-
 #[inline]
 fn div_ints(vm: &VirtualMachine, i1: &BigInt, i2: &BigInt) -> PyResult {
     if i2.is_zero() {
@@ -936,7 +931,7 @@ fn get_shift_amount(amount: &PyInt, vm: &VirtualMachine) -> PyResult<usize> {
     }
 }
 
-fn get_py_int(obj: &PyObjectRef) -> &PyInt {
+pub fn get_py_int(obj: &PyObjectRef) -> &PyInt {
     &obj.payload::<PyInt>().unwrap()
 }
 

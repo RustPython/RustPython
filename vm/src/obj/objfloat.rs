@@ -55,7 +55,7 @@ pub fn try_float(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f6
     Ok(if objtype::isinstance(&value, &vm.ctx.float_type()) {
         Some(get_value(&value))
     } else if objtype::isinstance(&value, &vm.ctx.int_type()) {
-        Some(objint::get_float_value(&value, vm)?)
+        Some(from_int_value(&value, vm)?)
     } else {
         None
     })
@@ -678,11 +678,15 @@ fn invalid_convert(vm: &VirtualMachine, literal: &str) -> PyObjectRef {
     vm.new_value_error(format!("could not convert string to float: '{}'", literal))
 }
 
+pub fn from_int_value(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+    objint::get_py_int(obj).float(vm)
+}
+
 fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     let value = if objtype::isinstance(&obj, &vm.ctx.float_type()) {
         get_value(&obj)
     } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
-        objint::get_float_value(&obj, vm)?
+        from_int_value(&obj, vm)?
     } else if objtype::isinstance(&obj, &vm.ctx.str_type()) {
         str_to_float(vm, objstr::get_value(&obj).trim())?
     } else if objtype::isinstance(&obj, &vm.ctx.bytes_type()) {
