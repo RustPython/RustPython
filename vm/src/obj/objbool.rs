@@ -7,7 +7,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objint::{self, PyInt};
+use super::objint::PyInt;
 use super::objstr::PyStringRef;
 use super::objtype;
 
@@ -111,7 +111,11 @@ pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<bool> {
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> bool {
-    !objint::get_py_int(obj).as_bigint().is_zero()
+    !obj.payload::<PyInt>().unwrap().as_bigint().is_zero()
+}
+
+pub fn get_py_int(obj: &PyObjectRef) -> &PyInt {
+    &obj.payload::<PyInt>().unwrap()
 }
 
 fn bool_repr(obj: bool, _vm: &VirtualMachine) -> String {
@@ -142,7 +146,7 @@ fn bool_or(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult 
         let rhs = get_value(&rhs);
         (lhs || rhs).into_pyobject(vm)
     } else {
-        Ok(objint::get_py_int(&lhs).or(rhs.clone(), vm))
+        Ok(get_py_int(&lhs).or(rhs.clone(), vm))
     }
 }
 
@@ -154,7 +158,7 @@ fn bool_and(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult
         let rhs = get_value(&rhs);
         (lhs && rhs).into_pyobject(vm)
     } else {
-        Ok(objint::get_py_int(&lhs).and(rhs.clone(), vm))
+        Ok(get_py_int(&lhs).and(rhs.clone(), vm))
     }
 }
 
@@ -166,7 +170,7 @@ fn bool_xor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult
         let rhs = get_value(&rhs);
         (lhs ^ rhs).into_pyobject(vm)
     } else {
-        Ok(objint::get_py_int(&lhs).xor(rhs.clone(), vm))
+        Ok(get_py_int(&lhs).xor(rhs.clone(), vm))
     }
 }
 

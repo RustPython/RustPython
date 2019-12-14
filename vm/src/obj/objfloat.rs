@@ -4,8 +4,8 @@ use num_rational::Ratio;
 use num_traits::{float::Float, pow, sign::Signed, ToPrimitive, Zero};
 
 use super::objbytes;
-use super::objint::{self, PyIntRef};
-use super::objstr::{self, PyStringRef};
+use super::objint::{self, PyInt, PyIntRef};
+use super::objstr::{PyString, PyStringRef};
 use super::objtype::{self, PyClassRef};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
@@ -51,14 +51,15 @@ impl From<f64> for PyFloat {
     }
 }
 
-pub fn try_float(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
-    Ok(if objtype::isinstance(&value, &vm.ctx.float_type()) {
-        Some(get_value(&value))
-    } else if objtype::isinstance(&value, &vm.ctx.int_type()) {
-        Some(from_int_value(&value, vm)?)
+pub fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
+    let v = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
+        Some(float.value)
+    } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
+        Some(objint::try_float(int.as_bigint(), vm)?)
     } else {
         None
-    })
+    };
+    Ok(v)
 }
 
 macro_rules! impl_try_from_object_float {
@@ -678,17 +679,13 @@ fn invalid_convert(vm: &VirtualMachine, literal: &str) -> PyObjectRef {
     vm.new_value_error(format!("could not convert string to float: '{}'", literal))
 }
 
-pub fn from_int_value(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-    objint::try_float(objint::get_py_int(obj).as_bigint(), vm)
-}
-
 fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
-    let value = if objtype::isinstance(&obj, &vm.ctx.float_type()) {
-        get_value(&obj)
-    } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
-        from_int_value(&obj, vm)?
-    } else if objtype::isinstance(&obj, &vm.ctx.str_type()) {
-        str_to_float(vm, objstr::get_value(&obj).trim())?
+    let value = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
+        float.value
+    } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
+        objint::try_float(int.as_bigint(), vm)?
+    } else if let Some(s) = obj.payload_if_subclass::<PyString>(vm) {
+        str_to_float(vm, s.as_str().trim())?
     } else if objtype::isinstance(&obj, &vm.ctx.bytes_type()) {
         match lexical::parse(objbytes::get_value(&obj).as_slice()) {
             Ok(f) => f,
