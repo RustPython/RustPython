@@ -125,6 +125,13 @@ with TestWithTempDir() as tmpdir:
 	assert os.read(fd, len(CONTENT2) + len(CONTENT3)) == CONTENT2 + CONTENT3
 	os.close(fd)
 
+	fd = os.open(fname3, 0)
+	assert os.read(fd, len(CONTENT2)) == CONTENT2
+	assert os.read(fd, len(CONTENT3)) == CONTENT3
+	os.lseek(fd, len(CONTENT2), os.SEEK_SET)
+	assert os.read(fd, len(CONTENT3)) == CONTENT3
+	os.close(fd)
+
 	os.rename(fname3, fname)
 	assert os.path.exists(fname3) == False
 	assert os.path.exists(fname) == True
@@ -383,11 +390,6 @@ if "win" not in sys.platform:
     assert os.system('{') != 0
 
     for arg in [None, 1, 1.0, TabError]:
-        try:
-            os.system(arg)
-        except TypeError:
-            pass
-        else:
-            raise AssertionError(f'os.system failed to raise TypeError with arg {arg}')
+        assert_raises(TypeError, os.system, arg)
 
 
