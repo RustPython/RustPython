@@ -132,6 +132,8 @@ with TestWithTempDir() as tmpdir:
 	assert os.read(fd, len(CONTENT3)) == CONTENT3
 	os.close(fd)
 
+	assert not os.isatty(fd)
+
 	os.rename(fname3, fname)
 	assert os.path.exists(fname3) == False
 	assert os.path.exists(fname) == True
