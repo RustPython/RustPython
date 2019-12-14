@@ -98,6 +98,7 @@ FOLDER = "dir1"
 CONTENT = b"testing"
 CONTENT2 = b"rustpython"
 CONTENT3 = b"BOYA"
+is_win = sys.platform.startswith("win")
 
 with TestWithTempDir() as tmpdir:
 	fname = os.path.join(tmpdir, FILE_NAME)
@@ -265,7 +266,7 @@ assert isinstance(os.supports_follow_symlinks, set)
 assert isinstance(os.getpid(), int)
 
 # unix
-if "win" not in sys.platform:
+if is_win:
     assert isinstance(os.getegid(), int)
     assert isinstance(os.getgid(), int)
     assert isinstance(os.getsid(os.getpid()), int)
@@ -378,7 +379,7 @@ with TestWithTempDir() as tmpdir:
             assert set(collected_files) == set(expected_files)
 
 # system()
-if "win" not in sys.platform:
+if not is_win:
     assert os.system('ls') == 0
     assert os.system('{') != 0
 

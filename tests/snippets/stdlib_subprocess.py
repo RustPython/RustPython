@@ -28,7 +28,7 @@ assert p.returncode == 0
 p = subprocess.Popen(["echo", "test"], stdout=subprocess.PIPE)
 p.wait()
 
-is_unix = "win" not in sys.platform or "darwin" in sys.platform
+is_unix = not sys.platform.startswith("win")
 
 if is_unix:
 	# unix
