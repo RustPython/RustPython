@@ -54,6 +54,8 @@ mod c {
     pub const AI_V4MAPPED: c_int = 0x00000800;
     #[cfg(target_os = "android")]
     pub const AI_DEFAULT: c_int = AI_V4MAPPED_CFG | AI_ADDRCONFIG;
+    #[cfg(target_os = "android")]
+    pub const IPPROTO_NONE: c_int = 59;
 }
 #[cfg(windows)]
 mod c {
