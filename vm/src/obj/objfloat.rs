@@ -679,7 +679,7 @@ fn invalid_convert(vm: &VirtualMachine, literal: &str) -> PyObjectRef {
 }
 
 pub fn from_int_value(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-    objint::get_py_int(obj).float(vm)
+    objint::try_float(objint::get_py_int(obj).as_bigint(), vm)
 }
 
 fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
