@@ -12,6 +12,8 @@ use num_traits::{Signed, ToPrimitive, Zero};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
+use rustyline::error::ReadlineError;
+
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::obj::objbool::{self, IntoPyBool};
 use crate::obj::objbyteinner::PyByteInner;
@@ -21,6 +23,7 @@ use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::PyFunctionRef;
 use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
+use crate::obj::objstr;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
@@ -345,7 +348,35 @@ fn builtin_id(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
     obj.get_id()
 }
 
-// builtin_input
+fn builtin_input(prompt_option: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    let prompt = if let OptionalArg::Present(prompt_object) = prompt_option {
+        objstr::get_value(&prompt_object)
+    } else {
+        String::new()
+    };
+
+    match vm.readline(&prompt) {
+        Ok(line) => Ok(vm.new_str(line.trim_end().to_string())),
+        Err(ReadlineError::Interrupted) => {
+            let keyboard_interrupt = vm
+                .new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())
+                .unwrap();
+            Err(keyboard_interrupt)
+        }
+        Err(ReadlineError::Eof) => {
+            let error_eof = vm
+                .new_empty_exception(vm.ctx.exceptions.eof_error.clone())
+                .unwrap();
+            Err(error_eof)
+        }
+        Err(_err) => {
+            let undefined_error = vm
+                .new_empty_exception(vm.ctx.exceptions.runtime_error.clone())
+                .unwrap();
+            Err(undefined_error)
+        }
+    }
+}
 
 fn builtin_isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
     single_or_tuple_any(
@@ -805,6 +836,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "hash" => ctx.new_rustfunc(builtin_hash),
         "hex" => ctx.new_rustfunc(builtin_hex),
         "id" => ctx.new_rustfunc(builtin_id),
+        "input" => ctx.new_rustfunc(builtin_input),
         "int" => ctx.int_type(),
         "isinstance" => ctx.new_rustfunc(builtin_isinstance),
         "issubclass" => ctx.new_rustfunc(builtin_issubclass),

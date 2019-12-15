@@ -45,6 +45,7 @@ use crate::pyobject::{
 use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
+use rustyline::{error::ReadlineError, Config, Editor};
 
 // use objects::objects;
 
@@ -69,6 +70,8 @@ pub struct VirtualMachine {
     pub settings: PySettings,
     pub recursion_limit: Cell<usize>,
     pub codec_registry: RefCell<Vec<PyObjectRef>>,
+    pub repl: RefCell<Editor<()>>,
+    pub repl_history_path: std::path::PathBuf,
 }
 
 pub const NSIG: usize = 64;
@@ -168,6 +171,25 @@ impl VirtualMachine {
         let trace_func = RefCell::new(ctx.none());
         let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
 
+        let config = Config::builder().auto_add_history(true).build();
+        let repl = Editor::with_config(config);
+
+        // Retrieve a `history_path_str` dependent on the OS
+        let repl_history_path = match dirs::config_dir() {
+            Some(mut path) => {
+                path.push("rustpython");
+                path.push("repl_history.txt");
+                path
+            }
+            None => "repl_history.txt".into(),
+        };
+
+        if !repl_history_path.exists() {
+            if let Some(parent) = repl_history_path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+        }
+
         let vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
@@ -185,6 +207,8 @@ impl VirtualMachine {
             settings,
             recursion_limit: Cell::new(512),
             codec_registry: RefCell::default(),
+            repl: RefCell::new(repl),
+            repl_history_path,
         };
 
         objmodule::init_module_dict(
@@ -207,6 +231,10 @@ impl VirtualMachine {
         import::import_builtin(&vm, "signal").expect("Couldn't initialize signal module");
 
         vm
+    }
+
+    pub fn readline(&self, prompt: &str) -> Result<String, ReadlineError> {
+        self.repl.borrow_mut().readline(prompt)
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
