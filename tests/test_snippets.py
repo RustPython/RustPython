@@ -26,6 +26,7 @@ CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, "py_code_object"))
 RUSTPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR))
 RUSTPYTHON_LIB_DIR = os.path.abspath(os.path.join(ROOT_DIR, "Lib"))
 
+
 @contextlib.contextmanager
 def pushd(path):
     old_dir = os.getcwd()
@@ -44,10 +45,19 @@ def perform_test(filename, method, test_type):
         raise NotImplementedError(method)
 
 
+def stdin_file(filename):
+    stdin = None
+    if os.path.isfile(filename + '.in'):
+        stdin = open(filename + '.in')
+    return stdin
+
+
 def run_via_cpython(filename):
     """ Simply invoke python itself on the script """
     env = os.environ.copy()
-    subprocess.check_call([sys.executable, filename], env=env)
+    stdin = stdin_file(filename)
+
+    subprocess.check_call([sys.executable, filename], env=env, stdin=stdin)
 
 
 def run_via_rustpython(filename, test_type):
@@ -55,13 +65,15 @@ def run_via_rustpython(filename, test_type):
     env['RUST_LOG'] = 'info,cargo=error,jobserver=error'
     env['RUST_BACKTRACE'] = '1'
     env['PYTHONPATH'] = RUSTPYTHON_LIB_DIR
+    stdin = stdin_file(filename)
 
     target = "release"
     if env.get("CODE_COVERAGE", "false") == "true":
         target = "debug"
-    binary = os.path.abspath(os.path.join(ROOT_DIR, "target", target, "rustpython"))
+    binary = os.path.abspath(os.path.join(
+        ROOT_DIR, "target", target, "rustpython"))
 
-    subprocess.check_call([binary, filename], env=env)
+    subprocess.check_call([binary, filename], env=env, stdin=stdin)
 
 
 def create_test_function(cls, filename, method, test_type):
@@ -129,7 +141,8 @@ class SampleTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Here add resource files
-        cls.slices_resource_path = Path(TEST_DIRS[_TestType.functional]) / "cpython_generated_slices.py"
+        cls.slices_resource_path = Path(
+            TEST_DIRS[_TestType.functional]) / "cpython_generated_slices.py"
         if cls.slices_resource_path.exists():
             cls.slices_resource_path.unlink()
 
