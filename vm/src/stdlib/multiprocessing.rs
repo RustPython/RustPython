@@ -11,10 +11,7 @@ use winapi::um::winsock2::{self, SOCKET};
 fn multiprocessing_closesocket(socket: usize, vm: &VirtualMachine) -> PyResult<()> {
     let res = unsafe { winsock2::closesocket(socket as SOCKET) };
     if res == 0 {
-        Err(super::os::convert_io_error(
-            vm,
-            std::io::Error::last_os_error(),
-        ))
+        Err(super::os::errno_err(vm))
     } else {
         Ok(())
     }
@@ -26,10 +23,7 @@ fn multiprocessing_recv(socket: usize, size: usize, vm: &VirtualMachine) -> PyRe
     let nread =
         unsafe { winsock2::recv(socket as SOCKET, buf.as_mut_ptr() as *mut _, size as i32, 0) };
     if nread < 0 {
-        Err(super::os::convert_io_error(
-            vm,
-            std::io::Error::last_os_error(),
-        ))
+        Err(super::os::errno_err(vm))
     } else {
         Ok(nread)
     }
@@ -45,10 +39,7 @@ fn multiprocessing_send(
         winsock2::send(socket as SOCKET, b.as_ptr() as *const _, b.len() as i32, 0)
     });
     if ret < 0 {
-        Err(super::os::convert_io_error(
-            vm,
-            std::io::Error::last_os_error(),
-        ))
+        Err(super::os::errno_err(vm))
     } else {
         Ok(ret)
     }

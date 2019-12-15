@@ -1,18 +1,17 @@
 #![allow(non_snake_case)]
 
-use std::io;
 use winapi::shared::winerror;
 use winapi::um::winnt::HANDLE;
 use winapi::um::{handleapi, winbase};
 
-use super::os::convert_io_error;
+use super::os;
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::VirtualMachine;
 
 fn winapi_CloseHandle(handle: usize, vm: &VirtualMachine) -> PyResult<()> {
     let res = unsafe { handleapi::CloseHandle(handle as HANDLE) };
     if res == 0 {
-        Err(convert_io_error(vm, io::Error::last_os_error()))
+        Err(os::errno_err(vm))
     } else {
         Ok(())
     }

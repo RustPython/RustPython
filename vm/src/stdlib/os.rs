@@ -216,6 +216,12 @@ fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
     }
 }
 
+/// Convert the error stored in the `errno` variable into an Exception
+#[inline]
+pub fn errno_err(vm: &VirtualMachine) -> PyObjectRef {
+    convert_io_error(vm, io::Error::last_os_error())
+}
+
 // Flags for os_access
 bitflags! {
     pub struct AccessFlags: u8{
@@ -1126,7 +1132,7 @@ pub fn os_ttyname(fd: i32, vm: &VirtualMachine) -> PyResult {
     use libc::ttyname;
     let name = unsafe { ttyname(fd) };
     if name.is_null() {
-        Err(vm.new_os_error(io::Error::last_os_error().to_string()))
+        Err(errno_err(vm))
     } else {
         let name = unsafe { ffi::CStr::from_ptr(name) }.to_str().unwrap();
         Ok(vm.ctx.new_str(name.to_owned()))
@@ -1156,7 +1162,7 @@ fn os_lseek(
 ) -> PyResult<libc::c_long> {
     let res = unsafe { libc::lseek(fd, position, how) };
     if res < 0 {
-        Err(convert_io_error(vm, io::Error::last_os_error()))
+        Err(errno_err(vm))
     } else {
         Ok(res)
     }
