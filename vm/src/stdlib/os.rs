@@ -691,8 +691,6 @@ fn os_stat(
 ) -> PyResult {
     #[cfg(target_os = "android")]
     use std::os::android::fs::MetadataExt;
-    #[cfg(target_os = "android")]
-    use std::os::android::fs::MetadataExt;
     #[cfg(target_os = "linux")]
     use std::os::linux::fs::MetadataExt;
     #[cfg(target_os = "macos")]
@@ -1150,17 +1148,64 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     }
 }
 
-fn os_isatty(fd: i32, _vm: &VirtualMachine) -> bool {
-    unsafe { libc::isatty(fd) != 0 }
+// this is basically what CPython has for Py_off_t; windows uses long long
+// for offsets, other platforms just use off_t
+#[cfg(not(windows))]
+pub type Offset = libc::off_t;
+#[cfg(windows)]
+pub type Offset = libc::c_longlong;
+
+#[cfg(windows)]
+type InvalidParamHandler = extern "C" fn(
+    *const libc::wchar_t,
+    *const libc::wchar_t,
+    *const libc::wchar_t,
+    libc::c_uint,
+    libc::uintptr_t,
+);
+#[cfg(windows)]
+extern "C" {
+    fn _set_thread_local_invalid_parameter_handler(
+        pNew: InvalidParamHandler,
+    ) -> InvalidParamHandler;
 }
 
-fn os_lseek(
-    fd: libc::c_int,
-    position: libc::c_long,
-    how: libc::c_int,
-    vm: &VirtualMachine,
-) -> PyResult<libc::c_long> {
-    let res = unsafe { libc::lseek(fd, position, how) };
+#[cfg(windows)]
+extern "C" fn silent_iph_handler(
+    _: *const libc::wchar_t,
+    _: *const libc::wchar_t,
+    _: *const libc::wchar_t,
+    _: libc::c_uint,
+    _: libc::uintptr_t,
+) {
+}
+
+macro_rules! suppress_iph {
+    ($e:expr) => {{
+        #[cfg(windows)]
+        {
+            let old = _set_thread_local_invalid_parameter_handler(silent_iph_handler);
+            let ret = $e;
+            _set_thread_local_invalid_parameter_handler(old);
+            ret
+        }
+        #[cfg(not(windows))]
+        {
+            $e
+        }
+    }};
+}
+
+fn os_isatty(fd: i32, _vm: &VirtualMachine) -> bool {
+    unsafe { suppress_iph!(libc::isatty(fd)) != 0 }
+}
+
+fn os_lseek(fd: i32, position: Offset, how: i32, vm: &VirtualMachine) -> PyResult<Offset> {
+    #[cfg(not(windows))]
+    use libc::lseek;
+    #[cfg(windows)]
+    use libc::lseek64 as lseek;
+    let res = unsafe { suppress_iph!(lseek(fd, position, how)) };
     if res < 0 {
         Err(errno_err(vm))
     } else {
