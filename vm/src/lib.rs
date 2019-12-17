@@ -53,7 +53,7 @@ pub mod cformat;
 mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;
-mod exceptions;
+pub mod exceptions;
 pub mod format;
 mod frame;
 mod frozen;

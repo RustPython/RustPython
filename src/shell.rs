@@ -5,8 +5,8 @@ mod rustyline_helper;
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
+    exceptions::print_exception,
     obj::objtype,
-    print_exception,
     pyobject::{ItemProtocol, PyObjectRef, PyResult},
     scope::Scope,
     VirtualMachine,

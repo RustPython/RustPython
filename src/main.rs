@@ -7,9 +7,9 @@ extern crate log;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_compiler::compile;
 use rustpython_vm::{
+    exceptions::{print_exception, PyBaseExceptionRef},
     match_class,
-    obj::{objint::PyInt, objtuple::PyTuple, objtype},
-    print_exception,
+    obj::{objint::PyInt, objtype},
     pyobject::{ItemProtocol, PyResult},
     scope::Scope,
     util, InitParameter, PySettings, VirtualMachine,
@@ -51,8 +51,8 @@ fn main() {
     // See if any exception leaked out:
     if let Err(err) = res {
         if objtype::isinstance(&err, &vm.ctx.exceptions.system_exit) {
-            let args = vm.get_attribute(err.clone(), "args").unwrap();
-            let args = args.downcast::<PyTuple>().expect("'args' must be a tuple");
+            let err: PyBaseExceptionRef = err.downcast().unwrap();
+            let args = err.args();
             match args.elements.len() {
                 0 => return,
                 1 => match_class!(match args.elements[0].clone() {

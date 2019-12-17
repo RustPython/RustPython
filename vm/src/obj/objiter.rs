@@ -4,8 +4,8 @@
 
 use std::cell::Cell;
 
-use super::objtuple::PyTuple;
 use super::objtype::{self, PyClassRef};
+use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
@@ -74,8 +74,8 @@ pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyObjectRef) -> PyResult {
-    let args = vm.get_attribute(exc.clone(), "args")?;
-    let args: &PyTuple = args.payload().unwrap();
+    let exc = PyBaseExceptionRef::try_from_object(vm, exc.clone())?;
+    let args = exc.args();
     let val = args
         .elements
         .first()

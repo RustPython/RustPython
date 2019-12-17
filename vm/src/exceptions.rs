@@ -1,8 +1,7 @@
 use crate::function::PyFuncArgs;
-use crate::obj::objiter;
+use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
-use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
@@ -47,7 +46,7 @@ impl PyBaseException {
     #[pyslot(new)]
     fn tp_new(
         cls: PyClassRef,
-        _args: PyFuncArgs,
+        args: PyFuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyBaseExceptionRef> {
         PyBaseException {
@@ -55,7 +54,7 @@ impl PyBaseException {
             cause: RefCell::new(None),
             context: RefCell::new(None),
             suppress_context: Cell::new(false),
-            args: RefCell::new(PyTuple::from(vec![]).into_ref(vm)),
+            args: RefCell::new(PyTuple::from(args.args).into_ref(vm)),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -66,8 +65,8 @@ impl PyBaseException {
         Ok(())
     }
 
-    #[pyproperty]
-    fn args(&self, _vm: &VirtualMachine) -> PyTupleRef {
+    #[pyproperty(name = "args")]
+    fn get_args(&self, _vm: &VirtualMachine) -> PyTupleRef {
         self.args.borrow().clone()
     }
 
@@ -126,6 +125,30 @@ impl PyBaseException {
     ) -> PyResult {
         zelf.traceback.replace(tb);
         Ok(zelf.as_object().clone())
+    }
+
+    #[pymethod(name = "__str__")]
+    fn str(&self, vm: &VirtualMachine) -> PyStringRef {
+        let str_args = exception_args_as_string(vm, self.args(), false);
+        match str_args.into_iter().exactly_one() {
+            Err(i) if i.len() == 0 => PyString::from("").into_ref(vm),
+            Ok(s) => s,
+            Err(i) => PyString::from(format!("({})", i.format(", "))).into_ref(vm),
+        }
+    }
+
+    #[pymethod(name = "__repr__")]
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
+        let repr_args = exception_args_as_string(vm, zelf.args(), false);
+        let cls = zelf.class();
+        match repr_args.into_iter().exactly_one() {
+            Ok(one) => format!("{}({},)", cls.name, one),
+            Err(i) => format!("{}({})", cls.name, i.format(", ")),
+        }
+    }
+
+    pub fn args(&self) -> PyTupleRef {
+        self.args.borrow().clone()
     }
 }
 
@@ -207,27 +230,20 @@ pub fn print_exception_inner<W: Write>(
     vm: &VirtualMachine,
     exc: &PyObjectRef,
 ) -> io::Result<()> {
-    if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
-        if objtype::isinstance(&tb, &vm.ctx.traceback_type()) {
-            writeln!(output, "Traceback (most recent call last):")?;
-            let mut tb: PyTracebackRef = tb.downcast().expect(" must be a traceback object");
-            loop {
-                print_traceback_entry(&mut output, &tb)?;
-                tb = match &tb.next {
-                    Some(tb) => tb.clone(),
-                    None => break,
-                };
-            }
+    let exc: PyBaseExceptionRef = exc.clone().downcast().unwrap();
+
+    if let Some(tb) = exc.traceback.borrow().clone() {
+        writeln!(output, "Traceback (most recent call last):")?;
+        let mut tb = &Some(tb);
+        while let Some(traceback) = tb {
+            print_traceback_entry(&mut output, traceback)?;
+            tb = &traceback.next;
         }
     } else {
         writeln!(output, "No traceback set on exception")?;
     }
 
-    let varargs = vm
-        .get_attribute(exc.clone(), "args")
-        .unwrap()
-        .downcast::<PyTuple>()
-        .expect("'args' must be a tuple");
+    let varargs = exc.args();
     let args_repr = exception_args_as_string(vm, varargs, true);
 
     let exc_name = exc.class().name.clone();
@@ -247,71 +263,28 @@ fn exception_args_as_string(
     vm: &VirtualMachine,
     varargs: PyTupleRef,
     str_single: bool,
-) -> Vec<String> {
+) -> Vec<PyStringRef> {
     match varargs.elements.len() {
         0 => vec![],
         1 => {
             let args0_repr = if str_single {
-                vm.to_pystr(&varargs.elements[0])
-                    .unwrap_or_else(|_| "<element str() failed>".to_string())
+                vm.to_str(&varargs.elements[0])
+                    .unwrap_or_else(|_| PyString::from("<element str() failed>").into_ref(vm))
             } else {
                 vm.to_repr(&varargs.elements[0])
-                    .map(|s| s.as_str().to_owned())
-                    .unwrap_or_else(|_| "<element repr() failed>".to_string())
+                    .unwrap_or_else(|_| PyString::from("<element repr() failed>").into_ref(vm))
             };
             vec![args0_repr]
         }
         _ => varargs
             .elements
             .iter()
-            .map(|vararg| match vm.to_repr(vararg) {
-                Ok(arg_repr) => arg_repr.as_str().to_string(),
-                Err(_) => "<element repr() failed>".to_string(),
+            .map(|vararg| {
+                vm.to_repr(vararg)
+                    .unwrap_or_else(|_| PyString::from("<element repr() failed>").into_ref(vm))
             })
             .collect(),
     }
-}
-
-fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(exc, Some(vm.ctx.exceptions.exception_type.clone()))]
-    );
-    let args = vm
-        .get_attribute(exc.clone(), "args")
-        .unwrap()
-        .downcast::<PyTuple>()
-        .expect("'args' must be a tuple");
-    let args_str = exception_args_as_string(vm, args, false);
-    let joined_str = match args_str.len() {
-        0 => "".to_string(),
-        1 => args_str.into_iter().next().unwrap(),
-        _ => format!("({})", args_str.into_iter().format(", ")),
-    };
-    Ok(vm.new_str(joined_str))
-}
-
-fn exception_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(exc, Some(vm.ctx.exceptions.exception_type.clone()))]
-    );
-    let args = vm
-        .get_attribute(exc.clone(), "args")
-        .unwrap()
-        .downcast::<PyTuple>()
-        .expect("'args' must be a tuple");
-    let args_repr = exception_args_as_string(vm, args, false);
-
-    let exc_name = exc.class().name.clone();
-    let joined_str = match args_repr.len() {
-        0 => format!("{}()", exc_name),
-        1 => format!("{}({},)", exc_name, args_repr[0]),
-        _ => format!("{}({})", exc_name, args_repr.join(", ")),
-    };
-    Ok(vm.new_str(joined_str))
 }
 
 #[derive(Debug)]
@@ -508,10 +481,7 @@ impl ExceptionZoo {
     }
 }
 
-fn import_error_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let exc_self = args.args[0].clone();
-
-    vm.set_attr(&exc_self, "args", vm.ctx.new_tuple(args.args[1..].to_vec()))?;
+fn import_error_init(exc_self: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
     vm.set_attr(
         &exc_self,
         "name",
@@ -528,12 +498,7 @@ fn import_error_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
             .cloned()
             .unwrap_or_else(|| vm.get_none()),
     )?;
-    vm.set_attr(
-        &exc_self,
-        "msg",
-        args.args.get(1).cloned().unwrap_or_else(|| vm.get_none()),
-    )?;
-    Ok(vm.get_none())
+    Ok(())
 }
 
 fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
@@ -556,11 +521,6 @@ pub fn init(ctx: &PyContext) {
 
     PyBaseException::extend_class(ctx, &excs.base_exception_type);
 
-    extend_class!(ctx, &excs.exception_type, {
-        "__str__" => ctx.new_rustfunc(exception_str),
-        "__repr__" => ctx.new_rustfunc(exception_repr),
-    });
-
     extend_class!(ctx, &excs.syntax_error, {
         "msg" => ctx.new_property(make_arg_getter(0)),
         "filename" => ctx.new_property(make_arg_getter(1)),
@@ -570,13 +530,12 @@ pub fn init(ctx: &PyContext) {
     });
 
     extend_class!(ctx, &excs.import_error, {
-        "__init__" => ctx.new_rustfunc(import_error_init)
+        "__init__" => ctx.new_rustfunc(import_error_init),
+        "msg" => ctx.new_property(make_arg_getter(0)),
     });
 
     extend_class!(ctx, &excs.stop_iteration, {
-        "value" => ctx.new_rustfunc(|obj: PyObjectRef, vm: &VirtualMachine| {
-            objiter::stop_iter_value(vm, &obj)
-        }),
+        "value" => ctx.new_property(make_arg_getter(0)),
     });
 
     extend_class!(ctx, &excs.unicode_decode_error, {
