@@ -1183,6 +1183,22 @@ pub trait PyClassImpl: PyClassDef {
     }
 }
 
+// TODO: find a better place to put this impl
+impl TryFromObject for std::time::Duration {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        use std::time::Duration;
+        u64::try_from_object(vm, obj.clone())
+            .map(Duration::from_secs)
+            .or_else(|_| f64::try_from_object(vm, obj.clone()).map(Duration::from_secs_f64))
+            .map_err(|_| {
+                vm.new_type_error(format!(
+                    "expected an int or float for duration, got {}",
+                    obj.class()
+                ))
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

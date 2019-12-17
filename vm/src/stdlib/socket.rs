@@ -280,20 +280,15 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn settimeout(&self, timeout: Option<Either<f64, u64>>, vm: &VirtualMachine) -> PyResult<()> {
-        let mut block = if timeout.is_none() { Some(true) } else { None };
-        let timeout = timeout.and_then(|n| {
-            let dur = match n {
-                Either::A(f) => Duration::from_secs_f64(f),
-                Either::B(i) => Duration::from_secs(i),
-            };
-            if dur == Duration::from_secs(0) {
-                block = Some(false);
-                None
-            } else {
-                Some(dur)
-            }
-        });
+    fn settimeout(&self, timeout: Option<Duration>, vm: &VirtualMachine) -> PyResult<()> {
+        // timeout is None: blocking, no timeout
+        // timeout is 0: non-blocking, no timeout
+        // otherwise: timeout is timeout, don't change blocking
+        let (block, timeout) = match timeout {
+            None => (Some(true), None),
+            Some(d) if d == Duration::from_secs(0) => (Some(false), None),
+            Some(d) => (None, Some(d)),
+        };
         self.sock()
             .set_read_timeout(timeout)
             .map_err(|err| convert_sock_error(vm, err))?;

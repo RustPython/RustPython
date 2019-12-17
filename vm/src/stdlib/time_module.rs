@@ -15,9 +15,8 @@ use crate::pyobject::{Either, PyClassImpl, PyObjectRef, PyResult, TryFromObject}
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
-fn time_sleep(seconds: f64, vm: &VirtualMachine) -> PyResult<()> {
-    // this is basically std::thread::sleep, but that catches interrupts and we don't want to
-    let dur = Duration::from_secs_f64(seconds);
+fn time_sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {
+    // this is basically std::thread::sleep, but that catches interrupts and we don't want to;
 
     let mut ts = libc::timespec {
         tv_sec: std::cmp::min(libc::time_t::max_value() as u64, dur.as_secs()) as libc::time_t,
@@ -34,8 +33,8 @@ fn time_sleep(seconds: f64, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 #[cfg(not(unix))]
-fn time_sleep(seconds: f64, _vm: &VirtualMachine) {
-    std::thread::sleep(Duration::from_secs_f64(seconds));
+fn time_sleep(dur: Duration, _vm: &VirtualMachine) {
+    std::thread::sleep(dur);
 }
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
