@@ -349,6 +349,39 @@ with assert_raises(ValueError):
 with assert_raises(TypeError):
     itertools.combinations([1, 2, 3, 4], None)
 
+# itertools.permutations
+it = itertools.permutations([1, 2, 3])
+assert list(it) == [(1, 2, 3), (1, 3, 2), (2, 1, 3), (2, 3, 1), (3, 1, 2), (3, 2, 1)]
+
+it = itertools.permutations([1, 2, 3], None)
+assert list(it) == [(1, 2, 3), (1, 3, 2), (2, 1, 3), (2, 3, 1), (3, 1, 2), (3, 2, 1)]
+
+it = itertools.permutations([1, 2, 3], 0)
+assert list(it) == [()]
+
+it = itertools.permutations([1, 2, 3], 1)
+assert list(it) == [(1,), (2,), (3,)]
+
+it = itertools.permutations([1, 2, 3], 2)
+assert next(it) == (1, 2)
+assert next(it) == (1, 3)
+assert next(it) == (2, 1)
+assert next(it) == (2, 3)
+assert next(it) == (3, 1)
+assert next(it) == (3, 2)
+with assert_raises(StopIteration):
+    next(it)
+
+it = itertools.permutations([1, 2, 3], 4)
+with assert_raises(StopIteration):
+    next(it)
+
+with assert_raises(ValueError):
+    itertools.permutations([1, 2, 3, 4], -2)
+
+with assert_raises(TypeError):
+    itertools.permutations([1, 2, 3, 4], 3.14)
+
 # itertools.zip_longest tests
 zl = itertools.zip_longest
 assert list(zl(['a', 'b', 'c'], range(3), [9, 8, 7])) \
