@@ -314,7 +314,7 @@ impl PyItertoolsTakewhile {
             return Err(new_stop_iteration(vm));
         }
 
-        // might be StopIteration or anything else, which is propaged upwwards
+        // might be StopIteration or anything else, which is propagated upwards
         let obj = call_next(vm, &self.iterable)?;
         let predicate = &self.predicate;
 
@@ -908,45 +908,40 @@ impl PyItertoolsCombinations {
         let n = self.pool.len();
         let r = self.r.get();
 
+        if r == 0 {
+            self.exhausted.set(true);
+            return Ok(vm.ctx.new_tuple(vec![]));
+        }
+
         let res = PyTuple::from(
-            self.pool
+            self.indices
+                .borrow()
                 .iter()
-                .enumerate()
-                .filter(|(idx, _)| self.indices.borrow().contains(&idx))
-                .map(|(_, num)| num.clone())
+                .map(|&i| self.pool[i].clone())
                 .collect::<Vec<PyObjectRef>>(),
         );
 
         let mut indices = self.indices.borrow_mut();
-        let mut sentinel = false;
 
         // Scan indices right-to-left until finding one that is not at its maximum (i + n - r).
-        let mut idx = r - 1;
-        loop {
-            if indices[idx] != idx + n - r {
-                sentinel = true;
-                break;
-            }
-
-            if idx != 0 {
-                idx -= 1;
-            } else {
-                break;
-            }
+        let mut idx = r as isize - 1;
+        while idx >= 0 && indices[idx as usize] == idx as usize + n - r {
+            idx -= 1;
         }
+
         // If no suitable index is found, then the indices are all at
         // their maximum value and we're done.
-        if !sentinel {
+        if idx < 0 {
             self.exhausted.set(true);
-        }
-
-        // Increment the current index which we know is not at its
-        // maximum.  Then move back to the right setting each index
-        // to its lowest possible value (one higher than the index
-        // to its left -- this maintains the sort order invariant).
-        indices[idx] += 1;
-        for j in idx + 1..r {
-            indices[j] = indices[j - 1] + 1;
+        } else {
+            // Increment the current index which we know is not at its
+            // maximum.  Then move back to the right setting each index
+            // to its lowest possible value (one higher than the index
+            // to its left -- this maintains the sort order invariant).
+            indices[idx as usize] += 1;
+            for j in idx as usize + 1..r {
+                indices[j] = indices[j - 1] + 1;
+            }
         }
 
         Ok(res.into_ref(vm).into_object())

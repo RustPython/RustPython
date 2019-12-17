@@ -61,7 +61,7 @@ Basically reference counting, but then done by rust.
 /// to the python object by 1.
 pub type PyObjectRef = Rc<PyObject<dyn PyObjectPayload>>;
 
-/// Use this type for function which return a python object or and exception.
+/// Use this type for functions which return a python object or an exception.
 /// Both the python object and the python exception are `PyObjectRef` types
 /// since exceptions are also python objects.
 pub type PyResult<T = PyObjectRef> = Result<T, PyObjectRef>; // A valid value, or an exception
