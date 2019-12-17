@@ -174,15 +174,18 @@ fn sys_intern(value: PyStringRef, _vm: &VirtualMachine) -> PyStringRef {
     value
 }
 
-fn sys_exc_info(vm: &VirtualMachine) -> PyResult {
-    Ok(vm.ctx.new_tuple(match vm.current_exception() {
+fn sys_exc_info(vm: &VirtualMachine) -> PyObjectRef {
+    let exc_info = match vm.current_exception() {
         Some(exception) => vec![
             exception.class().into_object(),
-            exception.clone(),
-            vm.get_none(),
+            exception.clone().into_object(),
+            exception
+                .traceback()
+                .map_or(vm.get_none(), |tb| tb.into_object()),
         ],
         None => vec![vm.get_none(), vm.get_none(), vm.get_none()],
-    }))
+    };
+    vm.ctx.new_tuple(exc_info)
 }
 
 fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {

@@ -47,9 +47,9 @@ pub fn json_loads(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let json_decode_error = vm.get_attribute(module, "JSONDecodeError").unwrap();
         let json_decode_error = json_decode_error.downcast().unwrap();
         let exc = vm.new_exception(json_decode_error, format!("{}", err));
-        vm.set_attr(&exc, "lineno", vm.ctx.new_int(err.line()))
+        vm.set_attr(exc.as_object(), "lineno", vm.ctx.new_int(err.line()))
             .unwrap();
-        vm.set_attr(&exc, "colno", vm.ctx.new_int(err.column()))
+        vm.set_attr(exc.as_object(), "colno", vm.ctx.new_int(err.column()))
             .unwrap();
         exc
     })

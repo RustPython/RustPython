@@ -5,9 +5,9 @@ mod rustyline_helper;
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
-    exceptions::print_exception,
+    exceptions::{print_exception, PyBaseExceptionRef},
     obj::objtype,
-    pyobject::{ItemProtocol, PyObjectRef, PyResult},
+    pyobject::{ItemProtocol, PyResult},
     scope::Scope,
     VirtualMachine,
 };
@@ -16,7 +16,7 @@ use readline::{Readline, ReadlineResult};
 
 enum ShellExecResult {
     Ok,
-    PyErr(PyObjectRef),
+    PyErr(PyBaseExceptionRef),
     Continue,
 }
 

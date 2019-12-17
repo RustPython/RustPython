@@ -5,6 +5,7 @@ use super::objiter;
 use super::objstr;
 use super::objtype::{self, PyClassRef};
 use crate::dictdatatype::{self, DictKey};
+use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable,
@@ -60,7 +61,7 @@ impl PyDictRef {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let OptionalArg::Present(dict_obj) = dict_obj {
-            let dicted: PyResult<PyDictRef> = dict_obj.clone().downcast();
+            let dicted: Result<PyDictRef, _> = dict_obj.clone().downcast();
             if let Ok(dict_obj) = dicted {
                 for (key, value) in dict_obj {
                     dict.borrow_mut().insert(vm, &key, value)?;
@@ -74,7 +75,7 @@ impl PyDictRef {
             } else {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
                 loop {
-                    fn err(vm: &VirtualMachine) -> PyObjectRef {
+                    fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
                         vm.new_type_error("Iterator must have exactly two elements".to_string())
                     }
                     let element = match objiter::get_next_object(vm, &iter)? {

@@ -12,6 +12,7 @@ use num_traits::{Signed, ToPrimitive, Zero};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
+use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::obj::objbool::{self, IntoPyBool};
 use crate::obj::objbyteinner::PyByteInner;
@@ -290,7 +291,7 @@ fn builtin_format(
         })
 }
 
-fn catch_attr_exception<T>(ex: PyObjectRef, default: T, vm: &VirtualMachine) -> PyResult<T> {
+fn catch_attr_exception<T>(ex: PyBaseExceptionRef, default: T, vm: &VirtualMachine) -> PyResult<T> {
     if objtype::isinstance(&ex, &vm.ctx.exceptions.attribute_error) {
         Ok(default)
     } else {

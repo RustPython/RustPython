@@ -5,6 +5,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 
 use crate::bytecode;
+use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{single_or_tuple_any, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
@@ -15,7 +16,7 @@ use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
 use crate::obj::objstr::{self, PyString};
-use crate::obj::objtraceback::{PyTraceback, PyTracebackRef};
+use crate::obj::objtraceback::PyTraceback;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
@@ -63,7 +64,7 @@ enum UnwindReason {
     Returning { value: PyObjectRef },
 
     /// We hit an exception, so unwind any try-except and finally blocks.
-    Raising { exception: PyObjectRef },
+    Raising { exception: PyBaseExceptionRef },
 
     // NoWorries,
     /// We are unwinding blocks, since we hit break
@@ -176,23 +177,8 @@ impl Frame {
                     // 1. Extract traceback from exception's '__traceback__' attr.
                     // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
                     // 3. Unwind block stack till appropriate handler is found.
-                    assert!(objtype::isinstance(
-                        &exception,
-                        &vm.ctx.exceptions.base_exception_type
-                    ));
 
-                    let traceback = vm
-                        .get_attribute(exception.clone(), "__traceback__")
-                        .unwrap();
-
-                    let next = if vm.is_none(&traceback) {
-                        None
-                    } else {
-                        let traceback: PyTracebackRef = traceback
-                            .downcast()
-                            .expect("next must be a traceback object");
-                        Some(traceback)
-                    };
+                    let next = exception.traceback();
 
                     let new_traceback = PyTraceback::new(
                         next,
@@ -200,8 +186,7 @@ impl Frame {
                         self.lasti.get(),
                         lineno.row(),
                     );
-                    vm.set_attr(&exception, "__traceback__", new_traceback.into_ref(vm))
-                        .unwrap();
+                    exception.set_traceback(Some(new_traceback.into_ref(vm)));
                     vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, lineno);
 
                     match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
@@ -464,8 +449,8 @@ impl Frame {
                 let args = if let Some(exc) = exc {
                     let exc_type = exc.class().into_object();
                     let exc_val = exc.clone();
-                    let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
-                    vec![exc_type, exc_val, exc_tb]
+                    let exc_tb = exc.traceback().map_or(vm.get_none(), |tb| tb.into_object());
+                    vec![exc_type, exc_val.into_object(), exc_tb]
                 } else {
                     vec![vm.ctx.none(), vm.ctx.none(), vm.ctx.none()]
                 };
@@ -745,7 +730,7 @@ impl Frame {
                     self.pop_block();
                     if let UnwindReason::Raising { exception } = &reason {
                         self.push_block(BlockType::ExceptHandler {});
-                        self.push_value(exception.clone());
+                        self.push_value(exception.clone().into_object());
                         vm.push_exception(exception.clone());
                         self.jump(handler);
                         return Ok(None);
@@ -978,8 +963,8 @@ impl Frame {
 
     fn execute_raise(&self, vm: &VirtualMachine, argc: usize) -> FrameResult {
         let cause = match argc {
-            2 => self.get_exception(vm, true)?,
-            _ => vm.get_none(),
+            2 => Some(self.get_exception(vm, true)?),
+            _ => None,
         };
         let exception = match argc {
             0 => match vm.current_exception() {
@@ -996,18 +981,15 @@ impl Frame {
             _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
         };
         let context = match argc {
-            0 => vm.get_none(), // We have already got the exception,
-            _ => match vm.current_exception() {
-                Some(exc) => exc,
-                None => vm.get_none(),
-            },
+            0 => None, // We have already got the exception,
+            _ => vm.current_exception(),
         };
         info!(
             "Exception raised: {:?} with cause: {:?} and context: {:?}",
             exception, cause, context
         );
-        vm.set_attr(&exception, vm.new_str("__cause__".to_string()), cause)?;
-        vm.set_attr(&exception, vm.new_str("__context__".to_string()), context)?;
+        exception.set_cause(cause);
+        exception.set_context(context);
         Err(exception)
     }
 
@@ -1385,12 +1367,16 @@ impl Frame {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn get_exception(&self, vm: &VirtualMachine, none_allowed: bool) -> PyResult {
+    fn get_exception(
+        &self,
+        vm: &VirtualMachine,
+        none_allowed: bool,
+    ) -> PyResult<PyBaseExceptionRef> {
         let exception = self.pop_value();
-        if none_allowed && vm.get_none().is(&exception)
+        if none_allowed && vm.is_none(&exception)
             || objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type)
         {
-            Ok(exception)
+            Ok(exception.downcast().unwrap())
         } else if let Ok(exc_type) = PyClassRef::try_from_object(vm, exception) {
             if objtype::issubclass(&exc_type, &vm.ctx.exceptions.base_exception_type) {
                 let exception = vm.new_empty_exception(exc_type)?;

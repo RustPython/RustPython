@@ -7,6 +7,7 @@ use super::objbytes;
 use super::objint::{self, PyInt, PyIntRef};
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::{self, PyClassRef};
+use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
@@ -675,7 +676,7 @@ fn str_to_float(vm: &VirtualMachine, literal: &str) -> PyResult<f64> {
     }
 }
 
-fn invalid_convert(vm: &VirtualMachine, literal: &str) -> PyObjectRef {
+fn invalid_convert(vm: &VirtualMachine, literal: &str) -> PyBaseExceptionRef {
     vm.new_value_error(format!("could not convert string to float: '{}'", literal))
 }
 

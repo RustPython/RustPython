@@ -4,9 +4,10 @@
 use rand::Rng;
 
 use crate::bytecode::CodeObject;
+use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtraceback::{PyTraceback, PyTracebackRef};
 use crate::obj::{objcode, objtype};
-use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
+use crate::pyobject::{ItemProtocol, PyResult, PyValue};
 use crate::scope::Scope;
 use crate::version::get_git_revision;
 use crate::vm::{InitParameter, VirtualMachine};
@@ -150,15 +151,15 @@ fn remove_importlib_frames_inner(
 
 // TODO: This function should do nothing on verbose mode.
 // TODO: Fix this function after making PyTraceback.next mutable
-pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyObjectRef) -> PyObjectRef {
+pub fn remove_importlib_frames(
+    vm: &VirtualMachine,
+    exc: &PyBaseExceptionRef,
+) -> PyBaseExceptionRef {
     let always_trim = objtype::isinstance(exc, &vm.ctx.exceptions.import_error);
 
-    if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
-        let base_tb: PyTracebackRef = tb.downcast().expect("must be a traceback object");
-        let trimed_tb = remove_importlib_frames_inner(vm, Some(base_tb), always_trim)
-            .0
-            .map_or(vm.get_none(), |x| x.into_object());
-        vm.set_attr(exc, "__traceback__", trimed_tb).unwrap();
+    if let Some(tb) = exc.traceback() {
+        let trimmed_tb = remove_importlib_frames_inner(vm, Some(tb), always_trim).0;
+        exc.set_traceback(trimmed_tb);
     }
     exc.clone()
 }

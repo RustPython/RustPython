@@ -7,7 +7,7 @@ extern crate log;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_compiler::compile;
 use rustpython_vm::{
-    exceptions::{print_exception, PyBaseExceptionRef},
+    exceptions::print_exception,
     match_class,
     obj::{objint::PyInt, objtype},
     pyobject::{ItemProtocol, PyResult},
@@ -51,7 +51,6 @@ fn main() {
     // See if any exception leaked out:
     if let Err(err) = res {
         if objtype::isinstance(&err, &vm.ctx.exceptions.system_exit) {
-            let err: PyBaseExceptionRef = err.downcast().unwrap();
             let args = err.args();
             match args.elements.len() {
                 0 => return,

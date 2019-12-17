@@ -4,6 +4,7 @@ use std::ops::RangeInclusive;
 
 use indexmap::IndexMap;
 
+use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{
@@ -207,11 +208,11 @@ pub enum ArgumentError {
     RequiredKeywordArgument(String),
     /// An exception was raised while binding arguments to the function
     /// parameters.
-    Exception(PyObjectRef),
+    Exception(PyBaseExceptionRef),
 }
 
-impl From<PyObjectRef> for ArgumentError {
-    fn from(ex: PyObjectRef) -> Self {
+impl From<PyBaseExceptionRef> for ArgumentError {
+    fn from(ex: PyBaseExceptionRef) -> Self {
         ArgumentError::Exception(ex)
     }
 }

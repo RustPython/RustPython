@@ -4,8 +4,7 @@ use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::types::create_type;
 use crate::vm::VirtualMachine;
@@ -18,8 +17,8 @@ use std::io::{self, BufRead, BufReader, Write};
 #[pyclass]
 pub struct PyBaseException {
     traceback: RefCell<Option<PyTracebackRef>>,
-    cause: RefCell<Option<PyObjectRef>>,
-    context: RefCell<Option<PyObjectRef>>,
+    cause: RefCell<Option<PyBaseExceptionRef>>,
+    context: RefCell<Option<PyBaseExceptionRef>>,
     suppress_context: Cell<bool>,
     args: RefCell<PyTupleRef>,
 }
@@ -83,12 +82,12 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__traceback__", setter)]
-    fn set_traceback(&self, traceback: Option<PyTracebackRef>, _vm: &VirtualMachine) {
+    fn setter_traceback(&self, traceback: Option<PyTracebackRef>, _vm: &VirtualMachine) {
         self.traceback.replace(traceback);
     }
 
     #[pyproperty(name = "__cause__")]
-    fn get_cause(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+    fn get_cause(&self, _vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
         self.cause.borrow().clone()
     }
 
@@ -98,7 +97,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__context__")]
-    fn get_context(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+    fn get_context(&self, _vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
         self.context.borrow().clone()
     }
 
@@ -150,51 +149,67 @@ impl PyBaseException {
     pub fn args(&self) -> PyTupleRef {
         self.args.borrow().clone()
     }
+
+    pub fn traceback(&self) -> Option<PyTracebackRef> {
+        self.traceback.borrow().clone()
+    }
+    pub fn set_traceback(&self, tb: Option<PyTracebackRef>) {
+        self.traceback.replace(tb);
+    }
+
+    pub fn cause(&self) -> Option<PyBaseExceptionRef> {
+        self.cause.borrow().clone()
+    }
+    pub fn set_cause(&self, cause: Option<PyBaseExceptionRef>) {
+        self.cause.replace(cause);
+    }
+
+    pub fn context(&self) -> Option<PyBaseExceptionRef> {
+        self.context.borrow().clone()
+    }
+    pub fn set_context(&self, context: Option<PyBaseExceptionRef>) {
+        self.context.replace(context);
+    }
 }
 
 /// Print exception chain
-pub fn print_exception(vm: &VirtualMachine, exc: &PyObjectRef) {
-    let _ = write_exception(io::stdout(), vm, exc);
+pub fn print_exception(vm: &VirtualMachine, exc: &PyBaseExceptionRef) {
+    let stdout = io::stdout();
+    let mut stdout = stdout.lock();
+    let _ = write_exception(&mut stdout, vm, exc);
 }
 
 pub fn write_exception<W: Write>(
-    mut output: W,
+    output: &mut W,
     vm: &VirtualMachine,
-    exc: &PyObjectRef,
+    exc: &PyBaseExceptionRef,
 ) -> io::Result<()> {
-    let mut had_cause = false;
-    if let Ok(cause) = vm.get_attribute(exc.clone(), "__cause__") {
-        if !vm.get_none().is(&cause) {
-            had_cause = true;
-            print_exception(vm, &cause);
+    let cause = exc.cause();
+    if let Some(cause) = &cause {
+        write_exception(output, vm, cause)?;
+        writeln!(
+            output,
+            "\nThe above exception was the direct cause of the following exception:\n"
+        )?;
+    }
+    if cause.is_none() {
+        if let Some(context) = exc.context() {
+            write_exception(output, vm, &context)?;
             writeln!(
                 output,
-                "\nThe above exception was the direct cause of the following exception:\n"
+                "\nDuring handling of the above exception, another exception occurred:\n"
             )?;
         }
     }
-    if !had_cause {
-        if let Ok(context) = vm.get_attribute(exc.clone(), "__context__") {
-            if !vm.get_none().is(&context) {
-                print_exception(vm, &context);
-                writeln!(
-                    output,
-                    "\nDuring handling of the above exception, another exception occurred:\n"
-                )?;
-            }
-        }
-    }
-    print_exception_inner(output, vm, exc)
+    write_exception_inner(output, vm, exc)
 }
 
-fn print_source_line<W: Write>(mut output: W, filename: &str, lineno: usize) -> io::Result<()> {
+fn print_source_line<W: Write>(output: &mut W, filename: &str, lineno: usize) -> io::Result<()> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/master/Python/traceback.c#L393
     // TODO: support different encodings
     let file = match File::open(filename) {
         Ok(file) => file,
-        Err(_) => {
-            return Ok(());
-        }
+        Err(_) => return Ok(()),
     };
     let file = BufReader::new(file);
 
@@ -212,7 +227,7 @@ fn print_source_line<W: Write>(mut output: W, filename: &str, lineno: usize) -> 
 }
 
 /// Print exception occurrence location from traceback element
-fn print_traceback_entry<W: Write>(mut output: W, tb_entry: &PyTracebackRef) -> io::Result<()> {
+fn write_traceback_entry<W: Write>(output: &mut W, tb_entry: &PyTracebackRef) -> io::Result<()> {
     let filename = tb_entry.frame.code.source_path.to_string();
     writeln!(
         output,
@@ -225,19 +240,17 @@ fn print_traceback_entry<W: Write>(mut output: W, tb_entry: &PyTracebackRef) -> 
 }
 
 /// Print exception with traceback
-pub fn print_exception_inner<W: Write>(
-    mut output: W,
+pub fn write_exception_inner<W: Write>(
+    output: &mut W,
     vm: &VirtualMachine,
-    exc: &PyObjectRef,
+    exc: &PyBaseExceptionRef,
 ) -> io::Result<()> {
-    let exc: PyBaseExceptionRef = exc.clone().downcast().unwrap();
-
     if let Some(tb) = exc.traceback.borrow().clone() {
         writeln!(output, "Traceback (most recent call last):")?;
-        let mut tb = &Some(tb);
+        let mut tb = Some(&tb);
         while let Some(traceback) = tb {
-            print_traceback_entry(&mut output, traceback)?;
-            tb = &traceback.next;
+            write_traceback_entry(output, traceback)?;
+            tb = traceback.next.as_ref();
         }
     } else {
         writeln!(output, "No traceback set on exception")?;
@@ -505,14 +518,14 @@ fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
     vm.get_none()
 }
 
-fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef, &VirtualMachine) -> PyResult {
+fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef, &VirtualMachine) -> PyObjectRef {
     move |exc, vm| {
         exc.args
             .borrow()
             .elements
             .get(idx)
             .cloned()
-            .ok_or_else(|| vm.new_value_error(format!("couldn't get arg {} of exception", idx)))
+            .unwrap_or_else(|| vm.get_none())
     }
 }
 

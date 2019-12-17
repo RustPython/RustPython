@@ -13,7 +13,7 @@ use num_traits::{One, ToPrimitive, Zero};
 
 use crate::bytecode;
 use crate::dictdatatype::DictKey;
-use crate::exceptions;
+use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objbytearray;
@@ -64,7 +64,7 @@ pub type PyObjectRef = Rc<PyObject<dyn PyObjectPayload>>;
 /// Use this type for functions which return a python object or an exception.
 /// Both the python object and the python exception are `PyObjectRef` types
 /// since exceptions are also python objects.
-pub type PyResult<T = PyObjectRef> = Result<T, PyObjectRef>; // A valid value, or an exception
+pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid value, or an exception
 
 /// For attributes we do not use a dict, but a hashmap. This is probably
 /// faster, unordered, and only supports strings as keys.
@@ -799,6 +799,12 @@ where
 impl<T> TypeProtocol for PyRef<T> {
     fn class(&self) -> PyClassRef {
         self.obj.typ.clone()
+    }
+}
+
+impl<T: TypeProtocol> TypeProtocol for &'_ T {
+    fn class(&self) -> PyClassRef {
+        (&**self).class()
     }
 }
 

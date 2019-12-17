@@ -68,13 +68,12 @@ pub fn get_all<T: TryFromObject>(vm: &VirtualMachine, iter_obj: &PyObjectRef) ->
     Ok(elements)
 }
 
-pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
+pub fn new_stop_iteration(vm: &VirtualMachine) -> PyBaseExceptionRef {
     let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
     vm.new_empty_exception(stop_iteration_type).unwrap()
 }
 
-pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyObjectRef) -> PyResult {
-    let exc = PyBaseExceptionRef::try_from_object(vm, exc.clone())?;
+pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyResult {
     let args = exc.args();
     let val = args
         .elements

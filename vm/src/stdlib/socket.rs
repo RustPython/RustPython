@@ -12,6 +12,7 @@ use socket2::{Domain, Protocol, Socket, Type as SocketType};
 use super::os::convert_io_error;
 #[cfg(unix)]
 use super::os::convert_nix_error;
+use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytearray::PyByteArrayRef;
 use crate::obj::objbyteinner::PyBytesLike;
@@ -589,7 +590,7 @@ fn invalid_sock() -> Socket {
     }
 }
 
-fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
+fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
     if err.kind() == io::ErrorKind::TimedOut {
         let socket_timeout = vm.class("_socket", "timeout");
         vm.new_exception(socket_timeout, "Timed out".to_string())

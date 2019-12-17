@@ -6,7 +6,9 @@ use super::objiter::new_stop_iteration;
 use super::objtype::{isinstance, issubclass, PyClassRef};
 use crate::frame::{ExecutionResult, FrameRef};
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 use crate::vm::VirtualMachine;
 
 use std::cell::Cell;
@@ -75,7 +77,10 @@ impl PyGenerator {
         vm: &VirtualMachine,
     ) -> PyResult {
         if self.closed.get() {
-            return Err(vm.invoke(exc_type.as_object(), vec![])?);
+            return Err(TryFromObject::try_from_object(
+                vm,
+                vm.invoke(exc_type.as_object(), vec![])?,
+            )?);
         }
         // TODO what should we do with the other parameters? CPython normalises them with
         //      PyErr_NormalizeException, do we want to do the same.
