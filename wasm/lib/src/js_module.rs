@@ -1,4 +1,5 @@
 use js_sys::{Array, Object, Reflect};
+use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::Args;
 use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStringRef, objtype::PyClassRef};
 use rustpython_vm::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
@@ -233,10 +234,14 @@ struct NewObjectOptions {
     prototype: Option<PyJsValueRef>,
 }
 
-fn new_js_error(vm: &VirtualMachine, err: JsValue) -> PyObjectRef {
+fn new_js_error(vm: &VirtualMachine, err: JsValue) -> PyBaseExceptionRef {
     let exc = vm.new_exception(vm.class("_js", "JsError"), format!("{:?}", err));
-    vm.set_attr(&exc, "js_value", PyJsValue::new(err).into_ref(vm))
-        .unwrap();
+    vm.set_attr(
+        exc.as_object(),
+        "js_value",
+        PyJsValue::new(err).into_ref(vm),
+    )
+    .unwrap();
     exc
 }
 

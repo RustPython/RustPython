@@ -1,20 +1,18 @@
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, Uint8Array};
-use num_traits::cast::ToPrimitive;
 use serde_wasm_bindgen;
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
+use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::obj::{objbytes, objint, objsequence, objtype};
+use rustpython_vm::obj::{objbytes, objtype};
 use rustpython_vm::py_serde;
 use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
 
-use num_bigint::BigInt;
-
 use crate::browser_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 
-pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
+pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyBaseExceptionRef) -> JsValue {
     macro_rules! map_exceptions {
         ($py_exc:ident, $msg:expr, { $($py_exc_ty:expr => $js_err_new:expr),*$(,)? }) => {
             $(if objtype::isinstance($py_exc, $py_exc_ty) {
@@ -24,11 +22,11 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
             }
         };
     }
-    let msg = match vm.to_pystr(py_err) {
+    let msg = match vm.to_str(py_err.as_object()) {
         Ok(msg) => msg,
         Err(_) => return js_sys::Error::new("error getting error").into(),
     };
-    let js_err = map_exceptions!(py_err,& msg, {
+    let js_err = map_exceptions!(py_err, msg.as_str(), {
         // TypeError is sort of a catch-all for "this value isn't what I thought it was like"
         &vm.ctx.exceptions.type_error => js_sys::TypeError::new,
         &vm.ctx.exceptions.value_error => js_sys::TypeError::new,
@@ -38,29 +36,34 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
         &vm.ctx.exceptions.name_error => js_sys::ReferenceError::new,
         &vm.ctx.exceptions.syntax_error => js_sys::SyntaxError::new,
     });
-    if let Ok(tb) = vm.get_attribute(py_err.clone(), "__traceback__") {
-        if objtype::isinstance(&tb, &vm.ctx.list_type()) {
-            let elements = objsequence::get_elements_list(&tb).to_vec();
-            if let Some(top) = elements.get(0) {
-                if objtype::isinstance(&top, &vm.ctx.tuple_type()) {
-                    let element = objsequence::get_elements_tuple(&top);
-
-                    if let Some(lineno) = objint::to_int(vm, &element[1], &BigInt::from(10))
-                        .ok()
-                        .and_then(|lineno| lineno.to_u32())
-                    {
-                        let _ = Reflect::set(&js_err, &"row".into(), &lineno.into());
-                    }
-                }
-            }
-        }
+    if let Some(tb) = py_err.traceback() {
+        let _ = Reflect::set(&js_err, &"row".into(), &(tb.lineno as u32).into());
     }
     js_err
 }
 
-pub fn js_py_typeerror(vm: &VirtualMachine, js_err: JsValue) -> PyObjectRef {
+pub fn js_py_typeerror(vm: &VirtualMachine, js_err: JsValue) -> PyBaseExceptionRef {
     let msg = js_err.unchecked_into::<js_sys::Error>().to_string();
     vm.new_type_error(msg.into())
+}
+
+pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptionRef {
+    match js_err.dyn_ref::<js_sys::Error>() {
+        Some(err) => {
+            let exc_type = match String::from(err.name()).as_str() {
+                "TypeError" => &vm.ctx.exceptions.type_error,
+                "ReferenceError" => &vm.ctx.exceptions.name_error,
+                "SyntaxError" => &vm.ctx.exceptions.syntax_error,
+                _ => &vm.ctx.exceptions.exception_type,
+            }
+            .clone();
+            vm.new_exception(exc_type, err.message().into())
+        }
+        None => vm.new_exception(
+            vm.ctx.exceptions.exception_type.clone(),
+            format!("{:?}", js_err),
+        ),
+    }
 }
 
 pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
@@ -207,17 +210,10 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
                 }
                 func.apply(&this, &js_args)
                     .map(|val| js_to_py(vm, val))
-                    .map_err(|err| js_to_py(vm, err))
+                    .map_err(|err| js_err_to_py_err(vm, &err))
             })
     } else if let Some(err) = js_val.dyn_ref::<js_sys::Error>() {
-        let exc_type = match String::from(err.name()).as_str() {
-            "TypeError" => &vm.ctx.exceptions.type_error,
-            "ReferenceError" => &vm.ctx.exceptions.name_error,
-            "SyntaxError" => &vm.ctx.exceptions.syntax_error,
-            _ => &vm.ctx.exceptions.exception_type,
-        }
-        .clone();
-        vm.new_exception(exc_type, err.message().into())
+        js_err_to_py_err(vm, err).into_object()
     } else if js_val.is_undefined() {
         // Because `JSON.stringify(undefined)` returns undefined
         vm.get_none()

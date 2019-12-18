@@ -1368,8 +1368,6 @@ dependencies = [
  "cfg-if 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "js-sys 0.3.28 (registry+https://github.com/rust-lang/crates.io-index)",
- "num-bigint 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "num-traits 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustpython-compiler 0.1.1",
  "rustpython-parser 0.1.1",
  "rustpython-vm 0.1.1",

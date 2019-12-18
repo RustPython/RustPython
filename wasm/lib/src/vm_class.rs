@@ -232,7 +232,7 @@ impl WASMVirtualMachine {
                             &JsValue::UNDEFINED,
                             &wasm_builtins::format_print_args(vm, args)?.into(),
                         )
-                        .map_err(|err| convert::js_to_py(vm, err))?;
+                        .map_err(|err| convert::js_py_typeerror(vm, err))?;
                         Ok(vm.get_none())
                     })
             } else if stdout.is_null() {
