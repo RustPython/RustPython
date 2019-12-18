@@ -208,26 +208,22 @@ impl Frame {
     pub(crate) fn gen_throw(
         &self,
         vm: &VirtualMachine,
-        exc_type: PyClassRef,
+        exc_type: PyObjectRef,
         exc_val: PyObjectRef,
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
         if let bytecode::Instruction::YieldFrom = self.code.instructions[self.lasti.get()] {
             let coro = self.last_value();
-            vm.call_method(
-                &coro,
-                "throw",
-                vec![exc_type.into_object(), exc_val, exc_tb],
-            )
-            .or_else(|err| {
-                self.pop_value();
-                self.lasti.set(self.lasti.get() + 1);
-                let val = objiter::stop_iter_value(vm, &err)?;
-                self._send(coro, val, vm)
-            })
-            .map(ExecutionResult::Yield)
+            vm.call_method(&coro, "throw", vec![exc_type, exc_val, exc_tb])
+                .or_else(|err| {
+                    self.pop_value();
+                    self.lasti.set(self.lasti.get() + 1);
+                    let val = objiter::stop_iter_value(vm, &err)?;
+                    self._send(coro, val, vm)
+                })
+                .map(ExecutionResult::Yield)
         } else {
-            let exception = vm.new_exception_obj(exc_type, vec![exc_val])?;
+            let exception = vm.normalize_exception(exc_type, exc_val, exc_tb)?;
             match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
                 Ok(None) => self.run(vm),
                 Ok(Some(result)) => Ok(result),
@@ -963,7 +959,17 @@ impl Frame {
 
     fn execute_raise(&self, vm: &VirtualMachine, argc: usize) -> FrameResult {
         let cause = match argc {
-            2 => Some(self.get_exception(vm, true)?),
+            2 => {
+                let val = self.pop_value();
+                if vm.is_none(&val) {
+                    // if the cause arg is none, we clear the cause
+                    Some(None)
+                } else {
+                    // if the cause arg is an exception, we overwrite it
+                    Some(Some(self.get_exception(vm, val)?))
+                }
+            }
+            // if there's no cause arg, we keep the cause as is
             _ => None,
         };
         let exception = match argc {
@@ -973,10 +979,10 @@ impl Frame {
                     return Err(vm.new_exception(
                         vm.ctx.exceptions.runtime_error.clone(),
                         "No active exception to reraise".to_string(),
-                    ));
+                    ))
                 }
             },
-            1 | 2 => self.get_exception(vm, false)?,
+            1 | 2 => self.get_exception(vm, self.pop_value())?,
             3 => panic!("Not implemented!"),
             _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
         };
@@ -988,7 +994,9 @@ impl Frame {
             "Exception raised: {:?} with cause: {:?} and context: {:?}",
             exception, cause, context
         );
-        exception.set_cause(cause);
+        if let Some(cause) = cause {
+            exception.set_cause(cause);
+        }
         exception.set_context(context);
         Err(exception)
     }
@@ -1370,17 +1378,13 @@ impl Frame {
     fn get_exception(
         &self,
         vm: &VirtualMachine,
-        none_allowed: bool,
+        exception: PyObjectRef,
     ) -> PyResult<PyBaseExceptionRef> {
-        let exception = self.pop_value();
-        if none_allowed && vm.is_none(&exception)
-            || objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type)
-        {
+        if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
             Ok(exception.downcast().unwrap())
         } else if let Ok(exc_type) = PyClassRef::try_from_object(vm, exception) {
             if objtype::issubclass(&exc_type, &vm.ctx.exceptions.base_exception_type) {
-                let exception = vm.new_empty_exception(exc_type)?;
-                Ok(exception)
+                vm.new_empty_exception(exc_type)
             } else {
                 let msg = format!(
                     "Can only raise BaseException derived types, not {}",
