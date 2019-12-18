@@ -250,7 +250,23 @@ try:
     except ZeroDivisionError as ex:
         raise NameError from ex
 except NameError as ex2:
-    pass
+    assert isinstance(ex2.__cause__, ZeroDivisionError)
+else:
+    assert False, "no raise"
+
+
+try:
+    try:
+        try:
+            raise ZeroDivisionError
+        except ZeroDivisionError as ex:
+            raise NameError from ex
+    except NameError:
+        raise
+except NameError as ex2:
+    assert isinstance(ex2.__cause__, ZeroDivisionError)
+else:
+    assert False, "no raise"
 
 
 # the else clause requires at least one except clause:
