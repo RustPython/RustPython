@@ -787,6 +787,14 @@ MulOp: ast::Operator = {
     "@" => ast::Operator::MatMult,
 };
 
+NamedExpression: ast::Expression = {
+    <e1:Expression> <location:@L> ":=" <e2:Expression> => ast::Expression {
+        location,
+        node: ast::ExpressionType::NamedExpression { target: Box::new(e1), value: Box::new(e2) }
+    },
+    NamedExpression,
+};
+
 Factor: ast::Expression = {
     <location:@L> <op:UnOp> <e:Factor> => ast::Expression {
         location,
@@ -1169,6 +1177,7 @@ extern {
         "//=" => lexer::Tok::DoubleSlashEqual,
         "==" => lexer::Tok::EqEqual,
         "!=" => lexer::Tok::NotEqual,
+        ":=" => lexer::Tok::ColonEqual,
         "<" => lexer::Tok::Less,
         "<=" => lexer::Tok::LessEqual,
         ">" => lexer::Tok::Greater,

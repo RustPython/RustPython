@@ -59,6 +59,7 @@ pub enum Tok {
     CircumflexEqual, // '^='
     LeftShiftEqual,
     RightShiftEqual,
+    ColonEqual,
     DoubleSlash, // '//'
     DoubleSlashEqual,
     At,
@@ -181,6 +182,7 @@ impl fmt::Display for Tok {
             CircumflexEqual => f.write_str("'^='"),
             LeftShiftEqual => f.write_str("'<<='"),
             RightShiftEqual => f.write_str("'>>='"),
+            ColonEqual => f.write_str("':='"),
             DoubleSlash => f.write_str("'//'"),
             DoubleSlashEqual => f.write_str("'//='"),
             At => f.write_str("'@'"),

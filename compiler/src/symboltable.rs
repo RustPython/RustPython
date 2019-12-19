@@ -547,6 +547,10 @@ impl SymbolTableBuilder {
                 self.scan_expression(a, context)?;
                 self.scan_expression(b, context)?;
             }
+            NamedExpression {target, value} => {
+                self.scan_expression(target, &ExpressionContext::Store)?;
+                self.scan_expression(value, &ExpressionContext::Load)?;
+            },
             BoolOp { values, .. } => {
                 self.scan_expressions(values, context)?;
             }

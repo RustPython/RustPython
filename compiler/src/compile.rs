@@ -1565,6 +1565,17 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
+    fn compile_named_expression(
+            &mut self,
+            target: &ast::Expression,
+            value: &ast::Expression,
+        ) -> Result<(), CompileError> {
+
+            // evaluate value
+            // store into target
+        Ok(())
+    }
+
     fn compile_expression(&mut self, expression: &ast::Expression) -> Result<(), CompileError> {
         trace!("Compiling {:?}", expression);
         self.set_source_location(&expression.location);
@@ -1577,6 +1588,7 @@ impl<O: OutputStream> Compiler<O> {
                 keywords,
             } => self.compile_call(function, args, keywords)?,
             BoolOp { op, values } => self.compile_bool_op(op, values)?,
+            NamedExpression { target, value} => self.compile_named_expression(target, value)?,
             Binop { a, op, b } => {
                 self.compile_expression(a)?;
                 self.compile_expression(b)?;
@@ -1912,6 +1924,7 @@ impl<O: OutputStream> Compiler<O> {
 
         Ok(has_stars)
     }
+
 
     fn compile_comprehension(
         &mut self,

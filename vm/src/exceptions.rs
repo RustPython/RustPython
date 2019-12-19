@@ -404,6 +404,7 @@ pub struct ExceptionZoo {
     pub syntax_error: PyClassRef,
     pub indentation_error: PyClassRef,
     pub tab_error: PyClassRef,
+    pub target_scope_error: PyClassRef,
     pub system_error: PyClassRef,
     pub type_error: PyClassRef,
     pub value_error: PyClassRef,
@@ -473,6 +474,7 @@ impl ExceptionZoo {
         let eof_error = create_type("EOFError", &type_type, &exception_type);
         let indentation_error = create_type("IndentationError", &type_type, &syntax_error);
         let tab_error = create_type("TabError", &type_type, &indentation_error);
+        let target_scope_error = create_type("TargetScopeError", &type_type, &syntax_error);
         let unicode_error = create_type("UnicodeError", &type_type, &value_error);
         let unicode_decode_error = create_type("UnicodeDecodeError", &type_type, &unicode_error);
         let unicode_encode_error = create_type("UnicodeEncodeError", &type_type, &unicode_error);
@@ -571,6 +573,7 @@ impl ExceptionZoo {
             keyboard_interrupt,
             generator_exit,
             system_exit,
+            target_scope_error,
         }
     }
 }

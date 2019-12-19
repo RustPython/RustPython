@@ -328,6 +328,12 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             args => expressions_to_ast(vm, args)?,
             keywords => map_ast(keyword_to_ast, vm, keywords)?,
         }),
+        NamedExpression {target, value} => {
+            node!(vm, NamedExpression, {
+                target => expression_to_ast(vm, target)?,
+                value => expression_to_ast(vm, value)?,
+            })
+        },
         Binop { a, op, b } => {
             // Operator:
             node!(vm, BinOp, {

@@ -186,6 +186,12 @@ pub enum ExpressionType {
         values: Vec<Expression>,
     },
 
+    /// A named expression aka. assignment expression aka. "Walrus operator"
+    NamedExpression {
+        target: Box<Expression>,
+        value: Box<Expression>,
+    },
+
     /// A binary operation on two operands.
     Binop {
         a: Box<Expression>,
@@ -330,6 +336,7 @@ impl Expression {
 
         match &self.node {
             BoolOp { .. } | Binop { .. } | Unop { .. } => "operator",
+            NamedExpression { .. } => "named expression",
             Subscript { .. } => "subscript",
             Await { .. } => "await expression",
             Yield { .. } | YieldFrom { .. } => "yield expression",
@@ -359,7 +366,7 @@ impl Expression {
             | String {
                 value: FormattedValue { .. },
             } => "f-string expression",
-            Identifier { .. } => "named expression",
+            Identifier { .. } => "identifier",
             Lambda { .. } => "lambda",
             IfExpression { .. } => "conditional expression",
             True | False | None => "keyword",
