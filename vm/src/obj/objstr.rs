@@ -651,6 +651,32 @@ impl PyString {
         }
     }
 
+    /// S.format_map(mapping) -> str
+    ///
+    /// Return a formatted version of S, using substitutions from mapping.
+    /// The substitutions are identified by braces ('{' and '}').
+    #[pymethod]
+    fn format_map(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+        if args.args.len() != 2 {
+            return Err(vm.new_type_error(format!(
+                "format_map() takes exactly one argument ({} given)",
+                args.args.len() - 1
+            )));
+        }
+
+        let zelf = &args.args[0];
+        let format_string_text = get_value(zelf);
+        match FormatString::from_str(format_string_text.as_str()) {
+            Ok(format_string) => perform_format_map(vm, &format_string, &args.args[1]),
+            Err(err) => match err {
+                FormatParseError::UnmatchedBracket => {
+                    Err(vm.new_value_error("expected '}' before end of string".to_string()))
+                }
+                _ => Err(vm.new_value_error("Unexpected error parsing format string".to_string())),
+            },
+        }
+    }
+
     /// Return a titlecased version of the string where words start with an
     /// uppercase character and the remaining characters are lowercase.
     #[pymethod]
@@ -1581,6 +1607,31 @@ fn perform_format(
                         return Err(vm.new_key_error(vm.new_str(keyword.to_string())));
                     }
                 };
+                get_value(&result)
+            }
+            FormatPart::Literal(literal) => literal.clone(),
+        };
+        final_string.push_str(&result_string);
+    }
+    Ok(vm.ctx.new_str(final_string))
+}
+
+fn perform_format_map(
+    vm: &VirtualMachine,
+    format_string: &FormatString,
+    dict: &PyObjectRef,
+) -> PyResult {
+    let mut final_string = String::new();
+    for part in &format_string.format_parts {
+        let result_string: String = match part {
+            FormatPart::AutoSpec(_) | FormatPart::IndexSpec(_, _) => {
+                return Err(
+                    vm.new_value_error("Format string contains positional fields".to_string())
+                );
+            }
+            FormatPart::KeywordSpec(keyword, format_spec) => {
+                let argument = dict.get_item(keyword, &vm)?;
+                let result = call_object_format(vm, argument.clone(), &format_spec)?;
                 get_value(&result)
             }
             FormatPart::Literal(literal) => literal.clone(),

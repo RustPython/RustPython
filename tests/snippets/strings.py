@@ -1,4 +1,4 @@
-from testutils import assert_raises
+from testutils import assert_raises, AssertRaises
 
 assert "".__eq__(1) == NotImplemented
 assert "a" == 'a'
@@ -338,3 +338,63 @@ assert "a1".islower()
 assert "1a".islower()
 assert "가나다a".islower()
 assert "가나다A".isupper()
+
+# test str.format_map()
+#
+# The following tests were performed in Python 3.7.5:
+# Python 3.7.5 (default, Dec 19 2019, 17:11:32)
+# [GCC 5.4.0 20160609] on linux
+
+# >>> '{x} {y}'.format_map({'x': 1, 'y': 2})
+# '1 2'
+assert '{x} {y}'.format_map({'x': 1, 'y': 2}) == '1 2'
+
+# >>> '{x:04d}'.format_map({'x': 1})
+# '0001'
+assert '{x:04d}'.format_map({'x': 1}) == '0001'
+
+# >>> '{x} {y}'.format_map('foo')
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# TypeError: string indices must be integers
+with AssertRaises(TypeError, None):
+    '{x} {y}'.format_map('foo')
+
+# >>> '{x} {y}'.format_map(['foo'])
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# TypeError: list indices must be integers or slices, not str
+with AssertRaises(TypeError, None):
+    '{x} {y}'.format_map(['foo'])
+
+# >>> '{x} {y}'.format_map()
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# TypeError: format_map() takes exactly one argument (0 given)
+with AssertRaises(TypeError, msg='TypeError: format_map() takes exactly one argument (0 given)'):
+    '{x} {y}'.format_map(),
+
+# >>> '{x} {y}'.format_map('foo', 'bar')
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# TypeError: format_map() takes exactly one argument (2 given)
+with AssertRaises(TypeError, msg='TypeError: format_map() takes exactly one argument (2 given)'):
+    '{x} {y}'.format_map('foo', 'bar')
+
+# >>> '{x} {y}'.format_map({'x': 1})
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# KeyError: 'y'
+with AssertRaises(KeyError, msg="KeyError: 'y'"):
+    '{x} {y}'.format_map({'x': 1})
+
+# >>> '{x} {y}'.format_map({'x': 1, 'z': 2})
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# KeyError: 'y'
+with AssertRaises(KeyError, msg="KeyError: 'y'"):
+    '{x} {y}'.format_map({'x': 1, 'z': 2})
+
+# >>> '{{literal}}'.format_map('foo')
+# '{literal}'
+assert '{{literal}}'.format_map('foo') == '{literal}'
