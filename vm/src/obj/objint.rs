@@ -120,7 +120,7 @@ fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
         let v1 = try_float(int1, vm)?;
         let v2 = try_float(int2, vm)?;
-        objfloat::float_pow(v1, v2, vm)
+        objfloat::float_pow(v1, v2, vm).into_pyobject(vm)
     } else {
         Ok(if let Some(v2) = int2.to_u64() {
             vm.ctx.new_int(int1.pow(v2))
