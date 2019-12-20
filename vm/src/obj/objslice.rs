@@ -221,11 +221,7 @@ impl PySlice {
         // Calculate Stop
         let mut stop: BigInt;
         if vm.is_none(&self.stop(vm)) {
-            stop = if backwards {
-                lower.clone()
-            } else {
-                upper.clone()
-            };
+            stop = if backwards { lower } else { upper };
         } else {
             let this_stop: PyRef<PyInt> = self.stop(vm).try_into_ref(vm)?;
             stop = this_stop.as_bigint().clone();
@@ -234,10 +230,10 @@ impl PySlice {
                 // From end of array
                 stop += length;
                 if stop < lower {
-                    stop = lower.clone();
+                    stop = lower;
                 }
             } else if stop > upper {
-                stop = upper.clone();
+                stop = upper;
             }
         }
 

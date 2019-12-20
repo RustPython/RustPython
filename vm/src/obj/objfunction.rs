@@ -85,7 +85,7 @@ impl PyMethod {
     }
 
     fn getattribute(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        vm.get_attribute(self.function.clone(), name.clone())
+        vm.get_attribute(self.function.clone(), name)
     }
 }
 

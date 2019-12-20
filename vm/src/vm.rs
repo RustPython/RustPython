@@ -450,7 +450,7 @@ impl VirtualMachine {
     }
 
     pub fn get_locals(&self) -> PyDictRef {
-        self.current_scope().get_locals().clone()
+        self.current_scope().get_locals()
     }
 
     pub fn context(&self) -> &PyContext {

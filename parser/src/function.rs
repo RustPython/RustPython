@@ -20,7 +20,7 @@ pub fn parse_params(params: Vec<ParameterDef>) -> Result<ParameterDefs, LexicalE
                 // have defaults
                 return Err(LexicalError {
                     error: LexicalErrorType::DefaultArgumentError,
-                    location: name.location.clone(),
+                    location: name.location,
                 });
             }
         }
@@ -44,7 +44,7 @@ pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ast::ArgumentList,
                     if keyword_names.contains(&keyword_name) {
                         return Err(LexicalError {
                             error: LexicalErrorType::DuplicateKeywordArgumentError,
-                            location: value.location.clone(),
+                            location: value.location,
                         });
                     }
 
@@ -58,7 +58,7 @@ pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ast::ArgumentList,
                 if !keywords.is_empty() && !is_starred(&value) {
                     return Err(LexicalError {
                         error: LexicalErrorType::PositionalArgumentError,
-                        location: value.location.clone(),
+                        location: value.location,
                     });
                 }
 

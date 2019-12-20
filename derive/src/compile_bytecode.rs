@@ -66,7 +66,7 @@ impl CompilationSource {
                 })?;
                 hashmap! {
                     module_name.clone() => FrozenModule {
-                        code: self.compile_string(&source, mode, module_name.clone())?,
+                        code: self.compile_string(&source, mode, module_name)?,
                         package: false,
                     },
                 }
@@ -74,7 +74,7 @@ impl CompilationSource {
             CompilationSourceKind::SourceCode(code) => {
                 hashmap! {
                     module_name.clone() => FrozenModule {
-                        code: self.compile_string(code, mode, module_name.clone())?,
+                        code: self.compile_string(code, mode, module_name)?,
                         package: false,
                     },
                 }

@@ -41,7 +41,7 @@ impl PyEnumerate {
 
         let iterator = objiter::get_iter(vm, &iterable)?;
         PyEnumerate {
-            counter: RefCell::new(counter.clone()),
+            counter: RefCell::new(counter),
             iterator,
         }
         .into_ref_with_type(vm, cls)

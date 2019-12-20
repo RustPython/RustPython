@@ -133,7 +133,7 @@ impl PyRange {
     fn new(cls: PyClassRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
         PyRange {
             start: PyInt::new(BigInt::zero()).into_ref(vm),
-            stop: stop.clone(),
+            stop,
             step: PyInt::new(BigInt::one()).into_ref(vm),
         }
         .into_ref_with_type(vm, cls)

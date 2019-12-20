@@ -39,7 +39,7 @@ impl PyMap {
             mapper: function.clone(),
             iterators,
         }
-        .into_ref_with_type(vm, cls.clone())
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]

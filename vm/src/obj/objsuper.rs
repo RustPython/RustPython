@@ -85,7 +85,7 @@ impl PySuper {
     ) -> PyResult<PySuperRef> {
         // Get the type:
         let py_type = if let OptionalArg::Present(ty) = py_type {
-            ty.clone()
+            ty
         } else {
             match vm.current_scope().load_cell(vm, "__class__") {
                 Some(obj) => PyClassRef::try_from_object(vm, obj)?,
