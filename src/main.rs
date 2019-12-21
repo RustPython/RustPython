@@ -7,12 +7,12 @@ extern crate log;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_compiler::compile;
 use rustpython_vm::{
-    import, match_class,
+    match_class,
     obj::{objint::PyInt, objtuple::PyTuple, objtype},
     print_exception,
     pyobject::{ItemProtocol, PyResult},
     scope::Scope,
-    util, PySettings, VirtualMachine,
+    util, InitParameter, PySettings, VirtualMachine,
 };
 
 use std::convert::TryInto;
@@ -29,7 +29,13 @@ fn main() {
     env_logger::init();
     let app = App::new("RustPython");
     let matches = parse_arguments(app);
-    let settings = create_settings(&matches);
+    let mut settings = create_settings(&matches);
+
+    // We only include the standard library bytecode in WASI when initializing
+    if cfg!(target_os = "wasi") {
+        settings.initialization_parameter = InitParameter::InitializeInternal;
+    }
+
     let vm = VirtualMachine::new(settings);
 
     let res = run_rustpython(&vm, &matches);
@@ -324,9 +330,6 @@ fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>>
 }
 
 fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
-    // We only include the standard library bytecode in WASI
-    import::init_importlib(&vm, cfg!(not(target_os = "wasi")))?;
-
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
         let sys_path = vm.get_attribute(vm.sys_module.clone(), "path")?;
         for (i, path) in std::env::split_paths(paths).enumerate() {

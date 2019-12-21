@@ -7,10 +7,9 @@ use wasm_bindgen::prelude::*;
 
 use rustpython_compiler::compile;
 use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::import;
 use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::scope::{NameProtocol, Scope};
-use rustpython_vm::VirtualMachine;
+use rustpython_vm::{InitParameter, PySettings, VirtualMachine};
 
 use crate::browser_module::setup_browser_module;
 use crate::convert;
@@ -27,7 +26,13 @@ pub(crate) struct StoredVirtualMachine {
 
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
-        let mut vm: VirtualMachine = Default::default();
+        let mut settings = PySettings::default();
+
+        // After js, browser modules injected, the VM will not be initialized.
+        settings.initialization_parameter = InitParameter::NoInitialize;
+
+        let mut vm: VirtualMachine = VirtualMachine::new(settings);
+
         vm.wasm_id = Some(id);
         let scope = vm.new_scope_with_builtins();
 
@@ -44,7 +49,7 @@ impl StoredVirtualMachine {
             setup_browser_module(&vm);
         }
 
-        import::init_importlib(&vm, false).unwrap();
+        vm.initialize(InitParameter::InitializeInternal);
 
         StoredVirtualMachine {
             vm,

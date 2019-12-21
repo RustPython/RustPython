@@ -73,7 +73,7 @@ mod vm;
 
 // pub use self::pyobject::Executor;
 pub use self::exceptions::{print_exception, write_exception};
-pub use self::vm::{PySettings, VirtualMachine};
+pub use self::vm::{InitParameter, PySettings, VirtualMachine};
 pub use rustpython_bytecode::*;
 
 #[doc(hidden)]

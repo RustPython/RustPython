@@ -69,9 +69,17 @@ pub struct VirtualMachine {
     pub settings: PySettings,
     pub recursion_limit: Cell<usize>,
     pub codec_registry: RefCell<Vec<PyObjectRef>>,
+    pub initialized: bool,
 }
 
 pub const NSIG: usize = 64;
+
+#[derive(Copy, Clone)]
+pub enum InitParameter {
+    NoInitialize,
+    InitializeInternal,
+    InitializeExternal,
+}
 
 /// Struct containing all kind of settings for the python vm.
 pub struct PySettings {
@@ -107,6 +115,10 @@ pub struct PySettings {
 
     /// sys.argv
     pub argv: Vec<String>,
+
+    /// Initialization parameter to decide to initialize or not,
+    /// and to decide the importer required external filesystem access or not
+    pub initialization_parameter: InitParameter,
 }
 
 /// Trace events for sys.settrace and sys.setprofile.
@@ -140,6 +152,7 @@ impl Default for PySettings {
             dont_write_bytecode: false,
             path_list: vec![],
             argv: vec![],
+            initialization_parameter: InitParameter::InitializeExternal,
         }
     }
 }
@@ -147,7 +160,7 @@ impl Default for PySettings {
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
     pub fn new(settings: PySettings) -> VirtualMachine {
-        flame_guard!("init VirtualMachine");
+        flame_guard!("new VirtualMachine");
         let ctx = PyContext::new();
 
         // make a new module without access to the vm; doesn't
@@ -167,8 +180,9 @@ impl VirtualMachine {
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
         let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
+        let initialize_parameter = settings.initialization_parameter;
 
-        let vm = VirtualMachine {
+        let mut vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
             stdlib_inits,
@@ -185,6 +199,7 @@ impl VirtualMachine {
             settings,
             recursion_limit: Cell::new(512),
             codec_registry: RefCell::default(),
+            initialized: false,
         };
 
         objmodule::init_module_dict(
@@ -199,14 +214,32 @@ impl VirtualMachine {
             vm.new_str("sys".to_owned()),
             vm.get_none(),
         );
-
-        builtins::make_module(&vm, builtins.clone());
-        sysmodule::make_module(&vm, sysmod, builtins);
-
-        #[cfg(not(target_arch = "wasm32"))]
-        import::import_builtin(&vm, "signal").expect("Couldn't initialize signal module");
-
+        vm.initialize(initialize_parameter);
         vm
+    }
+
+    pub fn initialize(&mut self, initialize_parameter: InitParameter) {
+        flame_guard!("init VirtualMachine");
+
+        match initialize_parameter {
+            InitParameter::NoInitialize => {}
+            _ => {
+                if self.initialized {
+                    panic!("Double Initialize Error");
+                }
+
+                builtins::make_module(self, self.builtins.clone());
+                sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
+
+                #[cfg(not(target_arch = "wasm32"))]
+                import::import_builtin(self, "signal").expect("Couldn't initialize signal module");
+
+                import::init_importlib(self, initialize_parameter)
+                    .expect("Initialize importlib fail");
+
+                self.initialized = true;
+            }
+        }
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {

@@ -9,11 +9,11 @@ use crate::obj::{objcode, objtype};
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
 use crate::scope::Scope;
 use crate::version::get_git_revision;
-use crate::vm::VirtualMachine;
+use crate::vm::{InitParameter, VirtualMachine};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
-pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
+pub fn init_importlib(vm: &VirtualMachine, initialize_parameter: InitParameter) -> PyResult {
     flame_guard!("init importlib");
     let importlib = import_frozen(vm, "_frozen_importlib")?;
     let impmod = import_builtin(vm, "_imp")?;
@@ -21,19 +21,26 @@ pub fn init_importlib(vm: &VirtualMachine, external: bool) -> PyResult {
     vm.invoke(&install, vec![vm.sys_module.clone(), impmod])?;
     vm.import_func
         .replace(vm.get_attribute(importlib.clone(), "__import__")?);
-    if external && cfg!(feature = "rustpython-compiler") {
-        flame_guard!("install_external");
-        let install_external =
-            vm.get_attribute(importlib.clone(), "_install_external_importers")?;
-        vm.invoke(&install_external, vec![])?;
-        // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
-        let importlib_external = vm.import("_frozen_importlib_external", &[], 0)?;
-        let mut magic = get_git_revision().into_bytes();
-        magic.truncate(4);
-        if magic.len() != 4 {
-            magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
+
+    match initialize_parameter {
+        InitParameter::InitializeExternal if cfg!(feature = "rustpython-compiler") => {
+            flame_guard!("install_external");
+            let install_external =
+                vm.get_attribute(importlib.clone(), "_install_external_importers")?;
+            vm.invoke(&install_external, vec![])?;
+            // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
+            let importlib_external = vm.import("_frozen_importlib_external", &[], 0)?;
+            let mut magic = get_git_revision().into_bytes();
+            magic.truncate(4);
+            if magic.len() != 4 {
+                magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
+            }
+            vm.set_attr(&importlib_external, "MAGIC_NUMBER", vm.ctx.new_bytes(magic))?;
         }
-        vm.set_attr(&importlib_external, "MAGIC_NUMBER", vm.ctx.new_bytes(magic))?;
+        InitParameter::NoInitialize => {
+            panic!("Import library initialize should be InitializeInternal or InitializeExternal");
+        }
+        _ => {}
     }
     Ok(vm.get_none())
 }
