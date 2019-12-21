@@ -17,6 +17,8 @@ use crate::obj::objtype;
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
+use std::cmp::Ordering;
+
 // Helper macro:
 macro_rules! make_math_func {
     ( $fname:ident, $fun:ident ) => {
@@ -323,14 +325,11 @@ fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResu
         let modulus = absx % absy;
 
         let c = absy - modulus;
-        let r;
-        if modulus < c {
-            r = modulus;
-        } else if modulus > c {
-            r = -c;
-        } else {
-            r = modulus - 2.0 * fmod(0.5 * (absx - modulus), absy);
-        }
+        let r = match modulus.cmp(&c) {
+            Ordering::Less => modulus,
+            Ordering::Greater => -c,
+            Ordering::Equal => modulus - 2.0 * fmod(0.5 * (absx - modulus), absy),
+        };
 
         return Ok(1.0_f64.copysign(x) * r);
     }

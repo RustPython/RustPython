@@ -650,7 +650,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let ast_base = py_class!(ctx, "AST", ctx.object(), {});
     py_module!(vm, MODULE_NAME, {
-        "AST" => ast_base.clone(),
         // TODO: There's got to be a better way!
         "alias" => py_class!(ctx, "alias", ast_base.clone(), {}),
         "arg" => py_class!(ctx, "arg", ast_base.clone(), {}),
@@ -715,6 +714,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "withitem" => py_class!(ctx, "withitem", ast_base.clone(), {}),
         "Yield" => py_class!(ctx, "Yield", ast_base.clone(), {}),
         "YieldFrom" => py_class!(ctx, "YieldFrom", ast_base.clone(), {}),
+        "AST" => ast_base,
         "PyCF_ONLY_AST" => ctx.new_int(PY_COMPILE_FLAG_AST_ONLY),
     })
 }
