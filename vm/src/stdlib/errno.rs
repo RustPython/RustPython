@@ -169,6 +169,7 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(EINPROGRESS),
     e!(ENXIO),
     e!(ECANCELED),
+    e!(EWOULDBLOCK),
     e!(cfg(not(windows)), EOWNERDEAD),
     e!(cfg(not(windows)), ENOTRECOVERABLE),
     e!(cfg(windows), WSAEAFNOSUPPORT),

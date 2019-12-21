@@ -204,25 +204,23 @@ impl PySocket {
 
     #[pymethod]
     fn send(&self, bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
-        // TODO: use PyBytesLike.with_ref() instead of to_cow()
-        self.sock()
-            .send(bytes.to_cow().as_ref())
+        bytes
+            .with_ref(|b| self.sock().send(b))
             .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
     fn sendall(&self, bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<()> {
-        self.sock
-            .borrow_mut()
-            .write_all(bytes.to_cow().as_ref())
+        bytes
+            .with_ref(|b| self.sock.borrow_mut().write_all(b))
             .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
     fn sendto(&self, bytes: PyBytesLike, address: Address, vm: &VirtualMachine) -> PyResult<()> {
         let addr = get_addr(vm, address)?;
-        self.sock()
-            .send_to(bytes.to_cow().as_ref(), &addr)
+        bytes
+            .with_ref(|b| self.sock().send_to(b, &addr))
             .map_err(|err| convert_sock_error(vm, err))?;
         Ok(())
     }
