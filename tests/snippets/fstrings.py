@@ -1,3 +1,4 @@
+from testutils import assert_raises
 foo = 'bar'
 
 assert f"{''}" == ''
@@ -18,6 +19,10 @@ assert f"{{{(lambda x: f'hello, {x}')('world}')}" == '{hello, world}'
 
 spec = "0>+#10x"
 assert f"{16:{spec}}{foo}" == '00000+0x10bar'
+
+# TODO:
+# spec = "bla"
+# assert_raises(ValueError, lambda: f"{16:{spec}}")
 
 # Normally `!` cannot appear outside of delimiters in the expression but
 # cpython makes an exception for `!=`, so we should too.
