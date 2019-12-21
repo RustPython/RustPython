@@ -119,7 +119,7 @@ pub type LexResult = Result<Spanned, LexicalError>;
 
 pub fn make_tokenizer<'a>(source: &'a str) -> impl Iterator<Item = LexResult> + 'a {
     let nlh = NewlineHandler::new(source.chars());
-    let lch = LineContinationHandler::new(nlh);
+    let lch = LineContinuationHandler::new(nlh);
     Lexer::new(lch)
 }
 
@@ -181,18 +181,18 @@ where
 }
 
 // Glues \ and \n into a single line:
-pub struct LineContinationHandler<T: Iterator<Item = char>> {
+pub struct LineContinuationHandler<T: Iterator<Item = char>> {
     source: T,
     chr0: Option<char>,
     chr1: Option<char>,
 }
 
-impl<T> LineContinationHandler<T>
+impl<T> LineContinuationHandler<T>
 where
     T: Iterator<Item = char>,
 {
     pub fn new(source: T) -> Self {
-        let mut nlh = LineContinationHandler {
+        let mut nlh = LineContinuationHandler {
             source,
             chr0: None,
             chr1: None,
@@ -210,7 +210,7 @@ where
     }
 }
 
-impl<T> Iterator for LineContinationHandler<T>
+impl<T> Iterator for LineContinuationHandler<T>
 where
     T: Iterator<Item = char>,
 {
