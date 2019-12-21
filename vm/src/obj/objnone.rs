@@ -36,26 +36,26 @@ impl<T: IntoPyObject> IntoPyObject for Option<T> {
 }
 
 #[pyimpl]
-impl PyNoneRef {
+impl PyNone {
     #[pyslot(new)]
     fn tp_new(_: PyClassRef, vm: &VirtualMachine) -> PyNoneRef {
         vm.ctx.none.clone()
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(self, _vm: &VirtualMachine) -> PyResult<String> {
+    fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
         Ok("None".to_string())
     }
 
     #[pymethod(name = "__bool__")]
-    fn bool(self, _vm: &VirtualMachine) -> PyResult<bool> {
+    fn bool(&self, _vm: &VirtualMachine) -> PyResult<bool> {
         Ok(false)
     }
 
     #[pymethod(name = "__getattribute__")]
-    fn get_attribute(self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn get_attribute(zelf: PyRef<Self>, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         vm_trace!("None.__getattribute__({:?}, {:?})", self, name);
-        let cls = self.class();
+        let cls = zelf.class();
 
         // Properties use a comparision with None to determine if they are either invoked by am
         // instance binding or a class binding. But if the object itself is None then this detection
@@ -86,7 +86,7 @@ impl PyNoneRef {
                     return call_descriptor(
                         attr,
                         get_func,
-                        self.into_object(),
+                        zelf.into_object(),
                         cls.into_object(),
                         vm,
                     );
@@ -95,25 +95,25 @@ impl PyNoneRef {
         }
 
         // None has no attributes and cannot have attributes set on it.
-        // if let Some(obj_attr) = self.as_object().get_attr(name.as_str()) {
+        // if let Some(obj_attr) = zelf.as_object().get_attr(name.as_str()) {
         //     Ok(obj_attr)
         // } else
         if let Some(attr) = class_get_attr(&cls, name.as_str()) {
             let attr_class = attr.class();
             if let Some(get_func) = class_get_attr(&attr_class, "__get__") {
-                call_descriptor(attr, get_func, self.into_object(), cls.into_object(), vm)
+                call_descriptor(attr, get_func, zelf.into_object(), cls.into_object(), vm)
             } else {
                 Ok(attr)
             }
         } else if let Some(getter) = class_get_attr(&cls, "__getattr__") {
-            vm.invoke(&getter, vec![self.into_object(), name.into_object()])
+            vm.invoke(&getter, vec![zelf.into_object(), name.into_object()])
         } else {
-            Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self.as_object(), name)))
+            Err(vm.new_attribute_error(format!("{} has no attribute '{}'", zelf.as_object(), name)))
         }
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if vm.is_none(&rhs) {
             vm.ctx.new_bool(true)
         } else {
@@ -122,7 +122,7 @@ impl PyNoneRef {
     }
 
     #[pymethod(name = "__ne__")]
-    fn ne(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if vm.is_none(&rhs) {
             vm.ctx.new_bool(false)
         } else {
@@ -132,5 +132,5 @@ impl PyNoneRef {
 }
 
 pub fn init(context: &PyContext) {
-    PyNoneRef::extend_class(context, &context.none.class());
+    PyNone::extend_class(context, &context.none.class());
 }
