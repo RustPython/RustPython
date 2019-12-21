@@ -17,7 +17,7 @@ use crate::obj::objtype;
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
-use std::cmp::Ordering;
+use std::cmp::{Ordering, PartialOrd};
 
 // Helper macro:
 macro_rules! make_math_func {
