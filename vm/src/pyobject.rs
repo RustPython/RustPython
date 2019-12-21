@@ -1218,6 +1218,20 @@ impl TryFromObject for std::time::Duration {
     }
 }
 
+result_like::option_like!(pub PyArithmaticValue, ArithmaticValue, NotImplemented);
+
+impl<T> IntoPyObject for PyArithmaticValue<T>
+where
+    T: IntoPyObject,
+{
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        match self {
+            PyArithmaticValue::ArithmaticValue(v) => v.into_pyobject(vm),
+            PyArithmaticValue::NotImplemented => Ok(vm.ctx.not_implemented()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
