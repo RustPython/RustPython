@@ -12,8 +12,9 @@ use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IntoPyObject,
+    PyArithmaticValue::{self, *},
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -196,19 +197,18 @@ impl PyFloat {
         float_op: F,
         int_op: G,
         vm: &VirtualMachine,
-    ) -> PyObjectRef
+    ) -> PyArithmaticValue<bool>
     where
         F: Fn(f64, f64) -> bool,
         G: Fn(f64, &BigInt) -> bool,
     {
-        let result = if let Some(other) = other.payload_if_subclass::<PyFloat>(vm) {
-            float_op(self.value, other.value)
+        if let Some(other) = other.payload_if_subclass::<PyFloat>(vm) {
+            ArithmaticValue(float_op(self.value, other.value))
         } else if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
-            int_op(self.value, other.as_bigint())
+            ArithmaticValue(int_op(self.value, other.as_bigint()))
         } else {
-            return vm.ctx.not_implemented();
-        };
-        vm.ctx.new_bool(result)
+            NotImplemented
+        }
     }
 
     #[pymethod(name = "__format__")]
@@ -222,22 +222,22 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<bool> {
         self.cmp(other, |a, b| a == b, |a, b| int_eq(a, b), vm)
     }
 
     #[pymethod(name = "__ne__")]
-    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        self.cmp(other, |a, b| a != b, |a, b| !int_eq(a, b), vm)
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<bool> {
+        self.eq(other, vm).map(|v| !v)
     }
 
     #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<bool> {
         self.cmp(other, |a, b| a < b, |a, b| inner_lt_int(a, b), vm)
     }
 
     #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<bool> {
         self.cmp(
             other,
             |a, b| a <= b,
@@ -253,12 +253,12 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<bool> {
         self.cmp(other, |a, b| a > b, |a, b| inner_gt_int(a, b), vm)
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<bool> {
         self.cmp(
             other,
             |a, b| a >= b,
