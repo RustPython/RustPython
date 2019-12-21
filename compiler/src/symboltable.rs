@@ -726,8 +726,15 @@ impl SymbolTableBuilder {
     fn scan_string_group(&mut self, group: &ast::StringGroup) -> SymbolTableResult {
         match group {
             ast::StringGroup::Constant { .. } => {}
-            ast::StringGroup::FormattedValue { value, .. } => {
+            ast::StringGroup::FormattedValue {
+                value,
+                conversion: _,
+                spec,
+            } => {
                 self.scan_expression(value, &ExpressionContext::Load)?;
+                if let Some(spec) = spec {
+                    self.scan_string_group(spec)?;
+                }
             }
             ast::StringGroup::Joined { values } => {
                 for subgroup in values {
