@@ -323,7 +323,7 @@ fn type_new_slot(metatype: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) ->
 
     let attributes = dict.to_attributes();
 
-    let mut winner = metatype.clone();
+    let mut winner = metatype;
     for base in &bases {
         let base_type = base.class();
         if issubclass(&winner, &base_type) {

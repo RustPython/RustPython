@@ -134,7 +134,7 @@ pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
         )?;
     }
 
-    let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k.clone()).collect();
+    let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k).collect();
 
     Ok(PyList::from(attributes))
 }

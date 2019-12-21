@@ -736,7 +736,7 @@ impl Frame {
                 BlockType::Finally { handler } => {
                     self.pop_block();
                     self.push_block(BlockType::FinallyHandler {
-                        reason: Some(reason.clone()),
+                        reason: Some(reason),
                     });
                     self.jump(handler);
                     return Ok(None);

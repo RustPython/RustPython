@@ -1083,9 +1083,7 @@ impl<O: OutputStream> Compiler<O> {
         // Doc string value:
         self.emit(Instruction::LoadConst {
             value: match doc_str {
-                Some(doc) => bytecode::Constant::String {
-                    value: doc.to_string(),
-                },
+                Some(doc) => bytecode::Constant::String { value: doc },
                 None => bytecode::Constant::None, // set docstring None if not declared
             },
         });
@@ -2199,7 +2197,7 @@ fn get_doc(body: &[ast::Statement]) -> (&[ast::Statement], Option<String>) {
         if let ast::StatementType::Expression { ref expression } = val.node {
             if let ast::ExpressionType::String { value } = &expression.node {
                 if let Some(value) = try_get_constant_string(value) {
-                    return (body_rest, Some(value.to_string()));
+                    return (body_rest, Some(value));
                 }
             }
         }

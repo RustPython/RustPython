@@ -379,11 +379,7 @@ fn parse_literal(text: &str) -> Result<(CFormatPart, &str, usize), ParsingError>
             }
             Err(err) => {
                 if !result_string.is_empty() {
-                    return Ok((
-                        CFormatPart::Literal(result_string.to_string()),
-                        cur_text,
-                        consumed,
-                    ));
+                    return Ok((CFormatPart::Literal(result_string), cur_text, consumed));
                 } else {
                     return Err((err, consumed));
                 }
@@ -391,7 +387,7 @@ fn parse_literal(text: &str) -> Result<(CFormatPart, &str, usize), ParsingError>
         }
     }
     Ok((
-        CFormatPart::Literal(result_string.to_string()),
+        CFormatPart::Literal(result_string),
         "",
         text.chars().count(),
     ))

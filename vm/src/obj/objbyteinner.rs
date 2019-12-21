@@ -260,7 +260,7 @@ impl ByteInnerSplitOptions {
             -1
         };
 
-        Ok((sep.clone(), maxsplit))
+        Ok((sep, maxsplit))
     }
 }
 

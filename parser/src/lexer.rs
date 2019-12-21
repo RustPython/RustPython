@@ -33,26 +33,28 @@ impl IndentationLevel {
         // We only know for sure that we're smaller or bigger if tabs
         // and spaces both differ in the same direction. Otherwise we're
         // dependent on the size of tabs.
-        if self.tabs < other.tabs {
-            if self.spaces <= other.spaces {
-                Ok(Ordering::Less)
-            } else {
-                Err(LexicalError {
-                    location,
-                    error: LexicalErrorType::TabError,
-                })
+        match self.tabs.cmp(&other.tabs) {
+            Ordering::Less => {
+                if self.spaces <= other.spaces {
+                    Ok(Ordering::Less)
+                } else {
+                    Err(LexicalError {
+                        location,
+                        error: LexicalErrorType::TabError,
+                    })
+                }
             }
-        } else if self.tabs > other.tabs {
-            if self.spaces >= other.spaces {
-                Ok(Ordering::Greater)
-            } else {
-                Err(LexicalError {
-                    location,
-                    error: LexicalErrorType::TabError,
-                })
+            Ordering::Greater => {
+                if self.spaces >= other.spaces {
+                    Ok(Ordering::Greater)
+                } else {
+                    Err(LexicalError {
+                        location,
+                        error: LexicalErrorType::TabError,
+                    })
+                }
             }
-        } else {
-            Ok(self.spaces.cmp(&other.spaces))
+            Ordering::Equal => Ok(self.spaces.cmp(&other.spaces)),
         }
     }
 }

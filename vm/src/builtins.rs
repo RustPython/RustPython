@@ -396,13 +396,13 @@ fn builtin_locals(vm: &VirtualMachine) -> PyDictRef {
 }
 
 fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let candidates = if args.args.len() > 1 {
-        args.args.clone()
-    } else if args.args.len() == 1 {
-        vm.extract_elements(&args.args[0])?
-    } else {
-        // zero arguments means type error:
-        return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
+    let candidates = match args.args.len().cmp(&1) {
+        std::cmp::Ordering::Greater => args.args.clone(),
+        std::cmp::Ordering::Equal => vm.extract_elements(&args.args[0])?,
+        std::cmp::Ordering::Less => {
+            // zero arguments means type error:
+            return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
+        }
     };
 
     if candidates.is_empty() {
@@ -442,13 +442,13 @@ fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_min(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let candidates = if args.args.len() > 1 {
-        args.args.clone()
-    } else if args.args.len() == 1 {
-        vm.extract_elements(&args.args[0])?
-    } else {
-        // zero arguments means type error:
-        return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
+    let candidates = match args.args.len().cmp(&1) {
+        std::cmp::Ordering::Greater => args.args.clone(),
+        std::cmp::Ordering::Equal => vm.extract_elements(&args.args[0])?,
+        std::cmp::Ordering::Less => {
+            // zero arguments means type error:
+            return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
+        }
     };
 
     if candidates.is_empty() {

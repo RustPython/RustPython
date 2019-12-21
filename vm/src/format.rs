@@ -500,7 +500,7 @@ impl FormatString {
                 }
                 Err(err) => {
                     if !result_string.is_empty() {
-                        return Ok((FormatPart::Literal(result_string.to_string()), cur_text));
+                        return Ok((FormatPart::Literal(result_string), cur_text));
                     } else {
                         return Err(err);
                     }
