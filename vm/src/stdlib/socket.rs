@@ -62,7 +62,7 @@ mod c {
     pub use winapi::shared::ws2def::*;
     pub use winapi::um::winsock2::{
         SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SOCK_DGRAM, SOCK_RAW,
-        SOCK_RDM, SOCK_STREAM, *,
+        SOCK_RDM, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_REUSEADDR, *,
     };
 }
 
@@ -312,7 +312,7 @@ impl PySocket {
         optlen: OptionalArg<u32>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let fd = sock_fileno(&self.sock());
+        let fd = sock_fileno(&self.sock()) as _;
         let ret = match (value, optlen) {
             (Some(Either::A(b)), OptionalArg::Missing) => b.with_ref(|b| unsafe {
                 c::setsockopt(fd, level, name, b.as_ptr() as *const _, b.len() as _)
