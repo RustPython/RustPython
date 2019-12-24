@@ -8,7 +8,7 @@ use num_bigint::BigInt;
 use num_traits::sign::Signed;
 use num_traits::ToPrimitive;
 
-use crate::function::{Args, OptionalArg, PyFuncArgs};
+use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objiter::{call_next, get_all, get_iter, new_stop_iteration};
@@ -314,7 +314,7 @@ impl PyItertoolsTakewhile {
             return Err(new_stop_iteration(vm));
         }
 
-        // might be StopIteration or anything else, which is propaged upwwards
+        // might be StopIteration or anything else, which is propagated upwards
         let obj = call_next(vm, &self.iterable)?;
         let predicate = &self.predicate;
 
@@ -908,48 +908,173 @@ impl PyItertoolsCombinations {
         let n = self.pool.len();
         let r = self.r.get();
 
+        if r == 0 {
+            self.exhausted.set(true);
+            return Ok(vm.ctx.new_tuple(vec![]));
+        }
+
         let res = PyTuple::from(
-            self.pool
+            self.indices
+                .borrow()
                 .iter()
-                .enumerate()
-                .filter(|(idx, _)| self.indices.borrow().contains(&idx))
-                .map(|(_, num)| num.clone())
+                .map(|&i| self.pool[i].clone())
                 .collect::<Vec<PyObjectRef>>(),
         );
 
         let mut indices = self.indices.borrow_mut();
-        let mut sentinel = false;
 
         // Scan indices right-to-left until finding one that is not at its maximum (i + n - r).
-        let mut idx = r - 1;
-        loop {
-            if indices[idx] != idx + n - r {
-                sentinel = true;
-                break;
-            }
-
-            if idx != 0 {
-                idx -= 1;
-            } else {
-                break;
-            }
+        let mut idx = r as isize - 1;
+        while idx >= 0 && indices[idx as usize] == idx as usize + n - r {
+            idx -= 1;
         }
+
         // If no suitable index is found, then the indices are all at
         // their maximum value and we're done.
-        if !sentinel {
+        if idx < 0 {
             self.exhausted.set(true);
-        }
-
-        // Increment the current index which we know is not at its
-        // maximum.  Then move back to the right setting each index
-        // to its lowest possible value (one higher than the index
-        // to its left -- this maintains the sort order invariant).
-        indices[idx] += 1;
-        for j in idx + 1..r {
-            indices[j] = indices[j - 1] + 1;
+        } else {
+            // Increment the current index which we know is not at its
+            // maximum.  Then move back to the right setting each index
+            // to its lowest possible value (one higher than the index
+            // to its left -- this maintains the sort order invariant).
+            indices[idx as usize] += 1;
+            for j in idx as usize + 1..r {
+                indices[j] = indices[j - 1] + 1;
+            }
         }
 
         Ok(res.into_ref(vm).into_object())
+    }
+}
+
+#[pyclass]
+#[derive(Debug)]
+struct PyItertoolsPermutations {
+    pool: Vec<PyObjectRef>,              // Collected input iterable
+    indices: RefCell<Vec<usize>>,        // One index per element in pool
+    cycles: RefCell<Vec<usize>>,         // One rollover counter per element in the result
+    result: RefCell<Option<Vec<usize>>>, // Indexes of the most recently returned result
+    r: Cell<usize>,                      // Size of result tuple
+    exhausted: Cell<bool>,               // Set when the iterator is exhausted
+}
+
+impl PyValue for PyItertoolsPermutations {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "permutations")
+    }
+}
+
+#[pyimpl]
+impl PyItertoolsPermutations {
+    #[pyslot(new)]
+    fn tp_new(
+        cls: PyClassRef,
+        iterable: PyObjectRef,
+        r: OptionalOption<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        let iter = get_iter(vm, &iterable)?;
+        let pool = get_all(vm, &iter)?;
+
+        let n = pool.len();
+        // If r is not provided, r == n. If provided, r must be a positive integer, or None.
+        // If None, it behaves the same as if it was not provided.
+        let r = match r.flat_option() {
+            Some(r) => {
+                let val = r
+                    .payload::<PyInt>()
+                    .ok_or_else(|| vm.new_type_error("Expected int as r".to_string()))?
+                    .as_bigint();
+
+                if val.is_negative() {
+                    return Err(vm.new_value_error("r must be non-negative".to_string()));
+                }
+                val.to_usize().unwrap()
+            }
+            None => n,
+        };
+
+        PyItertoolsPermutations {
+            pool,
+            indices: RefCell::new((0..n).collect()),
+            cycles: RefCell::new((0..r).map(|i| n - i).collect()),
+            result: RefCell::new(None),
+            r: Cell::new(r),
+            exhausted: Cell::new(r > n),
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        // stop signal
+        if self.exhausted.get() {
+            return Err(new_stop_iteration(vm));
+        }
+
+        let n = self.pool.len();
+        let r = self.r.get();
+
+        if n == 0 {
+            self.exhausted.set(true);
+            return Ok(vm.ctx.new_tuple(vec![]));
+        }
+
+        let result = &mut *self.result.borrow_mut();
+
+        if let Some(ref mut result) = result {
+            let mut indices = self.indices.borrow_mut();
+            let mut cycles = self.cycles.borrow_mut();
+            let mut sentinel = false;
+
+            // Decrement rightmost cycle, moving leftward upon zero rollover
+            for i in (0..r).rev() {
+                cycles[i] -= 1;
+
+                if cycles[i] == 0 {
+                    // rotation: indices[i:] = indices[i+1:] + indices[i:i+1]
+                    let index = indices[i];
+                    for j in i..n - 1 {
+                        indices[j] = indices[j + i];
+                    }
+                    indices[n - 1] = index;
+                    cycles[i] = n - i;
+                } else {
+                    let j = cycles[i];
+                    indices.swap(i, n - j);
+
+                    for k in i..r {
+                        // start with i, the leftmost element that changed
+                        // yield tuple(pool[k] for k in indices[:r])
+                        result[k] = indices[k];
+                    }
+                    sentinel = true;
+                    break;
+                }
+            }
+            if !sentinel {
+                self.exhausted.set(true);
+                return Err(new_stop_iteration(vm));
+            }
+        } else {
+            // On the first pass, initialize result tuple using the indices
+            *result = Some((0..r).collect());
+        }
+
+        Ok(vm.ctx.new_tuple(
+            result
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|&i| self.pool[i].clone())
+                .collect(),
+        ))
     }
 }
 
@@ -1060,6 +1185,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let filterfalse = ctx.new_class("filterfalse", ctx.object());
     PyItertoolsFilterFalse::extend_class(ctx, &filterfalse);
 
+    let permutations = ctx.new_class("permutations", ctx.object());
+    PyItertoolsPermutations::extend_class(ctx, &permutations);
+
     let product = ctx.new_class("product", ctx.object());
     PyItertoolsProduct::extend_class(ctx, &product);
 
@@ -1090,6 +1218,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "starmap" => starmap,
         "takewhile" => takewhile,
         "tee" => tee,
+        "permutations" => permutations,
         "product" => product,
         "zip_longest" => zip_longest,
     })

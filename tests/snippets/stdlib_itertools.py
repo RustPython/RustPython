@@ -301,7 +301,6 @@ assert list(t[0]) == [1,2,3]
 assert list(t[0]) == []
 
 # itertools.product
-
 it = itertools.product([1, 2], [3, 4])
 assert (1, 3) == next(it)
 assert (1, 4) == next(it)
@@ -324,9 +323,11 @@ with assert_raises(TypeError):
     itertools.product([1, 2], repeat=None)
 
 # itertools.combinations
-
 it = itertools.combinations([1, 2, 3, 4], 2)
 assert list(it) == [(1, 2), (1, 3), (1, 4), (2, 3), (2, 4), (3, 4)]
+
+it = itertools.combinations([1, 2, 3], 0)
+assert list(it) == [()]
 
 it = itertools.combinations([1, 2, 3], 1)
 assert list(it) == [(1,), (2,), (3,)]
@@ -344,6 +345,42 @@ with assert_raises(StopIteration):
 
 with assert_raises(ValueError):
     itertools.combinations([1, 2, 3, 4], -2)
+
+with assert_raises(TypeError):
+    itertools.combinations([1, 2, 3, 4], None)
+
+# itertools.permutations
+it = itertools.permutations([1, 2, 3])
+assert list(it) == [(1, 2, 3), (1, 3, 2), (2, 1, 3), (2, 3, 1), (3, 1, 2), (3, 2, 1)]
+
+it = itertools.permutations([1, 2, 3], None)
+assert list(it) == [(1, 2, 3), (1, 3, 2), (2, 1, 3), (2, 3, 1), (3, 1, 2), (3, 2, 1)]
+
+it = itertools.permutations([1, 2, 3], 0)
+assert list(it) == [()]
+
+it = itertools.permutations([1, 2, 3], 1)
+assert list(it) == [(1,), (2,), (3,)]
+
+it = itertools.permutations([1, 2, 3], 2)
+assert next(it) == (1, 2)
+assert next(it) == (1, 3)
+assert next(it) == (2, 1)
+assert next(it) == (2, 3)
+assert next(it) == (3, 1)
+assert next(it) == (3, 2)
+with assert_raises(StopIteration):
+    next(it)
+
+it = itertools.permutations([1, 2, 3], 4)
+with assert_raises(StopIteration):
+    next(it)
+
+with assert_raises(ValueError):
+    itertools.permutations([1, 2, 3, 4], -2)
+
+with assert_raises(TypeError):
+    itertools.permutations([1, 2, 3, 4], 3.14)
 
 # itertools.zip_longest tests
 zl = itertools.zip_longest
