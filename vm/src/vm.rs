@@ -30,7 +30,7 @@ use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator::PyGenerator;
-use crate::obj::objint;
+use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objsequence;
@@ -1326,8 +1326,8 @@ impl VirtualMachine {
 
     pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<pyhash::PyHash> {
         let hash_obj = self.call_method(obj, "__hash__", vec![])?;
-        if objtype::isinstance(&hash_obj, &self.ctx.int_type()) {
-            Ok(objint::get_py_int(&hash_obj).hash(self))
+        if let Some(hash_value) = hash_obj.payload_if_subclass::<PyInt>(self) {
+            Ok(hash_value.hash(self))
         } else {
             Err(self.new_type_error("__hash__ method should return an integer".to_string()))
         }

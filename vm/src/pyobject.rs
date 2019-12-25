@@ -1062,6 +1062,18 @@ impl PyObject<dyn PyObjectPayload> {
     pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
         self.payload.as_any().is::<T>()
     }
+
+    #[inline]
+    pub fn payload_if_subclass<T: PyObjectPayload + PyValue>(
+        &self,
+        vm: &VirtualMachine,
+    ) -> Option<&T> {
+        if objtype::issubclass(&self.class(), &T::class(vm)) {
+            self.payload()
+        } else {
+            None
+        }
+    }
 }
 
 pub trait PyValue: fmt::Debug + Sized + 'static {

@@ -432,30 +432,29 @@ impl PyInt {
     #[pymethod(name = "__round__")]
     fn round(
         zelf: PyRef<Self>,
-        _precision: OptionalArg<PyObjectRef>,
-        _vm: &VirtualMachine,
+        precision: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
     ) -> PyResult<PyIntRef> {
-        let _ndigits = match _precision {
-            OptionalArg::Missing => None,
+        match precision {
+            OptionalArg::Missing => (),
             OptionalArg::Present(ref value) => {
-                if !_vm.get_none().is(value) {
-                    if !objtype::isinstance(value, &_vm.ctx.int_type()) {
-                        return Err(_vm.new_type_error(format!(
+                if !vm.get_none().is(value) {
+                    if let Some(_ndigits) = value.payload_if_subclass::<PyInt>(vm) {
+                        // Only accept int type ndigits
+                    } else {
+                        return Err(vm.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",
                             value.class().name
                         )));
-                    };
-                    // Only accept int type _ndigits
-                    let _ndigits = get_value(value);
-                    Some(_ndigits)
+                    }
                 } else {
-                    return Err(_vm.new_type_error(format!(
+                    return Err(vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
                         value.class().name
                     )));
                 }
             }
-        };
+        }
         Ok(zelf)
     }
 
@@ -827,7 +826,7 @@ fn invalid_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyObjec
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> &BigInt {
-    &get_py_int(obj).value
+    &obj.payload::<PyInt>().unwrap().value
 }
 
 pub fn try_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
@@ -847,10 +846,6 @@ fn get_shift_amount(amount: &BigInt, vm: &VirtualMachine) -> PyResult<usize> {
             _ => panic!("Failed converting {} to rust usize", amount),
         }
     }
-}
-
-pub fn get_py_int(obj: &PyObjectRef) -> &PyInt {
-    &obj.payload::<PyInt>().unwrap()
 }
 
 pub fn init(context: &PyContext) {
