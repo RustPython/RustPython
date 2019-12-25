@@ -21,6 +21,36 @@ assert next(x) == 'b'
 with assert_raises(TypeError):
     next(x)
 
+# empty
+with assert_raises(TypeError):
+    chain.from_iterable()
+
+with assert_raises(TypeError):
+    chain.from_iterable("abc", "def")
+
+with assert_raises(TypeError):
+    # iterables are lazily evaluated -- can be constructed but will fail to execute
+    list(chain.from_iterable([1, 2, 3]))
+
+with assert_raises(TypeError):
+    list(chain(1))
+
+args = ["abc", "def"]
+assert list(chain.from_iterable(args)) == ['a', 'b', 'c', 'd', 'e', 'f']
+
+args = [[], "", b"", ()]
+assert list(chain.from_iterable(args)) == []
+
+args = ["ab", "cd", (), 'e']
+assert list(chain.from_iterable(args)) == ['a', 'b', 'c', 'd', 'e']
+
+x = chain.from_iterable(["ab", 1])
+assert next(x) == 'a'
+assert next(x) == 'b'
+with assert_raises(TypeError):
+    next(x)
+
+
 # itertools.count tests
 
 # default arguments
@@ -117,7 +147,7 @@ assert next(r) == 1
 with assert_raises(StopIteration):
     next(r)
 
-# timees = 0
+# times = 0
 r = itertools.repeat(1, 0)
 with assert_raises(StopIteration):
     next(r)

@@ -73,6 +73,22 @@ impl PyItertoolsChain {
     fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
     }
+
+    #[pyclassmethod(name = "from_iterable")]
+    fn from_iterable(
+        cls: PyClassRef,
+        iterable: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        let it = get_iter(vm, &iterable)?;
+        let iterables = get_all(vm, &it)?;
+
+        PyItertoolsChain {
+            iterables,
+            cur: RefCell::new((0, None)),
+        }
+        .into_ref_with_type(vm, cls)
+    }
 }
 
 #[pyclass(name = "compress")]
