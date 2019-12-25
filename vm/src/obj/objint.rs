@@ -223,8 +223,8 @@ impl PyInt {
     where
         F: Fn(&BigInt, &BigInt) -> bool,
     {
-        if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_bool(op(&self.value, get_value(&other)))
+        if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
+            vm.ctx.new_bool(op(&self.value, &other.value))
         } else {
             vm.ctx.not_implemented()
         }
@@ -265,8 +265,8 @@ impl PyInt {
     where
         F: Fn(&BigInt, &BigInt) -> BigInt,
     {
-        if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_int(op(&self.value, get_value(&other)))
+        if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
+            vm.ctx.new_int(op(&self.value, &other.value))
         } else {
             vm.ctx.not_implemented()
         }
@@ -277,8 +277,8 @@ impl PyInt {
     where
         F: Fn(&BigInt, &BigInt) -> PyResult,
     {
-        if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            op(&self.value, get_value(&other))
+        if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
+            op(&self.value, &other.value)
         } else {
             Ok(vm.ctx.not_implemented())
         }
