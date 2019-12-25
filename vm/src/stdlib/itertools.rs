@@ -11,7 +11,7 @@ use num_traits::ToPrimitive;
 use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objint::{self, PyInt, PyIntRef};
-use crate::obj::objiter::{call_next, get_all, get_iter, new_stop_iteration};
+use crate::obj::objiter::{call_next, get_all, get_iter, get_next_object, new_stop_iteration};
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
@@ -72,6 +72,22 @@ impl PyItertoolsChain {
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
+    }
+
+    #[pyclassmethod(name = "from_iterable")]
+    fn from_iterable(
+        cls: PyClassRef,
+        iterable: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        let it = get_iter(vm, &iterable)?;
+        let iterables = get_all(vm, &it)?;
+
+        PyItertoolsChain {
+            iterables,
+            cur: RefCell::new((0, None)),
+        }
+        .into_ref_with_type(vm, cls)
     }
 }
 
@@ -169,6 +185,73 @@ impl PyItertoolsCount {
         let result = self.cur.borrow().clone();
         AddAssign::add_assign(&mut self.cur.borrow_mut() as &mut BigInt, &self.step);
         Ok(PyInt::new(result))
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
+#[pyclass]
+#[derive(Debug)]
+struct PyItertoolsCycle {
+    iter: RefCell<PyObjectRef>,
+    saved: RefCell<Vec<PyObjectRef>>,
+    index: Cell<usize>,
+    first_pass: Cell<bool>,
+}
+
+impl PyValue for PyItertoolsCycle {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "cycle")
+    }
+}
+
+#[pyimpl]
+impl PyItertoolsCycle {
+    #[pyslot(new)]
+    fn tp_new(
+        cls: PyClassRef,
+        iterable: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        let iter = get_iter(vm, &iterable)?;
+
+        PyItertoolsCycle {
+            iter: RefCell::new(iter.clone()),
+            saved: RefCell::new(Vec::new()),
+            index: Cell::new(0),
+            first_pass: Cell::new(false),
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let item = if let Some(item) = get_next_object(vm, &self.iter.borrow())? {
+            if self.first_pass.get() {
+                return Ok(item);
+            }
+
+            self.saved.borrow_mut().push(item.clone());
+            item
+        } else {
+            if self.saved.borrow().len() == 0 {
+                return Err(new_stop_iteration(vm));
+            }
+
+            let last_index = self.index.get();
+            self.index.set(self.index.get() + 1);
+
+            if self.index.get() >= self.saved.borrow().len() {
+                self.index.set(0);
+            }
+
+            self.saved.borrow()[last_index].clone()
+        };
+
+        Ok(item)
     }
 
     #[pymethod(name = "__iter__")]
@@ -1177,6 +1260,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let count = ctx.new_class("count", ctx.object());
     PyItertoolsCount::extend_class(ctx, &count);
 
+    let cycle = ctx.new_class("cycle", ctx.object());
+    PyItertoolsCycle::extend_class(ctx, &cycle);
+
     let dropwhile = ctx.new_class("dropwhile", ctx.object());
     PyItertoolsDropwhile::extend_class(ctx, &dropwhile);
 
@@ -1211,6 +1297,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "compress" => compress,
         "combinations" => combinations,
         "count" => count,
+        "cycle" => cycle,
         "dropwhile" => dropwhile,
         "islice" => islice,
         "filterfalse" => filterfalse,
