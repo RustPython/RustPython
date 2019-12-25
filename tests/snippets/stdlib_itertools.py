@@ -76,6 +76,32 @@ assert next(c) == 5
 # assert next(c) == 1.5
 
 
+# itertools.cycle tests
+
+r = itertools.cycle([1, 2, 3])
+assert next(r) == 1
+assert next(r) == 2
+assert next(r) == 3
+assert next(r) == 1
+assert next(r) == 2
+assert next(r) == 3
+assert next(r) == 1
+
+r = itertools.cycle([1])
+assert next(r) == 1
+assert next(r) == 1
+assert next(r) == 1
+
+r = itertools.cycle([])
+with assert_raises(StopIteration):
+    next(r)
+
+with assert_raises(TypeError):
+    itertools.cycle(None)
+
+with assert_raises(TypeError):
+    itertools.cycle(10)
+
 # itertools.repeat tests
 
 # no times
