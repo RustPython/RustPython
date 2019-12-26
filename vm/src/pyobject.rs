@@ -1098,8 +1098,8 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
             };
             PyRef::new_ref(PyObject::new(self, cls, dict), vm)
         } else {
-            let subtype = vm.to_pystr(&cls.obj)?;
-            let basetype = vm.to_pystr(&class.obj)?;
+            let subtype = vm.to_str(&cls.obj)?;
+            let basetype = vm.to_str(&class.obj)?;
             Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
         }
     }
