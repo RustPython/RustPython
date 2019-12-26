@@ -2,9 +2,6 @@
 //!
 //! This means source code is translated into separate tokens.
 
-extern crate unic_emoji_char;
-extern crate unicode_xid;
-
 pub use super::token::Tok;
 use crate::error::{LexicalError, LexicalErrorType};
 use crate::location::Location;
@@ -15,8 +12,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
-use unicode_xid::UnicodeXID;
-use wtf8;
+use unic_ucd_ident::{is_xid_continue, is_xid_start};
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 struct IndentationLevel {
@@ -658,17 +654,14 @@ where
     }
 
     fn is_identifier_start(&self, c: char) -> bool {
-        match c {
-            '_' => true,
-            c => UnicodeXID::is_xid_start(c),
-        }
+        c == '_' || is_xid_start(c)
     }
 
     fn is_identifier_continuation(&self) -> bool {
         if let Some(c) = self.chr0 {
             match c {
                 '_' | '0'..='9' => true,
-                c => UnicodeXID::is_xid_continue(c),
+                c => is_xid_continue(c),
             }
         } else {
             false

@@ -46,7 +46,6 @@ rustc_version_runtime = "0.1.*"
 statrs = "0.12.0"
 caseless = "0.2.1"
 chrono = { version = "=0.4.9", features = ["wasmbind"] }
-unicode-xid = "0.2.0"
 lazy_static = "^1.0.1"
 lexical = "4"
 itertools = "0.8"
@@ -55,6 +54,8 @@ hexf-parse = "0.1.0"
 indexmap = "1.0.2"
 crc = "^1.0.0"
 unicode_names2 = "0.3"
+# TODO: use unic for this; needed for title case:
+# https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
 unicode-casing = "0.1"
 unic = "0.9"
 unic-common = "0.9"
