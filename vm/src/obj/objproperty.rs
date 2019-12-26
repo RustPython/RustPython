@@ -184,9 +184,8 @@ impl PyProperty {
         self.doc.borrow().clone()
     }
 
-    fn doc_setter(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn doc_setter(&self, value: PyObjectRef, vm: &VirtualMachine) {
         self.doc.replace(py_none_to_option(vm, &value));
-        Ok(vm.get_none())
     }
 
     // Python builder functions
@@ -254,7 +253,7 @@ pub struct PropertyBuilder<'a> {
 
 pub trait PropertySetterResult {}
 
-impl PropertySetterResult for PyResult {}
+impl PropertySetterResult for PyResult<()> {}
 impl PropertySetterResult for () {}
 
 impl<'a> PropertyBuilder<'a> {
@@ -275,7 +274,7 @@ impl<'a> PropertyBuilder<'a> {
         }
     }
 
-    pub fn add_setter<I, V, R: PropertySetterResult, F: IntoPyNativeFunc<(I, V), R>>(
+    pub fn add_setter<I, V, F: IntoPyNativeFunc<(I, V), impl PropertySetterResult>>(
         self,
         func: F,
     ) -> Self {

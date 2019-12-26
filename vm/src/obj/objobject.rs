@@ -203,7 +203,7 @@ fn object_class_setter(
     instance: PyObjectRef,
     _value: PyObjectRef,
     vm: &VirtualMachine,
-) -> PyResult {
+) -> PyResult<()> {
     let type_repr = vm.to_pystr(&instance.class())?;
     Err(vm.new_type_error(format!("can't change class of type '{}'", type_repr)))
 }
@@ -216,10 +216,14 @@ fn object_dict(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> 
     }
 }
 
-fn object_dict_setter(instance: PyObjectRef, value: PyDictRef, vm: &VirtualMachine) -> PyResult {
+fn object_dict_setter(
+    instance: PyObjectRef,
+    value: PyDictRef,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     if let Some(dict) = &instance.dict {
         *dict.borrow_mut() = value;
-        Ok(vm.get_none())
+        Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '__dict__'",

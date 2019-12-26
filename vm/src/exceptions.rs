@@ -72,10 +72,10 @@ impl PyBaseException {
     }
 
     #[pyproperty(setter)]
-    fn set_args(&self, args: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn set_args(&self, args: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
         self.args.replace(PyTuple::from(args).into_ref(vm));
-        Ok(vm.get_none())
+        Ok(())
     }
 
     #[pyproperty(name = "__traceback__")]
@@ -94,9 +94,8 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__cause__", setter)]
-    fn set_cause(&self, cause: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    fn set_cause(&self, cause: Option<PyObjectRef>, _vm: &VirtualMachine) {
         self.cause.replace(cause);
-        Ok(vm.get_none())
     }
 
     #[pyproperty(name = "__context__")]
@@ -105,9 +104,8 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__context__", setter)]
-    fn set_context(&self, context: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    fn set_context(&self, context: Option<PyObjectRef>, _vm: &VirtualMachine) {
         self.context.replace(context);
-        Ok(vm.get_none())
     }
 
     #[pyproperty(name = "__suppress_context__")]
@@ -116,9 +114,8 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__suppress_context__", setter)]
-    fn set_suppress_context(&self, suppress_context: bool, vm: &VirtualMachine) -> PyResult {
+    fn set_suppress_context(&self, suppress_context: bool, _vm: &VirtualMachine) {
         self.suppress_context.set(suppress_context);
-        Ok(vm.get_none())
     }
 
     #[pymethod]
