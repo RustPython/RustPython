@@ -84,9 +84,8 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__traceback__", setter)]
-    fn set_traceback(&self, traceback: Option<PyTracebackRef>, vm: &VirtualMachine) -> PyResult {
+    fn set_traceback(&self, traceback: Option<PyTracebackRef>, _vm: &VirtualMachine) {
         self.traceback.replace(traceback);
-        Ok(vm.get_none())
     }
 
     #[pyproperty(name = "__cause__")]

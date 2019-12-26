@@ -252,6 +252,11 @@ pub struct PropertyBuilder<'a> {
     setter: Option<PyObjectRef>,
 }
 
+pub trait PropertySetterResult {}
+
+impl PropertySetterResult for PyResult {}
+impl PropertySetterResult for () {}
+
 impl<'a> PropertyBuilder<'a> {
     pub fn new(ctx: &'a PyContext) -> Self {
         Self {
@@ -270,7 +275,10 @@ impl<'a> PropertyBuilder<'a> {
         }
     }
 
-    pub fn add_setter<I, V, F: IntoPyNativeFunc<(I, V), PyResult>>(self, func: F) -> Self {
+    pub fn add_setter<I, V, R: PropertySetterResult, F: IntoPyNativeFunc<(I, V), R>>(
+        self,
+        func: F,
+    ) -> Self {
         let func = self.ctx.new_rustfunc(func);
         Self {
             ctx: self.ctx,
