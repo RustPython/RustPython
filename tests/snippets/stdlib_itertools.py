@@ -405,6 +405,25 @@ with assert_raises(ValueError):
 with assert_raises(TypeError):
     itertools.combinations([1, 2, 3, 4], None)
 
+# itertools.combinations
+it = itertools.combinations_with_replacement([1, 2, 3], 0)
+assert list(it) == [()]
+
+it = itertools.combinations_with_replacement([1, 2, 3], 1)
+assert list(it) == [(1,), (2,), (3,)]
+
+it = itertools.combinations_with_replacement([1, 2, 3], 2)
+assert list(it) == [(1, 1), (1, 2), (1, 3), (2, 2), (2, 3), (3, 3)]
+
+it = itertools.combinations_with_replacement([1, 2], 3)
+assert list(it) == [(1, 1, 1), (1, 1, 2), (1, 2, 2), (2, 2, 2)]
+
+with assert_raises(ValueError):
+    itertools.combinations_with_replacement([1, 2, 3, 4], -2)
+
+with assert_raises(TypeError):
+    itertools.combinations_with_replacement([1, 2, 3, 4], None)
+
 # itertools.permutations
 it = itertools.permutations([1, 2, 3])
 assert list(it) == [(1, 2, 3), (1, 3, 2), (2, 1, 3), (2, 3, 1), (3, 1, 2), (3, 2, 1)]
