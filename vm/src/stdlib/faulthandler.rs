@@ -23,9 +23,25 @@ fn dump_traceback(_file: OptionalArg<i64>, _all_threads: OptionalArg<bool>, vm: 
     });
 }
 
+fn enable(_file: OptionalArg<i64>, _all_threads: OptionalArg<bool>, _vm: &VirtualMachine) {
+    // TODO
+}
+
+fn register(
+    _signum: i64,
+    _file: OptionalArg<i64>,
+    _all_threads: OptionalArg<bool>,
+    _chain: OptionalArg<bool>,
+    _vm: &VirtualMachine,
+) {
+    // TODO
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     py_module!(vm, "faulthandler", {
         "dump_traceback" => ctx.new_rustfunc(dump_traceback),
+        "enable" => ctx.new_rustfunc(enable),
+        "register" => ctx.new_rustfunc(register),
     })
 }
