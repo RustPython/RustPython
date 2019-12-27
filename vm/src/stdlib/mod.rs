@@ -35,7 +35,8 @@ mod weakref;
 use std::collections::HashMap;
 
 use crate::vm::VirtualMachine;
-
+#[cfg(not(target_arch = "wasm32"))]
+mod faulthandler;
 #[cfg(not(target_arch = "wasm32"))]
 mod multiprocessing;
 #[cfg(not(target_arch = "wasm32"))]
@@ -116,6 +117,10 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("select".to_string(), Box::new(select::make_module));
         modules.insert("_subprocess".to_string(), Box::new(subprocess::make_module));
         modules.insert("zlib".to_string(), Box::new(zlib::make_module));
+        modules.insert(
+            "faulthandler".to_string(),
+            Box::new(faulthandler::make_module),
+        );
     }
 
     // Unix-only
