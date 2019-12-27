@@ -90,7 +90,7 @@ impl PyClassRef {
         PyTuple::from(elements)
     }
 
-    fn set_mro(self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn set_mro(self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_attribute_error("read-only attribute".to_string()))
     }
 
@@ -393,7 +393,11 @@ fn type_dict(class: PyClassRef, _vm: &VirtualMachine) -> PyMappingProxy {
     PyMappingProxy::new(class)
 }
 
-fn type_dict_setter(_instance: PyClassRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+fn type_dict_setter(
+    _instance: PyClassRef,
+    _value: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     Err(vm.new_not_implemented_error(
         "Setting __dict__ attribute on a type isn't yet implemented".to_string(),
     ))

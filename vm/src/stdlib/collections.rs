@@ -202,9 +202,8 @@ impl PyDeque {
         self.maxlen.get()
     }
     #[pyproperty(setter)]
-    fn set_maxlen(&self, maxlen: Option<usize>, vm: &VirtualMachine) -> PyResult {
+    fn set_maxlen(&self, maxlen: Option<usize>, _vm: &VirtualMachine) {
         self.maxlen.set(maxlen);
-        Ok(vm.get_none())
     }
 
     #[pymethod(name = "__repr__")]
