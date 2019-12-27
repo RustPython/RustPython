@@ -278,7 +278,7 @@ impl WASMVirtualMachine {
         })?
     }
 
-    fn run(&self, source: &str, mode: compile::Mode) -> Result<JsValue, JsValue> {
+    pub(crate) fn run(&self, source: &str, mode: compile::Mode) -> Result<JsValue, JsValue> {
         self.assert_valid()?;
         self.with_unchecked(
             |StoredVirtualMachine {

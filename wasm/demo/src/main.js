@@ -36,7 +36,7 @@ function runCodeFromTextarea() {
 
     const code = editor.getValue();
     try {
-        rp.pyEval(code, {
+        rp.pyExec(code, {
             stdout: output => {
                 const shouldScroll =
                     consoleElement.scrollHeight - consoleElement.scrollTop ===
