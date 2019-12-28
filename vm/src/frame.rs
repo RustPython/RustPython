@@ -127,7 +127,7 @@ impl ExecutionResult {
                 } else {
                     vec![value]
                 };
-                Err(vm.new_exception_obj(stop_iteration, args).unwrap())
+                Err(vm.new_exception(stop_iteration, args))
             }
         }
     }
@@ -978,7 +978,7 @@ impl Frame {
             0 => match vm.current_exception() {
                 Some(exc) => exc,
                 None => {
-                    return Err(vm.new_exception(
+                    return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.runtime_error.clone(),
                         "No active exception to reraise".to_string(),
                     ))

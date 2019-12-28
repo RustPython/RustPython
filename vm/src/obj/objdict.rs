@@ -527,7 +527,7 @@ macro_rules! dict_iterator {
                 let mut position = self.position.get();
                 let dict = self.dict.entries.borrow();
                 if dict.has_changed_size(&self.size) {
-                    return Err(vm.new_exception(
+                    return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.runtime_error.clone(),
                         "dictionary changed size during iteration".to_string(),
                     ));

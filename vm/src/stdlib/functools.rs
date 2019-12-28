@@ -26,7 +26,7 @@ fn functools_reduce(
         objiter::call_next(vm, &iterator).map_err(|err| {
             if objtype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
                 let exc_type = vm.ctx.exceptions.type_error.clone();
-                vm.new_exception(
+                vm.new_exception_msg(
                     exc_type,
                     "reduce() of empty sequence with no initial value".to_string(),
                 )

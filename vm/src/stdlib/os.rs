@@ -171,7 +171,7 @@ pub fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionR
             _ => vm.ctx.exceptions.os_error.clone(),
         },
     };
-    let os_error = vm.new_exception(exc_type, err.to_string());
+    let os_error = vm.new_exception_msg(exc_type, err.to_string());
     let errno = match err.raw_os_error() {
         Some(errno) => vm.new_int(errno),
         None => vm.get_none(),
@@ -185,19 +185,19 @@ pub fn convert_nix_error(vm: &VirtualMachine, err: nix::Error) -> PyBaseExceptio
     let nix_error = match err {
         nix::Error::InvalidPath => {
             let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
-            vm.new_exception(exc_type, err.to_string())
+            vm.new_exception_msg(exc_type, err.to_string())
         }
         nix::Error::InvalidUtf8 => {
             let exc_type = vm.ctx.exceptions.unicode_error.clone();
-            vm.new_exception(exc_type, err.to_string())
+            vm.new_exception_msg(exc_type, err.to_string())
         }
         nix::Error::UnsupportedOperation => {
             let exc_type = vm.ctx.exceptions.runtime_error.clone();
-            vm.new_exception(exc_type, err.to_string())
+            vm.new_exception_msg(exc_type, err.to_string())
         }
         nix::Error::Sys(errno) => {
             let exc_type = convert_nix_errno(vm, errno);
-            vm.new_exception(exc_type, err.to_string())
+            vm.new_exception_msg(exc_type, err.to_string())
         }
     };
 

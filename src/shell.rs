@@ -118,9 +118,8 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             ReadlineResult::Interrupt => {
                 continuing = false;
                 full_input.clear();
-                let keyboard_interrupt = vm
-                    .new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())
-                    .unwrap();
+                let keyboard_interrupt =
+                    vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone());
                 Err(keyboard_interrupt)
             }
             ReadlineResult::EOF => {

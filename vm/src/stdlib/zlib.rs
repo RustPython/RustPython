@@ -121,5 +121,5 @@ fn zlib_error(message: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
     let zlib_error = vm.get_attribute(module, "error").unwrap();
     let zlib_error = zlib_error.downcast().unwrap();
 
-    vm.new_exception(zlib_error, message.to_string())
+    vm.new_exception_msg(zlib_error, message.to_string())
 }

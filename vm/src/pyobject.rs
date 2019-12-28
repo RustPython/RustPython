@@ -619,7 +619,7 @@ impl<T: PyValue> PyRef<T> {
         if obj.payload_is::<T>() {
             Ok(Self::new_ref_unchecked(obj))
         } else {
-            Err(vm.new_exception(
+            Err(vm.new_exception_msg(
                 vm.ctx.exceptions.runtime_error.clone(),
                 format!("Unexpected payload for type {:?}", obj.class().name),
             ))
@@ -1085,7 +1085,7 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
     fn class(vm: &VirtualMachine) -> PyClassRef;
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        PyRef::new_ref_unchecked(PyObject::new(self, Self::class(vm), None))
+        self.into_ref_with_type_unchecked(Self::class(vm))
     }
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
@@ -1102,6 +1102,10 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
             let basetype = vm.to_pystr(&class.obj)?;
             Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
         }
+    }
+
+    fn into_ref_with_type_unchecked(self, cls: PyClassRef) -> PyRef<Self> {
+        PyRef::new_ref_unchecked(PyObject::new(self, cls, None))
     }
 }
 

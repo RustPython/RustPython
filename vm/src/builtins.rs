@@ -629,7 +629,7 @@ impl Printer for std::io::StdoutLock<'_> {
 
 pub fn builtin_exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
     let code = exit_code_arg.unwrap_or_else(|| vm.new_int(0));
-    Err(vm.new_exception_obj(vm.ctx.exceptions.system_exit.clone(), vec![code])?)
+    Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
 }
 
 pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {

@@ -57,9 +57,9 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
                 _ => &vm.ctx.exceptions.exception_type,
             }
             .clone();
-            vm.new_exception(exc_type, err.message().into())
+            vm.new_exception_msg(exc_type, err.message().into())
         }
-        None => vm.new_exception(
+        None => vm.new_exception_msg(
             vm.ctx.exceptions.exception_type.clone(),
             format!("{:?}", js_err),
         ),

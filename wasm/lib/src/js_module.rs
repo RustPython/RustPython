@@ -235,7 +235,7 @@ struct NewObjectOptions {
 }
 
 fn new_js_error(vm: &VirtualMachine, err: JsValue) -> PyBaseExceptionRef {
-    let exc = vm.new_exception(vm.class("_js", "JsError"), format!("{:?}", err));
+    let exc = vm.new_exception_msg(vm.class("_js", "JsError"), format!("{:?}", err));
     vm.set_attr(
         exc.as_object(),
         "js_value",

@@ -152,7 +152,7 @@ impl PopenRef {
         .map_err(|s| vm.new_os_error(format!("Could not start program: {}", s)))?;
         if timeout.is_none() {
             let timeout_expired = vm.try_class("_subprocess", "TimeoutExpired")?;
-            Err(vm.new_exception(timeout_expired, "Timeout".to_string()))
+            Err(vm.new_exception_msg(timeout_expired, "Timeout".to_string()))
         } else {
             Ok(())
         }

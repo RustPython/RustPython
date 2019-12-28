@@ -19,7 +19,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
 fn random_normalvariate(mu: f64, sigma: f64, vm: &VirtualMachine) -> PyResult<f64> {
     let normal = Normal::new(mu, sigma).map_err(|rand_err| {
-        vm.new_exception(
+        vm.new_exception_msg(
             vm.ctx.exceptions.arithmetic_error.clone(),
             format!("invalid normal distribution: {:?}", rand_err),
         )

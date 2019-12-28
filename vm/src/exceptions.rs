@@ -44,20 +44,19 @@ impl PyValue for PyBaseException {
 
 #[pyimpl]
 impl PyBaseException {
-    #[pyslot(new)]
-    fn tp_new(
-        cls: PyClassRef,
-        args: PyFuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyBaseExceptionRef> {
+    pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
         PyBaseException {
             traceback: RefCell::new(None),
             cause: RefCell::new(None),
             context: RefCell::new(None),
             suppress_context: Cell::new(false),
-            args: RefCell::new(PyTuple::from(args.args).into_ref(vm)),
+            args: RefCell::new(PyTuple::from(args).into_ref(vm)),
         }
-        .into_ref_with_type(vm, cls)
+    }
+
+    #[pyslot(new)]
+    fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__init__")]
@@ -325,10 +324,20 @@ impl TryFromObject for ExceptionCtor {
     }
 }
 
+pub fn invoke(
+    cls: PyClassRef,
+    args: Vec<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyBaseExceptionRef> {
+    // TODO: fast-path built-in exceptions by directly instantiating them? Is that really worth it?
+    let res = vm.invoke(cls.as_object(), args)?;
+    PyBaseExceptionRef::try_from_object(vm, res)
+}
+
 impl ExceptionCtor {
     pub fn instantiate(self, vm: &VirtualMachine) -> PyResult<PyBaseExceptionRef> {
         match self {
-            Self::Class(cls) => vm.new_empty_exception(cls),
+            Self::Class(cls) => invoke(cls, vec![], vm),
             Self::Instance(exc) => Ok(exc),
         }
     }
@@ -357,7 +366,7 @@ impl ExceptionCtor {
                     exc @ PyBaseException => exc.args().elements.clone(),
                     obj => vec![obj],
                 });
-                vm.new_exception_obj(cls, args)
+                invoke(cls, args, vm)
             }
         }
     }

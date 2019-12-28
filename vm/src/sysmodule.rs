@@ -198,7 +198,7 @@ fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
 
 fn sys_exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
     let code = code.unwrap_or_else(|| vm.new_int(0));
-    Err(vm.new_exception_obj(vm.ctx.exceptions.system_exit.clone(), vec![code])?)
+    Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
 }
 
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {

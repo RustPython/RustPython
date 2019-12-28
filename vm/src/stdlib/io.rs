@@ -386,7 +386,7 @@ fn io_base_checkclosed(
         let msg = msg
             .flat_option()
             .unwrap_or_else(|| vm.new_str("I/O operation on closed file.".to_string()));
-        Err(vm.new_exception_obj(vm.ctx.exceptions.value_error.clone(), vec![msg])?)
+        Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
     }
@@ -401,7 +401,7 @@ fn io_base_checkreadable(
         let msg = msg
             .flat_option()
             .unwrap_or_else(|| vm.new_str("File or stream is not readable.".to_string()));
-        Err(vm.new_exception_obj(vm.ctx.exceptions.value_error.clone(), vec![msg])?)
+        Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
     }
@@ -416,7 +416,7 @@ fn io_base_checkwritable(
         let msg = msg
             .flat_option()
             .unwrap_or_else(|| vm.new_str("File or stream is not writable.".to_string()));
-        Err(vm.new_exception_obj(vm.ctx.exceptions.value_error.clone(), vec![msg])?)
+        Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
     }
@@ -431,7 +431,7 @@ fn io_base_checkseekable(
         let msg = msg
             .flat_option()
             .unwrap_or_else(|| vm.new_str("File or stream is not seekable.".to_string()));
-        Err(vm.new_exception_obj(vm.ctx.exceptions.value_error.clone(), vec![msg])?)
+        Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
     }
