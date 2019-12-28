@@ -1247,7 +1247,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         follow_symlinks: Option<bool>,
     };
     impl<'a> SupportFunc<'a> {
-        fn new<F, T, R>(
+        fn new<F, T, R, VM>(
             vm: &VirtualMachine,
             name: &'a str,
             func: F,
@@ -1256,7 +1256,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
             follow_symlinks: Option<bool>,
         ) -> Self
         where
-            F: IntoPyNativeFunc<T, R>,
+            F: IntoPyNativeFunc<T, R, VM>,
         {
             let func_obj = vm.ctx.new_rustfunc(func);
             Self {

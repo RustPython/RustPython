@@ -265,7 +265,7 @@ impl<'a> PropertyBuilder<'a> {
         }
     }
 
-    pub fn add_getter<I, V, F: IntoPyNativeFunc<I, V>>(self, func: F) -> Self {
+    pub fn add_getter<I, V, VM, F: IntoPyNativeFunc<I, V, VM>>(self, func: F) -> Self {
         let func = self.ctx.new_rustfunc(func);
         Self {
             ctx: self.ctx,
@@ -274,7 +274,7 @@ impl<'a> PropertyBuilder<'a> {
         }
     }
 
-    pub fn add_setter<I, V, F: IntoPyNativeFunc<(I, V), impl PropertySetterResult>>(
+    pub fn add_setter<I, V, VM, F: IntoPyNativeFunc<(I, V), impl PropertySetterResult, VM>>(
         self,
         func: F,
     ) -> Self {

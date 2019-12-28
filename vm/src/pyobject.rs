@@ -460,9 +460,9 @@ impl PyContext {
         PyObject::new(PyNamespace, self.namespace_type(), Some(self.new_dict()))
     }
 
-    pub fn new_rustfunc<F, T, R>(&self, f: F) -> PyObjectRef
+    pub fn new_rustfunc<F, T, R, VM>(&self, f: F) -> PyObjectRef
     where
-        F: IntoPyNativeFunc<T, R>,
+        F: IntoPyNativeFunc<T, R, VM>,
     {
         PyObject::new(
             PyBuiltinFunction::new(f.into_func()),
@@ -471,9 +471,9 @@ impl PyContext {
         )
     }
 
-    pub fn new_classmethod<F, T, R>(&self, f: F) -> PyObjectRef
+    pub fn new_classmethod<F, T, R, VM>(&self, f: F) -> PyObjectRef
     where
-        F: IntoPyNativeFunc<T, R>,
+        F: IntoPyNativeFunc<T, R, VM>,
     {
         PyObject::new(
             PyClassMethod {
@@ -484,9 +484,9 @@ impl PyContext {
         )
     }
 
-    pub fn new_property<F, I, V>(&self, f: F) -> PyObjectRef
+    pub fn new_property<F, I, V, VM>(&self, f: F) -> PyObjectRef
     where
-        F: IntoPyNativeFunc<I, V>,
+        F: IntoPyNativeFunc<I, V, VM>,
     {
         PropertyBuilder::new(self).add_getter(f).create()
     }

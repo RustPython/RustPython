@@ -83,7 +83,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__traceback__", setter)]
-    fn setter_traceback(&self, traceback: Option<PyTracebackRef>, _vm: &VirtualMachine) {
+    pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
         self.traceback.replace(traceback);
     }
 
@@ -153,9 +153,6 @@ impl PyBaseException {
 
     pub fn traceback(&self) -> Option<PyTracebackRef> {
         self.traceback.borrow().clone()
-    }
-    pub fn set_traceback(&self, tb: Option<PyTracebackRef>) {
-        self.traceback.replace(tb);
     }
 
     pub fn cause(&self) -> Option<PyBaseExceptionRef> {
