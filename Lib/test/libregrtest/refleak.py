@@ -248,7 +248,9 @@ def clear_caches():
     except KeyError:
         pass
     else:
-        struct._clearcache()
+        # TODO: fix
+        # struct._clearcache()
+        pass
 
     try:
         doctest = sys.modules['doctest']

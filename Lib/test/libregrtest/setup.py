@@ -33,8 +33,8 @@ def setup_tests(ns):
         for signum in signals:
             faulthandler.register(signum, chain=True, file=stderr_fd)
 
-    replace_stdout()
-    support.record_original_stdout(sys.stdout)
+    # replace_stdout()
+    # support.record_original_stdout(sys.stdout)
 
     if ns.testdir:
         # Prepend test directory to sys.path, so runtest() will be able
