@@ -2,7 +2,6 @@ use crate::frame::FrameRef;
 use crate::function::OptionalArg;
 use crate::pyobject::PyObjectRef;
 use crate::vm::VirtualMachine;
-use std::cell::Ref;
 
 fn dump_frame(frame: &FrameRef) {
     eprintln!(
@@ -16,11 +15,9 @@ fn dump_frame(frame: &FrameRef) {
 fn dump_traceback(_file: OptionalArg<i64>, _all_threads: OptionalArg<bool>, vm: &VirtualMachine) {
     eprintln!("Stack (most recent call first):");
 
-    Ref::map(vm.frames.borrow(), |frames| {
-        &for frame in frames {
-            dump_frame(frame);
-        }
-    });
+    for frame in vm.frames.borrow().iter() {
+        dump_frame(frame);
+    }
 }
 
 fn enable(_file: OptionalArg<i64>, _all_threads: OptionalArg<bool>, _vm: &VirtualMachine) {

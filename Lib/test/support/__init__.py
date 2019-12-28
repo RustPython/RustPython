@@ -1640,7 +1640,7 @@ def disable_gc():
     # finally:
     #     if have_gc:
     #         gc.enable()
-    pass
+    yield
 
 
 def python_is_optimized():
