@@ -3,10 +3,10 @@ use crate::obj::objnone::PyNone;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
-use crate::obj::objtype::{self, PyClassRef};
+use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::pyobject::{
-    Either, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::types::create_type;
 use crate::vm::VirtualMachine;
@@ -299,6 +299,70 @@ fn exception_args_as_string(
     }
 }
 
+#[derive(Clone)]
+pub enum ExceptionCtor {
+    Class(PyClassRef),
+    Instance(PyBaseExceptionRef),
+}
+
+impl TryFromObject for ExceptionCtor {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        obj.downcast::<PyClass>()
+            .and_then(|cls| {
+                if objtype::issubclass(&cls, &vm.ctx.exceptions.base_exception_type) {
+                    Ok(Self::Class(cls))
+                } else {
+                    Err(cls.into_object())
+                }
+            })
+            .or_else(|obj| obj.downcast::<PyBaseException>().map(Self::Instance))
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "exceptions must be classes or instances deriving from BaseException, not {}",
+                    obj.class().name
+                ))
+            })
+    }
+}
+
+impl ExceptionCtor {
+    pub fn instantiate(self, vm: &VirtualMachine) -> PyResult<PyBaseExceptionRef> {
+        match self {
+            Self::Class(cls) => vm.new_empty_exception(cls),
+            Self::Instance(exc) => Ok(exc),
+        }
+    }
+
+    pub fn instantiate_value(
+        self,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBaseExceptionRef> {
+        let exc_inst = value.clone().downcast::<PyBaseException>().ok();
+        match (self, exc_inst) {
+            // both are instances; which would we choose?
+            (Self::Instance(_exc_a), Some(_exc_b)) => {
+                Err(vm
+                    .new_type_error("instance exception may not have a separate value".to_string()))
+            }
+            // if the "type" is an instance and the value isn't, use the "type"
+            (Self::Instance(exc), None) => Ok(exc),
+            // if the value is an instance of the type, use the instance value
+            (Self::Class(cls), Some(exc)) if objtype::isinstance(&exc, &cls) => Ok(exc),
+            // otherwise; construct an exception of the type using the value as args
+            (Self::Class(cls), _) => {
+                let args = match_class!(match value {
+                    PyNone => vec![],
+                    tup @ PyTuple => tup.elements.clone(),
+                    exc @ PyBaseException => exc.args().elements.clone(),
+                    obj => vec![obj],
+                });
+                vm.new_exception_obj(cls, args)
+            }
+        }
+    }
+}
+
 /// Similar to PyErr_NormalizeException in CPython
 pub fn normalize(
     exc_type: PyObjectRef,
@@ -306,46 +370,8 @@ pub fn normalize(
     exc_tb: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<PyBaseExceptionRef> {
-    let exc_type = Either::<PyBaseExceptionRef, PyClassRef>::try_from_object(vm, exc_type.clone())
-        .ok()
-        .and_then(|e| {
-            // make sure the class is actually a subclass of BaseException
-            if let Either::B(ref cls) = e {
-                if !objtype::issubclass(cls, &vm.ctx.exceptions.base_exception_type) {
-                    return None;
-                }
-            }
-            Some(e)
-        })
-        .ok_or_else(|| {
-            vm.new_type_error(format!(
-                "exceptions must be classes or instances deriving from BaseException, not {}",
-                exc_type.class().name
-            ))
-        })?;
-    let exc_inst = exc_val.clone().downcast::<PyBaseException>().ok();
-    let exc = match (exc_type, exc_inst) {
-        (Either::A(_exc_a), Some(_exc_b)) => {
-            // both are instances; which would we choose?
-            return Err(
-                vm.new_type_error("instance exception may not have a separate value".to_string())
-            );
-        }
-        // if the "type" is an instance and the value isn't, use the "type"
-        (Either::A(exc), None) => exc,
-        // if the value is an instance of the type, use the instance value
-        (Either::B(cls), Some(exc)) if objtype::isinstance(&exc, &cls) => exc,
-        // otherwise; construct an exception of the type using the value as args
-        (Either::B(cls), _) => {
-            let args = match_class!(match exc_val {
-                PyNone => vec![],
-                tup @ PyTuple => tup.elements.clone(),
-                exc @ PyBaseException => exc.args().elements.clone(),
-                obj => vec![obj],
-            });
-            vm.new_exception_obj(cls, args)?
-        }
-    };
+    let ctor = ExceptionCtor::try_from_object(vm, exc_type)?;
+    let exc = ctor.instantiate_value(exc_val, vm)?;
     if let Some(tb) = Option::<PyTracebackRef>::try_from_object(vm, exc_tb)? {
         exc.set_traceback(Some(tb));
     }

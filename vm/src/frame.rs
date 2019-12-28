@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 
 use crate::bytecode;
-use crate::exceptions::{self, PyBaseExceptionRef};
+use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::{single_or_tuple_any, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
@@ -966,12 +966,9 @@ impl Frame {
                     Some(None)
                 } else {
                     // if the cause arg is an exception, we overwrite it
-                    Some(Some(exceptions::normalize(
-                        val,
-                        vm.get_none(),
-                        vm.get_none(),
-                        vm,
-                    )?))
+                    Some(Some(
+                        ExceptionCtor::try_from_object(vm, val)?.instantiate(vm)?,
+                    ))
                 }
             }
             // if there's no cause arg, we keep the cause as is
@@ -987,7 +984,7 @@ impl Frame {
                     ))
                 }
             },
-            1 | 2 => exceptions::normalize(self.pop_value(), vm.get_none(), vm.get_none())?,
+            1 | 2 => ExceptionCtor::try_from_object(vm, self.pop_value())?.instantiate(vm)?,
             3 => panic!("Not implemented!"),
             _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
         };
