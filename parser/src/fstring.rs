@@ -23,7 +23,7 @@ impl<'a> FStringParser<'a> {
 
     fn parse_formatted_value(&mut self) -> Result<StringGroup, FStringErrorType> {
         let mut expression = String::new();
-        let mut spec = String::new();
+        let mut spec = None;
         let mut delims = Vec::new();
         let mut conversion = None;
 
@@ -43,13 +43,48 @@ impl<'a> FStringParser<'a> {
                     })
                 }
                 ':' if delims.is_empty() => {
+                    let mut nested = false;
+                    let mut in_nested = false;
+                    let mut spec_expression = String::new();
                     while let Some(&next) = self.chars.peek() {
-                        if next != '}' {
-                            spec.push(next);
-                            self.chars.next();
-                        } else {
-                            break;
+                        match next {
+                            '{' => {
+                                if in_nested {
+                                    return Err(ExpressionNestedTooDeeply);
+                                }
+                                in_nested = true;
+                                nested = true;
+                                self.chars.next();
+                                continue;
+                            }
+                            '}' => {
+                                if in_nested {
+                                    in_nested = false;
+                                    self.chars.next();
+                                }
+                                break;
+                            }
+                            _ => (),
                         }
+                        spec_expression.push(next);
+                        self.chars.next();
+                    }
+                    if in_nested {
+                        return Err(UnclosedLbrace);
+                    }
+                    if nested {
+                        spec = Some(Box::new(FormattedValue {
+                            value: Box::new(
+                                parse_expression(spec_expression.trim())
+                                    .map_err(|e| InvalidExpression(Box::new(e.error)))?,
+                            ),
+                            conversion: None,
+                            spec: None,
+                        }))
+                    } else {
+                        spec = Some(Box::new(Constant {
+                            value: spec_expression.trim().to_string(),
+                        }))
                     }
                 }
                 '(' | '{' | '[' => {
@@ -194,17 +229,53 @@ mod tests {
                     FormattedValue {
                         value: Box::new(mk_ident("a", 1, 1)),
                         conversion: None,
-                        spec: String::new(),
+                        spec: None,
                     },
                     FormattedValue {
                         value: Box::new(mk_ident("b", 1, 1)),
                         conversion: None,
-                        spec: String::new(),
+                        spec: None,
                     },
                     Constant {
                         value: "{foo}".to_owned()
                     }
                 ]
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_fstring_nested_spec() {
+        let source = String::from("{foo:{spec}}");
+        let parse_ast = parse_fstring(&source).unwrap();
+
+        assert_eq!(
+            parse_ast,
+            FormattedValue {
+                value: Box::new(mk_ident("foo", 1, 1)),
+                conversion: None,
+                spec: Some(Box::new(FormattedValue {
+                    value: Box::new(mk_ident("spec", 1, 1)),
+                    conversion: None,
+                    spec: None,
+                })),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_fstring_not_nested_spec() {
+        let source = String::from("{foo:spec}");
+        let parse_ast = parse_fstring(&source).unwrap();
+
+        assert_eq!(
+            parse_ast,
+            FormattedValue {
+                value: Box::new(mk_ident("foo", 1, 1)),
+                conversion: None,
+                spec: Some(Box::new(Constant {
+                    value: "spec".to_string(),
+                })),
             }
         );
     }
@@ -223,6 +294,9 @@ mod tests {
     fn test_parse_invalid_fstring() {
         assert_eq!(parse_fstring("{"), Err(UnclosedLbrace));
         assert_eq!(parse_fstring("}"), Err(UnopenedRbrace));
+        assert_eq!(parse_fstring("{a:{a:{b}}"), Err(ExpressionNestedTooDeeply));
+        assert_eq!(parse_fstring("{a:b}}"), Err(UnopenedRbrace));
+        assert_eq!(parse_fstring("{a:{b}"), Err(UnclosedLbrace));
 
         // TODO: check for InvalidExpression enum?
         assert!(parse_fstring("{class}").is_err());

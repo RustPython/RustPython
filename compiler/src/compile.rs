@@ -2108,10 +2108,17 @@ impl<O: OutputStream> Compiler<O> {
                     conversion,
                     spec,
                 } => {
+                    match spec {
+                        Some(spec) => self.compile_string(spec)?,
+                        None => self.emit(Instruction::LoadConst {
+                            value: bytecode::Constant::String {
+                                value: String::new(),
+                            },
+                        }),
+                    };
                     self.compile_expression(value)?;
                     self.emit(Instruction::FormatValue {
                         conversion: conversion.map(compile_conversion_flag),
-                        spec: spec.clone(),
                     });
                 }
             }

@@ -274,7 +274,6 @@ pub enum Instruction {
     },
     FormatValue {
         conversion: Option<ConversionFlag>,
-        spec: String,
     },
     PopException,
     Reverse {
@@ -564,7 +563,7 @@ impl Instruction {
             LoadBuildClass => w!(LoadBuildClass),
             UnpackSequence { size } => w!(UnpackSequence, size),
             UnpackEx { before, after } => w!(UnpackEx, before, after),
-            FormatValue { spec, .. } => w!(FormatValue, spec), // TODO: write conversion
+            FormatValue { .. } => w!(FormatValue), // TODO: write conversion
             PopException => w!(PopException),
             Reverse { amount } => w!(Reverse, amount),
             GetAwaitable => w!(GetAwaitable),

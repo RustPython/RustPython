@@ -81,6 +81,7 @@ pub enum FStringErrorType {
     InvalidConversionFlag,
     EmptyExpression,
     MismatchedDelimiter,
+    ExpressionNestedTooDeeply,
 }
 
 impl fmt::Display for FStringErrorType {
@@ -94,6 +95,9 @@ impl fmt::Display for FStringErrorType {
             FStringErrorType::InvalidConversionFlag => write!(f, "Invalid conversion flag"),
             FStringErrorType::EmptyExpression => write!(f, "Empty expression"),
             FStringErrorType::MismatchedDelimiter => write!(f, "Mismatched delimiter"),
+            FStringErrorType::ExpressionNestedTooDeeply => {
+                write!(f, "expressions nested too deeply")
+            }
         }
     }
 }
