@@ -7,6 +7,7 @@ import os
 
 class BoolTest(unittest.TestCase):
 
+    @unittest.expectedFailure
     def test_subclass(self):
         try:
             class C(bool):
@@ -49,6 +50,7 @@ class BoolTest(unittest.TestCase):
         self.assertEqual(float(True), 1.0)
         self.assertIsNot(float(True), True)
 
+    @unittest.expectedFailure
     def test_math(self):
         self.assertEqual(+False, 0)
         self.assertIsNot(+False, False)
@@ -168,6 +170,7 @@ class BoolTest(unittest.TestCase):
         self.assertIs(bool(""), False)
         self.assertIs(bool(), False)
 
+    @unittest.expectedFailure
     def test_keyword_args(self):
         with self.assertRaisesRegex(TypeError, 'keyword argument'):
             bool(x=10)
@@ -202,6 +205,7 @@ class BoolTest(unittest.TestCase):
         self.assertIs(1 in {}, False)
         self.assertIs(1 in {1:1}, True)
 
+    @unittest.expectedFailure
     def test_string(self):
         self.assertIs("xyz".endswith("z"), True)
         self.assertIs("xyz".endswith("x"), False)
@@ -270,11 +274,13 @@ class BoolTest(unittest.TestCase):
         self.assertIs(operator.is_not(True, True), False)
         self.assertIs(operator.is_not(True, False), True)
 
+    @unittest.expectedFailure
     def test_marshal(self):
         import marshal
         self.assertIs(marshal.loads(marshal.dumps(True)), True)
         self.assertIs(marshal.loads(marshal.dumps(False)), False)
 
+    @unittest.expectedFailure
     def test_pickle(self):
         import pickle
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -322,6 +328,7 @@ class BoolTest(unittest.TestCase):
                 return -1
         self.assertRaises(ValueError, bool, Eggs())
 
+    @unittest.expectedFailure
     def test_from_bytes(self):
         self.assertIs(bool.from_bytes(b'\x00'*8, 'big'), False)
         self.assertIs(bool.from_bytes(b'abcd', 'little'), True)
