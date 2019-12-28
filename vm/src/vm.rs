@@ -19,7 +19,7 @@ use rustpython_compiler::{compile, error::CompileError};
 
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
-use crate::exceptions::{PyBaseException, PyBaseExceptionRef};
+use crate::exceptions::PyBaseExceptionRef;
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
 use crate::function::PyFuncArgs;
@@ -36,12 +36,12 @@ use crate::obj::objiter;
 use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
-use crate::obj::objtuple::{PyTuple, PyTupleRef};
+use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
 use crate::pyobject::{
-    Either, IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
-    TryFromObject, TryIntoRef, TypeProtocol,
+    IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
+    TryIntoRef, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::stdlib;
@@ -327,62 +327,6 @@ impl VirtualMachine {
     pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
         objmodule::init_module_dict(self, &dict, self.new_str(name.to_owned()), self.get_none());
         PyObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
-    }
-
-    /// Similar to PyErr_NormalizeException in CPython
-    pub fn normalize_exception(
-        &self,
-        exc_type: PyObjectRef,
-        exc_val: PyObjectRef,
-        exc_tb: PyObjectRef,
-    ) -> PyResult<PyBaseExceptionRef> {
-        let args = || {
-            if self.is_none(&exc_val) {
-                vec![]
-            } else {
-                match_class!(match exc_val.clone() {
-                    tup @ PyTuple => tup.elements.clone(),
-                    exc @ PyBaseException => exc.args().elements.clone(),
-                    obj => vec![obj],
-                })
-            }
-        };
-        let exc_type = if let Ok(exc) = PyBaseExceptionRef::try_from_object(self, exc_type.clone())
-        {
-            Either::A(exc)
-        } else if let Ok(cls) = PyClassRef::try_from_object(self, exc_type.clone()) {
-            Either::B(cls)
-        } else {
-            return Err(self.new_type_error(format!(
-                "expected an exception instance or type, got '{}'",
-                exc_type.class().name
-            )));
-        };
-        let exc = if let Ok(exc) = PyBaseExceptionRef::try_from_object(self, exc_val.clone()) {
-            match exc_type {
-                Either::A(_) => {
-                    return Err(self.new_type_error(
-                        "instance exception may not have a separate value".to_string(),
-                    ))
-                }
-                Either::B(cls) => {
-                    if objtype::isinstance(&exc, &cls) {
-                        exc
-                    } else {
-                        self.new_exception_obj(cls, args())?
-                    }
-                }
-            }
-        } else {
-            match exc_type {
-                Either::A(exc) => exc,
-                Either::B(cls) => self.new_exception_obj(cls, args())?,
-            }
-        };
-        if let Some(tb) = TryFromObject::try_from_object(self, exc_tb)? {
-            exc.set_traceback(Some(tb));
-        }
-        Ok(exc)
     }
 
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]

@@ -1,5 +1,6 @@
 use super::objiter::new_stop_iteration;
 use super::objtype::{isinstance, PyClassRef};
+use crate::exceptions;
 use crate::frame::{ExecutionResult, FrameRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
@@ -64,7 +65,7 @@ impl PyCoroutine {
         let exc_val = exc_val.unwrap_or_else(|| vm.get_none());
         let exc_tb = exc_tb.unwrap_or_else(|| vm.get_none());
         if self.closed.get() {
-            return Err(vm.normalize_exception(exc_type, exc_val, exc_tb)?);
+            return Err(exceptions::normalize(exc_type, exc_val, exc_tb, vm)?);
         }
         vm.frames.borrow_mut().push(self.frame.clone());
         let result = self.frame.gen_throw(vm, exc_type, exc_val, exc_tb);

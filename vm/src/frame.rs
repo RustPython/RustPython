@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 
 use crate::bytecode;
-use crate::exceptions::PyBaseExceptionRef;
+use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{single_or_tuple_any, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
@@ -223,7 +223,7 @@ impl Frame {
                 })
                 .map(ExecutionResult::Yield)
         } else {
-            let exception = vm.normalize_exception(exc_type, exc_val, exc_tb)?;
+            let exception = exceptions::normalize(exc_type, exc_val, exc_tb, vm)?;
             match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
                 Ok(None) => self.run(vm),
                 Ok(Some(result)) => Ok(result),

@@ -2,9 +2,10 @@ use crate::function::PyFuncArgs;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    Either, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::types::create_type;
 use crate::vm::VirtualMachine;
@@ -92,7 +93,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__cause__", setter)]
-    fn set_cause(&self, cause: Option<PyObjectRef>, _vm: &VirtualMachine) {
+    fn setter_cause(&self, cause: Option<PyBaseExceptionRef>, _vm: &VirtualMachine) {
         self.cause.replace(cause);
     }
 
@@ -102,7 +103,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__context__", setter)]
-    fn set_context(&self, context: Option<PyObjectRef>, _vm: &VirtualMachine) {
+    fn setter_context(&self, context: Option<PyBaseExceptionRef>, _vm: &VirtualMachine) {
         self.context.replace(context);
     }
 
@@ -184,23 +185,20 @@ pub fn write_exception<W: Write>(
     vm: &VirtualMachine,
     exc: &PyBaseExceptionRef,
 ) -> io::Result<()> {
-    let cause = exc.cause();
-    if let Some(cause) = &cause {
-        write_exception(output, vm, cause)?;
+    if let Some(cause) = exc.cause() {
+        write_exception(output, vm, &cause)?;
         writeln!(
             output,
             "\nThe above exception was the direct cause of the following exception:\n"
         )?;
+    } else if let Some(context) = exc.context() {
+        write_exception(output, vm, &context)?;
+        writeln!(
+            output,
+            "\nDuring handling of the above exception, another exception occurred:\n"
+        )?;
     }
-    if cause.is_none() {
-        if let Some(context) = exc.context() {
-            write_exception(output, vm, &context)?;
-            writeln!(
-                output,
-                "\nDuring handling of the above exception, another exception occurred:\n"
-            )?;
-        }
-    }
+
     write_exception_inner(output, vm, exc)
 }
 
@@ -298,6 +296,48 @@ fn exception_args_as_string(
             })
             .collect(),
     }
+}
+
+/// Similar to PyErr_NormalizeException in CPython
+pub fn normalize(
+    exc_type: PyObjectRef,
+    exc_val: PyObjectRef,
+    exc_tb: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<PyBaseExceptionRef> {
+    let args = || {
+        if vm.is_none(&exc_val) {
+            vec![]
+        } else {
+            match_class!(match exc_val.clone() {
+                tup @ PyTuple => tup.elements.clone(),
+                exc @ PyBaseException => exc.args().elements.clone(),
+                obj => vec![obj],
+            })
+        }
+    };
+    let exc_type = Either::<PyBaseExceptionRef, PyClassRef>::try_from_object(vm, exc_type.clone())
+        .map_err(|_| {
+            vm.new_type_error(format!(
+                "expected an exception instance or type, got '{}'",
+                exc_type.class().name
+            ))
+        })?;
+    let exc_inst = exc_val.clone().downcast::<PyBaseException>().ok();
+    let exc = match (exc_type, exc_inst) {
+        (Either::A(_exc_a), Some(_exc_b)) => {
+            return Err(
+                vm.new_type_error("instance exception may not have a separate value".to_string())
+            )
+        }
+        (Either::A(exc), None) => exc,
+        (Either::B(cls), Some(exc)) if objtype::isinstance(&exc, &cls) => exc,
+        (Either::B(cls), _) => vm.new_exception_obj(cls, args())?,
+    };
+    if let Some(tb) = Option::<PyTracebackRef>::try_from_object(vm, exc_tb)? {
+        exc.set_traceback(Some(tb));
+    }
+    Ok(exc)
 }
 
 #[derive(Debug)]
