@@ -83,7 +83,7 @@ impl<'a> FStringParser<'a> {
                         }))
                     } else {
                         spec = Some(Box::new(Constant {
-                            value: spec_expression.trim().to_string(),
+                            value: spec_expression.to_string(),
                         }))
                     }
                 }

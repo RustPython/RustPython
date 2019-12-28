@@ -8,6 +8,7 @@ use super::objint::{self, PyInt, PyIntRef};
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::PyBaseExceptionRef;
+use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
@@ -208,6 +209,15 @@ impl PyFloat {
             return vm.ctx.not_implemented();
         };
         vm.ctx.new_bool(result)
+    }
+
+    #[pymethod(name = "__format__")]
+    fn format(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+        let format_spec = FormatSpec::parse(spec.as_str());
+        match format_spec.format_float(self.value) {
+            Ok(string) => Ok(string),
+            Err(err) => Err(vm.new_value_error(err.to_string())),
+        }
     }
 
     #[pymethod(name = "__eq__")]
