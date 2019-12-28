@@ -966,7 +966,12 @@ impl Frame {
                     Some(None)
                 } else {
                     // if the cause arg is an exception, we overwrite it
-                    Some(Some(self.get_exception(vm, val)?))
+                    Some(Some(exceptions::normalize(
+                        val,
+                        vm.get_none(),
+                        vm.get_none(),
+                        vm,
+                    )?))
                 }
             }
             // if there's no cause arg, we keep the cause as is
@@ -982,7 +987,7 @@ impl Frame {
                     ))
                 }
             },
-            1 | 2 => self.get_exception(vm, self.pop_value())?,
+            1 | 2 => exceptions::normalize(self.pop_value(), vm.get_none(), vm.get_none())?,
             3 => panic!("Not implemented!"),
             _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
         };
@@ -1372,29 +1377,6 @@ impl Frame {
     fn nth_value(&self, depth: usize) -> PyObjectRef {
         let stack = self.stack.borrow();
         stack[stack.len() - depth - 1].clone()
-    }
-
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn get_exception(
-        &self,
-        vm: &VirtualMachine,
-        exception: PyObjectRef,
-    ) -> PyResult<PyBaseExceptionRef> {
-        if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
-            Ok(exception.downcast().unwrap())
-        } else if let Ok(exc_type) = PyClassRef::try_from_object(vm, exception) {
-            if objtype::issubclass(&exc_type, &vm.ctx.exceptions.base_exception_type) {
-                vm.new_empty_exception(exc_type)
-            } else {
-                let msg = format!(
-                    "Can only raise BaseException derived types, not {}",
-                    exc_type
-                );
-                Err(vm.new_type_error(msg))
-            }
-        } else {
-            Err(vm.new_type_error("exceptions must derive from BaseException".to_string()))
-        }
     }
 }
 

@@ -575,9 +575,6 @@ impl PyObject<dyn PyObjectPayload> {
     ///
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
-    ///
-    /// Note: The returned `Result` is _not_ a `PyResult`, even though the
-    ///       types are compatible.
     pub fn downcast<T: PyObjectPayload>(self: Rc<Self>) -> Result<PyRef<T>, PyObjectRef> {
         if self.payload_is::<T>() {
             Ok({

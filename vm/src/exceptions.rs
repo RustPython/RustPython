@@ -1,4 +1,5 @@
 use crate::function::PyFuncArgs;
+use crate::obj::objnone::PyNone;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
@@ -305,34 +306,45 @@ pub fn normalize(
     exc_tb: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<PyBaseExceptionRef> {
-    let args = || {
-        if vm.is_none(&exc_val) {
-            vec![]
-        } else {
-            match_class!(match exc_val.clone() {
-                tup @ PyTuple => tup.elements.clone(),
-                exc @ PyBaseException => exc.args().elements.clone(),
-                obj => vec![obj],
-            })
-        }
-    };
     let exc_type = Either::<PyBaseExceptionRef, PyClassRef>::try_from_object(vm, exc_type.clone())
-        .map_err(|_| {
+        .ok()
+        .and_then(|e| {
+            // make sure the class is actually a subclass of BaseException
+            if let Either::B(ref cls) = e {
+                if !objtype::issubclass(cls, &vm.ctx.exceptions.base_exception_type) {
+                    return None;
+                }
+            }
+            Some(e)
+        })
+        .ok_or_else(|| {
             vm.new_type_error(format!(
-                "expected an exception instance or type, got '{}'",
+                "exceptions must be classes or instances deriving from BaseException, not {}",
                 exc_type.class().name
             ))
         })?;
     let exc_inst = exc_val.clone().downcast::<PyBaseException>().ok();
     let exc = match (exc_type, exc_inst) {
         (Either::A(_exc_a), Some(_exc_b)) => {
+            // both are instances; which would we choose?
             return Err(
                 vm.new_type_error("instance exception may not have a separate value".to_string())
-            )
+            );
         }
+        // if the "type" is an instance and the value isn't, use the "type"
         (Either::A(exc), None) => exc,
+        // if the value is an instance of the type, use the instance value
         (Either::B(cls), Some(exc)) if objtype::isinstance(&exc, &cls) => exc,
-        (Either::B(cls), _) => vm.new_exception_obj(cls, args())?,
+        // otherwise; construct an exception of the type using the value as args
+        (Either::B(cls), _) => {
+            let args = match_class!(match exc_val {
+                PyNone => vec![],
+                tup @ PyTuple => tup.elements.clone(),
+                exc @ PyBaseException => exc.args().elements.clone(),
+                obj => vec![obj],
+            });
+            vm.new_exception_obj(cls, args)?
+        }
     };
     if let Some(tb) = Option::<PyTracebackRef>::try_from_object(vm, exc_tb)? {
         exc.set_traceback(Some(tb));
