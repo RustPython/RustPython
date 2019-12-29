@@ -1,15 +1,12 @@
 use futures::Future;
 use js_sys::Promise;
-use num_traits::cast::ToPrimitive;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::import::import_file;
-use rustpython_vm::obj::{
-    objdict::PyDictRef, objint::PyIntRef, objstr::PyStringRef, objtype::PyClassRef,
-};
+use rustpython_vm::obj::{objdict::PyDictRef, objstr::PyStringRef, objtype::PyClassRef};
 use rustpython_vm::pyobject::{
     PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
 };
@@ -148,14 +145,7 @@ fn browser_request_animation_frame(func: PyCallable, vm: &VirtualMachine) -> PyR
     Ok(vm.ctx.new_int(id))
 }
 
-fn browser_cancel_animation_frame(id: PyIntRef, vm: &VirtualMachine) -> PyResult {
-    let id = id.as_bigint().to_i32().ok_or_else(|| {
-        vm.new_exception(
-            vm.ctx.exceptions.value_error.clone(),
-            "Integer too large to convert to i32 for animationFrame id".into(),
-        )
-    })?;
-
+fn browser_cancel_animation_frame(id: i32, vm: &VirtualMachine) -> PyResult {
     window()
         .cancel_animation_frame(id)
         .map_err(|err| convert::js_py_typeerror(vm, err))?;
@@ -308,7 +298,7 @@ impl Element {
     fn set_attr(&self, attr: PyStringRef, value: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
         self.elem
             .set_attribute(attr.as_str(), value.as_str())
-            .map_err(|err| convert::js_to_py(vm, err))
+            .map_err(|err| convert::js_py_typeerror(vm, err))
     }
 }
 

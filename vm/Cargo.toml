@@ -49,7 +49,7 @@ chrono = { version = "=0.4.9", features = ["wasmbind"] }
 unicode-xid = "0.2.0"
 lazy_static = "^1.0.1"
 lexical = "4"
-itertools = "^0.8.0"
+itertools = "0.8"
 hex = "0.4.0"
 hexf-parse = "0.1.0"
 indexmap = "1.0.2"

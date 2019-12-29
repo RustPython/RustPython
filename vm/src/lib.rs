@@ -53,7 +53,7 @@ pub mod cformat;
 mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;
-mod exceptions;
+pub mod exceptions;
 pub mod format;
 mod frame;
 mod frozen;
@@ -72,7 +72,6 @@ mod version;
 mod vm;
 
 // pub use self::pyobject::Executor;
-pub use self::exceptions::{print_exception, write_exception};
 pub use self::vm::{InitParameter, PySettings, VirtualMachine};
 pub use rustpython_bytecode::*;
 

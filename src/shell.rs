@@ -5,9 +5,9 @@ mod rustyline_helper;
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
+    exceptions::{print_exception, PyBaseExceptionRef},
     obj::objtype,
-    print_exception,
-    pyobject::{ItemProtocol, PyObjectRef, PyResult},
+    pyobject::{ItemProtocol, PyResult},
     scope::Scope,
     VirtualMachine,
 };
@@ -16,7 +16,7 @@ use readline::{Readline, ReadlineResult};
 
 enum ShellExecResult {
     Ok,
-    PyErr(PyObjectRef),
+    PyErr(PyBaseExceptionRef),
     Continue,
 }
 
@@ -118,9 +118,8 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             ReadlineResult::Interrupt => {
                 continuing = false;
                 full_input.clear();
-                let keyboard_interrupt = vm
-                    .new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())
-                    .unwrap();
+                let keyboard_interrupt =
+                    vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone());
                 Err(keyboard_interrupt)
             }
             ReadlineResult::EOF => {

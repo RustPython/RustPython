@@ -12,6 +12,7 @@ use socket2::{Domain, Protocol, Socket, Type as SocketType};
 use super::os::convert_io_error;
 #[cfg(unix)]
 use super::os::convert_nix_error;
+use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytearray::PyByteArrayRef;
 use crate::obj::objbyteinner::PyBytesLike;
@@ -484,7 +485,7 @@ fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
 
     let addrs = dns_lookup::getaddrinfo(host, port, Some(hints)).map_err(|err| {
         let error_type = vm.class("_socket", "gaierror");
-        vm.new_exception(error_type, io::Error::from(err).to_string())
+        vm.new_exception_msg(error_type, io::Error::from(err).to_string())
     })?;
 
     let list = addrs
@@ -536,7 +537,7 @@ where
         Ok(mut sock_addrs) => {
             if sock_addrs.len() == 0 {
                 let error_type = vm.class("_socket", "gaierror");
-                Err(vm.new_exception(
+                Err(vm.new_exception_msg(
                     error_type,
                     "nodename nor servname provided, or not known".to_string(),
                 ))
@@ -546,7 +547,7 @@ where
         }
         Err(e) => {
             let error_type = vm.class("_socket", "gaierror");
-            Err(vm.new_exception(error_type, e.to_string()))
+            Err(vm.new_exception_msg(error_type, e.to_string()))
         }
     }
 }
@@ -589,10 +590,10 @@ fn invalid_sock() -> Socket {
     }
 }
 
-fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyObjectRef {
+fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
     if err.kind() == io::ErrorKind::TimedOut {
         let socket_timeout = vm.class("_socket", "timeout");
-        vm.new_exception(socket_timeout, "Timed out".to_string())
+        vm.new_exception_msg(socket_timeout, "Timed out".to_string())
     } else {
         convert_io_error(vm, err)
     }

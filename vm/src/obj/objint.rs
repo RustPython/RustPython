@@ -12,6 +12,7 @@ use super::objbytes::PyBytes;
 use super::objfloat;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::{self, PyClassRef};
+use crate::exceptions::PyBaseExceptionRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
@@ -817,7 +818,7 @@ fn detect_base(literal: &str) -> Option<u32> {
     }
 }
 
-fn invalid_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyObjectRef {
+fn invalid_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyBaseExceptionRef {
     vm.new_value_error(format!(
         "invalid literal for int() with base {}: '{}'",
         base, literal

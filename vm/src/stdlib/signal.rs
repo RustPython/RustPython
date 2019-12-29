@@ -108,7 +108,7 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
 }
 
 fn default_int_handler(_signum: PyObjectRef, _arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    Err(vm.new_empty_exception(vm.ctx.exceptions.keyboard_interrupt.clone())?)
+    Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone()))
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

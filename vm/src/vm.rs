@@ -19,6 +19,7 @@ use rustpython_compiler::{compile, error::CompileError};
 
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
+use crate::exceptions::{PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
 use crate::function::PyFuncArgs;
@@ -59,7 +60,7 @@ pub struct VirtualMachine {
     pub ctx: PyContext,
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
-    pub exceptions: RefCell<Vec<PyObjectRef>>,
+    pub exceptions: RefCell<Vec<PyBaseExceptionRef>>,
     pub frozen: RefCell<HashMap<String, bytecode::FrozenModule>>,
     pub import_func: RefCell<PyObjectRef>,
     pub profile_func: RefCell<PyObjectRef>,
@@ -328,41 +329,64 @@ impl VirtualMachine {
         PyObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
     }
 
-    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
-    pub fn new_exception_obj(&self, exc_type: PyClassRef, args: Vec<PyObjectRef>) -> PyResult {
+    /// Instantiate an exception with arguments.
+    /// This function should only be used with builtin exception types; if a user-defined exception
+    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`](invoke)
+    /// or [`exceptions::ExceptionCtor`](ctor) instead.
+    ///
+    /// [invoke]: rustpython_vm::exceptions::invoke
+    /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
+    pub fn new_exception(
+        &self,
+        exc_type: PyClassRef,
+        args: Vec<PyObjectRef>,
+    ) -> PyBaseExceptionRef {
         // TODO: add repr of args into logging?
         vm_trace!("New exception created: {}", exc_type.name);
-        self.invoke(&exc_type.into_object(), args)
+        PyBaseException::new(args, self)
+            .into_ref_with_type_unchecked(exc_type, Some(self.ctx.new_dict()))
     }
 
-    pub fn new_empty_exception(&self, exc_type: PyClassRef) -> PyResult {
-        self.new_exception_obj(exc_type, vec![])
+    /// Instantiate an exception with no arguments.
+    /// This function should only be used with builtin exception types; if a user-defined exception
+    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`](invoke)
+    /// or [`exceptions::ExceptionCtor`](ctor) instead.
+    ///
+    /// [invoke]: rustpython_vm::exceptions::invoke
+    /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
+    pub fn new_exception_empty(&self, exc_type: PyClassRef) -> PyBaseExceptionRef {
+        self.new_exception(exc_type, vec![])
     }
 
-    /// Create Python instance of `exc_type` with message as first element of `args` tuple
-    pub fn new_exception(&self, exc_type: PyClassRef, msg: String) -> PyObjectRef {
-        let pystr_msg = self.new_str(msg);
-        self.new_exception_obj(exc_type, vec![pystr_msg]).unwrap()
+    /// Instantiate an exception with `msg` as the only argument.
+    /// This function should only be used with builtin exception types; if a user-defined exception
+    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`](invoke)
+    /// or [`exceptions::ExceptionCtor`](ctor) instead.
+    ///
+    /// [invoke]: rustpython_vm::exceptions::invoke
+    /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
+    pub fn new_exception_msg(&self, exc_type: PyClassRef, msg: String) -> PyBaseExceptionRef {
+        self.new_exception(exc_type, vec![self.new_str(msg)])
     }
 
-    pub fn new_lookup_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_lookup_error(&self, msg: String) -> PyBaseExceptionRef {
         let lookup_error = self.ctx.exceptions.lookup_error.clone();
-        self.new_exception(lookup_error, msg)
+        self.new_exception_msg(lookup_error, msg)
     }
 
-    pub fn new_attribute_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_attribute_error(&self, msg: String) -> PyBaseExceptionRef {
         let attribute_error = self.ctx.exceptions.attribute_error.clone();
-        self.new_exception(attribute_error, msg)
+        self.new_exception_msg(attribute_error, msg)
     }
 
-    pub fn new_type_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_type_error(&self, msg: String) -> PyBaseExceptionRef {
         let type_error = self.ctx.exceptions.type_error.clone();
-        self.new_exception(type_error, msg)
+        self.new_exception_msg(type_error, msg)
     }
 
-    pub fn new_name_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_name_error(&self, msg: String) -> PyBaseExceptionRef {
         let name_error = self.ctx.exceptions.name_error.clone();
-        self.new_exception(name_error, msg)
+        self.new_exception_msg(name_error, msg)
     }
 
     pub fn new_unsupported_operand_error(
@@ -370,7 +394,7 @@ impl VirtualMachine {
         a: PyObjectRef,
         b: PyObjectRef,
         op: &str,
-    ) -> PyObjectRef {
+    ) -> PyBaseExceptionRef {
         self.new_type_error(format!(
             "Unsupported operand types for '{}': '{}' and '{}'",
             op,
@@ -379,60 +403,60 @@ impl VirtualMachine {
         ))
     }
 
-    pub fn new_os_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_os_error(&self, msg: String) -> PyBaseExceptionRef {
         let os_error = self.ctx.exceptions.os_error.clone();
-        self.new_exception(os_error, msg)
+        self.new_exception_msg(os_error, msg)
     }
 
-    pub fn new_unicode_decode_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_unicode_decode_error(&self, msg: String) -> PyBaseExceptionRef {
         let unicode_decode_error = self.ctx.exceptions.unicode_decode_error.clone();
-        self.new_exception(unicode_decode_error, msg)
+        self.new_exception_msg(unicode_decode_error, msg)
     }
 
-    pub fn new_unicode_encode_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_unicode_encode_error(&self, msg: String) -> PyBaseExceptionRef {
         let unicode_encode_error = self.ctx.exceptions.unicode_encode_error.clone();
-        self.new_exception(unicode_encode_error, msg)
+        self.new_exception_msg(unicode_encode_error, msg)
     }
 
     /// Create a new python ValueError object. Useful for raising errors from
     /// python functions implemented in rust.
-    pub fn new_value_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_value_error(&self, msg: String) -> PyBaseExceptionRef {
         let value_error = self.ctx.exceptions.value_error.clone();
-        self.new_exception(value_error, msg)
+        self.new_exception_msg(value_error, msg)
     }
 
-    pub fn new_key_error(&self, obj: PyObjectRef) -> PyObjectRef {
+    pub fn new_key_error(&self, obj: PyObjectRef) -> PyBaseExceptionRef {
         let key_error = self.ctx.exceptions.key_error.clone();
-        self.new_exception_obj(key_error, vec![obj]).unwrap()
+        self.new_exception(key_error, vec![obj])
     }
 
-    pub fn new_index_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_index_error(&self, msg: String) -> PyBaseExceptionRef {
         let index_error = self.ctx.exceptions.index_error.clone();
-        self.new_exception(index_error, msg)
+        self.new_exception_msg(index_error, msg)
     }
 
-    pub fn new_not_implemented_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_not_implemented_error(&self, msg: String) -> PyBaseExceptionRef {
         let not_implemented_error = self.ctx.exceptions.not_implemented_error.clone();
-        self.new_exception(not_implemented_error, msg)
+        self.new_exception_msg(not_implemented_error, msg)
     }
 
-    pub fn new_recursion_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_recursion_error(&self, msg: String) -> PyBaseExceptionRef {
         let recursion_error = self.ctx.exceptions.recursion_error.clone();
-        self.new_exception(recursion_error, msg)
+        self.new_exception_msg(recursion_error, msg)
     }
 
-    pub fn new_zero_division_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_zero_division_error(&self, msg: String) -> PyBaseExceptionRef {
         let zero_division_error = self.ctx.exceptions.zero_division_error.clone();
-        self.new_exception(zero_division_error, msg)
+        self.new_exception_msg(zero_division_error, msg)
     }
 
-    pub fn new_overflow_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_overflow_error(&self, msg: String) -> PyBaseExceptionRef {
         let overflow_error = self.ctx.exceptions.overflow_error.clone();
-        self.new_exception(overflow_error, msg)
+        self.new_exception_msg(overflow_error, msg)
     }
 
     #[cfg(feature = "rustpython-compiler")]
-    pub fn new_syntax_error(&self, error: &CompileError) -> PyObjectRef {
+    pub fn new_syntax_error(&self, error: &CompileError) -> PyBaseExceptionRef {
         let syntax_error_type = if error.is_indentation_error() {
             self.ctx.exceptions.indentation_error.clone()
         } else if error.is_tab_error() {
@@ -440,25 +464,31 @@ impl VirtualMachine {
         } else {
             self.ctx.exceptions.syntax_error.clone()
         };
-        let syntax_error = self.new_exception(syntax_error_type, error.to_string());
+        let syntax_error = self.new_exception_msg(syntax_error_type, error.to_string());
         let lineno = self.new_int(error.location.row());
         let offset = self.new_int(error.location.column());
-        self.set_attr(&syntax_error, "lineno", lineno).unwrap();
-        self.set_attr(&syntax_error, "offset", offset).unwrap();
+        self.set_attr(syntax_error.as_object(), "lineno", lineno)
+            .unwrap();
+        self.set_attr(syntax_error.as_object(), "offset", offset)
+            .unwrap();
         if let Some(v) = error.statement.as_ref() {
-            self.set_attr(&syntax_error, "text", self.new_str(v.to_owned()))
+            self.set_attr(syntax_error.as_object(), "text", self.new_str(v.to_owned()))
                 .unwrap();
         }
         if let Some(path) = error.source_path.as_ref() {
-            self.set_attr(&syntax_error, "filename", self.new_str(path.to_owned()))
-                .unwrap();
+            self.set_attr(
+                syntax_error.as_object(),
+                "filename",
+                self.new_str(path.to_owned()),
+            )
+            .unwrap();
         }
         syntax_error
     }
 
-    pub fn new_import_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_import_error(&self, msg: String) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.clone();
-        self.new_exception(import_error, msg)
+        self.new_exception_msg(import_error, msg)
     }
 
     pub fn new_scope_with_builtins(&self) -> Scope {
@@ -1358,15 +1388,15 @@ impl VirtualMachine {
         }
     }
 
-    pub fn push_exception(&self, exc: PyObjectRef) {
+    pub fn push_exception(&self, exc: PyBaseExceptionRef) {
         self.exceptions.borrow_mut().push(exc)
     }
 
-    pub fn pop_exception(&self) -> Option<PyObjectRef> {
+    pub fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
         self.exceptions.borrow_mut().pop()
     }
 
-    pub fn current_exception(&self) -> Option<PyObjectRef> {
+    pub fn current_exception(&self) -> Option<PyBaseExceptionRef> {
         self.exceptions.borrow().last().cloned()
     }
 

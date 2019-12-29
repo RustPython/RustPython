@@ -1,3 +1,4 @@
+use crate::exceptions::PyBaseExceptionRef;
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
@@ -110,7 +111,7 @@ fn zlib_decompress(
     }
 }
 
-fn zlib_error(message: &str, vm: &VirtualMachine) -> PyObjectRef {
+fn zlib_error(message: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
     let module = vm
         .get_attribute(vm.sys_module.clone(), "modules")
         .unwrap()
@@ -120,5 +121,5 @@ fn zlib_error(message: &str, vm: &VirtualMachine) -> PyObjectRef {
     let zlib_error = vm.get_attribute(module, "error").unwrap();
     let zlib_error = zlib_error.downcast().unwrap();
 
-    vm.new_exception(zlib_error, message.to_string())
+    vm.new_exception_msg(zlib_error, message.to_string())
 }

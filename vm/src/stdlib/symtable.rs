@@ -110,7 +110,7 @@ impl PySymbolTable {
             }
             .into_ref(vm))
         } else {
-            Err(vm.ctx.new_str(name.to_string()))
+            Err(vm.new_lookup_error(name.to_string()))
         }
     }
 

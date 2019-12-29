@@ -13,7 +13,7 @@ use num_traits::{One, ToPrimitive, Zero};
 
 use crate::bytecode;
 use crate::dictdatatype::DictKey;
-use crate::exceptions;
+use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objbytearray;
@@ -64,7 +64,7 @@ pub type PyObjectRef = Rc<PyObject<dyn PyObjectPayload>>;
 /// Use this type for functions which return a python object or an exception.
 /// Both the python object and the python exception are `PyObjectRef` types
 /// since exceptions are also python objects.
-pub type PyResult<T = PyObjectRef> = Result<T, PyObjectRef>; // A valid value, or an exception
+pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid value, or an exception
 
 /// For attributes we do not use a dict, but a hashmap. This is probably
 /// faster, unordered, and only supports strings as keys.
@@ -575,9 +575,6 @@ impl PyObject<dyn PyObjectPayload> {
     ///
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
-    ///
-    /// Note: The returned `Result` is _not_ a `PyResult`, even though the
-    ///       types are compatible.
     pub fn downcast<T: PyObjectPayload>(self: Rc<Self>) -> Result<PyRef<T>, PyObjectRef> {
         if self.payload_is::<T>() {
             Ok({
@@ -622,7 +619,7 @@ impl<T: PyValue> PyRef<T> {
         if obj.payload_is::<T>() {
             Ok(Self::new_ref_unchecked(obj))
         } else {
-            Err(vm.new_exception(
+            Err(vm.new_exception_msg(
                 vm.ctx.exceptions.runtime_error.clone(),
                 format!("Unexpected payload for type {:?}", obj.class().name),
             ))
@@ -799,6 +796,12 @@ where
 impl<T> TypeProtocol for PyRef<T> {
     fn class(&self) -> PyClassRef {
         self.obj.typ.clone()
+    }
+}
+
+impl<T: TypeProtocol> TypeProtocol for &'_ T {
+    fn class(&self) -> PyClassRef {
+        (&**self).class()
     }
 }
 
@@ -1082,7 +1085,7 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
     fn class(vm: &VirtualMachine) -> PyClassRef;
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        PyRef::new_ref_unchecked(PyObject::new(self, Self::class(vm), None))
+        self.into_ref_with_type_unchecked(Self::class(vm), None)
     }
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
@@ -1099,6 +1102,10 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
             let basetype = vm.to_pystr(&class.obj)?;
             Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
         }
+    }
+
+    fn into_ref_with_type_unchecked(self, cls: PyClassRef, dict: Option<PyDictRef>) -> PyRef<Self> {
+        PyRef::new_ref_unchecked(PyObject::new(self, cls, dict))
     }
 }
 

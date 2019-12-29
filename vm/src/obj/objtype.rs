@@ -287,8 +287,8 @@ fn _mro(cls: &PyClassRef) -> Vec<PyClassRef> {
 
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
-#[cfg_attr(feature = "flame-it", flame("objtype"))]
-pub fn isinstance(obj: &PyObjectRef, cls: &PyClassRef) -> bool {
+#[inline]
+pub fn isinstance<T: TypeProtocol>(obj: &T, cls: &PyClassRef) -> bool {
     issubclass(&obj.class(), &cls)
 }
 

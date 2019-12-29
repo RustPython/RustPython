@@ -3,7 +3,8 @@
  */
 
 use super::objiter::new_stop_iteration;
-use super::objtype::{isinstance, issubclass, PyClassRef};
+use super::objtype::{isinstance, PyClassRef};
+use crate::exceptions;
 use crate::frame::{ExecutionResult, FrameRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
@@ -69,26 +70,18 @@ impl PyGenerator {
     #[pymethod]
     fn throw(
         &self,
-        exc_type: PyClassRef,
+        exc_type: PyObjectRef,
         exc_val: OptionalArg,
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let exc_val = exc_val.unwrap_or_else(|| vm.get_none());
+        let exc_tb = exc_tb.unwrap_or_else(|| vm.get_none());
         if self.closed.get() {
-            return Err(vm.invoke(exc_type.as_object(), vec![])?);
-        }
-        // TODO what should we do with the other parameters? CPython normalises them with
-        //      PyErr_NormalizeException, do we want to do the same.
-        if !issubclass(&exc_type, &vm.ctx.exceptions.base_exception_type) {
-            return Err(vm.new_type_error("Can't throw non exception".to_string()));
+            return Err(exceptions::normalize(exc_type, exc_val, exc_tb, vm)?);
         }
         vm.frames.borrow_mut().push(self.frame.clone());
-        let result = self.frame.gen_throw(
-            vm,
-            exc_type,
-            exc_val.unwrap_or(vm.get_none()),
-            exc_tb.unwrap_or(vm.get_none()),
-        );
+        let result = self.frame.gen_throw(vm, exc_type, exc_val, exc_tb);
         self.maybe_close(&result);
         vm.frames.borrow_mut().pop();
         result?.into_result(vm)
@@ -102,14 +95,14 @@ impl PyGenerator {
         vm.frames.borrow_mut().push(self.frame.clone());
         let result = self.frame.gen_throw(
             vm,
-            vm.ctx.exceptions.generator_exit.clone(),
+            vm.ctx.exceptions.generator_exit.clone().into_object(),
             vm.get_none(),
             vm.get_none(),
         );
         vm.frames.borrow_mut().pop();
         self.closed.set(true);
         match result {
-            Ok(ExecutionResult::Yield(_)) => Err(vm.new_exception(
+            Ok(ExecutionResult::Yield(_)) => Err(vm.new_exception_msg(
                 vm.ctx.exceptions.runtime_error.clone(),
                 "generator ignored GeneratorExit".to_string(),
             )),
