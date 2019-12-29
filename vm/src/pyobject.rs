@@ -1085,7 +1085,7 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
     fn class(vm: &VirtualMachine) -> PyClassRef;
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        self.into_ref_with_type_unchecked(Self::class(vm))
+        self.into_ref_with_type_unchecked(Self::class(vm), None)
     }
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
@@ -1104,8 +1104,8 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
         }
     }
 
-    fn into_ref_with_type_unchecked(self, cls: PyClassRef) -> PyRef<Self> {
-        PyRef::new_ref_unchecked(PyObject::new(self, cls, None))
+    fn into_ref_with_type_unchecked(self, cls: PyClassRef, dict: Option<PyDictRef>) -> PyRef<Self> {
+        PyRef::new_ref_unchecked(PyObject::new(self, cls, dict))
     }
 }
 

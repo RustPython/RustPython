@@ -343,7 +343,8 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         // TODO: add repr of args into logging?
         vm_trace!("New exception created: {}", exc_type.name);
-        PyBaseException::new(args, self).into_ref_with_type_unchecked(exc_type)
+        PyBaseException::new(args, self)
+            .into_ref_with_type_unchecked(exc_type, Some(self.ctx.new_dict()))
     }
 
     /// Instantiate an exception with no arguments.
