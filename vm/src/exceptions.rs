@@ -250,8 +250,6 @@ pub fn write_exception_inner<W: Write>(
             write_traceback_entry(output, traceback)?;
             tb = traceback.next.as_ref();
         }
-    } else {
-        writeln!(output, "No traceback set on exception")?;
     }
 
     let varargs = exc.args();

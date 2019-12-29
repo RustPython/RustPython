@@ -263,3 +263,33 @@ pub fn is_valid_slice_arg(
         Ok(None)
     }
 }
+
+pub fn opt_len(obj: &PyObjectRef, vm: &VirtualMachine) -> Option<PyResult<usize>> {
+    vm.get_method(obj.clone(), "__len__").map(|len| {
+        let len = vm.invoke(&len?, vec![])?;
+        let len = len
+            .payload_if_subclass::<PyInt>(vm)
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "'{}' object cannot be interpreted as an integer",
+                    len.class().name
+                ))
+            })?
+            .as_bigint();
+        if len.is_negative() {
+            return Err(vm.new_value_error("__len__() should return >= 0".to_string()));
+        }
+        len.to_usize().ok_or_else(|| {
+            vm.new_overflow_error("cannot fit __len__() result into usize".to_string())
+        })
+    })
+}
+
+pub fn len(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    opt_len(obj, vm).unwrap_or_else(|| {
+        Err(vm.new_type_error(format!(
+            "object of type '{}' has no len()",
+            obj.class().name
+        )))
+    })
+}
