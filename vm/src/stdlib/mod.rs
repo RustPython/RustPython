@@ -16,6 +16,7 @@ mod json;
 mod keyword;
 mod marshal;
 mod math;
+mod operator;
 mod platform;
 mod pystruct;
 mod random;
@@ -74,6 +75,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "json".to_string() => Box::new(json::make_module),
         "marshal".to_string() => Box::new(marshal::make_module),
         "math".to_string() => Box::new(math::make_module),
+        "_operator".to_string() => Box::new(operator::make_module),
         "platform".to_string() => Box::new(platform::make_module),
         "regex_crate".to_string() => Box::new(re::make_module),
         "random".to_string() => Box::new(random::make_module),
