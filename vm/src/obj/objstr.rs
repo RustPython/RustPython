@@ -280,39 +280,23 @@ impl PyString {
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            Ok(self.value > get_value(&rhs))
-        } else {
-            Err(vm.new_type_error(format!("Cannot compare {} and {}", self, rhs)))
-        }
+    fn gt(&self, other: PyStringRef, _vm: &VirtualMachine) -> bool {
+        self.value > other.value
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            Ok(self.value >= get_value(&rhs))
-        } else {
-            Err(vm.new_type_error(format!("Cannot compare {} and {}", self, rhs)))
-        }
+    fn ge(&self, other: PyStringRef, _vm: &VirtualMachine) -> bool {
+        self.value >= other.value
     }
 
     #[pymethod(name = "__lt__")]
-    fn lt(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            Ok(self.value < get_value(&rhs))
-        } else {
-            Err(vm.new_type_error(format!("Cannot compare {} and {}", self, rhs)))
-        }
+    fn lt(&self, other: PyStringRef, _vm: &VirtualMachine) -> bool {
+        self.value < other.value
     }
 
     #[pymethod(name = "__le__")]
-    fn le(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            Ok(self.value <= get_value(&rhs))
-        } else {
-            Err(vm.new_type_error(format!("Cannot compare {} and {}", self, rhs)))
-        }
+    fn le(&self, other: PyStringRef, _vm: &VirtualMachine) -> bool {
+        self.value <= other.value
     }
 
     #[pymethod(name = "__hash__")]

@@ -120,7 +120,7 @@ fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
         let v1 = try_float(int1, vm)?;
         let v2 = try_float(int2, vm)?;
-        objfloat::float_pow(v1, v2, vm)
+        objfloat::float_pow(v1, v2, vm).into_pyobject(vm)
     } else {
         Ok(if let Some(v2) = int2.to_u64() {
             vm.ctx.new_int(int1.pow(v2))
@@ -223,8 +223,8 @@ impl PyInt {
     where
         F: Fn(&BigInt, &BigInt) -> bool,
     {
-        if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_bool(op(&self.value, get_value(&other)))
+        if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
+            vm.ctx.new_bool(op(&self.value, &other.value))
         } else {
             vm.ctx.not_implemented()
         }
@@ -265,8 +265,8 @@ impl PyInt {
     where
         F: Fn(&BigInt, &BigInt) -> BigInt,
     {
-        if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_int(op(&self.value, get_value(&other)))
+        if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
+            vm.ctx.new_int(op(&self.value, &other.value))
         } else {
             vm.ctx.not_implemented()
         }
@@ -277,8 +277,8 @@ impl PyInt {
     where
         F: Fn(&BigInt, &BigInt) -> PyResult,
     {
-        if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            op(&self.value, get_value(&other))
+        if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
+            op(&self.value, &other.value)
         } else {
             Ok(vm.ctx.not_implemented())
         }
