@@ -1,4 +1,5 @@
 use num_bigint::{BigInt, Sign};
+use num_traits::cast::ToPrimitive;
 use num_traits::Signed;
 use std::cmp;
 use std::str::FromStr;
@@ -281,13 +282,21 @@ impl FormatSpec {
         separator: char,
     ) -> String {
         let mut result = String::new();
-        let mut remaining: usize = magnitude_string.len();
-        for c in magnitude_string.chars() {
+
+        // Don't add separators to the floating decimal point of numbers
+        let mut parts = magnitude_string.splitn(2, '.');
+        let magnitude_integer_string = parts.next().unwrap();
+        let mut remaining: usize = magnitude_integer_string.len();
+        for c in magnitude_integer_string.chars() {
             result.push(c);
             remaining -= 1;
             if remaining % interval == 0 && remaining > 0 {
                 result.push(separator);
             }
+        }
+        if let Some(part) = parts.next() {
+            result.push('.');
+            result.push_str(part);
         }
         result
     }
@@ -300,6 +309,7 @@ impl FormatSpec {
             Some(FormatType::HexLower) => 4,
             Some(FormatType::HexUpper) => 4,
             Some(FormatType::Number) => 3,
+            Some(FormatType::FixedPointLower) | Some(FormatType::FixedPointUpper) => 3,
             None => 3,
             _ => panic!("Separators only valid for numbers!"),
         }
@@ -321,8 +331,75 @@ impl FormatSpec {
         }
     }
 
+    pub fn format_float(&self, num: f64) -> Result<String, &'static str> {
+        let precision = self.precision.unwrap_or(6);
+        let magnitude = num.abs();
+        let raw_magnitude_string_result: Result<String, &'static str> = match self.format_type {
+            Some(FormatType::FixedPointUpper) => match magnitude {
+                magnitude if magnitude.is_nan() => Ok("NAN".to_string()),
+                magnitude if magnitude.is_infinite() => Ok("INF".to_string()),
+                _ => Ok(format!("{:.*}", precision, magnitude)),
+            },
+            Some(FormatType::FixedPointLower) => match magnitude {
+                magnitude if magnitude.is_nan() => Ok("nan".to_string()),
+                magnitude if magnitude.is_infinite() => Ok("inf".to_string()),
+                _ => Ok(format!("{:.*}", precision, magnitude)),
+            },
+            Some(FormatType::Decimal) => Err("Unknown format code 'd' for object of type 'float'"),
+            Some(FormatType::Binary) => Err("Unknown format code 'b' for object of type 'float'"),
+            Some(FormatType::Octal) => Err("Unknown format code 'o' for object of type 'float'"),
+            Some(FormatType::HexLower) => Err("Unknown format code 'x' for object of type 'float'"),
+            Some(FormatType::HexUpper) => Err("Unknown format code 'X' for object of type 'float'"),
+            Some(FormatType::String) => Err("Unknown format code 's' for object of type 'float'"),
+            Some(FormatType::Character) => {
+                Err("Unknown format code 'c' for object of type 'float'")
+            }
+            Some(FormatType::Number) => {
+                Err("Format code 'n' for object of type 'float' not implemented yet")
+            }
+            Some(FormatType::GeneralFormatUpper) => {
+                Err("Format code 'G' for object of type 'float' not implemented yet")
+            }
+            Some(FormatType::GeneralFormatLower) => {
+                Err("Format code 'g' for object of type 'float' not implemented yet")
+            }
+            Some(FormatType::ExponentUpper) => {
+                Err("Format code 'E' for object of type 'float' not implemented yet")
+            }
+            Some(FormatType::ExponentLower) => {
+                Err("Format code 'e' for object of type 'float' not implemented yet")
+            }
+            None => {
+                match magnitude {
+                    magnitude if magnitude.is_nan() => Ok("nan".to_string()),
+                    magnitude if magnitude.is_infinite() => Ok("inf".to_string()),
+                    // Using the Debug format here to prevent the automatic conversion of floats
+                    // ending in .0 to their integer representation (e.g., 1.0 -> 1)
+                    _ => Ok(format!("{:?}", magnitude)),
+                }
+            }
+        };
+
+        if raw_magnitude_string_result.is_err() {
+            return raw_magnitude_string_result;
+        }
+
+        let magnitude_string = self.add_magnitude_separators(raw_magnitude_string_result.unwrap());
+        let format_sign = self.sign.unwrap_or(FormatSign::Minus);
+        let sign_str = if num.is_sign_negative() && !num.is_nan() {
+            "-"
+        } else {
+            match format_sign {
+                FormatSign::Plus => "+",
+                FormatSign::Minus => "",
+                FormatSign::MinusOrSpace => " ",
+            }
+        };
+
+        self.format_sign_and_align(magnitude_string, sign_str)
+    }
+
     pub fn format_int(&self, num: &BigInt) -> Result<String, &'static str> {
-        let fill_char = self.fill.unwrap_or(' ');
         let magnitude = num.abs();
         let prefix = if self.alternate_form {
             match self.format_type {
@@ -360,11 +437,11 @@ impl FormatSpec {
             Some(FormatType::ExponentLower) => {
                 Err("Unknown format code 'e' for object of type 'int'")
             }
-            Some(FormatType::FixedPointUpper) => {
-                Err("Unknown format code 'F' for object of type 'int'")
-            }
-            Some(FormatType::FixedPointLower) => {
-                Err("Unknown format code 'f' for object of type 'int'")
+            Some(FormatType::FixedPointUpper) | Some(FormatType::FixedPointLower) => {
+                match num.to_f64() {
+                    Some(float) => return self.format_float(float),
+                    _ => Err("Unable to convert int to float"),
+                }
             }
             None => Ok(magnitude.to_str_radix(10)),
         };
@@ -376,10 +453,6 @@ impl FormatSpec {
             prefix,
             self.add_magnitude_separators(raw_magnitude_string_result.unwrap())
         );
-        let align = self.align.unwrap_or(FormatAlign::Right);
-
-        // Use the byte length as the string length since we're in ascii
-        let num_chars = magnitude_string.len();
 
         let format_sign = self.sign.unwrap_or(FormatSign::Minus);
         let sign_str = match num.sign() {
@@ -391,6 +464,19 @@ impl FormatSpec {
             },
         };
 
+        self.format_sign_and_align(magnitude_string, sign_str)
+    }
+
+    fn format_sign_and_align(
+        &self,
+        magnitude_string: String,
+        sign_str: &str,
+    ) -> Result<String, &'static str> {
+        let align = self.align.unwrap_or(FormatAlign::Right);
+
+        // Use the byte length as the string length since we're in ascii
+        let num_chars = magnitude_string.len();
+        let fill_char = self.fill.unwrap_or(' ');
         let fill_chars_needed: i32 = self.width.map_or(0, |w| {
             cmp::max(0, (w as i32) - (num_chars as i32) - (sign_str.len() as i32))
         });
