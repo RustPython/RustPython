@@ -29,12 +29,8 @@ struct ReaderOption {
 
 impl ReaderOption {
     fn new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
-        let delimiter = {
-            let bytes = args
-                .get_optional_kwarg("delimiter")
-                .map_or(",".to_string(), |pyobj| objstr::get_value(&pyobj))
-                .into_bytes();
-
+        let delimiter = if let Some(delimiter) = args.get_optional_kwarg("delimiter") {
+            let bytes = objstr::borrow_value(&delimiter).as_bytes();
             match bytes.len() {
                 1 => bytes[0],
                 _ => {
@@ -42,14 +38,12 @@ impl ReaderOption {
                     return Err(vm.new_type_error(msg.to_string()));
                 }
             }
+        } else {
+            b','
         };
 
-        let quotechar = {
-            let bytes = args
-                .get_optional_kwarg("quotechar")
-                .map_or("\"".to_string(), |pyobj| objstr::get_value(&pyobj))
-                .into_bytes();
-
+        let quotechar = if let Some(quotechar) = args.get_optional_kwarg("quotechar") {
+            let bytes = objstr::borrow_value(&quotechar).as_bytes();
             match bytes.len() {
                 1 => bytes[0],
                 _ => {
@@ -57,6 +51,8 @@ impl ReaderOption {
                     return Err(vm.new_type_error(msg.to_string()));
                 }
             }
+        } else {
+            b'"'
         };
 
         Ok(ReaderOption {

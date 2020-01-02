@@ -109,7 +109,7 @@ impl PopenRef {
             Either::A(command) => vec![command.as_str().to_string()],
             Either::B(command_list) => objsequence::get_elements_list(command_list.as_object())
                 .iter()
-                .map(|x| objstr::get_value(x))
+                .map(|x| objstr::clone_value(x))
                 .collect(),
         };
         let cwd = args.cwd.map(|x| OsString::from(x.as_str()));

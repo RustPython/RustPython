@@ -67,7 +67,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 seq.end()
             };
         if objtype::isinstance(self.pyobject, &self.vm.ctx.str_type()) {
-            serializer.serialize_str(&objstr::get_value(&self.pyobject))
+            serializer.serialize_str(objstr::borrow_value(&self.pyobject))
         } else if objtype::isinstance(self.pyobject, &self.vm.ctx.float_type()) {
             serializer.serialize_f64(objfloat::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject, &self.vm.ctx.bool_type()) {

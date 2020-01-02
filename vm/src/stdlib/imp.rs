@@ -35,8 +35,8 @@ fn imp_is_frozen(name: PyStringRef, vm: &VirtualMachine) -> bool {
 
 fn imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
-
-    let name = &objstr::get_value(&vm.get_attribute(spec.clone(), "name")?);
+    let spec = vm.get_attribute(spec.clone(), "name")?;
+    let name = objstr::borrow_value(&spec);
 
     if let Ok(module) = sys_modules.get_item(name, vm) {
         Ok(module)
