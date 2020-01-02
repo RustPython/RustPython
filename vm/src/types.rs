@@ -39,8 +39,9 @@ use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::pyobject::{PyAttributes, PyContext, PyObject, PyObjectRef};
 use std::cell::RefCell;
-use std::mem;
+use std::mem::MaybeUninit;
 use std::ptr;
+use std::rc::Rc;
 
 /// Holder of references to builtin types.
 #[derive(Debug)]
@@ -236,48 +237,87 @@ pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyC
     objtype::new(type_type.clone(), name, vec![base.clone()], dict).unwrap()
 }
 
+/// Paritally initialize a struct, ensuring that all fields are
+/// either given values or explicitly left uninitialized
+macro_rules! partially_init {
+    (
+        $ty:path {$($init_field:ident: $init_value:expr),*$(,)?},
+        Uninit { $($uninit_field:ident),*$(,)? }$(,)?
+    ) => {{
+        // check all the fields are there but *don't* actually run it
+        #[allow(deprecated, invalid_value)]
+        {if false {
+            let _ = {$ty {
+                $($init_field: $init_value,)*
+                $($uninit_field: ::std::mem::uninitialized(),)*
+            }};
+        }}
+        let mut m = ::std::mem::MaybeUninit::<$ty>::uninit();
+        $(::std::ptr::write(&mut (*m.as_mut_ptr()).$init_field, $init_value);)*
+        m
+    }};
+}
+
 fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
     // `type` inherits from `object`
     // and both `type` and `object are instances of `type`.
     // to produce this circular dependency, we need an unsafe block.
     // (and yes, this will never get dropped. TODO?)
     let (type_type, object_type) = unsafe {
-        let object_type = PyObject {
-            typ: mem::MaybeUninit::uninit().assume_init(), // !
-            dict: None,
-            payload: PyClass {
-                name: String::from("object"),
-                bases: vec![],
-                mro: vec![],
-                subclasses: RefCell::default(),
-                attributes: RefCell::new(PyAttributes::new()),
-                slots: RefCell::default(),
+        type PyClassObj = PyObject<PyClass>;
+        type UninitRef<T> = Rc<MaybeUninit<T>>;
+
+        let type_type: UninitRef<PyClassObj> = Rc::new(partially_init!(
+            PyObject::<PyClass> {
+                dict: None,
+                payload: PyClass {
+                    name: String::from("type"),
+                    bases: vec![],
+                    mro: vec![],
+                    subclasses: RefCell::default(),
+                    attributes: RefCell::new(PyAttributes::new()),
+                    slots: RefCell::default(),
+                },
             },
-        }
-        .into_ref();
-
-        let type_type = PyObject {
-            typ: mem::MaybeUninit::uninit().assume_init(), // !
-            dict: None,
-            payload: PyClass {
-                name: String::from("type"),
-                bases: vec![object_type.clone().downcast().unwrap()],
-                mro: vec![object_type.clone().downcast().unwrap()],
-                subclasses: RefCell::default(),
-                attributes: RefCell::new(PyAttributes::new()),
-                slots: RefCell::default(),
+            Uninit { typ }
+        ));
+        let object_type: UninitRef<PyClassObj> = Rc::new(partially_init!(
+            PyObject::<PyClass> {
+                dict: None,
+                payload: PyClass {
+                    name: String::from("object"),
+                    bases: vec![],
+                    mro: vec![],
+                    subclasses: RefCell::default(),
+                    attributes: RefCell::new(PyAttributes::new()),
+                    slots: RefCell::default(),
+                },
             },
-        }
-        .into_ref();
+            Uninit { typ },
+        ));
 
-        let object_type_ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject<PyClass>;
-        let type_type_ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject<PyClass>;
+        let object_type_ptr =
+            Rc::into_raw(object_type) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
+        let type_type_ptr =
+            Rc::into_raw(type_type.clone()) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
 
-        let type_type: PyClassRef = type_type.downcast().unwrap();
-        let object_type: PyClassRef = object_type.downcast().unwrap();
+        let type_type_pyobj =
+            Rc::<PyClassObj>::from_raw(Rc::into_raw(type_type) as *mut _) as PyObjectRef;
 
-        ptr::write(&mut (*object_type_ptr).typ, type_type.clone());
-        ptr::write(&mut (*type_type_ptr).typ, type_type.clone());
+        ptr::write(
+            &mut (*object_type_ptr).typ as *mut PyClassRef as *mut PyObjectRef,
+            type_type_pyobj.clone(),
+        );
+        ptr::write(
+            &mut (*type_type_ptr).typ as *mut PyClassRef as *mut PyObjectRef,
+            type_type_pyobj,
+        );
+
+        let type_type = PyClassRef::new_ref_unchecked(Rc::from_raw(type_type_ptr));
+        let object_type = PyClassRef::new_ref_unchecked(Rc::from_raw(object_type_ptr));
+
+        (*type_type_ptr).payload.mro = vec![object_type.clone()];
+        (*type_type_ptr).payload.bases = vec![object_type.clone()];
 
         (type_type, object_type)
     };

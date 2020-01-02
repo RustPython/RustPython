@@ -642,7 +642,7 @@ impl<T: PyValue> PyRef<T> {
         }
     }
 
-    fn new_ref_unchecked(obj: PyObjectRef) -> Self {
+    pub(crate) fn new_ref_unchecked(obj: PyObjectRef) -> Self {
         PyRef {
             obj,
             _payload: PhantomData,
