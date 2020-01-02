@@ -189,9 +189,7 @@ impl PyTuple {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = seq_mul(&self.as_slice(), counter)
-            .cloned()
-            .collect();
+        let new_elements = seq_mul(&self.as_slice(), counter).cloned().collect();
         vm.ctx.new_tuple(new_elements)
     }
 

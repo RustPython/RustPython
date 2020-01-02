@@ -277,8 +277,8 @@ impl SimpleSeq for std::collections::VecDeque<PyObjectRef> {
 
 pub fn seq_equal(
     vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
+    zelf: &impl SimpleSeq,
+    other: &impl SimpleSeq,
 ) -> PyResult<bool> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -295,7 +295,11 @@ pub fn seq_equal(
     }
 }
 
-pub fn seq_lt(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
+pub fn seq_lt(
+    vm: &VirtualMachine,
+    zelf: &impl SimpleSeq,
+    other: &impl SimpleSeq,
+) -> PyResult<bool> {
     for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
         if let Some(v) = vm.bool_seq_lt(a.clone(), b.clone())? {
             return Ok(v);
@@ -304,7 +308,11 @@ pub fn seq_lt(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) 
     Ok(zelf.len() < other.len())
 }
 
-pub fn seq_gt(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
+pub fn seq_gt(
+    vm: &VirtualMachine,
+    zelf: &impl SimpleSeq,
+    other: &impl SimpleSeq,
+) -> PyResult<bool> {
     for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
         if let Some(v) = vm.bool_seq_gt(a.clone(), b.clone())? {
             return Ok(v);
@@ -313,7 +321,11 @@ pub fn seq_gt(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) 
     Ok(zelf.len() > other.len())
 }
 
-pub fn seq_ge(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
+pub fn seq_ge(
+    vm: &VirtualMachine,
+    zelf: &impl SimpleSeq,
+    other: &impl SimpleSeq,
+) -> PyResult<bool> {
     for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
         if let Some(v) = vm.bool_seq_gt(a.clone(), b.clone())? {
             return Ok(v);
@@ -323,7 +335,11 @@ pub fn seq_ge(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) 
     Ok(zelf.len() >= other.len())
 }
 
-pub fn seq_le(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
+pub fn seq_le(
+    vm: &VirtualMachine,
+    zelf: &impl SimpleSeq,
+    other: &impl SimpleSeq,
+) -> PyResult<bool> {
     for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
         if let Some(v) = vm.bool_seq_lt(a.clone(), b.clone())? {
             return Ok(v);
@@ -365,7 +381,7 @@ impl<'a> Iterator for SeqMul<'a> {
 }
 impl ExactSizeIterator for SeqMul<'_> {}
 
-pub fn seq_mul(seq: &dyn SimpleSeq, repetitions: isize) -> SeqMul {
+pub fn seq_mul(seq: &impl SimpleSeq, repetitions: isize) -> SeqMul {
     SeqMul {
         seq,
         repetitions: repetitions.max(0) as usize,
