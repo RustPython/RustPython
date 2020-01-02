@@ -52,9 +52,9 @@ fn main() {
     if let Err(err) = res {
         if objtype::isinstance(&err, &vm.ctx.exceptions.system_exit) {
             let args = err.args();
-            match args.elements.len() {
+            match args.as_slice().len() {
                 0 => return,
-                1 => match_class!(match args.elements[0].clone() {
+                1 => match_class!(match args.as_slice()[0].clone() {
                     i @ PyInt => {
                         use num_traits::cast::ToPrimitive;
                         process::exit(i.as_bigint().to_i32().unwrap());

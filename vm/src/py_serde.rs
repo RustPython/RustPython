@@ -4,7 +4,9 @@ use serde;
 use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
-use crate::obj::{objbool, objdict::PyDictRef, objfloat, objint, objsequence, objstr, objtype};
+use crate::obj::{
+    objbool, objdict::PyDictRef, objfloat, objint, objsequence, objstr, objtuple::PyTuple, objtype,
+};
 use crate::pyobject::{IdProtocol, ItemProtocol, PyObjectRef, TypeProtocol};
 use crate::VirtualMachine;
 use num_traits::cast::ToPrimitive;
@@ -59,7 +61,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         S: serde::Serializer,
     {
         let serialize_seq_elements =
-            |serializer: S, elements: &Vec<PyObjectRef>| -> Result<S::Ok, S::Error> {
+            |serializer: S, elements: &[PyObjectRef]| -> Result<S::Ok, S::Error> {
                 let mut seq = serializer.serialize_seq(Some(elements.len()))?;
                 for e in elements.iter() {
                     seq.serialize_element(&self.clone_with_object(e))?;
@@ -87,9 +89,8 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if objtype::isinstance(self.pyobject, &self.vm.ctx.list_type()) {
             let elements = objsequence::get_elements_list(self.pyobject);
             serialize_seq_elements(serializer, &elements)
-        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.tuple_type()) {
-            let elements = objsequence::get_elements_tuple(self.pyobject);
-            serialize_seq_elements(serializer, &elements)
+        } else if let Some(tuple) = self.pyobject.payload_if_subclass::<PyTuple>(self.vm) {
+            serialize_seq_elements(serializer, tuple.as_slice())
         } else if objtype::isinstance(self.pyobject, &self.vm.ctx.dict_type()) {
             let dict: PyDictRef = self.pyobject.clone().downcast().unwrap();
             let pairs: Vec<_> = dict.into_iter().collect();

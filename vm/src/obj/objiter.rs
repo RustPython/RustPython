@@ -76,7 +76,7 @@ pub fn new_stop_iteration(vm: &VirtualMachine) -> PyBaseExceptionRef {
 pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyResult {
     let args = exc.args();
     let val = args
-        .elements
+        .as_slice()
         .first()
         .cloned()
         .unwrap_or_else(|| vm.get_none());

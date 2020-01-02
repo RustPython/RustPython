@@ -1472,8 +1472,10 @@ pub fn do_cformat_string(
                         call_getitem(vm, &values, &vm.ctx.new_str(key.to_string()))?
                     }
                     None => {
-                        let mut elements =
-                            objtuple::get_value(&values).into_iter().skip(tuple_index);
+                        let mut elements = objtuple::get_value(&values)
+                            .to_vec()
+                            .into_iter()
+                            .skip(tuple_index);
 
                         tuple_index = try_update_quantity_from_tuple(
                             vm,
@@ -1507,11 +1509,7 @@ pub fn do_cformat_string(
     }
 
     // check that all arguments were converted
-    if (!mapping_required
-        && objtuple::get_value(&values)
-            .into_iter()
-            .nth(tuple_index)
-            .is_some())
+    if (!mapping_required && objtuple::get_value(&values).get(tuple_index).is_some())
         && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
     {
         return Err(

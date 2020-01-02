@@ -36,7 +36,7 @@ use crate::obj::objiter;
 use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
-use crate::obj::objtuple::PyTupleRef;
+use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
 use crate::pyobject::{
@@ -850,7 +850,7 @@ impl VirtualMachine {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let num_defaults_available = defaults.as_ref().map_or(0, |d| d.elements.len());
+            let num_defaults_available = defaults.as_ref().map_or(0, |d| d.as_slice().len());
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
@@ -870,7 +870,7 @@ impl VirtualMachine {
                 )));
             }
             if let Some(defaults) = defaults {
-                let defaults = &defaults.elements;
+                let defaults = defaults.as_slice();
                 // We have sufficient defaults, so iterate over the corresponding names and use
                 // the default if we don't already have a value
                 for (default_index, i) in (required_args..nexpected_args).enumerate() {
@@ -905,7 +905,10 @@ impl VirtualMachine {
         // Extract elements from item, if possible:
         let cls = value.class();
         if cls.is(&self.ctx.tuple_type()) {
-            objsequence::get_elements_tuple(value)
+            value
+                .payload::<PyTuple>()
+                .unwrap()
+                .as_slice()
                 .iter()
                 .map(|obj| T::try_from_object(self, obj.clone()))
                 .collect()

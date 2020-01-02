@@ -2,10 +2,8 @@ use std::cell::Cell;
 use std::fmt;
 
 use super::objiter;
-use super::objsequence::{
-    get_elements_tuple, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
-};
-use super::objtype::{self, PyClassRef};
+use super::objsequence::{get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul};
+use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyhash;
 use crate::pyobject::{
@@ -19,8 +17,7 @@ use crate::vm::{ReprGuard, VirtualMachine};
 /// If the argument is a tuple, the return value is the same object.
 #[pyclass]
 pub struct PyTuple {
-    // TODO: shouldn't be public
-    pub elements: Vec<PyObjectRef>,
+    elements: Vec<PyObjectRef>,
 }
 
 impl fmt::Debug for PyTuple {
@@ -64,21 +61,24 @@ impl PyTuple {
     pub fn fast_getitem(&self, idx: usize) -> PyObjectRef {
         self.elements[idx].clone()
     }
+
+    pub fn as_slice(&self) -> &[PyObjectRef] {
+        &self.elements
+    }
 }
 
 pub type PyTupleRef = PyRef<PyTuple>;
 
-pub fn get_value(obj: &PyObjectRef) -> Vec<PyObjectRef> {
-    obj.payload::<PyTuple>().unwrap().elements.clone()
+pub fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
+    obj.payload::<PyTuple>().unwrap().as_slice()
 }
 
 #[pyimpl]
 impl PyTuple {
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let other = get_elements_tuple(&other);
-            let res = seq_lt(vm, &self.elements.as_slice(), &other.as_slice())?;
+        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
+            let res = seq_lt(vm, &self.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -87,9 +87,8 @@ impl PyTuple {
 
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let other = get_elements_tuple(&other);
-            let res = seq_gt(vm, &self.elements.as_slice(), &other.as_slice())?;
+        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
+            let res = seq_gt(vm, &self.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -98,9 +97,8 @@ impl PyTuple {
 
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let other = get_elements_tuple(&other);
-            let res = seq_ge(vm, &self.elements.as_slice(), &other.as_slice())?;
+        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
+            let res = seq_ge(vm, &self.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -109,9 +107,8 @@ impl PyTuple {
 
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let other = get_elements_tuple(&other);
-            let res = seq_le(vm, &self.elements.as_slice(), &other.as_slice())?;
+        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
+            let res = seq_le(vm, &self.as_slice(), &other.as_slice())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -120,9 +117,13 @@ impl PyTuple {
 
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let e2 = get_elements_tuple(&other);
-            let elements = self.elements.iter().chain(e2.iter()).cloned().collect();
+        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
+            let elements = self
+                .elements
+                .iter()
+                .chain(other.as_slice().iter())
+                .cloned()
+                .collect();
             Ok(vm.ctx.new_tuple(elements))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -147,7 +148,7 @@ impl PyTuple {
 
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
+        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
             Ok(vm.new_bool(self.inner_eq(&other, vm)?))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -156,16 +157,15 @@ impl PyTuple {
 
     #[pymethod(name = "__ne__")]
     fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
+        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
             Ok(vm.new_bool(!self.inner_eq(&other, vm)?))
         } else {
             Ok(vm.ctx.not_implemented())
         }
     }
 
-    fn inner_eq(&self, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let other = get_elements_tuple(other);
-        seq_equal(vm, &self.elements.as_slice(), &other.as_slice())
+    fn inner_eq(&self, other: &PyTuple, vm: &VirtualMachine) -> PyResult<bool> {
+        seq_equal(vm, &self.as_slice(), &other.as_slice())
     }
 
     #[pymethod(name = "__hash__")]
@@ -277,8 +277,8 @@ impl PyValue for PyTupleIterator {
 impl PyTupleIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.position.get() < self.tuple.elements.len() {
-            let ret = self.tuple.elements[self.position.get()].clone();
+        if self.position.get() < self.tuple.as_slice().len() {
+            let ret = self.tuple.as_slice()[self.position.get()].clone();
             self.position.set(self.position.get() + 1);
             Ok(ret)
         } else {
