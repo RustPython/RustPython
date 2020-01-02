@@ -75,44 +75,37 @@ pub fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
 
 #[pyimpl]
 impl PyTuple {
+    #[inline]
+    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult
+    where
+        F: Fn(&[PyObjectRef], &[PyObjectRef]) -> PyResult<bool>,
+    {
+        let r = if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
+            vm.new_bool(op(self.as_slice(), other.as_slice())?)
+        } else {
+            vm.ctx.not_implemented()
+        };
+        Ok(r)
+    }
+
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            let res = seq_lt(vm, &self.as_slice(), &other.as_slice())?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+        self.cmp(other, |a, b| seq_lt(vm, &a, &b), vm)
     }
 
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            let res = seq_gt(vm, &self.as_slice(), &other.as_slice())?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+        self.cmp(other, |a, b| seq_gt(vm, &a, &b), vm)
     }
 
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            let res = seq_ge(vm, &self.as_slice(), &other.as_slice())?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+        self.cmp(other, |a, b| seq_ge(vm, &a, &b), vm)
     }
 
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            let res = seq_le(vm, &self.as_slice(), &other.as_slice())?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+        self.cmp(other, |a, b| seq_le(vm, &a, &b), vm)
     }
 
     #[pymethod(name = "__add__")]
@@ -148,24 +141,12 @@ impl PyTuple {
 
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            Ok(vm.new_bool(self.inner_eq(&other, vm)?))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+        self.cmp(other, |a, b| seq_equal(vm, &a, &b), vm)
     }
 
     #[pymethod(name = "__ne__")]
     fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            Ok(vm.new_bool(!self.inner_eq(&other, vm)?))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    fn inner_eq(&self, other: &PyTuple, vm: &VirtualMachine) -> PyResult<bool> {
-        seq_equal(vm, &self.as_slice(), &other.as_slice())
+        self.cmp(other, |a, b| Ok(!seq_equal(vm, &a, &b)?), vm)
     }
 
     #[pymethod(name = "__hash__")]
@@ -208,7 +189,7 @@ impl PyTuple {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = seq_mul(&self.elements.as_slice(), counter)
+        let new_elements = seq_mul(&self.as_slice(), counter)
             .cloned()
             .collect();
         vm.ctx.new_tuple(new_elements)
