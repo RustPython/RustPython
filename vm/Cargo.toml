@@ -25,7 +25,7 @@ sha3 = "0.8"
 blake2 = "0.8"
 
 num-complex = { version = "0.2.2", features = ["serde"] }
-num-bigint = { version = "0.2.3", features = ["serde"] }
+num-bigint = { version = "0.2.4", features = ["serde"] }
 num-traits = "0.2.8"
 num-integer = "0.1.41"
 num-rational = "0.2.2"
