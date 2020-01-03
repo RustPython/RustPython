@@ -204,26 +204,26 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn next_entry(&self, position: &mut EntryIndex) -> Option<(&PyObjectRef, &T)> {
-        while *position < self.entries.len() {
-            if let Some(DictEntry { key, value, .. }) = &self.entries[*position] {
-                *position += 1;
-                return Some((key, value));
-            }
+        self.entries[*position..].iter().find_map(|entry| {
             *position += 1;
-        }
-        None
+            entry
+                .as_ref()
+                .map(|DictEntry { key, value, .. }| (key, value))
+        })
+    }
+
+    pub fn len_from_entry_index(&self, position: EntryIndex) -> usize {
+        self.entries[position..].iter().flatten().count()
     }
 
     pub fn has_changed_size(&self, position: &DictSize) -> bool {
         position.size != self.size || self.entries.len() != position.entries_size
     }
 
-    pub fn keys<'a>(&'a self) -> Box<dyn Iterator<Item = PyObjectRef> + 'a> {
-        Box::new(
-            self.entries
-                .iter()
-                .filter_map(|v| v.as_ref().map(|v| v.key.clone())),
-        )
+    pub fn keys<'a>(&'a self) -> impl Iterator<Item = PyObjectRef> + 'a {
+        self.entries
+            .iter()
+            .filter_map(|v| v.as_ref().map(|v| v.key.clone()))
     }
 
     /// Lookup the index for the given key.

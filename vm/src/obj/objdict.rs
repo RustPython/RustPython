@@ -545,6 +545,14 @@ macro_rules! dict_iterator {
             fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
                 zelf
             }
+
+            #[pymethod(name = "__length_hint__")]
+            fn length_hint(&self, _vm: &VirtualMachine) -> usize {
+                self.dict
+                    .entries
+                    .borrow()
+                    .len_from_entry_index(self.position.get())
+            }
         }
 
         impl PyValue for $iter_name {

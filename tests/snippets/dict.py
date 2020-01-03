@@ -254,3 +254,16 @@ assert c == {'bla', 'c', 'd', 'f'}
 assert not {}.__ne__({})
 assert {}.__ne__({'a':'b'})
 assert {}.__ne__(1) == NotImplemented
+
+it = iter({0: 1, 2: 3, 4:5, 6:7})
+assert it.__length_hint__() == 4
+next(it)
+assert it.__length_hint__() == 3
+next(it)
+assert it.__length_hint__() == 2
+next(it)
+assert it.__length_hint__() == 1
+next(it)
+assert it.__length_hint__() == 0
+assert_raises(StopIteration, next, it)
+assert it.__length_hint__() == 0
