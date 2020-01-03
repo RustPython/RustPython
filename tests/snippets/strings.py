@@ -431,3 +431,17 @@ assert f'{1234567890.1234:,.2f}' == '1,234,567,890.12'
 assert f'{1234567890.1234:_.2f}' == '1_234_567_890.12'
 with AssertRaises(ValueError, msg="Unknown format code 'd' for object of type 'float'"):
     f'{5.0:04d}'
+
+# Test % formatting
+assert f'{10.0:%}' == '1000.000000%'
+assert f'{10.0:.2%}' == '1000.00%'
+assert f'{10.0:.8%}' == '1000.00000000%'
+assert f'{-10.0:%}' == '-1000.000000%'
+assert f'{-10.0:.2%}' == '-1000.00%'
+assert f'{-10.0:.8%}' == '-1000.00000000%'
+assert '{:%}'.format(float('nan')) == 'nan%'
+assert '{:.2%}'.format(float('nan')) == 'nan%'
+assert '{:%}'.format(float('inf')) == 'inf%'
+assert '{:.2%}'.format(float('inf')) == 'inf%'
+with AssertRaises(ValueError, msg='Invalid format specifier'):
+    f'{10.0:%3}'

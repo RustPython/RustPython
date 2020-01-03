@@ -506,8 +506,9 @@ impl PyInt {
 
     #[pymethod(name = "__format__")]
     fn format(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
-        let format_spec = FormatSpec::parse(spec.as_str());
-        match format_spec.format_int(&self.value) {
+        match FormatSpec::parse(spec.as_str())
+            .and_then(|format_spec| format_spec.format_int(&self.value))
+        {
             Ok(string) => Ok(string),
             Err(err) => Err(vm.new_value_error(err.to_string())),
         }
