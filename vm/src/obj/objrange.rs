@@ -210,8 +210,8 @@ impl PyRange {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self, _vm: &VirtualMachine) -> PyInt {
-        PyInt::new(self.length())
+    fn len(&self, _vm: &VirtualMachine) -> BigInt {
+        self.length()
     }
 
     #[pymethod(name = "__repr__")]

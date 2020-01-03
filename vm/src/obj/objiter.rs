@@ -172,6 +172,20 @@ impl PySequenceIterator {
     fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
     }
+
+    #[pymethod(name = "__length_hint__")]
+    fn length_hint(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        let pos = self.position.get();
+        let hint = if self.reversed {
+            pos + 1
+        } else {
+            let len = objsequence::opt_len(&self.obj, vm).unwrap_or_else(|| {
+                Err(vm.new_type_error("sequence has no __len__ method".to_string()))
+            })?;
+            len as isize - pos
+        };
+        Ok(hint)
+    }
 }
 
 pub fn seq_iter_method(obj: PyObjectRef, _vm: &VirtualMachine) -> PySequenceIterator {
