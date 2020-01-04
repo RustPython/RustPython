@@ -204,3 +204,17 @@ matrix:
       env:
         - JOBCACHE=10
         - TRAVIS_RUST_VERSION=nightly
+
+    - name: Run CPython test suite
+      language: rust
+      os: linux
+      rust: stable
+      cache: cargo
+      script:
+        - cargo build --verbose --all
+        - export RUSTPYTHONPATH=`pwd`/Lib
+        - cargo run -- -m test -v
+      env:
+        # Prevention of cache corruption.
+        # See: https://docs.travis-ci.com/user/caching/#caches-and-build-matrices
+        - JOBCACHE=12
