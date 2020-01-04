@@ -244,12 +244,19 @@ macro_rules! match_class {
         let $binding = $obj;
         $default
     }};
+    (match ($obj:expr) { ref $binding:ident => $default:expr $(,)? }) => {{
+        let $binding = &$obj;
+        $default
+    }};
 
     // An arm taken when the object is an instance of the specified built-in
     // class and binding the downcasted object to the specified identifier and
     // the target expression is a block.
     (match ($obj:expr) { $binding:ident @ $class:ty => $expr:block $($rest:tt)* }) => {
         $crate::match_class!(match ($obj) { $binding @ $class => ($expr), $($rest)* })
+    };
+    (match ($obj:expr) { ref $binding:ident @ $class:ty => $expr:block $($rest:tt)* }) => {
+        $crate::match_class!(match ($obj) { ref $binding @ $class => ($expr), $($rest)* })
     };
 
     // An arm taken when the object is an instance of the specified built-in
@@ -258,6 +265,12 @@ macro_rules! match_class {
         match $obj.downcast::<$class>() {
             Ok($binding) => $expr,
             Err(_obj) => $crate::match_class!(match (_obj) { $($rest)* }),
+        }
+    };
+    (match ($obj:expr) { ref $binding:ident @ $class:ty => $expr:expr, $($rest:tt)* }) => {
+        match $obj.payload::<$class>() {
+            Some($binding) => $expr,
+            None => $crate::match_class!(match ($obj) { $($rest)* }),
         }
     };
 
