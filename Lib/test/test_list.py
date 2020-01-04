@@ -60,6 +60,7 @@ class ListTest(list_tests.CommonTest):
         self.assertEqual(len([0]), 1)
         self.assertEqual(len([0, 1, 2]), 3)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_overflow(self):
         lst = [4, 5, 6, 7]
         n = int((sys.maxsize*2+2) // len(lst))
@@ -78,6 +79,7 @@ class ListTest(list_tests.CommonTest):
         check(10)       # check our checking code
         check(1000000)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_iterator_pickle(self):
         orig = self.type2test([4, 5, 6, 7])
         data = [10, 11, 12, 13, 14, 15]
@@ -114,6 +116,7 @@ class ListTest(list_tests.CommonTest):
             a[:] = data
             self.assertEqual(list(it), [])
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_reversed_pickle(self):
         orig = self.type2test([4, 5, 6, 7])
         data = [10, 11, 12, 13, 14, 15]

@@ -311,6 +311,8 @@ class CommonTest(unittest.TestCase):
                 return str(key) + '!!!'
         self.assertEqual(next(iter(T((1,2)))), 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_repeat(self):
         for m in range(4):
             s = tuple(range(m))
@@ -362,6 +364,7 @@ class CommonTest(unittest.TestCase):
 
         self.assertRaises(BadExc, a.count, BadCmp())
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_index(self):
         u = self.type2test([0, 1])
         self.assertEqual(u.index(0), 0)
@@ -404,6 +407,7 @@ class CommonTest(unittest.TestCase):
         self.assertRaises(ValueError, a.index, 0, 4*sys.maxsize,-4*sys.maxsize)
         self.assertRaises(ValueError, a.index, 2, 0, -10)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_pickle(self):
         lst = self.type2test([4, 5, 6, 7])
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -411,6 +415,7 @@ class CommonTest(unittest.TestCase):
             self.assertEqual(lst2, lst)
             self.assertNotEqual(id(lst2), id(lst))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.type2test)
         support.check_free_after_iterating(self, reversed, self.type2test)

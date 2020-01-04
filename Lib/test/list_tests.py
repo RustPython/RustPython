@@ -4,6 +4,7 @@ Tests common to list and UserList.UserList
 
 import sys
 import os
+import unittest
 from functools import cmp_to_key
 
 from test import support, seq_tests
@@ -11,6 +12,8 @@ from test import support, seq_tests
 
 class CommonTest(seq_tests.CommonTest):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_init(self):
         # Iterable arg is optional
         self.assertEqual(self.type2test([]), self.type2test())
@@ -30,12 +33,16 @@ class CommonTest(seq_tests.CommonTest):
         self.assertNotEqual(id(a), id(b))
         self.assertEqual(a, b)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getitem_error(self):
         a = []
         msg = "list indices must be integers or slices"
         with self.assertRaisesRegex(TypeError, msg):
             a['a']
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setitem_error(self):
         a = []
         msg = "list indices must be integers or slices"
@@ -59,6 +66,8 @@ class CommonTest(seq_tests.CommonTest):
         self.assertEqual(str(a2), "[0, 1, 2, [...], 3]")
         self.assertEqual(repr(a2), "[0, 1, 2, [...], 3]")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_repr_deep(self):
         a = self.type2test([])
         for i in range(sys.getrecursionlimit() + 100):
@@ -100,6 +109,8 @@ class CommonTest(seq_tests.CommonTest):
         # Bug 3689: make sure list-reversed-iterator doesn't have __len__
         self.assertRaises(TypeError, len, reversed([1,2,3]))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setitem(self):
         a = self.type2test([0, 1])
         a[0] = 0
@@ -484,6 +495,8 @@ class CommonTest(seq_tests.CommonTest):
         u[:2] = "h"
         self.assertEqual(u, list("ham"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_iadd(self):
         super().test_iadd()
         u = self.type2test([0, 1])
@@ -552,6 +565,8 @@ class CommonTest(seq_tests.CommonTest):
                 raise KeyboardInterrupt
         self.assertRaises(KeyboardInterrupt, list, F())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exhausted_iterator(self):
         a = self.type2test([1, 2, 3])
         exhit = iter(a)
