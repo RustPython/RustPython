@@ -386,6 +386,7 @@ settrace() -- set the global debug tracing function
       "exec_prefix" => ctx.new_str(exec_prefix.to_string()),
       "base_exec_prefix" => ctx.new_str(base_exec_prefix.to_string()),
       "exit" => ctx.new_rustfunc(sys_exit),
+      "abiflags" => ctx.new_str("".to_string()),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();

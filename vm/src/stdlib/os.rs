@@ -382,7 +382,12 @@ fn os_remove(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<
     fs::remove_file(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
-fn os_mkdir(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
+fn os_mkdir(
+    path: PyStringRef,
+    _mode: OptionalArg<PyIntRef>,
+    dir_fd: DirFd,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     let path = make_path(vm, path, &dir_fd);
     fs::create_dir(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }

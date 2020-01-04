@@ -264,6 +264,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "strptime" => ctx.new_rustfunc(time_strptime),
         "sleep" => ctx.new_rustfunc(time_sleep),
         "struct_time" => struct_time_type,
-        "time" => ctx.new_rustfunc(time_time)
+        "time" => ctx.new_rustfunc(time_time),
+        "perf_counter" => ctx.new_rustfunc(time_time), // TODO: fix
     })
 }

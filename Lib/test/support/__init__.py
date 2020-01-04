@@ -896,38 +896,38 @@ if sys.platform == 'darwin':
     TESTFN_UNICODE = unicodedata.normalize('NFD', TESTFN_UNICODE)
 TESTFN_ENCODING = sys.getfilesystemencoding()
 
-# TESTFN_UNENCODABLE is a filename (str type) that should *not* be able to be
-# encoded by the filesystem encoding (in strict mode). It can be None if we
-# cannot generate such filename.
-TESTFN_UNENCODABLE = None
-if os.name == 'nt':
-    # skip win32s (0) or Windows 9x/ME (1)
-    if sys.getwindowsversion().platform >= 2:
-        # Different kinds of characters from various languages to minimize the
-        # probability that the whole name is encodable to MBCS (issue #9819)
-        TESTFN_UNENCODABLE = TESTFN + "-\u5171\u0141\u2661\u0363\uDC80"
-        try:
-            TESTFN_UNENCODABLE.encode(TESTFN_ENCODING)
-        except UnicodeEncodeError:
-            pass
-        else:
-            print('WARNING: The filename %r CAN be encoded by the filesystem encoding (%s). '
-                  'Unicode filename tests may not be effective'
-                  % (TESTFN_UNENCODABLE, TESTFN_ENCODING))
-            TESTFN_UNENCODABLE = None
-# Mac OS X denies unencodable filenames (invalid utf-8)
-elif sys.platform != 'darwin':
-    try:
-        # ascii and utf-8 cannot encode the byte 0xff
-        b'\xff'.decode(TESTFN_ENCODING)
-    except UnicodeDecodeError:
-        # 0xff will be encoded using the surrogate character u+DCFF
-        TESTFN_UNENCODABLE = TESTFN \
-            + b'-\xff'.decode(TESTFN_ENCODING, 'surrogateescape')
-    else:
-        # File system encoding (eg. ISO-8859-* encodings) can encode
-        # the byte 0xff. Skip some unicode filename tests.
-        pass
+# # TESTFN_UNENCODABLE is a filename (str type) that should *not* be able to be
+# # encoded by the filesystem encoding (in strict mode). It can be None if we
+# # cannot generate such filename.
+# TESTFN_UNENCODABLE = None
+# if os.name == 'nt':
+#     # skip win32s (0) or Windows 9x/ME (1)
+#     if sys.getwindowsversion().platform >= 2:
+#         # Different kinds of characters from various languages to minimize the
+#         # probability that the whole name is encodable to MBCS (issue #9819)
+#         TESTFN_UNENCODABLE = TESTFN + "-\u5171\u0141\u2661\u0363\uDC80"
+#         try:
+#             TESTFN_UNENCODABLE.encode(TESTFN_ENCODING)
+#         except UnicodeEncodeError:
+#             pass
+#         else:
+#             print('WARNING: The filename %r CAN be encoded by the filesystem encoding (%s). '
+#                   'Unicode filename tests may not be effective'
+#                   % (TESTFN_UNENCODABLE, TESTFN_ENCODING))
+#             TESTFN_UNENCODABLE = None
+# # Mac OS X denies unencodable filenames (invalid utf-8)
+# elif sys.platform != 'darwin':
+#     try:
+#         # ascii and utf-8 cannot encode the byte 0xff
+#         b'\xff'.decode(TESTFN_ENCODING)
+#     except UnicodeDecodeError:
+#         # 0xff will be encoded using the surrogate character u+DCFF
+#         TESTFN_UNENCODABLE = TESTFN \
+#             + b'-\xff'.decode(TESTFN_ENCODING, 'surrogateescape')
+#     else:
+#         # File system encoding (eg. ISO-8859-* encodings) can encode
+#         # the byte 0xff. Skip some unicode filename tests.
+#         pass
 
 # # TESTFN_UNDECODABLE is a filename (bytes type) that should *not* be able to be
 # # decoded from the filesystem encoding (in strict mode). It can be None if we
@@ -1624,21 +1624,23 @@ def gc_collect():
     longer than expected.  This function tries its best to force all garbage
     objects to disappear.
     """
-    gc.collect()
-    if is_jython:
-        time.sleep(0.1)
-    gc.collect()
-    gc.collect()
+    # gc.collect()
+    # if is_jython:
+    #     time.sleep(0.1)
+    # gc.collect()
+    # gc.collect()
+    pass
 
 @contextlib.contextmanager
 def disable_gc():
-    have_gc = gc.isenabled()
-    gc.disable()
-    try:
-        yield
-    finally:
-        if have_gc:
-            gc.enable()
+    # have_gc = gc.isenabled()
+    # gc.disable()
+    # try:
+    #     yield
+    # finally:
+    #     if have_gc:
+    #         gc.enable()
+    yield
 
 
 def python_is_optimized():
