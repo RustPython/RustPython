@@ -1218,7 +1218,7 @@ impl TryFromObject for std::time::Duration {
     }
 }
 
-result_like::option_like!(pub PyArithmaticValue, ArithmaticValue, NotImplemented);
+result_like::option_like!(pub PyArithmaticValue, Implemented, NotImplemented);
 
 impl<T> IntoPyObject for PyArithmaticValue<T>
 where
@@ -1226,11 +1226,13 @@ where
 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         match self {
-            PyArithmaticValue::ArithmaticValue(v) => v.into_pyobject(vm),
+            PyArithmaticValue::Implemented(v) => v.into_pyobject(vm),
             PyArithmaticValue::NotImplemented => Ok(vm.ctx.not_implemented()),
         }
     }
 }
+
+pub type PyComparisonValue = PyArithmaticValue<bool>;
 
 #[cfg(test)]
 mod tests {

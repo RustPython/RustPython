@@ -16,9 +16,8 @@ use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
-    IdProtocol, IntoPyObject,
-    PyArithmaticValue::{self, *},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -220,44 +219,43 @@ impl PyInt {
     }
 
     #[inline]
-    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyArithmaticValue<bool>
+    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyComparisonValue
     where
         F: Fn(&BigInt, &BigInt) -> bool,
     {
-        if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
-            ArithmaticValue(op(&self.value, &other.value))
-        } else {
-            NotImplemented
-        }
+        let r = other
+            .payload_if_subclass::<PyInt>(vm)
+            .map(|other| op(&self.value, &other.value));
+        PyComparisonValue::from_option(r)
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<bool> {
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a == b, vm)
     }
 
     #[pymethod(name = "__ne__")]
-    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<bool> {
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a != b, vm)
     }
 
     #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<bool> {
+    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a < b, vm)
     }
 
     #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<bool> {
+    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a <= b, vm)
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<bool> {
+    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a > b, vm)
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<bool> {
+    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a >= b, vm)
     }
 
@@ -266,11 +264,10 @@ impl PyInt {
     where
         F: Fn(&BigInt, &BigInt) -> BigInt,
     {
-        if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
-            ArithmaticValue(op(&self.value, &other.value))
-        } else {
-            NotImplemented
-        }
+        let r = other
+            .payload_if_subclass::<PyInt>(vm)
+            .map(|other| op(&self.value, &other.value));
+        PyArithmaticValue::from_option(r)
     }
 
     #[inline]
