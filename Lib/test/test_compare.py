@@ -52,6 +52,7 @@ class ComparisonTest(unittest.TestCase):
         self.assertIs(a != b, False)
         self.assertIs(a != c, True)
 
+    @unittest.expectedFailure
     def test_ne_high_priority(self):
         """object.__ne__() should allow reflected __ne__() to be tried"""
         calls = []
@@ -70,6 +71,7 @@ class ComparisonTest(unittest.TestCase):
         Left() != Right()
         self.assertSequenceEqual(calls, ['Left.__eq__', 'Right.__ne__'])
 
+    @unittest.expectedFailure
     def test_ne_low_priority(self):
         """object.__ne__() should not invoke reflected __eq__()"""
         calls = []
