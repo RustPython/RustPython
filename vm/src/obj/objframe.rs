@@ -24,6 +24,11 @@ impl FrameRef {
         "<frame object at .. >".to_string()
     }
 
+    #[pymethod]
+    fn clear(self, _vm: &VirtualMachine) {
+        // TODO
+    }
+
     #[pyproperty]
     fn f_globals(self, _vm: &VirtualMachine) -> PyDictRef {
         self.scope.globals.clone()
