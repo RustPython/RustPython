@@ -141,3 +141,30 @@ next(g)
 assert_raises(TypeError, g.throw, TypeError)
 assert_raises(StopIteration, next, g)
 assert_raises(TypeError, g.throw, TypeError)
+
+def a():
+    assert g.gi_running
+    try:
+        yield
+    except:
+        assert g.gi_running
+
+
+g = a()
+next(g)
+assert_raises(StopIteration, g.throw, TypeError)
+
+g = a()
+next(g)
+g.close()
+
+it = iter([1,2,3,4])
+
+def a():
+    yield from it
+
+g = a()
+assert next(g) == 1
+assert g.gi_yieldfrom is it
+assert list(g) == [2,3,4]
+assert g.gi_yieldfrom is None

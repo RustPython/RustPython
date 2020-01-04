@@ -2,6 +2,7 @@
  * The mythical generator.
  */
 
+use super::objcode::PyCodeRef;
 use super::objcoroinner::Coro;
 use super::objtype::PyClassRef;
 use crate::frame::FrameRef;
@@ -70,6 +71,23 @@ impl PyGenerator {
     #[pymethod]
     fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
         self.inner.close(vm)
+    }
+
+    #[pyproperty]
+    fn gi_frame(&self, _vm: &VirtualMachine) -> FrameRef {
+        self.inner.frame()
+    }
+    #[pyproperty]
+    fn gi_running(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.running()
+    }
+    #[pyproperty]
+    fn gi_code(&self, _vm: &VirtualMachine) -> PyCodeRef {
+        self.inner.frame().code.clone()
+    }
+    #[pyproperty]
+    fn gi_yieldfrom(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+        self.inner.frame().yield_from_target()
     }
 }
 

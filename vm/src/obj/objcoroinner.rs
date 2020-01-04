@@ -10,6 +10,7 @@ use std::cell::Cell;
 pub struct Coro {
     frame: FrameRef,
     closed: Cell<bool>,
+    running: Cell<bool>,
 }
 
 impl Coro {
@@ -17,6 +18,7 @@ impl Coro {
         Coro {
             frame,
             closed: Cell::new(false),
+            running: Cell::new(false),
         }
     }
 
@@ -33,8 +35,9 @@ impl Coro {
         }
 
         self.frame.push_value(value.clone());
-
+        self.running.set(true);
         let result = vm.run_frame(self.frame.clone());
+        self.running.set(false);
         self.maybe_close(&result);
         result?.into_result(vm)
     }
@@ -50,7 +53,9 @@ impl Coro {
             return Err(exceptions::normalize(exc_type, exc_val, exc_tb, vm)?);
         }
         vm.frames.borrow_mut().push(self.frame.clone());
+        self.running.set(true);
         let result = self.frame.gen_throw(vm, exc_type, exc_val, exc_tb);
+        self.running.set(false);
         self.maybe_close(&result);
         vm.frames.borrow_mut().pop();
         result?.into_result(vm)
@@ -61,12 +66,14 @@ impl Coro {
             return Ok(());
         }
         vm.frames.borrow_mut().push(self.frame.clone());
+        self.running.set(true);
         let result = self.frame.gen_throw(
             vm,
             vm.ctx.exceptions.generator_exit.clone().into_object(),
             vm.get_none(),
             vm.get_none(),
         );
+        self.running.set(false);
         vm.frames.borrow_mut().pop();
         self.closed.set(true);
         match result {
@@ -76,6 +83,16 @@ impl Coro {
             Err(e) if !is_gen_exit(&e, vm) => Err(e),
             _ => Ok(()),
         }
+    }
+
+    pub fn closed(&self) -> bool {
+        self.closed.get()
+    }
+    pub fn running(&self) -> bool {
+        self.running.get()
+    }
+    pub fn frame(&self) -> FrameRef {
+        self.frame.clone()
     }
 }
 

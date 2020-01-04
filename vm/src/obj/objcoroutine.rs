@@ -1,4 +1,6 @@
+use super::objcode::PyCodeRef;
 use super::objcoroinner::Coro;
+use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
@@ -61,6 +63,29 @@ impl PyCoroutine {
     #[pymethod(name = "__await__")]
     fn r#await(zelf: PyRef<Self>) -> PyCoroutineWrapper {
         PyCoroutineWrapper { coro: zelf }
+    }
+
+    #[pyproperty]
+    fn cr_await(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+        self.inner.frame().yield_from_target()
+    }
+    #[pyproperty]
+    fn cr_frame(&self, _vm: &VirtualMachine) -> FrameRef {
+        self.inner.frame()
+    }
+    #[pyproperty]
+    fn cr_running(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.running()
+    }
+    #[pyproperty]
+    fn cr_code(&self, _vm: &VirtualMachine) -> PyCodeRef {
+        self.inner.frame().code.clone()
+    }
+    // TODO: coroutine origin tracking:
+    // https://docs.python.org/3/library/sys.html#sys.set_coroutine_origin_tracking_depth
+    #[pyproperty]
+    fn cr_origin(&self, _vm: &VirtualMachine) -> Option<(PyStringRef, usize, PyStringRef)> {
+        None
     }
 }
 
