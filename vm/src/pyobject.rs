@@ -640,11 +640,9 @@ impl PyObject<dyn PyObjectPayload> {
     /// another downcast can be attempted without unnecessary cloning.
     pub fn downcast<T: PyObjectPayload>(self: Rc<Self>) -> Result<PyRef<T>, PyObjectRef> {
         if self.payload_is::<T>() {
-            Ok({
-                PyRef {
-                    obj: self,
-                    _payload: PhantomData,
-                }
+            Ok(PyRef {
+                obj: self,
+                _payload: PhantomData,
             })
         } else {
             Err(self)

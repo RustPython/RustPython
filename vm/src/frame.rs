@@ -1010,14 +1010,15 @@ impl Frame {
     }
 
     fn _send(&self, coro: PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(gen) = coro.payload::<PyGenerator>() {
-            gen.send(val, vm)
-        } else if let Some(coro) = coro.payload::<PyCoroutine>() {
-            coro.send(val, vm)
-        } else if vm.is_none(&val) {
-            objiter::call_next(vm, &coro)
-        } else {
-            vm.call_method(&coro, "send", vec![val])
+        let builtin_coro = match_class!(match coro {
+            ref g @ PyGenerator => Some(g.as_coro()),
+            ref c @ PyCoroutine => Some(c.as_coro()),
+            _ => None,
+        });
+        match builtin_coro {
+            Some(coro) => coro.send(val, vm),
+            None if vm.is_none(&val) => objiter::call_next(vm, &coro),
+            None => vm.call_method(&coro, "send", vec![val]),
         }
     }
 
