@@ -22,6 +22,7 @@ sha-1 = "0.8"
 sha2 = "0.8"
 sha3 = "0.8"
 blake2 = "0.8"
+volatile = "0.2"
 
 num-complex = { version = "0.2.2", features = ["serde"] }
 num-bigint = { version = "0.2.4", features = ["serde"] }
