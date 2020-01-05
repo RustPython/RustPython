@@ -7,6 +7,7 @@ use itertools::Itertools;
 use crate::bytecode;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::{single_or_tuple_any, PyFuncArgs};
+use crate::obj::objasyncgenerator::PyAsyncGenWrappedValue;
 use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objcoroinner::Coro;
@@ -118,11 +119,15 @@ impl ExecutionResult {
     }
 
     /// Turn an ExecutionResult into a PyResult that would be returned from a generator or coroutine
-    pub fn into_result(self, vm: &VirtualMachine) -> PyResult {
+    pub fn into_result(self, async_stopiter: bool, vm: &VirtualMachine) -> PyResult {
         match self {
             ExecutionResult::Yield(value) => Ok(value),
             ExecutionResult::Return(value) => {
-                let stop_iteration = vm.ctx.exceptions.stop_iteration.clone();
+                let stop_iteration = if async_stopiter {
+                    vm.ctx.exceptions.stop_async_iteration.clone()
+                } else {
+                    vm.ctx.exceptions.stop_iteration.clone()
+                };
                 let args = if vm.is_none(&value) {
                     vec![]
                 } else {
@@ -379,6 +384,11 @@ impl Frame {
             }
             bytecode::Instruction::YieldValue => {
                 let value = self.pop_value();
+                let value = if self.code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
+                    PyAsyncGenWrappedValue(value).into_ref(vm).into_object()
+                } else {
+                    value
+                };
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),

@@ -39,7 +39,7 @@ struct CompileContext {
     func: FunctionContext,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum FunctionContext {
     NoFunction,
     Function,
@@ -562,6 +562,17 @@ impl<O: OutputStream> Compiler<O> {
                 }
                 match value {
                     Some(v) => {
+<<<<<<< Updated upstream
+=======
+                        if self.ctx.func == FunctionContext::AsyncFunction
+                            && self.current_output().is_generator()
+                        {
+                            return Err(self.error_loc(
+                                CompileErrorType::AsyncReturnValue,
+                                statement.location.clone(),
+                            ));
+                        }
+>>>>>>> Stashed changes
                         self.compile_expression(v)?;
                     }
                     None => {
@@ -1543,6 +1554,8 @@ impl<O: OutputStream> Compiler<O> {
         self.set_source_location(expression.location);
 
         use ast::ExpressionType::*;
+        #[allow(unused_imports)] // not unused, overrides ast::ExpressionType::None
+        use Option::None;
         match &expression.node {
             Call {
                 function,
@@ -1637,13 +1650,25 @@ impl<O: OutputStream> Compiler<O> {
                 self.mark_generator();
                 match value {
                     Some(expression) => self.compile_expression(expression)?,
-                    Option::None => self.emit(Instruction::LoadConst {
+                    None => self.emit(Instruction::LoadConst {
                         value: bytecode::Constant::None,
                     }),
                 };
                 self.emit(Instruction::YieldValue);
             }
             Await { value } => {
+                if self.ctx.func != FunctionContext::AsyncFunction {
+<<<<<<< Updated upstream
+                    return Err(CompileError {
+                        statement: None,
+                        error: CompileErrorType::InvalidAwait,
+                        location: self.current_source_location.clone(),
+                        source_path: None,
+                    });
+=======
+                    return Err(self.error(CompileErrorType::InvalidAwait));
+>>>>>>> Stashed changes
+                }
                 self.compile_expression(value)?;
                 self.emit(Instruction::GetAwaitable);
                 self.emit(Instruction::LoadConst {
@@ -1652,6 +1677,32 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::YieldFrom);
             }
             YieldFrom { value } => {
+                match self.ctx.func {
+                    FunctionContext::NoFunction => {
+<<<<<<< Updated upstream
+                        return Err(CompileError {
+                            statement: None,
+                            error: CompileErrorType::InvalidYieldFrom,
+                            location: self.current_source_location.clone(),
+                            source_path: None,
+                        })
+                    }
+                    FunctionContext::AsyncFunction => {
+                        return Err(CompileError {
+                            statement: None,
+                            error: CompileErrorType::AsyncYieldFrom,
+                            location: self.current_source_location.clone(),
+                            source_path: None,
+                        })
+=======
+                        return Err(self.error(CompileErrorType::InvalidYieldFrom))
+                    }
+                    FunctionContext::AsyncFunction => {
+                        return Err(self.error(CompileErrorType::AsyncYieldFrom))
+>>>>>>> Stashed changes
+                    }
+                    FunctionContext::Function => {}
+                }
                 self.mark_generator();
                 self.compile_expression(value)?;
                 self.emit(Instruction::GetIter);
@@ -1670,7 +1721,7 @@ impl<O: OutputStream> Compiler<O> {
                     value: bytecode::Constant::Boolean { value: false },
                 });
             }
-            None => {
+            ast::ExpressionType::None => {
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::None,
                 });

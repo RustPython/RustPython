@@ -12,6 +12,8 @@ pub struct Coro {
     closed: Cell<bool>,
     running: Cell<bool>,
     exceptions: RefCell<Vec<PyBaseExceptionRef>>,
+    started: Cell<bool>,
+    async_iter: bool,
 }
 
 impl Coro {
@@ -21,6 +23,18 @@ impl Coro {
             closed: Cell::new(false),
             running: Cell::new(false),
             exceptions: RefCell::new(vec![]),
+            started: Cell::new(false),
+            async_iter: false,
+        }
+    }
+    pub fn new_async(frame: FrameRef) -> Self {
+        Coro {
+            frame,
+            closed: Cell::new(false),
+            running: Cell::new(false),
+            exceptions: RefCell::new(vec![]),
+            started: Cell::new(false),
+            async_iter: true,
         }
     }
 
@@ -47,6 +61,7 @@ impl Coro {
                 .split_off(curr_exception_stack_len),
         );
         self.running.set(false);
+        self.started.set(true);
         result
     }
 
@@ -54,13 +69,11 @@ impl Coro {
         if self.closed.get() {
             return Err(objiter::new_stop_iteration(vm));
         }
-
         self.frame.push_value(value.clone());
         let result = self.run_with_context(|| vm.run_frame(self.frame.clone()), vm);
         self.maybe_close(&result);
-        result?.into_result(vm)
+        result?.into_result(self.async_iter, vm)
     }
-
     pub fn throw(
         &self,
         exc_type: PyObjectRef,
@@ -76,7 +89,7 @@ impl Coro {
             self.run_with_context(|| self.frame.gen_throw(vm, exc_type, exc_val, exc_tb), vm);
         self.maybe_close(&result);
         vm.frames.borrow_mut().pop();
-        result?.into_result(vm)
+        result?.into_result(self.async_iter, vm)
     }
 
     pub fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -106,11 +119,14 @@ impl Coro {
         }
     }
 
-    pub fn closed(&self) -> bool {
-        self.closed.get()
+    pub fn started(&self) -> bool {
+        self.started.get()
     }
     pub fn running(&self) -> bool {
         self.running.get()
+    }
+    pub fn closed(&self) -> bool {
+        self.closed.get()
     }
     pub fn frame(&self) -> FrameRef {
         self.frame.clone()
