@@ -9,6 +9,7 @@ use crate::pyhash;
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
+use crate::sequence::PySequenceContainer;
 use crate::vm::{ReprGuard, VirtualMachine};
 
 /// tuple() -> empty tuple
@@ -57,13 +58,19 @@ impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4));
 impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5));
 impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6));
 
+impl PySequenceContainer for PyTuple {
+    fn as_slice(&self) -> &[PyObjectRef] {
+        &self.elements
+    }
+}
+
 impl PyTuple {
     pub fn fast_getitem(&self, idx: usize) -> PyObjectRef {
         self.elements[idx].clone()
     }
 
     pub fn as_slice(&self) -> &[PyObjectRef] {
-        &self.elements
+        <PyTuple as PySequenceContainer>::as_slice(self)
     }
 }
 
