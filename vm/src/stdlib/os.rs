@@ -889,6 +889,11 @@ fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 #[cfg(unix)]
+fn os_chroot(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    nix::unistd::chroot(path.as_str()).map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(unix)]
 fn os_get_inheritable(fd: RawFd, vm: &VirtualMachine) -> PyResult<bool> {
     use nix::fcntl::fcntl;
     use nix::fcntl::FcntlArg;
@@ -1280,7 +1285,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "chdir", os_chdir, Some(false), None, None),
         // chflags Some, None Some
         // chown Some Some Some
-        // chroot Some None None
         SupportFunc::new(vm, "listdir", os_listdir, Some(false), None, None),
         SupportFunc::new(vm, "mkdir", os_mkdir, Some(false), Some(false), None),
         // mkfifo Some Some None
@@ -1300,14 +1304,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         // utime Some Some Some
     ];
     #[cfg(unix)]
-    support_funcs.extend(vec![SupportFunc::new(
-        vm,
-        "chmod",
-        os_chmod,
-        Some(false),
-        Some(false),
-        Some(false),
-    )]);
+    support_funcs.extend(vec![
+        SupportFunc::new(vm, "chmod", os_chmod, Some(false), Some(false), Some(false)),
+        SupportFunc::new(vm, "chroot", os_chroot, Some(false), None, None),
+    ]);
     let supports_fd = PySet::default().into_ref(vm);
     let supports_dir_fd = PySet::default().into_ref(vm);
     let supports_follow_symlinks = PySet::default().into_ref(vm);
@@ -1391,6 +1391,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
     extend_module!(vm, module, {
         "access" => ctx.new_rustfunc(os_access),
         "chmod" => ctx.new_rustfunc(os_chmod),
+        "chroot" => ctx.new_rustfunc(os_chroot),
         "get_inheritable" => ctx.new_rustfunc(os_get_inheritable), // TODO: windows
         "get_blocking" => ctx.new_rustfunc(os_get_blocking),
         "getppid" => ctx.new_rustfunc(os_getppid),
