@@ -447,15 +447,12 @@ impl FormatSpec {
             Some(FormatType::ExponentLower) => {
                 Err("Unknown format code 'e' for object of type 'int'")
             }
-            Some(FormatType::FixedPointUpper) | Some(FormatType::FixedPointLower) => {
-                match num.to_f64() {
-                    Some(float) => return self.format_float(float),
-                    _ => Err("Unable to convert int to float"),
-                }
-            }
-            Some(FormatType::Percentage) => {
-                Err("Format code '%' for object of type 'int' not implemented yet")
-            }
+            Some(FormatType::FixedPointUpper)
+            | Some(FormatType::FixedPointLower)
+            | Some(FormatType::Percentage) => match num.to_f64() {
+                Some(float) => return self.format_float(float),
+                _ => Err("Unable to convert int to float"),
+            },
             None => Ok(magnitude.to_str_radix(10)),
         };
         if raw_magnitude_string_result.is_err() {

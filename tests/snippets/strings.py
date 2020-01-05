@@ -433,9 +433,11 @@ with AssertRaises(ValueError, msg="Unknown format code 'd' for object of type 'f
     f'{5.0:04d}'
 
 # Test % formatting
+assert f'{10:%}' == '1000.000000%'
 assert f'{10.0:%}' == '1000.000000%'
 assert f'{10.0:.2%}' == '1000.00%'
 assert f'{10.0:.8%}' == '1000.00000000%'
+assert f'{-10:%}' == '-1000.000000%'
 assert f'{-10.0:%}' == '-1000.000000%'
 assert f'{-10.0:.2%}' == '-1000.00%'
 assert f'{-10.0:.8%}' == '-1000.00000000%'
