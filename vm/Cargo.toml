@@ -69,6 +69,8 @@ arr_macro = "0.1.2"
 csv = "1.1.1"
 paste = "0.1"
 base64 = "0.11"
+is-macro = "0.1"
+result-like = "^0.2.1"
 
 flame = { version = "0.2", optional = true }
 flamer = { version = "0.3", optional = true }

@@ -146,7 +146,7 @@ fn bool_or(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult 
         let rhs = get_value(&rhs);
         (lhs || rhs).into_pyobject(vm)
     } else {
-        Ok(get_py_int(&lhs).or(rhs.clone(), vm))
+        get_py_int(&lhs).or(rhs.clone(), vm).into_pyobject(vm)
     }
 }
 
@@ -158,7 +158,7 @@ fn bool_and(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult
         let rhs = get_value(&rhs);
         (lhs && rhs).into_pyobject(vm)
     } else {
-        Ok(get_py_int(&lhs).and(rhs.clone(), vm))
+        get_py_int(&lhs).and(rhs.clone(), vm).into_pyobject(vm)
     }
 }
 
@@ -170,7 +170,7 @@ fn bool_xor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult
         let rhs = get_value(&rhs);
         (lhs ^ rhs).into_pyobject(vm)
     } else {
-        Ok(get_py_int(&lhs).xor(rhs.clone(), vm))
+        get_py_int(&lhs).xor(rhs.clone(), vm).into_pyobject(vm)
     }
 }
 

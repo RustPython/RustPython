@@ -1,6 +1,5 @@
 use std::fmt;
 use std::mem::size_of;
-use std::str;
 
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
@@ -17,8 +16,8 @@ use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -220,57 +219,55 @@ impl PyInt {
     }
 
     #[inline]
-    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyObjectRef
+    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyComparisonValue
     where
         F: Fn(&BigInt, &BigInt) -> bool,
     {
-        if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
-            vm.ctx.new_bool(op(&self.value, &other.value))
-        } else {
-            vm.ctx.not_implemented()
-        }
+        let r = other
+            .payload_if_subclass::<PyInt>(vm)
+            .map(|other| op(&self.value, &other.value));
+        PyComparisonValue::from_option(r)
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a == b, vm)
     }
 
     #[pymethod(name = "__ne__")]
-    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a != b, vm)
     }
 
     #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a < b, vm)
     }
 
     #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a <= b, vm)
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a > b, vm)
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a >= b, vm)
     }
 
     #[inline]
-    fn int_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyObjectRef
+    fn int_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyArithmaticValue<BigInt>
     where
         F: Fn(&BigInt, &BigInt) -> BigInt,
     {
-        if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
-            vm.ctx.new_int(op(&self.value, &other.value))
-        } else {
-            vm.ctx.not_implemented()
-        }
+        let r = other
+            .payload_if_subclass::<PyInt>(vm)
+            .map(|other| op(&self.value, &other.value));
+        PyArithmaticValue::from_option(r)
     }
 
     #[inline]
@@ -286,32 +283,32 @@ impl PyInt {
     }
 
     #[pymethod(name = "__add__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
         self.int_op(other, |a, b| a + b, vm)
     }
 
     #[pymethod(name = "__radd__")]
-    fn radd(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn radd(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
         self.add(other, vm)
     }
 
     #[pymethod(name = "__sub__")]
-    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
         self.int_op(other, |a, b| a - b, vm)
     }
 
     #[pymethod(name = "__rsub__")]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
         self.int_op(other, |a, b| b - a, vm)
     }
 
     #[pymethod(name = "__mul__")]
-    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
         self.int_op(other, |a, b| a * b, vm)
     }
 
     #[pymethod(name = "__rmul__")]
-    fn rmul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn rmul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
         self.mul(other, vm)
     }
 
@@ -356,32 +353,32 @@ impl PyInt {
     }
 
     #[pymethod(name = "__xor__")]
-    pub fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
         self.int_op(other, |a, b| a ^ b, vm)
     }
 
     #[pymethod(name = "__rxor__")]
-    fn rxor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn rxor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
         self.xor(other, vm)
     }
 
     #[pymethod(name = "__or__")]
-    pub fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
         self.int_op(other, |a, b| a | b, vm)
     }
 
     #[pymethod(name = "__ror__")]
-    fn ror(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn ror(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
         self.or(other, vm)
     }
 
     #[pymethod(name = "__and__")]
-    pub fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
         self.int_op(other, |a, b| a & b, vm)
     }
 
     #[pymethod(name = "__rand__")]
-    fn rand(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn rand(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
         self.and(other, vm)
     }
 
