@@ -4,54 +4,132 @@
 
 use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{PyObjectRef, PyResult};
+use crate::obj::objtype::PyClassRef;
+use crate::pyobject::{PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
+use itertools::Itertools;
+use unic::bidi::BidiClass;
 use unic::char::property::EnumeratedCharProperty;
+use unic::normal::StrNormalForm;
 use unic::ucd::category::GeneralCategory;
-use unic::ucd::Name;
-use unicode_names2;
+use unic::ucd::{Age, Name};
+use unic_common::version::UnicodeVersion;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let unidata_version = unic::UNICODE_VERSION.to_string();
+    let ucd_class = PyUCD::make_class(ctx);
 
-    py_module!(vm, "unicodedata", {
-        "bidirectional" => ctx.new_rustfunc(bidirectional),
-        "category" => ctx.new_rustfunc(category),
-        "name" => ctx.new_rustfunc(name),
-        "lookup" => ctx.new_rustfunc(lookup),
-        "normalize" => ctx.new_rustfunc(normalize),
-        "unidata_version" => ctx.new_str(unidata_version),
-    })
+    let ucd = PyObject::new(PyUCD::default(), ucd_class.clone(), None);
+
+    let ucd_3_2_0 = PyObject::new(
+        PyUCD {
+            unic_version: UnicodeVersion {
+                major: 3,
+                minor: 2,
+                micro: 0,
+            },
+        },
+        ucd_class.clone(),
+        None,
+    );
+
+    let module = py_module!(vm, "unicodedata", {
+        "UCD" => ucd_class.into_object(),
+        "ucd_3_2_0" => ucd_3_2_0,
+        // we do unidata_version here because the getter tries to do PyUCD::class() before
+        // the module is in the VM
+        "unidata_version" => ctx.new_str(PyUCD::default().unic_version.to_string()),
+    });
+
+    for attr in ["category", "lookup", "name", "bidirectional", "normalize"]
+        .iter()
+        .copied()
+    {
+        extend_module!(vm, &module, {
+            attr => vm.get_attribute(ucd.clone(), attr).unwrap(),
+        });
+    }
+
+    module
 }
 
-fn category(character: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    let my_char = extract_char(character, vm)?;
-    let category = GeneralCategory::of(my_char);
-    Ok(vm.new_str(category.abbr_name().to_string()))
+#[pyclass]
+#[derive(Debug)]
+struct PyUCD {
+    unic_version: UnicodeVersion,
 }
 
-fn lookup(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    // TODO: we might want to use unic_ucd instead of unicode_names2 for this too, if possible:
-    if let Some(character) = unicode_names2::character(name.as_str()) {
-        Ok(vm.new_str(character.to_string()))
-    } else {
-        Err(vm.new_key_error(vm.new_str(format!("undefined character name '{}'", name))))
+impl PyValue for PyUCD {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("unicodedata", "UCD")
     }
 }
 
-fn name(
-    character: PyStringRef,
-    default: OptionalArg<PyObjectRef>,
-    vm: &VirtualMachine,
-) -> PyResult {
-    let my_char = extract_char(character, vm)?;
+impl Default for PyUCD {
+    #[inline(always)]
+    fn default() -> Self {
+        PyUCD {
+            unic_version: unic::UNICODE_VERSION,
+        }
+    }
+}
 
-    if let Some(name) = Name::of(my_char) {
-        Ok(vm.new_str(name.to_string()))
-    } else {
+#[pyimpl]
+impl PyUCD {
+    fn check_age(&self, c: char) -> bool {
+        Age::of(c).map_or(false, |age| age.actual() <= self.unic_version)
+    }
+
+    fn extract_char(&self, character: PyStringRef, vm: &VirtualMachine) -> PyResult<Option<char>> {
+        let c = character.as_str().chars().exactly_one().map_err(|_| {
+            vm.new_type_error("argument must be an unicode character, not str".to_string())
+        })?;
+
+        if self.check_age(c) {
+            Ok(Some(c))
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[pymethod]
+    fn category(&self, character: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+        Ok(self
+            .extract_char(character, vm)?
+            .map_or(GeneralCategory::Unassigned, GeneralCategory::of)
+            .abbr_name()
+            .to_owned())
+    }
+
+    #[pymethod]
+    fn lookup(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+        // TODO: we might want to use unic_ucd instead of unicode_names2 for this too, if possible:
+        if let Some(character) = unicode_names2::character(name.as_str()) {
+            if self.check_age(character) {
+                return Ok(character.to_string());
+            }
+        }
+        Err(vm.new_lookup_error(format!("undefined character name '{}'", name)))
+    }
+
+    #[pymethod]
+    fn name(
+        &self,
+        character: PyStringRef,
+        default: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let c = self.extract_char(character, vm)?;
+
+        if let Some(c) = c {
+            if self.check_age(c) {
+                if let Some(name) = Name::of(c) {
+                    return Ok(vm.new_str(name.to_string()));
+                }
+            }
+        }
         match default {
             OptionalArg::Present(obj) => Ok(obj),
             OptionalArg::Missing => {
@@ -59,36 +137,37 @@ fn name(
             }
         }
     }
-}
 
-fn bidirectional(character: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    use unic::bidi::BidiClass;
-    let my_char = extract_char(character, vm)?;
-    let cls = BidiClass::of(my_char);
-    Ok(vm.new_str(cls.abbr_name().to_string()))
-}
-
-fn normalize(form: PyStringRef, unistr: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    use unic::normal::StrNormalForm;
-    let text = unistr.as_str();
-    let normalized_text = match form.as_str() {
-        "NFC" => text.nfc().collect::<String>(),
-        "NFKC" => text.nfkc().collect::<String>(),
-        "NFD" => text.nfd().collect::<String>(),
-        "NFKD" => text.nfkd().collect::<String>(),
-        _ => {
-            return Err(vm.new_value_error("unistr must be one of NFC, NFD".to_string()));
-        }
-    };
-
-    Ok(vm.new_str(normalized_text))
-}
-
-fn extract_char(character: PyStringRef, vm: &VirtualMachine) -> PyResult<char> {
-    if character.as_str().len() != 1 {
-        return Err(vm.new_type_error("argument must be an unicode character, not str".to_string()));
+    #[pymethod]
+    fn bidirectional(&self, character: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+        let bidi = match self.extract_char(character, vm)? {
+            Some(c) => BidiClass::of(c).abbr_name(),
+            None => "",
+        };
+        Ok(bidi.to_owned())
     }
 
-    let my_char: char = character.as_str().chars().next().unwrap();
-    Ok(my_char)
+    #[pymethod]
+    fn normalize(
+        &self,
+        form: PyStringRef,
+        unistr: PyStringRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        let text = unistr.as_str();
+        let normalized_text = match form.as_str() {
+            "NFC" => text.nfc().collect::<String>(),
+            "NFKC" => text.nfkc().collect::<String>(),
+            "NFD" => text.nfd().collect::<String>(),
+            "NFKD" => text.nfkd().collect::<String>(),
+            _ => return Err(vm.new_value_error("invalid normalization form".to_string())),
+        };
+
+        Ok(normalized_text)
+    }
+
+    #[pyproperty]
+    fn unidata_version(&self, _vm: &VirtualMachine) -> String {
+        self.unic_version.to_string()
+    }
 }

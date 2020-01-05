@@ -1,6 +1,3 @@
-extern crate unicode_categories;
-extern crate unicode_xid;
-
 use std::cell::Cell;
 use std::char;
 use std::fmt;
@@ -10,10 +7,10 @@ use std::str::FromStr;
 use std::string::ToString;
 
 use num_traits::ToPrimitive;
+use unic::ucd::category::GeneralCategory;
+use unic::ucd::ident::{is_xid_continue, is_xid_start};
 use unic::ucd::is_cased;
 use unicode_casing::CharExt;
-use unicode_categories::UnicodeCategories;
-use unicode_xid::UnicodeXID;
 
 use super::objbytes::{PyBytes, PyBytesRef};
 use super::objdict::PyDict;
@@ -366,16 +363,7 @@ impl PyString {
                 formatted.push_str(&format!("\\x{:02x}", c as u32));
             } else if c.is_ascii() {
                 formatted.push(c);
-            } else if c.is_other() || c.is_separator() {
-                // According to python following categories aren't printable:
-                // * Cc (Other, Control)
-                // * Cf (Other, Format)
-                // * Cs (Other, Surrogate)
-                // * Co (Other, Private Use)
-                // * Cn (Other, Not Assigned)
-                // * Zl Separator, Line ('\u2028', LINE SEPARATOR)
-                // * Zp Separator, Paragraph ('\u2029', PARAGRAPH SEPARATOR)
-                // * Zs (Separator, Space) other than ASCII space('\x20').
+            } else if !char_is_printable(c) {
                 let code = c as u32;
                 let escaped = if code < 0xff {
                     format!("\\U{:02x}", code)
@@ -742,10 +730,9 @@ impl PyString {
     ///   * Zs (Separator, Space) other than ASCII space('\x20').
     #[pymethod]
     fn isprintable(&self, _vm: &VirtualMachine) -> bool {
-        self.value.chars().all(|c| match c {
-            '\u{0020}' => true,
-            _ => !(c.is_other_control() | c.is_separator()),
-        })
+        self.value
+            .chars()
+            .all(|c| c == '\u{0020}' || char_is_printable(c))
     }
 
     // cpython's isspace ignores whitespace, including \t and \n, etc, unless the whole string is empty
@@ -1094,13 +1081,9 @@ impl PyString {
     #[pymethod]
     fn isidentifier(&self, _vm: &VirtualMachine) -> bool {
         let mut chars = self.value.chars();
-        let is_identifier_start = match chars.next() {
-            Some('_') => true,
-            Some(c) => UnicodeXID::is_xid_start(c),
-            None => false,
-        };
+        let is_identifier_start = chars.next().map_or(false, |c| c == '_' || is_xid_start(c));
         // a string is not an identifier if it has whitespace or starts with a number
-        is_identifier_start && chars.all(UnicodeXID::is_xid_continue)
+        is_identifier_start && chars.all(is_xid_continue)
     }
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate
@@ -1704,6 +1687,20 @@ fn adjust_indices(
     } else {
         Some((start as usize, end as usize))
     }
+}
+
+// According to python following categories aren't printable:
+// * Cc (Other, Control)
+// * Cf (Other, Format)
+// * Cs (Other, Surrogate)
+// * Co (Other, Private Use)
+// * Cn (Other, Not Assigned)
+// * Zl Separator, Line ('\u2028', LINE SEPARATOR)
+// * Zp Separator, Paragraph ('\u2029', PARAGRAPH SEPARATOR)
+// * Zs (Separator, Space) other than ASCII space('\x20').
+fn char_is_printable(c: char) -> bool {
+    let cat = GeneralCategory::of(c);
+    !(cat.is_other() || cat.is_separator())
 }
 
 #[cfg(test)]
