@@ -5,7 +5,8 @@ use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
 use crate::obj::{
-    objbool, objdict::PyDictRef, objfloat, objint, objsequence, objstr, objtuple::PyTuple, objtype,
+    objbool, objdict::PyDictRef, objfloat, objint, objlist::PyList, objstr, objtuple::PyTuple,
+    objtype,
 };
 use crate::pyobject::{IdProtocol, ItemProtocol, PyObjectRef, TypeProtocol};
 use crate::VirtualMachine;
@@ -86,9 +87,8 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             } else {
                 serializer.serialize_i64(v.to_i64().ok_or_else(int_too_large)?)
             }
-        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.list_type()) {
-            let elements = objsequence::get_elements_list(self.pyobject);
-            serialize_seq_elements(serializer, &elements)
+        } else if let Some(list) = self.pyobject.payload_if_subclass::<PyList>(self.vm) {
+            serialize_seq_elements(serializer, &list.elements())
         } else if let Some(tuple) = self.pyobject.payload_if_subclass::<PyTuple>(self.vm) {
             serialize_seq_elements(serializer, tuple.as_slice())
         } else if objtype::isinstance(self.pyobject, &self.vm.ctx.dict_type()) {

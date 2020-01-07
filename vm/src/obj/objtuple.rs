@@ -278,7 +278,6 @@ impl PyTupleIterator {
     }
 }
 
-#[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
     let tuple_type = &context.types.tuple_type;
     PyTuple::extend_class(context, tuple_type);

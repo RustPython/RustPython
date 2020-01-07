@@ -33,8 +33,8 @@ use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator::PyGenerator;
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
+use crate::obj::objlist::PyList;
 use crate::obj::objmodule::{self, PyModule};
-use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClassRef};
@@ -913,7 +913,10 @@ impl VirtualMachine {
                 .map(|obj| T::try_from_object(self, obj.clone()))
                 .collect()
         } else if cls.is(&self.ctx.list_type()) {
-            objsequence::get_elements_list(value)
+            value
+                .payload::<PyList>()
+                .unwrap()
+                .elements()
                 .iter()
                 .map(|obj| T::try_from_object(self, obj.clone()))
                 .collect()

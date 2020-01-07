@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::marker::Sized;
-use std::ops::{Deref, DerefMut, Range};
+use std::ops::Range;
 
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -387,27 +387,6 @@ pub fn seq_mul(seq: &impl SimpleSeq, repetitions: isize) -> SeqMul {
         repetitions: repetitions.max(0) as usize,
         iter: None,
     }
-}
-
-pub fn get_elements_cell<'a>(obj: &'a PyObjectRef) -> &'a RefCell<Vec<PyObjectRef>> {
-    if let Some(list) = obj.payload::<PyList>() {
-        return &list.elements;
-    }
-    panic!("Cannot extract elements from non-sequence");
-}
-
-pub fn get_elements_list<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
-    if let Some(list) = obj.payload::<PyList>() {
-        return list.elements.borrow();
-    }
-    panic!("Cannot extract elements from non-sequence");
-}
-
-pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<PyObjectRef>> + 'a {
-    if let Some(list) = obj.payload::<PyList>() {
-        return list.elements.borrow_mut();
-    }
-    panic!("Cannot extract elements from non-sequence");
 }
 
 //Check if given arg could be used with PySliceableSequence.get_slice_range()
