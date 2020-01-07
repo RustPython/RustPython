@@ -450,7 +450,7 @@ fn socket_hton<U: num_traits::int::PrimInt>(host: U, _vm: &VirtualMachine) -> U 
 }
 
 fn socket_ntoh<U: num_traits::int::PrimInt>(network: U, _vm: &VirtualMachine) -> U {
-   U::from_be(network) 
+    U::from_be(network)
 }
 
 #[derive(FromArgs)]
