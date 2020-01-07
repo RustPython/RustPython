@@ -137,7 +137,7 @@ impl<'a> Iterator for SeqMul<'a> {
 }
 impl ExactSizeIterator for SeqMul<'_> {}
 
-pub fn seq_mul<'a>(seq: &'a impl SimpleSeq, repetitions: isize) -> SeqMul<'a> {
+pub fn seq_mul(seq: &impl SimpleSeq, repetitions: isize) -> SeqMul {
     SeqMul {
         seq,
         repetitions: repetitions.max(0) as usize,

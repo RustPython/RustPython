@@ -1,6 +1,9 @@
 use crate::function::OptionalArg;
 use crate::obj::{objiter, objtype::PyClassRef};
-use crate::pyobject::{IdProtocol, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    IdProtocol, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef,
+    PyRef, PyResult, PyValue,
+};
 use crate::sequence::{self, SimpleSeq};
 use crate::vm::ReprGuard;
 use crate::VirtualMachine;
@@ -29,7 +32,7 @@ struct PyDequeOptions {
 }
 
 impl PyDeque {
-    pub fn borrow_sequence<'a>(&'a self) -> impl SimpleSeq + 'a {
+    pub fn borrow_deque<'a>(&'a self) -> impl std::ops::Deref<Target = VecDeque<PyObjectRef>> + 'a {
         self.deque.borrow()
     }
 }
@@ -208,6 +211,7 @@ impl PyDeque {
     fn maxlen(&self, _vm: &VirtualMachine) -> Option<usize> {
         self.maxlen.get()
     }
+
     #[pyproperty(setter)]
     fn set_maxlen(&self, maxlen: Option<usize>, _vm: &VirtualMachine) {
         self.maxlen.set(maxlen);
@@ -234,94 +238,91 @@ impl PyDeque {
         Ok(repr)
     }
 
+    #[inline]
+    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>
+    where
+        F: Fn(&VecDeque<PyObjectRef>, &VecDeque<PyObjectRef>) -> PyResult<bool>,
+    {
+        let r = if let Some(other) = other.payload_if_subclass::<PyDeque>(vm) {
+            Implemented(op(&*self.borrow_deque(), &*other.borrow_deque())?)
+        } else {
+            NotImplemented
+        };
+        Ok(r)
+    }
+
     #[pymethod(name = "__eq__")]
-    fn eq(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn eq(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         if zelf.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
+            Ok(Implemented(true))
+        } else {
+            zelf.cmp(other, |a, b| sequence::eq(vm, a, b), vm)
         }
+    }
 
-        let other = match_class!(match other {
-            other @ Self => other,
-            _ => return Ok(vm.ctx.not_implemented()),
-        });
-
-        let lhs = &zelf.borrow_sequence();
-        let rhs = &other.borrow_sequence();
-
-        let eq = sequence::eq(vm, lhs, rhs)?;
-        Ok(vm.new_bool(eq))
+    #[pymethod(name = "__ne__")]
+    fn ne(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Ok(PyDeque::eq(zelf, other, vm)?.map(|v| !v))
     }
 
     #[pymethod(name = "__lt__")]
-    fn lt(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn lt(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         if zelf.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
+            Ok(Implemented(false))
+        } else {
+            zelf.cmp(other, |a, b| sequence::lt(vm, a, b), vm)
         }
-
-        let other = match_class!(match other {
-            other @ Self => other,
-            _ => return Ok(vm.ctx.not_implemented()),
-        });
-
-        let lhs = &zelf.borrow_sequence();
-        let rhs = &other.borrow_sequence();
-
-        let eq = sequence::lt(vm, lhs, rhs)?;
-        Ok(vm.new_bool(eq))
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn gt(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         if zelf.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
+            Ok(Implemented(false))
+        } else {
+            zelf.cmp(other, |a, b| sequence::gt(vm, a, b), vm)
         }
-
-        let other = match_class!(match other {
-            other @ Self => other,
-            _ => return Ok(vm.ctx.not_implemented()),
-        });
-
-        let lhs = &zelf.borrow_sequence();
-        let rhs = &other.borrow_sequence();
-
-        let eq = sequence::gt(vm, lhs, rhs)?;
-        Ok(vm.new_bool(eq))
     }
 
     #[pymethod(name = "__le__")]
-    fn le(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn le(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         if zelf.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
+            Ok(Implemented(true))
+        } else {
+            zelf.cmp(other, |a, b| sequence::le(vm, a, b), vm)
         }
-
-        let other = match_class!(match other {
-            other @ Self => other,
-            _ => return Ok(vm.ctx.not_implemented()),
-        });
-
-        let lhs = &zelf.borrow_sequence();
-        let rhs = &other.borrow_sequence();
-
-        let eq = sequence::le(vm, lhs, rhs)?;
-        Ok(vm.new_bool(eq))
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn ge(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         if zelf.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
+            Ok(Implemented(true))
+        } else {
+            zelf.cmp(other, |a, b| sequence::ge(vm, a, b), vm)
         }
-
-        let other = match_class!(match other {
-            other @ Self => other,
-            _ => return Ok(vm.ctx.not_implemented()),
-        });
-
-        let lhs = &zelf.borrow_sequence();
-        let rhs = &other.borrow_sequence();
-
-        let eq = sequence::ge(vm, lhs, rhs)?;
-        Ok(vm.new_bool(eq))
     }
 
     #[pymethod(name = "__mul__")]

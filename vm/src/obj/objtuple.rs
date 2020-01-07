@@ -68,7 +68,7 @@ impl PyTuple {
         &self.elements
     }
 
-    pub fn as_sequence<'a>(&'a self) -> &'a impl SimpleSeq {
+    pub fn as_sequence(&self) -> &impl SimpleSeq {
         &self.elements
     }
 }
