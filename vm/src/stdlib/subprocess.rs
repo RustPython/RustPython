@@ -107,7 +107,7 @@ impl PopenRef {
         let command_list = match &args.args {
             Either::A(command) => vec![command.as_str().to_string()],
             Either::B(command_list) => command_list
-                .elements()
+                .borrow_elements()
                 .iter()
                 .map(|x| objstr::get_value(x))
                 .collect(),

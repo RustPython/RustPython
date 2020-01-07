@@ -11,7 +11,7 @@ use super::objbyteinner;
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::{
-    get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul, SequenceIndex,
+    get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul, SequenceIndex, SimpleSeq,
 };
 use super::objslice::PySliceRef;
 use super::objtype::PyClassRef;
@@ -20,7 +20,6 @@ use crate::pyobject::{
     IdProtocol, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crate::sequence::PySequenceContainer;
 use crate::vm::{ReprGuard, VirtualMachine};
 
 /// Built-in mutable sequence.
@@ -54,15 +53,12 @@ impl PyValue for PyList {
     }
 }
 
-// impl PySequenceContainer for PyList {
-//     fn as_slice<'a>(&'a self) -> &'a [PyObjectRef] {
-//         let b = self.elements.borrow();
-//         &b
-//     }
-// }
-
 impl PyList {
-    pub fn elements<'a>(&'a self) -> impl std::ops::Deref<Target = Vec<PyObjectRef>> + 'a {
+    pub fn borrow_sequence<'a>(&'a self) -> impl SimpleSeq + 'a {
+        self.elements.borrow()
+    }
+
+    pub fn borrow_elements<'a>(&'a self) -> impl std::ops::Deref<Target = Vec<PyObjectRef>> + 'a {
         self.elements.borrow()
     }
 }
@@ -180,8 +176,8 @@ impl PyList {
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let e1 = self.elements();
-            let e2 = other.elements();
+            let e1 = self.borrow_sequence();
+            let e2 = other.borrow_sequence();
             let elements = e1.iter().chain(e2.iter()).cloned().collect();
             Ok(vm.ctx.new_list(elements))
         } else {
@@ -245,7 +241,12 @@ impl PyList {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        get_item(vm, zelf.as_object(), &zelf.elements(), needle.clone())
+        get_item(
+            vm,
+            zelf.as_object(),
+            &zelf.elements.borrow(),
+            needle.clone(),
+        )
     }
 
     #[pymethod(name = "__iter__")]
@@ -468,9 +469,7 @@ impl PyList {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = seq_mul(&self.elements().as_slice(), counter)
-            .cloned()
-            .collect();
+        let new_elements = seq_mul(&self.borrow_sequence(), counter).cloned().collect();
         vm.ctx.new_list(new_elements)
     }
 
@@ -481,9 +480,7 @@ impl PyList {
 
     #[pymethod(name = "__imul__")]
     fn imul(zelf: PyRef<Self>, counter: isize, _vm: &VirtualMachine) -> PyRef<Self> {
-        let new_elements = seq_mul(&zelf.elements().as_slice(), counter)
-            .cloned()
-            .collect();
+        let new_elements = seq_mul(&zelf.borrow_sequence(), counter).cloned().collect();
         zelf.elements.replace(new_elements);
         zelf
     }
@@ -567,8 +564,8 @@ impl PyList {
         } else if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
             Implemented(seq_equal(
                 vm,
-                &zelf.elements().as_slice(),
-                &other.elements().as_slice(),
+                &zelf.borrow_sequence(),
+                &other.borrow_sequence(),
             )?)
         } else {
             NotImplemented
@@ -588,11 +585,7 @@ impl PyList {
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let res = seq_lt(
-                vm,
-                &self.elements().as_slice(),
-                &other.elements().as_slice(),
-            )?;
+            let res = seq_lt(vm, &self.borrow_sequence(), &other.borrow_sequence())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -602,11 +595,7 @@ impl PyList {
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let res = seq_gt(
-                vm,
-                &self.elements().as_slice(),
-                &other.elements().as_slice(),
-            )?;
+            let res = seq_gt(vm, &self.borrow_sequence(), &other.borrow_sequence())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -616,11 +605,7 @@ impl PyList {
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let res = seq_ge(
-                vm,
-                &self.elements().as_slice(),
-                &other.elements().as_slice(),
-            )?;
+            let res = seq_ge(vm, &self.borrow_sequence(), &other.borrow_sequence())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -630,11 +615,7 @@ impl PyList {
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let res = seq_le(
-                vm,
-                &self.elements().as_slice(),
-                &other.elements().as_slice(),
-            )?;
+            let res = seq_le(vm, &self.borrow_sequence(), &other.borrow_sequence())?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())

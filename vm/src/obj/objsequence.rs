@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::marker::Sized;
 use std::ops::Range;
 
@@ -255,12 +254,30 @@ pub trait SimpleSeq {
     fn iter(&self) -> DynPyIter;
 }
 
-impl SimpleSeq for &[PyObjectRef] {
+// impl SimpleSeq for &[PyObjectRef] {
+//     fn len(&self) -> usize {
+//         (&**self).len()
+//     }
+//     fn iter(&self) -> DynPyIter {
+//         Box::new((&**self).iter())
+//     }
+// }
+
+impl SimpleSeq for Vec<PyObjectRef> {
     fn len(&self) -> usize {
-        (&**self).len()
+        self.len()
     }
     fn iter(&self) -> DynPyIter {
-        Box::new((&**self).iter())
+        Box::new(self.as_slice().iter())
+    }
+}
+
+impl SimpleSeq for std::cell::Ref<'_, Vec<PyObjectRef>> {
+    fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+    fn iter(&self) -> DynPyIter {
+        Box::new(self.as_slice().iter())
     }
 }
 
@@ -381,7 +398,7 @@ impl<'a> Iterator for SeqMul<'a> {
 }
 impl ExactSizeIterator for SeqMul<'_> {}
 
-pub fn seq_mul(seq: &impl SimpleSeq, repetitions: isize) -> SeqMul {
+pub fn seq_mul<'a>(seq: &'a impl SimpleSeq, repetitions: isize) -> SeqMul<'a> {
     SeqMul {
         seq,
         repetitions: repetitions.max(0) as usize,

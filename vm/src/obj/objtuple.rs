@@ -2,14 +2,14 @@ use std::cell::Cell;
 use std::fmt;
 
 use super::objiter;
-use super::objsequence::{get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul};
+use super::objsequence::{get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul, SimpleSeq};
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyhash;
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    IntoPyObject, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue,
 };
-use crate::sequence::PySequenceContainer;
 use crate::vm::{ReprGuard, VirtualMachine};
 
 /// tuple() -> empty tuple
@@ -58,19 +58,17 @@ impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4));
 impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5));
 impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6));
 
-impl PySequenceContainer for PyTuple {
-    fn as_slice(&self) -> &[PyObjectRef] {
-        &self.elements
-    }
-}
-
 impl PyTuple {
     pub fn fast_getitem(&self, idx: usize) -> PyObjectRef {
         self.elements[idx].clone()
     }
 
     pub fn as_slice(&self) -> &[PyObjectRef] {
-        <PyTuple as PySequenceContainer>::as_slice(self)
+        &self.elements
+    }
+
+    pub fn as_sequence<'a>(&'a self) -> &'a impl SimpleSeq {
+        &self.elements
     }
 }
 
@@ -83,36 +81,36 @@ pub fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
 #[pyimpl]
 impl PyTuple {
     #[inline]
-    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult
+    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>
     where
-        F: Fn(&[PyObjectRef], &[PyObjectRef]) -> PyResult<bool>,
+        F: Fn(&Vec<PyObjectRef>, &Vec<PyObjectRef>) -> PyResult<bool>,
     {
         let r = if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            vm.new_bool(op(self.as_slice(), other.as_slice())?)
+            Implemented(op(&self.elements, &other.elements)?)
         } else {
-            vm.ctx.not_implemented()
+            NotImplemented
         };
         Ok(r)
     }
 
     #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.cmp(other, |a, b| seq_lt(vm, &a, &b), vm)
+    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        self.cmp(other, |a, b| seq_lt(vm, a, b), vm)
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.cmp(other, |a, b| seq_gt(vm, &a, &b), vm)
+    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        self.cmp(other, |a, b| seq_gt(vm, a, b), vm)
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.cmp(other, |a, b| seq_ge(vm, &a, &b), vm)
+    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        self.cmp(other, |a, b| seq_ge(vm, a, b), vm)
     }
 
     #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.cmp(other, |a, b| seq_le(vm, &a, &b), vm)
+    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        self.cmp(other, |a, b| seq_le(vm, a, b), vm)
     }
 
     #[pymethod(name = "__add__")]
@@ -147,13 +145,13 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.cmp(other, |a, b| seq_equal(vm, &a, &b), vm)
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        self.cmp(other, |a, b| seq_equal(vm, a, b), vm)
     }
 
     #[pymethod(name = "__ne__")]
-    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.cmp(other, |a, b| Ok(!seq_equal(vm, &a, &b)?), vm)
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        Ok(self.eq(other, vm)?.map(|v| !v))
     }
 
     #[pymethod(name = "__hash__")]
@@ -196,7 +194,7 @@ impl PyTuple {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = seq_mul(&self.as_slice(), counter).cloned().collect();
+        let new_elements = seq_mul(&self.elements, counter).cloned().collect();
         vm.ctx.new_tuple(new_elements)
     }
 

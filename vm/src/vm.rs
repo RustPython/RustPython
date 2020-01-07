@@ -916,7 +916,7 @@ impl VirtualMachine {
             value
                 .payload::<PyList>()
                 .unwrap()
-                .elements()
+                .borrow_elements()
                 .iter()
                 .map(|obj| T::try_from_object(self, obj.clone()))
                 .collect()
