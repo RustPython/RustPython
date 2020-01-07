@@ -60,22 +60,18 @@ impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5));
 impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6));
 
 impl PyTuple {
-    pub fn fast_getitem(&self, idx: usize) -> PyObjectRef {
+    pub(crate) fn fast_getitem(&self, idx: usize) -> PyObjectRef {
         self.elements[idx].clone()
     }
 
     pub fn as_slice(&self) -> &[PyObjectRef] {
         &self.elements
     }
-
-    pub fn as_sequence(&self) -> &impl SimpleSeq {
-        &self.elements
-    }
 }
 
 pub type PyTupleRef = PyRef<PyTuple>;
 
-pub fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
+pub(crate) fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
     obj.payload::<PyTuple>().unwrap().as_slice()
 }
 

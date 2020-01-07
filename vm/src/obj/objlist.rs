@@ -63,11 +63,11 @@ impl PyList {
 }
 
 impl PyList {
-    pub fn get_len(&self) -> usize {
+    fn get_len(&self) -> usize {
         self.elements.borrow().len()
     }
 
-    pub fn get_pos(&self, p: i32) -> Option<usize> {
+    fn get_pos(&self, p: i32) -> Option<usize> {
         // convert a (potentially negative) positon into a real index
         if p < 0 {
             if -p as usize > self.get_len() {
@@ -82,7 +82,7 @@ impl PyList {
         }
     }
 
-    pub fn get_slice_pos(&self, slice_pos: &BigInt) -> usize {
+    fn get_slice_pos(&self, slice_pos: &BigInt) -> usize {
         if let Some(pos) = slice_pos.to_i32() {
             if let Some(index) = self.get_pos(pos) {
                 // within bounds
@@ -99,7 +99,7 @@ impl PyList {
         }
     }
 
-    pub fn get_slice_range(&self, start: &Option<BigInt>, stop: &Option<BigInt>) -> Range<usize> {
+    fn get_slice_range(&self, start: &Option<BigInt>, stop: &Option<BigInt>) -> Range<usize> {
         let start = start.as_ref().map(|x| self.get_slice_pos(x)).unwrap_or(0);
         let stop = stop
             .as_ref()
@@ -109,7 +109,10 @@ impl PyList {
         start..stop
     }
 
-    pub fn get_byte_inner(&self, vm: &VirtualMachine) -> PyResult<objbyteinner::PyByteInner> {
+    pub(crate) fn get_byte_inner(
+        &self,
+        vm: &VirtualMachine,
+    ) -> PyResult<objbyteinner::PyByteInner> {
         let mut elements = Vec::<u8>::with_capacity(self.get_len());
         for elem in self.elements.borrow().iter() {
             match PyIntRef::try_from_object(vm, elem.clone()) {
@@ -146,7 +149,7 @@ pub type PyListRef = PyRef<PyList>;
 #[pyimpl]
 impl PyList {
     #[pymethod]
-    pub fn append(&self, x: PyObjectRef, _vm: &VirtualMachine) {
+    pub(crate) fn append(&self, x: PyObjectRef, _vm: &VirtualMachine) {
         self.elements.borrow_mut().push(x);
     }
 

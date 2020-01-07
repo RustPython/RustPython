@@ -32,7 +32,7 @@ struct PyDequeOptions {
 }
 
 impl PyDeque {
-    pub fn borrow_deque<'a>(&'a self) -> impl std::ops::Deref<Target = VecDeque<PyObjectRef>> + 'a {
+    fn borrow_deque<'a>(&'a self) -> impl std::ops::Deref<Target = VecDeque<PyObjectRef>> + 'a {
         self.deque.borrow()
     }
 }
