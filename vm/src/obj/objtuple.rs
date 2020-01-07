@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::fmt;
 
 use super::objiter;
-use super::objsequence::{get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul, SimpleSeq};
+use super::objsequence::get_item;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyhash;
@@ -10,6 +10,7 @@ use crate::pyobject::{
     IntoPyObject, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
     PyRef, PyResult, PyValue,
 };
+use crate::sequence::{self, SimpleSeq};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 /// tuple() -> empty tuple
@@ -95,22 +96,22 @@ impl PyTuple {
 
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| seq_lt(vm, a, b), vm)
+        self.cmp(other, |a, b| sequence::lt(vm, a, b), vm)
     }
 
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| seq_gt(vm, a, b), vm)
+        self.cmp(other, |a, b| sequence::gt(vm, a, b), vm)
     }
 
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| seq_ge(vm, a, b), vm)
+        self.cmp(other, |a, b| sequence::ge(vm, a, b), vm)
     }
 
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| seq_le(vm, a, b), vm)
+        self.cmp(other, |a, b| sequence::le(vm, a, b), vm)
     }
 
     #[pymethod(name = "__add__")]
@@ -146,7 +147,7 @@ impl PyTuple {
 
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
-        self.cmp(other, |a, b| seq_equal(vm, a, b), vm)
+        self.cmp(other, |a, b| sequence::eq(vm, a, b), vm)
     }
 
     #[pymethod(name = "__ne__")]
@@ -194,7 +195,9 @@ impl PyTuple {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = seq_mul(&self.elements, counter).cloned().collect();
+        let new_elements = sequence::seq_mul(&self.elements, counter)
+            .cloned()
+            .collect();
         vm.ctx.new_tuple(new_elements)
     }
 

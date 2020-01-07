@@ -1,6 +1,7 @@
 use crate::function::OptionalArg;
-use crate::obj::{objiter, objsequence, objtype::PyClassRef};
+use crate::obj::{objiter, objtype::PyClassRef};
 use crate::pyobject::{IdProtocol, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::sequence::{self, SimpleSeq};
 use crate::vm::ReprGuard;
 use crate::VirtualMachine;
 use itertools::Itertools;
@@ -28,7 +29,7 @@ struct PyDequeOptions {
 }
 
 impl PyDeque {
-    pub fn borrow_sequence<'a>(&'a self) -> impl objsequence::SimpleSeq + 'a {
+    pub fn borrow_sequence<'a>(&'a self) -> impl SimpleSeq + 'a {
         self.deque.borrow()
     }
 }
@@ -247,7 +248,7 @@ impl PyDeque {
         let lhs = &zelf.borrow_sequence();
         let rhs = &other.borrow_sequence();
 
-        let eq = objsequence::seq_equal(vm, lhs, rhs)?;
+        let eq = sequence::eq(vm, lhs, rhs)?;
         Ok(vm.new_bool(eq))
     }
 
@@ -265,7 +266,7 @@ impl PyDeque {
         let lhs = &zelf.borrow_sequence();
         let rhs = &other.borrow_sequence();
 
-        let eq = objsequence::seq_lt(vm, lhs, rhs)?;
+        let eq = sequence::lt(vm, lhs, rhs)?;
         Ok(vm.new_bool(eq))
     }
 
@@ -283,7 +284,7 @@ impl PyDeque {
         let lhs = &zelf.borrow_sequence();
         let rhs = &other.borrow_sequence();
 
-        let eq = objsequence::seq_gt(vm, lhs, rhs)?;
+        let eq = sequence::gt(vm, lhs, rhs)?;
         Ok(vm.new_bool(eq))
     }
 
@@ -301,7 +302,7 @@ impl PyDeque {
         let lhs = &zelf.borrow_sequence();
         let rhs = &other.borrow_sequence();
 
-        let eq = objsequence::seq_le(vm, lhs, rhs)?;
+        let eq = sequence::le(vm, lhs, rhs)?;
         Ok(vm.new_bool(eq))
     }
 
@@ -319,14 +320,14 @@ impl PyDeque {
         let lhs = &zelf.borrow_sequence();
         let rhs = &other.borrow_sequence();
 
-        let eq = objsequence::seq_ge(vm, lhs, rhs)?;
+        let eq = sequence::ge(vm, lhs, rhs)?;
         Ok(vm.new_bool(eq))
     }
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, n: isize, _vm: &VirtualMachine) -> Self {
         let deque: &VecDeque<_> = &self.deque.borrow();
-        let mul = objsequence::seq_mul(deque, n);
+        let mul = sequence::seq_mul(deque, n);
         let skipped = if let Some(maxlen) = self.maxlen.get() {
             mul.len() - maxlen
         } else {
