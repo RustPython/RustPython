@@ -445,12 +445,12 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
 }
 
-fn socket_hton<U: num_traits::PrimInt>(host: U, _vm: &VirtualMachine) -> U {
-    host.to_be()
+fn socket_hton<U: num_traits::int::PrimInt>(host: U, _vm: &VirtualMachine) -> U {
+    U::to_be(host)
 }
 
-fn socket_ntoh<U: num_traits::PrimInt>(network: U, _vm: &VirtualMachine) -> U {
-   network.from_be() 
+fn socket_ntoh<U: num_traits::int::PrimInt>(network: U, _vm: &VirtualMachine) -> U {
+   U::from_be(network) 
 }
 
 #[derive(FromArgs)]
