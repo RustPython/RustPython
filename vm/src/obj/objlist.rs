@@ -556,24 +556,30 @@ impl PyList {
         }
     }
 
+    #[inline]
+    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>
+    where
+        F: Fn(&Vec<PyObjectRef>, &Vec<PyObjectRef>) -> PyResult<bool>,
+    {
+        let r = if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
+            Implemented(op(&*self.borrow_elements(), &*other.borrow_elements())?)
+        } else {
+            NotImplemented
+        };
+        Ok(r)
+    }
+
     #[pymethod(name = "__eq__")]
     fn eq(
         zelf: PyRef<Self>,
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        let value = if zelf.as_object().is(&other) {
-            Implemented(true)
-        } else if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            Implemented(sequence::eq(
-                vm,
-                &zelf.borrow_sequence(),
-                &other.borrow_sequence(),
-            )?)
+        if zelf.as_object().is(&other) {
+            Ok(Implemented(true))
         } else {
-            NotImplemented
-        };
-        Ok(value)
+            zelf.cmp(other, |a, b| sequence::eq(vm, a, b), vm)
+        }
     }
 
     #[pymethod(name = "__ne__")]
@@ -586,43 +592,23 @@ impl PyList {
     }
 
     #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let res = sequence::lt(vm, &self.borrow_sequence(), &other.borrow_sequence())?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        self.cmp(other, |a, b| sequence::lt(vm, a, b), vm)
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let res = sequence::gt(vm, &self.borrow_sequence(), &other.borrow_sequence())?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        self.cmp(other, |a, b| sequence::gt(vm, a, b), vm)
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let res = sequence::ge(vm, &self.borrow_sequence(), &other.borrow_sequence())?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        self.cmp(other, |a, b| sequence::ge(vm, a, b), vm)
     }
 
     #[pymethod(name = "__le__")]
-    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let res = sequence::le(vm, &self.borrow_sequence(), &other.borrow_sequence())?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        self.cmp(other, |a, b| sequence::le(vm, a, b), vm)
     }
 
     #[pymethod(name = "__delitem__")]
