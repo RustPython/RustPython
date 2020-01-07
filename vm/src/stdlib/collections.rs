@@ -27,6 +27,12 @@ struct PyDequeOptions {
     maxlen: Option<usize>,
 }
 
+impl PyDeque {
+    pub fn borrow_sequence<'a>(&'a self) -> impl objsequence::SimpleSeq + 'a {
+        self.deque.borrow()
+    }
+}
+
 #[pyimpl]
 impl PyDeque {
     #[pyslot(new)]
@@ -238,8 +244,8 @@ impl PyDeque {
             _ => return Ok(vm.ctx.not_implemented()),
         });
 
-        let lhs: &VecDeque<_> = &zelf.deque.borrow();
-        let rhs: &VecDeque<_> = &other.deque.borrow();
+        let lhs = &zelf.borrow_sequence();
+        let rhs = &other.borrow_sequence();
 
         let eq = objsequence::seq_equal(vm, lhs, rhs)?;
         Ok(vm.new_bool(eq))
@@ -256,8 +262,8 @@ impl PyDeque {
             _ => return Ok(vm.ctx.not_implemented()),
         });
 
-        let lhs: &VecDeque<_> = &zelf.deque.borrow();
-        let rhs: &VecDeque<_> = &other.deque.borrow();
+        let lhs = &zelf.borrow_sequence();
+        let rhs = &other.borrow_sequence();
 
         let eq = objsequence::seq_lt(vm, lhs, rhs)?;
         Ok(vm.new_bool(eq))
@@ -274,8 +280,8 @@ impl PyDeque {
             _ => return Ok(vm.ctx.not_implemented()),
         });
 
-        let lhs: &VecDeque<_> = &zelf.deque.borrow();
-        let rhs: &VecDeque<_> = &other.deque.borrow();
+        let lhs = &zelf.borrow_sequence();
+        let rhs = &other.borrow_sequence();
 
         let eq = objsequence::seq_gt(vm, lhs, rhs)?;
         Ok(vm.new_bool(eq))
@@ -292,8 +298,8 @@ impl PyDeque {
             _ => return Ok(vm.ctx.not_implemented()),
         });
 
-        let lhs: &VecDeque<_> = &zelf.deque.borrow();
-        let rhs: &VecDeque<_> = &other.deque.borrow();
+        let lhs = &zelf.borrow_sequence();
+        let rhs = &other.borrow_sequence();
 
         let eq = objsequence::seq_le(vm, lhs, rhs)?;
         Ok(vm.new_bool(eq))
@@ -310,8 +316,8 @@ impl PyDeque {
             _ => return Ok(vm.ctx.not_implemented()),
         });
 
-        let lhs: &VecDeque<_> = &zelf.deque.borrow();
-        let rhs: &VecDeque<_> = &other.deque.borrow();
+        let lhs = &zelf.borrow_sequence();
+        let rhs = &other.borrow_sequence();
 
         let eq = objsequence::seq_ge(vm, lhs, rhs)?;
         Ok(vm.new_bool(eq))

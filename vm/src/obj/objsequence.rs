@@ -1,5 +1,5 @@
 use std::marker::Sized;
-use std::ops::Range;
+use std::ops::{Deref, Range};
 
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -272,21 +272,21 @@ impl SimpleSeq for Vec<PyObjectRef> {
     }
 }
 
-impl SimpleSeq for std::cell::Ref<'_, Vec<PyObjectRef>> {
-    fn len(&self) -> usize {
-        self.as_slice().len()
-    }
-    fn iter(&self) -> DynPyIter {
-        Box::new(self.as_slice().iter())
-    }
-}
-
 impl SimpleSeq for std::collections::VecDeque<PyObjectRef> {
     fn len(&self) -> usize {
         self.len()
     }
     fn iter(&self) -> DynPyIter {
         Box::new(self.iter())
+    }
+}
+
+impl<T> SimpleSeq for std::cell::Ref<'_, T> where T: SimpleSeq {
+    fn len(&self) -> usize {
+        self.deref().len()
+    }
+    fn iter(&self) -> DynPyIter {
+        self.deref().iter()
     }
 }
 
