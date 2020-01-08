@@ -37,9 +37,9 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
-use crate::pyobject::{PyAttributes, PyContext, PyObject, PyObjectRef};
+use crate::pyobject::{PyAttributes, PyContext, PyObject, PyObjectPayload};
 use std::cell::RefCell;
-use std::mem::MaybeUninit;
+use std::mem::{self, MaybeUninit};
 use std::ptr;
 use std::rc::Rc;
 
@@ -301,17 +301,41 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
         let type_type_ptr =
             Rc::into_raw(type_type.clone()) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
 
-        let type_type_pyobj =
-            Rc::<PyClassObj>::from_raw(Rc::into_raw(type_type) as *mut _) as PyObjectRef;
+        // same as std::raw::TraitObject (which is unstable, but accurate)
+        #[repr(C)]
+        struct TraitObject {
+            data: *mut (),
+            vtable: *mut (),
+        }
 
-        ptr::write(
-            &mut (*object_type_ptr).typ as *mut PyClassRef as *mut PyObjectRef,
-            type_type_pyobj.clone(),
-        );
-        ptr::write(
-            &mut (*type_type_ptr).typ as *mut PyClassRef as *mut PyObjectRef,
-            type_type_pyobj,
-        );
+        let pyclass_vptr = {
+            // dummy PyClass
+            let cls = PyClass {
+                name: Default::default(),
+                bases: Default::default(),
+                mro: Default::default(),
+                subclasses: Default::default(),
+                attributes: Default::default(),
+                slots: Default::default(),
+            };
+            // so that we can get the vtable ptr of PyClass for PyObjectPayload
+            mem::transmute::<_, TraitObject>(&cls as &dyn PyObjectPayload).vtable
+        };
+
+        let write_typ_ptr = |ptr: *mut PyClassObj, type_type: UninitRef<PyClassObj>| {
+            // turn type_type into a trait object, using the vtable for PyClass we got earlier
+            let type_type = mem::transmute(TraitObject {
+                data: mem::transmute(type_type),
+                vtable: pyclass_vptr,
+            });
+            ptr::write(
+                &mut (*ptr).typ as *mut PyClassRef as *mut MaybeUninit<PyClassRef>,
+                type_type,
+            );
+        };
+
+        write_typ_ptr(object_type_ptr, type_type.clone());
+        write_typ_ptr(type_type_ptr, type_type);
 
         let type_type = PyClassRef::new_ref_unchecked(Rc::from_raw(type_type_ptr));
         let object_type = PyClassRef::new_ref_unchecked(Rc::from_raw(object_type_ptr));
