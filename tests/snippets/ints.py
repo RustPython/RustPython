@@ -273,6 +273,13 @@ class F(float):
 
 assert int(F(1.2)) == 3
 
+class BadInt(int):
+    def __int__(self):
+        return 42.0
+
+with assert_raises(TypeError):
+    int(BadInt())
+
 assert isinstance((0).__round__(), int)
 assert isinstance((1).__round__(), int)
 assert (0).__round__() == 0
