@@ -643,6 +643,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "htons" => ctx.new_rustfunc(socket_hton::<u16>),
         "ntohl" => ctx.new_rustfunc(socket_ntoh::<u32>),
         "ntohs" => ctx.new_rustfunc(socket_ntoh::<u16>),
+        "has_ipv6" => ctx.new_bool(false),
         "getdefaulttimeout" => ctx.new_rustfunc(|vm: &VirtualMachine| vm.get_none()),
         "getaddrinfo" => ctx.new_rustfunc(socket_getaddrinfo),
         "gethostbyaddr" => ctx.new_rustfunc(socket_gethostbyaddr),
