@@ -394,6 +394,31 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_dict_comprehension() {
+        let source = String::from("{x1: x2 for y in z}");
+        let parse_ast = parse_expression(&source).unwrap();
+        assert_eq!(
+            parse_ast,
+            ast::Expression {
+                location: ast::Location::new(1, 1),
+                node: ast::ExpressionType::Comprehension {
+                    kind: Box::new(ast::ComprehensionKind::Dict {
+                        key: mk_ident("x1", 1, 2),
+                        value: mk_ident("x2", 1, 6),
+                    }),
+                    generators: vec![ast::Comprehension {
+                        location: ast::Location::new(1, 9),
+                        target: mk_ident("y", 1, 13),
+                        iter: mk_ident("z", 1, 18),
+                        ifs: vec![],
+                        is_async: false,
+                    }],
+                }
+            }
+        );
+    }
+
+    #[test]
     fn test_parse_list_comprehension() {
         let source = String::from("[x for y in z]");
         let parse_ast = parse_expression(&source).unwrap();

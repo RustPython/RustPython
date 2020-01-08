@@ -419,6 +419,7 @@ impl PyContext {
         )
     }
 
+    #[inline]
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
         let value = if b {
             &self.true_value
