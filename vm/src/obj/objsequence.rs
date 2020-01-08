@@ -1,6 +1,5 @@
-use std::cell::RefCell;
 use std::marker::Sized;
-use std::ops::{Deref, DerefMut, Range};
+use std::ops::Range;
 
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -11,7 +10,7 @@ use super::objnone::PyNone;
 use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
 use crate::function::OptionalArg;
-use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::pyobject::{PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 pub trait PySliceableSequence {
@@ -245,160 +244,6 @@ pub fn get_item(
             sequence, subscript
         )))
     }
-}
-
-type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef> + 'a>;
-
-#[allow(clippy::len_without_is_empty)]
-pub trait SimpleSeq {
-    fn len(&self) -> usize;
-    fn iter(&self) -> DynPyIter;
-}
-
-impl SimpleSeq for &[PyObjectRef] {
-    fn len(&self) -> usize {
-        (&**self).len()
-    }
-    fn iter(&self) -> DynPyIter {
-        Box::new((&**self).iter())
-    }
-}
-
-impl SimpleSeq for std::collections::VecDeque<PyObjectRef> {
-    fn len(&self) -> usize {
-        self.len()
-    }
-    fn iter(&self) -> DynPyIter {
-        Box::new(self.iter())
-    }
-}
-
-// impl<'a, I>
-
-pub fn seq_equal(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> PyResult<bool> {
-    if zelf.len() == other.len() {
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            if a.is(b) {
-                continue;
-            }
-            if !vm.bool_eq(a.clone(), b.clone())? {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
-pub fn seq_lt(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
-    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-        if let Some(v) = vm.bool_seq_lt(a.clone(), b.clone())? {
-            return Ok(v);
-        }
-    }
-    Ok(zelf.len() < other.len())
-}
-
-pub fn seq_gt(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
-    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-        if let Some(v) = vm.bool_seq_gt(a.clone(), b.clone())? {
-            return Ok(v);
-        }
-    }
-    Ok(zelf.len() > other.len())
-}
-
-pub fn seq_ge(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
-    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-        if let Some(v) = vm.bool_seq_gt(a.clone(), b.clone())? {
-            return Ok(v);
-        }
-    }
-
-    Ok(zelf.len() >= other.len())
-}
-
-pub fn seq_le(vm: &VirtualMachine, zelf: &dyn SimpleSeq, other: &dyn SimpleSeq) -> PyResult<bool> {
-    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-        if let Some(v) = vm.bool_seq_lt(a.clone(), b.clone())? {
-            return Ok(v);
-        }
-    }
-
-    Ok(zelf.len() <= other.len())
-}
-
-pub struct SeqMul<'a> {
-    seq: &'a dyn SimpleSeq,
-    repetitions: usize,
-    iter: Option<DynPyIter<'a>>,
-}
-impl<'a> Iterator for SeqMul<'a> {
-    type Item = &'a PyObjectRef;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.seq.len() == 0 {
-            return None;
-        }
-        match self.iter.as_mut().and_then(Iterator::next) {
-            Some(item) => Some(item),
-            None => {
-                if self.repetitions == 0 {
-                    None
-                } else {
-                    self.repetitions -= 1;
-                    self.iter = Some(self.seq.iter());
-                    self.next()
-                }
-            }
-        }
-    }
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let size = self.iter.as_ref().map_or(0, ExactSizeIterator::len)
-            + (self.repetitions * self.seq.len());
-        (size, Some(size))
-    }
-}
-impl ExactSizeIterator for SeqMul<'_> {}
-
-pub fn seq_mul(seq: &dyn SimpleSeq, repetitions: isize) -> SeqMul {
-    SeqMul {
-        seq,
-        repetitions: repetitions.max(0) as usize,
-        iter: None,
-    }
-}
-
-pub fn get_elements_cell<'a>(obj: &'a PyObjectRef) -> &'a RefCell<Vec<PyObjectRef>> {
-    if let Some(list) = obj.payload::<PyList>() {
-        return &list.elements;
-    }
-    panic!("Cannot extract elements from non-sequence");
-}
-
-pub fn get_elements_list<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
-    if let Some(list) = obj.payload::<PyList>() {
-        return list.elements.borrow();
-    }
-    panic!("Cannot extract elements from non-sequence");
-}
-
-pub fn get_elements_tuple<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
-    if let Some(tuple) = obj.payload::<PyTuple>() {
-        return &tuple.elements;
-    }
-    panic!("Cannot extract elements from non-sequence");
-}
-
-pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<PyObjectRef>> + 'a {
-    if let Some(list) = obj.payload::<PyList>() {
-        return list.elements.borrow_mut();
-    }
-    panic!("Cannot extract elements from non-sequence");
 }
 
 //Check if given arg could be used with PySliceableSequence.get_slice_range()

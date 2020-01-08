@@ -389,16 +389,16 @@ impl ToSocketAddrs for Address {
 impl TryFromObject for Address {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let tuple = PyTupleRef::try_from_object(vm, obj)?;
-        if tuple.elements.len() != 2 {
+        if tuple.as_slice().len() != 2 {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_string()))
         } else {
-            let host = PyStringRef::try_from_object(vm, tuple.elements[0].clone())?;
+            let host = PyStringRef::try_from_object(vm, tuple.as_slice()[0].clone())?;
             let host = if host.as_str().is_empty() {
                 PyString::from("0.0.0.0").into_ref(vm)
             } else {
                 host
             };
-            let port = u16::try_from_object(vm, tuple.elements[1].clone())?;
+            let port = u16::try_from_object(vm, tuple.as_slice()[1].clone())?;
             Ok(Address { host, port })
         }
     }

@@ -8,7 +8,6 @@ use subprocess;
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objlist::PyListRef;
-use crate::obj::objsequence;
 use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue};
@@ -107,7 +106,8 @@ impl PopenRef {
         let stderr = convert_redirection(args.stderr, vm)?;
         let command_list = match &args.args {
             Either::A(command) => vec![command.as_str().to_string()],
-            Either::B(command_list) => objsequence::get_elements_list(command_list.as_object())
+            Either::B(command_list) => command_list
+                .borrow_elements()
                 .iter()
                 .map(|x| objstr::get_value(x))
                 .collect(),

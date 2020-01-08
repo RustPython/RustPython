@@ -37,3 +37,10 @@ assert deque(maxlen=3) == deque()
 assert deque([1, 2, 3, 4], maxlen=2) == deque([3, 4])
 
 assert len(deque([1, 2, 3, 4])) == 4
+
+assert d >= d
+assert not (d > d)
+assert d <= d
+assert not (d < d)
+assert d == d
+assert not (d != d)

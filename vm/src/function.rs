@@ -583,7 +583,7 @@ pub fn single_or_tuple_any<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>>(
             match_class!(match obj {
                 obj @ T => (self.predicate)(obj),
                 tuple @ PyTuple => {
-                    for obj in tuple.elements.iter() {
+                    for obj in tuple.as_slice().iter() {
                         if self.check(obj.clone())? {
                             return Ok(true);
                         }

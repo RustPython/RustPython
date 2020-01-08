@@ -275,20 +275,20 @@ fn exception_args_as_string(
     varargs: PyTupleRef,
     str_single: bool,
 ) -> Vec<PyStringRef> {
-    match varargs.elements.len() {
+    let varargs = varargs.as_slice();
+    match varargs.len() {
         0 => vec![],
         1 => {
             let args0_repr = if str_single {
-                vm.to_str(&varargs.elements[0])
+                vm.to_str(&varargs[0])
                     .unwrap_or_else(|_| PyString::from("<element str() failed>").into_ref(vm))
             } else {
-                vm.to_repr(&varargs.elements[0])
+                vm.to_repr(&varargs[0])
                     .unwrap_or_else(|_| PyString::from("<element repr() failed>").into_ref(vm))
             };
             vec![args0_repr]
         }
         _ => varargs
-            .elements
             .iter()
             .map(|vararg| {
                 vm.to_repr(vararg)
@@ -362,8 +362,8 @@ impl ExceptionCtor {
             (Self::Class(cls), _) => {
                 let args = match_class!(match value {
                     PyNone => vec![],
-                    tup @ PyTuple => tup.elements.clone(),
-                    exc @ PyBaseException => exc.args().elements.clone(),
+                    tup @ PyTuple => tup.as_slice().to_vec(),
+                    exc @ PyBaseException => exc.args().as_slice().to_vec(),
                     obj => vec![obj],
                 });
                 invoke(cls, args, vm)
@@ -609,7 +609,7 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef, &VirtualMachine) -
     move |exc, vm| {
         exc.args
             .borrow()
-            .elements
+            .as_slice()
             .get(idx)
             .cloned()
             .unwrap_or_else(|| vm.get_none())

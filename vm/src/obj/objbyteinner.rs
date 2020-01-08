@@ -11,7 +11,7 @@ use super::objint::{self, PyInt, PyIntRef};
 use super::objlist::PyList;
 use super::objmemory::PyMemoryView;
 use super::objnone::PyNoneRef;
-use super::objsequence::{self, is_valid_slice_arg, PySliceableSequence};
+use super::objsequence::{is_valid_slice_arg, PySliceableSequence};
 use super::objslice::PySliceRef;
 use super::objstr::{self, PyString, PyStringRef};
 use super::objtuple::PyTupleRef;
@@ -859,8 +859,8 @@ impl PyByteInner {
             Either::A(byte) => byte.elements,
             Either::B(tuple) => {
                 let mut flatten = vec![];
-                for v in objsequence::get_elements_tuple(tuple.as_object()).to_vec() {
-                    flatten.extend(PyByteInner::try_from_object(vm, v)?.elements)
+                for v in tuple.as_slice() {
+                    flatten.extend(PyByteInner::try_from_object(vm, v.clone())?.elements)
                 }
                 flatten
             }

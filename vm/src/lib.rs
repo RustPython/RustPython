@@ -64,6 +64,7 @@ pub mod py_serde;
 mod pyhash;
 pub mod pyobject;
 pub mod scope;
+mod sequence;
 pub mod stdlib;
 mod sysmodule;
 pub mod types;
