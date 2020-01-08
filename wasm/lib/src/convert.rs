@@ -5,41 +5,38 @@ use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::obj::{objbytes, objtype};
-use rustpython_vm::py_serde;
 use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
+use rustpython_vm::{exceptions, py_serde};
 
 use crate::browser_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 
+#[wasm_bindgen(inline_js = r"
+export class PyError extends Error {
+    constructor(info) {
+        const msg = info.args[0];
+        if (typeof msg === 'string') super(msg);
+        else super();
+        this.info = info;
+    }
+    get name() { return this.info.exc_type; }
+    get traceback() { return this.info.traceback; }
+    toString() { return this.info.rendered; }
+}
+")]
+extern "C" {
+    type PyError;
+    #[wasm_bindgen(constructor)]
+    fn new(info: JsValue) -> PyError;
+}
+
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyBaseExceptionRef) -> JsValue {
-    macro_rules! map_exceptions {
-        ($py_exc:ident, $msg:expr, { $($py_exc_ty:expr => $js_err_new:expr),*$(,)? }) => {
-            $(if objtype::isinstance($py_exc, $py_exc_ty) {
-                JsValue::from($js_err_new($msg))
-            } else)* {
-                JsValue::from(js_sys::Error::new($msg))
-            }
-        };
+    let res = serde_wasm_bindgen::to_value(&exceptions::SerializeException::new(vm, py_err));
+    match res {
+        Ok(err_info) => PyError::new(err_info).into(),
+        Err(e) => e.into(),
     }
-    let msg = match vm.to_str(py_err.as_object()) {
-        Ok(msg) => msg,
-        Err(_) => return js_sys::Error::new("error getting error").into(),
-    };
-    let js_err = map_exceptions!(py_err, msg.as_str(), {
-        // TypeError is sort of a catch-all for "this value isn't what I thought it was like"
-        &vm.ctx.exceptions.type_error => js_sys::TypeError::new,
-        &vm.ctx.exceptions.value_error => js_sys::TypeError::new,
-        &vm.ctx.exceptions.index_error => js_sys::TypeError::new,
-        &vm.ctx.exceptions.key_error => js_sys::TypeError::new,
-        &vm.ctx.exceptions.attribute_error => js_sys::TypeError::new,
-        &vm.ctx.exceptions.name_error => js_sys::ReferenceError::new,
-        &vm.ctx.exceptions.syntax_error => js_sys::SyntaxError::new,
-    });
-    if let Some(tb) = py_err.traceback() {
-        let _ = Reflect::set(&js_err, &"row".into(), &(tb.lineno as u32).into());
-    }
-    js_err
 }
 
 pub fn js_py_typeerror(vm: &VirtualMachine, js_err: JsValue) -> PyBaseExceptionRef {
