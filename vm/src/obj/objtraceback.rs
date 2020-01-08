@@ -52,6 +52,24 @@ impl PyTraceback {
     }
 }
 
+impl PyTracebackRef {
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = PyTracebackRef> + 'a {
+        std::iter::successors(Some(self.clone()), |tb| tb.next.clone())
+    }
+}
+
 pub fn init(context: &PyContext) {
     PyTraceback::extend_class(context, &context.types.traceback_type);
+}
+
+impl serde::Serialize for PyTraceback {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+
+        let mut struc = s.serialize_struct("PyTraceback", 3)?;
+        struc.serialize_field("name", &self.frame.code.obj_name)?;
+        struc.serialize_field("lineno", &self.lineno)?;
+        struc.serialize_field("filename", &self.frame.code.source_path)?;
+        struc.end()
+    }
 }
