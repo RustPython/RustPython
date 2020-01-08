@@ -445,8 +445,12 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
 }
 
-fn socket_htonl(host: u32, vm: &VirtualMachine) -> PyResult {
-    Ok(vm.new_int(host.to_be()))
+fn socket_hton<U: num_traits::int::PrimInt>(host: U, _vm: &VirtualMachine) -> U {
+    U::to_be(host)
+}
+
+fn socket_ntoh<U: num_traits::int::PrimInt>(network: U, _vm: &VirtualMachine) -> U {
+    U::from_be(network)
 }
 
 #[derive(FromArgs)]
@@ -635,7 +639,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "inet_aton" => ctx.new_rustfunc(socket_inet_aton),
         "inet_ntoa" => ctx.new_rustfunc(socket_inet_ntoa),
         "gethostname" => ctx.new_rustfunc(socket_gethostname),
-        "htonl" => ctx.new_rustfunc(socket_htonl),
+        "htonl" => ctx.new_rustfunc(socket_hton::<u32>),
+        "htons" => ctx.new_rustfunc(socket_hton::<u16>),
+        "ntohl" => ctx.new_rustfunc(socket_ntoh::<u32>),
+        "ntohs" => ctx.new_rustfunc(socket_ntoh::<u16>),
         "getdefaulttimeout" => ctx.new_rustfunc(|vm: &VirtualMachine| vm.get_none()),
         "getaddrinfo" => ctx.new_rustfunc(socket_getaddrinfo),
         "gethostbyaddr" => ctx.new_rustfunc(socket_gethostbyaddr),
