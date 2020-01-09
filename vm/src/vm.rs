@@ -673,8 +673,8 @@ impl VirtualMachine {
                 args
             };
             self.invoke(&function, args)
-        } else if let Some(PyBuiltinFunction { ref value }) = func_ref.payload() {
-            value(self, args)
+        } else if let Some(builtin_func) = func_ref.payload::<PyBuiltinFunction>() {
+            builtin_func.as_func()(self, args)
         } else if self.is_callable(&func_ref) {
             self.call_method(&func_ref, "__call__", args)
         } else {

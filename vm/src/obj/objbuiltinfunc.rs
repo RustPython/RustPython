@@ -6,8 +6,7 @@ use crate::pyobject::PyValue;
 use crate::vm::VirtualMachine;
 
 pub struct PyBuiltinFunction {
-    // TODO: shouldn't be public
-    pub value: PyNativeFunc,
+    value: PyNativeFunc,
 }
 
 impl PyValue for PyBuiltinFunction {
@@ -25,5 +24,9 @@ impl fmt::Debug for PyBuiltinFunction {
 impl PyBuiltinFunction {
     pub fn new(value: PyNativeFunc) -> Self {
         Self { value }
+    }
+
+    pub fn as_func(&self) -> &PyNativeFunc {
+        &self.value
     }
 }
