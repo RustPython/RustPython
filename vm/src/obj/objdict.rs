@@ -332,7 +332,7 @@ impl PyDictRef {
     pub fn to_attributes(self) -> PyAttributes {
         let mut attrs = PyAttributes::new();
         for (key, value) in self {
-            let key = objstr::get_value(&key);
+            let key = objstr::clone_value(&key);
             attrs.insert(key, value);
         }
         attrs

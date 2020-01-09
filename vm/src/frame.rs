@@ -301,7 +301,7 @@ impl Frame {
                 let s = self
                     .pop_multiple(*size)
                     .into_iter()
-                    .map(|pyobj| objstr::get_value(&pyobj))
+                    .map(|pyobj| objstr::clone_value(&pyobj))
                     .collect::<String>();
                 let str_obj = vm.ctx.new_str(s);
                 self.push_value(str_obj);
@@ -929,7 +929,7 @@ impl Frame {
                 let kwarg_names = vm
                     .extract_elements(&kwarg_names)?
                     .iter()
-                    .map(|pyobj| objstr::get_value(pyobj))
+                    .map(|pyobj| objstr::clone_value(pyobj))
                     .collect();
                 PyFuncArgs::new(args, kwarg_names)
             }
@@ -939,7 +939,7 @@ impl Frame {
                         self.pop_value().downcast().expect("Kwargs must be a dict.");
                     kw_dict
                         .into_iter()
-                        .map(|elem| (objstr::get_value(&elem.0), elem.1))
+                        .map(|elem| (objstr::clone_value(&elem.0), elem.1))
                         .collect()
                 } else {
                     IndexMap::new()

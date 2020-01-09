@@ -213,7 +213,7 @@ fn struct_pack(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         let fmt_arg = args.args[0].clone();
         if objtype::isinstance(&fmt_arg, &vm.ctx.str_type()) {
-            let fmt_str = objstr::get_value(&fmt_arg);
+            let fmt_str = objstr::clone_value(&fmt_arg);
 
             let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;
 
@@ -364,7 +364,7 @@ fn struct_unpack(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    let fmt_str = objstr::get_value(&fmt);
+    let fmt_str = objstr::clone_value(&fmt);
 
     let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;
     let data = objbytes::get_value(buffer).to_vec();

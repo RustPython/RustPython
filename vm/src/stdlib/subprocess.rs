@@ -109,7 +109,7 @@ impl PopenRef {
             Either::B(command_list) => command_list
                 .borrow_elements()
                 .iter()
-                .map(|x| objstr::get_value(x))
+                .map(|x| objstr::clone_value(x))
                 .collect(),
         };
         let cwd = args.cwd.map(|x| OsString::from(x.as_str()));

@@ -1529,7 +1529,7 @@ mod tests {
         let a = vm.ctx.new_str(String::from("Hello "));
         let b = vm.ctx.new_int(4_i32);
         let res = vm._mul(a, b).unwrap();
-        let value = objstr::get_value(&res);
+        let value = objstr::borrow_value(&res);
         assert_eq!(value, String::from("Hello Hello Hello Hello "))
     }
 }

@@ -211,7 +211,7 @@ impl PyString {
     #[pymethod(name = "__add__")]
     fn add(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            Ok(format!("{}{}", self.value, get_value(&rhs)))
+            Ok(format!("{}{}", self.value, borrow_value(&rhs)))
         } else {
             Err(vm.new_type_error(format!("Cannot add {} and {}", self, rhs)))
         }
@@ -225,7 +225,7 @@ impl PyString {
     #[pymethod(name = "__eq__")]
     fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            vm.new_bool(self.value == get_value(&rhs))
+            vm.new_bool(self.value == borrow_value(&rhs))
         } else {
             vm.ctx.not_implemented()
         }
@@ -234,7 +234,7 @@ impl PyString {
     #[pymethod(name = "__ne__")]
     fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            vm.new_bool(self.value != get_value(&rhs))
+            vm.new_bool(self.value != borrow_value(&rhs))
         } else {
             vm.ctx.not_implemented()
         }
@@ -611,8 +611,8 @@ impl PyString {
                 actual_type
             )));
         }
-        let format_string_text = get_value(zelf);
-        match FormatString::from_str(format_string_text.as_str()) {
+        let format_string_text = borrow_value(zelf);
+        match FormatString::from_str(format_string_text) {
             Ok(format_string) => perform_format(vm, &format_string, &args),
             Err(err) => match err {
                 FormatParseError::UnmatchedBracket => {
@@ -637,8 +637,8 @@ impl PyString {
         }
 
         let zelf = &args.args[0];
-        let format_string_text = get_value(zelf);
-        match FormatString::from_str(format_string_text.as_str()) {
+        let format_string_text = borrow_value(zelf);
+        match FormatString::from_str(format_string_text) {
             Ok(format_string) => perform_format_map(vm, &format_string, &args.args[1]),
             Err(err) => match err {
                 FormatParseError::UnmatchedBracket => {
@@ -1271,7 +1271,7 @@ pub fn init(ctx: &PyContext) {
     PyStringReverseIterator::extend_class(ctx, &ctx.types.strreverseiterator_type);
 }
 
-pub fn get_value(obj: &PyObjectRef) -> String {
+pub fn clone_value(obj: &PyObjectRef) -> String {
     obj.payload::<PyString>().unwrap().value.clone()
 }
 
@@ -1324,7 +1324,7 @@ fn do_cformat_specifier(
                 CFormatPreconversor::Ascii => vm.call_method(&obj.clone(), "__repr__", vec![])?,
                 CFormatPreconversor::Bytes => vm.call_method(&obj.clone(), "decode", vec![])?,
             };
-            Ok(format_spec.format_string(get_value(&result)))
+            Ok(format_spec.format_string(clone_value(&result)))
         }
         CFormatType::Number(_) => {
             if !objtype::isinstance(&obj, &vm.ctx.int_type()) {
@@ -1367,7 +1367,7 @@ fn do_cformat_specifier(
                         }
                     }
                 } else if objtype::isinstance(&obj, &vm.ctx.str_type()) {
-                    let s: String = get_value(&obj);
+                    let s = borrow_value(&obj);
                     let num_chars = s.chars().count();
                     if num_chars != 1 {
                         Err(vm.new_type_error("%c requires int or char".to_string()))
@@ -1554,7 +1554,7 @@ fn perform_format(
                     }
                 };
                 auto_argument_index += 1;
-                get_value(&result)
+                clone_value(&result)
             }
             FormatPart::IndexSpec(index, format_spec) => {
                 let result = match arguments.args.get(*index + 1) {
@@ -1563,7 +1563,7 @@ fn perform_format(
                         return Err(vm.new_index_error("tuple index out of range".to_string()));
                     }
                 };
-                get_value(&result)
+                clone_value(&result)
             }
             FormatPart::KeywordSpec(keyword, format_spec) => {
                 let result = match arguments.get_optional_kwarg(&keyword) {
@@ -1572,7 +1572,7 @@ fn perform_format(
                         return Err(vm.new_key_error(vm.new_str(keyword.to_string())));
                     }
                 };
-                get_value(&result)
+                clone_value(&result)
             }
             FormatPart::Literal(literal) => literal.clone(),
         };
@@ -1597,7 +1597,7 @@ fn perform_format_map(
             FormatPart::KeywordSpec(keyword, format_spec) => {
                 let argument = dict.get_item(keyword, &vm)?;
                 let result = call_object_format(vm, argument.clone(), &format_spec)?;
-                get_value(&result)
+                clone_value(&result)
             }
             FormatPart::Literal(literal) => literal.clone(),
         };

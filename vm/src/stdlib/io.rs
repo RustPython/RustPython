@@ -209,13 +209,11 @@ fn string_io_new(
     _args: StringIOArgs,
     vm: &VirtualMachine,
 ) -> PyResult<PyStringIORef> {
-    let raw_string = match object {
-        OptionalArg::Present(Some(ref input)) => objstr::get_value(input),
-        _ => String::new(),
-    };
+    let flatten = object.flat_option();
+    let input = flatten.map_or_else(Vec::new, |v| objstr::borrow_value(&v).as_bytes().to_vec());
 
     PyStringIO {
-        buffer: RefCell::new(Some(BufferedIO::new(Cursor::new(raw_string.into_bytes())))),
+        buffer: RefCell::new(Some(BufferedIO::new(Cursor::new(input)))),
     }
     .into_ref_with_type(vm, cls)
 }
@@ -816,7 +814,7 @@ fn text_io_wrapper_readline(
     Ok(rust_string)
 }
 
-fn split_mode_string(mode_string: String) -> Result<(String, String), String> {
+fn split_mode_string(mode_string: &str) -> Result<(String, String), String> {
     let mut mode: char = '\0';
     let mut typ: char = '\0';
     let mut plus_is_set = false;
@@ -882,7 +880,7 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     // mode is optional: 'rt' is the default mode (open from reading text)
-    let mode_string = mode.map_or("rt".to_string(), objstr::get_value);
+    let mode_string = mode.map_or("rt", objstr::borrow_value);
 
     let (mode, typ) = match split_mode_string(mode_string) {
         Ok((mode, typ)) => (mode, typ),
@@ -1066,7 +1064,7 @@ mod tests {
     use super::*;
 
     fn assert_mode_split_into(mode_string: &str, expected_mode: &str, expected_typ: &str) {
-        let (mode, typ) = split_mode_string(mode_string.to_string()).unwrap();
+        let (mode, typ) = split_mode_string(mode_string).unwrap();
         assert_eq!(mode, expected_mode);
         assert_eq!(typ, expected_typ);
     }
@@ -1085,15 +1083,15 @@ mod tests {
     #[test]
     fn test_invalid_mode() {
         assert_eq!(
-            split_mode_string("rbsss".to_string()),
+            split_mode_string("rbsss"),
             Err("invalid mode: 'rbsss'".to_string())
         );
         assert_eq!(
-            split_mode_string("rrb".to_string()),
+            split_mode_string("rrb"),
             Err("invalid mode: 'rrb'".to_string())
         );
         assert_eq!(
-            split_mode_string("rbb".to_string()),
+            split_mode_string("rbb"),
             Err("invalid mode: 'rbb'".to_string())
         );
     }
@@ -1101,21 +1099,21 @@ mod tests {
     #[test]
     fn test_mode_not_specified() {
         assert_eq!(
-            split_mode_string("".to_string()),
+            split_mode_string(""),
             Err(
                 "Must have exactly one of create/read/write/append mode and at most one plus"
                     .to_string()
             )
         );
         assert_eq!(
-            split_mode_string("b".to_string()),
+            split_mode_string("b"),
             Err(
                 "Must have exactly one of create/read/write/append mode and at most one plus"
                     .to_string()
             )
         );
         assert_eq!(
-            split_mode_string("t".to_string()),
+            split_mode_string("t"),
             Err(
                 "Must have exactly one of create/read/write/append mode and at most one plus"
                     .to_string()
@@ -1126,7 +1124,7 @@ mod tests {
     #[test]
     fn test_text_and_binary_at_once() {
         assert_eq!(
-            split_mode_string("rbt".to_string()),
+            split_mode_string("rbt"),
             Err("can't have text and binary mode at once".to_string())
         );
     }
@@ -1134,7 +1132,7 @@ mod tests {
     #[test]
     fn test_exactly_one_mode() {
         assert_eq!(
-            split_mode_string("rwb".to_string()),
+            split_mode_string("rwb"),
             Err("must have exactly one of create/read/write/append mode".to_string())
         );
     }
@@ -1142,7 +1140,7 @@ mod tests {
     #[test]
     fn test_at_most_one_plus() {
         assert_eq!(
-            split_mode_string("a++".to_string()),
+            split_mode_string("a++"),
             Err("invalid mode: 'a++'".to_string())
         );
     }
