@@ -64,7 +64,7 @@ fn run_py(source: &str, options: Option<Object>, mode: Mode) -> Result<JsValue, 
     if let Some(js_vars) = js_vars {
         vm.add_to_scope("js_vars".into(), js_vars.into())?;
     }
-    vm.run(source, mode)
+    vm.run(source, mode, None)
 }
 
 /// Evaluate Python code

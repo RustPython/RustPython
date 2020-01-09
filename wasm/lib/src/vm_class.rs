@@ -278,13 +278,19 @@ impl WASMVirtualMachine {
         })?
     }
 
-    pub(crate) fn run(&self, source: &str, mode: compile::Mode) -> Result<JsValue, JsValue> {
+    pub(crate) fn run(
+        &self,
+        source: &str,
+        mode: compile::Mode,
+        source_path: Option<String>,
+    ) -> Result<JsValue, JsValue> {
         self.assert_valid()?;
         self.with_unchecked(
             |StoredVirtualMachine {
                  ref vm, ref scope, ..
              }| {
-                let code = vm.compile(source, mode, "<wasm>".to_string());
+                let source_path = source_path.unwrap_or_else(|| "<wasm>".to_string());
+                let code = vm.compile(source, mode, source_path);
                 let code = code.map_err(|err| {
                     let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
                     let _ =
@@ -302,16 +308,20 @@ impl WASMVirtualMachine {
         )
     }
 
-    pub fn exec(&self, source: &str) -> Result<JsValue, JsValue> {
-        self.run(source, compile::Mode::Exec)
+    pub fn exec(&self, source: &str, source_path: Option<String>) -> Result<JsValue, JsValue> {
+        self.run(source, compile::Mode::Exec, source_path)
     }
 
-    pub fn eval(&self, source: &str) -> Result<JsValue, JsValue> {
-        self.run(source, compile::Mode::Eval)
+    pub fn eval(&self, source: &str, source_path: Option<String>) -> Result<JsValue, JsValue> {
+        self.run(source, compile::Mode::Eval, source_path)
     }
 
     #[wasm_bindgen(js_name = execSingle)]
-    pub fn exec_single(&self, source: &str) -> Result<JsValue, JsValue> {
-        self.run(source, compile::Mode::Single)
+    pub fn exec_single(
+        &self,
+        source: &str,
+        source_path: Option<String>,
+    ) -> Result<JsValue, JsValue> {
+        self.run(source, compile::Mode::Single, source_path)
     }
 }
