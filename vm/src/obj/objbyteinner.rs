@@ -35,7 +35,7 @@ impl TryFromObject for PyByteInner {
                 elements: j.borrow_value().elements.to_vec()
             }),
             k @ PyMemoryView => Ok(PyByteInner {
-                elements: k.get_obj_value().unwrap()
+                elements: k.try_value().unwrap()
             }),
             l @ PyList => l.get_byte_inner(vm),
             obj => Err(vm.new_type_error(format!(
@@ -450,7 +450,7 @@ impl PyByteInner {
                     .collect::<PyResult<Vec<_>>>()?)
             }
             _ => match_class!(match object {
-                i @ PyMemoryView => Ok(i.get_obj_value().unwrap()),
+                i @ PyMemoryView => Ok(i.try_value().unwrap()),
                 _ => Err(vm.new_index_error(
                     "can assign only bytes, buffers, or iterables of ints in range(0, 256)"
                         .to_string()
