@@ -9,9 +9,9 @@
         <p>
             RustPython is a Python interpreter written in Rust. This demo is
             compiled from Rust to WebAssembly so it runs in the browser.<br>
-            Please input your Python code below and click <kbd>Run</kbd>
+            Input your Python code below and click <kbd>Run</kbd>
             (or <kbd>Ctrl+Enter</kbd>), or you can open up your
-            browser's devtools and play with <code>rp.pyEval('print("a")')</code>
+            browser's devtools and play with <code>rp.pyEval('1 + 1')</code>
         </p>
         <div id="code-wrapper">
             <textarea id="code">
@@ -31,9 +31,13 @@
         <textarea id="console" readonly>Loading...</textarea>
 
         <h3>Interactive shell</h3>
-         <div id="terminal"></div>
+        <div id="terminal"></div>
 
-        <p>Here's some info regarding the <code>rp.pyEval()</code> function</p>
+        <p>
+            Here's some info regarding the <code>rp.pyEval()</code>,
+            <code>rp.pyExec()</code>, and <code>rp.pyExecSingle()</code>
+            functions
+        </p>
         <ul>
             <li>
                 You can return variables from python and get them returned to
