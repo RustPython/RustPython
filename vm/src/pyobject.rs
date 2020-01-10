@@ -492,9 +492,7 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R, VM>,
     {
         PyObject::new(
-            PyClassMethod {
-                callable: self.new_method(f),
-            },
+            PyClassMethod::new(self.new_method(f)),
             self.classmethod_type(),
             None,
         )
