@@ -18,6 +18,7 @@ use rustpython_compiler::compile::Mode;
 use std::panic;
 use wasm_bindgen::prelude::*;
 
+pub use crate::convert::PyError;
 pub use crate::vm_class::*;
 
 const PY_EVAL_VM_ID: &str = "__py_eval_vm";

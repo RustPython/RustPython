@@ -26,7 +26,7 @@ export class PyError extends Error {
 }
 ")]
 extern "C" {
-    type PyError;
+    pub type PyError;
     #[wasm_bindgen(constructor)]
     fn new(info: JsValue) -> PyError;
 }
