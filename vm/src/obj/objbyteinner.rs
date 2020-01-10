@@ -17,7 +17,9 @@ use super::objstr::{self, PyString, PyStringRef};
 use super::objtuple::PyTupleRef;
 use crate::function::OptionalArg;
 use crate::pyhash;
-use crate::pyobject::{Either, PyIterable, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::pyobject::{
+    Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug, Default, Clone)]
@@ -301,6 +303,7 @@ impl ByteInnerSplitlinesOptions {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl PyByteInner {
     pub fn repr(&self) -> PyResult<String> {
         let mut res = String::with_capacity(self.elements.len());
@@ -322,48 +325,34 @@ impl PyByteInner {
         self.elements.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.elements.len() == 0
+    #[inline]
+    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyComparisonValue
+    where
+        F: Fn(&[u8], &[u8]) -> bool,
+    {
+        let r = PyByteInner::try_from_object(vm, other)
+            .map(|other| op(&self.elements, &other.elements));
+        PyComparisonValue::from_option(r.ok())
     }
 
-    pub fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
-            Ok(vm.new_bool(self.elements == other.elements))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+    pub fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
+        self.cmp(other, |a, b| a == b, vm)
     }
 
-    pub fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
-            Ok(vm.new_bool(self.elements >= other.elements))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+    pub fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
+        self.cmp(other, |a, b| a >= b, vm)
     }
 
-    pub fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
-            Ok(vm.new_bool(self.elements <= other.elements))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+    pub fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
+        self.cmp(other, |a, b| a <= b, vm)
     }
 
-    pub fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
-            Ok(vm.new_bool(self.elements > other.elements))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+    pub fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
+        self.cmp(other, |a, b| a > b, vm)
     }
 
-    pub fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
-            Ok(vm.new_bool(self.elements < other.elements))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+    pub fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
+        self.cmp(other, |a, b| a < b, vm)
     }
 
     pub fn hash(&self) -> pyhash::PyHash {
