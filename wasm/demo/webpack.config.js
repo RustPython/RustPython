@@ -1,6 +1,8 @@
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const WasmPackPlugin = require('@wasm-tool/wasm-pack-plugin');
+const { CleanWebpackPlugin } = require('clean-webpack-plugin');
+
 const path = require('path');
 const fs = require('fs');
 
@@ -31,6 +33,7 @@ module.exports = (env = {}) => {
             ]
         },
         plugins: [
+            new CleanWebpackPlugin(),
             new HtmlWebpackPlugin({
                 filename: 'index.html',
                 template: 'src/index.ejs',

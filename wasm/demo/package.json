@@ -10,6 +10,7 @@
     },
     "devDependencies": {
         "@wasm-tool/wasm-pack-plugin": "^1.1.0",
+        "clean-webpack-plugin": "^3.0.0",
         "css-loader": "^3.4.1",
         "html-webpack-plugin": "^3.2.0",
         "mini-css-extract-plugin": "^0.9.0",
