@@ -1,12 +1,9 @@
 use std::cell::{Cell, RefCell};
-use std::cmp::Ordering;
 use std::iter;
-use std::ops::{AddAssign, SubAssign};
 use std::rc::Rc;
 
 use num_bigint::BigInt;
-use num_traits::sign::Signed;
-use num_traits::ToPrimitive;
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbool;
@@ -166,11 +163,11 @@ impl PyItertoolsCount {
     ) -> PyResult<PyRef<Self>> {
         let start = match start.into_option() {
             Some(int) => int.as_bigint().clone(),
-            None => BigInt::from(0),
+            None => BigInt::zero(),
         };
         let step = match step.into_option() {
             Some(int) => int.as_bigint().clone(),
-            None => BigInt::from(1),
+            None => BigInt::one(),
         };
 
         PyItertoolsCount {
@@ -183,7 +180,7 @@ impl PyItertoolsCount {
     #[pymethod(name = "__next__")]
     fn next(&self, _vm: &VirtualMachine) -> PyResult<PyInt> {
         let result = self.cur.borrow().clone();
-        AddAssign::add_assign(&mut self.cur.borrow_mut() as &mut BigInt, &self.step);
+        *self.cur.borrow_mut() += &self.step;
         Ok(PyInt::new(result))
     }
 
@@ -296,16 +293,11 @@ impl PyItertoolsRepeat {
 
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.times.is_some() {
-            match self.times.as_ref().unwrap().borrow().cmp(&BigInt::from(0)) {
-                Ordering::Less | Ordering::Equal => return Err(new_stop_iteration(vm)),
-                _ => (),
-            };
-
-            SubAssign::sub_assign(
-                &mut self.times.as_ref().unwrap().borrow_mut() as &mut BigInt,
-                &BigInt::from(1),
-            );
+        if let Some(ref times) = self.times {
+            if *times.borrow() <= BigInt::zero() {
+                return Err(new_stop_iteration(vm));
+            }
+            *times.borrow_mut() -= 1;
         }
 
         Ok(self.object.clone())
@@ -314,6 +306,14 @@ impl PyItertoolsRepeat {
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
+    }
+
+    #[pymethod(name = "__length_hint__")]
+    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
+        match self.times {
+            Some(ref times) => vm.new_int(times.borrow().clone()),
+            None => vm.new_int(0),
+        }
     }
 }
 

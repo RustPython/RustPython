@@ -58,6 +58,15 @@ impl PyMap {
     fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
     }
+
+    #[pymethod(name = "__length_hint__")]
+    fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        self.iterators.iter().try_fold(0, |prev, cur| {
+            let cur = objiter::length_hint(vm, cur.clone())?.unwrap_or(0);
+            let max = std::cmp::max(prev, cur);
+            Ok(max)
+        })
+    }
 }
 
 pub fn init(context: &PyContext) {

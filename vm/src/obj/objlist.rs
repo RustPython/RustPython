@@ -873,6 +873,11 @@ impl PyListIterator {
     fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
     }
+
+    #[pymethod(name = "__length_hint__")]
+    fn length_hint(&self, _vm: &VirtualMachine) -> usize {
+        self.list.elements.borrow().len() - self.position.get()
+    }
 }
 
 #[pyclass]
@@ -905,6 +910,11 @@ impl PyListReverseIterator {
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
+    }
+
+    #[pymethod(name = "__length_hint__")]
+    fn length_hint(&self, _vm: &VirtualMachine) -> usize {
+        self.position.get()
     }
 }
 

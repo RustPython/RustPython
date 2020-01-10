@@ -22,6 +22,7 @@ use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::PyFunctionRef;
 use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
+use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
@@ -384,11 +385,8 @@ fn builtin_iter(iter_target: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     objiter::get_iter(vm, &iter_target)
 }
 
-fn builtin_len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    let method = vm.get_method_or_type_error(obj.clone(), "__len__", || {
-        format!("object of type '{}' has no len()", obj.class().name)
-    })?;
-    vm.invoke(&method, PyFuncArgs::default())
+fn builtin_len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    objsequence::len(&obj, vm)
 }
 
 fn builtin_locals(vm: &VirtualMachine) -> PyDictRef {
