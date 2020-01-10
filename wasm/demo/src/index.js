@@ -148,4 +148,9 @@ function onReady() {
     terminalVM = rp.vmStore.init('term_vm');
     terminalVM.setStdout(data => localEcho.println(data));
     readPrompts().catch(err => console.error(err));
+
+    // so that the test knows that we're ready
+    const readyElement = document.createElement('div');
+    readyElement.id = 'rp_loaded';
+    document.head.appendChild(readyElement);
 }
