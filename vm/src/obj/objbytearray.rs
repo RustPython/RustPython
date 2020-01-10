@@ -64,6 +64,12 @@ impl PyByteArray {
     }
 }
 
+impl From<Vec<u8>> for PyByteArray {
+    fn from(elements: Vec<u8>) -> PyByteArray {
+        PyByteArray::new(elements)
+    }
+}
+
 impl PyValue for PyByteArray {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.bytearray_type()
@@ -184,96 +190,100 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "isalnum")]
-    fn isalnum(&self, vm: &VirtualMachine) -> bool {
-        self.inner.borrow().isalnum(vm)
+    fn isalnum(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.borrow().isalnum()
     }
 
     #[pymethod(name = "isalpha")]
-    fn isalpha(&self, vm: &VirtualMachine) -> bool {
-        self.inner.borrow().isalpha(vm)
+    fn isalpha(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.borrow().isalpha()
     }
 
     #[pymethod(name = "isascii")]
-    fn isascii(&self, vm: &VirtualMachine) -> bool {
-        self.inner.borrow().isascii(vm)
+    fn isascii(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.borrow().isascii()
     }
 
     #[pymethod(name = "isdigit")]
-    fn isdigit(&self, vm: &VirtualMachine) -> bool {
-        self.inner.borrow().isdigit(vm)
+    fn isdigit(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.borrow().isdigit()
     }
 
     #[pymethod(name = "islower")]
-    fn islower(&self, vm: &VirtualMachine) -> bool {
-        self.inner.borrow().islower(vm)
+    fn islower(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.borrow().islower()
     }
 
     #[pymethod(name = "isspace")]
-    fn isspace(&self, vm: &VirtualMachine) -> bool {
-        self.inner.borrow().isspace(vm)
+    fn isspace(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.borrow().isspace()
     }
 
     #[pymethod(name = "isupper")]
-    fn isupper(&self, vm: &VirtualMachine) -> bool {
-        self.inner.borrow().isupper(vm)
+    fn isupper(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.borrow().isupper()
     }
 
     #[pymethod(name = "istitle")]
-    fn istitle(&self, vm: &VirtualMachine) -> bool {
-        self.inner.borrow().istitle(vm)
+    fn istitle(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.borrow().istitle()
     }
 
     #[pymethod(name = "lower")]
-    fn lower(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytearray(self.inner.borrow().lower(vm)))
+    fn lower(&self, _vm: &VirtualMachine) -> PyByteArray {
+        self.inner.borrow().lower().into()
     }
 
     #[pymethod(name = "upper")]
-    fn upper(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytearray(self.inner.borrow().upper(vm)))
+    fn upper(&self, _vm: &VirtualMachine) -> PyByteArray {
+        self.inner.borrow().upper().into()
     }
 
     #[pymethod(name = "capitalize")]
-    fn capitalize(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytearray(self.inner.borrow().capitalize(vm)))
+    fn capitalize(&self, _vm: &VirtualMachine) -> PyByteArray {
+        self.inner.borrow().capitalize().into()
     }
 
     #[pymethod(name = "swapcase")]
-    fn swapcase(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytearray(self.inner.borrow().swapcase(vm)))
+    fn swapcase(&self, _vm: &VirtualMachine) -> PyByteArray {
+        self.inner.borrow().swapcase().into()
     }
 
     #[pymethod(name = "hex")]
-    fn hex(&self, vm: &VirtualMachine) -> String {
-        self.inner.borrow().hex(vm)
+    fn hex(&self, _vm: &VirtualMachine) -> String {
+        self.inner.borrow().hex()
     }
 
     #[pymethod]
-    fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_bytearray(PyByteInner::fromhex(string.as_str(), vm)?))
+    fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
+        Ok(PyByteInner::fromhex(string.as_str(), vm)?.into())
     }
 
     #[pymethod(name = "center")]
-    fn center(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_bytearray(self.inner.borrow().center(options, vm)?))
+    fn center(
+        &self,
+        options: ByteInnerPaddingOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyByteArray> {
+        Ok(self.inner.borrow().center(options, vm)?.into())
     }
 
     #[pymethod(name = "ljust")]
-    fn ljust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_bytearray(self.inner.borrow().ljust(options, vm)?))
+    fn ljust(
+        &self,
+        options: ByteInnerPaddingOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyByteArray> {
+        Ok(self.inner.borrow().ljust(options, vm)?.into())
     }
 
     #[pymethod(name = "rjust")]
-    fn rjust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_bytearray(self.inner.borrow().rjust(options, vm)?))
+    fn rjust(
+        &self,
+        options: ByteInnerPaddingOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyByteArray> {
+        Ok(self.inner.borrow().rjust(options, vm)?.into())
     }
 
     #[pymethod(name = "count")]
@@ -282,8 +292,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "join")]
-    fn join(&self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow().join(iter, vm)
+    fn join(&self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult<PyByteArray> {
+        Ok(self.inner.borrow().join(iter, vm)?.into())
     }
 
     #[pymethod(name = "endswith")]
@@ -356,35 +366,51 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "translate")]
-    fn translate(&self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow().translate(options, vm)
+    fn translate(
+        &self,
+        options: ByteInnerTranslateOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyByteArray> {
+        Ok(self.inner.borrow().translate(options, vm)?.into())
     }
 
     #[pymethod(name = "strip")]
-    fn strip(&self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(
-            self.inner
-                .borrow()
-                .strip(chars, ByteInnerPosition::All, vm)?,
-        ))
+    fn strip(
+        &self,
+        chars: OptionalArg<PyByteInner>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<PyByteArray> {
+        Ok(self
+            .inner
+            .borrow()
+            .strip(chars, ByteInnerPosition::All)?
+            .into())
     }
 
     #[pymethod(name = "lstrip")]
-    fn lstrip(&self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(
-            self.inner
-                .borrow()
-                .strip(chars, ByteInnerPosition::Left, vm)?,
-        ))
+    fn lstrip(
+        &self,
+        chars: OptionalArg<PyByteInner>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<PyByteArray> {
+        Ok(self
+            .inner
+            .borrow()
+            .strip(chars, ByteInnerPosition::Left)?
+            .into())
     }
 
     #[pymethod(name = "rstrip")]
-    fn rstrip(&self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(
-            self.inner
-                .borrow()
-                .strip(chars, ByteInnerPosition::Right, vm)?,
-        ))
+    fn rstrip(
+        &self,
+        chars: OptionalArg<PyByteInner>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<PyByteArray> {
+        Ok(self
+            .inner
+            .borrow()
+            .strip(chars, ByteInnerPosition::Right)?
+            .into())
     }
 
     #[pymethod(name = "split")]
@@ -434,10 +460,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "expandtabs")]
-    fn expandtabs(&self, options: ByteInnerExpandtabsOptions, vm: &VirtualMachine) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_bytearray(self.inner.borrow().expandtabs(options)))
+    fn expandtabs(&self, options: ByteInnerExpandtabsOptions, _vm: &VirtualMachine) -> PyByteArray {
+        self.inner.borrow().expandtabs(options).into()
     }
 
     #[pymethod(name = "splitlines")]
@@ -453,8 +477,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "zfill")]
-    fn zfill(&self, width: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytearray(self.inner.borrow().zfill(width)))
+    fn zfill(&self, width: PyIntRef, _vm: &VirtualMachine) -> PyByteArray {
+        self.inner.borrow().zfill(width).into()
     }
 
     #[pymethod(name = "replace")]
@@ -463,11 +487,9 @@ impl PyByteArray {
         old: PyByteInner,
         new: PyByteInner,
         count: OptionalArg<PyIntRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_bytearray(self.inner.borrow().replace(old, new, count)?))
+        _vm: &VirtualMachine,
+    ) -> PyResult<PyByteArray> {
+        Ok(self.inner.borrow().replace(old, new, count)?.into())
     }
 
     #[pymethod(name = "clear")]
@@ -476,8 +498,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "copy")]
-    fn copy(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytearray(self.inner.borrow().elements.clone()))
+    fn copy(&self, _vm: &VirtualMachine) -> PyByteArray {
+        self.inner.borrow().elements.clone().into()
     }
 
     #[pymethod(name = "append")]
@@ -538,23 +560,23 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "title")]
-    fn title(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytearray(self.inner.borrow().title()))
+    fn title(&self, _vm: &VirtualMachine) -> PyByteArray {
+        self.inner.borrow().title().into()
     }
 
     #[pymethod(name = "__mul__")]
-    fn repeat(&self, n: isize, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytearray(self.inner.borrow().repeat(n, vm)?))
+    fn repeat(&self, n: isize, _vm: &VirtualMachine) -> PyByteArray {
+        self.inner.borrow().repeat(n).into()
     }
 
     #[pymethod(name = "__rmul__")]
-    fn rmul(&self, n: isize, vm: &VirtualMachine) -> PyResult {
+    fn rmul(&self, n: isize, vm: &VirtualMachine) -> PyByteArray {
         self.repeat(n, vm)
     }
 
     #[pymethod(name = "__imul__")]
-    fn irepeat(&self, n: isize, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.borrow_mut().irepeat(n, vm)
+    fn irepeat(&self, n: isize, _vm: &VirtualMachine) {
+        self.inner.borrow_mut().irepeat(n)
     }
 
     fn do_cformat(
@@ -562,15 +584,13 @@ impl PyByteArray {
         vm: &VirtualMachine,
         format_string: CFormatString,
         values_obj: PyObjectRef,
-    ) -> PyResult {
+    ) -> PyResult<PyByteArray> {
         let final_string = do_cformat_string(vm, format_string, values_obj)?;
-        Ok(vm
-            .ctx
-            .new_bytearray(final_string.as_str().as_bytes().to_owned()))
+        Ok(final_string.as_str().as_bytes().to_owned().into())
     }
 
     #[pymethod(name = "__mod__")]
-    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
         let format_string =
             CFormatString::from_str(std::str::from_utf8(&self.inner.borrow().elements).unwrap())
                 .map_err(|err| vm.new_value_error(err.to_string()))?;
@@ -578,8 +598,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__rmod__")]
-    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod(name = "reverse")]

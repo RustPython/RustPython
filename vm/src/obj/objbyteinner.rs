@@ -602,7 +602,7 @@ impl PyByteInner {
         elements.drain(range.start..(range.start + deleted));
     }
 
-    pub fn isalnum(&self, _vm: &VirtualMachine) -> bool {
+    pub fn isalnum(&self) -> bool {
         !self.elements.is_empty()
             && self
                 .elements
@@ -610,19 +610,19 @@ impl PyByteInner {
                 .all(|x| char::from(*x).is_alphanumeric())
     }
 
-    pub fn isalpha(&self, _vm: &VirtualMachine) -> bool {
+    pub fn isalpha(&self) -> bool {
         !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_alphabetic())
     }
 
-    pub fn isascii(&self, _vm: &VirtualMachine) -> bool {
+    pub fn isascii(&self) -> bool {
         !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_ascii())
     }
 
-    pub fn isdigit(&self, _vm: &VirtualMachine) -> bool {
+    pub fn isdigit(&self) -> bool {
         !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_digit(10))
     }
 
-    pub fn islower(&self, _vm: &VirtualMachine) -> bool {
+    pub fn islower(&self) -> bool {
         !self.elements.is_empty()
             && self
                 .elements
@@ -631,11 +631,11 @@ impl PyByteInner {
                 .all(|x| char::from(*x).is_lowercase())
     }
 
-    pub fn isspace(&self, _vm: &VirtualMachine) -> bool {
+    pub fn isspace(&self) -> bool {
         !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_whitespace())
     }
 
-    pub fn isupper(&self, _vm: &VirtualMachine) -> bool {
+    pub fn isupper(&self) -> bool {
         !self.elements.is_empty()
             && self
                 .elements
@@ -644,7 +644,7 @@ impl PyByteInner {
                 .all(|x| char::from(*x).is_uppercase())
     }
 
-    pub fn istitle(&self, _vm: &VirtualMachine) -> bool {
+    pub fn istitle(&self) -> bool {
         if self.elements.is_empty() {
             return false;
         }
@@ -676,15 +676,15 @@ impl PyByteInner {
         true
     }
 
-    pub fn lower(&self, _vm: &VirtualMachine) -> Vec<u8> {
+    pub fn lower(&self) -> Vec<u8> {
         self.elements.to_ascii_lowercase()
     }
 
-    pub fn upper(&self, _vm: &VirtualMachine) -> Vec<u8> {
+    pub fn upper(&self) -> Vec<u8> {
         self.elements.to_ascii_uppercase()
     }
 
-    pub fn capitalize(&self, _vm: &VirtualMachine) -> Vec<u8> {
+    pub fn capitalize(&self) -> Vec<u8> {
         let mut new: Vec<u8> = Vec::new();
         if let Some((first, second)) = self.elements.split_first() {
             new.push(first.to_ascii_uppercase());
@@ -693,7 +693,7 @@ impl PyByteInner {
         new
     }
 
-    pub fn swapcase(&self, _vm: &VirtualMachine) -> Vec<u8> {
+    pub fn swapcase(&self) -> Vec<u8> {
         let mut new: Vec<u8> = Vec::with_capacity(self.elements.len());
         for w in &self.elements {
             match w {
@@ -705,7 +705,7 @@ impl PyByteInner {
         new
     }
 
-    pub fn hex(&self, _vm: &VirtualMachine) -> String {
+    pub fn hex(&self) -> String {
         self.elements
             .iter()
             .map(|x| format!("{:02x}", x))
@@ -822,8 +822,8 @@ impl PyByteInner {
         Ok(total)
     }
 
-    pub fn join(&self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult {
-        let mut refs = vec![];
+    pub fn join(&self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let mut refs = Vec::new();
         for v in iter.iter(vm)? {
             let v = v?;
             if !refs.is_empty() {
@@ -832,7 +832,7 @@ impl PyByteInner {
             refs.extend(v.elements);
         }
 
-        Ok(vm.ctx.new_bytes(refs))
+        Ok(refs)
     }
 
     #[inline]
@@ -925,10 +925,14 @@ impl PyByteInner {
         Ok(vm.ctx.new_bytes(res))
     }
 
-    pub fn translate(&self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult {
+    pub fn translate(
+        &self,
+        options: ByteInnerTranslateOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let (table, delete) = options.get_value(vm)?;
 
-        let mut res = vec![];
+        let mut res = Vec::new();
 
         for i in self.elements.iter() {
             if !delete.contains(&i) {
@@ -936,14 +940,13 @@ impl PyByteInner {
             }
         }
 
-        Ok(vm.ctx.new_bytes(res))
+        Ok(res)
     }
 
     pub fn strip(
         &self,
         chars: OptionalArg<PyByteInner>,
         position: ByteInnerPosition,
-        _vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let chars = if let OptionalArg::Present(bytes) = chars {
             bytes.elements
@@ -1157,14 +1160,10 @@ impl PyByteInner {
         res
     }
 
-    pub fn repeat(&self, n: isize, _vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        if self.elements.is_empty() {
+    pub fn repeat(&self, n: isize) -> Vec<u8> {
+        if self.elements.is_empty() || n <= 0 {
             // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
-            return Ok(vec![]);
-        }
-
-        if n <= 0 {
-            Ok(vec![])
+            Vec::new()
         } else {
             let n = usize::try_from(n).unwrap();
 
@@ -1173,14 +1172,14 @@ impl PyByteInner {
                 new_value.extend(&self.elements);
             }
 
-            Ok(new_value)
+            new_value
         }
     }
 
-    pub fn irepeat(&mut self, n: isize, _vm: &VirtualMachine) -> PyResult<()> {
+    pub fn irepeat(&mut self, n: isize) {
         if self.elements.is_empty() {
             // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
-            return Ok(());
+            return;
         }
 
         if n <= 0 {
@@ -1195,8 +1194,6 @@ impl PyByteInner {
                 self.elements.extend(&old);
             }
         }
-
-        Ok(())
     }
 }
 
