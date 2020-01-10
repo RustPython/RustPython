@@ -32,7 +32,7 @@ impl TryFromObject for PyByteInner {
                 elements: i.get_value().to_vec()
             }),
             j @ PyByteArray => Ok(PyByteInner {
-                elements: j.inner.borrow().elements.to_vec()
+                elements: j.borrow_value().elements.to_vec()
             }),
             k @ PyMemoryView => Ok(PyByteInner {
                 elements: k.get_obj_value().unwrap()
@@ -86,7 +86,7 @@ impl ByteInnerNewOptions {
                         );
                     }
                     i @ PyBytes => Ok(i.get_value().to_vec()),
-                    j @ PyByteArray => Ok(j.inner.borrow().elements.to_vec()),
+                    j @ PyByteArray => Ok(j.borrow_value().elements.to_vec()),
                     obj => {
                         // TODO: only support this method in the bytes() constructor
                         if let Some(bytes_method) = vm.get_method(obj.clone(), "__bytes__") {
@@ -1214,7 +1214,7 @@ impl PyByteInner {
 pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
     match_class!(match obj.clone() {
         i @ PyBytes => Some(i.get_value().to_vec()),
-        j @ PyByteArray => Some(j.inner.borrow().elements.to_vec()),
+        j @ PyByteArray => Some(j.borrow_value().elements.to_vec()),
         _ => None,
     })
 }
@@ -1439,7 +1439,7 @@ impl PyBytesLike {
     pub fn to_cow(&self) -> std::borrow::Cow<[u8]> {
         match self {
             PyBytesLike::Bytes(b) => b.get_value().into(),
-            PyBytesLike::Bytearray(b) => b.inner.borrow().elements.clone().into(),
+            PyBytesLike::Bytearray(b) => b.borrow_value().elements.clone().into(),
         }
     }
 
@@ -1447,7 +1447,7 @@ impl PyBytesLike {
     pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         match self {
             PyBytesLike::Bytes(b) => f(b.get_value()),
-            PyBytesLike::Bytearray(b) => f(&b.inner.borrow().elements),
+            PyBytesLike::Bytearray(b) => f(&b.borrow_value().elements),
         }
     }
 }
