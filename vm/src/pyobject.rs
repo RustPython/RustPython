@@ -690,12 +690,6 @@ where
     }
 }
 
-impl<T> IntoPyObject for PyRef<T> {
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
-        Ok(self.obj)
-    }
-}
-
 impl<'a, T: PyValue> From<&'a PyRef<T>> for &'a PyObjectRef {
     fn from(obj: &'a PyRef<T>) -> Self {
         obj.as_object()
@@ -742,12 +736,6 @@ impl TryFromObject for PyCallable {
         } else {
             Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name)))
         }
-    }
-}
-
-impl IntoPyObject for PyCallable {
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
-        Ok(self.into_object())
     }
 }
 
@@ -1015,6 +1003,18 @@ pub trait TryFromObject: Sized {
 /// function to simply return a `bool` or a `usize` for example.
 pub trait IntoPyObject {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult;
+}
+
+impl<T> IntoPyObject for PyRef<T> {
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
+        Ok(self.obj)
+    }
+}
+
+impl IntoPyObject for PyCallable {
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
+        Ok(self.into_object())
+    }
 }
 
 impl IntoPyObject for PyObjectRef {

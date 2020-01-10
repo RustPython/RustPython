@@ -369,29 +369,16 @@ impl DictKey for &str {
 }
 
 impl DictKey for &String {
-    fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
-        // follow a similar route as the hashing of PyStringRef
-        let raw_hash = pyhash::hash_value(self).to_bigint().unwrap();
-        let raw_hash = pyhash::hash_bigint(&raw_hash);
-        let mut hasher = DefaultHasher::new();
-        raw_hash.hash(&mut hasher);
-        Ok(hasher.finish() as HashValue)
+    fn do_hash(self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        self.as_str().do_hash(vm)
     }
 
-    fn do_is(self, _other: &PyObjectRef) -> bool {
-        // No matter who the other pyobject is, we are never the same thing, since
-        // we are a str, not a pyobject.
-        false
+    fn do_is(self, other: &PyObjectRef) -> bool {
+        self.as_str().do_is(other)
     }
 
     fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
-        if let Some(py_str_value) = other_key.payload::<PyString>() {
-            Ok(py_str_value.as_str() == self)
-        } else {
-            // Fall back to PyString implementation.
-            let s = vm.new_str(self.to_string());
-            s.do_eq(vm, other_key)
-        }
+        self.as_str().do_eq(vm, other_key)
     }
 }
 
