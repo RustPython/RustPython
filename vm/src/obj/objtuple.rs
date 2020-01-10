@@ -7,8 +7,9 @@ use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyhash;
 use crate::pyobject::{
-    IntoPyObject, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue,
+    IntoPyObject,
+    PyArithmaticValue::{self, *},
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::sequence::{self, SimpleSeq};
 use crate::vm::{ReprGuard, VirtualMachine};
@@ -111,17 +112,17 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__add__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<PyTuple> {
         if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            let elements = self
+            let elements: Vec<_> = self
                 .elements
                 .iter()
                 .chain(other.as_slice().iter())
                 .cloned()
                 .collect();
-            Ok(vm.ctx.new_tuple(elements))
+            Implemented(elements.into())
         } else {
-            Ok(vm.ctx.not_implemented())
+            NotImplemented
         }
     }
 
@@ -190,15 +191,15 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__mul__")]
-    fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = sequence::seq_mul(&self.elements, counter)
+    fn mul(&self, counter: isize, _vm: &VirtualMachine) -> PyTuple {
+        let new_elements: Vec<_> = sequence::seq_mul(&self.elements, counter)
             .cloned()
             .collect();
-        vm.ctx.new_tuple(new_elements)
+        new_elements.into()
     }
 
     #[pymethod(name = "__rmul__")]
-    fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+    fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyTuple {
         self.mul(counter, vm)
     }
 
