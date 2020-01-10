@@ -4,8 +4,8 @@ use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::obj::{objbytes, objtype};
-use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
+use rustpython_vm::obj::{objbyteinner::PyBytesLike, objtype};
+use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject};
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{exceptions, py_serde};
 
@@ -117,18 +117,15 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
         }
     }
 
-    if objtype::isinstance(&py_obj, &vm.ctx.bytes_type())
-        || objtype::isinstance(&py_obj, &vm.ctx.bytearray_type())
-    {
-        let bytes = objbytes::get_value(&py_obj);
-        unsafe {
+    if let Ok(bytes) = PyBytesLike::try_from_object(vm, py_obj.clone()) {
+        bytes.with_ref(|bytes| unsafe {
             // `Uint8Array::view` is an `unsafe fn` because it provides
             // a direct view into the WASM linear memory; if you were to allocate
             // something with Rust that view would probably become invalid. It's safe
             // because we then copy the array using `Uint8Array::slice`.
-            let view = Uint8Array::view(&bytes);
+            let view = Uint8Array::view(bytes);
             view.slice(0, bytes.len() as u32).into()
-        }
+        })
     } else {
         py_serde::serialize(vm, &py_obj, &serde_wasm_bindgen::Serializer::new())
             .unwrap_or(JsValue::UNDEFINED)
