@@ -685,7 +685,7 @@ impl PyByteInner {
     }
 
     pub fn capitalize(&self) -> Vec<u8> {
-        let mut new: Vec<u8> = Vec::new();
+        let mut new: Vec<u8> = Vec::with_capacity(self.elements.len());
         if let Some((first, second)) = self.elements.split_first() {
             new.push(first.to_ascii_uppercase());
             second.iter().for_each(|x| new.push(x.to_ascii_lowercase()));
@@ -932,7 +932,11 @@ impl PyByteInner {
     ) -> PyResult<Vec<u8>> {
         let (table, delete) = options.get_value(vm)?;
 
-        let mut res = Vec::new();
+        let mut res = if delete.is_empty() {
+            Vec::with_capacity(self.elements.len())
+        } else {
+            Vec::new()
+        };
 
         for i in self.elements.iter() {
             if !delete.contains(&i) {
