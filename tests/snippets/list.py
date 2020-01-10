@@ -619,3 +619,16 @@ assert_raises(TypeError, iadd_int)
 assert_raises(TypeError, iadd_slice)
 
 
+it = iter([1,2,3,4])
+assert it.__length_hint__() == 4
+assert next(it) == 1
+assert it.__length_hint__() == 3
+assert list(it) == [2,3,4]
+assert it.__length_hint__() == 0
+
+it = reversed([1,2,3,4])
+assert it.__length_hint__() == 4
+assert next(it) == 4
+assert it.__length_hint__() == 3
+assert list(it) == [3,2,1]
+assert it.__length_hint__() == 0
