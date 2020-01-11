@@ -18,6 +18,7 @@ use rustpython_compiler::compile::Mode;
 use std::panic;
 use wasm_bindgen::prelude::*;
 
+pub use crate::convert::PyError;
 pub use crate::vm_class::*;
 
 const PY_EVAL_VM_ID: &str = "__py_eval_vm";
@@ -45,10 +46,6 @@ pub fn setup_console_error() {
     std::panic::set_hook(Box::new(panic_hook));
 }
 
-// Hack to comment out wasm-bindgen's generated typescript definitons
-#[wasm_bindgen(typescript_custom_section)]
-const TS_CMT_START: &'static str = "/*";
-
 fn run_py(source: &str, options: Option<Object>, mode: Mode) -> Result<JsValue, JsValue> {
     let vm = VMStore::init(PY_EVAL_VM_ID.into(), Some(true));
     let options = options.unwrap_or_else(Object::new);
@@ -68,9 +65,9 @@ fn run_py(source: &str, options: Option<Object>, mode: Mode) -> Result<JsValue, 
     if let Some(js_vars) = js_vars {
         vm.add_to_scope("js_vars".into(), js_vars.into())?;
     }
-    vm.run(source, mode)
+    vm.run(source, mode, None)
 }
-#[wasm_bindgen(js_name = pyEval)]
+
 /// Evaluate Python code
 ///
 /// ```js
@@ -87,12 +84,11 @@ fn run_py(source: &str, options: Option<Object>, mode: Mode) -> Result<JsValue, 
 /// -   `stdout?`: `"console" | ((out: string) => void) | null`: A function to replace the
 ///     native print native print function, and it will be `console.log` when giving
 ///     `undefined` or "console", and it will be a dumb function when giving null.
-
+#[wasm_bindgen(js_name = pyEval)]
 pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
     run_py(source, options, Mode::Eval)
 }
 
-#[wasm_bindgen(js_name = pyExec)]
 /// Evaluate Python code
 ///
 /// ```js
@@ -102,11 +98,11 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
 /// `code`: `string`: The Python code to run in exec mode
 ///
 /// `options`: The options are the same as eval mode
-pub fn exec_py(source: &str, options: Option<Object>) {
-    let _ = run_py(source, options, Mode::Exec);
+#[wasm_bindgen(js_name = pyExec)]
+pub fn exec_py(source: &str, options: Option<Object>) -> Result<(), JsValue> {
+    run_py(source, options, Mode::Exec).map(drop)
 }
 
-#[wasm_bindgen(js_name = pyExecSingle)]
 /// Evaluate Python code
 ///
 /// ```js
@@ -116,17 +112,7 @@ pub fn exec_py(source: &str, options: Option<Object>) {
 /// `code`: `string`: The Python code to run in exec single mode
 ///
 /// `options`: The options are the same as eval mode
+#[wasm_bindgen(js_name = pyExecSingle)]
 pub fn exec_single_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
     run_py(source, options, Mode::Single)
 }
-
-#[wasm_bindgen(typescript_custom_section)]
-const TYPESCRIPT_DEFS: &'static str = r#"
-*/
-export interface PyEvalOptions {
-    stdout: (out: string) => void;
-    vars: { [key: string]: any };
-}
-
-export function pyEval(code: string, options?: PyEvalOptions): any;
-"#;

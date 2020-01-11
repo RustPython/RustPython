@@ -4,12 +4,13 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
+use crate::py_serde;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::types::create_type;
-use crate::vm::VirtualMachine;
+use crate::VirtualMachine;
 use itertools::Itertools;
 use std::cell::{Cell, RefCell};
 use std::fmt;
@@ -245,10 +246,8 @@ pub fn write_exception_inner<W: Write>(
 ) -> io::Result<()> {
     if let Some(tb) = exc.traceback.borrow().clone() {
         writeln!(output, "Traceback (most recent call last):")?;
-        let mut tb = Some(&tb);
-        while let Some(traceback) = tb {
-            write_traceback_entry(output, traceback)?;
-            tb = traceback.next.as_ref();
+        for tb in tb.iter() {
+            write_traceback_entry(output, &tb)?;
         }
     }
 
@@ -659,4 +658,72 @@ pub fn init(ctx: &PyContext) {
         "end" => ctx.new_property(make_arg_getter(2)),
         "reason" => ctx.new_property(make_arg_getter(3)),
     });
+}
+
+pub struct SerializeException<'s> {
+    vm: &'s VirtualMachine,
+    exc: &'s PyBaseExceptionRef,
+}
+
+impl<'s> SerializeException<'s> {
+    pub fn new(vm: &'s VirtualMachine, exc: &'s PyBaseExceptionRef) -> Self {
+        SerializeException { vm, exc }
+    }
+}
+
+impl serde::Serialize for SerializeException<'_> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::*;
+
+        let mut struc = s.serialize_struct("PyBaseException", 7)?;
+        struc.serialize_field("exc_type", &self.exc.class().name)?;
+        let tbs = {
+            struct Tracebacks(PyTracebackRef);
+            impl serde::Serialize for Tracebacks {
+                fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                    let mut s = s.serialize_seq(None)?;
+                    for tb in self.0.iter() {
+                        s.serialize_element(&*tb)?;
+                    }
+                    s.end()
+                }
+            }
+            self.exc.traceback().map(Tracebacks)
+        };
+        struc.serialize_field("traceback", &tbs)?;
+        struc.serialize_field(
+            "cause",
+            &self.exc.cause().as_ref().map(|e| Self::new(self.vm, e)),
+        )?;
+        struc.serialize_field(
+            "context",
+            &self.exc.context().as_ref().map(|e| Self::new(self.vm, e)),
+        )?;
+        struc.serialize_field("suppress_context", &self.exc.suppress_context.get())?;
+
+        let args = {
+            struct Args<'vm>(&'vm VirtualMachine, PyTupleRef);
+            impl serde::Serialize for Args<'_> {
+                fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                    s.collect_seq(
+                        self.1
+                            .as_slice()
+                            .iter()
+                            .map(|arg| py_serde::PyObjectSerializer::new(self.0, arg)),
+                    )
+                }
+            }
+            Args(self.vm, self.exc.args())
+        };
+        struc.serialize_field("args", &args)?;
+
+        let rendered = {
+            let mut rendered = Vec::<u8>::new();
+            write_exception(&mut rendered, self.vm, &self.exc).map_err(S::Error::custom)?;
+            String::from_utf8(rendered).map_err(S::Error::custom)?
+        };
+        struc.serialize_field("rendered", &rendered)?;
+
+        struc.end()
+    }
 }
