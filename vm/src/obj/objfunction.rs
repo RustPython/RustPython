@@ -15,7 +15,7 @@ pub type PyFunctionRef = PyRef<PyFunction>;
 pub struct PyFunction {
     // TODO: these shouldn't be public
     pub code: PyCodeRef,
-    pub scope: Scope,
+    scope: Scope,
     pub defaults: Option<PyTupleRef>,
     pub kw_only_defaults: Option<PyDictRef>,
 }
@@ -48,6 +48,10 @@ impl PyFunction {
             defaults,
             kw_only_defaults,
         }
+    }
+
+    pub fn scope(&self) -> &Scope {
+        &self.scope
     }
 }
 

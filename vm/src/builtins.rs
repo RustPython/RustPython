@@ -951,7 +951,7 @@ pub fn builtin_build_class_(
     let cells = vm.ctx.new_dict();
 
     let scope = function
-        .scope
+        .scope()
         .new_child_scope_with_locals(cells.clone())
         .new_child_scope_with_locals(namespace.clone());
 

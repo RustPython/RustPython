@@ -37,7 +37,7 @@ use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objstr::{PyString, PyStringRef};
-use crate::obj::objtuple::{PyTuple, PyTupleRef};
+use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
 use crate::pyobject::{
@@ -726,7 +726,7 @@ impl VirtualMachine {
     }
 
     pub fn invoke_python_function(&self, func: &PyFunction, func_args: PyFuncArgs) -> PyResult {
-        self.invoke_python_function_with_scope(func, func_args, &func.scope)
+        self.invoke_python_function_with_scope(func, func_args, func.scope())
     }
 
     pub fn invoke_python_function_with_scope(
@@ -743,13 +743,7 @@ impl VirtualMachine {
             scope.clone()
         };
 
-        self.fill_locals_from_args(
-            &code,
-            &scope.get_locals(),
-            func_args,
-            &func.defaults,
-            &func.kw_only_defaults,
-        )?;
+        self.fill_locals_from_args(&code, &scope.get_locals(), func_args, func)?;
 
         // Construct frame:
         let frame = Frame::new(code.clone(), scope).into_ref(self);
@@ -769,8 +763,7 @@ impl VirtualMachine {
         code_object: &bytecode::CodeObject,
         locals: &PyDictRef,
         func_args: PyFuncArgs,
-        defaults: &Option<PyTupleRef>,
-        kw_only_defaults: &Option<PyDictRef>,
+        func: &PyFunction,
     ) -> PyResult<()> {
         let nargs = func_args.args.len();
         let nexpected_args = code_object.arg_names.len();
@@ -848,6 +841,9 @@ impl VirtualMachine {
                 );
             }
         }
+
+        let defaults = &func.defaults;
+        let kw_only_defaults = &func.kw_only_defaults;
 
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
