@@ -25,7 +25,7 @@ use crate::frozen;
 use crate::function::PyFuncArgs;
 use crate::import;
 use crate::obj::objbool;
-use crate::obj::objbuiltinfunc::PyBuiltinFunction;
+use crate::obj::objbuiltinfunc::{PyBuiltinFunction, PyBuiltinMethod};
 use crate::obj::objcode::{PyCode, PyCodeRef};
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objdict::PyDictRef;
@@ -670,6 +670,8 @@ impl VirtualMachine {
             self.invoke(&function, args)
         } else if let Some(builtin_func) = func_ref.payload::<PyBuiltinFunction>() {
             builtin_func.as_func()(self, args)
+        } else if let Some(method) = func_ref.payload::<PyBuiltinMethod>() {
+            method.as_func()(self, args)
         } else if self.is_callable(&func_ref) {
             self.call_method(&func_ref, "__call__", args)
         } else {

@@ -15,7 +15,7 @@ use crate::bytecode;
 use crate::dictdatatype::DictKey;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
-use crate::obj::objbuiltinfunc::PyBuiltinFunction;
+use crate::obj::objbuiltinfunc::{PyBuiltinFunction, PyBuiltinMethod};
 use crate::obj::objbytearray;
 use crate::obj::objbytes;
 use crate::obj::objclassmethod::PyClassMethod;
@@ -317,6 +317,10 @@ impl PyContext {
         self.types.builtin_function_or_method_type.clone()
     }
 
+    pub fn method_descriptor_type(&self) -> PyClassRef {
+        self.types.method_descriptor_type.clone()
+    }
+
     pub fn property_type(&self) -> PyClassRef {
         self.types.property_type.clone()
     }
@@ -466,7 +470,7 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R, VM>,
     {
         PyObject::new(
-            PyBuiltinFunction::new(f.into_func(), false),
+            PyBuiltinFunction::new(f.into_func()),
             self.builtin_function_or_method_type(),
             None,
         )
@@ -477,8 +481,8 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R, VM>,
     {
         PyObject::new(
-            PyBuiltinFunction::new(f.into_func(), true),
-            self.builtin_function_or_method_type(),
+            PyBuiltinMethod::new(f.into_func()),
+            self.method_descriptor_type(),
             None,
         )
     }
