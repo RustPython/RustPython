@@ -1,6 +1,7 @@
 use std::fmt;
 
-use crate::function::{PyFuncArgs, PyNativeFunc};
+use crate::descriptor::PyBuiltinDescriptor;
+use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
@@ -71,29 +72,33 @@ impl PyBuiltinMethod {
     }
 }
 
+impl PyBuiltinDescriptor for PyBuiltinMethod {
+    fn get(
+        zelf: PyRef<Self>,
+        obj: PyObjectRef,
+        cls: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        if obj.is(&vm.get_none()) && !Self::_cls_is(&cls, &obj.class()) {
+            Ok(zelf.into_object())
+        } else {
+            Ok(vm.ctx.new_bound_method(zelf.into_object(), obj))
+        }
+    }
+}
+
 #[pyimpl]
 impl PyBuiltinMethod {
     #[pymethod(name = "__call__")]
     pub fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         self.function.call(args, vm)
     }
-
-    #[pymethod(name = "__get__")]
-    fn bind_method(
-        function: PyRef<Self>,
-        obj: PyObjectRef,
-        cls: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        if obj.is(&vm.get_none()) && !cls.is(&obj.class()) {
-            Ok(function.into_object())
-        } else {
-            Ok(vm.ctx.new_bound_method(function.into_object(), obj))
-        }
-    }
 }
 
 pub fn init(context: &PyContext) {
     PyBuiltinFunction::extend_class(context, &context.types.builtin_function_or_method_type);
     PyBuiltinMethod::extend_class(context, &context.types.method_descriptor_type);
+    extend_class!(context, context.types.method_descriptor_type, {
+        "__get__" => context.new_method(PyBuiltinMethod::get),
+    });
 }

@@ -3,6 +3,7 @@ use std::mem;
 use std::ops::RangeInclusive;
 
 use indexmap::IndexMap;
+use result_like::impl_option_like;
 
 use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtuple::PyTuple;
@@ -342,67 +343,13 @@ where
 /// An argument that may or may not be provided by the caller.
 ///
 /// This style of argument is not possible in pure Python.
-#[derive(Debug, Clone)]
+#[derive(Debug, is_macro::Is)]
 pub enum OptionalArg<T = PyObjectRef> {
     Present(T),
     Missing,
 }
 
-impl<T> OptionalArg<T> {
-    #[inline]
-    pub fn is_present(&self) -> bool {
-        match self {
-            Present(_) => true,
-            Missing => false,
-        }
-    }
-
-    #[inline]
-    pub fn into_option(self) -> Option<T> {
-        match self {
-            Present(value) => Some(value),
-            Missing => None,
-        }
-    }
-
-    pub fn unwrap_or(self, default: T) -> T {
-        match self {
-            Present(value) => value,
-            Missing => default,
-        }
-    }
-
-    pub fn unwrap_or_else<F>(self, f: F) -> T
-    where
-        F: FnOnce() -> T,
-    {
-        match self {
-            Present(value) => value,
-            Missing => f(),
-        }
-    }
-
-    pub fn map_or<U, F>(self, default: U, f: F) -> U
-    where
-        F: FnOnce(T) -> U,
-    {
-        match self {
-            Present(value) => f(value),
-            Missing => default,
-        }
-    }
-
-    pub fn map_or_else<U, D, F>(self, default: D, f: F) -> U
-    where
-        D: FnOnce() -> U,
-        F: FnOnce(T) -> U,
-    {
-        match self {
-            Present(value) => f(value),
-            Missing => default(),
-        }
-    }
-}
+impl_option_like!(OptionalArg, Present, Missing);
 
 pub type OptionalOption<T> = OptionalArg<Option<T>>;
 

@@ -1,4 +1,6 @@
 use super::objtype::PyClassRef;
+use crate::descriptor::PyBuiltinDescriptor;
+use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -15,6 +17,17 @@ impl PyValue for PyStaticMethod {
     }
 }
 
+impl PyBuiltinDescriptor for PyStaticMethod {
+    fn get(
+        zelf: PyRef<Self>,
+        _obj: PyObjectRef,
+        _cls: OptionalArg<PyObjectRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult {
+        Ok(zelf.callable.clone())
+    }
+}
+
 #[pyimpl]
 impl PyStaticMethodRef {
     #[pyslot(new)]
@@ -28,13 +41,11 @@ impl PyStaticMethodRef {
         }
         .into_ref_with_type(vm, cls)
     }
-
-    #[pymethod(name = "__get__")]
-    fn get(self, _inst: PyObjectRef, _owner: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
-        Ok(self.callable.clone())
-    }
 }
 
 pub fn init(context: &PyContext) {
     PyStaticMethodRef::extend_class(context, &context.types.staticmethod_type);
+    extend_class!(context, context.types.staticmethod_type, {
+        "__get__" => context.new_method(PyStaticMethod::get),
+    });
 }

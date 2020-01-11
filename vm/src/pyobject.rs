@@ -24,7 +24,7 @@ use crate::obj::objcode::PyCodeRef;
 use crate::obj::objcomplex::PyComplex;
 use crate::obj::objdict::{PyDict, PyDictRef};
 use crate::obj::objfloat::PyFloat;
-use crate::obj::objfunction::{PyFunction, PyMethod};
+use crate::obj::objfunction::{PyBoundMethod, PyFunction};
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
@@ -529,7 +529,7 @@ impl PyContext {
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
         PyObject::new(
-            PyMethod::new(object, function),
+            PyBoundMethod::new(object, function),
             self.bound_method_type(),
             None,
         )

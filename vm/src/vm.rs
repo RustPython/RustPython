@@ -29,7 +29,7 @@ use crate::obj::objbuiltinfunc::{PyBuiltinFunction, PyBuiltinMethod};
 use crate::obj::objcode::{PyCode, PyCodeRef};
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objfunction::{PyFunction, PyMethod};
+use crate::obj::objfunction::{PyBoundMethod, PyFunction};
 use crate::obj::objgenerator::PyGenerator;
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
@@ -661,7 +661,7 @@ impl VirtualMachine {
             let res = self.invoke_python_function(py_func, args);
             self.trace_event(TraceEvent::Return)?;
             res
-        } else if let Some(PyMethod {
+        } else if let Some(PyBoundMethod {
             ref function,
             ref object,
         }) = func_ref.payload()
@@ -1066,7 +1066,7 @@ impl VirtualMachine {
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
         match_class!(match obj {
             PyFunction => true,
-            PyMethod => true,
+            PyBoundMethod => true,
             PyBuiltinFunction => true,
             obj => objtype::class_has_attr(&obj.class(), "__call__"),
         })

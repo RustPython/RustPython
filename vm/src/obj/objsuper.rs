@@ -6,7 +6,7 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 */
 
-use super::objfunction::PyMethod;
+use super::objfunction::PyBoundMethod;
 use super::objstr::PyStringRef;
 use super::objtype::{self, PyClass, PyClassRef};
 use crate::function::OptionalArg;
@@ -59,7 +59,7 @@ impl PySuper {
             Some(PyClass { ref mro, .. }) => {
                 for class in mro {
                     if let Ok(item) = vm.get_attribute(class.as_object().clone(), name.clone()) {
-                        if item.payload_is::<PyMethod>() {
+                        if item.payload_is::<PyBoundMethod>() {
                             // This is a classmethod
                             return Ok(item);
                         }

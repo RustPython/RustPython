@@ -1,5 +1,9 @@
 use super::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::descriptor::PyBuiltinDescriptor;
+use crate::function::OptionalArg;
+use crate::pyobject::{
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 /// classmethod(function) -> method
@@ -37,6 +41,18 @@ impl PyValue for PyClassMethod {
     }
 }
 
+impl PyBuiltinDescriptor for PyClassMethod {
+    fn get(
+        zelf: PyRef<Self>,
+        obj: PyObjectRef,
+        cls: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let cls = cls.unwrap_or_else(|| obj.class().into_object());
+        Ok(vm.ctx.new_bound_method(zelf.callable.clone(), cls))
+    }
+}
+
 #[pyimpl]
 impl PyClassMethod {
     #[pyslot(new)]
@@ -51,12 +67,6 @@ impl PyClassMethod {
         .into_ref_with_type(vm, cls)
     }
 
-    #[pymethod(name = "__get__")]
-    fn get(&self, _inst: PyObjectRef, owner: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx
-            .new_bound_method(self.callable.clone(), owner.clone())
-    }
-
     #[pyproperty(name = "__func__")]
     fn func(&self, _vm: &VirtualMachine) -> PyObjectRef {
         self.callable.clone()
@@ -65,4 +75,7 @@ impl PyClassMethod {
 
 pub fn init(context: &PyContext) {
     PyClassMethod::extend_class(context, &context.types.classmethod_type);
+    extend_class!(context, context.types.classmethod_type, {
+        "__get__" => context.new_method(PyClassMethod::get),
+    });
 }
