@@ -690,14 +690,14 @@ mod fileio {
 
     pub fn make_fileio(ctx: &crate::pyobject::PyContext, raw_io_base: PyClassRef) -> PyClassRef {
         py_class!(ctx, "FileIO", raw_io_base, {
-            "__init__" => ctx.new_rustfunc(file_io_init),
+            "__init__" => ctx.new_method(file_io_init),
             "name" => ctx.str_type(),
-            "read" => ctx.new_rustfunc(file_io_read),
-            "readinto" => ctx.new_rustfunc(file_io_readinto),
-            "write" => ctx.new_rustfunc(file_io_write),
-            "close" => ctx.new_rustfunc(file_io_close),
-            "seekable" => ctx.new_rustfunc(file_io_seekable),
-            "fileno" => ctx.new_rustfunc(file_io_fileno),
+            "read" => ctx.new_method(file_io_read),
+            "readinto" => ctx.new_method(file_io_readinto),
+            "write" => ctx.new_method(file_io_write),
+            "close" => ctx.new_method(file_io_close),
+            "seekable" => ctx.new_method(file_io_seekable),
+            "fileno" => ctx.new_method(file_io_fileno),
         })
     }
 }
@@ -946,28 +946,28 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     //IOBase the abstract base class of the IO Module
     let io_base = py_class!(ctx, "_IOBase", ctx.object(), {
-        "__enter__" => ctx.new_rustfunc(io_base_cm_enter),
-        "__exit__" => ctx.new_rustfunc(io_base_cm_exit),
-        "seekable" => ctx.new_rustfunc(io_base_seekable),
-        "readable" => ctx.new_rustfunc(io_base_readable),
-        "writable" => ctx.new_rustfunc(io_base_writable),
-        "flush" => ctx.new_rustfunc(io_base_flush),
+        "__enter__" => ctx.new_method(io_base_cm_enter),
+        "__exit__" => ctx.new_method(io_base_cm_exit),
+        "seekable" => ctx.new_method(io_base_seekable),
+        "readable" => ctx.new_method(io_base_readable),
+        "writable" => ctx.new_method(io_base_writable),
+        "flush" => ctx.new_method(io_base_flush),
         "closed" => ctx.new_property(io_base_closed),
         "__closed" => ctx.new_bool(false),
-        "close" => ctx.new_rustfunc(io_base_close),
-        "readline" => ctx.new_rustfunc(io_base_readline),
-        "_checkClosed" => ctx.new_rustfunc(io_base_checkclosed),
-        "_checkReadable" => ctx.new_rustfunc(io_base_checkreadable),
-        "_checkWritable" => ctx.new_rustfunc(io_base_checkwritable),
-        "_checkSeekable" => ctx.new_rustfunc(io_base_checkseekable),
-        "__iter__" => ctx.new_rustfunc(io_base_iter),
-        "__next__" => ctx.new_rustfunc(io_base_next),
-        "readlines" => ctx.new_rustfunc(io_base_readlines),
+        "close" => ctx.new_method(io_base_close),
+        "readline" => ctx.new_method(io_base_readline),
+        "_checkClosed" => ctx.new_method(io_base_checkclosed),
+        "_checkReadable" => ctx.new_method(io_base_checkreadable),
+        "_checkWritable" => ctx.new_method(io_base_checkwritable),
+        "_checkSeekable" => ctx.new_method(io_base_checkseekable),
+        "__iter__" => ctx.new_method(io_base_iter),
+        "__next__" => ctx.new_method(io_base_next),
+        "readlines" => ctx.new_method(io_base_readlines),
     });
 
     // IOBase Subclasses
     let raw_io_base = py_class!(ctx, "_RawIOBase", io_base.clone(), {
-        "read" => ctx.new_rustfunc(raw_io_base_read),
+        "read" => ctx.new_method(raw_io_base_read),
     });
 
     let buffered_io_base = py_class!(ctx, "_BufferedIOBase", io_base.clone(), {});
@@ -980,65 +980,65 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         //workaround till the buffered classes can be fixed up to be more
         //consistent with the python model
         //For more info see: https://github.com/RustPython/RustPython/issues/547
-        "__init__" => ctx.new_rustfunc(buffered_io_base_init),
-        "read" => ctx.new_rustfunc(buffered_reader_read),
-        "seekable" => ctx.new_rustfunc(buffered_reader_seekable),
-        "close" => ctx.new_rustfunc(buffered_reader_close),
-        "fileno" => ctx.new_rustfunc(buffered_io_base_fileno),
+        "__init__" => ctx.new_method(buffered_io_base_init),
+        "read" => ctx.new_method(buffered_reader_read),
+        "seekable" => ctx.new_method(buffered_reader_seekable),
+        "close" => ctx.new_method(buffered_reader_close),
+        "fileno" => ctx.new_method(buffered_io_base_fileno),
     });
 
     let buffered_writer = py_class!(ctx, "BufferedWriter", buffered_io_base.clone(), {
         //workaround till the buffered classes can be fixed up to be more
         //consistent with the python model
         //For more info see: https://github.com/RustPython/RustPython/issues/547
-        "__init__" => ctx.new_rustfunc(buffered_io_base_init),
-        "write" => ctx.new_rustfunc(buffered_writer_write),
-        "seekable" => ctx.new_rustfunc(buffered_writer_seekable),
-        "fileno" => ctx.new_rustfunc(buffered_io_base_fileno),
+        "__init__" => ctx.new_method(buffered_io_base_init),
+        "write" => ctx.new_method(buffered_writer_write),
+        "seekable" => ctx.new_method(buffered_writer_seekable),
+        "fileno" => ctx.new_method(buffered_io_base_fileno),
     });
 
     //TextIOBase Subclass
     let text_io_wrapper = py_class!(ctx, "TextIOWrapper", text_io_base.clone(), {
-        "__init__" => ctx.new_rustfunc(text_io_wrapper_init),
-        "seekable" => ctx.new_rustfunc(text_io_wrapper_seekable),
-        "read" => ctx.new_rustfunc(text_io_wrapper_read),
-        "write" => ctx.new_rustfunc(text_io_wrapper_write),
-        "readline" => ctx.new_rustfunc(text_io_wrapper_readline),
+        "__init__" => ctx.new_method(text_io_wrapper_init),
+        "seekable" => ctx.new_method(text_io_wrapper_seekable),
+        "read" => ctx.new_method(text_io_wrapper_read),
+        "write" => ctx.new_method(text_io_wrapper_write),
+        "readline" => ctx.new_method(text_io_wrapper_readline),
     });
 
     //StringIO: in-memory text
     let string_io = py_class!(ctx, "StringIO", text_io_base.clone(), {
         (slot new) => string_io_new,
-        "seek" => ctx.new_rustfunc(PyStringIORef::seek),
-        "seekable" => ctx.new_rustfunc(PyStringIORef::seekable),
-        "read" => ctx.new_rustfunc(PyStringIORef::read),
-        "write" => ctx.new_rustfunc(PyStringIORef::write),
-        "getvalue" => ctx.new_rustfunc(PyStringIORef::getvalue),
-        "tell" => ctx.new_rustfunc(PyStringIORef::tell),
-        "readline" => ctx.new_rustfunc(PyStringIORef::readline),
-        "truncate" => ctx.new_rustfunc(PyStringIORef::truncate),
+        "seek" => ctx.new_method(PyStringIORef::seek),
+        "seekable" => ctx.new_method(PyStringIORef::seekable),
+        "read" => ctx.new_method(PyStringIORef::read),
+        "write" => ctx.new_method(PyStringIORef::write),
+        "getvalue" => ctx.new_method(PyStringIORef::getvalue),
+        "tell" => ctx.new_method(PyStringIORef::tell),
+        "readline" => ctx.new_method(PyStringIORef::readline),
+        "truncate" => ctx.new_method(PyStringIORef::truncate),
         "closed" => ctx.new_property(PyStringIORef::closed),
-        "close" => ctx.new_rustfunc(PyStringIORef::close),
+        "close" => ctx.new_method(PyStringIORef::close),
     });
 
     //BytesIO: in-memory bytes
     let bytes_io = py_class!(ctx, "BytesIO", buffered_io_base.clone(), {
         (slot new) => bytes_io_new,
-        "read" => ctx.new_rustfunc(PyBytesIORef::read),
-        "read1" => ctx.new_rustfunc(PyBytesIORef::read),
-        "seek" => ctx.new_rustfunc(PyBytesIORef::seek),
-        "seekable" => ctx.new_rustfunc(PyBytesIORef::seekable),
-        "write" => ctx.new_rustfunc(PyBytesIORef::write),
-        "getvalue" => ctx.new_rustfunc(PyBytesIORef::getvalue),
-        "tell" => ctx.new_rustfunc(PyBytesIORef::tell),
-        "readline" => ctx.new_rustfunc(PyBytesIORef::readline),
-        "truncate" => ctx.new_rustfunc(PyBytesIORef::truncate),
+        "read" => ctx.new_method(PyBytesIORef::read),
+        "read1" => ctx.new_method(PyBytesIORef::read),
+        "seek" => ctx.new_method(PyBytesIORef::seek),
+        "seekable" => ctx.new_method(PyBytesIORef::seekable),
+        "write" => ctx.new_method(PyBytesIORef::write),
+        "getvalue" => ctx.new_method(PyBytesIORef::getvalue),
+        "tell" => ctx.new_method(PyBytesIORef::tell),
+        "readline" => ctx.new_method(PyBytesIORef::readline),
+        "truncate" => ctx.new_method(PyBytesIORef::truncate),
         "closed" => ctx.new_property(PyBytesIORef::closed),
-        "close" => ctx.new_rustfunc(PyBytesIORef::close),
+        "close" => ctx.new_method(PyBytesIORef::close),
     });
 
     let module = py_module!(vm, "_io", {
-        "open" => ctx.new_rustfunc(io_open),
+        "open" => ctx.new_function(io_open),
         "_IOBase" => io_base,
         "_RawIOBase" => raw_io_base.clone(),
         "_BufferedIOBase" => buffered_io_base,

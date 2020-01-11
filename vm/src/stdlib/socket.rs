@@ -636,17 +636,17 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
         "SO_BROADCAST" => ctx.new_int(c::SO_BROADCAST),
         "socket" => PySocket::make_class(ctx),
-        "inet_aton" => ctx.new_rustfunc(socket_inet_aton),
-        "inet_ntoa" => ctx.new_rustfunc(socket_inet_ntoa),
-        "gethostname" => ctx.new_rustfunc(socket_gethostname),
-        "htonl" => ctx.new_rustfunc(socket_hton::<u32>),
-        "htons" => ctx.new_rustfunc(socket_hton::<u16>),
-        "ntohl" => ctx.new_rustfunc(socket_ntoh::<u32>),
-        "ntohs" => ctx.new_rustfunc(socket_ntoh::<u16>),
+        "inet_aton" => ctx.new_function(socket_inet_aton),
+        "inet_ntoa" => ctx.new_function(socket_inet_ntoa),
+        "gethostname" => ctx.new_function(socket_gethostname),
+        "htonl" => ctx.new_function(socket_hton::<u32>),
+        "htons" => ctx.new_function(socket_hton::<u16>),
+        "ntohl" => ctx.new_function(socket_ntoh::<u32>),
+        "ntohs" => ctx.new_function(socket_ntoh::<u16>),
         "has_ipv6" => ctx.new_bool(false),
-        "getdefaulttimeout" => ctx.new_rustfunc(|vm: &VirtualMachine| vm.get_none()),
-        "getaddrinfo" => ctx.new_rustfunc(socket_getaddrinfo),
-        "gethostbyaddr" => ctx.new_rustfunc(socket_gethostbyaddr),
+        "getdefaulttimeout" => ctx.new_function(|vm: &VirtualMachine| vm.get_none()),
+        "getaddrinfo" => ctx.new_function(socket_getaddrinfo),
+        "gethostbyaddr" => ctx.new_function(socket_gethostbyaddr),
     });
 
     extend_module_platform_specific(vm, &module);
@@ -663,6 +663,6 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
 
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
-        "sethostname" => ctx.new_rustfunc(socket_sethostname),
+        "sethostname" => ctx.new_function(socket_sethostname),
     });
 }

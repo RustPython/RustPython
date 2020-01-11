@@ -8,7 +8,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     py_module!(vm, "_functools", {
-        "reduce" => ctx.new_rustfunc(functools_reduce),
+        "reduce" => ctx.new_function(functools_reduce),
     })
 }
 

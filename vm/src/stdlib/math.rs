@@ -354,66 +354,66 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     py_module!(vm, "math", {
         // Number theory functions:
-        "fabs" => ctx.new_rustfunc(math_fabs),
-        "isfinite" => ctx.new_rustfunc(math_isfinite),
-        "isinf" => ctx.new_rustfunc(math_isinf),
-        "isnan" => ctx.new_rustfunc(math_isnan),
-        "isclose" => ctx.new_rustfunc(math_isclose),
-        "copysign" => ctx.new_rustfunc(math_copysign),
+        "fabs" => ctx.new_function(math_fabs),
+        "isfinite" => ctx.new_function(math_isfinite),
+        "isinf" => ctx.new_function(math_isinf),
+        "isnan" => ctx.new_function(math_isnan),
+        "isclose" => ctx.new_function(math_isclose),
+        "copysign" => ctx.new_function(math_copysign),
 
         // Power and logarithmic functions:
-        "exp" => ctx.new_rustfunc(math_exp),
-        "expm1" => ctx.new_rustfunc(math_expm1),
-        "log" => ctx.new_rustfunc(math_log),
-        "log1p" => ctx.new_rustfunc(math_log1p),
-        "log2" => ctx.new_rustfunc(math_log2),
-        "log10" => ctx.new_rustfunc(math_log10),
-        "pow" => ctx.new_rustfunc(math_pow),
-        "sqrt" => ctx.new_rustfunc(math_sqrt),
+        "exp" => ctx.new_function(math_exp),
+        "expm1" => ctx.new_function(math_expm1),
+        "log" => ctx.new_function(math_log),
+        "log1p" => ctx.new_function(math_log1p),
+        "log2" => ctx.new_function(math_log2),
+        "log10" => ctx.new_function(math_log10),
+        "pow" => ctx.new_function(math_pow),
+        "sqrt" => ctx.new_function(math_sqrt),
 
         // Trigonometric functions:
-        "acos" => ctx.new_rustfunc(math_acos),
-        "asin" => ctx.new_rustfunc(math_asin),
-        "atan" => ctx.new_rustfunc(math_atan),
-        "atan2" => ctx.new_rustfunc(math_atan2),
-        "cos" => ctx.new_rustfunc(math_cos),
-        "hypot" => ctx.new_rustfunc(math_hypot),
-        "sin" => ctx.new_rustfunc(math_sin),
-        "tan" => ctx.new_rustfunc(math_tan),
+        "acos" => ctx.new_function(math_acos),
+        "asin" => ctx.new_function(math_asin),
+        "atan" => ctx.new_function(math_atan),
+        "atan2" => ctx.new_function(math_atan2),
+        "cos" => ctx.new_function(math_cos),
+        "hypot" => ctx.new_function(math_hypot),
+        "sin" => ctx.new_function(math_sin),
+        "tan" => ctx.new_function(math_tan),
 
-        "degrees" => ctx.new_rustfunc(math_degrees),
-        "radians" => ctx.new_rustfunc(math_radians),
+        "degrees" => ctx.new_function(math_degrees),
+        "radians" => ctx.new_function(math_radians),
 
         // Hyperbolic functions:
-        "acosh" => ctx.new_rustfunc(math_acosh),
-        "asinh" => ctx.new_rustfunc(math_asinh),
-        "atanh" => ctx.new_rustfunc(math_atanh),
-        "cosh" => ctx.new_rustfunc(math_cosh),
-        "sinh" => ctx.new_rustfunc(math_sinh),
-        "tanh" => ctx.new_rustfunc(math_tanh),
+        "acosh" => ctx.new_function(math_acosh),
+        "asinh" => ctx.new_function(math_asinh),
+        "atanh" => ctx.new_function(math_atanh),
+        "cosh" => ctx.new_function(math_cosh),
+        "sinh" => ctx.new_function(math_sinh),
+        "tanh" => ctx.new_function(math_tanh),
 
         // Special functions:
-        "erf" => ctx.new_rustfunc(math_erf),
-        "erfc" => ctx.new_rustfunc(math_erfc),
-        "gamma" => ctx.new_rustfunc(math_gamma),
-        "lgamma" => ctx.new_rustfunc(math_lgamma),
+        "erf" => ctx.new_function(math_erf),
+        "erfc" => ctx.new_function(math_erfc),
+        "gamma" => ctx.new_function(math_gamma),
+        "lgamma" => ctx.new_function(math_lgamma),
 
-        "frexp" => ctx.new_rustfunc(math_frexp),
-        "ldexp" => ctx.new_rustfunc(math_ldexp),
-        "modf" => ctx.new_rustfunc(math_modf),
-        "fmod" => ctx.new_rustfunc(math_fmod),
-        "remainder" => ctx.new_rustfunc(math_remainder),
+        "frexp" => ctx.new_function(math_frexp),
+        "ldexp" => ctx.new_function(math_ldexp),
+        "modf" => ctx.new_function(math_modf),
+        "fmod" => ctx.new_function(math_fmod),
+        "remainder" => ctx.new_function(math_remainder),
 
         // Rounding functions:
-        "trunc" => ctx.new_rustfunc(math_trunc),
-        "ceil" => ctx.new_rustfunc(math_ceil),
-        "floor" => ctx.new_rustfunc(math_floor),
+        "trunc" => ctx.new_function(math_trunc),
+        "ceil" => ctx.new_function(math_ceil),
+        "floor" => ctx.new_function(math_floor),
 
         // Gcd function
-        "gcd" => ctx.new_rustfunc(math_gcd),
+        "gcd" => ctx.new_function(math_gcd),
 
         // Factorial function
-        "factorial" => ctx.new_rustfunc(math_factorial),
+        "factorial" => ctx.new_function(math_factorial),
 
         // Constants:
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...

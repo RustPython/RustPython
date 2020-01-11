@@ -624,7 +624,7 @@ pub fn init(ctx: &PyContext) {
     });
 
     extend_class!(ctx, &excs.import_error, {
-        "__init__" => ctx.new_rustfunc(import_error_init),
+        "__init__" => ctx.new_method(import_error_init),
         "msg" => ctx.new_property(make_arg_getter(0)),
     });
 

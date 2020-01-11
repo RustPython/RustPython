@@ -26,7 +26,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     );
 
     py_module!(vm, "keyword", {
-        "iskeyword" => ctx.new_rustfunc(keyword_iskeyword),
+        "iskeyword" => ctx.new_function(keyword_iskeyword),
         "kwlist" => keyword_kwlist
     })
 }

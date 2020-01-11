@@ -51,16 +51,16 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let rlock_type = py_class!(ctx, "_thread.RLock", ctx.object(), {
-        "acquire" => ctx.new_rustfunc(rlock_acquire),
-        "release" => ctx.new_rustfunc(rlock_release),
-        "__enter__" => ctx.new_rustfunc(rlock_enter),
-        "__exit__" => ctx.new_rustfunc(rlock_exit),
+        "acquire" => ctx.new_method(rlock_acquire),
+        "release" => ctx.new_method(rlock_release),
+        "__enter__" => ctx.new_method(rlock_enter),
+        "__exit__" => ctx.new_method(rlock_exit),
     });
 
     py_module!(vm, "_thread", {
         "RLock" => rlock_type,
-        "get_ident" => ctx.new_rustfunc(get_ident),
-        "allocate_lock" => ctx.new_rustfunc(allocate_lock),
+        "get_ident" => ctx.new_function(get_ident),
+        "allocate_lock" => ctx.new_function(allocate_lock),
         "TIMEOUT_MAX" => ctx.new_float(TIMEOUT_MAX),
     })
 }

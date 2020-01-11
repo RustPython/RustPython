@@ -201,6 +201,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     }
 
     py_module!(vm, "select", {
-        "select" => vm.ctx.new_rustfunc(select_select),
+        "select" => vm.ctx.new_function(select_select),
     })
 }

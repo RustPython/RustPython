@@ -79,7 +79,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     py_module!(vm, "pwd", {
         "struct_passwd" => passwd_type,
-        "getpwnam" => ctx.new_rustfunc(pwd_getpwnam),
-        "getpwuid" => ctx.new_rustfunc(pwd_getpwuid),
+        "getpwnam" => ctx.new_function(pwd_getpwnam),
+        "getpwuid" => ctx.new_function(pwd_getpwuid),
     })
 }

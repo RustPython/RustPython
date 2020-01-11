@@ -221,13 +221,13 @@ impl WASMVirtualMachine {
             }
             let print_fn: PyObjectRef = if let Some(s) = stdout.as_string() {
                 match s.as_str() {
-                    "console" => vm.ctx.new_rustfunc(wasm_builtins::builtin_print_console),
+                    "console" => vm.ctx.new_method(wasm_builtins::builtin_print_console),
                     _ => return Err(error()),
                 }
             } else if stdout.is_function() {
                 let func = js_sys::Function::from(stdout);
                 vm.ctx
-                    .new_rustfunc(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
+                    .new_method(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
                         func.call1(
                             &JsValue::UNDEFINED,
                             &wasm_builtins::format_print_args(vm, args)?.into(),
@@ -239,9 +239,9 @@ impl WASMVirtualMachine {
                 fn noop(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
                     Ok(vm.get_none())
                 }
-                vm.ctx.new_rustfunc(noop)
+                vm.ctx.new_method(noop)
             } else if stdout.is_undefined() {
-                vm.ctx.new_rustfunc(wasm_builtins::builtin_print_console)
+                vm.ctx.new_method(wasm_builtins::builtin_print_console)
             } else {
                 return Err(error());
             };

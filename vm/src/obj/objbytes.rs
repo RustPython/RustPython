@@ -80,8 +80,8 @@ pub fn init(context: &PyContext) {
     PyBytesRef::extend_class(context, &context.types.bytes_type);
     let bytes_type = &context.types.bytes_type;
     extend_class!(context, bytes_type, {
-    "fromhex" => context.new_rustfunc(PyBytesRef::fromhex),
-    "maketrans" => context.new_rustfunc(PyByteInner::maketrans),
+    "fromhex" => context.new_method(PyBytesRef::fromhex),
+    "maketrans" => context.new_method(PyByteInner::maketrans),
 
     });
     PyBytesIterator::extend_class(context, &context.types.bytesiterator_type);

@@ -20,7 +20,7 @@ fn winapi_CloseHandle(handle: usize, vm: &VirtualMachine) -> PyResult<()> {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     py_module!(vm, "_winapi", {
-        "CloseHandle" => ctx.new_rustfunc(winapi_CloseHandle),
+        "CloseHandle" => ctx.new_function(winapi_CloseHandle),
         "WAIT_OBJECT_0" => ctx.new_int(winbase::WAIT_OBJECT_0),
         "WAIT_ABANDONED" => ctx.new_int(winbase::WAIT_ABANDONED),
         "WAIT_ABANDONED_0" => ctx.new_int(winbase::WAIT_ABANDONED_0),

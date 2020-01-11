@@ -251,8 +251,8 @@ pub fn init(ctx: &PyContext) {
                     type(name, bases, dict) -> a new type";
 
     extend_class!(&ctx, &ctx.types.type_type, {
-        "mro" => ctx.new_rustfunc(type_mro),
-        "__call__" => ctx.new_rustfunc(type_call),
+        "mro" => ctx.new_method(type_mro),
+        "__call__" => ctx.new_method(type_call),
         "__dict__" =>
         PropertyBuilder::new(ctx)
                 .add_getter(type_dict)
@@ -266,18 +266,18 @@ pub fn init(ctx: &PyContext) {
                 .create(),
         "__bases__" => ctx.new_property(PyClassRef::bases),
         "__name__" => ctx.new_property(PyClassRef::name),
-        "__repr__" => ctx.new_rustfunc(PyClassRef::repr),
+        "__repr__" => ctx.new_method(PyClassRef::repr),
         "__qualname__" => ctx.new_property(PyClassRef::qualname),
         "__module__" => ctx.new_property(PyClassRef::module),
-        "__prepare__" => ctx.new_rustfunc(PyClassRef::prepare),
-        "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
-        "__setattr__" => ctx.new_rustfunc(PyClassRef::set_attr),
-        "__delattr__" => ctx.new_rustfunc(PyClassRef::del_attr),
-        "__subclasses__" => ctx.new_rustfunc(PyClassRef::subclasses),
-        "__instancecheck__" => ctx.new_rustfunc(PyClassRef::instance_check),
-        "__subclasscheck__" => ctx.new_rustfunc(PyClassRef::subclass_check),
+        "__prepare__" => ctx.new_method(PyClassRef::prepare),
+        "__getattribute__" => ctx.new_method(PyClassRef::getattribute),
+        "__setattr__" => ctx.new_method(PyClassRef::set_attr),
+        "__delattr__" => ctx.new_method(PyClassRef::del_attr),
+        "__subclasses__" => ctx.new_method(PyClassRef::subclasses),
+        "__instancecheck__" => ctx.new_method(PyClassRef::instance_check),
+        "__subclasscheck__" => ctx.new_method(PyClassRef::subclass_check),
         "__doc__" => ctx.new_str(type_doc.to_string()),
-        "__dir__" => ctx.new_rustfunc(PyClassRef::dir),
+        "__dir__" => ctx.new_method(PyClassRef::dir),
     });
 }
 

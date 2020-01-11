@@ -159,34 +159,34 @@ pub fn init(context: &PyContext) {
         (slot new) => new_instance,
         // yeah, it's `type_new`, but we're putting here so it's available on every object
         "__new__" => context.new_classmethod(objtype::type_new),
-        "__init__" => context.new_rustfunc(object_init),
+        "__init__" => context.new_method(object_init),
         "__class__" =>
         PropertyBuilder::new(context)
             .add_getter(object_class)
             .add_setter(object_class_setter)
             .create(),
-        "__eq__" => context.new_rustfunc(object_eq),
-        "__ne__" => context.new_rustfunc(object_ne),
-        "__lt__" => context.new_rustfunc(object_lt),
-        "__le__" => context.new_rustfunc(object_le),
-        "__gt__" => context.new_rustfunc(object_gt),
-        "__ge__" => context.new_rustfunc(object_ge),
-        "__setattr__" => context.new_rustfunc(object_setattr),
-        "__delattr__" => context.new_rustfunc(object_delattr),
+        "__eq__" => context.new_method(object_eq),
+        "__ne__" => context.new_method(object_ne),
+        "__lt__" => context.new_method(object_lt),
+        "__le__" => context.new_method(object_le),
+        "__gt__" => context.new_method(object_gt),
+        "__ge__" => context.new_method(object_ge),
+        "__setattr__" => context.new_method(object_setattr),
+        "__delattr__" => context.new_method(object_delattr),
         "__dict__" =>
         PropertyBuilder::new(context)
                 .add_getter(object_dict)
                 .add_setter(object_dict_setter)
                 .create(),
-        "__dir__" => context.new_rustfunc(object_dir),
-        "__hash__" => context.new_rustfunc(object_hash),
-        "__str__" => context.new_rustfunc(object_str),
-        "__repr__" => context.new_rustfunc(object_repr),
-        "__format__" => context.new_rustfunc(object_format),
-        "__getattribute__" => context.new_rustfunc(object_getattribute),
+        "__dir__" => context.new_method(object_dir),
+        "__hash__" => context.new_method(object_hash),
+        "__str__" => context.new_method(object_str),
+        "__repr__" => context.new_method(object_repr),
+        "__format__" => context.new_method(object_format),
+        "__getattribute__" => context.new_method(object_getattribute),
         "__subclasshook__" => context.new_classmethod(object_subclasshook),
-        "__reduce__" => context.new_rustfunc(object_reduce),
-        "__reduce_ex__" => context.new_rustfunc(object_reduce_ex),
+        "__reduce__" => context.new_method(object_reduce),
+        "__reduce_ex__" => context.new_method(object_reduce_ex),
         "__doc__" => context.new_str(object_doc.to_string()),
     });
 }

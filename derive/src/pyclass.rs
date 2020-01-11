@@ -306,7 +306,7 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
             item_ident,
             py_name,
         } => Some(quote! {
-            class.set_str_attr(#py_name, ctx.new_rustfunc(Self::#item_ident));
+            class.set_str_attr(#py_name, ctx.new_method(Self::#item_ident));
         }),
         ClassItem::ClassMethod {
             item_ident,

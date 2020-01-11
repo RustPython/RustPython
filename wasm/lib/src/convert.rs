@@ -194,7 +194,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);
         vm.ctx
-            .new_rustfunc(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
+            .new_method(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
                 let func = func.clone();
                 let this = Object::new();
                 for (k, v) in args.kwargs {

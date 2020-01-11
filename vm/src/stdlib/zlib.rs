@@ -26,10 +26,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     );
 
     py_module!(vm, "zlib", {
-        "crc32" => ctx.new_rustfunc(zlib_crc32),
-        "adler32" => ctx.new_rustfunc(zlib_adler32),
-        "compress" => ctx.new_rustfunc(zlib_compress),
-        "decompress" => ctx.new_rustfunc(zlib_decompress),
+        "crc32" => ctx.new_function(zlib_crc32),
+        "adler32" => ctx.new_function(zlib_adler32),
+        "compress" => ctx.new_function(zlib_compress),
+        "decompress" => ctx.new_function(zlib_decompress),
         "error" => zlib_error,
         "Z_DEFAULT_COMPRESSION" => ctx.new_int(libz::Z_DEFAULT_COMPRESSION),
         "Z_NO_COMPRESSION" => ctx.new_int(libz::Z_NO_COMPRESSION),

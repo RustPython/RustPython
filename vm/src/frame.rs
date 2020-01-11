@@ -1146,7 +1146,7 @@ impl Frame {
         let scope = self.scope.clone();
         let func_obj = vm
             .ctx
-            .new_function(code_obj, scope, defaults, kw_only_defaults);
+            .new_pyfunction(code_obj, scope, defaults, kw_only_defaults);
 
         let name = qualified_name.as_str().split('.').next_back().unwrap();
         vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_string()))?;

@@ -1,4 +1,5 @@
 use crate::obj::objbool;
+use crate::obj::objbuiltinfunc;
 use crate::obj::objbytearray;
 use crate::obj::objbytes;
 use crate::obj::objclassmethod;
@@ -294,6 +295,7 @@ pub fn initialize_types(context: &PyContext) {
     objtuple::init(&context);
     objobject::init(&context);
     objdict::init(&context);
+    objbuiltinfunc::init(&context);
     objfunction::init(&context);
     objstaticmethod::init(&context);
     objclassmethod::init(&context);

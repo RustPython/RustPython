@@ -114,14 +114,14 @@ fn default_int_handler(_signum: PyObjectRef, _arg: PyObjectRef, vm: &VirtualMach
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let int_handler = ctx.new_rustfunc(default_int_handler);
+    let int_handler = ctx.new_function(default_int_handler);
 
     let sig_dfl = ctx.new_int(SIG_DFL as u8);
     let sig_ign = ctx.new_int(SIG_IGN as u8);
 
     let module = py_module!(vm, "signal", {
-        "signal" => ctx.new_rustfunc(signal),
-        "getsignal" => ctx.new_rustfunc(getsignal),
+        "signal" => ctx.new_function(signal),
+        "getsignal" => ctx.new_function(getsignal),
         "SIG_DFL" => sig_dfl.clone(),
         "SIG_IGN" => sig_ign.clone(),
         "SIGABRT" => ctx.new_int(libc::SIGABRT as u8),
@@ -159,7 +159,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     let ctx = &vm.ctx;
 
     extend_module!(vm, module, {
-        "alarm" => ctx.new_rustfunc(alarm),
+        "alarm" => ctx.new_function(alarm),
         "SIGHUP" => ctx.new_int(libc::SIGHUP as u8),
         "SIGQUIT" => ctx.new_int(libc::SIGQUIT as u8),
         "SIGTRAP" => ctx.new_int(libc::SIGTRAP as u8),

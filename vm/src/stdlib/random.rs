@@ -10,10 +10,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     py_module!(vm, "random", {
-        "gauss" => ctx.new_rustfunc(random_normalvariate), // TODO: is this the same?
-        "normalvariate" => ctx.new_rustfunc(random_normalvariate),
-        "random" => ctx.new_rustfunc(random_random),
-        // "weibull", ctx.new_rustfunc(random_weibullvariate),
+        "gauss" => ctx.new_function(random_normalvariate), // TODO: is this the same?
+        "normalvariate" => ctx.new_function(random_normalvariate),
+        "random" => ctx.new_function(random_random),
+        // "weibull", ctx.new_function(random_weibullvariate),
     })
 }
 

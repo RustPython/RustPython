@@ -254,17 +254,17 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     py_module!(vm, "time", {
-        "asctime" => ctx.new_rustfunc(time_asctime),
-        "ctime" => ctx.new_rustfunc(time_ctime),
-        "gmtime" => ctx.new_rustfunc(time_gmtime),
-        "mktime" => ctx.new_rustfunc(time_mktime),
-        "localtime" => ctx.new_rustfunc(time_localtime),
-        "monotonic" => ctx.new_rustfunc(time_monotonic),
-        "strftime" => ctx.new_rustfunc(time_strftime),
-        "strptime" => ctx.new_rustfunc(time_strptime),
-        "sleep" => ctx.new_rustfunc(time_sleep),
+        "asctime" => ctx.new_function(time_asctime),
+        "ctime" => ctx.new_function(time_ctime),
+        "gmtime" => ctx.new_function(time_gmtime),
+        "mktime" => ctx.new_function(time_mktime),
+        "localtime" => ctx.new_function(time_localtime),
+        "monotonic" => ctx.new_function(time_monotonic),
+        "strftime" => ctx.new_function(time_strftime),
+        "strptime" => ctx.new_function(time_strptime),
+        "sleep" => ctx.new_function(time_sleep),
         "struct_time" => struct_time_type,
-        "time" => ctx.new_rustfunc(time_time),
-        "perf_counter" => ctx.new_rustfunc(time_time), // TODO: fix
+        "time" => ctx.new_function(time_time),
+        "perf_counter" => ctx.new_function(time_time), // TODO: fix
     })
 }

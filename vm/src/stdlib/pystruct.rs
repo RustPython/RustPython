@@ -413,8 +413,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let struct_error = ctx.new_class("struct.error", ctx.object());
 
     py_module!(vm, "struct", {
-        "pack" => ctx.new_rustfunc(struct_pack),
-        "unpack" => ctx.new_rustfunc(struct_unpack),
+        "pack" => ctx.new_function(struct_pack),
+        "unpack" => ctx.new_function(struct_unpack),
         "error" => struct_error,
     })
 }

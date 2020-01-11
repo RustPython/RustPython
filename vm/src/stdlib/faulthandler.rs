@@ -37,8 +37,8 @@ fn register(
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     py_module!(vm, "faulthandler", {
-        "dump_traceback" => ctx.new_rustfunc(dump_traceback),
-        "enable" => ctx.new_rustfunc(enable),
-        "register" => ctx.new_rustfunc(register),
+        "dump_traceback" => ctx.new_function(dump_traceback),
+        "enable" => ctx.new_function(enable),
+        "register" => ctx.new_function(register),
     })
 }
