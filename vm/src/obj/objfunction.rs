@@ -64,24 +64,11 @@ pub struct PyMethod {
     // TODO: these shouldn't be public
     pub object: PyObjectRef,
     pub function: PyObjectRef,
-    pub actually_bind: bool,
 }
 
 impl PyMethod {
     pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
-        PyMethod {
-            object,
-            function,
-            actually_bind: true,
-        }
-    }
-
-    pub fn new_nobind(object: PyObjectRef, function: PyObjectRef) -> Self {
-        PyMethod {
-            object,
-            function,
-            actually_bind: false,
-        }
+        PyMethod { object, function }
     }
 
     fn getattribute(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {

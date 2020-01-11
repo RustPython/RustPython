@@ -664,14 +664,9 @@ impl VirtualMachine {
         } else if let Some(PyMethod {
             ref function,
             ref object,
-            actually_bind,
         }) = func_ref.payload()
         {
-            let args = if *actually_bind {
-                args.insert(object.clone())
-            } else {
-                args
-            };
+            let args = args.insert(object.clone());
             self.invoke(&function, args)
         } else if let Some(builtin_func) = func_ref.payload::<PyBuiltinFunction>() {
             builtin_func.as_func()(self, args)
@@ -1450,16 +1445,6 @@ impl VirtualMachine {
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        let val = if val
-            .class()
-            .is(&self.ctx.types.builtin_function_or_method_type)
-        {
-            PyMethod::new_nobind(module.clone(), val)
-                .into_ref(self)
-                .into_object()
-        } else {
-            val
-        };
         self.set_attr(module, attr_name, val)?;
         Ok(())
     }
