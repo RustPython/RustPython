@@ -42,7 +42,12 @@ You can also install and run RustPython with the following:
     $ cargo install rustpython
     $ rustpython
     Welcome to the magnificent Rust Python interpreter
-    >>>>> 
+    >>>>>
+
+Or through the `conda` package manager:
+
+    $ conda install rustpython -c conda-forge
+    $ rustpython
 
 
 ### WASI
