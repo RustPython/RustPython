@@ -19,6 +19,10 @@ assert MyObject().__gt__(MyObject()) == NotImplemented
 assert MyObject().__ge__(MyObject()) == NotImplemented
 
 obj = MyObject()
+
+assert obj.__eq__(obj) is True
+assert obj.__ne__(obj) is False
+
 assert not hasattr(obj, 'a')
 obj.__dict__ = {'a': 1}
 assert obj.a == 1

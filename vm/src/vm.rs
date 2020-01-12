@@ -1324,16 +1324,17 @@ impl VirtualMachine {
     }
 
     pub fn _eq(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_or_reflection(a, b, "__eq__", "__eq__", |vm, a, b| {
-            Ok(vm.new_bool(a.is(&b)))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            "__eq__",
+            "__eq__",
+            |vm, _a, _b| Ok(vm.new_bool(false)),
+        )
     }
 
     pub fn _ne(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_or_reflection(a, b, "__ne__", "__ne__", |vm, a, b| {
-            let eq = vm._eq(a, b)?;
-            Ok(vm.new_bool(objbool::not(vm, &eq)?))
-        })
+        self.call_or_reflection(a, b, "__ne__", "__ne__", |vm, _a, _b| Ok(vm.new_bool(true)))
     }
 
     pub fn _lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
