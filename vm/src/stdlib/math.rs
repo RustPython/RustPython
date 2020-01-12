@@ -17,6 +17,9 @@ use crate::obj::objtype;
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
+#[cfg(not(target_arch = "wasm32"))]
+use libc::c_double;
+
 use std::cmp::Ordering;
 
 // Helper macro:
@@ -291,6 +294,21 @@ fn math_modf(x: IntoPyFloat, _vm: &VirtualMachine) -> (f64, f64) {
     (x.fract(), x.trunc())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat) -> PyResult<f64> {
+    extern "C" {
+        fn nextafter(x: c_double, y: c_double) -> c_double;
+    }
+    let x = x.to_f64();
+    let y = y.to_f64();
+    Ok(unsafe { nextafter(x, y) })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
+    Err(vm.new_not_implemented_error("not implemented for this platform".to_string()))
+}
+
 fn fmod(x: f64, y: f64) -> f64 {
     if y.is_infinite() && x.is_finite() {
         return x;
@@ -414,6 +432,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
         // Factorial function
         "factorial" => ctx.new_rustfunc(math_factorial),
+
+        "nextafter" => ctx.new_rustfunc(math_nextafter),
 
         // Constants:
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...
