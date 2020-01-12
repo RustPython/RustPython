@@ -47,5 +47,6 @@ pub fn init(context: &PyContext) {
     PyStaticMethodRef::extend_class(context, &context.types.staticmethod_type);
     extend_class!(context, context.types.staticmethod_type, {
         "__get__" => context.new_method(PyStaticMethod::get),
+        (slot descr_get) => PyStaticMethod::get,
     });
 }

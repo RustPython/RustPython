@@ -77,5 +77,6 @@ pub fn init(context: &PyContext) {
     PyClassMethod::extend_class(context, &context.types.classmethod_type);
     extend_class!(context, context.types.classmethod_type, {
         "__get__" => context.new_method(PyClassMethod::get),
+        (slot descr_get) => PyClassMethod::get,
     });
 }

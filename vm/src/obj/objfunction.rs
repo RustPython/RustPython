@@ -102,6 +102,7 @@ pub fn init(context: &PyContext) {
     let function_type = &context.types.function_type;
     extend_class!(context, function_type, {
         "__get__" => context.new_method(PyFunction::get),
+        (slot descr_get) => PyFunction::get,
         "__call__" => context.new_method(PyFunctionRef::call),
         "__code__" => context.new_property(PyFunctionRef::code),
         "__defaults__" => context.new_property(PyFunctionRef::defaults),

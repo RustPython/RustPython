@@ -100,5 +100,6 @@ pub fn init(context: &PyContext) {
     PyBuiltinMethod::extend_class(context, &context.types.method_descriptor_type);
     extend_class!(context, context.types.method_descriptor_type, {
         "__get__" => context.new_method(PyBuiltinMethod::get),
+        (slot descr_get) => PyBuiltinMethod::get,
     });
 }

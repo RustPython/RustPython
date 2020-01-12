@@ -4,6 +4,7 @@
 //!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
 //!
 
+use std::borrow::Borrow;
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
@@ -621,7 +622,11 @@ impl VirtualMachine {
 
     pub fn call_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
         let attr_class = attr.class();
-        if let Some(ref descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
+        let slots = attr_class.slots.borrow();
+        if let Some(descr_get) = slots.borrow().descr_get.as_ref() {
+            let cls = obj.class();
+            descr_get(self, vec![attr, obj.clone(), cls.into_object()].into())
+        } else if let Some(ref descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
             let cls = obj.class();
             self.invoke(descriptor, vec![attr, obj.clone(), cls.into_object()])
         } else {

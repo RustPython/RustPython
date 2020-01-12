@@ -320,6 +320,7 @@ pub fn init(context: &PyContext) {
     PyReadOnlyProperty::extend_class(context, &context.types.readonly_property_type);
     extend_class!(context, context.types.readonly_property_type, {
         "__get__" => context.new_method(PyReadOnlyProperty::get),
+        (slot descr_get) => PyReadOnlyProperty::get,
     });
 
     PyProperty::extend_class(context, &context.types.property_type);

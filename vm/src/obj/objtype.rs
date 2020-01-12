@@ -29,7 +29,9 @@ pub struct PyClass {
 #[derive(Default)]
 pub struct PyClassSlots {
     pub new: Option<PyNativeFunc>,
+    pub descr_get: Option<PyNativeFunc>,
 }
+
 impl fmt::Debug for PyClassSlots {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("PyClassSlots")
