@@ -498,11 +498,11 @@ pub type PyNativeFunc = Box<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 's
 ///
 /// A bare `PyNativeFunc` also implements this trait, allowing the above to be
 /// done manually, for rare situations that don't fit into this model.
-pub trait IntoPyNativeFunc<T, R> {
+pub trait IntoPyNativeFunc<T, R, VM> {
     fn into_func(self) -> PyNativeFunc;
 }
 
-impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult> for F
+impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult, VirtualMachine> for F
 where
     F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static,
 {
@@ -520,7 +520,7 @@ pub struct RefParam<T>(std::marker::PhantomData<T>);
 // Note that this could be done without a macro - it is simply to avoid repetition.
 macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),*) => {
-        impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R> for F
+        impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
             F: Fn($($T,)* &VirtualMachine) -> R + 'static,
             $($T: FromArgs,)*
@@ -535,7 +535,7 @@ macro_rules! into_py_native_func_tuple {
             }
         }
 
-        impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R> for F
+        impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
             F: Fn(&S, $($T,)* &VirtualMachine) -> R + 'static,
             S: PyValue,
@@ -548,6 +548,29 @@ macro_rules! into_py_native_func_tuple {
 
                     (self)(&zelf, $($n,)* vm).into_pyobject(vm)
                 })
+            }
+        }
+
+        impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, ()> for F
+        where
+            F: Fn($($T,)*) -> R + 'static,
+            $($T: FromArgs,)*
+            R: IntoPyObject,
+        {
+            fn into_func(self) -> PyNativeFunc {
+                IntoPyNativeFunc::into_func(move |$($n,)* _vm: &VirtualMachine| (self)($($n,)*))
+            }
+        }
+
+        impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
+        where
+            F: Fn(&S, $($T,)*) -> R + 'static,
+            S: PyValue,
+            $($T: FromArgs,)*
+            R: IntoPyObject,
+        {
+            fn into_func(self) -> PyNativeFunc {
+                IntoPyNativeFunc::into_func(move |zelf: &S, $($n,)* _vm: &VirtualMachine| (self)(zelf, $($n,)*))
             }
         }
     };
