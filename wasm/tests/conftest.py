@@ -4,6 +4,7 @@ import time
 import socket
 import atexit
 import pytest
+import sys
 
 PORT = 8080
 
@@ -73,11 +74,11 @@ from selenium.common.exceptions import JavascriptException
 
 class Driver(webdriver.Firefox):
     def _print_panic(self):
-        stack = driver.execute_script(
+        stack = self.execute_script(
             "return (window.__RUSTPYTHON_ERROR_MSG || '') + '\\n' + (window.__RUSTPYTHON_ERROR_STACK || '')"
         )
         if stack.strip():
-            print(f"RustPython panic stack:\n{stack}", file=sys.stderr)
+            print(f"RustPython panic stack:", stack, file=sys.stderr, sep="\n")
 
     def execute_script(self, *args, **kwargs):
         try:
