@@ -206,7 +206,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     );
 
     py_module!(vm, "_csv", {
-        "reader" => ctx.new_rustfunc(csv_reader),
+        "reader" => ctx.new_function(csv_reader),
         "Reader" => reader_type,
         "Error"  => error,
         // constants

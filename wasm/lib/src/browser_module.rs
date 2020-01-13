@@ -356,14 +356,14 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let element = Element::make_class(ctx);
 
     py_module!(vm, "browser", {
-        "fetch" => ctx.new_rustfunc(browser_fetch),
-        "request_animation_frame" => ctx.new_rustfunc(browser_request_animation_frame),
-        "cancel_animation_frame" => ctx.new_rustfunc(browser_cancel_animation_frame),
+        "fetch" => ctx.new_function(browser_fetch),
+        "request_animation_frame" => ctx.new_function(browser_request_animation_frame),
+        "cancel_animation_frame" => ctx.new_function(browser_cancel_animation_frame),
         "Promise" => promise,
         "Document" => document_class,
         "document" => document,
         "Element" => element,
-        "load_module" => ctx.new_rustfunc(browser_load_module),
+        "load_module" => ctx.new_function(browser_load_module),
     })
 }
 

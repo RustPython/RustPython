@@ -15,7 +15,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let symbol_type = PySymbol::make_class(ctx);
 
     py_module!(vm, "symtable", {
-        "symtable" => ctx.new_rustfunc(symtable_symtable),
+        "symtable" => ctx.new_function(symtable_symtable),
         "SymbolTable" => symbol_table_type,
         "Symbol" => symbol_type,
     })

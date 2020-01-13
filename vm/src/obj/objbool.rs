@@ -88,14 +88,14 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
     let bool_type = &context.types.bool_type;
     extend_class!(context, bool_type, {
         (slot new) => bool_new,
-        "__repr__" => context.new_rustfunc(bool_repr),
-        "__format__" => context.new_rustfunc(bool_format),
-        "__or__" => context.new_rustfunc(bool_or),
-        "__ror__" => context.new_rustfunc(bool_or),
-        "__and__" => context.new_rustfunc(bool_and),
-        "__rand__" => context.new_rustfunc(bool_and),
-        "__xor__" => context.new_rustfunc(bool_xor),
-        "__rxor__" => context.new_rustfunc(bool_xor),
+        "__repr__" => context.new_method(bool_repr),
+        "__format__" => context.new_method(bool_format),
+        "__or__" => context.new_method(bool_or),
+        "__ror__" => context.new_method(bool_or),
+        "__and__" => context.new_method(bool_and),
+        "__rand__" => context.new_method(bool_and),
+        "__xor__" => context.new_method(bool_xor),
+        "__rxor__" => context.new_method(bool_xor),
         "__doc__" => context.new_str(bool_doc.to_string()),
     });
 }

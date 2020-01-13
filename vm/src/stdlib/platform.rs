@@ -5,12 +5,12 @@ use crate::vm::VirtualMachine;
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     py_module!(vm, "platform", {
-        "python_branch" => ctx.new_rustfunc(platform_python_branch),
-        "python_build" => ctx.new_rustfunc(platform_python_build),
-        "python_compiler" => ctx.new_rustfunc(platform_python_compiler),
-        "python_implementation" => ctx.new_rustfunc(platform_python_implementation),
-        "python_revision" => ctx.new_rustfunc(platform_python_revision),
-        "python_version" => ctx.new_rustfunc(platform_python_version),
+        "python_branch" => ctx.new_function(platform_python_branch),
+        "python_build" => ctx.new_function(platform_python_build),
+        "python_compiler" => ctx.new_function(platform_python_compiler),
+        "python_implementation" => ctx.new_function(platform_python_implementation),
+        "python_revision" => ctx.new_function(platform_python_revision),
+        "python_version" => ctx.new_function(platform_python_version),
     })
 }
 

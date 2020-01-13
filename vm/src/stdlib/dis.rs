@@ -35,8 +35,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     py_module!(vm, "dis", {
-        "dis" => ctx.new_rustfunc(dis_dis),
-        "disassemble" => ctx.new_rustfunc(dis_disassemble),
+        "dis" => ctx.new_function(dis_dis),
+        "disassemble" => ctx.new_function(dis_disassemble),
         "COMPILER_FLAG_NAMES" => dis_compiler_flag_names(vm),
     })
 }

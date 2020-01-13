@@ -1241,10 +1241,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let dir_entry = py_class!(ctx, "DirEntry", ctx.object(), {
          "name" => ctx.new_property(DirEntryRef::name),
          "path" => ctx.new_property(DirEntryRef::path),
-         "is_dir" => ctx.new_rustfunc(DirEntryRef::is_dir),
-         "is_file" => ctx.new_rustfunc(DirEntryRef::is_file),
-         "is_symlink" => ctx.new_rustfunc(DirEntryRef::is_symlink),
-         "stat" => ctx.new_rustfunc(DirEntryRef::stat),
+         "is_dir" => ctx.new_method(DirEntryRef::is_dir),
+         "is_file" => ctx.new_method(DirEntryRef::is_file),
+         "is_symlink" => ctx.new_method(DirEntryRef::is_symlink),
+         "stat" => ctx.new_method(DirEntryRef::stat),
     });
 
     let stat_result = StatResult::make_class(ctx);
@@ -1268,7 +1268,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         where
             F: IntoPyNativeFunc<T, R, VM>,
         {
-            let func_obj = vm.ctx.new_rustfunc(func);
+            let func_obj = vm.ctx.new_function(func);
             Self {
                 name,
                 func_obj,
@@ -1313,29 +1313,29 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let supports_follow_symlinks = PySet::default().into_ref(vm);
 
     let module = py_module!(vm, "_os", {
-        "close" => ctx.new_rustfunc(os_close),
-        "error" => ctx.new_rustfunc(os_error),
-        "fsync" => ctx.new_rustfunc(os_fsync),
-        "read" => ctx.new_rustfunc(os_read),
-        "write" => ctx.new_rustfunc(os_write),
-        "mkdirs" => ctx.new_rustfunc(os_mkdirs),
-        "putenv" => ctx.new_rustfunc(os_putenv),
-        "unsetenv" => ctx.new_rustfunc(os_unsetenv),
+        "close" => ctx.new_function(os_close),
+        "error" => ctx.new_function(os_error),
+        "fsync" => ctx.new_function(os_fsync),
+        "read" => ctx.new_function(os_read),
+        "write" => ctx.new_function(os_write),
+        "mkdirs" => ctx.new_function(os_mkdirs),
+        "putenv" => ctx.new_function(os_putenv),
+        "unsetenv" => ctx.new_function(os_unsetenv),
         "environ" => environ,
         "name" => ctx.new_str(os_name),
         "ScandirIter" => scandir_iter,
         "DirEntry" => dir_entry,
         "stat_result" => stat_result,
-        "lstat" => ctx.new_rustfunc(os_lstat),
-        "getcwd" => ctx.new_rustfunc(os_getcwd),
-        "chdir" => ctx.new_rustfunc(os_chdir),
-        "fspath" => ctx.new_rustfunc(os_fspath),
-         "getpid" => ctx.new_rustfunc(os_getpid),
-        "cpu_count" => ctx.new_rustfunc(os_cpu_count),
-        "_exit" => ctx.new_rustfunc(os_exit),
-        "urandom" => ctx.new_rustfunc(os_urandom),
-        "isatty" => ctx.new_rustfunc(os_isatty),
-        "lseek" => ctx.new_rustfunc(os_lseek),
+        "lstat" => ctx.new_function(os_lstat),
+        "getcwd" => ctx.new_function(os_getcwd),
+        "chdir" => ctx.new_function(os_chdir),
+        "fspath" => ctx.new_function(os_fspath),
+         "getpid" => ctx.new_function(os_getpid),
+        "cpu_count" => ctx.new_function(os_cpu_count),
+        "_exit" => ctx.new_function(os_exit),
+        "urandom" => ctx.new_function(os_urandom),
+        "isatty" => ctx.new_function(os_isatty),
+        "lseek" => ctx.new_function(os_lseek),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
@@ -1389,25 +1389,25 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
     let ctx = &vm.ctx;
     extend_module!(vm, module, {
-        "access" => ctx.new_rustfunc(os_access),
-        "chmod" => ctx.new_rustfunc(os_chmod),
-        "chroot" => ctx.new_rustfunc(os_chroot),
-        "get_inheritable" => ctx.new_rustfunc(os_get_inheritable), // TODO: windows
-        "get_blocking" => ctx.new_rustfunc(os_get_blocking),
-        "getppid" => ctx.new_rustfunc(os_getppid),
-        "getgid" => ctx.new_rustfunc(os_getgid),
-        "getegid" => ctx.new_rustfunc(os_getegid),
-        "getpgid" => ctx.new_rustfunc(os_getpgid),
-        "getuid" => ctx.new_rustfunc(os_getuid),
-        "geteuid" => ctx.new_rustfunc(os_geteuid),
-        "pipe" => ctx.new_rustfunc(os_pipe), //TODO: windows
-        "set_inheritable" => ctx.new_rustfunc(os_set_inheritable), // TODO: windows
-        "set_blocking" => ctx.new_rustfunc(os_set_blocking),
-        "setgid" => ctx.new_rustfunc(os_setgid),
-        "setpgid" => ctx.new_rustfunc(os_setpgid),
-        "setuid" => ctx.new_rustfunc(os_setuid),
-        "system" => ctx.new_rustfunc(os_system),
-        "ttyname" => ctx.new_rustfunc(os_ttyname),
+        "access" => ctx.new_function(os_access),
+        "chmod" => ctx.new_function(os_chmod),
+        "chroot" => ctx.new_function(os_chroot),
+        "get_inheritable" => ctx.new_function(os_get_inheritable), // TODO: windows
+        "get_blocking" => ctx.new_function(os_get_blocking),
+        "getppid" => ctx.new_function(os_getppid),
+        "getgid" => ctx.new_function(os_getgid),
+        "getegid" => ctx.new_function(os_getegid),
+        "getpgid" => ctx.new_function(os_getpgid),
+        "getuid" => ctx.new_function(os_getuid),
+        "geteuid" => ctx.new_function(os_geteuid),
+        "pipe" => ctx.new_function(os_pipe), //TODO: windows
+        "set_inheritable" => ctx.new_function(os_set_inheritable), // TODO: windows
+        "set_blocking" => ctx.new_function(os_set_blocking),
+        "setgid" => ctx.new_function(os_setgid),
+        "setpgid" => ctx.new_function(os_setpgid),
+        "setuid" => ctx.new_function(os_setuid),
+        "system" => ctx.new_function(os_system),
+        "ttyname" => ctx.new_function(os_ttyname),
         "EX_OK" => ctx.new_int(exitcode::OK as i8),
         "EX_USAGE" => ctx.new_int(exitcode::USAGE as i8),
         "EX_DATAERR" => ctx.new_int(exitcode::DATAERR as i8),
@@ -1433,11 +1433,11 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
 
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
-        "getsid" => ctx.new_rustfunc(os_getsid),
-        "setsid" => ctx.new_rustfunc(os_setsid),
-        "setegid" => ctx.new_rustfunc(os_setegid),
-        "seteuid" => ctx.new_rustfunc(os_seteuid),
-        "openpty" => ctx.new_rustfunc(os_openpty),
+        "getsid" => ctx.new_function(os_getsid),
+        "setsid" => ctx.new_function(os_setsid),
+        "setegid" => ctx.new_function(os_setegid),
+        "seteuid" => ctx.new_function(os_seteuid),
+        "openpty" => ctx.new_function(os_openpty),
     });
 
     // cfg taken from nix
@@ -1464,7 +1464,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         target_os = "openbsd"
     ))]
     extend_module!(vm, module, {
-        "pipe2" => ctx.new_rustfunc(os_pipe2),
+        "pipe2" => ctx.new_function(os_pipe2),
     });
 
     module

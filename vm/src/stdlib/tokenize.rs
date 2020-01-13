@@ -29,6 +29,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     py_module!(vm, "tokenize", {
-        "tokenize" => ctx.new_rustfunc(tokenize_tokenize)
+        "tokenize" => ctx.new_function(tokenize_tokenize)
     })
 }

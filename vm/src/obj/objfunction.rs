@@ -64,24 +64,11 @@ pub struct PyMethod {
     // TODO: these shouldn't be public
     pub object: PyObjectRef,
     pub function: PyObjectRef,
-    pub actually_bind: bool,
 }
 
 impl PyMethod {
     pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
-        PyMethod {
-            object,
-            function,
-            actually_bind: true,
-        }
-    }
-
-    pub fn new_nobind(object: PyObjectRef, function: PyObjectRef) -> Self {
-        PyMethod {
-            object,
-            function,
-            actually_bind: false,
-        }
+        PyMethod { object, function }
     }
 
     fn getattribute(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
@@ -98,22 +85,16 @@ impl PyValue for PyMethod {
 pub fn init(context: &PyContext) {
     let function_type = &context.types.function_type;
     extend_class!(context, function_type, {
-        "__get__" => context.new_rustfunc(bind_method),
-        "__call__" => context.new_rustfunc(PyFunctionRef::call),
+        "__get__" => context.new_method(bind_method),
+        "__call__" => context.new_method(PyFunctionRef::call),
         "__code__" => context.new_property(PyFunctionRef::code),
         "__defaults__" => context.new_property(PyFunctionRef::defaults),
         "__kwdefaults__" => context.new_property(PyFunctionRef::kwdefaults),
     });
 
-    let builtin_function_or_method_type = &context.types.builtin_function_or_method_type;
-    extend_class!(context, builtin_function_or_method_type, {
-        "__get__" => context.new_rustfunc(bind_method),
-        "__call__" => context.new_rustfunc(PyFunctionRef::call),
-    });
-
     let method_type = &context.types.bound_method_type;
     extend_class!(context, method_type, {
-        "__getattribute__" => context.new_rustfunc(PyMethod::getattribute),
+        "__getattribute__" => context.new_method(PyMethod::getattribute),
     });
 }
 

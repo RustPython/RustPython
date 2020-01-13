@@ -15,7 +15,7 @@ use crate::bytecode;
 use crate::dictdatatype::DictKey;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
-use crate::obj::objbuiltinfunc::PyBuiltinFunction;
+use crate::obj::objbuiltinfunc::{PyBuiltinFunction, PyBuiltinMethod};
 use crate::obj::objbytearray;
 use crate::obj::objbytes;
 use crate::obj::objclassmethod::PyClassMethod;
@@ -317,6 +317,10 @@ impl PyContext {
         self.types.builtin_function_or_method_type.clone()
     }
 
+    pub fn method_descriptor_type(&self) -> PyClassRef {
+        self.types.method_descriptor_type.clone()
+    }
+
     pub fn property_type(&self) -> PyClassRef {
         self.types.property_type.clone()
     }
@@ -461,7 +465,7 @@ impl PyContext {
         PyObject::new(PyNamespace, self.namespace_type(), Some(self.new_dict()))
     }
 
-    pub fn new_rustfunc<F, T, R, VM>(&self, f: F) -> PyObjectRef
+    pub fn new_function<F, T, R, VM>(&self, f: F) -> PyObjectRef
     where
         F: IntoPyNativeFunc<T, R, VM>,
     {
@@ -472,13 +476,24 @@ impl PyContext {
         )
     }
 
+    pub fn new_method<F, T, R, VM>(&self, f: F) -> PyObjectRef
+    where
+        F: IntoPyNativeFunc<T, R, VM>,
+    {
+        PyObject::new(
+            PyBuiltinMethod::new(f.into_func()),
+            self.method_descriptor_type(),
+            None,
+        )
+    }
+
     pub fn new_classmethod<F, T, R, VM>(&self, f: F) -> PyObjectRef
     where
         F: IntoPyNativeFunc<T, R, VM>,
     {
         PyObject::new(
             PyClassMethod {
-                callable: self.new_rustfunc(f),
+                callable: self.new_method(f),
             },
             self.classmethod_type(),
             None,
@@ -498,7 +513,7 @@ impl PyContext {
             .unwrap()
     }
 
-    pub fn new_function(
+    pub fn new_pyfunction(
         &self,
         code_obj: PyCodeRef,
         scope: Scope,

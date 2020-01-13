@@ -83,8 +83,8 @@ pub fn init(context: &PyContext) {
     PyByteArrayRef::extend_class(context, &context.types.bytearray_type);
     let bytearray_type = &context.types.bytearray_type;
     extend_class!(context, bytearray_type, {
-    "fromhex" => context.new_rustfunc(PyByteArrayRef::fromhex),
-    "maketrans" => context.new_rustfunc(PyByteInner::maketrans),
+    "fromhex" => context.new_method(PyByteArrayRef::fromhex),
+    "maketrans" => context.new_method(PyByteInner::maketrans),
     });
 
     PyByteArrayIterator::extend_class(context, &context.types.bytearrayiterator_type);

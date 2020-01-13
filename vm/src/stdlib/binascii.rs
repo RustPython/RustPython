@@ -140,12 +140,12 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     py_module!(vm, "binascii", {
-        "hexlify" => ctx.new_rustfunc(binascii_hexlify),
-        "b2a_hex" => ctx.new_rustfunc(binascii_hexlify),
-        "unhexlify" => ctx.new_rustfunc(binascii_unhexlify),
-        "a2b_hex" => ctx.new_rustfunc(binascii_unhexlify),
-        "crc32" => ctx.new_rustfunc(binascii_crc32),
-        "a2b_base64" => ctx.new_rustfunc(binascii_a2b_base64),
-        "b2a_base64" => ctx.new_rustfunc(binascii_b2a_base64),
+        "hexlify" => ctx.new_function(binascii_hexlify),
+        "b2a_hex" => ctx.new_function(binascii_hexlify),
+        "unhexlify" => ctx.new_function(binascii_unhexlify),
+        "a2b_hex" => ctx.new_function(binascii_unhexlify),
+        "crc32" => ctx.new_function(binascii_crc32),
+        "a2b_base64" => ctx.new_function(binascii_a2b_base64),
+        "b2a_base64" => ctx.new_function(binascii_b2a_base64),
     })
 }

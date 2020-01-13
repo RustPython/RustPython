@@ -71,10 +71,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     );
 
     py_module!(vm, "json", {
-        "dumps" => ctx.new_rustfunc(json_dumps),
-        "dump" => ctx.new_rustfunc(json_dump),
-        "loads" => ctx.new_rustfunc(json_loads),
-        "load" => ctx.new_rustfunc(json_load),
+        "dumps" => ctx.new_function(json_dumps),
+        "dump" => ctx.new_function(json_dump),
+        "loads" => ctx.new_function(json_loads),
+        "load" => ctx.new_function(json_load),
         "JSONDecodeError" => json_decode_error
     })
 }

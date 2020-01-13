@@ -55,9 +55,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     let ctx = &vm.ctx;
     extend_module!(vm, module, {
-        "closesocket" => ctx.new_rustfunc(multiprocessing_closesocket),
-        "recv" => ctx.new_rustfunc(multiprocessing_recv),
-        "send" => ctx.new_rustfunc(multiprocessing_send),
+        "closesocket" => ctx.new_function(multiprocessing_closesocket),
+        "recv" => ctx.new_function(multiprocessing_recv),
+        "send" => ctx.new_function(multiprocessing_send),
     })
 }
 

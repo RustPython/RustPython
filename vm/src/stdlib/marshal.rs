@@ -18,7 +18,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     py_module!(vm, "marshal", {
-        "loads" => ctx.new_rustfunc(marshal_loads),
-        "dumps" => ctx.new_rustfunc(marshal_dumps),
+        "loads" => ctx.new_function(marshal_loads),
+        "dumps" => ctx.new_function(marshal_dumps),
     })
 }

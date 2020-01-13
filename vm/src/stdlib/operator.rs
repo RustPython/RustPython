@@ -19,6 +19,6 @@ fn operator_length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMach
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     py_module!(vm, "_operator", {
-        "length_hint" => vm.ctx.new_rustfunc(operator_length_hint),
+        "length_hint" => vm.ctx.new_function(operator_length_hint),
     })
 }

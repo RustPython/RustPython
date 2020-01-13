@@ -243,18 +243,18 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let popen = py_class!(ctx, "Popen", ctx.object(), {
         (slot new) => PopenRef::new,
-        "poll" => ctx.new_rustfunc(PopenRef::poll),
+        "poll" => ctx.new_method(PopenRef::poll),
         "returncode" => ctx.new_property(PopenRef::return_code),
-        "wait" => ctx.new_rustfunc(PopenRef::wait),
+        "wait" => ctx.new_method(PopenRef::wait),
         "stdin" => ctx.new_property(PopenRef::stdin),
         "stdout" => ctx.new_property(PopenRef::stdout),
         "stderr" => ctx.new_property(PopenRef::stderr),
-        "terminate" => ctx.new_rustfunc(PopenRef::terminate),
-        "kill" => ctx.new_rustfunc(PopenRef::kill),
-        "communicate" => ctx.new_rustfunc(PopenRef::communicate),
+        "terminate" => ctx.new_method(PopenRef::terminate),
+        "kill" => ctx.new_method(PopenRef::kill),
+        "communicate" => ctx.new_method(PopenRef::communicate),
         "pid" => ctx.new_property(PopenRef::pid),
-        "__enter__" => ctx.new_rustfunc(PopenRef::enter),
-        "__exit__" => ctx.new_rustfunc(PopenRef::exit),
+        "__enter__" => ctx.new_method(PopenRef::enter),
+        "__exit__" => ctx.new_method(PopenRef::exit),
         "args" => ctx.new_property(PopenRef::args),
     });
 
