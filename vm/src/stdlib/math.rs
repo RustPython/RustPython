@@ -433,7 +433,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         // Factorial function
         "factorial" => ctx.new_function(math_factorial),
 
-        "nextafter" => ctx.new_rustfunc(math_nextafter),
+        "nextafter" => ctx.new_function(math_nextafter),
 
         // Constants:
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...
