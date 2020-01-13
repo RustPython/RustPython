@@ -240,6 +240,19 @@ assert math.factorial(10) == 3628800
 assert math.factorial(20) == 2432902008176640000
 assert_raises(ValueError, lambda: math.factorial(-1))
 
+if hasattr(math, 'nextafter'):
+    try:
+        assert math.nextafter(4503599627370496.0, -INF) == 4503599627370495.5
+        assert math.nextafter(4503599627370496.0, INF) == 4503599627370497.0
+        assert math.nextafter(9223372036854775808.0, 0.0) == 9223372036854774784.0
+        assert math.nextafter(-9223372036854775808.0, 0.0) == -9223372036854774784.0
+        assert math.nextafter(4503599627370496, -INF) == 4503599627370495.5
+        assert math.nextafter(2.0, 2.0) == 2.0
+        assert math.isnan(math.nextafter(NAN, 1.0))
+    except NotImplementedError:
+        # WASM
+        pass
+
 assert math.modf(1.25) == (0.25, 1.0)
 assert math.modf(-1.25) == (-0.25, -1.0)
 assert math.modf(2.56) == (0.56, 2.0)
