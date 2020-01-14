@@ -17,7 +17,7 @@ impl PyValue for PyStaticMethod {
 
 #[pyimpl]
 impl PyStaticMethodRef {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         callable: PyObjectRef,

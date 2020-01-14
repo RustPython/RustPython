@@ -105,7 +105,7 @@ struct PropertyArgs {
 
 #[pyimpl]
 impl PyProperty {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(cls: PyClassRef, args: PropertyArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
         PyProperty {
             getter: args.fget,

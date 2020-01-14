@@ -20,7 +20,7 @@ impl PyValue for PyZip {
 
 #[pyimpl]
 impl PyZip {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(cls: PyClassRef, iterables: Args, vm: &VirtualMachine) -> PyResult<PyZipRef> {
         let iterators = iterables
             .into_iter()

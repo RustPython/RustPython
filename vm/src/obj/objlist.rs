@@ -762,8 +762,8 @@ impl PyList {
         Ok(())
     }
 
-    #[pyslot(new)]
-    fn list_new(
+    #[pyslot]
+    fn tp_new(
         cls: PyClassRef,
         iterable: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,

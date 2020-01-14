@@ -36,7 +36,7 @@ impl PyMappingProxy {
         }
     }
 
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(cls: PyClassRef, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyMappingProxy {
             mapping: MappingProxyInner::Dict(mapping),

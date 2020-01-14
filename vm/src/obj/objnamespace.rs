@@ -19,7 +19,7 @@ impl PyValue for PyNamespace {
 
 #[pyimpl]
 impl PyNamespace {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(cls: PyClassRef, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let zelf = PyNamespace.into_ref_with_type(vm, cls)?;
         for (name, value) in kwargs.into_iter() {

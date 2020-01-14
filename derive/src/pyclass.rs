@@ -207,15 +207,25 @@ impl Class {
                 )?;
                 attr_idxs.push(i);
             } else if name == "pyslot" {
-                let pyslot_err = "#[pyslot] must be of the form #[pyslot(slotname)]";
+                let pyslot_err = "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]";
                 let nesteds =
                     meta_to_vec(meta).map_err(|meta| err_span!(meta, "{}", pyslot_err))?;
-                if nesteds.len() != 1 {
+                if nesteds.len() > 1 {
                     return Err(Diagnostic::spanned_error(&quote!(#(#nesteds)*), pyslot_err));
                 }
-                let slot_ident = match nesteds.into_iter().next().unwrap() {
-                    NestedMeta::Meta(Meta::Word(ident)) => ident,
-                    bad => bail_span!(bad, "{}", pyslot_err),
+                let slot_ident = if nesteds.is_empty() {
+                    let ident_str = sig.ident.to_string();
+                    if ident_str.starts_with("tp_") {
+                        let slot_name = &ident_str[3..];
+                        proc_macro2::Ident::new(slot_name, sig.ident.span())
+                    } else {
+                        sig.ident.clone()
+                    }
+                } else {
+                    match nesteds.into_iter().next().unwrap() {
+                        NestedMeta::Meta(Meta::Word(ident)) => ident,
+                        bad => bail_span!(bad, "{}", pyslot_err),
+                    }
                 };
                 self.add_item(
                     ClassItem::Slot {

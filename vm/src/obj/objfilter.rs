@@ -25,7 +25,7 @@ impl PyValue for PyFilter {
 
 #[pyimpl]
 impl PyFilter {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         function: PyObjectRef,

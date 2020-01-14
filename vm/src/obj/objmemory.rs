@@ -20,7 +20,7 @@ impl PyMemoryView {
         try_as_byte(&self.obj_ref)
     }
 
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         bytes_object: PyObjectRef,

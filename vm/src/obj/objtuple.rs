@@ -227,8 +227,8 @@ impl PyTuple {
         Ok(false)
     }
 
-    #[pyslot(new)]
-    fn tuple_new(
+    #[pyslot]
+    fn tp_new(
         cls: PyClassRef,
         iterable: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,

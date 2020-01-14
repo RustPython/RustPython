@@ -76,7 +76,7 @@ impl PySuper {
         }
     }
 
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         py_type: OptionalArg<PyClassRef>,

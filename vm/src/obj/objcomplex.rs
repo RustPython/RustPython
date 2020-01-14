@@ -213,7 +213,7 @@ impl PyComplex {
         !Complex64::is_zero(&self.value)
     }
 
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         real: OptionalArg<IntoPyFloat>,

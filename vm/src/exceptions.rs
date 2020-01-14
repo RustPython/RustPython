@@ -55,7 +55,7 @@ impl PyBaseException {
         }
     }
 
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyBaseException::new(args.args, vm).into_ref_with_type(vm, cls)
     }
