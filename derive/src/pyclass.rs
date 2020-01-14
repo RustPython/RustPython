@@ -1,6 +1,6 @@
 use super::Diagnostic;
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::quote;
+use quote::{quote, quote_spanned};
 use std::collections::{HashMap, HashSet};
 use syn::{
     spanned::Spanned, Attribute, AttributeArgs, Ident, ImplItem, Index, Item, Lit, Meta, MethodSig,
@@ -305,23 +305,32 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
         ClassItem::Method {
             item_ident,
             py_name,
-        } => Some(quote! {
-            class.set_str_attr(#py_name, ctx.new_method(Self::#item_ident));
-        }),
+        } => {
+            let new_meth = quote_spanned!(item_ident.span()=> .new_method(Self::#item_ident));
+            Some(quote! {
+                class.set_str_attr(#py_name, ctx#new_meth);
+            })
+        }
         ClassItem::ClassMethod {
             item_ident,
             py_name,
-        } => Some(quote! {
-            class.set_str_attr(#py_name, ctx.new_classmethod(Self::#item_ident));
-        }),
+        } => {
+            let new_meth = quote_spanned!(item_ident.span()=> .new_classmethod(Self::#item_ident));
+            Some(quote! {
+                   class.set_str_attr(#py_name, ctx#new_meth);
+            })
+        }
         ClassItem::Slot {
             slot_ident,
             item_ident,
-        } => Some(quote! {
-            class.slots.borrow_mut().#slot_ident = Some(
+        } => {
+            let into_func = quote_spanned! {item_ident.span()=>
                 ::rustpython_vm::function::IntoPyNativeFunc::into_func(Self::#item_ident)
-            );
-        }),
+            };
+            Some(quote! {
+                (*class.slots.borrow_mut()).#slot_ident = Some(#into_func);
+            })
+        }
         _ => None,
     });
 

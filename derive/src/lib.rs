@@ -20,10 +20,7 @@ use quote::ToTokens;
 use syn::{parse_macro_input, AttributeArgs, DeriveInput, Item};
 
 fn result_to_tokens(result: Result<TokenStream2, Diagnostic>) -> TokenStream {
-    match result {
-        Ok(tokens) => tokens.into(),
-        Err(diagnostic) => diagnostic.into_token_stream().into(),
-    }
+    result.unwrap_or_else(ToTokens::into_token_stream).into()
 }
 
 #[proc_macro_derive(FromArgs, attributes(pyarg))]
@@ -54,13 +51,13 @@ pub fn pystruct_sequence(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 fn result_to_tokens_expr(result: Result<TokenStream2, Diagnostic>) -> TokenStream {
-    result_to_tokens(result.map(|out_expr| {
-        quote::quote! {
-            macro_rules! __proc_macro_call {
-                () => {{ #out_expr }};
-            }
+    let tokens2 = result.unwrap_or_else(ToTokens::into_token_stream);
+    let ret = quote::quote! {
+        macro_rules! __proc_macro_call {
+            () => {{ #tokens2 }}
         }
-    }))
+    };
+    ret.into()
 }
 
 #[proc_macro]

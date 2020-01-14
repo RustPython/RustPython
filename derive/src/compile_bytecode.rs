@@ -25,6 +25,12 @@ use std::path::{Path, PathBuf};
 use syn::parse::{Parse, ParseStream, Result as ParseResult};
 use syn::{self, parse2, Lit, LitByteStr, LitStr, Meta, Token};
 
+lazy_static::lazy_static! {
+    static ref CARGO_MANIFEST_DIR: PathBuf = PathBuf::from(
+        env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"),
+    );
+}
+
 enum CompilationSourceKind {
     File(PathBuf),
     SourceCode(String),
@@ -37,14 +43,19 @@ struct CompilationSource {
 }
 
 impl CompilationSource {
-    fn compile_string(
+    fn compile_string<D: std::fmt::Display, F: FnOnce() -> D>(
         &self,
         source: &str,
         mode: compile::Mode,
         module_name: String,
+        origin: F,
     ) -> Result<CodeObject, Diagnostic> {
-        compile::compile(source, mode, module_name, 0)
-            .map_err(|err| Diagnostic::spans_error(self.span, format!("Compile error: {}", err)))
+        compile::compile(source, mode, module_name, 0).map_err(|err| {
+            Diagnostic::spans_error(
+                self.span,
+                format!("Python compile error from {}: {}", origin(), err),
+            )
+        })
     }
 
     fn compile(
@@ -54,10 +65,7 @@ impl CompilationSource {
     ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         Ok(match &self.kind {
             CompilationSourceKind::File(rel_path) => {
-                let mut path = PathBuf::from(
-                    env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"),
-                );
-                path.push(rel_path);
+                let path = CARGO_MANIFEST_DIR.join(rel_path);
                 let source = fs::read_to_string(&path).map_err(|err| {
                     Diagnostic::spans_error(
                         self.span,
@@ -66,7 +74,7 @@ impl CompilationSource {
                 })?;
                 hashmap! {
                     module_name.clone() => FrozenModule {
-                        code: self.compile_string(&source, mode, module_name)?,
+                        code: self.compile_string(&source, mode, module_name, || rel_path.display())?,
                         package: false,
                     },
                 }
@@ -74,17 +82,13 @@ impl CompilationSource {
             CompilationSourceKind::SourceCode(code) => {
                 hashmap! {
                     module_name.clone() => FrozenModule {
-                        code: self.compile_string(code, mode, module_name)?,
+                        code: self.compile_string(code, mode, module_name, || "string literal")?,
                         package: false,
                     },
                 }
             }
             CompilationSourceKind::Dir(rel_path) => {
-                let mut path = PathBuf::from(
-                    env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"),
-                );
-                path.push(rel_path);
-                self.compile_dir(&path, String::new(), mode)?
+                self.compile_dir(&CARGO_MANIFEST_DIR.join(rel_path), String::new(), mode)?
             }
         })
     }
@@ -132,7 +136,12 @@ impl CompilationSource {
                 code_map.insert(
                     module_name.clone(),
                     FrozenModule {
-                        code: self.compile_string(&source, mode, module_name)?,
+                        code: self.compile_string(&source, mode, module_name, || {
+                            path.strip_prefix(&*CARGO_MANIFEST_DIR)
+                                .ok()
+                                .unwrap_or(&path)
+                                .display()
+                        })?,
                         package: is_init,
                     },
                 );

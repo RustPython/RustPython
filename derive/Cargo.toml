@@ -17,3 +17,4 @@ proc-macro2 = "0.4.27"
 rustpython-compiler = { path = "../compiler", version = "0.1.1" }
 rustpython-bytecode = { path = "../bytecode", version = "0.1.1" }
 maplit = "1.0"
+lazy_static = "1"
