@@ -42,7 +42,7 @@ impl SerializedData {
     pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         match self {
             SerializedData::Bytes(b) => f(b.get_value()),
-            SerializedData::Buffer(b) => f(&b.inner.borrow().elements),
+            SerializedData::Buffer(b) => f(&b.borrow_value().elements),
             SerializedData::Ascii(a) => f(a.as_str().as_bytes()),
         }
     }

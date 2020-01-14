@@ -28,7 +28,7 @@ pub fn json_loads(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         b @ PyBytes => py_serde::deserialize(vm, &mut serde_json::Deserializer::from_slice(&b)),
         ba @ PyByteArray => py_serde::deserialize(
             vm,
-            &mut serde_json::Deserializer::from_slice(&ba.inner.borrow().elements)
+            &mut serde_json::Deserializer::from_slice(&ba.borrow_value().elements)
         ),
         obj => {
             let msg = format!(

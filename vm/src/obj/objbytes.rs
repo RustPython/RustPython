@@ -18,8 +18,10 @@ use crate::function::OptionalArg;
 use crate::obj::objstr::do_cformat_string;
 use crate::pyhash;
 use crate::pyobject::{
-    Either, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    Either, IntoPyObject,
+    PyArithmaticValue::{self, *},
+    PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::str::FromStr;
@@ -52,6 +54,12 @@ impl PyBytes {
     }
 }
 
+impl From<Vec<u8>> for PyBytes {
+    fn from(elements: Vec<u8>) -> PyBytes {
+        PyBytes::new(elements)
+    }
+}
+
 impl IntoPyObject for Vec<u8> {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_bytes(self))
@@ -72,23 +80,17 @@ impl PyValue for PyBytes {
     }
 }
 
-pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
-    &obj.payload::<PyBytes>().unwrap().inner.elements
-}
-
-pub fn init(context: &PyContext) {
-    PyBytesRef::extend_class(context, &context.types.bytes_type);
+pub(crate) fn init(context: &PyContext) {
+    PyBytes::extend_class(context, &context.types.bytes_type);
     let bytes_type = &context.types.bytes_type;
     extend_class!(context, bytes_type, {
-    "fromhex" => context.new_method(PyBytesRef::fromhex),
-    "maketrans" => context.new_method(PyByteInner::maketrans),
-
+        "maketrans" => context.new_method(PyByteInner::maketrans),
     });
     PyBytesIterator::extend_class(context, &context.types.bytesiterator_type);
 }
 
 #[pyimpl]
-impl PyBytesRef {
+impl PyBytes {
     #[pyslot(new)]
     fn tp_new(
         cls: PyClassRef,
@@ -102,66 +104,66 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(self, vm: &VirtualMachine) -> PyResult {
+    fn repr(&self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.new_str(format!("b'{}'", self.inner.repr()?)))
     }
 
     #[pymethod(name = "__len__")]
-    fn len(self, _vm: &VirtualMachine) -> usize {
+    fn len(&self, _vm: &VirtualMachine) -> usize {
         self.inner.len()
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.inner.eq(other, vm)
     }
     #[pymethod(name = "__ge__")]
-    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.inner.ge(other, vm)
     }
     #[pymethod(name = "__le__")]
-    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.inner.le(other, vm)
     }
     #[pymethod(name = "__gt__")]
-    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.inner.gt(other, vm)
     }
     #[pymethod(name = "__lt__")]
-    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.inner.lt(other, vm)
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(self, _vm: &VirtualMachine) -> pyhash::PyHash {
+    fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
         self.inner.hash()
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(self, _vm: &VirtualMachine) -> PyBytesIterator {
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyBytesIterator {
         PyBytesIterator {
             position: Cell::new(0),
-            bytes: self,
+            bytes: zelf,
         }
     }
 
     #[pymethod(name = "__sizeof__")]
-    fn sizeof(self, _vm: &VirtualMachine) -> PyResult<usize> {
+    fn sizeof(&self, _vm: &VirtualMachine) -> PyResult<usize> {
         Ok(size_of::<Self>() + self.inner.elements.len() * size_of::<u8>())
     }
 
     #[pymethod(name = "__add__")]
-    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<PyBytes> {
         if let Ok(other) = PyByteInner::try_from_object(vm, other) {
-            Ok(vm.ctx.new_bytes(self.inner.add(other)))
+            Implemented(self.inner.add(other).into())
         } else {
-            Ok(vm.ctx.not_implemented())
+            NotImplemented
         }
     }
 
     #[pymethod(name = "__contains__")]
     fn contains(
-        self,
+        &self,
         needle: Either<PyByteInner, PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
@@ -169,107 +171,108 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    fn getitem(&self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult {
         self.inner.getitem(needle, vm)
     }
 
     #[pymethod(name = "isalnum")]
-    fn isalnum(self, vm: &VirtualMachine) -> bool {
-        self.inner.isalnum(vm)
+    fn isalnum(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.isalnum()
     }
 
     #[pymethod(name = "isalpha")]
-    fn isalpha(self, vm: &VirtualMachine) -> bool {
-        self.inner.isalpha(vm)
+    fn isalpha(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.isalpha()
     }
 
     #[pymethod(name = "isascii")]
-    fn isascii(self, vm: &VirtualMachine) -> bool {
-        self.inner.isascii(vm)
+    fn isascii(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.isascii()
     }
 
     #[pymethod(name = "isdigit")]
-    fn isdigit(self, vm: &VirtualMachine) -> bool {
-        self.inner.isdigit(vm)
+    fn isdigit(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.isdigit()
     }
 
     #[pymethod(name = "islower")]
-    fn islower(self, vm: &VirtualMachine) -> bool {
-        self.inner.islower(vm)
+    fn islower(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.islower()
     }
 
     #[pymethod(name = "isspace")]
-    fn isspace(self, vm: &VirtualMachine) -> bool {
-        self.inner.isspace(vm)
+    fn isspace(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.isspace()
     }
 
     #[pymethod(name = "isupper")]
-    fn isupper(self, vm: &VirtualMachine) -> bool {
-        self.inner.isupper(vm)
+    fn isupper(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.isupper()
     }
 
     #[pymethod(name = "istitle")]
-    fn istitle(self, vm: &VirtualMachine) -> bool {
-        self.inner.istitle(vm)
+    fn istitle(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.istitle()
     }
 
     #[pymethod(name = "lower")]
-    fn lower(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.lower(vm)))
+    fn lower(&self, _vm: &VirtualMachine) -> PyBytes {
+        self.inner.lower().into()
     }
 
     #[pymethod(name = "upper")]
-    fn upper(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.upper(vm)))
+    fn upper(&self, _vm: &VirtualMachine) -> PyBytes {
+        self.inner.upper().into()
     }
 
     #[pymethod(name = "capitalize")]
-    fn capitalize(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.capitalize(vm)))
+    fn capitalize(&self, _vm: &VirtualMachine) -> PyBytes {
+        self.inner.capitalize().into()
     }
 
     #[pymethod(name = "swapcase")]
-    fn swapcase(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.swapcase(vm)))
+    fn swapcase(&self, _vm: &VirtualMachine) -> PyBytes {
+        self.inner.swapcase().into()
     }
 
     #[pymethod(name = "hex")]
-    fn hex(self, vm: &VirtualMachine) -> String {
-        self.inner.hex(vm)
+    fn hex(&self, _vm: &VirtualMachine) -> String {
+        self.inner.hex()
     }
 
-    fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(PyByteInner::fromhex(string.as_str(), vm)?))
+    #[pymethod]
+    fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        Ok(PyByteInner::fromhex(string.as_str(), vm)?.into())
     }
 
     #[pymethod(name = "center")]
-    fn center(self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.center(options, vm)?))
+    fn center(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        Ok(self.inner.center(options, vm)?.into())
     }
 
     #[pymethod(name = "ljust")]
-    fn ljust(self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.ljust(options, vm)?))
+    fn ljust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        Ok(self.inner.ljust(options, vm)?.into())
     }
 
     #[pymethod(name = "rjust")]
-    fn rjust(self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.rjust(options, vm)?))
+    fn rjust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        Ok(self.inner.rjust(options, vm)?.into())
     }
 
     #[pymethod(name = "count")]
-    fn count(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
+    fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         self.inner.count(options, vm)
     }
 
     #[pymethod(name = "join")]
-    fn join(self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult {
-        self.inner.join(iter, vm)
+    fn join(&self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        Ok(self.inner.join(iter, vm)?.into())
     }
 
     #[pymethod(name = "endswith")]
     fn endswith(
-        self,
+        &self,
         suffix: Either<PyByteInner, PyTupleRef>,
         start: OptionalArg<PyObjectRef>,
         end: OptionalArg<PyObjectRef>,
@@ -280,7 +283,7 @@ impl PyBytesRef {
 
     #[pymethod(name = "startswith")]
     fn startswith(
-        self,
+        &self,
         prefix: Either<PyByteInner, PyTupleRef>,
         start: OptionalArg<PyObjectRef>,
         end: OptionalArg<PyObjectRef>,
@@ -290,12 +293,12 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "find")]
-    fn find(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+    fn find(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         self.inner.find(options, false, vm)
     }
 
     #[pymethod(name = "index")]
-    fn index(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+    fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let res = self.inner.find(options, false, vm)?;
         if res == -1 {
             return Err(vm.new_value_error("substring not found".to_string()));
@@ -304,12 +307,12 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "rfind")]
-    fn rfind(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+    fn rfind(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         self.inner.find(options, true, vm)
     }
 
     #[pymethod(name = "rindex")]
-    fn rindex(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+    fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let res = self.inner.find(options, true, vm)?;
         if res == -1 {
             return Err(vm.new_value_error("substring not found".to_string()));
@@ -318,33 +321,31 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "translate")]
-    fn translate(self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult {
-        self.inner.translate(options, vm)
+    fn translate(
+        &self,
+        options: ByteInnerTranslateOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytes> {
+        Ok(self.inner.translate(options, vm)?.into())
     }
 
     #[pymethod(name = "strip")]
-    fn strip(self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_bytes(self.inner.strip(chars, ByteInnerPosition::All, vm)?))
+    fn strip(&self, chars: OptionalArg<PyByteInner>, _vm: &VirtualMachine) -> PyResult<PyBytes> {
+        Ok(self.inner.strip(chars, ByteInnerPosition::All)?.into())
     }
 
     #[pymethod(name = "lstrip")]
-    fn lstrip(self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_bytes(self.inner.strip(chars, ByteInnerPosition::Left, vm)?))
+    fn lstrip(&self, chars: OptionalArg<PyByteInner>, _vm: &VirtualMachine) -> PyResult<PyBytes> {
+        Ok(self.inner.strip(chars, ByteInnerPosition::Left)?.into())
     }
 
     #[pymethod(name = "rstrip")]
-    fn rstrip(self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_bytes(self.inner.strip(chars, ByteInnerPosition::Right, vm)?))
+    fn rstrip(&self, chars: OptionalArg<PyByteInner>, _vm: &VirtualMachine) -> PyResult<PyBytes> {
+        Ok(self.inner.strip(chars, ByteInnerPosition::Right)?.into())
     }
 
     #[pymethod(name = "split")]
-    fn split(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+    fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         let as_bytes = self
             .inner
             .split(options, false)?
@@ -355,7 +356,7 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "rsplit")]
-    fn rsplit(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+    fn rsplit(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         let as_bytes = self
             .inner
             .split(options, true)?
@@ -366,7 +367,7 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "partition")]
-    fn partition(self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn partition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let sepa = PyByteInner::try_from_object(vm, sep.clone())?;
 
         let (left, right) = self.inner.partition(&sepa, false)?;
@@ -375,7 +376,7 @@ impl PyBytesRef {
             .new_tuple(vec![vm.ctx.new_bytes(left), sep, vm.ctx.new_bytes(right)]))
     }
     #[pymethod(name = "rpartition")]
-    fn rpartition(self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rpartition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let sepa = PyByteInner::try_from_object(vm, sep.clone())?;
 
         let (left, right) = self.inner.partition(&sepa, true)?;
@@ -385,12 +386,12 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "expandtabs")]
-    fn expandtabs(self, options: ByteInnerExpandtabsOptions, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.expandtabs(options)))
+    fn expandtabs(&self, options: ByteInnerExpandtabsOptions, _vm: &VirtualMachine) -> PyBytes {
+        self.inner.expandtabs(options).into()
     }
 
     #[pymethod(name = "splitlines")]
-    fn splitlines(self, options: ByteInnerSplitlinesOptions, vm: &VirtualMachine) -> PyResult {
+    fn splitlines(&self, options: ByteInnerSplitlinesOptions, vm: &VirtualMachine) -> PyResult {
         let as_bytes = self
             .inner
             .splitlines(options)
@@ -401,33 +402,33 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "zfill")]
-    fn zfill(self, width: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.zfill(width)))
+    fn zfill(&self, width: PyIntRef, _vm: &VirtualMachine) -> PyBytes {
+        self.inner.zfill(width).into()
     }
 
     #[pymethod(name = "replace")]
     fn replace(
-        self,
+        &self,
         old: PyByteInner,
         new: PyByteInner,
         count: OptionalArg<PyIntRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.replace(old, new, count)?))
+        _vm: &VirtualMachine,
+    ) -> PyResult<PyBytes> {
+        Ok(self.inner.replace(old, new, count)?.into())
     }
 
     #[pymethod(name = "title")]
-    fn title(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.title()))
+    fn title(&self, _vm: &VirtualMachine) -> PyBytes {
+        self.inner.title().into()
     }
 
     #[pymethod(name = "__mul__")]
-    fn repeat(self, n: isize, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.repeat(n, vm)?))
+    fn repeat(&self, n: isize, _vm: &VirtualMachine) -> PyBytes {
+        self.inner.repeat(n).into()
     }
 
     #[pymethod(name = "__rmul__")]
-    fn rmul(self, n: isize, vm: &VirtualMachine) -> PyResult {
+    fn rmul(&self, n: isize, vm: &VirtualMachine) -> PyBytes {
         self.repeat(n, vm)
     }
 
@@ -444,7 +445,7 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "__mod__")]
-    fn modulo(self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let format_string_text = std::str::from_utf8(&self.inner.elements).unwrap();
         let format_string = CFormatString::from_str(format_string_text)
             .map_err(|err| vm.new_value_error(err.to_string()))?;
@@ -452,8 +453,8 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "__rmod__")]
-    fn rmod(self, _values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     /// Return a string decoded from the given bytes.
@@ -465,13 +466,13 @@ impl PyBytesRef {
     /// currently, only 'utf-8' and 'ascii' emplemented
     #[pymethod(name = "decode")]
     fn decode(
-        self,
+        zelf: PyRef<Self>,
         encoding: OptionalArg<PyStringRef>,
         errors: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStringRef> {
         let encoding = encoding.into_option();
-        vm.decode(self.into_object(), encoding.clone(), errors.into_option())?
+        vm.decode(zelf.into_object(), encoding.clone(), errors.into_option())?
             .downcast::<PyString>()
             .map_err(|obj| {
                 vm.new_type_error(format!(

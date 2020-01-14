@@ -3,10 +3,10 @@ use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
 use num_traits::{float::Float, pow, sign::Signed, ToPrimitive, Zero};
 
-use super::objbytes;
+use super::objbytes::PyBytes;
 use super::objint::{self, PyInt, PyIntRef};
 use super::objstr::{PyString, PyStringRef};
-use super::objtype::{self, PyClassRef};
+use super::objtype::PyClassRef;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
@@ -641,8 +641,8 @@ fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
         objint::try_float(int.as_bigint(), vm)?
     } else if let Some(s) = obj.payload_if_subclass::<PyString>(vm) {
         str_to_float(vm, s.as_str().trim())?
-    } else if objtype::isinstance(&obj, &vm.ctx.bytes_type()) {
-        match lexical::parse(objbytes::get_value(&obj).as_slice()) {
+    } else if let Some(bytes) = obj.payload_if_subclass::<PyBytes>(vm) {
+        match lexical::parse(bytes.get_value()) {
             Ok(f) => f,
             Err(_) => {
                 let arg_repr = vm.to_pystr(obj)?;

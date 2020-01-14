@@ -190,7 +190,7 @@ impl PySocket {
 
     #[pymethod]
     fn recv_into(&self, buf: PyByteArrayRef, vm: &VirtualMachine) -> PyResult<usize> {
-        let mut buffer = buf.inner.borrow_mut();
+        let mut buffer = buf.borrow_value_mut();
         self.sock()
             .recv(&mut buffer.elements)
             .map_err(|err| convert_sock_error(vm, err))

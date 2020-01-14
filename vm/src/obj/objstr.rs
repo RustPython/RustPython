@@ -1214,7 +1214,7 @@ impl PyString {
     }
 }
 
-pub fn encode_string(
+pub(crate) fn encode_string(
     s: PyStringRef,
     encoding: Option<PyStringRef>,
     errors: Option<PyStringRef>,

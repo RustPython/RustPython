@@ -15,7 +15,11 @@ use std::iter::Peekable;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 
 use crate::function::PyFuncArgs;
-use crate::obj::{objbytes, objstr, objtype};
+use crate::obj::{
+    objbytes::PyBytesRef,
+    objstr::{self, PyStringRef},
+    objtype,
+};
 use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
 use crate::VirtualMachine;
 
@@ -354,20 +358,11 @@ where
     }
 }
 
-fn struct_unpack(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (fmt, Some(vm.ctx.str_type())),
-            (buffer, Some(vm.ctx.bytes_type()))
-        ]
-    );
-
-    let fmt_str = objstr::clone_value(&fmt);
+fn struct_unpack(fmt: PyStringRef, buffer: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    let fmt_str = fmt.as_str().to_owned();
 
     let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;
-    let data = objbytes::get_value(buffer).to_vec();
+    let data = buffer.get_value().to_vec();
     let mut rdr = Cursor::new(data);
 
     let mut items = vec![];

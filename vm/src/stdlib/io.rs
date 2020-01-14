@@ -13,7 +13,7 @@ use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbyteinner::PyBytesLike;
-use crate::obj::objbytes;
+use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint;
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStringRef};
@@ -304,11 +304,11 @@ impl PyBytesIORef {
 
 fn bytes_io_new(
     cls: PyClassRef,
-    object: OptionalArg<Option<PyObjectRef>>,
+    object: OptionalArg<Option<PyBytesRef>>,
     vm: &VirtualMachine,
 ) -> PyResult<PyBytesIORef> {
     let raw_bytes = match object {
-        OptionalArg::Present(Some(ref input)) => objbytes::get_value(input).to_vec(),
+        OptionalArg::Present(Some(ref input)) => input.get_value().to_vec(),
         _ => vec![],
     };
 
@@ -465,7 +465,7 @@ fn raw_io_base_read(
         vm.call_method(&instance, "readinto", vec![b.as_object().clone()])?,
     )?;
     if let Some(n) = n {
-        let bytes = &mut b.inner.borrow_mut().elements;
+        let bytes = &mut b.borrow_value_mut().elements;
         bytes.truncate(n);
         Ok(vm.ctx.new_bytes(bytes.clone()))
     } else {
@@ -628,7 +628,7 @@ mod fileio {
         if let Some(bytes) = obj.payload::<PyByteArray>() {
             //TODO: Implement for MemoryView
 
-            let value_mut = &mut bytes.inner.borrow_mut().elements;
+            let value_mut = &mut bytes.borrow_value_mut().elements;
             value_mut.clear();
             match f.read_to_end(value_mut) {
                 Ok(_) => {}
