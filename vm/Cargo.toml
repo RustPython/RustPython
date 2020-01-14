@@ -61,7 +61,7 @@ unic-common = "0.9"
 maplit = "1.0"
 bitflags = "1.1"
 libc = "0.2"
-nix = "0.15.0"
+nix = "0.16.0"
 wtf8 = "0.0.3"
 arr_macro = "0.1.2"
 csv = "1.1.1"
@@ -88,6 +88,8 @@ gethostname = "0.2.0"
 subprocess = "0.1.18"
 num_cpus = "1"
 socket2 = { version = "0.3", features = ["unix"] }
+
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "redox")))'.dependencies]
 dns-lookup = "1.0"
 
 [target."cfg(windows)".dependencies.winapi]

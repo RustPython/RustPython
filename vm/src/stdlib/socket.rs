@@ -470,6 +470,7 @@ struct GAIOptions {
     flags: i32,
 }
 
+#[cfg(not(target_os = "redox"))]
 fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
     let hints = dns_lookup::AddrInfoHints {
         socktype: opts.ty,
@@ -512,6 +513,7 @@ fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_list(list))
 }
 
+#[cfg(not(target_os = "redox"))]
 fn socket_gethostbyaddr(
     addr: PyStringRef,
     vm: &VirtualMachine,
@@ -609,9 +611,20 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let socket_gaierror = ctx.new_class("socket.gaierror", vm.ctx.exceptions.os_error.clone());
 
     let module = py_module!(vm, "_socket", {
+        "socket" => PySocket::make_class(ctx),
         "error" => ctx.exceptions.os_error.clone(),
         "timeout" => socket_timeout,
         "gaierror" => socket_gaierror,
+        "inet_aton" => ctx.new_function(socket_inet_aton),
+        "inet_ntoa" => ctx.new_function(socket_inet_ntoa),
+        "gethostname" => ctx.new_function(socket_gethostname),
+        "htonl" => ctx.new_function(socket_hton::<u32>),
+        "htons" => ctx.new_function(socket_hton::<u16>),
+        "ntohl" => ctx.new_function(socket_ntoh::<u32>),
+        "ntohs" => ctx.new_function(socket_ntoh::<u16>),
+        "getdefaulttimeout" => ctx.new_function(|vm: &VirtualMachine| vm.get_none()),
+        "has_ipv6" => ctx.new_bool(false),
+        // constants
         "AF_UNSPEC" => ctx.new_int(0),
         "AF_INET" => ctx.new_int(c::AF_INET),
         "AF_INET6" => ctx.new_int(c::AF_INET6),
@@ -620,33 +633,28 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SHUT_RD" => ctx.new_int(c::SHUT_RD),
         "SHUT_WR" => ctx.new_int(c::SHUT_WR),
         "SHUT_RDWR" => ctx.new_int(c::SHUT_RDWR),
-        "MSG_OOB" => ctx.new_int(c::MSG_OOB),
         "MSG_PEEK" => ctx.new_int(c::MSG_PEEK),
-        "MSG_WAITALL" => ctx.new_int(c::MSG_WAITALL),
-        "AI_ALL" => ctx.new_int(c::AI_ALL),
-        "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
         "IPPROTO_TCP" => ctx.new_int(c::IPPROTO_TCP),
         "IPPROTO_UDP" => ctx.new_int(c::IPPROTO_UDP),
         "IPPROTO_IP" => ctx.new_int(c::IPPROTO_IP),
         "IPPROTO_IPIP" => ctx.new_int(c::IPPROTO_IP),
         "IPPROTO_IPV6" => ctx.new_int(c::IPPROTO_IPV6),
-        "IPPROTO_NONE" => ctx.new_int(c::IPPROTO_NONE),
         "SOL_SOCKET" => ctx.new_int(c::SOL_SOCKET),
         "SO_REUSEADDR" => ctx.new_int(c::SO_REUSEADDR),
         "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
         "SO_BROADCAST" => ctx.new_int(c::SO_BROADCAST),
-        "socket" => PySocket::make_class(ctx),
-        "inet_aton" => ctx.new_function(socket_inet_aton),
-        "inet_ntoa" => ctx.new_function(socket_inet_ntoa),
-        "gethostname" => ctx.new_function(socket_gethostname),
-        "htonl" => ctx.new_function(socket_hton::<u32>),
-        "htons" => ctx.new_function(socket_hton::<u16>),
-        "ntohl" => ctx.new_function(socket_ntoh::<u32>),
-        "ntohs" => ctx.new_function(socket_ntoh::<u16>),
-        "has_ipv6" => ctx.new_bool(false),
-        "getdefaulttimeout" => ctx.new_function(|vm: &VirtualMachine| vm.get_none()),
+    });
+
+    #[cfg(not(target_os = "redox"))]
+    extend_module!(vm, module, {
         "getaddrinfo" => ctx.new_function(socket_getaddrinfo),
         "gethostbyaddr" => ctx.new_function(socket_gethostbyaddr),
+        // non-redox constants
+        "MSG_OOB" => ctx.new_int(c::MSG_OOB),
+        "MSG_WAITALL" => ctx.new_int(c::MSG_WAITALL),
+        "AI_ALL" => ctx.new_int(c::AI_ALL),
+        "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
+        "IPPROTO_NONE" => ctx.new_int(c::IPPROTO_NONE),
     });
 
     extend_module_platform_specific(vm, &module);
