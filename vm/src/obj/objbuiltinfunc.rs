@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::callable::PyBuiltinCallable;
 use crate::descriptor::PyBuiltinDescriptor;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::obj::objtype::PyClassRef;
@@ -35,13 +36,14 @@ impl PyBuiltinFunction {
     }
 }
 
-#[pyimpl]
-impl PyBuiltinFunction {
-    #[pymethod(name = "__call__")]
-    pub fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+impl PyBuiltinCallable for PyBuiltinFunction {
+    fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         (self.value)(vm, args)
     }
 }
+
+#[pyimpl(with(PyBuiltinCallable))]
+impl PyBuiltinFunction {}
 
 #[pyclass]
 pub struct PyBuiltinMethod {
@@ -87,13 +89,14 @@ impl PyBuiltinDescriptor for PyBuiltinMethod {
     }
 }
 
-#[pyimpl(with(PyBuiltinDescriptor))]
-impl PyBuiltinMethod {
-    #[pymethod(name = "__call__")]
-    pub fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        self.function.call(args, vm)
+impl PyBuiltinCallable for PyBuiltinMethod {
+    fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        (self.function.value)(vm, args)
     }
 }
+
+#[pyimpl(with(PyBuiltinDescriptor, PyBuiltinCallable))]
+impl PyBuiltinMethod {}
 
 pub fn init(context: &PyContext) {
     PyBuiltinFunction::extend_class(context, &context.types.builtin_function_or_method_type);

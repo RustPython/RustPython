@@ -51,6 +51,7 @@ impl PyWeakRef {
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.types.weakref_type, {
         (slot new) => PyWeakRef::create,
-        "__call__" => context.new_method(PyWeakRef::call)
+        "__call__" => context.new_method(PyWeakRef::call),
+        (slot call) => PyWeakRef::call,
     });
 }

@@ -58,6 +58,7 @@ macro_rules! py_compile_bytecode {
 pub mod macros;
 
 mod builtins;
+mod callable;
 pub mod cformat;
 mod descriptor;
 mod dictdatatype;

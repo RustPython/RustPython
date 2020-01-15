@@ -29,6 +29,7 @@ pub struct PyClass {
 #[derive(Default)]
 pub struct PyClassSlots {
     pub new: Option<PyNativeFunc>,
+    pub call: Option<PyNativeFunc>,
     pub descr_get: Option<PyNativeFunc>,
 }
 
@@ -255,6 +256,7 @@ pub fn init(ctx: &PyContext) {
     extend_class!(&ctx, &ctx.types.type_type, {
         "mro" => ctx.new_method(type_mro),
         "__call__" => ctx.new_method(type_call),
+        (slot call) => type_call,
         "__dict__" =>
         PropertyBuilder::new(ctx)
                 .add_getter(type_dict)
