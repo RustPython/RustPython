@@ -7,16 +7,16 @@ use std::{io, mem};
 type RawFd = i32;
 
 #[cfg(unix)]
-use libc::{fd_set, select, timeval, FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO};
+use libc::{select, timeval};
 
 #[cfg(windows)]
-use winapi::um::winsock2::{fd_set, select, timeval, WSAStartup, FD_SETSIZE, SOCKET as RawFd};
+use winapi::um::winsock2::{select, timeval, WSAStartup, SOCKET as RawFd};
 
 // from winsock2.h: https://gist.github.com/piscisaureus/906386#file-winsock2-h-L128-L141
 #[cfg(windows)]
 #[allow(non_snake_case)]
-mod fd_ops {
-    use winapi::um::winsock2::{__WSAFDIsSet, fd_set, FD_SETSIZE, SOCKET};
+mod fdset_ops {
+    pub use winapi::um::winsock2::{__WSAFDIsSet, fd_set, FD_SETSIZE, SOCKET};
 
     pub unsafe fn FD_SET(fd: SOCKET, set: *mut fd_set) {
         let mut i = 0;
@@ -42,8 +42,10 @@ mod fd_ops {
         __WSAFDIsSet(fd as _, set) != 0
     }
 }
-#[cfg(windows)]
-use fd_ops::*;
+#[cfg(unix)]
+use libc as fdset_ops;
+
+use fdset_ops::{fd_set, FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO};
 
 struct Selectable {
     obj: PyObjectRef,

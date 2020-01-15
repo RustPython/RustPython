@@ -2,7 +2,10 @@ use rustpython_vm::obj::objstr::PyStringRef;
 use rustpython_vm::pyobject::{PyIterable, PyResult, TryFromObject};
 use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::VirtualMachine;
-use rustyline::{completion::Completer, highlight::Highlighter, hint::Hinter, Context, Helper};
+use rustyline::{
+    completion::Completer, highlight::Highlighter, hint::Hinter, validate::Validator, Context,
+    Helper,
+};
 
 pub struct ShellHelper<'vm> {
     vm: &'vm VirtualMachine,
@@ -162,4 +165,5 @@ impl Completer for ShellHelper<'_> {
 
 impl Hinter for ShellHelper<'_> {}
 impl Highlighter for ShellHelper<'_> {}
+impl Validator for ShellHelper<'_> {}
 impl Helper for ShellHelper<'_> {}

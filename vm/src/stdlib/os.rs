@@ -1424,10 +1424,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "EX_PROTOCOL" => ctx.new_int(exitcode::PROTOCOL as i8),
         "EX_NOPERM" => ctx.new_int(exitcode::NOPERM as i8),
         "EX_CONFIG" => ctx.new_int(exitcode::CONFIG as i8),
-        "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
         "O_NONBLOCK" => ctx.new_int(libc::O_NONBLOCK),
-        "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
-        "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
         "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
     });
 
@@ -1438,6 +1435,9 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setegid" => ctx.new_function(os_setegid),
         "seteuid" => ctx.new_function(os_seteuid),
         "openpty" => ctx.new_function(os_openpty),
+        "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
+        "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
+        "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
     });
 
     // cfg taken from nix
