@@ -20,7 +20,7 @@ assert_raises(TypeError, select.select, [Almost()], [], [])
 assert_raises(TypeError, select.select, [], [], [], "not a number")
 assert_raises(ValueError, select.select, [], [], [], -1)
 
-if "win" in sys.platform:
+if sys.platform in ["win32", "cygwin"]:
     assert_raises(OSError, select.select, [0], [], [])
 
 recvr = socket.socket()
