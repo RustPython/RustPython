@@ -244,8 +244,18 @@ impl Class {
                 attr_idxs.push(i);
             }
         }
-        for idx in attr_idxs {
-            attrs.remove(idx);
+        let mut i = 0;
+        let mut attr_idxs = &*attr_idxs;
+        attrs.retain(|_| {
+            let drop = attr_idxs.first().copied() == Some(i);
+            if drop {
+                attr_idxs = &attr_idxs[1..];
+            }
+            i += 1;
+            !drop
+        });
+        for (i, idx) in attr_idxs.into_iter().enumerate() {
+            attrs.remove(idx - i);
         }
         Ok(())
     }
@@ -256,7 +266,10 @@ struct ItemSig<'a> {
     sig: &'a Signature,
 }
 
-fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnostic> {
+fn extract_impl_items(
+    attr: AttributeArgs,
+    mut items: Vec<ItemSig>,
+) -> Result<TokenStream2, Diagnostic> {
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
     let mut class = Class::default();
@@ -350,13 +363,36 @@ fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnosti
 
     Diagnostic::from_vec(diagnostics)?;
 
+    let mut withs = Vec::new();
+
+    for attr in attr {
+        match attr {
+            NestedMeta::Meta(Meta::List(syn::MetaList { path, nested, .. }))
+                if path_eq(&path, "with") =>
+            {
+                for meta in nested {
+                    match meta {
+                        NestedMeta::Meta(Meta::Path(path)) => {
+                            withs.push(quote! {
+                                <Self as #path>::__extend_py_class(ctx, class);
+                            });
+                        }
+                        meta => bail_span!(meta, "#[pyimpl(with(...))] arguments should be paths"),
+                    }
+                }
+            }
+            attr => bail_span!(attr, "Unknown pyimpl attribute"),
+        }
+    }
+
     Ok(quote! {
         #(#methods)*
         #(#properties)*
+        #(#withs)*
     })
 }
 
-pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
+pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
     match item {
         Item::Impl(mut imp) => {
             let items = imp
@@ -369,7 +405,7 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
                     _ => None,
                 })
                 .collect();
-            let extend_impl = extract_impl_items(items)?;
+            let extend_impl = extract_impl_items(attr, items)?;
             let ty = &imp.self_ty;
             let ret = quote! {
                 #imp
@@ -395,7 +431,7 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
                     _ => None,
                 })
                 .collect();
-            let extend_impl = extract_impl_items(items)?;
+            let extend_impl = extract_impl_items(attr, items)?;
             let item = parse_quote! {
                 fn __extend_py_class(
                     ctx: &::rustpython_vm::pyobject::PyContext,

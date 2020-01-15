@@ -59,7 +59,7 @@ impl PyBuiltinDescriptor for PyClassMethod {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyBuiltinDescriptor))]
 impl PyClassMethod {
     #[pyslot]
     fn tp_new(
@@ -81,8 +81,4 @@ impl PyClassMethod {
 
 pub(crate) fn init(context: &PyContext) {
     PyClassMethod::extend_class(context, &context.types.classmethod_type);
-    extend_class!(context, context.types.classmethod_type, {
-        "__get__" => context.new_method(PyClassMethod::get),
-        (slot descr_get) => PyClassMethod::get,
-    });
 }
