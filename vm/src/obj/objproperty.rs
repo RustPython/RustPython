@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 
 use super::objtype::PyClassRef;
+use crate::descriptor::PyBuiltinDescriptor;
 use crate::function::{IntoPyNativeFunc, OptionalArg};
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
@@ -26,13 +27,16 @@ impl PyValue for PyReadOnlyProperty {
 
 pub type PyReadOnlyPropertyRef = PyRef<PyReadOnlyProperty>;
 
-#[pyimpl]
-impl PyReadOnlyProperty {
-    #[pymethod(name = "__get__")]
-    fn get(zelf: PyRef<Self>, obj: PyObjectRef, cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
+impl PyBuiltinDescriptor for PyReadOnlyProperty {
+    fn get(
+        zelf: PyRef<Self>,
+        obj: PyObjectRef,
+        cls: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         if vm.is_none(&obj) {
-            if cls.is(&vm.ctx.types.type_type) {
-                vm.invoke(&zelf.getter, cls.into_object())
+            if Self::_cls_is(&cls, &vm.ctx.types.type_type) {
+                vm.invoke(&zelf.getter, cls.unwrap())
             } else {
                 Ok(zelf.into_object())
             }
@@ -41,6 +45,9 @@ impl PyReadOnlyProperty {
         }
     }
 }
+
+#[pyimpl]
+impl PyReadOnlyProperty {}
 
 /// Property attribute.
 ///
@@ -103,6 +110,25 @@ struct PropertyArgs {
     doc: Option<PyObjectRef>,
 }
 
+impl PyBuiltinDescriptor for PyProperty {
+    fn get(
+        zelf: PyRef<Self>,
+        obj: PyObjectRef,
+        _cls: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        if let Some(getter) = zelf.getter.as_ref() {
+            if obj.is(vm.ctx.none.as_object()) {
+                Ok(zelf.into_object())
+            } else {
+                vm.invoke(&getter, obj)
+            }
+        } else {
+            Err(vm.new_attribute_error("unreadable attribute".to_string()))
+        }
+    }
+}
+
 #[pyimpl]
 impl PyProperty {
     #[pyslot(new)]
@@ -122,24 +148,6 @@ impl PyProperty {
     pub(crate) fn instance_binding_get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(ref getter) = self.getter.as_ref() {
             vm.invoke(getter, obj)
-        } else {
-            Err(vm.new_attribute_error("unreadable attribute".to_string()))
-        }
-    }
-
-    #[pymethod(name = "__get__")]
-    fn get(
-        zelf: PyRef<Self>,
-        obj: PyObjectRef,
-        _owner: OptionalArg<PyClassRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        if let Some(getter) = zelf.getter.as_ref() {
-            if obj.is(vm.ctx.none.as_object()) {
-                Ok(zelf.into_object())
-            } else {
-                vm.invoke(&getter, obj)
-            }
         } else {
             Err(vm.new_attribute_error("unreadable attribute".to_string()))
         }
@@ -310,7 +318,15 @@ impl<'a> PropertyBuilder<'a> {
 
 pub fn init(context: &PyContext) {
     PyReadOnlyProperty::extend_class(context, &context.types.readonly_property_type);
+    extend_class!(context, context.types.readonly_property_type, {
+        "__get__" => context.new_method(PyReadOnlyProperty::get),
+        (slot descr_get) => PyReadOnlyProperty::get,
+    });
+
     PyProperty::extend_class(context, &context.types.property_type);
+    extend_class!(context, context.types.property_type, {
+        "__get__" => context.new_method(PyProperty::get),
+    });
 
     // This is a bit unfortunate, but this instance attribute overlaps with the
     // class __doc__ string..

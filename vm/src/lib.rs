@@ -59,6 +59,7 @@ pub mod macros;
 
 mod builtins;
 pub mod cformat;
+mod descriptor;
 mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;

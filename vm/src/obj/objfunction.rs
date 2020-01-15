@@ -3,7 +3,8 @@ use super::objdict::PyDictRef;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
-use crate::function::PyFuncArgs;
+use crate::descriptor::PyBuiltinDescriptor;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::scope::Scope;
 use crate::vm::VirtualMachine;
@@ -17,6 +18,21 @@ pub struct PyFunction {
     pub scope: Scope,
     pub defaults: Option<PyTupleRef>,
     pub kw_only_defaults: Option<PyDictRef>,
+}
+
+impl PyBuiltinDescriptor for PyFunction {
+    fn get(
+        zelf: PyRef<Self>,
+        obj: PyObjectRef,
+        cls: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        if obj.is(&vm.get_none()) && !Self::_cls_is(&cls, &obj.class()) {
+            Ok(zelf.into_object())
+        } else {
+            Ok(vm.ctx.new_bound_method(zelf.into_object(), obj))
+        }
+    }
 }
 
 impl PyFunction {
@@ -60,15 +76,15 @@ impl PyFunctionRef {
 }
 
 #[derive(Debug)]
-pub struct PyMethod {
+pub struct PyBoundMethod {
     // TODO: these shouldn't be public
     pub object: PyObjectRef,
     pub function: PyObjectRef,
 }
 
-impl PyMethod {
+impl PyBoundMethod {
     pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
-        PyMethod { object, function }
+        PyBoundMethod { object, function }
     }
 
     fn getattribute(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
@@ -76,7 +92,7 @@ impl PyMethod {
     }
 }
 
-impl PyValue for PyMethod {
+impl PyValue for PyBoundMethod {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.bound_method_type()
     }
@@ -85,7 +101,8 @@ impl PyValue for PyMethod {
 pub fn init(context: &PyContext) {
     let function_type = &context.types.function_type;
     extend_class!(context, function_type, {
-        "__get__" => context.new_method(bind_method),
+        "__get__" => context.new_method(PyFunction::get),
+        (slot descr_get) => PyFunction::get,
         "__call__" => context.new_method(PyFunctionRef::call),
         "__code__" => context.new_property(PyFunctionRef::code),
         "__defaults__" => context.new_property(PyFunctionRef::defaults),
@@ -94,19 +111,6 @@ pub fn init(context: &PyContext) {
 
     let method_type = &context.types.bound_method_type;
     extend_class!(context, method_type, {
-        "__getattribute__" => context.new_method(PyMethod::getattribute),
+        "__getattribute__" => context.new_method(PyBoundMethod::getattribute),
     });
-}
-
-fn bind_method(
-    function: PyObjectRef,
-    obj: PyObjectRef,
-    cls: PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult {
-    if obj.is(&vm.get_none()) && !cls.is(&obj.class()) {
-        Ok(function)
-    } else {
-        Ok(vm.ctx.new_bound_method(function, obj))
-    }
 }

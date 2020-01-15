@@ -4,6 +4,7 @@
 //!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
 //!
 
+use std::borrow::Borrow;
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
@@ -29,7 +30,7 @@ use crate::obj::objbuiltinfunc::{PyBuiltinFunction, PyBuiltinMethod};
 use crate::obj::objcode::{PyCode, PyCodeRef};
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objfunction::{PyFunction, PyMethod};
+use crate::obj::objfunction::{PyBoundMethod, PyFunction};
 use crate::obj::objgenerator::PyGenerator;
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
@@ -621,7 +622,11 @@ impl VirtualMachine {
 
     pub fn call_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
         let attr_class = attr.class();
-        if let Some(ref descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
+        let slots = attr_class.slots.borrow();
+        if let Some(descr_get) = slots.borrow().descr_get.as_ref() {
+            let cls = obj.class();
+            descr_get(self, vec![attr, obj.clone(), cls.into_object()].into())
+        } else if let Some(ref descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
             let cls = obj.class();
             self.invoke(descriptor, vec![attr, obj.clone(), cls.into_object()])
         } else {
@@ -661,7 +666,7 @@ impl VirtualMachine {
             let res = self.invoke_python_function(py_func, args);
             self.trace_event(TraceEvent::Return)?;
             res
-        } else if let Some(PyMethod {
+        } else if let Some(PyBoundMethod {
             ref function,
             ref object,
         }) = func_ref.payload()
@@ -1066,7 +1071,7 @@ impl VirtualMachine {
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
         match_class!(match obj {
             PyFunction => true,
-            PyMethod => true,
+            PyBoundMethod => true,
             PyBuiltinFunction => true,
             obj => objtype::class_has_attr(&obj.class(), "__call__"),
         })
