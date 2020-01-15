@@ -5,12 +5,15 @@ use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
 use crate::descriptor::PyBuiltinDescriptor;
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::scope::Scope;
 use crate::vm::VirtualMachine;
 
 pub type PyFunctionRef = PyRef<PyFunction>;
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyFunction {
     // TODO: these shouldn't be public
@@ -61,20 +64,25 @@ impl PyValue for PyFunction {
     }
 }
 
-impl PyFunctionRef {
-    fn call(func: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        vm.invoke(&func, args)
+#[pyimpl]
+impl PyFunction {
+    #[pymethod(name = "__call__")]
+    fn call(zelf: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        vm.invoke(&zelf, args)
     }
 
-    fn code(self, _vm: &VirtualMachine) -> PyCodeRef {
+    #[pyproperty(name = "__code__")]
+    fn code(&self, _vm: &VirtualMachine) -> PyCodeRef {
         self.code.clone()
     }
 
-    fn defaults(self, _vm: &VirtualMachine) -> Option<PyTupleRef> {
+    #[pyproperty(name = "__defaults__")]
+    fn defaults(&self, _vm: &VirtualMachine) -> Option<PyTupleRef> {
         self.defaults.clone()
     }
 
-    fn kwdefaults(self, _vm: &VirtualMachine) -> Option<PyDictRef> {
+    #[pyproperty(name = "__kwdefaults__")]
+    fn kwdefaults(&self, _vm: &VirtualMachine) -> Option<PyDictRef> {
         self.kw_only_defaults.clone()
     }
 }
@@ -104,13 +112,10 @@ impl PyValue for PyBoundMethod {
 
 pub fn init(context: &PyContext) {
     let function_type = &context.types.function_type;
+    PyFunction::extend_class(context, function_type);
     extend_class!(context, function_type, {
         "__get__" => context.new_method(PyFunction::get),
         (slot descr_get) => PyFunction::get,
-        "__call__" => context.new_method(PyFunctionRef::call),
-        "__code__" => context.new_property(PyFunctionRef::code),
-        "__defaults__" => context.new_property(PyFunctionRef::defaults),
-        "__kwdefaults__" => context.new_property(PyFunctionRef::kwdefaults),
     });
 
     let method_type = &context.types.bound_method_type;
