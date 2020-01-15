@@ -330,7 +330,7 @@ macro_rules! try_set_cmp {
 
 #[pyimpl]
 impl PySet {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         iterable: OptionalArg<PyIterable>,
@@ -586,7 +586,7 @@ impl PySet {
 
 #[pyimpl]
 impl PyFrozenSet {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         iterable: OptionalArg<PyIterable>,

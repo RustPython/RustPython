@@ -384,7 +384,7 @@ impl PyRange {
         pyhash::hash_iter(elements.iter(), vm)
     }
 
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         let range = if args.args.len() <= 2 {
             let (cls, stop) = args.bind(vm)?;

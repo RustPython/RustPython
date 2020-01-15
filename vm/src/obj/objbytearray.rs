@@ -89,7 +89,7 @@ pub(crate) fn init(context: &PyContext) {
 
 #[pyimpl]
 impl PyByteArray {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         options: ByteInnerNewOptions,

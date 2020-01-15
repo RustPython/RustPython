@@ -39,7 +39,7 @@ impl PyDeque {
 
 #[pyimpl]
 impl PyDeque {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         iter: OptionalArg<PyIterable>,

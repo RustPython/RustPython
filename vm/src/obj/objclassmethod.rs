@@ -55,7 +55,7 @@ impl PyBuiltinDescriptor for PyClassMethod {
 
 #[pyimpl]
 impl PyClassMethod {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         callable: PyObjectRef,

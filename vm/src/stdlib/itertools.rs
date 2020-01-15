@@ -31,7 +31,7 @@ impl PyValue for PyItertoolsChain {
 
 #[pyimpl]
 impl PyItertoolsChain {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyItertoolsChain {
             iterables: args.args,
@@ -103,7 +103,7 @@ impl PyValue for PyItertoolsCompress {
 
 #[pyimpl]
 impl PyItertoolsCompress {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         data: PyObjectRef,
@@ -154,7 +154,7 @@ impl PyValue for PyItertoolsCount {
 
 #[pyimpl]
 impl PyItertoolsCount {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         start: OptionalArg<PyIntRef>,
@@ -207,7 +207,7 @@ impl PyValue for PyItertoolsCycle {
 
 #[pyimpl]
 impl PyItertoolsCycle {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         iterable: PyObjectRef,
@@ -272,7 +272,7 @@ impl PyValue for PyItertoolsRepeat {
 
 #[pyimpl]
 impl PyItertoolsRepeat {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         object: PyObjectRef,
@@ -332,7 +332,7 @@ impl PyValue for PyItertoolsStarmap {
 
 #[pyimpl]
 impl PyItertoolsStarmap {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         function: PyObjectRef,
@@ -374,7 +374,7 @@ impl PyValue for PyItertoolsTakewhile {
 
 #[pyimpl]
 impl PyItertoolsTakewhile {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         predicate: PyObjectRef,
@@ -433,7 +433,7 @@ impl PyValue for PyItertoolsDropwhile {
 
 #[pyimpl]
 impl PyItertoolsDropwhile {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         predicate: PyCallable,
@@ -502,7 +502,7 @@ fn pyobject_to_opt_usize(obj: PyObjectRef, vm: &VirtualMachine) -> Option<usize>
 
 #[pyimpl]
 impl PyItertoolsIslice {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let (iter, start, stop, step) = match args.args.len() {
             0 | 1 => {
@@ -616,7 +616,7 @@ impl PyValue for PyItertoolsFilterFalse {
 
 #[pyimpl]
 impl PyItertoolsFilterFalse {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         predicate: PyObjectRef,
@@ -673,7 +673,7 @@ impl PyValue for PyItertoolsAccumulate {
 
 #[pyimpl]
 impl PyItertoolsAccumulate {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         iterable: PyObjectRef,
@@ -838,7 +838,7 @@ struct ProductArgs {
 
 #[pyimpl]
 impl PyItertoolsProduct {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         iterables: Args<PyObjectRef>,
@@ -949,7 +949,7 @@ impl PyValue for PyItertoolsCombinations {
 
 #[pyimpl]
 impl PyItertoolsCombinations {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         iterable: PyObjectRef,
@@ -1048,7 +1048,7 @@ impl PyValue for PyItertoolsCombinationsWithReplacement {
 
 #[pyimpl]
 impl PyItertoolsCombinationsWithReplacement {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         iterable: PyObjectRef,
@@ -1144,7 +1144,7 @@ impl PyValue for PyItertoolsPermutations {
 
 #[pyimpl]
 impl PyItertoolsPermutations {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         iterable: PyObjectRef,
@@ -1277,7 +1277,7 @@ struct ZiplongestArgs {
 
 #[pyimpl]
 impl PyItertoolsZiplongest {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         iterables: Args,

@@ -90,7 +90,7 @@ impl PySocket {
         self.sock.borrow()
     }
 
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PySocket {
             kind: Cell::default(),

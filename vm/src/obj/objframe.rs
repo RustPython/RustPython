@@ -14,7 +14,7 @@ pub fn init(context: &PyContext) {
 
 #[pyimpl]
 impl FrameRef {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(_cls: FrameRef, vm: &VirtualMachine) -> PyResult<Self> {
         Err(vm.new_type_error("Cannot directly create frame object".to_string()))
     }

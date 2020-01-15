@@ -179,7 +179,7 @@ struct StrArgs {
 
 #[pyimpl]
 impl PyString {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(cls: PyClassRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
         let string: PyStringRef = match args.object {
             OptionalArg::Present(input) => {

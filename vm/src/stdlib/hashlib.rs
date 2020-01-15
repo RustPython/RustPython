@@ -41,7 +41,7 @@ impl PyHasher {
         }
     }
 
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(_cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(PyHasher::new("md5", HashWrapper::md5())
             .into_ref(vm)

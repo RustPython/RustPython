@@ -88,7 +88,7 @@ impl PySlice {
         }
     }
 
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PySliceRef> {
         let slice: PySlice = match args.args.len() {
             0 => {

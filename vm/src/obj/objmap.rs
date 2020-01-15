@@ -24,7 +24,7 @@ impl PyValue for PyMap {
 
 #[pyimpl]
 impl PyMap {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         function: PyObjectRef,

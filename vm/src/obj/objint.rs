@@ -213,7 +213,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
 #[pyimpl]
 impl PyInt {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
         PyInt::new(options.get_int_value(vm)?).into_ref_with_type(vm, cls)
     }

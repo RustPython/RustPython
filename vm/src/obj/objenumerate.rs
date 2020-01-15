@@ -27,7 +27,7 @@ impl PyValue for PyEnumerate {
 
 #[pyimpl]
 impl PyEnumerate {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         iterable: PyObjectRef,

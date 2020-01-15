@@ -91,7 +91,7 @@ pub(crate) fn init(context: &PyContext) {
 
 #[pyimpl]
 impl PyBytes {
-    #[pyslot(new)]
+    #[pyslot]
     fn tp_new(
         cls: PyClassRef,
         options: ByteInnerNewOptions,
