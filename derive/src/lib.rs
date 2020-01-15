@@ -12,6 +12,7 @@ mod error;
 mod compile_bytecode;
 mod from_args;
 mod pyclass;
+mod util;
 
 use error::{extract_spans, Diagnostic};
 use proc_macro::TokenStream;

@@ -1,3 +1,4 @@
+use crate::util::path_eq;
 use crate::Diagnostic;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
@@ -45,7 +46,9 @@ impl ArgAttribute {
                     err_span!(list, "There must be at least one argument to #[pyarg()]")
                 })?;
                 let kind = match first_arg {
-                    NestedMeta::Meta(Meta::Word(ident)) => ParameterKind::from_ident(ident),
+                    NestedMeta::Meta(Meta::Path(path)) => {
+                        path.get_ident().and_then(ParameterKind::from_ident)
+                    }
                     _ => None,
                 };
                 let kind = kind.ok_or_else(|| {
@@ -79,21 +82,21 @@ impl ArgAttribute {
 
     fn parse_argument(&mut self, arg: &NestedMeta) -> Result<(), Diagnostic> {
         match arg {
-            NestedMeta::Meta(Meta::Word(ident)) => {
-                if ident == "default" {
+            NestedMeta::Meta(Meta::Path(path)) => {
+                if path_eq(&path, "default") {
                     if self.default.is_some() {
-                        bail_span!(ident, "Default already set");
+                        bail_span!(path, "Default already set");
                     }
                     let expr = parse_quote!(Default::default());
                     self.default = Some(expr);
-                } else if ident == "optional" {
+                } else if path_eq(&path, "optional") {
                     self.optional = true;
                 } else {
-                    bail_span!(ident, "Unrecognised pyarg attribute");
+                    bail_span!(path, "Unrecognised pyarg attribute");
                 }
             }
             NestedMeta::Meta(Meta::NameValue(name_value)) => {
-                if name_value.ident == "default" {
+                if path_eq(&name_value.path, "default") {
                     if self.default.is_some() {
                         bail_span!(name_value, "Default already set");
                     }
@@ -107,7 +110,7 @@ impl ArgAttribute {
                         }
                         _ => bail_span!(name_value, "Expected string value for default argument"),
                     }
-                } else if name_value.ident == "optional" {
+                } else if path_eq(&name_value.path, "optional") {
                     match name_value.lit {
                         Lit::Bool(ref val) => {
                             self.optional = val.value;
