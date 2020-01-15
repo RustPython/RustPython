@@ -1,10 +1,10 @@
 use super::Diagnostic;
 use crate::util::path_eq;
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{quote, quote_spanned};
+use quote::{quote, quote_spanned, ToTokens};
 use std::collections::{HashMap, HashSet};
 use syn::{
-    spanned::Spanned, Attribute, AttributeArgs, Ident, ImplItem, Index, Item, Lit, Meta,
+    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Index, Item, Lit, Meta,
     NestedMeta, Signature,
 };
 
@@ -251,26 +251,23 @@ impl Class {
     }
 }
 
-pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
-    let mut imp = if let Item::Impl(imp) = item {
-        imp
-    } else {
-        return Ok(quote!(#item));
-    };
+struct ItemSig<'a> {
+    attrs: &'a mut Vec<Attribute>,
+    sig: &'a Signature,
+}
 
+fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnostic> {
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
     let mut class = Class::default();
 
-    for item in imp.items.iter_mut() {
-        if let ImplItem::Method(meth) = item {
-            push_diag_result!(
-                diagnostics,
-                class.extract_item_from_syn(&mut meth.attrs, &meth.sig),
-            );
-        }
+    for item in items.iter_mut() {
+        push_diag_result!(
+            diagnostics,
+            class.extract_item_from_syn(&mut item.attrs, item.sig),
+        );
     }
-    let ty = &imp.self_ty;
+
     let mut properties: HashMap<&str, (Option<&Ident>, Option<&Ident>)> = HashMap::new();
     for item in class.items.iter() {
         if let ClassItem::Property {
@@ -353,19 +350,65 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
 
     Diagnostic::from_vec(diagnostics)?;
 
-    let ret = quote! {
-        #imp
-        impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
-            fn impl_extend_class(
-                ctx: &::rustpython_vm::pyobject::PyContext,
-                class: &::rustpython_vm::obj::objtype::PyClassRef,
-            ) {
-                #(#methods)*
-                #(#properties)*
-            }
+    Ok(quote! {
+        #(#methods)*
+        #(#properties)*
+    })
+}
+
+pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
+    match item {
+        Item::Impl(mut imp) => {
+            let items = imp
+                .items
+                .iter_mut()
+                .filter_map(|item| match item {
+                    syn::ImplItem::Method(syn::ImplItemMethod { attrs, sig, .. }) => {
+                        Some(ItemSig { attrs, sig })
+                    }
+                    _ => None,
+                })
+                .collect();
+            let extend_impl = extract_impl_items(items)?;
+            let ty = &imp.self_ty;
+            let ret = quote! {
+                #imp
+                impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
+                    fn impl_extend_class(
+                        ctx: &::rustpython_vm::pyobject::PyContext,
+                        class: &::rustpython_vm::obj::objtype::PyClassRef,
+                    ) {
+                        #extend_impl
+                    }
+                }
+            };
+            Ok(ret)
         }
-    };
-    Ok(ret)
+        Item::Trait(mut trai) => {
+            let items = trai
+                .items
+                .iter_mut()
+                .filter_map(|item| match item {
+                    syn::TraitItem::Method(syn::TraitItemMethod { attrs, sig, .. }) => {
+                        Some(ItemSig { attrs, sig })
+                    }
+                    _ => None,
+                })
+                .collect();
+            let extend_impl = extract_impl_items(items)?;
+            let item = parse_quote! {
+                fn __extend_py_class(
+                    ctx: &::rustpython_vm::pyobject::PyContext,
+                    class: &::rustpython_vm::obj::objtype::PyClassRef,
+                ) {
+                    #extend_impl
+                }
+            };
+            trai.items.push(item);
+            Ok(trai.into_token_stream())
+        }
+        item => Ok(quote!(#item)),
+    }
 }
 
 fn generate_class_def(
