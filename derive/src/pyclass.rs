@@ -54,6 +54,165 @@ impl Class {
         }
     }
 
+    fn extract_method(sig: &Signature, meta: Meta) -> Result<ClassItem, Diagnostic> {
+        let nesteds = meta_to_vec(meta).map_err(|meta| {
+            err_span!(
+                meta,
+                "#[pymethod = \"...\"] cannot be a name/value, you probably meant \
+                 #[pymethod(name = \"...\")]",
+            )
+        })?;
+        let mut py_name = None;
+        for meta in nesteds {
+            let meta = match meta {
+                NestedMeta::Meta(meta) => meta,
+                NestedMeta::Lit(_) => continue,
+            };
+            if let Meta::NameValue(name_value) = meta {
+                if path_eq(&name_value.path, "name") {
+                    if let Lit::Str(s) = &name_value.lit {
+                        py_name = Some(s.value());
+                    } else {
+                        bail_span!(&sig.ident, "#[pymethod(name = ...)] must be a string");
+                    }
+                }
+            }
+        }
+
+        Ok(ClassItem::Method {
+            item_ident: sig.ident.clone(),
+            py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
+        })
+    }
+
+    fn extract_classmethod(sig: &Signature, meta: Meta) -> Result<ClassItem, Diagnostic> {
+        let nesteds = meta_to_vec(meta).map_err(|meta| {
+            err_span!(
+                meta,
+                "#[pyclassmethod = \"...\"] cannot be a name/value, you probably meant \
+                 #[pyclassmethod(name = \"...\")]",
+            )
+        })?;
+        let mut py_name = None;
+        for meta in nesteds {
+            let meta = match meta {
+                NestedMeta::Meta(meta) => meta,
+                NestedMeta::Lit(_) => continue,
+            };
+            if let Meta::NameValue(name_value) = meta {
+                if path_eq(&name_value.path, "name") {
+                    if let Lit::Str(s) = &name_value.lit {
+                        py_name = Some(s.value());
+                    } else {
+                        bail_span!(&sig.ident, "#[pyclassmethod(name = ...)] must be a string");
+                    }
+                }
+            }
+        }
+        Ok(ClassItem::ClassMethod {
+            item_ident: sig.ident.clone(),
+            py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
+        })
+    }
+
+    fn extract_property(sig: &Signature, meta: Meta) -> Result<ClassItem, Diagnostic> {
+        let nesteds = meta_to_vec(meta).map_err(|meta| {
+            err_span!(
+                meta,
+                "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
+                 #[pyproperty(name = \"...\")]"
+            )
+        })?;
+        let mut setter = false;
+        let mut py_name = None;
+        for meta in nesteds {
+            let meta = match meta {
+                NestedMeta::Meta(meta) => meta,
+                NestedMeta::Lit(_) => continue,
+            };
+            match meta {
+                Meta::NameValue(name_value) => {
+                    if path_eq(&name_value.path, "name") {
+                        if let Lit::Str(s) = &name_value.lit {
+                            py_name = Some(s.value());
+                        } else {
+                            bail_span!(&sig.ident, "#[pyproperty(name = ...)] must be a string");
+                        }
+                    }
+                }
+                Meta::Path(path) => {
+                    if path_eq(&path, "setter") {
+                        setter = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let py_name = match py_name {
+            Some(py_name) => py_name,
+            None => {
+                let item_ident = sig.ident.to_string();
+                if setter {
+                    if item_ident.starts_with("set_") {
+                        let name = &item_ident["set_".len()..];
+                        if name.is_empty() {
+                            bail_span!(
+                                &sig.ident,
+                                "A #[pyproperty(setter)] fn with a set_* name must \
+                                 have something after \"set_\""
+                            )
+                        } else {
+                            name.to_string()
+                        }
+                    } else {
+                        bail_span!(
+                            &sig.ident,
+                            "A #[pyproperty(setter)] fn must either have a `name` \
+                             parameter or a fn name along the lines of \"set_*\""
+                        )
+                    }
+                } else {
+                    item_ident
+                }
+            }
+        };
+
+        Ok(ClassItem::Property {
+            py_name,
+            item_ident: sig.ident.clone(),
+            setter,
+        })
+    }
+
+    fn extract_slot(sig: &Signature, meta: Meta) -> Result<ClassItem, Diagnostic> {
+        let pyslot_err = "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]";
+        let nesteds = meta_to_vec(meta).map_err(|meta| err_span!(meta, "{}", pyslot_err))?;
+        if nesteds.len() > 1 {
+            return Err(Diagnostic::spanned_error(&quote!(#(#nesteds)*), pyslot_err));
+        }
+        let slot_ident = if nesteds.is_empty() {
+            let ident_str = sig.ident.to_string();
+            if ident_str.starts_with("tp_") {
+                let slot_name = &ident_str[3..];
+                proc_macro2::Ident::new(slot_name, sig.ident.span())
+            } else {
+                sig.ident.clone()
+            }
+        } else {
+            match nesteds.into_iter().next().unwrap() {
+                NestedMeta::Meta(Meta::Path(path)) => path
+                    .get_ident()
+                    .cloned()
+                    .ok_or_else(|| err_span!(path, "{}", pyslot_err))?,
+                bad => bail_span!(bad, "{}", pyslot_err),
+            }
+        };
+        Ok(ClassItem::Slot {
+            slot_ident,
+            item_ident: sig.ident.clone(),
+        })
+    }
+
     fn extract_item_from_syn(
         &mut self,
         attrs: &mut Vec<Attribute>,
@@ -71,176 +230,16 @@ impl Class {
                 None => continue,
             };
             if name == "pymethod" {
-                let nesteds = meta_to_vec(meta).map_err(|meta| {
-                    err_span!(
-                        meta,
-                        "#[pymethod = \"...\"] cannot be a name/value, you probably meant \
-                         #[pymethod(name = \"...\")]",
-                    )
-                })?;
-                let mut py_name = None;
-                for meta in nesteds {
-                    let meta = match meta {
-                        NestedMeta::Meta(meta) => meta,
-                        NestedMeta::Lit(_) => continue,
-                    };
-                    if let Meta::NameValue(name_value) = meta {
-                        if path_eq(&name_value.path, "name") {
-                            if let Lit::Str(s) = &name_value.lit {
-                                py_name = Some(s.value());
-                            } else {
-                                bail_span!(&sig.ident, "#[pymethod(name = ...)] must be a string");
-                            }
-                        }
-                    }
-                }
-                self.add_item(
-                    ClassItem::Method {
-                        item_ident: sig.ident.clone(),
-                        py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
-                    },
-                    meta_span,
-                )?;
+                self.add_item(Self::extract_method(sig, meta)?, meta_span)?;
                 attr_idxs.push(i);
             } else if name == "pyclassmethod" {
-                let nesteds = meta_to_vec(meta).map_err(|meta| {
-                    err_span!(
-                        meta,
-                        "#[pyclassmethod = \"...\"] cannot be a name/value, you probably meant \
-                         #[pyclassmethod(name = \"...\")]",
-                    )
-                })?;
-                let mut py_name = None;
-                for meta in nesteds {
-                    let meta = match meta {
-                        NestedMeta::Meta(meta) => meta,
-                        NestedMeta::Lit(_) => continue,
-                    };
-                    if let Meta::NameValue(name_value) = meta {
-                        if path_eq(&name_value.path, "name") {
-                            if let Lit::Str(s) = &name_value.lit {
-                                py_name = Some(s.value());
-                            } else {
-                                bail_span!(
-                                    &sig.ident,
-                                    "#[pyclassmethod(name = ...)] must be a string"
-                                );
-                            }
-                        }
-                    }
-                }
-                self.add_item(
-                    ClassItem::ClassMethod {
-                        item_ident: sig.ident.clone(),
-                        py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
-                    },
-                    meta_span,
-                )?;
+                self.add_item(Self::extract_classmethod(sig, meta)?, meta_span)?;
                 attr_idxs.push(i);
             } else if name == "pyproperty" {
-                let nesteds = meta_to_vec(meta).map_err(|meta| {
-                    err_span!(
-                        meta,
-                        "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
-                         #[pyproperty(name = \"...\")]"
-                    )
-                })?;
-                let mut setter = false;
-                let mut py_name = None;
-                for meta in nesteds {
-                    let meta = match meta {
-                        NestedMeta::Meta(meta) => meta,
-                        NestedMeta::Lit(_) => continue,
-                    };
-                    match meta {
-                        Meta::NameValue(name_value) => {
-                            if path_eq(&name_value.path, "name") {
-                                if let Lit::Str(s) = &name_value.lit {
-                                    py_name = Some(s.value());
-                                } else {
-                                    bail_span!(
-                                        &sig.ident,
-                                        "#[pyproperty(name = ...)] must be a string"
-                                    );
-                                }
-                            }
-                        }
-                        Meta::Path(path) => {
-                            if path_eq(&path, "setter") {
-                                setter = true;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                let py_name = match py_name {
-                    Some(py_name) => py_name,
-                    None => {
-                        let item_ident = sig.ident.to_string();
-                        if setter {
-                            if item_ident.starts_with("set_") {
-                                let name = &item_ident["set_".len()..];
-                                if name.is_empty() {
-                                    bail_span!(
-                                        &sig.ident,
-                                        "A #[pyproperty(setter)] fn with a set_* name must \
-                                         have something after \"set_\""
-                                    )
-                                } else {
-                                    name.to_string()
-                                }
-                            } else {
-                                bail_span!(
-                                    &sig.ident,
-                                    "A #[pyproperty(setter)] fn must either have a `name` \
-                                     parameter or a fn name along the lines of \"set_*\""
-                                )
-                            }
-                        } else {
-                            item_ident
-                        }
-                    }
-                };
-                self.add_item(
-                    ClassItem::Property {
-                        py_name,
-                        item_ident: sig.ident.clone(),
-                        setter,
-                    },
-                    meta_span,
-                )?;
+                self.add_item(Self::extract_property(sig, meta)?, meta_span)?;
                 attr_idxs.push(i);
             } else if name == "pyslot" {
-                let pyslot_err = "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]";
-                let nesteds =
-                    meta_to_vec(meta).map_err(|meta| err_span!(meta, "{}", pyslot_err))?;
-                if nesteds.len() > 1 {
-                    return Err(Diagnostic::spanned_error(&quote!(#(#nesteds)*), pyslot_err));
-                }
-                let slot_ident = if nesteds.is_empty() {
-                    let ident_str = sig.ident.to_string();
-                    if ident_str.starts_with("tp_") {
-                        let slot_name = &ident_str[3..];
-                        proc_macro2::Ident::new(slot_name, sig.ident.span())
-                    } else {
-                        sig.ident.clone()
-                    }
-                } else {
-                    match nesteds.into_iter().next().unwrap() {
-                        NestedMeta::Meta(Meta::Path(path)) => path
-                            .get_ident()
-                            .cloned()
-                            .ok_or_else(|| err_span!(path, "{}", pyslot_err))?,
-                        bad => bail_span!(bad, "{}", pyslot_err),
-                    }
-                };
-                self.add_item(
-                    ClassItem::Slot {
-                        slot_ident,
-                        item_ident: sig.ident.clone(),
-                    },
-                    meta_span,
-                )?;
+                self.add_item(Self::extract_slot(sig, meta)?, meta_span)?;
                 attr_idxs.push(i);
             }
         }
@@ -254,7 +253,7 @@ impl Class {
             i += 1;
             !drop
         });
-        for (i, idx) in attr_idxs.into_iter().enumerate() {
+        for (i, idx) in attr_idxs.iter().enumerate() {
             attrs.remove(idx - i);
         }
         Ok(())
