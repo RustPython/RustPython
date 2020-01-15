@@ -29,9 +29,15 @@ use crate::vm::VirtualMachine;
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct PyClassMethod {
-    pub callable: PyObjectRef,
+    callable: PyObjectRef,
 }
 pub type PyClassMethodRef = PyRef<PyClassMethod>;
+
+impl PyClassMethod {
+    pub fn new(value: PyObjectRef) -> Self {
+        Self { callable: value }
+    }
+}
 
 impl PyValue for PyClassMethod {
     const HAVE_DICT: bool = true;
@@ -73,7 +79,7 @@ impl PyClassMethod {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub(crate) fn init(context: &PyContext) {
     PyClassMethod::extend_class(context, &context.types.classmethod_type);
     extend_class!(context, context.types.classmethod_type, {
         "__get__" => context.new_method(PyClassMethod::get),

@@ -951,11 +951,11 @@ pub fn builtin_build_class_(
     let cells = vm.ctx.new_dict();
 
     let scope = function
-        .scope
+        .scope()
         .new_child_scope_with_locals(cells.clone())
         .new_child_scope_with_locals(namespace.clone());
 
-    vm.invoke_python_function_with_scope(&function, vec![].into(), &scope)?;
+    function.invoke_with_scope(vec![].into(), &scope, vm)?;
 
     let class = vm.call_method(
         metaclass.as_object(),

@@ -28,16 +28,14 @@ use crate::import;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::{PyBuiltinFunction, PyBuiltinMethod};
 use crate::obj::objcode::{PyCode, PyCodeRef};
-use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::{PyBoundMethod, PyFunction};
-use crate::obj::objgenerator::PyGenerator;
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objstr::{PyString, PyStringRef};
-use crate::obj::objtuple::{PyTuple, PyTupleRef};
+use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
 use crate::pyobject::{
@@ -661,9 +659,9 @@ impl VirtualMachine {
     fn _invoke(&self, func_ref: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", func_ref, args);
 
-        if let Some(py_func) = func_ref.payload() {
+        if let Some(py_func) = func_ref.payload::<PyFunction>() {
             self.trace_event(TraceEvent::Call)?;
-            let res = self.invoke_python_function(py_func, args);
+            let res = py_func.invoke(args, self);
             self.trace_event(TraceEvent::Return)?;
             res
         } else if let Some(PyBoundMethod {
@@ -722,184 +720,6 @@ impl VirtualMachine {
                 res?;
             }
         }
-        Ok(())
-    }
-
-    pub fn invoke_python_function(&self, func: &PyFunction, func_args: PyFuncArgs) -> PyResult {
-        self.invoke_python_function_with_scope(func, func_args, &func.scope)
-    }
-
-    pub fn invoke_python_function_with_scope(
-        &self,
-        func: &PyFunction,
-        func_args: PyFuncArgs,
-        scope: &Scope,
-    ) -> PyResult {
-        let code = &func.code;
-
-        let scope = if func.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
-            scope.new_child_scope(&self.ctx)
-        } else {
-            scope.clone()
-        };
-
-        self.fill_locals_from_args(
-            &code,
-            &scope.get_locals(),
-            func_args,
-            &func.defaults,
-            &func.kw_only_defaults,
-        )?;
-
-        // Construct frame:
-        let frame = Frame::new(code.clone(), scope).into_ref(self);
-
-        // If we have a generator, create a new generator
-        if code.flags.contains(bytecode::CodeFlags::IS_GENERATOR) {
-            Ok(PyGenerator::new(frame, self).into_object())
-        } else if code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
-            Ok(PyCoroutine::new(frame, self).into_object())
-        } else {
-            self.run_frame_full(frame)
-        }
-    }
-
-    fn fill_locals_from_args(
-        &self,
-        code_object: &bytecode::CodeObject,
-        locals: &PyDictRef,
-        func_args: PyFuncArgs,
-        defaults: &Option<PyTupleRef>,
-        kw_only_defaults: &Option<PyDictRef>,
-    ) -> PyResult<()> {
-        let nargs = func_args.args.len();
-        let nexpected_args = code_object.arg_names.len();
-
-        // This parses the arguments from args and kwargs into
-        // the proper variables keeping into account default values
-        // and starargs and kwargs.
-        // See also: PyEval_EvalCodeWithName in cpython:
-        // https://github.com/python/cpython/blob/master/Python/ceval.c#L3681
-
-        let n = if nargs > nexpected_args {
-            nexpected_args
-        } else {
-            nargs
-        };
-
-        // Copy positional arguments into local variables
-        for i in 0..n {
-            let arg_name = &code_object.arg_names[i];
-            let arg = &func_args.args[i];
-            locals.set_item(arg_name, arg.clone(), self)?;
-        }
-
-        // Pack other positional arguments in to *args:
-        match code_object.varargs {
-            bytecode::Varargs::Named(ref vararg_name) => {
-                let mut last_args = vec![];
-                for i in n..nargs {
-                    let arg = &func_args.args[i];
-                    last_args.push(arg.clone());
-                }
-                let vararg_value = self.ctx.new_tuple(last_args);
-
-                locals.set_item(vararg_name, vararg_value, self)?;
-            }
-            bytecode::Varargs::Unnamed | bytecode::Varargs::None => {
-                // Check the number of positional arguments
-                if nargs > nexpected_args {
-                    return Err(self.new_type_error(format!(
-                        "Expected {} arguments (got: {})",
-                        nexpected_args, nargs
-                    )));
-                }
-            }
-        }
-
-        // Do we support `**kwargs` ?
-        let kwargs = match code_object.varkeywords {
-            bytecode::Varargs::Named(ref kwargs_name) => {
-                let d = self.ctx.new_dict();
-                locals.set_item(kwargs_name, d.as_object().clone(), self)?;
-                Some(d)
-            }
-            bytecode::Varargs::Unnamed => Some(self.ctx.new_dict()),
-            bytecode::Varargs::None => None,
-        };
-
-        // Handle keyword arguments
-        for (name, value) in func_args.kwargs {
-            // Check if we have a parameter with this name:
-            if code_object.arg_names.contains(&name) || code_object.kwonlyarg_names.contains(&name)
-            {
-                if locals.contains_key(&name, self) {
-                    return Err(
-                        self.new_type_error(format!("Got multiple values for argument '{}'", name))
-                    );
-                }
-
-                locals.set_item(&name, value, self)?;
-            } else if let Some(d) = &kwargs {
-                d.set_item(&name, value, self)?;
-            } else {
-                return Err(
-                    self.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
-                );
-            }
-        }
-
-        // Add missing positional arguments, if we have fewer positional arguments than the
-        // function definition calls for
-        if nargs < nexpected_args {
-            let num_defaults_available = defaults.as_ref().map_or(0, |d| d.as_slice().len());
-
-            // Given the number of defaults available, check all the arguments for which we
-            // _don't_ have defaults; if any are missing, raise an exception
-            let required_args = nexpected_args - num_defaults_available;
-            let mut missing = vec![];
-            for i in 0..required_args {
-                let variable_name = &code_object.arg_names[i];
-                if !locals.contains_key(variable_name, self) {
-                    missing.push(variable_name)
-                }
-            }
-            if !missing.is_empty() {
-                return Err(self.new_type_error(format!(
-                    "Missing {} required positional arguments: {:?}",
-                    missing.len(),
-                    missing
-                )));
-            }
-            if let Some(defaults) = defaults {
-                let defaults = defaults.as_slice();
-                // We have sufficient defaults, so iterate over the corresponding names and use
-                // the default if we don't already have a value
-                for (default_index, i) in (required_args..nexpected_args).enumerate() {
-                    let arg_name = &code_object.arg_names[i];
-                    if !locals.contains_key(arg_name, self) {
-                        locals.set_item(arg_name, defaults[default_index].clone(), self)?;
-                    }
-                }
-            }
-        };
-
-        // Check if kw only arguments are all present:
-        for arg_name in &code_object.kwonlyarg_names {
-            if !locals.contains_key(arg_name, self) {
-                if let Some(kw_only_defaults) = kw_only_defaults {
-                    if let Some(default) = kw_only_defaults.get_item_option(arg_name, self)? {
-                        locals.set_item(arg_name, default, self)?;
-                        continue;
-                    }
-                }
-
-                // No default value and not specified.
-                return Err(self
-                    .new_type_error(format!("Missing required kw only argument: '{}'", arg_name)));
-            }
-        }
-
         Ok(())
     }
 
