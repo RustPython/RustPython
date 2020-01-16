@@ -20,7 +20,9 @@ assert_raises(TypeError, select.select, [Almost()], [], [])
 assert_raises(TypeError, select.select, [], [], [], "not a number")
 assert_raises(ValueError, select.select, [], [], [], -1)
 
-if "win" in sys.platform:
+is_win = sys.platform.startswith("win")
+
+if is_win:
     assert_raises(OSError, select.select, [0], [], [])
 
 recvr = socket.socket()
@@ -38,7 +40,7 @@ sendr.send(b"aaaa")
 
 rres, wres, xres = select.select([recvr], [sendr], [])
 
-if "win" not in sys.platform:
+if not is_win:
     assert recvr in rres
 
 assert sendr in wres
