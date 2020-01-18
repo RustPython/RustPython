@@ -1,3 +1,4 @@
+use super::objbool;
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objproperty::PropertyBuilder;
@@ -6,8 +7,8 @@ use super::objtype::{self, PyClassRef};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    IdProtocol, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyComparisonValue, PyContext,
+    PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -31,28 +32,45 @@ pub fn new_instance(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     Ok(PyObject::new(PyInstance, cls, dict))
 }
 
-fn object_eq(_zelf: PyObjectRef, _other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-    vm.ctx.not_implemented()
+fn object_eq(zelf: PyObjectRef, other: PyObjectRef, _vm: &VirtualMachine) -> PyComparisonValue {
+    if zelf.is(&other) {
+        Implemented(true)
+    } else {
+        NotImplemented
+    }
 }
 
-fn object_ne(_zelf: PyObjectRef, _other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-    vm.ctx.not_implemented()
+fn object_ne(
+    zelf: PyObjectRef,
+    other: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<PyComparisonValue> {
+    let eq_method = match vm.get_method(zelf, "__eq__") {
+        Some(func) => func?,
+        None => return Ok(NotImplemented), // XXX: is this a possible case?
+    };
+    let eq = vm.invoke(&eq_method, vec![other])?;
+    if eq.is(&vm.ctx.not_implemented()) {
+        return Ok(NotImplemented);
+    }
+    let bool_eq = objbool::boolval(vm, eq)?;
+    Ok(Implemented(!bool_eq))
 }
 
-fn object_lt(_zelf: PyObjectRef, _other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-    vm.ctx.not_implemented()
+fn object_lt(_zelf: PyObjectRef, _other: PyObjectRef, _vm: &VirtualMachine) -> PyComparisonValue {
+    NotImplemented
 }
 
-fn object_le(_zelf: PyObjectRef, _other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-    vm.ctx.not_implemented()
+fn object_le(_zelf: PyObjectRef, _other: PyObjectRef, _vm: &VirtualMachine) -> PyComparisonValue {
+    NotImplemented
 }
 
-fn object_gt(_zelf: PyObjectRef, _other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-    vm.ctx.not_implemented()
+fn object_gt(_zelf: PyObjectRef, _other: PyObjectRef, _vm: &VirtualMachine) -> PyComparisonValue {
+    NotImplemented
 }
 
-fn object_ge(_zelf: PyObjectRef, _other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-    vm.ctx.not_implemented()
+fn object_ge(_zelf: PyObjectRef, _other: PyObjectRef, _vm: &VirtualMachine) -> PyComparisonValue {
+    NotImplemented
 }
 
 fn object_hash(zelf: PyObjectRef, _vm: &VirtualMachine) -> pyhash::PyHash {

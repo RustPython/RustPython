@@ -52,8 +52,6 @@ class ComparisonTest(unittest.TestCase):
         self.assertIs(a != b, False)
         self.assertIs(a != c, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ne_high_priority(self):
         """object.__ne__() should allow reflected __ne__() to be tried"""
         calls = []
