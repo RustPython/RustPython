@@ -51,8 +51,6 @@ class BoolTest(unittest.TestCase):
         self.assertEqual(float(True), 1.0)
         self.assertIsNot(float(True), True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_math(self):
         self.assertEqual(+False, 0)
         self.assertIsNot(+False, False)

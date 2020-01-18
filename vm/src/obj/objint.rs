@@ -462,8 +462,8 @@ impl PyInt {
     }
 
     #[pymethod(name = "__pos__")]
-    fn pos(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
-        zelf
+    fn pos(&self, _vm: &VirtualMachine) -> BigInt {
+        self.value.clone()
     }
 
     #[pymethod(name = "__float__")]
