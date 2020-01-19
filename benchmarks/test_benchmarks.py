@@ -18,6 +18,7 @@ pythons = [
 benchmarks = [
     ['benchmarks/nbody.py'],
     ['benchmarks/mandelbrot.py'],
+    ['benchmarks/strings.py'],
 ]
 
 exe_ids = ['cpython', 'rustpython']
