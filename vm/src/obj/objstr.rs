@@ -98,7 +98,7 @@ impl TryIntoRef<PyString> for &str {
 #[derive(Debug)]
 pub struct PyStringIterator {
     pub string: PyStringRef,
-    position: Cell<usize>,
+    byte_position: Cell<usize>,
 }
 
 impl PyValue for PyStringIterator {
@@ -111,15 +111,16 @@ impl PyValue for PyStringIterator {
 impl PyStringIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.position.get();
+        let pos = self.byte_position.get();
 
-        if pos < self.string.value.chars().count() {
-            self.position.set(self.position.get() + 1);
+        if pos < self.string.value.len() {
+            // We can be sure that chars() has a value, because of the pos check above.
+            let char_ = self.string.value[pos..].chars().next().unwrap();
 
-            #[allow(clippy::range_plus_one)]
-            let value = self.string.value.do_slice(pos..pos + 1);
+            self.byte_position
+                .set(self.byte_position.get() + char_.len_utf8());
 
-            value.into_pyobject(vm)
+            char_.to_string().into_pyobject(vm)
         } else {
             Err(objiter::new_stop_iteration(vm))
         }
@@ -1198,7 +1199,7 @@ impl PyString {
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyStringIterator {
         PyStringIterator {
-            position: Cell::new(0),
+            byte_position: Cell::new(0),
             string: zelf,
         }
     }
