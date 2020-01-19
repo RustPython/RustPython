@@ -277,7 +277,7 @@ assert "\u9487" == "钇"
 assert "\U0001F609" == "😉"
 
 # test str iter
-iterable_str = "123456789"
+iterable_str = "12345678😉"
 str_iter = iter(iterable_str)
 
 assert next(str_iter) == "1"
@@ -288,13 +288,13 @@ assert next(str_iter) == "5"
 assert next(str_iter) == "6"
 assert next(str_iter) == "7"
 assert next(str_iter) == "8"
-assert next(str_iter) == "9"
+assert next(str_iter) == "😉"
 assert next(str_iter, None) == None
 assert_raises(StopIteration, next, str_iter)
 
 str_iter_reversed = reversed(iterable_str)
 
-assert next(str_iter_reversed) == "9"
+assert next(str_iter_reversed) == "😉"
 assert next(str_iter_reversed) == "8"
 assert next(str_iter_reversed) == "7"
 assert next(str_iter_reversed) == "6"
