@@ -11,9 +11,9 @@ edition = "2018"
 proc-macro = true
 
 [dependencies]
-syn = { version = "0.15.29", features = ["full"] }
-quote = "0.6.11"
-proc-macro2 = "0.4.27"
+syn = { version = "1.0", features = ["full"] }
+quote = "1.0"
+proc-macro2 = "1.0"
 rustpython-compiler = { path = "../compiler", version = "0.1.1" }
 rustpython-bytecode = { path = "../bytecode", version = "0.1.1" }
 maplit = "1.0"

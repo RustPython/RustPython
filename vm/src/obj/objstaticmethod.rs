@@ -28,7 +28,7 @@ impl PyBuiltinDescriptor for PyStaticMethod {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyBuiltinDescriptor))]
 impl PyStaticMethod {
     #[pyslot]
     fn tp_new(
@@ -45,8 +45,4 @@ impl PyStaticMethod {
 
 pub fn init(context: &PyContext) {
     PyStaticMethod::extend_class(context, &context.types.staticmethod_type);
-    extend_class!(context, context.types.staticmethod_type, {
-        "__get__" => context.new_method(PyStaticMethod::get),
-        (slot descr_get) => PyStaticMethod::get,
-    });
 }

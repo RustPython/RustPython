@@ -87,7 +87,7 @@ impl PyBuiltinDescriptor for PyBuiltinMethod {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyBuiltinDescriptor))]
 impl PyBuiltinMethod {
     #[pymethod(name = "__call__")]
     pub fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -98,8 +98,4 @@ impl PyBuiltinMethod {
 pub fn init(context: &PyContext) {
     PyBuiltinFunction::extend_class(context, &context.types.builtin_function_or_method_type);
     PyBuiltinMethod::extend_class(context, &context.types.method_descriptor_type);
-    extend_class!(context, context.types.method_descriptor_type, {
-        "__get__" => context.new_method(PyBuiltinMethod::get),
-        (slot descr_get) => PyBuiltinMethod::get,
-    });
 }

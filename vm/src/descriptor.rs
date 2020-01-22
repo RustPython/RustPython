@@ -2,8 +2,10 @@ use crate::function::OptionalArg;
 use crate::pyobject::{IdProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::VirtualMachine;
 
-// TODO: pyimpl compose pyslot(descr_get) and pymethod(__get__) from this trait
+#[pyimpl]
 pub trait PyBuiltinDescriptor: PyValue {
+    #[pymethod(name = "__get__")]
+    #[pyslot(descr_get)]
     fn get(
         zelf: PyRef<Self>,
         obj: PyObjectRef,

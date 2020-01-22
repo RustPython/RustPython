@@ -240,7 +240,7 @@ impl PyValue for PyFunction {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyBuiltinDescriptor))]
 impl PyFunction {
     #[pymethod(name = "__call__")]
     fn call(zelf: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -289,10 +289,6 @@ impl PyValue for PyBoundMethod {
 pub fn init(context: &PyContext) {
     let function_type = &context.types.function_type;
     PyFunction::extend_class(context, function_type);
-    extend_class!(context, function_type, {
-        "__get__" => context.new_method(PyFunction::get),
-        (slot descr_get) => PyFunction::get,
-    });
 
     let method_type = &context.types.bound_method_type;
     extend_class!(context, method_type, {

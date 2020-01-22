@@ -46,7 +46,7 @@ impl PyBuiltinDescriptor for PyReadOnlyProperty {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyBuiltinDescriptor))]
 impl PyReadOnlyProperty {}
 
 /// Property attribute.
@@ -129,7 +129,7 @@ impl PyBuiltinDescriptor for PyProperty {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(PyBuiltinDescriptor))]
 impl PyProperty {
     #[pyslot]
     fn tp_new(cls: PyClassRef, args: PropertyArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
@@ -318,15 +318,8 @@ impl<'a> PropertyBuilder<'a> {
 
 pub fn init(context: &PyContext) {
     PyReadOnlyProperty::extend_class(context, &context.types.readonly_property_type);
-    extend_class!(context, context.types.readonly_property_type, {
-        "__get__" => context.new_method(PyReadOnlyProperty::get),
-        (slot descr_get) => PyReadOnlyProperty::get,
-    });
 
     PyProperty::extend_class(context, &context.types.property_type);
-    extend_class!(context, context.types.property_type, {
-        "__get__" => context.new_method(PyProperty::get),
-    });
 
     // This is a bit unfortunate, but this instance attribute overlaps with the
     // class __doc__ string..

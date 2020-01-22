@@ -176,7 +176,11 @@ impl PyCompileInput {
 
         for meta in &self.metas {
             if let Meta::NameValue(name_value) = meta {
-                if name_value.ident == "mode" {
+                let ident = match name_value.path.get_ident() {
+                    Some(ident) => ident,
+                    None => continue,
+                };
+                if ident == "mode" {
                     match &name_value.lit {
                         Lit::Str(s) => match s.value().parse() {
                             Ok(mode_val) => mode = Some(mode_val),
@@ -184,12 +188,12 @@ impl PyCompileInput {
                         },
                         _ => bail_span!(name_value.lit, "mode must be a string"),
                     }
-                } else if name_value.ident == "module_name" {
+                } else if ident == "module_name" {
                     module_name = Some(match &name_value.lit {
                         Lit::Str(s) => s.value(),
                         _ => bail_span!(name_value.lit, "module_name must be string"),
                     })
-                } else if name_value.ident == "source" {
+                } else if ident == "source" {
                     assert_source_empty(&source)?;
                     let code = match &name_value.lit {
                         Lit::Str(s) => s.value(),
@@ -199,7 +203,7 @@ impl PyCompileInput {
                         kind: CompilationSourceKind::SourceCode(code),
                         span: extract_spans(&name_value).unwrap(),
                     });
-                } else if name_value.ident == "file" {
+                } else if ident == "file" {
                     assert_source_empty(&source)?;
                     let path = match &name_value.lit {
                         Lit::Str(s) => PathBuf::from(s.value()),
@@ -209,7 +213,7 @@ impl PyCompileInput {
                         kind: CompilationSourceKind::File(path),
                         span: extract_spans(&name_value).unwrap(),
                     });
-                } else if name_value.ident == "dir" {
+                } else if ident == "dir" {
                     assert_source_empty(&source)?;
                     let path = match &name_value.lit {
                         Lit::Str(s) => PathBuf::from(s.value()),
