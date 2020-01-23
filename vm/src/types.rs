@@ -245,13 +245,13 @@ macro_rules! partially_init {
         Uninit { $($uninit_field:ident),*$(,)? }$(,)?
     ) => {{
         // check all the fields are there but *don't* actually run it
-        #[allow(deprecated, invalid_value)]
-        {if false {
+        if false {
+            #[allow(invalid_value)]
             let _ = {$ty {
                 $($init_field: $init_value,)*
-                $($uninit_field: ::std::mem::uninitialized(),)*
+                $($uninit_field: ::std::mem::MaybeUninit::uninit().assume_init(),)*
             }};
-        }}
+        }
         let mut m = ::std::mem::MaybeUninit::<$ty>::uninit();
         $(::std::ptr::write(&mut (*m.as_mut_ptr()).$init_field, $init_value);)*
         m
