@@ -20,4 +20,4 @@ export PATH=$PATH:$PWD/geckodriver
 pip install pipenv
 (cd wasm/tests; pipenv install)
 
-(cd wasm/demo; npm install; npm run build; npm run ci)
+(cd wasm/demo; npm install; npm run test)
