@@ -51,3 +51,12 @@ with assert_raises(TabError):
 
 with assert_raises(SyntaxError):
     compile('0xX', 'test.py', 'exec')
+
+
+src = """
+"aaaa" \a
+"bbbb"
+"""
+
+with assert_raises(SyntaxError):
+    compile(src, 'test.py', 'exec')

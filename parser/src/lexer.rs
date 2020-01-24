@@ -117,8 +117,7 @@ pub type LexResult = Result<Spanned, LexicalError>;
 
 pub fn make_tokenizer<'a>(source: &'a str) -> impl Iterator<Item = LexResult> + 'a {
     let nlh = NewlineHandler::new(source.chars());
-    let lch = LineContinuationHandler::new(nlh);
-    Lexer::new(lch)
+    Lexer::new(nlh)
 }
 
 // The newline handler is an iterator which collapses different newline
@@ -169,61 +168,6 @@ where
                     // Transform MAC EOL into \n
                     self.chr0 = Some('\n')
                 }
-            } else {
-                break;
-            }
-        }
-
-        self.shift()
-    }
-}
-
-// Glues \ and \n into a single line:
-pub struct LineContinuationHandler<T: Iterator<Item = char>> {
-    source: T,
-    chr0: Option<char>,
-    chr1: Option<char>,
-}
-
-impl<T> LineContinuationHandler<T>
-where
-    T: Iterator<Item = char>,
-{
-    pub fn new(source: T) -> Self {
-        let mut nlh = LineContinuationHandler {
-            source,
-            chr0: None,
-            chr1: None,
-        };
-        nlh.shift();
-        nlh.shift();
-        nlh
-    }
-
-    fn shift(&mut self) -> Option<char> {
-        let result = self.chr0;
-        self.chr0 = self.chr1;
-        self.chr1 = self.source.next();
-        result
-    }
-}
-
-impl<T> Iterator for LineContinuationHandler<T>
-where
-    T: Iterator<Item = char>,
-{
-    type Item = char;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // Collapse \r\n into \n
-        loop {
-            if self.chr0 == Some('\\') && self.chr1 == Some('\n') {
-                // Skip backslash and newline
-                self.shift();
-                self.shift();
-            // Idea: insert trailing newline here:
-            // } else if self.chr0 != Some('\n') && self.chr1.is_none() {
-            //     self.chr1 = Some('\n');
             } else {
                 break;
             }
@@ -1201,6 +1145,18 @@ where
                     self.next_char();
                 }
             }
+            '\\' => {
+                self.next_char();
+                if let Some('\n') = self.chr0 {
+                    self.next_char();
+                } else {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::LineContinuationError,
+                        location: self.get_pos(),
+                    });
+                }
+            }
+
             _ => {
                 let c = self.next_char();
                 return Err(LexicalError {

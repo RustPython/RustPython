@@ -27,6 +27,7 @@ pub enum LexicalErrorType {
     DuplicateKeywordArgumentError,
     UnrecognizedToken { tok: char },
     FStringError(FStringErrorType),
+    LineContinuationError,
     OtherError(String),
 }
 
@@ -54,6 +55,9 @@ impl fmt::Display for LexicalErrorType {
             }
             LexicalErrorType::UnrecognizedToken { tok } => {
                 write!(f, "Got unexpected token {}", tok)
+            }
+            LexicalErrorType::LineContinuationError => {
+                write!(f, "unexpected character after line continuation character")
             }
             LexicalErrorType::OtherError(msg) => write!(f, "{}", msg),
         }
