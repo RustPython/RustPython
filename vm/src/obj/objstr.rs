@@ -178,6 +178,12 @@ struct StrArgs {
     errors: OptionalArg<PyStringRef>,
 }
 
+#[derive(FromArgs)]
+struct SplitLineArgs {
+    #[pyarg(positional_or_keyword, optional = true)]
+    keepends: OptionalArg<bool>,
+}
+
 #[pyimpl]
 impl PyString {
     #[pyslot]
@@ -778,11 +784,16 @@ impl PyString {
 
     // doesn't implement keep new line delimiter just yet
     #[pymethod]
-    fn splitlines(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn splitlines(&self, args: SplitLineArgs, vm: &VirtualMachine) -> PyObjectRef {
+        let end = if let OptionalArg::Present(true) = args.keepends {
+            "\n"
+        } else {
+            ""
+        };
         let elements = self
             .value
             .split('\n')
-            .map(|e| vm.ctx.new_str(e.to_string()))
+            .map(|e| vm.ctx.new_str(e.to_string() + end))
             .collect();
         vm.ctx.new_list(elements)
     }
