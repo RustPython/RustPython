@@ -168,7 +168,9 @@ assert not 'abcd'.startswith('', 4, 3)
 
 assert '   '.isspace()
 assert 'hello\nhallo\nHallo'.splitlines() == ['hello', 'hallo', 'Hallo']
-assert 'hello\nhallo\nHallo'.splitlines(keepends=True) == ['hello\n', 'hallo\n', 'Hallo\n']
+assert 'hello\nhallo\nHallo\n'.splitlines() == ['hello', 'hallo', 'Hallo']
+assert 'hello\nhallo\nHallo'.splitlines(keepends=True) == ['hello\n', 'hallo\n', 'Hallo']
+assert 'hello\nhallo\nHallo\n'.splitlines(keepends=True) == ['hello\n', 'hallo\n', 'Hallo\n']
 assert 'abc\t12345\txyz'.expandtabs() == 'abc     12345   xyz'
 assert '-'.join(['1', '2', '3']) == '1-2-3'
 assert 'HALLO'.isupper()
