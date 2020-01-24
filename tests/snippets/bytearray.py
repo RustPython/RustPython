@@ -352,11 +352,11 @@ assert bytearray(b"hjhtuyfjtyhuhjuyj").translate(None, delete=b"ht") == bytearra
 
 
 # strip lstrip rstrip
-assert bytearray(b"   spacious   ").strip() == bytearray(b"spacious")
+assert bytearray(b" \n  spacious \n  ").strip() == bytearray(b"spacious")
 assert bytearray(b"www.example.com").strip(b"cmowz.") == bytearray(b"example")
-assert bytearray(b"   spacious   ").lstrip() == bytearray(b"spacious   ")
+assert bytearray(b" \n  spacious   ").lstrip() == bytearray(b"spacious   ")
 assert bytearray(b"www.example.com").lstrip(b"cmowz.") == bytearray(b"example.com")
-assert bytearray(b"   spacious   ").rstrip() == bytearray(b"   spacious")
+assert bytearray(b"   spacious \n  ").rstrip() == bytearray(b"   spacious")
 assert bytearray(b"mississippi").rstrip(b"ipz") == bytearray(b"mississ")
 
 
