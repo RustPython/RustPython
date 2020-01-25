@@ -9,11 +9,12 @@ use super::objproperty::PropertyBuilder;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
-use crate::function::{PyFuncArgs, PyNativeFunc};
+use crate::function::PyFuncArgs;
 use crate::pyobject::{
     IdProtocol, PyAttributes, PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult,
     PyValue, TypeProtocol,
 };
+use crate::slots::PyClassSlots;
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
@@ -24,19 +25,6 @@ pub struct PyClass {
     pub subclasses: RefCell<Vec<PyWeak>>,
     pub attributes: RefCell<PyAttributes>,
     pub slots: RefCell<PyClassSlots>,
-}
-
-#[derive(Default)]
-pub struct PyClassSlots {
-    pub new: Option<PyNativeFunc>,
-    pub call: Option<PyNativeFunc>,
-    pub descr_get: Option<PyNativeFunc>,
-}
-
-impl fmt::Debug for PyClassSlots {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("PyClassSlots")
-    }
 }
 
 impl fmt::Display for PyClass {

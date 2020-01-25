@@ -4,8 +4,6 @@ use super::objstr::PyStringRef;
 use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
 use crate::bytecode;
-use crate::callable::PyBuiltinCallable;
-use crate::descriptor::PyBuiltinDescriptor;
 use crate::frame::Frame;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objcoroutine::PyCoroutine;
@@ -15,6 +13,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::scope::Scope;
+use crate::slots::{PyBuiltinCallable, PyBuiltinDescriptor};
 use crate::vm::VirtualMachine;
 
 pub type PyFunctionRef = PyRef<PyFunction>;

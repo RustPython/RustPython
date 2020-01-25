@@ -4,12 +4,12 @@
 use std::cell::RefCell;
 
 use super::objtype::PyClassRef;
-use crate::descriptor::PyBuiltinDescriptor;
 use crate::function::{IntoPyNativeFunc, OptionalArg};
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol,
 };
+use crate::slots::PyBuiltinDescriptor;
 use crate::vm::VirtualMachine;
 
 // Read-only property, doesn't have __set__ or __delete__

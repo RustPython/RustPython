@@ -1,12 +1,11 @@
 use std::fmt;
 
-use crate::callable::PyBuiltinCallable;
-use crate::descriptor::PyBuiltinDescriptor;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
+use crate::slots::{PyBuiltinCallable, PyBuiltinDescriptor};
 use crate::vm::VirtualMachine;
 
 #[pyclass]
