@@ -52,27 +52,18 @@ jobs:
         - CODE_COVERAGE=false
       script: tests/.travis-runner.sh
 
-    - name: Check Rust code style with rustfmt
+    - name: Check Rust code with rustfmt and clippy
       language: rust
       rust: stable
       cache: cargo
       before_script:
         - rustup component add rustfmt
-      script:
-        - cargo fmt --all -- --check
-      env:
-        - JOBCACHE=3
-
-    - name: Lint Rust code with clippy
-      language: rust
-      rust: stable
-      cache: cargo
-      before_script:
         - rustup component add clippy
       script:
+        - cargo fmt --all -- --check
         - cargo clippy --all -- -Dwarnings
       env:
-        - JOBCACHE=8
+        - JOBCACHE=3
 
     - name: Lint Python code with flake8
       language: python
@@ -149,7 +140,7 @@ jobs:
 
     - name: Test WASM
       language: python
-      python: 3.6
+      python: 3.8
       cache:
         - pip
         - cargo
