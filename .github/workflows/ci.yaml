@@ -4,11 +4,11 @@ name: CI
 
 jobs:
   rust_tests:
-    name: Run Rust tests
+    name: Run tests
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
-        os: ["macos-latest", "ubuntu-latest", "windows-latest"]
+        os: [macos-latest, ubuntu-latest, windows-latest]
       fail-fast: false
     steps:
       - uses: actions/checkout@master
@@ -34,3 +34,25 @@ jobs:
       - name: run snippets
         run: pipenv run pytest
         working-directory: ./tests
+
+  format:
+    name: Check Rust code with rustfmt and clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: actions-rs/toolchain@v1
+        with:
+            profile: minimal
+            toolchain: stable
+            components: rustfmt
+            override: true
+      - name: run rustfmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+      - name: run clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --all -- -Dwarnings
