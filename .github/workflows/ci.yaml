@@ -28,7 +28,11 @@ jobs:
       - uses: actions/setup-python@v1
         with:
           python-version: 3.6
-      - uses: dschep/install-pipenv-action@v1
+      - name: Install pipenv
+        run: |
+          python -V
+          python -m pip install --upgrade pip
+          python -m pip install pipenv
       - run: pipenv install
         working-directory: ./tests
       - name: run snippets
