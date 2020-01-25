@@ -178,6 +178,12 @@ struct StrArgs {
     errors: OptionalArg<PyStringRef>,
 }
 
+#[derive(FromArgs)]
+struct SplitLineArgs {
+    #[pyarg(positional_or_keyword, optional = true)]
+    keepends: OptionalArg<bool>,
+}
+
 #[pyimpl]
 impl PyString {
     #[pyslot]
@@ -776,14 +782,25 @@ impl PyString {
         !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii())
     }
 
-    // doesn't implement keep new line delimiter just yet
     #[pymethod]
-    fn splitlines(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let elements = self
-            .value
-            .split('\n')
-            .map(|e| vm.ctx.new_str(e.to_string()))
-            .collect();
+    fn splitlines(&self, args: SplitLineArgs, vm: &VirtualMachine) -> PyObjectRef {
+        let keepends = args.keepends.unwrap_or(false);
+        let mut elements = vec![];
+        let mut curr = "".to_string();
+        for ch in self.value.chars() {
+            if ch == '\n' {
+                if keepends {
+                    curr.push(ch);
+                }
+                elements.push(vm.ctx.new_str(curr.clone()));
+                curr.clear();
+            } else {
+                curr.push(ch);
+            }
+        }
+        if !curr.is_empty() {
+            elements.push(vm.ctx.new_str(curr));
+        }
         vm.ctx.new_list(elements)
     }
 
