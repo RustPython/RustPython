@@ -6,7 +6,7 @@ curl -sSf https://build.travis-ci.org/files/rustup-init.sh | sh -s -- --default-
 export PATH=$HOME/.cargo/bin:$PATH
 
 # Install pipenv
-pip install pipenv
+python3 -m pip install pipenv
 (cd tests; pipenv install)
 
 # Build outside of the test runner
@@ -17,18 +17,18 @@ then
 
     export CARGO_INCREMENTAL=0
     export RUSTFLAGS="-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads"
-
-    cargo build --verbose
+    CONFIGURATION=""
 else
-    cargo build --verbose --release
+    CONFIGURATION="--release"
 fi
 
+cargo build --verbose $CONFIGURATION
 # Run the tests
 (cd tests; pipenv run pytest)
+cargo test --verbose --all $CONFIGURATION
 
 if [ $CODE_COVERAGE = "true" ]
 then
-    cargo test --verbose --all
     zip -0 ccov.zip `find . \( -name "rustpython*.gc*" \) -print`
 
     # Install grcov

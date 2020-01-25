@@ -12,45 +12,40 @@ before_cache:
 jobs:
   fast_finish: true
   include:
-    - name: Run Rust tests(linux)
-      language: rust
+    - name: Run tests (Linux)
+      language: python
+      python: 3.8
       os: linux
       rust: stable
-      cache: cargo
+      cache:
+        - pip
+        - cargo
       script:
-        - cargo build --verbose --all
-        - cargo test --verbose --all
+        - tests/.travis-runner.sh
       env:
         # Prevention of cache corruption.
         # See: https://docs.travis-ci.com/user/caching/#caches-and-build-matrices
         - JOBCACHE=1
+        - TRAVIS_RUST_VERSION=stable
+        - CODE_COVERAGE=false
 
-    - name: Run Rust tests(osx)
-      language: rust
-      os: osx
-      rust: stable
-      cache: cargo
-      script:
-        - cargo build --verbose --all
-        - cargo test --verbose --all
-      env:
-        # Prevention of cache corruption.
-        # See: https://docs.travis-ci.com/user/caching/#caches-and-build-matrices
-        - JOBCACHE=11
-
-    # To test the snippets, we use Travis' Python environment (because
-    # installing rust ourselves is a lot easier than installing Python)
-    - name: Python test snippets
-      language: python
+    - name: Run tests (maxOS)
+      language: shell
       python: 3.8
+      os: osx
+      osx_image: xcode11.3
+      rust: stable
       cache:
         - pip
         - cargo
+      script:
+        - tests/.travis-runner.sh
       env:
+        # Prevention of cache corruption.
+        # See: https://docs.travis-ci.com/user/caching/#caches-and-build-matrices
         - JOBCACHE=2
         - TRAVIS_RUST_VERSION=stable
         - CODE_COVERAGE=false
-      script: tests/.travis-runner.sh
 
     - name: Check Rust code with rustfmt and clippy
       language: rust
