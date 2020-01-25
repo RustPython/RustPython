@@ -23,6 +23,7 @@ jobs:
       "C:\Program Files\Git\mingw64\bin\curl.exe" -sSf -o rustup-init.exe https://win.rustup.rs/
       .\rustup-init.exe -y
       set PATH=%PATH%;%USERPROFILE%\.cargo\bin
+      rustup default stable-x86_64-pc-windows-msvc
       rustup update
       rustc -V
       cargo -V
