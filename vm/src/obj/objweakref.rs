@@ -1,12 +1,14 @@
 use super::objtype::PyClassRef;
-use crate::function::OptionalArg;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult, PyValue,
+    PyClassImpl, PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult, PyValue,
 };
+use crate::slots::PyBuiltinCallable;
 use crate::vm::VirtualMachine;
 
 use std::rc::{Rc, Weak};
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyWeak {
     referent: Weak<PyObject<dyn PyObjectPayload>>,
@@ -32,26 +34,27 @@ impl PyValue for PyWeak {
 
 pub type PyWeakRef = PyRef<PyWeak>;
 
-impl PyWeakRef {
+impl PyBuiltinCallable for PyWeak {
+    fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        args.bind::<()>(vm)?;
+        Ok(self.referent.upgrade().unwrap_or_else(|| vm.get_none()))
+    }
+}
+
+#[pyimpl(with(PyBuiltinCallable))]
+impl PyWeak {
     // TODO callbacks
-    fn create(
+    #[pyslot]
+    fn tp_new(
         cls: PyClassRef,
         referent: PyObjectRef,
         _callback: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<Self> {
+    ) -> PyResult<PyRef<Self>> {
         PyWeak::downgrade(&referent).into_ref_with_type(vm, cls)
-    }
-
-    fn call(self, vm: &VirtualMachine) -> PyObjectRef {
-        self.referent.upgrade().unwrap_or_else(|| vm.get_none())
     }
 }
 
 pub fn init(context: &PyContext) {
-    extend_class!(context, &context.types.weakref_type, {
-        (slot new) => PyWeakRef::create,
-        "__call__" => context.new_method(PyWeakRef::call),
-        (slot call) => PyWeakRef::call,
-    });
+    PyWeak::extend_class(context, &context.types.weakref_type);
 }
