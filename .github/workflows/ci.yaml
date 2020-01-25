@@ -12,13 +12,25 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@master
-      - run: powershell.exe scripts/symlinks-to-hardlinks.ps1
+      - name: Convert symlinks to hardlink (windows only)
+        run: powershell.exe scripts/symlinks-to-hardlinks.ps1
         if: matrix.os == 'windows-latest'
-      - uses: actions-rs/cargo@v1
+      - name: build rustpython
+        uses: actions-rs/cargo@v1
         with:
           command: build
           args: --verbose --all
-      - uses: actions-rs/cargo@v1
+      - name: run rust tests
+        uses: actions-rs/cargo@v1
         with:
           command: test
           args: --verbose --all
+      - uses: actions/setup-python@v1
+        with:
+          python-version: 3.6
+      - uses: dschep/install-pipenv-action@v1
+      - run: pipenv install
+        working-directory: ./tests
+      - name: run snippets
+        run: pipenv run pytest
+        working-directory: ./tests
