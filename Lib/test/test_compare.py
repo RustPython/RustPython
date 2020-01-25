@@ -70,8 +70,6 @@ class ComparisonTest(unittest.TestCase):
         Left() != Right()
         self.assertSequenceEqual(calls, ['Left.__eq__', 'Right.__ne__'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ne_low_priority(self):
         """object.__ne__() should not invoke reflected __eq__()"""
         calls = []
