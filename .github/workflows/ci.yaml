@@ -1,0 +1,24 @@
+on: [push]
+
+name: CI
+
+jobs:
+  rust_tests:
+    name: Run Rust tests
+    runs-on:  ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: ["macos-latest", "ubuntu-latest", "windows-latest"]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@master
+      - run: powershell.exe scripts/symlinks-to-hardlinks.ps1
+        if: matrix.os == 'windows-latest'
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --verbose --all
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose --all
