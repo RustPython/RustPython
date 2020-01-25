@@ -799,7 +799,7 @@ impl PyString {
             }
         }
         if !curr.is_empty() {
-            elements.push(vm.ctx.new_str(curr.clone()));
+            elements.push(vm.ctx.new_str(curr));
         }
         vm.ctx.new_list(elements)
     }
