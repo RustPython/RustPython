@@ -72,6 +72,13 @@ cargo build --release --target wasm32-wasi --features="freeze-stdlib"
 
 > Note: we use the `freeze-stdlib` to include the standard library inside the binary.
 
+
+## Embedding RustPython into your Rust Applications
+
+Interested in exposing Python scripting in an application written in Rust,
+perhaps to allow quickly tweaking logic where Rust's compile times would be inhibitive?
+Then `examples/hello_embed.rs` and `examples/mini_repl.rs` may be of some assistance.
+
 ## Disclaimer
 
 RustPython is in a development phase and should not be used in production or a
