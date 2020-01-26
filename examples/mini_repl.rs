@@ -5,7 +5,7 @@
 ///! of the compilation mode "Single".
 use rustpython_compiler as compiler;
 use rustpython_vm as vm;
-// these are needed for special pointer shenanigans to let us share a variable with Python and Rust
+// these are needed for special memory shenanigans to let us share a variable with Python and Rust
 use std::cell::Cell;
 use std::rc::Rc;
 // this needs to be in scope in order to insert things into scope.globals
