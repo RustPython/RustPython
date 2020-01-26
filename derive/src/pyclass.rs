@@ -68,14 +68,28 @@ impl Class {
                 NestedMeta::Meta(meta) => meta,
                 NestedMeta::Lit(_) => continue,
             };
-            if let Meta::NameValue(name_value) = meta {
-                if path_eq(&name_value.path, "name") {
-                    if let Lit::Str(s) = &name_value.lit {
-                        py_name = Some(s.value());
-                    } else {
-                        bail_span!(&sig.ident, "#[pymethod(name = ...)] must be a string");
+
+            match meta {
+                Meta::NameValue(name_value) => {
+                    if path_eq(&name_value.path, "name") {
+                        if let Lit::Str(s) = &name_value.lit {
+                            py_name = Some(s.value());
+                        } else {
+                            bail_span!(&sig.ident, "#[pymethod(name = ...)] must be a string");
+                        }
                     }
                 }
+                Meta::Path(path) => {
+                    if path.get_ident().map_or(false, |v| v == "magic") {
+                        py_name = Some(format!("__{}__", sig.ident.to_string()));
+                    } else {
+                        bail_span!(
+                            &sig.ident,
+                            "#[pymethod(magic)] or #[pymethod(name = ...)] is expected"
+                        );
+                    }
+                }
+                _ => (),
             }
         }
 

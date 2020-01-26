@@ -242,7 +242,7 @@ impl PyValue for PyFunction {
 
 #[pyimpl(with(PyBuiltinDescriptor))]
 impl PyFunction {
-    #[pymethod(name = "__call__")]
+    #[pymethod(magic)]
     fn call(zelf: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm.invoke(&zelf, args)
     }
