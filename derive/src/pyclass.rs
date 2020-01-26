@@ -42,6 +42,182 @@ enum ClassItem {
     },
 }
 
+struct ClassItemMeta<'a> {
+    sig: &'a Signature,
+    parent_type: &'static str,
+    meta: HashMap<String, Option<Lit>>,
+}
+
+impl<'a> ClassItemMeta<'a> {
+    const METHOD_NAMES: &'static [&'static str] = &["name", "magic"];
+    const PROPERTY_NAMES: &'static [&'static str] = &["name", "magic", "setter"];
+
+    fn from_nested_meta(
+        parent_type: &'static str,
+        sig: &'a Signature,
+        nested_meta: &[NestedMeta],
+        names: &[&'static str],
+    ) -> Result<Self, Diagnostic> {
+        let mut extracted = Self {
+            sig,
+            parent_type,
+            meta: HashMap::new(),
+        };
+
+        let validate_name = |name: &str, extracted: &Self| -> Result<(), Diagnostic> {
+            if names.contains(&name) {
+                if extracted.meta.contains_key(name) {
+                    bail_span!(
+                        &sig.ident,
+                        "#[{}] must have only one '{}'",
+                        parent_type,
+                        name
+                    );
+                } else {
+                    Ok(())
+                }
+            } else {
+                bail_span!(
+                    &sig.ident,
+                    "#[{}({})] is not one of allowed attributes {}",
+                    parent_type,
+                    name,
+                    names.join(", ")
+                );
+            }
+        };
+
+        for meta in nested_meta {
+            let meta = match meta {
+                NestedMeta::Meta(meta) => meta,
+                NestedMeta::Lit(_) => continue,
+            };
+
+            match meta {
+                Meta::NameValue(name_value) => {
+                    if let Some(ident) = name_value.path.get_ident() {
+                        let name = ident.to_string();
+                        validate_name(&name, &extracted)?;
+                        extracted.meta.insert(name, Some(name_value.lit.clone()));
+                    }
+                }
+                Meta::Path(path) => {
+                    if let Some(ident) = path.get_ident() {
+                        let name = ident.to_string();
+                        validate_name(&name, &extracted)?;
+                        extracted.meta.insert(name, None);
+                    } else {
+                        continue;
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        Ok(extracted)
+    }
+
+    fn _str(&self, key: &str) -> Result<Option<String>, Diagnostic> {
+        Ok(match self.meta.get(key) {
+            Some(Some(lit)) => {
+                if let Lit::Str(s) = lit {
+                    Some(s.value())
+                } else {
+                    bail_span!(
+                        &self.sig.ident,
+                        "#[{}({} = ...)] must be a string",
+                        self.parent_type,
+                        key
+                    );
+                }
+            }
+            Some(None) => {
+                bail_span!(
+                    &self.sig.ident,
+                    "#[{}({} = ...)] is expected",
+                    self.parent_type,
+                    key,
+                );
+            }
+            None => None,
+        })
+    }
+
+    fn _bool(&self, key: &str) -> Result<bool, Diagnostic> {
+        Ok(match self.meta.get(key) {
+            Some(Some(_)) => {
+                bail_span!(
+                    &self.sig.ident,
+                    "#[{}({})] is expected",
+                    self.parent_type,
+                    key,
+                );
+            }
+            Some(None) => true,
+            None => false,
+        })
+    }
+
+    fn method_name(&self) -> Result<String, Diagnostic> {
+        let name = self._str("name")?;
+        let magic = self._bool("magic")?;
+        Ok(if let Some(name) = name {
+            name
+        } else {
+            let name = self.sig.ident.to_string();
+            if magic {
+                format!("__{}__", name)
+            } else {
+                name
+            }
+        })
+    }
+
+    fn setter(&self) -> Result<bool, Diagnostic> {
+        self._bool("setter")
+    }
+
+    fn property_name(&self) -> Result<String, Diagnostic> {
+        let magic = self._bool("magic")?;
+        let setter = self._bool("setter")?;
+        let name = self._str("name")?;
+
+        Ok(if let Some(name) = name {
+            name
+        } else {
+            let sig_name = self.sig.ident.to_string();
+            let name = if setter {
+                if sig_name.starts_with("set_") {
+                    let name = &sig_name["set_".len()..];
+                    if name.is_empty() {
+                        bail_span!(
+                            &self.sig.ident,
+                            "A #[{}(setter)] fn with a set_* name must \
+                             have something after \"set_\"",
+                            self.parent_type
+                        )
+                    }
+                    name.to_string()
+                } else {
+                    bail_span!(
+                        &self.sig.ident,
+                        "A #[{}(setter)] fn must either have a `name` \
+                         parameter or a fn name along the lines of \"set_*\"",
+                        self.parent_type
+                    )
+                }
+            } else {
+                sig_name
+            };
+            if magic {
+                format!("__{}__", name)
+            } else {
+                name
+            }
+        })
+    }
+}
+
 impl Class {
     fn add_item(&mut self, item: ClassItem, span: Span) -> Result<(), Diagnostic> {
         if self.items.insert(item) {
@@ -62,40 +238,16 @@ impl Class {
                  #[pymethod(name = \"...\")]",
             )
         })?;
-        let mut py_name = None;
-        for meta in nesteds {
-            let meta = match meta {
-                NestedMeta::Meta(meta) => meta,
-                NestedMeta::Lit(_) => continue,
-            };
 
-            match meta {
-                Meta::NameValue(name_value) => {
-                    if path_eq(&name_value.path, "name") {
-                        if let Lit::Str(s) = &name_value.lit {
-                            py_name = Some(s.value());
-                        } else {
-                            bail_span!(&sig.ident, "#[pymethod(name = ...)] must be a string");
-                        }
-                    }
-                }
-                Meta::Path(path) => {
-                    if path.get_ident().map_or(false, |v| v == "magic") {
-                        py_name = Some(format!("__{}__", sig.ident.to_string()));
-                    } else {
-                        bail_span!(
-                            &sig.ident,
-                            "#[pymethod(magic)] or #[pymethod(name = ...)] is expected"
-                        );
-                    }
-                }
-                _ => (),
-            }
-        }
-
+        let item_meta = ClassItemMeta::from_nested_meta(
+            "pymethod",
+            sig,
+            &nesteds,
+            ClassItemMeta::METHOD_NAMES,
+        )?;
         Ok(ClassItem::Method {
             item_ident: sig.ident.clone(),
-            py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
+            py_name: item_meta.method_name()?,
         })
     }
 
@@ -107,25 +259,15 @@ impl Class {
                  #[pyclassmethod(name = \"...\")]",
             )
         })?;
-        let mut py_name = None;
-        for meta in nesteds {
-            let meta = match meta {
-                NestedMeta::Meta(meta) => meta,
-                NestedMeta::Lit(_) => continue,
-            };
-            if let Meta::NameValue(name_value) = meta {
-                if path_eq(&name_value.path, "name") {
-                    if let Lit::Str(s) = &name_value.lit {
-                        py_name = Some(s.value());
-                    } else {
-                        bail_span!(&sig.ident, "#[pyclassmethod(name = ...)] must be a string");
-                    }
-                }
-            }
-        }
+        let item_meta = ClassItemMeta::from_nested_meta(
+            "pyclassmethod",
+            sig,
+            &nesteds,
+            ClassItemMeta::METHOD_NAMES,
+        )?;
         Ok(ClassItem::ClassMethod {
             item_ident: sig.ident.clone(),
-            py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
+            py_name: item_meta.method_name()?,
         })
     }
 
@@ -137,64 +279,16 @@ impl Class {
                  #[pyproperty(name = \"...\")]"
             )
         })?;
-        let mut setter = false;
-        let mut py_name = None;
-        for meta in nesteds {
-            let meta = match meta {
-                NestedMeta::Meta(meta) => meta,
-                NestedMeta::Lit(_) => continue,
-            };
-            match meta {
-                Meta::NameValue(name_value) => {
-                    if path_eq(&name_value.path, "name") {
-                        if let Lit::Str(s) = &name_value.lit {
-                            py_name = Some(s.value());
-                        } else {
-                            bail_span!(&sig.ident, "#[pyproperty(name = ...)] must be a string");
-                        }
-                    }
-                }
-                Meta::Path(path) => {
-                    if path_eq(&path, "setter") {
-                        setter = true;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let py_name = match py_name {
-            Some(py_name) => py_name,
-            None => {
-                let item_ident = sig.ident.to_string();
-                if setter {
-                    if item_ident.starts_with("set_") {
-                        let name = &item_ident["set_".len()..];
-                        if name.is_empty() {
-                            bail_span!(
-                                &sig.ident,
-                                "A #[pyproperty(setter)] fn with a set_* name must \
-                                 have something after \"set_\""
-                            )
-                        } else {
-                            name.to_string()
-                        }
-                    } else {
-                        bail_span!(
-                            &sig.ident,
-                            "A #[pyproperty(setter)] fn must either have a `name` \
-                             parameter or a fn name along the lines of \"set_*\""
-                        )
-                    }
-                } else {
-                    item_ident
-                }
-            }
-        };
-
+        let item_meta = ClassItemMeta::from_nested_meta(
+            "pyproperty",
+            sig,
+            &nesteds,
+            ClassItemMeta::PROPERTY_NAMES,
+        )?;
         Ok(ClassItem::Property {
-            py_name,
+            py_name: item_meta.property_name()?,
             item_ident: sig.ident.clone(),
-            setter,
+            setter: item_meta.setter()?,
         })
     }
 
