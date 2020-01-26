@@ -41,6 +41,7 @@ fn main() -> PyResult<()> {
             .map_err(|err| vm.new_syntax_error(&err))?;
 
         // this line also automatically prints the output
+        // (note that this is only the case when compile::Mode::Single is passed to vm.compile)
         let output = vm.run_code_obj(code_obj, scope.clone())?;
 
         // store the last value in the "last" variable
