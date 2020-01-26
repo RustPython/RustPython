@@ -11,12 +11,16 @@ use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
 use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    IdProtocol, PyAttributes, PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef,
+    PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::PyClassSlots;
 use crate::vm::VirtualMachine;
 
+/// type(object_or_name, bases, dict)
+/// type(object) -> the object's type
+/// type(name, bases, dict) -> a new type
+#[pyclass(name = "type")]
 #[derive(Debug)]
 pub struct PyClass {
     pub name: String,
@@ -67,6 +71,7 @@ impl<'a> Iterator for IterMro<'a> {
     }
 }
 
+#[pyimpl]
 impl PyClassRef {
     fn iter_mro(&self) -> IterMro {
         IterMro {
@@ -75,21 +80,23 @@ impl PyClassRef {
         }
     }
 
-    fn mro(self, _vm: &VirtualMachine) -> PyTuple {
+    fn _mro(self, _vm: &VirtualMachine) -> PyTuple {
         let elements: Vec<PyObjectRef> =
             _mro(&self).iter().map(|x| x.as_object().clone()).collect();
         PyTuple::from(elements)
     }
 
-    fn set_mro(self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn _set_mro(self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_attribute_error("read-only attribute".to_string()))
     }
 
+    #[pyproperty(magic)]
     fn bases(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
             .new_tuple(self.bases.iter().map(|x| x.as_object().clone()).collect())
     }
 
+    #[pymethod(magic)]
     fn dir(self, vm: &VirtualMachine) -> PyList {
         let attributes = get_attributes(self);
         let attributes: Vec<PyObjectRef> = attributes
@@ -99,22 +106,27 @@ impl PyClassRef {
         PyList::from(attributes)
     }
 
-    fn instance_check(self, obj: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    #[pymethod(magic)]
+    fn instancecheck(self, obj: PyObjectRef, _vm: &VirtualMachine) -> bool {
         isinstance(&obj, &self)
     }
 
-    fn subclass_check(self, subclass: PyClassRef, _vm: &VirtualMachine) -> bool {
+    #[pymethod(magic)]
+    fn subclasscheck(self, subclass: PyClassRef, _vm: &VirtualMachine) -> bool {
         issubclass(&subclass, &self)
     }
 
+    #[pyproperty(magic)]
     fn name(self, _vm: &VirtualMachine) -> String {
         self.name.clone()
     }
 
+    #[pymethod(magic)]
     fn repr(self, _vm: &VirtualMachine) -> String {
         format!("<class '{}'>", self.name)
     }
 
+    #[pyproperty(magic)]
     fn qualname(self, vm: &VirtualMachine) -> PyObjectRef {
         self.attributes
             .borrow()
@@ -123,6 +135,7 @@ impl PyClassRef {
             .unwrap_or_else(|| vm.ctx.new_str(self.name.clone()))
     }
 
+    #[pyproperty(magic)]
     fn module(self, vm: &VirtualMachine) -> PyObjectRef {
         // TODO: Implement getting the actual module a builtin type is from
         self.attributes
@@ -132,10 +145,12 @@ impl PyClassRef {
             .unwrap_or_else(|| vm.ctx.new_str("builtins".to_owned()))
     }
 
+    #[pymethod(magic)]
     fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
     }
 
+    #[pymethod(magic)]
     fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let name = name_ref.as_str();
         vm_trace!("type.__getattribute__({:?}, {:?})", self, name);
@@ -171,7 +186,8 @@ impl PyClassRef {
         }
     }
 
-    fn set_attr(
+    #[pymethod(magic)]
+    fn setattr(
         self,
         attr_name: PyStringRef,
         value: PyObjectRef,
@@ -190,7 +206,8 @@ impl PyClassRef {
         Ok(())
     }
 
-    fn del_attr(self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod(magic)]
+    fn delattr(self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(attr) = class_get_attr(&self.class(), attr_name.as_str()) {
             if let Some(ref descriptor) = class_get_attr(&attr.class(), "__delete__") {
                 return vm
@@ -214,6 +231,7 @@ impl PyClassRef {
             .insert(attr_name.to_string(), value.into());
     }
 
+    #[pymethod(magic)]
     fn subclasses(self, _vm: &VirtualMachine) -> PyList {
         let mut subclasses = self.subclasses.borrow_mut();
         subclasses.retain(|x| x.upgrade().is_some());
@@ -224,52 +242,95 @@ impl PyClassRef {
                 .collect::<Vec<_>>(),
         )
     }
-}
 
-fn type_mro(cls: PyClassRef, vm: &VirtualMachine) -> PyObjectRef {
-    let mut mro = vec![cls.clone().into_object()];
-    mro.extend(cls.mro.iter().map(|x| x.clone().into_object()));
-    vm.ctx.new_list(mro)
+    #[pymethod]
+    fn mro(self, vm: &VirtualMachine) -> PyObjectRef {
+        let mut mro = vec![self.clone().into_object()];
+        mro.extend(self.mro.iter().map(|x| x.clone().into_object()));
+        vm.ctx.new_list(mro)
+    }
+
+    #[pyslot]
+    fn tp_new(metatype: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        vm_trace!("type.__new__ {:?}", args);
+
+        if metatype.is(&vm.ctx.types.type_type) {
+            if args.args.len() == 1 && args.kwargs.is_empty() {
+                return Ok(args.args[0].class().into_object());
+            }
+            if args.args.len() != 3 {
+                return Err(vm.new_type_error("type() takes 1 or 3 arguments".to_string()));
+            }
+        }
+
+        let (name, bases, dict): (PyStringRef, PyIterable<PyClassRef>, PyDictRef) =
+            args.bind(vm)?;
+
+        let bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
+        let bases = if bases.is_empty() {
+            vec![vm.ctx.object()]
+        } else {
+            bases
+        };
+
+        let attributes = dict.to_attributes();
+
+        let mut winner = metatype;
+        for base in &bases {
+            let base_type = base.class();
+            if issubclass(&winner, &base_type) {
+                continue;
+            } else if issubclass(&base_type, &winner) {
+                winner = base_type.clone();
+                continue;
+            }
+
+            return Err(vm.new_type_error(
+            "metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass \
+             of the metaclasses of all its bases"
+                .to_string(),
+        ));
+        }
+
+        new(winner, name.as_str(), bases, attributes).map(Into::into)
+    }
+
+    #[pyslot]
+    #[pymethod(magic)]
+    fn call(self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        vm_trace!("type_call: {:?}", self);
+        let new = vm.get_attribute(self.as_object().clone(), "__new__")?;
+        let new_args = args.insert(self.into_object());
+        let obj = vm.invoke(&new, new_args)?;
+
+        if let Some(init_method_or_err) = vm.get_method(obj.clone(), "__init__") {
+            let init_method = init_method_or_err?;
+            let res = vm.invoke(&init_method, args)?;
+            if !res.is(&vm.get_none()) {
+                return Err(vm.new_type_error("__init__ must return None".to_string()));
+            }
+        }
+        Ok(obj)
+    }
 }
 
 /*
  * The magical type type
  */
 
-pub fn init(ctx: &PyContext) {
-    let type_doc = "type(object_or_name, bases, dict)\n\
-                    type(object) -> the object's type\n\
-                    type(name, bases, dict) -> a new type";
-
+pub(crate) fn init(ctx: &PyContext) {
+    PyClassRef::extend_class(ctx, &ctx.types.type_type);
     extend_class!(&ctx, &ctx.types.type_type, {
-        "mro" => ctx.new_method(type_mro),
-        "__call__" => ctx.new_method(type_call),
-        (slot call) => type_call,
         "__dict__" =>
         PropertyBuilder::new(ctx)
                 .add_getter(type_dict)
                 .add_setter(type_dict_setter)
                 .create(),
-        (slot new) => type_new_slot,
         "__mro__" =>
             PropertyBuilder::new(ctx)
-                .add_getter(PyClassRef::mro)
-                .add_setter(PyClassRef::set_mro)
+                .add_getter(PyClassRef::_mro)
+                .add_setter(PyClassRef::_set_mro)
                 .create(),
-        "__bases__" => ctx.new_property(PyClassRef::bases),
-        "__name__" => ctx.new_property(PyClassRef::name),
-        "__repr__" => ctx.new_method(PyClassRef::repr),
-        "__qualname__" => ctx.new_property(PyClassRef::qualname),
-        "__module__" => ctx.new_property(PyClassRef::module),
-        "__prepare__" => ctx.new_method(PyClassRef::prepare),
-        "__getattribute__" => ctx.new_method(PyClassRef::getattribute),
-        "__setattr__" => ctx.new_method(PyClassRef::set_attr),
-        "__delattr__" => ctx.new_method(PyClassRef::del_attr),
-        "__subclasses__" => ctx.new_method(PyClassRef::subclasses),
-        "__instancecheck__" => ctx.new_method(PyClassRef::instance_check),
-        "__subclasscheck__" => ctx.new_method(PyClassRef::subclass_check),
-        "__doc__" => ctx.new_str(type_doc.to_string()),
-        "__dir__" => ctx.new_method(PyClassRef::dir),
     });
 }
 
@@ -290,49 +351,6 @@ pub fn isinstance<T: TypeProtocol>(obj: &T, cls: &PyClassRef) -> bool {
 pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
     let mro = &subclass.mro;
     subclass.is(cls) || mro.iter().any(|c| c.is(cls.as_object()))
-}
-
-fn type_new_slot(metatype: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-    vm_trace!("type.__new__ {:?}", args);
-
-    if metatype.is(&vm.ctx.types.type_type) {
-        if args.args.len() == 1 && args.kwargs.is_empty() {
-            return Ok(args.args[0].class().into_object());
-        }
-        if args.args.len() != 3 {
-            return Err(vm.new_type_error("type() takes 1 or 3 arguments".to_string()));
-        }
-    }
-
-    let (name, bases, dict): (PyStringRef, PyIterable<PyClassRef>, PyDictRef) = args.bind(vm)?;
-
-    let bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
-    let bases = if bases.is_empty() {
-        vec![vm.ctx.object()]
-    } else {
-        bases
-    };
-
-    let attributes = dict.to_attributes();
-
-    let mut winner = metatype;
-    for base in &bases {
-        let base_type = base.class();
-        if issubclass(&winner, &base_type) {
-            continue;
-        } else if issubclass(&base_type, &winner) {
-            winner = base_type.clone();
-            continue;
-        }
-
-        return Err(vm.new_type_error(
-            "metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass \
-             of the metaclasses of all its bases"
-                .to_string(),
-        ));
-    }
-
-    new(winner, name.as_str(), bases, attributes).map(Into::into)
 }
 
 pub fn type_new(
@@ -363,22 +381,6 @@ pub fn type_new(
     let new = slots.new.as_ref().unwrap();
 
     new(vm, args.insert(cls.into_object()))
-}
-
-pub fn type_call(class: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-    vm_trace!("type_call: {:?}", class);
-    let new = vm.get_attribute(class.as_object().clone(), "__new__")?;
-    let new_args = args.insert(class.into_object());
-    let obj = vm.invoke(&new, new_args)?;
-
-    if let Some(init_method_or_err) = vm.get_method(obj.clone(), "__init__") {
-        let init_method = init_method_or_err?;
-        let res = vm.invoke(&init_method, args)?;
-        if !res.is(&vm.get_none()) {
-            return Err(vm.new_type_error("__init__ must return None".to_string()));
-        }
-    }
-    Ok(obj)
 }
 
 fn type_dict(class: PyClassRef, _vm: &VirtualMachine) -> PyMappingProxy {
