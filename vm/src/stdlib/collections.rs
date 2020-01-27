@@ -37,7 +37,7 @@ impl PyDeque {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyDeque {
     #[pyslot]
     fn tp_new(

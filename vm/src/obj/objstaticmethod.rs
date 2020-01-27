@@ -28,7 +28,7 @@ impl PyBuiltinDescriptor for PyStaticMethod {
     }
 }
 
-#[pyimpl(with(PyBuiltinDescriptor))]
+#[pyimpl(with(PyBuiltinDescriptor), flags(BASETYPE))]
 impl PyStaticMethod {
     #[pyslot]
     fn tp_new(

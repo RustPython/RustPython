@@ -59,7 +59,7 @@ impl PyBuiltinDescriptor for PyClassMethod {
     }
 }
 
-#[pyimpl(with(PyBuiltinDescriptor))]
+#[pyimpl(with(PyBuiltinDescriptor), flags(BASETYPE))]
 impl PyClassMethod {
     #[pyslot]
     fn tp_new(

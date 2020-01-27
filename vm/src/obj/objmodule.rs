@@ -2,9 +2,12 @@ use super::objdict::PyDictRef;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
 use crate::function::OptionalOption;
-use crate::pyobject::{ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+};
 use crate::vm::VirtualMachine;
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyModule {}
 pub type PyModuleRef = PyRef<PyModule>;
@@ -40,8 +43,10 @@ pub fn init_module_dict(
         .expect("Failed to set __spec__ on module");
 }
 
+#[pyimpl(flags(BASETYPE))]
 impl PyModuleRef {
-    fn new(
+    #[pyslot]
+    fn tp_new(
         cls: PyClassRef,
         name: PyStringRef,
         doc: OptionalOption<PyStringRef>,
@@ -67,6 +72,7 @@ impl PyModuleRef {
         .and_then(|obj| obj.payload::<PyString>().map(|s| s.as_str().to_owned()))
     }
 
+    #[pymethod(magic)]
     fn getattribute(self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         vm.generic_getattribute(self.as_object().clone(), name.clone())?
             .ok_or_else(|| {
@@ -81,6 +87,7 @@ impl PyModuleRef {
             })
     }
 
+    #[pymethod(magic)]
     fn repr(self, vm: &VirtualMachine) -> PyResult {
         let importlib = vm.import("_frozen_importlib", &[], 0)?;
         let module_repr = vm.get_attribute(importlib, "_module_repr")?;
@@ -88,10 +95,6 @@ impl PyModuleRef {
     }
 }
 
-pub fn init(context: &PyContext) {
-    extend_class!(&context, &context.types.module_type, {
-        (slot new) => PyModuleRef::new,
-        "__getattribute__" => context.new_method(PyModuleRef::getattribute),
-        "__repr__" => context.new_method(PyModuleRef::repr),
-    });
+pub(crate) fn init(context: &PyContext) {
+    PyModuleRef::extend_class(&context, &context.types.module_type);
 }

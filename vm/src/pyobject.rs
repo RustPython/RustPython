@@ -37,6 +37,7 @@ use crate::obj::objstr;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::scope::Scope;
+use crate::slots::PyTpFlags;
 use crate::types::{create_type, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
 
@@ -1196,12 +1197,13 @@ where
 }
 
 pub trait PyClassImpl: PyClassDef {
-    const TP_FLAGS: u64;
+    const TP_FLAGS: PyTpFlags = PyTpFlags::DEFAULT;
+
     fn impl_extend_class(ctx: &PyContext, class: &PyClassRef);
 
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
         Self::impl_extend_class(ctx, class);
-        class.slots.borrow_mut().flags = crate::slots::PyTpFlags { 0: Self::TP_FLAGS };
+        class.slots.borrow_mut().flags = Self::TP_FLAGS;
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc.into()));
         }

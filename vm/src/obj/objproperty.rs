@@ -129,7 +129,7 @@ impl PyBuiltinDescriptor for PyProperty {
     }
 }
 
-#[pyimpl(with(PyBuiltinDescriptor))]
+#[pyimpl(with(PyBuiltinDescriptor), flags(BASETYPE))]
 impl PyProperty {
     #[pyslot]
     fn tp_new(cls: PyClassRef, args: PropertyArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {

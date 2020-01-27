@@ -175,7 +175,7 @@ def_array_enum!(
     (Double, f64, 'd'),
 );
 
-#[pyclass]
+#[pyclass(name = "array")]
 #[derive(Debug)]
 pub struct PyArray {
     array: RefCell<ArrayContentType>,
@@ -188,7 +188,7 @@ impl PyValue for PyArray {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyArray {
     #[pyslot]
     fn tp_new(

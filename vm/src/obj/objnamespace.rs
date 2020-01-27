@@ -17,7 +17,7 @@ impl PyValue for PyNamespace {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyNamespace {
     #[pyslot]
     fn tp_new(cls: PyClassRef, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {

@@ -2,23 +2,24 @@ use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::pyobject::{IdProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::VirtualMachine;
 
-#[derive(Copy, Clone)]
-pub struct PyTpFlags(pub u64);
+bitflags! {
+    pub struct PyTpFlags: u64 {
+        const BASETYPE = 1 << 10;
+    }
+}
 
 impl PyTpFlags {
-    pub const DEFAULT: u64 = 0;
-    pub const BASETYPE: u64 = 1 << 10;
+    // CPython default: Py_TPFLAGS_HAVE_STACKLESS_EXTENSION | Py_TPFLAGS_HAVE_VERSION_TAG
+    pub const DEFAULT: Self = Self::from_bits_truncate(0);
 
-    pub fn has_feature(&self, flag: u64) -> bool {
-        (self.0 & flag) != 0
+    pub fn has_feature(self, flag: Self) -> bool {
+        self.contains(flag)
     }
 }
 
 impl Default for PyTpFlags {
     fn default() -> Self {
-        Self {
-            0: PyTpFlags::DEFAULT,
-        }
+        Self::DEFAULT
     }
 }
 

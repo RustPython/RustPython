@@ -84,7 +84,7 @@ impl PyValue for PySocket {
 
 pub type PySocketRef = PyRef<PySocket>;
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PySocket {
     fn sock(&self) -> Ref<Socket> {
         self.sock.borrow()

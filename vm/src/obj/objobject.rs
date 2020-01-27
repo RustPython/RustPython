@@ -10,6 +10,7 @@ use crate::pyobject::{
     IdProtocol, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyComparisonValue, PyContext,
     PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
+use crate::slots::PyTpFlags;
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
@@ -172,6 +173,8 @@ fn object_format(
 pub fn init(context: &PyContext) {
     let object = &context.types.object_type;
     let object_doc = "The most base type";
+
+    object.slots.borrow_mut().flags |= PyTpFlags::BASETYPE;
 
     extend_class!(context, object, {
         (slot new) => new_instance,

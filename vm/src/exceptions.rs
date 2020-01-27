@@ -9,6 +9,7 @@ use crate::pyobject::{
     PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
+use crate::slots::PyTpFlags;
 use crate::types::create_type;
 use crate::VirtualMachine;
 use itertools::Itertools;
@@ -43,7 +44,7 @@ impl PyValue for PyBaseException {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyBaseException {
     pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
         PyBaseException {
@@ -446,73 +447,78 @@ pub struct ExceptionZoo {
 
 impl ExceptionZoo {
     pub fn new(type_type: &PyClassRef, object_type: &PyClassRef) -> Self {
+        let create_exception_type = |name: &str, base: &PyClassRef| {
+            let typ = create_type(name, type_type, base);
+            typ.slots.borrow_mut().flags |= PyTpFlags::BASETYPE;
+            typ
+        };
         // Sorted By Hierarchy then alphabetized.
-        let base_exception_type = create_type("BaseException", &type_type, &object_type);
-        let exception_type = create_type("Exception", &type_type, &base_exception_type);
-        let arithmetic_error = create_type("ArithmeticError", &type_type, &exception_type);
-        let assertion_error = create_type("AssertionError", &type_type, &exception_type);
-        let attribute_error = create_type("AttributeError", &type_type, &exception_type);
-        let import_error = create_type("ImportError", &type_type, &exception_type);
-        let lookup_error = create_type("LookupError", &type_type, &exception_type);
-        let index_error = create_type("IndexError", &type_type, &lookup_error);
-        let key_error = create_type("KeyError", &type_type, &lookup_error);
-        let name_error = create_type("NameError", &type_type, &exception_type);
-        let runtime_error = create_type("RuntimeError", &type_type, &exception_type);
-        let reference_error = create_type("ReferenceError", &type_type, &exception_type);
-        let stop_iteration = create_type("StopIteration", &type_type, &exception_type);
-        let stop_async_iteration = create_type("StopAsyncIteration", &type_type, &exception_type);
-        let syntax_error = create_type("SyntaxError", &type_type, &exception_type);
-        let system_error = create_type("SystemError", &type_type, &exception_type);
-        let type_error = create_type("TypeError", &type_type, &exception_type);
-        let value_error = create_type("ValueError", &type_type, &exception_type);
-        let overflow_error = create_type("OverflowError", &type_type, &arithmetic_error);
-        let zero_division_error = create_type("ZeroDivisionError", &type_type, &arithmetic_error);
-        let module_not_found_error = create_type("ModuleNotFoundError", &type_type, &import_error);
-        let not_implemented_error = create_type("NotImplementedError", &type_type, &runtime_error);
-        let recursion_error = create_type("RecursionError", &type_type, &runtime_error);
-        let eof_error = create_type("EOFError", &type_type, &exception_type);
-        let indentation_error = create_type("IndentationError", &type_type, &syntax_error);
-        let tab_error = create_type("TabError", &type_type, &indentation_error);
-        let unicode_error = create_type("UnicodeError", &type_type, &value_error);
-        let unicode_decode_error = create_type("UnicodeDecodeError", &type_type, &unicode_error);
-        let unicode_encode_error = create_type("UnicodeEncodeError", &type_type, &unicode_error);
+        let base_exception_type = create_exception_type("BaseException", &object_type);
+        let exception_type = create_exception_type("Exception", &base_exception_type);
+        let arithmetic_error = create_exception_type("ArithmeticError", &exception_type);
+        let assertion_error = create_exception_type("AssertionError", &exception_type);
+        let attribute_error = create_exception_type("AttributeError", &exception_type);
+        let import_error = create_exception_type("ImportError", &exception_type);
+        let lookup_error = create_exception_type("LookupError", &exception_type);
+        let index_error = create_exception_type("IndexError", &lookup_error);
+        let key_error = create_exception_type("KeyError", &lookup_error);
+        let name_error = create_exception_type("NameError", &exception_type);
+        let runtime_error = create_exception_type("RuntimeError", &exception_type);
+        let reference_error = create_exception_type("ReferenceError", &exception_type);
+        let stop_iteration = create_exception_type("StopIteration", &exception_type);
+        let stop_async_iteration = create_exception_type("StopAsyncIteration", &exception_type);
+        let syntax_error = create_exception_type("SyntaxError", &exception_type);
+        let system_error = create_exception_type("SystemError", &exception_type);
+        let type_error = create_exception_type("TypeError", &exception_type);
+        let value_error = create_exception_type("ValueError", &exception_type);
+        let overflow_error = create_exception_type("OverflowError", &arithmetic_error);
+        let zero_division_error = create_exception_type("ZeroDivisionError", &arithmetic_error);
+        let module_not_found_error = create_exception_type("ModuleNotFoundError", &import_error);
+        let not_implemented_error = create_exception_type("NotImplementedError", &runtime_error);
+        let recursion_error = create_exception_type("RecursionError", &runtime_error);
+        let eof_error = create_exception_type("EOFError", &exception_type);
+        let indentation_error = create_exception_type("IndentationError", &syntax_error);
+        let tab_error = create_exception_type("TabError", &indentation_error);
+        let unicode_error = create_exception_type("UnicodeError", &value_error);
+        let unicode_decode_error = create_exception_type("UnicodeDecodeError", &unicode_error);
+        let unicode_encode_error = create_exception_type("UnicodeEncodeError", &unicode_error);
         let unicode_translate_error =
-            create_type("UnicodeTranslateError", &type_type, &unicode_error);
-        let memory_error = create_type("MemoryError", &type_type, &exception_type);
+            create_exception_type("UnicodeTranslateError", &unicode_error);
+        let memory_error = create_exception_type("MemoryError", &exception_type);
 
         // os errors
-        let os_error = create_type("OSError", &type_type, &exception_type);
+        let os_error = create_exception_type("OSError", &exception_type);
 
-        let file_not_found_error = create_type("FileNotFoundError", &type_type, &os_error);
-        let permission_error = create_type("PermissionError", &type_type, &os_error);
-        let file_exists_error = create_type("FileExistsError", &type_type, &os_error);
-        let blocking_io_error = create_type("BlockingIOError", &type_type, &os_error);
-        let interrupted_error = create_type("InterruptedError", &type_type, &os_error);
-        let connection_error = create_type("ConnectionError", &type_type, &os_error);
+        let file_not_found_error = create_exception_type("FileNotFoundError", &os_error);
+        let permission_error = create_exception_type("PermissionError", &os_error);
+        let file_exists_error = create_exception_type("FileExistsError", &os_error);
+        let blocking_io_error = create_exception_type("BlockingIOError", &os_error);
+        let interrupted_error = create_exception_type("InterruptedError", &os_error);
+        let connection_error = create_exception_type("ConnectionError", &os_error);
         let connection_reset_error =
-            create_type("ConnectionResetError", &type_type, &connection_error);
+            create_exception_type("ConnectionResetError", &connection_error);
         let connection_refused_error =
-            create_type("ConnectionRefusedError", &type_type, &connection_error);
+            create_exception_type("ConnectionRefusedError", &connection_error);
         let connection_aborted_error =
-            create_type("ConnectionAbortedError", &type_type, &connection_error);
-        let broken_pipe_error = create_type("BrokenPipeError", &type_type, &connection_error);
+            create_exception_type("ConnectionAbortedError", &connection_error);
+        let broken_pipe_error = create_exception_type("BrokenPipeError", &connection_error);
 
-        let warning = create_type("Warning", &type_type, &exception_type);
-        let bytes_warning = create_type("BytesWarning", &type_type, &warning);
-        let unicode_warning = create_type("UnicodeWarning", &type_type, &warning);
-        let deprecation_warning = create_type("DeprecationWarning", &type_type, &warning);
+        let warning = create_exception_type("Warning", &exception_type);
+        let bytes_warning = create_exception_type("BytesWarning", &warning);
+        let unicode_warning = create_exception_type("UnicodeWarning", &warning);
+        let deprecation_warning = create_exception_type("DeprecationWarning", &warning);
         let pending_deprecation_warning =
-            create_type("PendingDeprecationWarning", &type_type, &warning);
-        let future_warning = create_type("FutureWarning", &type_type, &warning);
-        let import_warning = create_type("ImportWarning", &type_type, &warning);
-        let syntax_warning = create_type("SyntaxWarning", &type_type, &warning);
-        let resource_warning = create_type("ResourceWarning", &type_type, &warning);
-        let runtime_warning = create_type("RuntimeWarning", &type_type, &warning);
-        let user_warning = create_type("UserWarning", &type_type, &warning);
+            create_exception_type("PendingDeprecationWarning", &warning);
+        let future_warning = create_exception_type("FutureWarning", &warning);
+        let import_warning = create_exception_type("ImportWarning", &warning);
+        let syntax_warning = create_exception_type("SyntaxWarning", &warning);
+        let resource_warning = create_exception_type("ResourceWarning", &warning);
+        let runtime_warning = create_exception_type("RuntimeWarning", &warning);
+        let user_warning = create_exception_type("UserWarning", &warning);
 
-        let keyboard_interrupt = create_type("KeyboardInterrupt", &type_type, &base_exception_type);
-        let generator_exit = create_type("GeneratorExit", &type_type, &base_exception_type);
-        let system_exit = create_type("SystemExit", &type_type, &base_exception_type);
+        let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);
+        let generator_exit = create_exception_type("GeneratorExit", &base_exception_type);
+        let system_exit = create_exception_type("SystemExit", &base_exception_type);
 
         ExceptionZoo {
             arithmetic_error,

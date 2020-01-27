@@ -473,7 +473,7 @@ fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnosti
 
 fn extract_impl_attrs(attr: AttributeArgs) -> Result<(TokenStream2, TokenStream2), Diagnostic> {
     let mut withs = Vec::new();
-    let mut flags = vec![quote! { rustpython_vm::slots::PyTpFlags::DEFAULT }];
+    let mut flags = vec![quote! { ::rustpython_vm::slots::PyTpFlags::DEFAULT.bits() }];
 
     for attr in attr {
         match attr {
@@ -497,7 +497,7 @@ fn extract_impl_attrs(attr: AttributeArgs) -> Result<(TokenStream2, TokenStream2
                             NestedMeta::Meta(Meta::Path(path)) => {
                                 if let Some(ident) = path.get_ident() {
                                     flags.push(quote! {
-                                        | rustpython_vm::slots::PyTpFlags::#ident
+                                        | ::rustpython_vm::slots::PyTpFlags::#ident.bits()
                                     });
                                 } else {
                                     bail_span!(
@@ -548,7 +548,7 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diag
             let ret = quote! {
                 #imp
                 impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
-                    const TP_FLAGS: u64 = #flags;
+                    const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::from_bits_truncate(#flags);
 
                     fn impl_extend_class(
                         ctx: &::rustpython_vm::pyobject::PyContext,
@@ -719,8 +719,6 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             }
         }
         impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
-            const TP_FLAGS: u64 = ::rustpython_vm::slots::PyTpFlags::DEFAULT;
-
             fn impl_extend_class(
                 ctx: &::rustpython_vm::pyobject::PyContext,
                 class: &::rustpython_vm::obj::objtype::PyClassRef,

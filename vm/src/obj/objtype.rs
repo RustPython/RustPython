@@ -14,7 +14,7 @@ use crate::pyobject::{
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef,
     PyResult, PyValue, TypeProtocol,
 };
-use crate::slots::PyClassSlots;
+use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
 
 /// type(object_or_name, bases, dict)
@@ -71,7 +71,7 @@ impl<'a> Iterator for IterMro<'a> {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyClassRef {
     fn iter_mro(&self) -> IterMro {
         IterMro {
@@ -292,14 +292,15 @@ impl PyClassRef {
                 metatype
             };
 
-            // let base = best_base(bases)?;
-            let base = bases[0].clone();
+            let base = best_base(&bases, vm)?;
 
             (metatype, base, bases)
         };
 
         let attributes = dict.to_attributes();
-        new(metatype, name.as_str(), base, bases, attributes).map(Into::into)
+        let typ = new(metatype, name.as_str(), base.clone(), bases, attributes)?;
+        typ.slots.borrow_mut().flags = base.slots.borrow().flags;
+        Ok(typ.into())
     }
 
     #[pyslot]
@@ -546,6 +547,54 @@ fn calculate_meta_class(
     Ok(winner)
 }
 
+fn best_base<'a>(bases: &'a [PyClassRef], vm: &VirtualMachine) -> PyResult<PyClassRef> {
+    // let mut base = None;
+    // let mut winner = None;
+
+    for base_i in bases {
+        // base_proto = PyTuple_GET_ITEM(bases, i);
+        // if (!PyType_Check(base_proto)) {
+        //     PyErr_SetString(
+        //         PyExc_TypeError,
+        //         "bases must be types");
+        //     return NULL;
+        // }
+        // base_i = (PyTypeObject *)base_proto;
+        // if (base_i->tp_dict == NULL) {
+        //     if (PyType_Ready(base_i) < 0)
+        //         return NULL;
+        // }
+
+        if !base_i.slots.borrow().flags.has_feature(PyTpFlags::BASETYPE) {
+            return Err(vm.new_type_error(format!(
+                "type '{}' is not an acceptable base type",
+                base_i.name
+            )));
+        }
+        // candidate = solid_base(base_i);
+        // if (winner == NULL) {
+        //     winner = candidate;
+        //     base = base_i;
+        // }
+        // else if (PyType_IsSubtype(winner, candidate))
+        //     ;
+        // else if (PyType_IsSubtype(candidate, winner)) {
+        //     winner = candidate;
+        //     base = base_i;
+        // }
+        // else {
+        //     PyErr_SetString(
+        //         PyExc_TypeError,
+        //         "multiple bases have "
+        //         "instance lay-out conflict");
+        //     return NULL;
+        // }
+    }
+
+    // FIXME: Ok(base.unwrap()) is expected
+    Ok(bases[0].clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{linearise_mro, new};
@@ -564,8 +613,22 @@ mod tests {
         let object: PyClassRef = context.object();
         let type_type = &context.types.type_type;
 
-        let a = new(type_type.clone(), "A", vec![object.clone()], HashMap::new()).unwrap();
-        let b = new(type_type.clone(), "B", vec![object.clone()], HashMap::new()).unwrap();
+        let a = new(
+            type_type.clone(),
+            "A",
+            object.clone(),
+            vec![object.clone()],
+            HashMap::new(),
+        )
+        .unwrap();
+        let b = new(
+            type_type.clone(),
+            "B",
+            object.clone(),
+            vec![object.clone()],
+            HashMap::new(),
+        )
+        .unwrap();
 
         assert_eq!(
             map_ids(linearise_mro(vec![
