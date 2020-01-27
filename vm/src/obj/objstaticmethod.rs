@@ -1,7 +1,7 @@
 use super::objtype::PyClassRef;
-use crate::descriptor::PyBuiltinDescriptor;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::slots::PyBuiltinDescriptor;
 use crate::vm::VirtualMachine;
 
 #[pyclass(name = "staticmethod")]

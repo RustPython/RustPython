@@ -26,14 +26,13 @@ use crate::frozen;
 use crate::function::PyFuncArgs;
 use crate::import;
 use crate::obj::objbool;
-use crate::obj::objbuiltinfunc::{PyBuiltinFunction, PyBuiltinMethod};
 use crate::obj::objcode::{PyCode, PyCodeRef};
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objfunction::{PyBoundMethod, PyFunction};
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objmodule::{self, PyModule};
+use crate::obj::objobject;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
@@ -656,31 +655,23 @@ impl VirtualMachine {
         }
     }
 
-    fn _invoke(&self, func_ref: &PyObjectRef, args: PyFuncArgs) -> PyResult {
-        vm_trace!("Invoke: {:?} {:?}", func_ref, args);
-
-        if let Some(py_func) = func_ref.payload::<PyFunction>() {
+    fn _invoke(&self, callable: &PyObjectRef, args: PyFuncArgs) -> PyResult {
+        vm_trace!("Invoke: {:?} {:?}", callable, args);
+        let class = callable.class();
+        let slots = class.slots.borrow();
+        if let Some(slot_call) = slots.borrow().call.as_ref() {
             self.trace_event(TraceEvent::Call)?;
-            let res = py_func.invoke(args, self);
+            let args = args.insert(callable.clone());
+            let result = slot_call(self, args);
             self.trace_event(TraceEvent::Return)?;
-            res
-        } else if let Some(PyBoundMethod {
-            ref function,
-            ref object,
-        }) = func_ref.payload()
-        {
-            let args = args.insert(object.clone());
-            self.invoke(&function, args)
-        } else if let Some(builtin_func) = func_ref.payload::<PyBuiltinFunction>() {
-            builtin_func.as_func()(self, args)
-        } else if let Some(method) = func_ref.payload::<PyBuiltinMethod>() {
-            method.as_func()(self, args)
-        } else if self.is_callable(&func_ref) {
-            self.call_method(&func_ref, "__call__", args)
+            result
+        } else if objtype::class_has_attr(&class, "__call__") {
+            let result = self.call_method(&callable, "__call__", args);
+            result
         } else {
             Err(self.new_type_error(format!(
                 "'{}' object is not callable",
-                func_ref.class().name
+                callable.class().name
             )))
         }
     }
@@ -889,12 +880,8 @@ impl VirtualMachine {
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
-        match_class!(match obj {
-            PyFunction => true,
-            PyBoundMethod => true,
-            PyBuiltinFunction => true,
-            obj => objtype::class_has_attr(&obj.class(), "__call__"),
-        })
+        obj.class().slots.borrow().call.is_some()
+            || objtype::class_has_attr(&obj.class(), "__call__")
     }
 
     #[inline]
@@ -1311,8 +1298,7 @@ impl VirtualMachine {
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        self.set_attr(module, attr_name, val)?;
-        Ok(())
+        objobject::object_setattr(module.clone(), attr_name.try_into_ref(self)?, val, self)
     }
 }
 

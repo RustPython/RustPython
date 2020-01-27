@@ -77,7 +77,7 @@ fn object_hash(zelf: PyObjectRef, _vm: &VirtualMachine) -> pyhash::PyHash {
     zelf.get_id() as pyhash::PyHash
 }
 
-fn object_setattr(
+pub(crate) fn object_setattr(
     obj: PyObjectRef,
     attr_name: PyStringRef,
     value: PyObjectRef,

@@ -957,9 +957,8 @@ pub fn builtin_build_class_(
 
     function.invoke_with_scope(vec![].into(), &scope, vm)?;
 
-    let class = vm.call_method(
+    let class = vm.invoke(
         metaclass.as_object(),
-        "__call__",
         vec![name_obj, bases, namespace.into_object()],
     )?;
     cells.set_item("__class__", class.clone(), vm)?;

@@ -1,9 +1,9 @@
 use super::objtype::PyClassRef;
-use crate::descriptor::PyBuiltinDescriptor;
 use crate::function::OptionalArg;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
+use crate::slots::PyBuiltinDescriptor;
 use crate::vm::VirtualMachine;
 
 /// classmethod(function) -> method

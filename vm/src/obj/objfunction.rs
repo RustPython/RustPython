@@ -4,7 +4,6 @@ use super::objstr::PyStringRef;
 use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
 use crate::bytecode;
-use crate::descriptor::PyBuiltinDescriptor;
 use crate::frame::Frame;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objcoroutine::PyCoroutine;
@@ -14,6 +13,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::scope::Scope;
+use crate::slots::{PyBuiltinCallable, PyBuiltinDescriptor};
 use crate::vm::VirtualMachine;
 
 pub type PyFunctionRef = PyRef<PyFunction>;
@@ -242,9 +242,10 @@ impl PyValue for PyFunction {
 
 #[pyimpl(with(PyBuiltinDescriptor))]
 impl PyFunction {
+    #[pyslot]
     #[pymethod(magic)]
-    fn call(zelf: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        vm.invoke(&zelf, args)
+    fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        self.invoke(args, vm)
     }
 
     #[pyproperty(name = "__code__")]
@@ -263,6 +264,7 @@ impl PyFunction {
     }
 }
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyBoundMethod {
     // TODO: these shouldn't be public
@@ -270,11 +272,22 @@ pub struct PyBoundMethod {
     pub function: PyObjectRef,
 }
 
+impl PyBuiltinCallable for PyBoundMethod {
+    fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        let args = args.insert(self.object.clone());
+        vm.invoke(&self.function, args)
+    }
+}
+
 impl PyBoundMethod {
     pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         PyBoundMethod { object, function }
     }
+}
 
+#[pyimpl(with(PyBuiltinCallable))]
+impl PyBoundMethod {
+    #[pymethod(magic)]
     fn getattribute(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         vm.get_attribute(self.function.clone(), name)
     }
@@ -291,7 +304,5 @@ pub fn init(context: &PyContext) {
     PyFunction::extend_class(context, function_type);
 
     let method_type = &context.types.bound_method_type;
-    extend_class!(context, method_type, {
-        "__getattribute__" => context.new_method(PyBoundMethod::getattribute),
-    });
+    PyBoundMethod::extend_class(context, method_type);
 }

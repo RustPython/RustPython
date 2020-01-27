@@ -59,7 +59,6 @@ pub mod macros;
 
 mod builtins;
 pub mod cformat;
-mod descriptor;
 mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;
@@ -75,6 +74,7 @@ mod pyhash;
 pub mod pyobject;
 pub mod scope;
 mod sequence;
+mod slots;
 pub mod stdlib;
 mod sysmodule;
 pub mod types;

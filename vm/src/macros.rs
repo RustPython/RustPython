@@ -169,7 +169,7 @@ macro_rules! py_namespace {
         {
             let namespace = $vm.ctx.new_namespace();
             $(
-                $vm.set_attr(&namespace, $name, $value).unwrap();
+                $vm.__module_set_attr(&namespace, $name, $value).unwrap();
             )*
             namespace
         }
