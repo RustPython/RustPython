@@ -458,7 +458,7 @@ impl PyContext {
     }
 
     pub fn new_class(&self, name: &str, base: PyClassRef) -> PyClassRef {
-        objtype::new(self.type_type(), name, vec![base], PyAttributes::new()).unwrap()
+        create_type(name, &self.type_type(), &base)
     }
 
     pub fn new_namespace(&self) -> PyObjectRef {

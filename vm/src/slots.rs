@@ -10,7 +10,7 @@ impl PyTpFlags {
     pub const BASETYPE: u64 = 1 << 10;
 
     pub fn has_feature(&self, flag: u64) -> bool {
-        (self.0 | flag) != 0
+        (self.0 & flag) != 0
     }
 }
 

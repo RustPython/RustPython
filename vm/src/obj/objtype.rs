@@ -264,35 +264,42 @@ impl PyClassRef {
         }
 
         let (name, bases, dict): (PyStringRef, PyIterable<PyClassRef>, PyDictRef) =
-            args.bind(vm)?;
+            args.clone().bind(vm)?;
 
         let bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
-        let bases = if bases.is_empty() {
-            vec![vm.ctx.object()]
+        let (metatype, base, bases) = if bases.is_empty() {
+            let base = vm.ctx.object();
+            (metatype, base.clone(), vec![base])
         } else {
-            bases
+            // TODO
+            // for base in &bases {
+            //   if PyType_Check(base) { continue; }
+            //   _PyObject_LookupAttrId(base, PyId___mro_entries__, &base)?
+            //   Err(new_type_error( "type() doesn't support MRO entry resolution; "
+            //                       "use types.new_class()"))
+            // }
+
+            // Search the bases for the proper metatype to deal with this:
+            let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
+            let metatype = if !winner.is(&metatype) {
+                if let Some(ref tp_new) = winner.clone().slots.borrow().new {
+                    // Pass it to the winner
+
+                    return tp_new(vm, args.insert(winner.into_object()));
+                }
+                winner
+            } else {
+                metatype
+            };
+
+            // let base = best_base(bases)?;
+            let base = bases[0].clone();
+
+            (metatype, base, bases)
         };
 
         let attributes = dict.to_attributes();
-
-        let mut winner = metatype;
-        for base in &bases {
-            let base_type = base.class();
-            if issubclass(&winner, &base_type) {
-                continue;
-            } else if issubclass(&base_type, &winner) {
-                winner = base_type.clone();
-                continue;
-            }
-
-            return Err(vm.new_type_error(
-            "metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass \
-             of the metaclasses of all its bases"
-                .to_string(),
-        ));
-        }
-
-        new(winner, name.as_str(), bases, attributes).map(Into::into)
+        new(metatype, name.as_str(), base, bases, attributes).map(Into::into)
     }
 
     #[pyslot]
@@ -483,6 +490,7 @@ fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Option<Vec<PyClassRef>> {
 pub fn new(
     typ: PyClassRef,
     name: &str,
+    _base: PyClassRef,
     bases: Vec<PyClassRef>,
     dict: HashMap<String, PyObjectRef>,
 ) -> PyResult<PyClassRef> {
@@ -511,6 +519,31 @@ pub fn new(
     }
 
     Ok(new_type)
+}
+
+fn calculate_meta_class(
+    metatype: PyClassRef,
+    bases: &[PyClassRef],
+    vm: &VirtualMachine,
+) -> PyResult<PyClassRef> {
+    // = _PyType_CalculateMetaclass
+    let mut winner = metatype;
+    for base in bases {
+        let base_type = base.class();
+        if issubclass(&winner, &base_type) {
+            continue;
+        } else if issubclass(&base_type, &winner) {
+            winner = base_type.clone();
+            continue;
+        }
+
+        return Err(vm.new_type_error(
+            "metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass \
+             of the metaclasses of all its bases"
+                .to_string(),
+        ));
+    }
+    Ok(winner)
 }
 
 #[cfg(test)]
