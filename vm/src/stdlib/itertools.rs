@@ -777,7 +777,7 @@ impl PyItertoolsTee {
     ) -> PyResult<PyRef<PyTuple>> {
         let n = n.unwrap_or(2);
 
-        let copyable = if objtype::class_has_attr(&iterable.class(), "__copy__") {
+        let copyable = if iterable.class().has_attr("__copy__") {
             vm.call_method(&iterable, "__copy__", PyFuncArgs::from(vec![]))?
         } else {
             PyItertoolsTee::from_iter(iterable, vm)?

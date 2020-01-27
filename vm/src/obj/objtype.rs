@@ -98,7 +98,7 @@ impl PyClassRef {
 
     #[pymethod(magic)]
     fn dir(self, vm: &VirtualMachine) -> PyList {
-        let attributes = get_attributes(self);
+        let attributes = self.get_attributes();
         let attributes: Vec<PyObjectRef> = attributes
             .keys()
             .map(|k| vm.ctx.new_str(k.to_string()))
@@ -156,10 +156,10 @@ impl PyClassRef {
         vm_trace!("type.__getattribute__({:?}, {:?})", self, name);
         let mcl = self.class();
 
-        if let Some(attr) = class_get_attr(&mcl, &name) {
+        if let Some(attr) = mcl.get_attr(&name) {
             let attr_class = attr.class();
-            if class_has_attr(&attr_class, "__set__") {
-                if let Some(ref descriptor) = class_get_attr(&attr_class, "__get__") {
+            if attr_class.has_attr("__set__") {
+                if let Some(ref descriptor) = attr_class.get_attr("__get__") {
                     return vm.invoke(
                         descriptor,
                         vec![attr, self.into_object(), mcl.into_object()],
@@ -168,18 +168,18 @@ impl PyClassRef {
             }
         }
 
-        if let Some(attr) = class_get_attr(&self, &name) {
+        if let Some(attr) = self.get_attr(&name) {
             let attr_class = attr.class();
-            if let Some(ref descriptor) = class_get_attr(&attr_class, "__get__") {
+            if let Some(ref descriptor) = attr_class.get_attr("__get__") {
                 return vm.invoke(descriptor, vec![attr, vm.get_none(), self.into_object()]);
             }
         }
 
-        if let Some(cls_attr) = class_get_attr(&self, &name) {
+        if let Some(cls_attr) = self.get_attr(&name) {
             Ok(cls_attr)
-        } else if let Some(attr) = class_get_attr(&mcl, &name) {
+        } else if let Some(attr) = mcl.get_attr(&name) {
             vm.call_get_descriptor(attr, self.into_object())
-        } else if let Some(ref getter) = class_get_attr(&self, "__getattr__") {
+        } else if let Some(ref getter) = self.get_attr("__getattr__") {
             vm.invoke(getter, vec![mcl.into_object(), name_ref.into_object()])
         } else {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
@@ -193,8 +193,8 @@ impl PyClassRef {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(attr) = class_get_attr(&self.class(), attr_name.as_str()) {
-            if let Some(ref descriptor) = class_get_attr(&attr.class(), "__set__") {
+        if let Some(attr) = self.class().get_attr(attr_name.as_str()) {
+            if let Some(ref descriptor) = attr.class().get_attr("__set__") {
                 vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
                 return Ok(());
             }
@@ -208,15 +208,15 @@ impl PyClassRef {
 
     #[pymethod(magic)]
     fn delattr(self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(attr) = class_get_attr(&self.class(), attr_name.as_str()) {
-            if let Some(ref descriptor) = class_get_attr(&attr.class(), "__delete__") {
+        if let Some(attr) = self.class().get_attr(attr_name.as_str()) {
+            if let Some(ref descriptor) = attr.class().get_attr("__delete__") {
                 return vm
                     .invoke(descriptor, vec![attr, self.into_object()])
                     .map(|_| ());
             }
         }
 
-        if class_get_attr(&self, attr_name.as_str()).is_some() {
+        if self.get_attr(attr_name.as_str()).is_some() {
             self.attributes.borrow_mut().remove(attr_name.as_str());
             Ok(())
         } else {
@@ -397,48 +397,48 @@ fn type_dict_setter(
     ))
 }
 
-/// This is the internal get_attr implementation for fast lookup on a class.
-pub fn class_get_attr(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
-    flame_guard!(format!("class_get_attr({:?})", attr_name));
+impl PyClassRef {
+    /// This is the internal get_attr implementation for fast lookup on a class.
+    pub fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+        flame_guard!(format!("class_get_attr({:?})", attr_name));
 
-    class
-        .attributes
-        .borrow()
-        .get(attr_name)
-        .cloned()
-        .or_else(|| class_get_super_attr(class, attr_name))
-}
-
-pub fn class_get_super_attr(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
-    class
-        .mro
-        .iter()
-        .find_map(|class| class.attributes.borrow().get(attr_name).cloned())
-}
-
-// This is the internal has_attr implementation for fast lookup on a class.
-pub fn class_has_attr(class: &PyClassRef, attr_name: &str) -> bool {
-    class.attributes.borrow().contains_key(attr_name)
-        || class
-            .mro
-            .iter()
-            .any(|c| c.attributes.borrow().contains_key(attr_name))
-}
-
-pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
-    // Gather all members here:
-    let mut attributes = PyAttributes::new();
-
-    let mut base_classes: Vec<&PyClassRef> = cls.iter_mro().collect();
-    base_classes.reverse();
-
-    for bc in base_classes {
-        for (name, value) in bc.attributes.borrow().iter() {
-            attributes.insert(name.to_string(), value.clone());
-        }
+        self.attributes
+            .borrow()
+            .get(attr_name)
+            .cloned()
+            .or_else(|| self.get_super_attr(attr_name))
     }
 
-    attributes
+    pub fn get_super_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+        self.mro
+            .iter()
+            .find_map(|class| class.attributes.borrow().get(attr_name).cloned())
+    }
+
+    // This is the internal has_attr implementation for fast lookup on a class.
+    pub fn has_attr(&self, attr_name: &str) -> bool {
+        self.attributes.borrow().contains_key(attr_name)
+            || self
+                .mro
+                .iter()
+                .any(|c| c.attributes.borrow().contains_key(attr_name))
+    }
+
+    pub fn get_attributes(self) -> PyAttributes {
+        // Gather all members here:
+        let mut attributes = PyAttributes::new();
+
+        let mut base_classes: Vec<&PyClassRef> = self.iter_mro().collect();
+        base_classes.reverse();
+
+        for bc in base_classes {
+            for (name, value) in bc.attributes.borrow().iter() {
+                attributes.insert(name.to_string(), value.clone());
+            }
+        }
+
+        attributes
+    }
 }
 
 fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> Option<(PyClassRef, Vec<Vec<PyClassRef>>)> {

@@ -1,7 +1,7 @@
 use super::objdict::PyDictRef;
 use super::objiter;
 use super::objstr::PyStringRef;
-use super::objtype::{self, PyClassRef};
+use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -48,7 +48,7 @@ impl PyMappingProxy {
         let opt = match &self.mapping {
             MappingProxyInner::Class(class) => {
                 let key = PyStringRef::try_from_object(vm, key)?;
-                objtype::class_get_attr(&class, key.as_str())
+                class.get_attr(key.as_str())
             }
             MappingProxyInner::Dict(obj) => obj.get_item(&key, vm).ok(),
         };
@@ -75,7 +75,7 @@ impl PyMappingProxy {
         match &self.mapping {
             MappingProxyInner::Class(class) => {
                 let key = PyStringRef::try_from_object(vm, key)?;
-                Ok(vm.new_bool(objtype::class_has_attr(&class, key.as_str())))
+                Ok(vm.new_bool(class.has_attr(key.as_str())))
             }
             MappingProxyInner::Dict(obj) => vm._membership(obj.clone(), key),
         }

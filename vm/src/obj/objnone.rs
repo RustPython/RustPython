@@ -1,6 +1,6 @@
 use super::objproperty::PyPropertyRef;
 use super::objstr::PyStringRef;
-use super::objtype::{class_get_attr, class_has_attr, PyClassRef};
+use super::objtype::PyClassRef;
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -79,10 +79,10 @@ impl PyNone {
             }
         }
 
-        if let Some(attr) = class_get_attr(&cls, name.as_str()) {
+        if let Some(attr) = cls.get_attr(name.as_str()) {
             let attr_class = attr.class();
-            if class_has_attr(&attr_class, "__set__") {
-                if let Some(get_func) = class_get_attr(&attr_class, "__get__") {
+            if attr_class.has_attr("__set__") {
+                if let Some(get_func) = attr_class.get_attr("__get__") {
                     return call_descriptor(
                         attr,
                         get_func,
@@ -98,14 +98,14 @@ impl PyNone {
         // if let Some(obj_attr) = zelf.as_object().get_attr(name.as_str()) {
         //     Ok(obj_attr)
         // } else
-        if let Some(attr) = class_get_attr(&cls, name.as_str()) {
+        if let Some(attr) = cls.get_attr(name.as_str()) {
             let attr_class = attr.class();
-            if let Some(get_func) = class_get_attr(&attr_class, "__get__") {
+            if let Some(get_func) = attr_class.get_attr("__get__") {
                 call_descriptor(attr, get_func, zelf.into_object(), cls.into_object(), vm)
             } else {
                 Ok(attr)
             }
-        } else if let Some(getter) = class_get_attr(&cls, "__getattr__") {
+        } else if let Some(getter) = cls.get_attr("__getattr__") {
             vm.invoke(&getter, vec![zelf.into_object(), name.into_object()])
         } else {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", zelf.as_object(), name)))
