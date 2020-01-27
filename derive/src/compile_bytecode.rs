@@ -14,6 +14,7 @@
 //! ```
 
 use crate::{extract_spans, Diagnostic};
+use once_cell::sync::Lazy;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use rustpython_bytecode::bytecode::{CodeObject, FrozenModule};
@@ -25,11 +26,9 @@ use std::path::{Path, PathBuf};
 use syn::parse::{Parse, ParseStream, Result as ParseResult};
 use syn::{self, parse2, Lit, LitByteStr, LitStr, Meta, Token};
 
-lazy_static::lazy_static! {
-    static ref CARGO_MANIFEST_DIR: PathBuf = PathBuf::from(
-        env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"),
-    );
-}
+static CARGO_MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| {
+    PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"))
+});
 
 enum CompilationSourceKind {
     File(PathBuf),

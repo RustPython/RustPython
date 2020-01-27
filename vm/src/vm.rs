@@ -15,6 +15,7 @@ use std::sync::{Mutex, MutexGuard};
 use arr_macro::arr;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
+use once_cell::sync::Lazy;
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::{compile, error::CompileError};
 
@@ -1308,9 +1309,7 @@ impl Default for VirtualMachine {
     }
 }
 
-lazy_static! {
-    static ref REPR_GUARDS: Mutex<HashSet<usize>> = { Mutex::new(HashSet::new()) };
-}
+static REPR_GUARDS: Lazy<Mutex<HashSet<usize>>> = Lazy::new(Mutex::default);
 
 pub struct ReprGuard {
     id: usize,
