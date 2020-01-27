@@ -371,10 +371,7 @@ struct ItemSig<'a> {
     sig: &'a Signature,
 }
 
-fn extract_impl_items(
-    attr: AttributeArgs,
-    mut items: Vec<ItemSig>,
-) -> Result<TokenStream2, Diagnostic> {
+fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnostic> {
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
     let mut class = Class::default();
@@ -468,33 +465,68 @@ fn extract_impl_items(
 
     Diagnostic::from_vec(diagnostics)?;
 
+    Ok(quote! {
+        #(#methods)*
+        #(#properties)*
+    })
+}
+
+fn extract_impl_attrs(attr: AttributeArgs) -> Result<(TokenStream2, TokenStream2), Diagnostic> {
     let mut withs = Vec::new();
+    let mut flags = vec![quote! { rustpython_vm::slots::PyTpFlags::DEFAULT }];
 
     for attr in attr {
         match attr {
-            NestedMeta::Meta(Meta::List(syn::MetaList { path, nested, .. }))
-                if path_eq(&path, "with") =>
-            {
-                for meta in nested {
-                    match meta {
-                        NestedMeta::Meta(Meta::Path(path)) => {
-                            withs.push(quote! {
-                                <Self as #path>::__extend_py_class(ctx, class);
-                            });
+            NestedMeta::Meta(Meta::List(syn::MetaList { path, nested, .. })) => {
+                if path_eq(&path, "with") {
+                    for meta in nested {
+                        match meta {
+                            NestedMeta::Meta(Meta::Path(path)) => {
+                                withs.push(quote! {
+                                    <Self as #path>::__extend_py_class(ctx, class);
+                                });
+                            }
+                            meta => {
+                                bail_span!(meta, "#[pyimpl(with(...))] arguments should be paths")
+                            }
                         }
-                        meta => bail_span!(meta, "#[pyimpl(with(...))] arguments should be paths"),
                     }
+                } else if path_eq(&path, "flags") {
+                    for meta in nested {
+                        match meta {
+                            NestedMeta::Meta(Meta::Path(path)) => {
+                                if let Some(ident) = path.get_ident() {
+                                    flags.push(quote! {
+                                        | rustpython_vm::slots::PyTpFlags::#ident
+                                    });
+                                } else {
+                                    bail_span!(
+                                        path,
+                                        "#[pyimpl(flags(...))] arguments should be ident"
+                                    )
+                                }
+                            }
+                            meta => {
+                                bail_span!(meta, "#[pyimpl(flags(...))] arguments should be ident")
+                            }
+                        }
+                    }
+                } else {
+                    bail_span!(path, "Unknown pyimpl attribute")
                 }
             }
             attr => bail_span!(attr, "Unknown pyimpl attribute"),
         }
     }
 
-    Ok(quote! {
-        #(#methods)*
-        #(#properties)*
-        #(#withs)*
-    })
+    Ok((
+        quote! {
+            #(#withs)*
+        },
+        quote! {
+            #(#flags)*
+        },
+    ))
 }
 
 pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
@@ -510,16 +542,20 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diag
                     _ => None,
                 })
                 .collect();
-            let extend_impl = extract_impl_items(attr, items)?;
+            let extend_impl = extract_impl_items(items)?;
+            let (with_impl, flags) = extract_impl_attrs(attr)?;
             let ty = &imp.self_ty;
             let ret = quote! {
                 #imp
                 impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
+                    const TP_FLAGS: u64 = #flags;
+
                     fn impl_extend_class(
                         ctx: &::rustpython_vm::pyobject::PyContext,
                         class: &::rustpython_vm::obj::objtype::PyClassRef,
                     ) {
                         #extend_impl
+                        #with_impl
                     }
                 }
             };
@@ -536,7 +572,7 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diag
                     _ => None,
                 })
                 .collect();
-            let extend_impl = extract_impl_items(attr, items)?;
+            let extend_impl = extract_impl_items(items)?;
             let item = parse_quote! {
                 fn __extend_py_class(
                     ctx: &::rustpython_vm::pyobject::PyContext,
@@ -683,6 +719,8 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             }
         }
         impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
+            const TP_FLAGS: u64 = ::rustpython_vm::slots::PyTpFlags::DEFAULT;
+
             fn impl_extend_class(
                 ctx: &::rustpython_vm::pyobject::PyContext,
                 class: &::rustpython_vm::obj::objtype::PyClassRef,

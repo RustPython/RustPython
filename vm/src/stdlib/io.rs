@@ -944,7 +944,7 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    //IOBase the abstract base class of the IO Module
+    // IOBase the abstract base class of the IO Module
     let io_base = py_class!(ctx, "_IOBase", ctx.object(), {
         "__enter__" => ctx.new_method(io_base_cm_enter),
         "__exit__" => ctx.new_method(io_base_cm_exit),

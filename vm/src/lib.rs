@@ -72,7 +72,7 @@ mod pyhash;
 pub mod pyobject;
 pub mod scope;
 mod sequence;
-mod slots;
+pub mod slots;
 pub mod stdlib;
 mod sysmodule;
 pub mod types;

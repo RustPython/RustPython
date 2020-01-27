@@ -2,8 +2,29 @@ use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::pyobject::{IdProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::VirtualMachine;
 
+#[derive(Copy, Clone)]
+pub struct PyTpFlags(pub u64);
+
+impl PyTpFlags {
+    pub const DEFAULT: u64 = 0;
+    pub const BASETYPE: u64 = 1 << 10;
+
+    pub fn has_feature(&self, flag: u64) -> bool {
+        (self.0 | flag) != 0
+    }
+}
+
+impl Default for PyTpFlags {
+    fn default() -> Self {
+        Self {
+            0: PyTpFlags::DEFAULT,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct PyClassSlots {
+    pub flags: PyTpFlags,
     pub new: Option<PyNativeFunc>,
     pub call: Option<PyNativeFunc>,
     pub descr_get: Option<PyNativeFunc>,
