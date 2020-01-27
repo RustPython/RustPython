@@ -86,8 +86,8 @@ pub(crate) fn object_setattr(
     vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
     let cls = obj.class();
 
-    if let Some(attr) = objtype::class_get_attr(&cls, attr_name.as_str()) {
-        if let Some(descriptor) = objtype::class_get_attr(&attr.class(), "__set__") {
+    if let Some(attr) = cls.get_attr(attr_name.as_str()) {
+        if let Some(descriptor) = attr.class().get_attr("__set__") {
             return vm
                 .invoke(&descriptor, vec![attr, obj.clone(), value])
                 .map(|_| ());
@@ -109,8 +109,8 @@ pub(crate) fn object_setattr(
 fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     let cls = obj.class();
 
-    if let Some(attr) = objtype::class_get_attr(&cls, attr_name.as_str()) {
-        if let Some(descriptor) = objtype::class_get_attr(&attr.class(), "__delete__") {
+    if let Some(attr) = cls.get_attr(attr_name.as_str()) {
+        if let Some(descriptor) = attr.class().get_attr("__delete__") {
             return vm.invoke(&descriptor, vec![attr, obj.clone()]).map(|_| ());
         }
     }
@@ -140,7 +140,7 @@ fn object_subclasshook(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
 }
 
 pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
-    let attributes: PyAttributes = objtype::get_attributes(obj.class());
+    let attributes: PyAttributes = obj.class().get_attributes();
 
     let dict = PyDictRef::from_attributes(attributes, vm)?;
 
@@ -262,9 +262,8 @@ fn object_reduce(obj: PyObjectRef, proto: OptionalArg<usize>, vm: &VirtualMachin
 
 fn object_reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
     let cls = obj.class();
-    if let Some(reduce) = objtype::class_get_attr(&cls, "__reduce__") {
-        let object_reduce =
-            objtype::class_get_attr(&vm.ctx.types.object_type, "__reduce__").unwrap();
+    if let Some(reduce) = cls.get_attr("__reduce__") {
+        let object_reduce = vm.ctx.types.object_type.get_attr("__reduce__").unwrap();
         if !reduce.is(&object_reduce) {
             return vm.invoke(&reduce, vec![]);
         }

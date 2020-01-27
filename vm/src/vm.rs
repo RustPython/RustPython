@@ -623,7 +623,7 @@ impl VirtualMachine {
         if let Some(descr_get) = slots.borrow().descr_get.as_ref() {
             let cls = obj.class();
             descr_get(self, vec![attr, obj.clone(), cls.into_object()].into())
-        } else if let Some(ref descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
+        } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
             let cls = obj.class();
             self.invoke(descriptor, vec![attr, obj.clone(), cls.into_object()])
         } else {
@@ -639,7 +639,7 @@ impl VirtualMachine {
 
         // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
         let cls = obj.class();
-        match objtype::class_get_attr(&cls, method_name) {
+        match cls.get_attr(method_name) {
             Some(func) => {
                 vm_trace!(
                     "vm.call_method {:?} {:?} {:?} -> {:?}",
@@ -665,7 +665,7 @@ impl VirtualMachine {
             let result = slot_call(self, args);
             self.trace_event(TraceEvent::Return)?;
             result
-        } else if objtype::class_has_attr(&class, "__call__") {
+        } else if class.has_attr("__call__") {
             let result = self.call_method(&callable, "__call__", args);
             result
         } else {
@@ -780,7 +780,7 @@ impl VirtualMachine {
         F: FnOnce() -> String,
     {
         let cls = obj.class();
-        match objtype::class_get_attr(&cls, method_name) {
+        match cls.get_attr(method_name) {
             Some(method) => self.call_get_descriptor(method, obj.clone()),
             None => Err(self.new_type_error(err_msg())),
         }
@@ -789,7 +789,7 @@ impl VirtualMachine {
     /// May return exception, if `__get__` descriptor raises one
     pub fn get_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
         let cls = obj.class();
-        let method = objtype::class_get_attr(&cls, method_name)?;
+        let method = cls.get_attr(method_name)?;
         Some(self.call_get_descriptor(method, obj.clone()))
     }
 
@@ -850,10 +850,10 @@ impl VirtualMachine {
         let name = name_str.as_str();
         let cls = obj.class();
 
-        if let Some(attr) = objtype::class_get_attr(&cls, &name) {
+        if let Some(attr) = cls.get_attr(&name) {
             let attr_class = attr.class();
-            if objtype::class_has_attr(&attr_class, "__set__") {
-                if let Some(descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
+            if attr_class.has_attr("__set__") {
+                if let Some(descriptor) = attr_class.get_attr("__get__") {
                     return self
                         .invoke(&descriptor, vec![attr, obj, cls.into_object()])
                         .map(Some);
@@ -869,9 +869,9 @@ impl VirtualMachine {
 
         if let Some(obj_attr) = attr {
             Ok(Some(obj_attr))
-        } else if let Some(attr) = objtype::class_get_attr(&cls, &name) {
+        } else if let Some(attr) = cls.get_attr(&name) {
             self.call_get_descriptor(attr, obj).map(Some)
-        } else if let Some(getter) = objtype::class_get_attr(&cls, "__getattr__") {
+        } else if let Some(getter) = cls.get_attr("__getattr__") {
             self.invoke(&getter, vec![obj, name_str.into_object()])
                 .map(Some)
         } else {
@@ -880,8 +880,7 @@ impl VirtualMachine {
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
-        obj.class().slots.borrow().call.is_some()
-            || objtype::class_has_attr(&obj.class(), "__call__")
+        obj.class().slots.borrow().call.is_some() || obj.class().has_attr("__call__")
     }
 
     #[inline]

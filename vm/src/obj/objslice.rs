@@ -1,5 +1,5 @@
 use super::objint::PyInt;
-use super::objtype::{class_has_attr, PyClassRef};
+use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
@@ -327,7 +327,7 @@ fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<Big
         Ok(Some(val.as_bigint().clone()))
     } else {
         let cls = obj.class();
-        if class_has_attr(&cls, "__index__") {
+        if cls.has_attr("__index__") {
             let index_result = vm.call_method(obj, "__index__", vec![])?;
             if let Some(val) = index_result.payload::<PyInt>() {
                 Ok(Some(val.as_bigint().clone()))
