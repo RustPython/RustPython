@@ -8,6 +8,7 @@ use crate::location::Location;
 use num_bigint::BigInt;
 use num_traits::identities::Zero;
 use num_traits::Num;
+use std::char;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -442,22 +443,22 @@ where
 
     fn unicode_literal(&mut self, literal_number: usize) -> Result<char, LexicalError> {
         let mut p: u32 = 0u32;
-        let unicode_error = Err(LexicalError {
+        let unicode_error = LexicalError {
             error: LexicalErrorType::UnicodeError,
             location: self.get_pos(),
-        });
+        };
         for i in 1..=literal_number {
             match self.next_char() {
                 Some(c) => match c.to_digit(16) {
                     Some(d) => p += d << ((literal_number - i) * 4),
-                    None => return unicode_error,
+                    None => return Err(unicode_error),
                 },
-                None => return unicode_error,
+                None => return Err(unicode_error),
             }
         }
-        match wtf8::CodePoint::from_u32(p) {
-            Some(cp) => Ok(cp.to_char_lossy()),
-            None => unicode_error,
+        match p {
+            0xD800..=0xDFFF => Ok(std::char::REPLACEMENT_CHARACTER),
+            _ => std::char::from_u32(p).ok_or(unicode_error),
         }
     }
 
