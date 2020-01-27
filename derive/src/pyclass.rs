@@ -187,8 +187,7 @@ impl<'a> ClassItemMeta<'a> {
         } else {
             let sig_name = self.sig.ident.to_string();
             let name = if setter {
-                if sig_name.starts_with("set_") {
-                    let name = &sig_name["set_".len()..];
+                if let Some(name) = strip_prefix(&sig_name, "set_") {
                     if name.is_empty() {
                         bail_span!(
                             &self.sig.ident,
@@ -300,9 +299,8 @@ impl Class {
         }
         let slot_ident = if nesteds.is_empty() {
             let ident_str = sig.ident.to_string();
-            if ident_str.starts_with("tp_") {
-                let slot_name = &ident_str[3..];
-                proc_macro2::Ident::new(slot_name, sig.ident.span())
+            if let Some(stripped) = strip_prefix(&ident_str, "tp_") {
+                proc_macro2::Ident::new(stripped, sig.ident.span())
             } else {
                 sig.ident.clone()
             }
@@ -702,4 +700,12 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
         }
     };
     Ok(ret)
+}
+
+fn strip_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
+    if s.starts_with(prefix) {
+        Some(&s[prefix.len()..])
+    } else {
+        None
+    }
 }
