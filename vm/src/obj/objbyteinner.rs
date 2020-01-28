@@ -952,28 +952,30 @@ impl PyByteInner {
         chars: OptionalArg<PyByteInner>,
         position: ByteInnerPosition,
     ) -> PyResult<Vec<u8>> {
-        let chars = if let OptionalArg::Present(bytes) = chars {
-            bytes.elements
-        } else {
-            vec![b' ']
+        let is_valid_char = |c| {
+            if let OptionalArg::Present(ref bytes) = chars {
+                bytes.elements.contains(c)
+            } else {
+                c.is_ascii_whitespace()
+            }
         };
 
         let mut start = 0;
         let mut end = self.len();
 
         if let ByteInnerPosition::Left | ByteInnerPosition::All = position {
-            for (n, i) in self.elements.iter().enumerate() {
-                if !chars.contains(i) {
-                    start = n;
+            for (i, c) in self.elements.iter().enumerate() {
+                if !is_valid_char(c) {
+                    start = i;
                     break;
                 }
             }
         }
 
         if let ByteInnerPosition::Right | ByteInnerPosition::All = position {
-            for (n, i) in self.elements.iter().rev().enumerate() {
-                if !chars.contains(i) {
-                    end = self.len() - n;
+            for (i, c) in self.elements.iter().rev().enumerate() {
+                if !is_valid_char(c) {
+                    end = self.len() - i;
                     break;
                 }
             }

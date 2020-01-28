@@ -341,11 +341,11 @@ assert b"hjhtuyfjtyhuhjuyj".translate(None, delete=b"ht") == b"juyfjyujuyj"
 
 
 # strip lstrip rstrip
-assert b"   spacious   ".strip() == b"spacious"
+assert b" \n  spacious \n  ".strip() == b"spacious"
 assert b"www.example.com".strip(b"cmowz.") == b"example"
-assert b"   spacious   ".lstrip() == b"spacious   "
+assert b" \n  spacious   ".lstrip() == b"spacious   "
 assert b"www.example.com".lstrip(b"cmowz.") == b"example.com"
-assert b"   spacious   ".rstrip() == b"   spacious"
+assert b"   spacious \n  ".rstrip() == b"   spacious"
 assert b"mississippi".rstrip(b"ipz") == b"mississ"
 
 

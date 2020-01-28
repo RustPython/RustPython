@@ -30,14 +30,7 @@ p.wait()
 
 is_unix = "win" not in sys.platform or "darwin" in sys.platform
 
-if is_unix:
-	# unix
-	test_output = b"test\n"
-else:
-	# windows
-	test_output = b"test\r\n"
-
-assert p.stdout.read() == test_output
+assert p.stdout.read().strip() == b"test"
 
 p = subprocess.Popen(["sleep", "2"])
 p.terminate()
@@ -57,4 +50,4 @@ else:
 
 p = subprocess.Popen(["echo", "test"], stdout=subprocess.PIPE)
 (stdout, stderr) = p.communicate()
-assert stdout == test_output
+assert stdout.strip() == b"test"
