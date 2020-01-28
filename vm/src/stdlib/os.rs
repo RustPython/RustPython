@@ -850,17 +850,13 @@ fn os_symlink(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     use std::os::windows::fs as win_fs;
-    let ret = match fs::metadata(dst.as_str()) {
-        Ok(meta) => {
-            if meta.is_file() {
-                win_fs::symlink_file(src.as_str(), dst.as_str())
-            } else if meta.is_dir() {
-                win_fs::symlink_dir(src.as_str(), dst.as_str())
-            } else {
-                panic!("Uknown file type");
-            }
-        }
-        Err(_) => win_fs::symlink_file(src.as_str(), dst.as_str()),
+    let meta = fs::metadata(src.as_str()).map_err(|err| convert_io_error(vm, err))?;
+    let ret = if meta.is_file() {
+        win_fs::symlink_file(src.as_str(), dst.as_str())
+    } else if meta.is_dir() {
+        win_fs::symlink_dir(src.as_str(), dst.as_str())
+    } else {
+        panic!("Uknown file type");
     };
     ret.map_err(|err| convert_io_error(vm, err))
 }
