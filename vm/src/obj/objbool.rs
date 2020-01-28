@@ -66,7 +66,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
                     }
                     None => {
                         return Err(vm.new_type_error(format!(
-                            "{} object cannot be interpreted as integer",
+                            "'{}' object cannot be interpreted as an integer",
                             bool_obj.class().name
                         )))
                     }
