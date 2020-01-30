@@ -17,7 +17,6 @@ mod keyword;
 mod marshal;
 mod math;
 mod operator;
-mod platform;
 mod pystruct;
 mod random;
 mod re;
@@ -76,7 +75,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "marshal".to_owned() => Box::new(marshal::make_module),
         "math".to_owned() => Box::new(math::make_module),
         "_operator".to_owned() => Box::new(operator::make_module),
-        "platform".to_owned() => Box::new(platform::make_module),
         "regex_crate".to_owned() => Box::new(re::make_module),
         "_random".to_owned() => Box::new(random::make_module),
         "_string".to_owned() => Box::new(string::make_module),
