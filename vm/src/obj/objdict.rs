@@ -497,6 +497,7 @@ macro_rules! dict_iterator {
             }
 
             #[pymethod(name = "__repr__")]
+            #[allow(clippy::redundant_closure_call)]
             fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
                 let s = if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
                     let mut str_parts = vec![];
