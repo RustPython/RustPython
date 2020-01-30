@@ -516,6 +516,22 @@ macro_rules! dict_iterator {
             fn len(&self, vm: &VirtualMachine) -> usize {
                 self.dict.clone().len(vm)
             }
+
+            #[pymethod(name = "__repr__")]
+            #[allow(clippy::redundant_closure_call)]
+            fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+                let s = if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
+                    let mut str_parts = vec![];
+                    for (key, value) in zelf.dict.clone() {
+                        let s = vm.to_repr(&$result_fn(vm, &key, &value))?;
+                        str_parts.push(s.as_str().to_string());
+                    }
+                    format!("{}([{}])", $class_name, str_parts.join(", "))
+                } else {
+                    "{...}".to_string()
+                };
+                Ok(s)
+            }
         }
 
         impl PyValue for $name {
@@ -589,7 +605,7 @@ dict_iterator! {
     PyDictKeyIterator,
     dictkeys_type,
     dictkeyiterator_type,
-    "dictkeys",
+    "dict_keys",
     "dictkeyiterator",
     |_vm: &VirtualMachine, key: &PyObjectRef, _value: &PyObjectRef| key.clone()
 }
@@ -599,7 +615,7 @@ dict_iterator! {
     PyDictValueIterator,
     dictvalues_type,
     dictvalueiterator_type,
-    "dictvalues",
+    "dict_values",
     "dictvalueiterator",
     |_vm: &VirtualMachine, _key: &PyObjectRef, value: &PyObjectRef| value.clone()
 }
@@ -609,7 +625,7 @@ dict_iterator! {
     PyDictItemIterator,
     dictitems_type,
     dictitemiterator_type,
-    "dictitems",
+    "dict_items",
     "dictitemiterator",
     |vm: &VirtualMachine, key: &PyObjectRef, value: &PyObjectRef|
         vm.ctx.new_tuple(vec![key.clone(), value.clone()])
