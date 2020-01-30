@@ -19,7 +19,7 @@ use nix::errno::Errno;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::pty::openpty;
 #[cfg(unix)]
-use nix::unistd::{self, Gid, Pid, Uid, Whence};
+use nix::unistd::{self, Gid, Pid, Uid};
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
 
@@ -1446,8 +1446,8 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         )
     ))]
     extend_module!(vm, module, {
-        "SEEK_DATA" => ctx.new_int(Whence::SeekData as i8),
-        "SEEK_HOLE" => ctx.new_int(Whence::SeekHole as i8)
+        "SEEK_DATA" => ctx.new_int(unistd::Whence::SeekData as i8),
+        "SEEK_HOLE" => ctx.new_int(unistd::Whence::SeekHole as i8)
     });
     // cfg from nix
     #[cfg(any(
