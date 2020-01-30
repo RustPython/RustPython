@@ -146,7 +146,7 @@ struct SortOptions {
 
 pub type PyListRef = PyRef<PyList>;
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyList {
     #[pymethod]
     pub(crate) fn append(&self, x: PyObjectRef, _vm: &VirtualMachine) {

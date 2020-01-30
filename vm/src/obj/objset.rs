@@ -328,7 +328,7 @@ macro_rules! try_set_cmp {
     };
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PySet {
     #[pyslot]
     fn tp_new(
@@ -584,7 +584,7 @@ impl PySet {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyFrozenSet {
     #[pyslot]
     fn tp_new(

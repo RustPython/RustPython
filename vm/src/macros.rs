@@ -139,6 +139,8 @@ macro_rules! py_class {
     ( $ctx:expr, $class_name:expr, $class_base:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         {
             let py_class = $ctx.new_class($class_name, $class_base);
+            // FIXME: setting flag here probably wrong
+            py_class.slots.borrow_mut().flags |= $crate::slots::PyTpFlags::BASETYPE;
             $crate::extend_class!($ctx, &py_class, { $($name => $value),* });
             py_class
         }

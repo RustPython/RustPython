@@ -76,7 +76,7 @@ pub(crate) fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
     obj.payload::<PyTuple>().unwrap().as_slice()
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyTuple {
     #[inline]
     fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>

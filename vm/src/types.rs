@@ -233,7 +233,14 @@ impl TypeZoo {
 
 pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
     let dict = PyAttributes::new();
-    objtype::new(type_type.clone(), name, vec![base.clone()], dict).unwrap()
+    objtype::new(
+        type_type.clone(),
+        name,
+        base.clone(),
+        vec![base.clone()],
+        dict,
+    )
+    .unwrap()
 }
 
 fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {

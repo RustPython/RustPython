@@ -22,7 +22,7 @@ impl PyValue for PyMap {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyMap {
     #[pyslot]
     fn tp_new(

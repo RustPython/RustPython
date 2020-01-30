@@ -54,7 +54,7 @@ fn try_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Comp
     Ok(r)
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyComplex {
     #[pyproperty(name = "real")]
     fn real(&self, _vm: &VirtualMachine) -> f64 {

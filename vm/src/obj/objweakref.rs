@@ -41,7 +41,7 @@ impl PyBuiltinCallable for PyWeak {
     }
 }
 
-#[pyimpl(with(PyBuiltinCallable))]
+#[pyimpl(with(PyBuiltinCallable), flags(BASETYPE))]
 impl PyWeak {
     // TODO callbacks
     #[pyslot]

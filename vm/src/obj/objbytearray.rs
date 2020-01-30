@@ -87,7 +87,7 @@ pub(crate) fn init(context: &PyContext) {
     PyByteArrayIterator::extend_class(context, &context.types.bytearrayiterator_type);
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyByteArray {
     #[pyslot]
     fn tp_new(

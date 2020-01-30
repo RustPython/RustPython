@@ -37,6 +37,7 @@ use crate::obj::objstr;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::scope::Scope;
+use crate::slots::PyTpFlags;
 use crate::types::{create_type, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
 
@@ -458,7 +459,7 @@ impl PyContext {
     }
 
     pub fn new_class(&self, name: &str, base: PyClassRef) -> PyClassRef {
-        objtype::new(self.type_type(), name, vec![base], PyAttributes::new()).unwrap()
+        create_type(name, &self.type_type(), &base)
     }
 
     pub fn new_namespace(&self) -> PyObjectRef {
@@ -1196,10 +1197,13 @@ where
 }
 
 pub trait PyClassImpl: PyClassDef {
+    const TP_FLAGS: PyTpFlags = PyTpFlags::DEFAULT;
+
     fn impl_extend_class(ctx: &PyContext, class: &PyClassRef);
 
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
         Self::impl_extend_class(ctx, class);
+        class.slots.borrow_mut().flags = Self::TP_FLAGS;
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc.into()));
         }

@@ -17,6 +17,7 @@ use std::mem::size_of;
 
 pub type DictContentType = dictdatatype::Dict;
 
+#[pyclass]
 #[derive(Default)]
 pub struct PyDict {
     entries: RefCell<DictContentType>,
@@ -37,8 +38,10 @@ impl PyValue for PyDict {
 }
 
 // Python dict methods:
+#[pyimpl(flags(BASETYPE))]
 impl PyDictRef {
-    fn new(
+    #[pyslot]
+    fn tp_new(
         class: PyClassRef,
         dict_obj: OptionalArg<PyObjectRef>,
         kwargs: KwArgs,
@@ -100,6 +103,7 @@ impl PyDictRef {
         Ok(())
     }
 
+    #[pyclassmethod]
     fn fromkeys(
         class: PyClassRef,
         iterable: PyIterable,
@@ -116,6 +120,7 @@ impl PyDictRef {
         PyDict { entries }.into_ref_with_type(vm, class)
     }
 
+    #[pymethod(magic)]
     fn bool(self, _vm: &VirtualMachine) -> bool {
         !self.entries.borrow().is_empty()
     }
@@ -142,6 +147,7 @@ impl PyDictRef {
         Ok(true)
     }
 
+    #[pymethod(magic)]
     fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload::<PyDict>() {
             let eq = self.inner_eq(other, vm)?;
@@ -151,6 +157,7 @@ impl PyDictRef {
         }
     }
 
+    #[pymethod(magic)]
     fn ne(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload::<PyDict>() {
             let neq = !self.inner_eq(other, vm)?;
@@ -160,14 +167,17 @@ impl PyDictRef {
         }
     }
 
+    #[pymethod(magic)]
     fn len(self, _vm: &VirtualMachine) -> usize {
         self.entries.borrow().len()
     }
 
+    #[pymethod(magic)]
     fn sizeof(self, _vm: &VirtualMachine) -> usize {
         size_of::<Self>() + self.entries.borrow().sizeof()
     }
 
+    #[pymethod(magic)]
     fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
             let mut str_parts = vec![];
@@ -184,40 +194,43 @@ impl PyDictRef {
         Ok(s)
     }
 
+    #[pymethod(magic)]
     fn contains(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.entries.borrow().contains(vm, &key)
     }
 
-    fn inner_delitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod(magic)]
+    fn delitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.entries.borrow_mut().delete(vm, &key)
     }
 
+    #[pymethod]
     fn clear(self, _vm: &VirtualMachine) {
         self.entries.borrow_mut().clear()
     }
 
+    #[pymethod(magic)]
     fn iter(self, _vm: &VirtualMachine) -> PyDictKeyIterator {
         PyDictKeyIterator::new(self)
     }
 
+    #[pymethod]
     fn keys(self, _vm: &VirtualMachine) -> PyDictKeys {
         PyDictKeys::new(self)
     }
 
+    #[pymethod]
     fn values(self, _vm: &VirtualMachine) -> PyDictValues {
         PyDictValues::new(self)
     }
 
+    #[pymethod]
     fn items(self, _vm: &VirtualMachine) -> PyDictItems {
         PyDictItems::new(self)
     }
 
-    fn inner_setitem(
-        self,
-        key: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    #[pymethod(magic)]
+    fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner_setitem_fast(&key, value, vm)
     }
 
@@ -232,8 +245,9 @@ impl PyDictRef {
         self.entries.borrow_mut().insert(vm, key, value)
     }
 
+    #[pymethod(magic)]
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
-    fn inner_getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(value) = self.inner_getitem_option(&key, vm)? {
             Ok(value)
         } else {
@@ -259,6 +273,7 @@ impl PyDictRef {
         }
     }
 
+    #[pymethod]
     fn get(
         self,
         key: PyObjectRef,
@@ -271,6 +286,7 @@ impl PyDictRef {
         }
     }
 
+    #[pymethod]
     fn setdefault(
         self,
         key: PyObjectRef,
@@ -288,12 +304,14 @@ impl PyDictRef {
         }
     }
 
+    #[pymethod]
     pub fn copy(self, _vm: &VirtualMachine) -> PyDict {
         PyDict {
             entries: self.entries.clone(),
         }
     }
 
+    #[pymethod]
     fn update(
         self,
         dict_obj: OptionalArg<PyObjectRef>,
@@ -303,6 +321,7 @@ impl PyDictRef {
         PyDictRef::merge(&self.entries, dict_obj, kwargs, vm)
     }
 
+    #[pymethod]
     fn pop(
         self,
         key: PyObjectRef,
@@ -318,6 +337,7 @@ impl PyDictRef {
         }
     }
 
+    #[pymethod]
     fn popitem(self, vm: &VirtualMachine) -> PyResult {
         let mut entries = self.entries.borrow_mut();
         if let Some((key, value)) = entries.pop_front() {
@@ -349,6 +369,7 @@ impl PyDictRef {
         Ok(PyDict { entries }.into_ref(vm))
     }
 
+    #[pymethod(magic)]
     fn hash(self, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error("unhashable type".to_string()))
     }
@@ -594,34 +615,8 @@ dict_iterator! {
         vm.ctx.new_tuple(vec![key.clone(), value.clone()])
 }
 
-pub fn init(context: &PyContext) {
-    extend_class!(context, &context.types.dict_type, {
-        "__bool__" => context.new_method(PyDictRef::bool),
-        "__len__" => context.new_method(PyDictRef::len),
-        "__sizeof__" => context.new_method(PyDictRef::sizeof),
-        "__contains__" => context.new_method(PyDictRef::contains),
-        "__delitem__" => context.new_method(PyDictRef::inner_delitem),
-        "__eq__" => context.new_method(PyDictRef::eq),
-        "__ne__" => context.new_method(PyDictRef::ne),
-        "__getitem__" => context.new_method(PyDictRef::inner_getitem),
-        "__iter__" => context.new_method(PyDictRef::iter),
-        (slot new) => PyDictRef::new,
-        "__repr__" => context.new_method(PyDictRef::repr),
-        "__setitem__" => context.new_method(PyDictRef::inner_setitem),
-        "__hash__" => context.new_method(PyDictRef::hash),
-        "clear" => context.new_method(PyDictRef::clear),
-        "values" => context.new_method(PyDictRef::values),
-        "items" => context.new_method(PyDictRef::items),
-        "keys" => context.new_method(PyDictRef::keys),
-        "fromkeys" => context.new_classmethod(PyDictRef::fromkeys),
-        "get" => context.new_method(PyDictRef::get),
-        "setdefault" => context.new_method(PyDictRef::setdefault),
-        "copy" => context.new_method(PyDictRef::copy),
-        "update" => context.new_method(PyDictRef::update),
-        "pop" => context.new_method(PyDictRef::pop),
-        "popitem" => context.new_method(PyDictRef::popitem),
-    });
-
+pub(crate) fn init(context: &PyContext) {
+    PyDictRef::extend_class(context, &context.types.dict_type);
     PyDictKeys::extend_class(context, &context.types.dictkeys_type);
     PyDictKeyIterator::extend_class(context, &context.types.dictkeyiterator_type);
     PyDictValues::extend_class(context, &context.types.dictvalues_type);

@@ -211,7 +211,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyInt {
     #[pyslot]
     fn tp_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {

@@ -173,7 +173,7 @@ fn int_eq(value: f64, other: &BigInt) -> bool {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 #[allow(clippy::trivially_copy_pass_by_ref)]
 impl PyFloat {
     #[pyslot]

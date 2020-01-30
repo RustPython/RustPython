@@ -184,7 +184,7 @@ struct SplitLineArgs {
     keepends: OptionalArg<bool>,
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyString {
     #[pyslot]
     fn tp_new(cls: PyClassRef, args: StrArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {

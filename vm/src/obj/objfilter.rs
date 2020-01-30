@@ -23,7 +23,7 @@ impl PyValue for PyFilter {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyFilter {
     #[pyslot]
     fn tp_new(

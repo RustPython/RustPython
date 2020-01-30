@@ -18,7 +18,7 @@ impl PyValue for PyZip {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyZip {
     #[pyslot]
     fn tp_new(cls: PyClassRef, iterables: Args, vm: &VirtualMachine) -> PyResult<PyZipRef> {

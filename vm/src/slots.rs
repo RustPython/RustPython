@@ -2,8 +2,30 @@ use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::pyobject::{IdProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::VirtualMachine;
 
+bitflags! {
+    pub struct PyTpFlags: u64 {
+        const BASETYPE = 1 << 10;
+    }
+}
+
+impl PyTpFlags {
+    // CPython default: Py_TPFLAGS_HAVE_STACKLESS_EXTENSION | Py_TPFLAGS_HAVE_VERSION_TAG
+    pub const DEFAULT: Self = Self::from_bits_truncate(0);
+
+    pub fn has_feature(self, flag: Self) -> bool {
+        self.contains(flag)
+    }
+}
+
+impl Default for PyTpFlags {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
 #[derive(Default)]
 pub struct PyClassSlots {
+    pub flags: PyTpFlags,
     pub new: Option<PyNativeFunc>,
     pub call: Option<PyNativeFunc>,
     pub descr_get: Option<PyNativeFunc>,
