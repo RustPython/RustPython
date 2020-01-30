@@ -22,6 +22,7 @@ use nix::pty::openpty;
 use nix::unistd::{self, Gid, Pid, Uid};
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
+use uname;
 
 use super::errno::errors;
 use crate::exceptions::PyBaseExceptionRef;
@@ -1154,6 +1155,36 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     }
 }
 
+#[pystruct_sequence(name = "os.uname_result")]
+#[derive(Debug)]
+struct UnameResult {
+    sysname: String,
+    nodename: String,
+    release: String,
+    version: String,
+    machine: String,
+}
+
+impl UnameResult {
+    fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
+        self.into_struct_sequence(vm, vm.class("_os", "uname_result"))
+            .unwrap()
+            .into_object()
+    }
+}
+
+fn os_uname(vm: &VirtualMachine) -> PyResult {
+    let info = uname::uname().map_err(|err| convert_io_error(vm, err))?;
+    Ok(UnameResult {
+        sysname: info.sysname,
+        nodename: info.nodename,
+        release: info.release,
+        version: info.version,
+        machine: info.machine,
+    }
+    .into_obj(vm))
+}
+
 // this is basically what CPython has for Py_off_t; windows uses long long
 // for offsets, other platforms just use off_t
 #[cfg(not(windows))]
@@ -1243,6 +1274,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     let stat_result = StatResult::make_class(ctx);
+    let uname_result = UnameResult::make_class(ctx);
 
     struct SupportFunc<'a> {
         name: &'a str,
@@ -1331,6 +1363,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "urandom" => ctx.new_function(os_urandom),
         "isatty" => ctx.new_function(os_isatty),
         "lseek" => ctx.new_function(os_lseek),
+        "uname" => ctx.new_function(os_uname),
+        "uname_result" => uname_result,
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
