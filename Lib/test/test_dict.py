@@ -45,7 +45,6 @@ class DictTest(unittest.TestCase):
         self.assertIs(bool({}), False)
         self.assertIs(bool({1: 2}), True)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_keys(self):
         d = {}
         self.assertEqual(set(d.keys()), set())
@@ -59,7 +58,6 @@ class DictTest(unittest.TestCase):
         self.assertRaises(TypeError, d.keys, None)
         self.assertEqual(repr(dict(a=1).keys()), "dict_keys(['a'])")
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_values(self):
         d = {}
         self.assertEqual(set(d.values()), set())
@@ -68,7 +66,6 @@ class DictTest(unittest.TestCase):
         self.assertRaises(TypeError, d.values, None)
         self.assertEqual(repr(dict(a=1).values()), "dict_values([1])")
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_items(self):
         d = {}
         self.assertEqual(set(d.items()), set())
