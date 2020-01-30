@@ -91,3 +91,33 @@ jobs:
         run: |
           export RUSTPYTHONPATH=`pwd`/Lib
           cargo run -- -m test -v
+
+  wasm:
+    name: Run wasm selenium tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: install geckodriver
+        run: |
+          wget https://github.com/mozilla/geckodriver/releases/download/v0.24.0/geckodriver-v0.24.0-linux32.tar.gz
+          mkdir geckodriver
+          tar -xzf geckodriver-v0.24.0-linux32.tar.gz -C geckodriver
+      - uses: actions/setup-python@v1
+        with:
+          python-version: 3.6
+      - name: Install pipenv
+        run: |
+          python -V
+          python -m pip install --upgrade pip
+          python -m pip install pipenv
+      - run: pipenv install
+        working-directory: ./wasm/tests
+      - uses: actions/setup-node@v1
+      - name: run test
+        run: |
+          export PATH=$PATH:`pwd`/../../geckodriver
+          npm install
+          npm run test
+        working-directory: ./wasm/demo
