@@ -76,4 +76,18 @@ jobs:
         run: python -m pip install flake8
       - name: run lint
         run: flake8 . --count --exclude=./.*,./Lib,./vm/Lib  --select=E9,F63,F7,F82 --show-source --statistics
-        
+
+  cpython:
+    name: Run CPython test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: build rustpython
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --verbose --all
+      - name: run tests
+        run: |
+          export RUSTPYTHONPATH=`pwd`/Lib
+          cargo run -- -m test -v
