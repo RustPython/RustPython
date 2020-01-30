@@ -604,9 +604,11 @@ def _syscmd_uname(option, default=''):
 
     """ Interface to the system's uname command.
     """
-    if sys.platform in ('dos', 'win32', 'win16'):
-        # XXX Others too ?
-        return default
+    # TODO: fix RustPython
+    return default
+    # if sys.platform in ('dos', 'win32', 'win16'):
+    #     # XXX Others too ?
+    #     return default
 
     import subprocess
     try:
@@ -967,6 +969,14 @@ _pypy_sys_version_parser = re.compile(
     r'\(#?([^,]+),\s*([\w ]+),\s*([\w :]+)\)\s*'
     r'\[PyPy [^\]]+\]?')
 
+_rustpython_sys_version_parser = re.compile(
+    r'RustPython '
+    r'([\w.+]+)\s*'  # "version<space>"
+    r'\(#?([^,]+)'  # "(#buildno"
+    r'(?:,\s*([\w ]*)'  # ", builddate"
+    r'(?:,\s*([\w :]*))?)?\)\s*'  # ", buildtime)<space>"
+    r'\[([^\]]+)\]?', re.ASCII)  # "[compiler]"
+
 _sys_version_cache = {}
 
 def _sys_version(sys_version=None):
@@ -1038,6 +1048,16 @@ def _sys_version(sys_version=None):
                              repr(sys_version))
         version, buildno, builddate, buildtime = match.groups()
         compiler = ""
+
+    elif "RustPython" in sys_version:
+        # RustPython
+        name = "RustPython"
+        match = _rustpython_sys_version_parser.match(sys_version)
+        if match is None:
+            raise ValueError("failed to parse RustPython sys.version: %s" %
+                             repr(sys_version))
+        version, buildno, builddate, buildtime, compiler = \
+              match.groups()
 
     else:
         # CPython
