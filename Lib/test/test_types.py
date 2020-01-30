@@ -86,6 +86,8 @@ class TypesTests(unittest.TestCase):
         if float(1) == 1.0 and float(-1) == -1.0 and float(0) == 0.0: pass
         else: self.fail('float() does not work properly')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_float_to_string(self):
         def test(f, result):
             self.assertEqual(f.__format__('e'), result)
@@ -206,6 +208,8 @@ class TypesTests(unittest.TestCase):
         self.assertRaises(TypeError, type, 1, 2)
         self.assertRaises(TypeError, type, 1, 2, 3, 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_int__format__(self):
         def test(i, format_spec, result):
             # just make sure we have the unified type for integers
@@ -375,6 +379,8 @@ class TypesTests(unittest.TestCase):
         test(123456, "1=20", '11111111111111123456')
         test(123456, "*=20", '**************123456')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8')
     def test_float__format__locale(self):
         # test locale support for __format__ code 'n'
@@ -384,6 +390,8 @@ class TypesTests(unittest.TestCase):
             self.assertEqual(locale.format_string('%g', x, grouping=True), format(x, 'n'))
             self.assertEqual(locale.format_string('%.10g', x, grouping=True), format(x, '.10n'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8')
     def test_int__format__locale(self):
         # test locale support for __format__ code 'n' for integers
@@ -403,6 +411,8 @@ class TypesTests(unittest.TestCase):
             self.assertEqual(len(format(0, lfmt)), len(format(x, lfmt)))
             self.assertEqual(len(format(0, cfmt)), len(format(x, cfmt)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_float__format__(self):
         def test(f, format_spec, result):
             self.assertEqual(f.__format__(format_spec), result)
@@ -553,6 +563,7 @@ class TypesTests(unittest.TestCase):
         test(12345.6, "1=20", '111111111111112345.6')
         test(12345.6, "*=20", '*************12345.6')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_format_spec_errors(self):
         # int, float, and string all share the same format spec
         # mini-language parser.
@@ -572,6 +583,8 @@ class TypesTests(unittest.TestCase):
         for code in 'xXobns':
             self.assertRaises(ValueError, format, 0, ',' + code)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_internal_sizes(self):
         self.assertGreater(object.__basicsize__, 0)
         self.assertGreater(tuple.__itemsize__, 0)
@@ -588,6 +601,8 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(object().__lt__, types.MethodWrapperType)
         self.assertIsInstance((42).__lt__, types.MethodWrapperType)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_method_descriptor_types(self):
         self.assertIsInstance(str.join, types.MethodDescriptorType)
         self.assertIsInstance(list.append, types.MethodDescriptorType)
@@ -602,6 +617,8 @@ class TypesTests(unittest.TestCase):
 class MappingProxyTests(unittest.TestCase):
     mappingproxy = types.MappingProxyType
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_constructor(self):
         class userdict(dict):
             pass
@@ -617,6 +634,8 @@ class MappingProxyTests(unittest.TestCase):
         self.assertRaises(TypeError, self.mappingproxy, ("a", "tuple"))
         self.assertRaises(TypeError, self.mappingproxy, ["a", "list"])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_methods(self):
         attrs = set(dir(self.mappingproxy({}))) - set(dir(object()))
         self.assertEqual(attrs, {
@@ -640,6 +659,8 @@ class MappingProxyTests(unittest.TestCase):
         self.assertIsNone(view.get('xxx'))
         self.assertEqual(view.get('xxx', 42), 42)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_missing(self):
         class dictmissing(dict):
             def __missing__(self, key):
@@ -654,6 +675,8 @@ class MappingProxyTests(unittest.TestCase):
         self.assertTrue('x' in view)
         self.assertFalse('y' in view)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_customdict(self):
         class customdict(dict):
             def __contains__(self, key):
@@ -702,6 +725,8 @@ class MappingProxyTests(unittest.TestCase):
         self.assertEqual(view.keys(), 'keys')
         self.assertEqual(view.values(), 'values')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_chainmap(self):
         d1 = {'x': 1}
         d2 = {'y': 2}
@@ -747,6 +772,8 @@ class MappingProxyTests(unittest.TestCase):
         self.assertEqual(list(values), ['value'])
         self.assertEqual(list(items), [('key', 'value')])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_len(self):
         for expected in range(6):
             data = dict.fromkeys('abcde'[:expected])
@@ -764,6 +791,8 @@ class MappingProxyTests(unittest.TestCase):
         self.assertEqual(set(view.values()), set(values))
         self.assertEqual(set(view.items()), set(items))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copy(self):
         original = {'key1': 27, 'key2': 51, 'key3': 93}
         view = self.mappingproxy(original)
@@ -799,6 +828,8 @@ class ClassCreationTests(unittest.TestCase):
         C = types.new_class("C", (int,))
         self.assertTrue(issubclass(C, int))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_new_class_meta(self):
         Meta = self.Meta
         settings = {"metaclass": Meta, "z": 2}
@@ -809,6 +840,8 @@ class ClassCreationTests(unittest.TestCase):
             self.assertEqual(C.y, 1)
             self.assertEqual(C.z, 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_new_class_exec_body(self):
         Meta = self.Meta
         def func(ns):
@@ -834,6 +867,8 @@ class ClassCreationTests(unittest.TestCase):
         self.assertEqual(C.__name__, "C")
         self.assertEqual(C.__bases__, (object,))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_new_class_meta_with_base(self):
         Meta = self.Meta
         def func(ns):
@@ -930,6 +965,8 @@ class ClassCreationTests(unittest.TestCase):
         self.assertIs(ns, expected_ns)
         self.assertEqual(len(kwds), 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bad___prepare__(self):
         # __prepare__() must return a mapping.
         class BadMeta(type):
@@ -974,6 +1011,8 @@ class ClassCreationTests(unittest.TestCase):
         for bases in [x, y, z, t]:
             self.assertIs(types.resolve_bases(bases), bases)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_metaclass_derivation(self):
         # issue1294232: correct metaclass calculation
         new_calls = []  # to check the order of __new__ calls
@@ -1028,6 +1067,8 @@ class ClassCreationTests(unittest.TestCase):
         new_calls.clear()
         self.assertIn('BMeta_was_here', E.__dict__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_metaclass_override_function(self):
         # Special case: the given metaclass isn't a class,
         # so there is no metaclass calculation.
@@ -1129,6 +1170,8 @@ class ClassCreationTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             X = types.new_class("X", (int(), C))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_one_argument_type(self):
         expected_message = 'type.__new__() takes exactly 3 arguments (1 given)'
 
@@ -1150,6 +1193,7 @@ class ClassCreationTests(unittest.TestCase):
 
 class SimpleNamespaceTests(unittest.TestCase):
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_constructor(self):
         ns1 = types.SimpleNamespace()
         ns2 = types.SimpleNamespace(x=1, y=2)
@@ -1205,6 +1249,8 @@ class SimpleNamespaceTests(unittest.TestCase):
         self.assertEqual(ns1.__dict__, dict(a='spam', b='ham'))
         self.assertEqual(ns2.__dict__, dict(x=1, y=2, w=3, z=4, theta=None))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attrdel(self):
         ns1 = types.SimpleNamespace()
         ns2 = types.SimpleNamespace(x=1, y=2, w=3)
@@ -1226,6 +1272,8 @@ class SimpleNamespaceTests(unittest.TestCase):
         del ns1.spam
         self.assertEqual(vars(ns1), {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_repr(self):
         ns1 = types.SimpleNamespace(x=1, y=2, w=3)
         ns2 = types.SimpleNamespace()
@@ -1236,6 +1284,8 @@ class SimpleNamespaceTests(unittest.TestCase):
         self.assertEqual(repr(ns1), "{name}(w=3, x=1, y=2)".format(name=name))
         self.assertEqual(repr(ns2), "{name}(_y=5, x='spam')".format(name=name))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_equal(self):
         ns1 = types.SimpleNamespace(x=1)
         ns2 = types.SimpleNamespace()
@@ -1274,6 +1324,8 @@ class SimpleNamespaceTests(unittest.TestCase):
         self.assertEqual(ns3.spam, ns2)
         self.assertEqual(ns2.spam.spam, ns2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_recursive_repr(self):
         ns1 = types.SimpleNamespace(c='cookie')
         ns2 = types.SimpleNamespace()
@@ -1309,6 +1361,8 @@ class SimpleNamespaceTests(unittest.TestCase):
         self.assertIs(type(spam), Spam)
         self.assertEqual(vars(spam), {'ham': 8, 'eggs': 9})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle(self):
         ns = types.SimpleNamespace(breakfast="spam", lunch="spam")
 
@@ -1366,6 +1420,8 @@ class CoroutineTests(unittest.TestCase):
         foo = types.coroutine(foo)
         self.assertIs(aw, foo())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_async_def(self):
         # Test that types.coroutine passes 'async def' coroutines
         # without modification
@@ -1417,6 +1473,8 @@ class CoroutineTests(unittest.TestCase):
         self.assertIs(foo(), coro)
         self.assertIs(foo().__await__(), coro)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_duck_gen(self):
         class GenLike:
             def send(self): pass
@@ -1573,6 +1631,8 @@ class CoroutineTests(unittest.TestCase):
         else:
             self.fail('StopIteration was expected')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_gen(self):
         def gen_func():
             yield 1
@@ -1622,6 +1682,8 @@ class CoroutineTests(unittest.TestCase):
         foo = types.coroutine(foo)
         self.assertIs(foo(), gencoro)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_genfunc(self):
         def gen(): yield
         self.assertIs(types.coroutine(gen), gen)
