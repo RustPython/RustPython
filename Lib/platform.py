@@ -171,6 +171,8 @@ def libc_ver(executable=None, lib='', version='', chunksize=16384):
         The file is read and scanned in chunks of chunksize bytes.
 
     """
+    # TODO: fix RustPython
+    return (lib, version)
     if executable is None:
         try:
             ver = os.confstr('CS_GNU_LIBC_VERSION')

@@ -428,9 +428,8 @@ class Regrtest:
     def display_header(self):
         # Print basic platform information
         print("==", platform.python_implementation(), *sys.version.split())
-        # TODO: Add platform.platform
-        # print("==", platform.platform(aliased=True),
-        #               "%s-endian" % sys.byteorder)
+        print("==", platform.platform(aliased=True),
+                      "%s-endian" % sys.byteorder)
         print("== cwd:", os.getcwd())
         cpu_count = os.cpu_count()
         if cpu_count:
