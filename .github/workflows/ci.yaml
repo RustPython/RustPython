@@ -7,7 +7,25 @@ name: CI
 
 jobs:
   rust_tests:
-    name: Run tests
+    name: Run rust tests
+    runs-on:  ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@master
+      - name: Convert symlinks to hardlink (windows only)
+        run: powershell.exe scripts/symlinks-to-hardlinks.ps1
+        if: matrix.os == 'windows-latest'
+      - name: run rust tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose --all
+
+  snippets:
+    name: Run snippets tests
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
@@ -22,12 +40,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --verbose --all
-      - name: run rust tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --verbose --all
+          args: --release --verbose --all
       - uses: actions/setup-python@v1
         with:
           python-version: 3.6
