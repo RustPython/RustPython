@@ -40,16 +40,16 @@ pub fn get_version_info() -> VersionInfo {
     }
 }
 
-pub fn get_version_number() -> String {
+fn get_version_number() -> String {
     format!("{}.{}.{}{}", MAJOR, MINOR, MICRO, RELEASELEVEL)
 }
 
-pub fn get_compiler() -> String {
+fn get_compiler() -> String {
     let rustc_version = rustc_version_runtime::version_meta();
     format!("\n[rustc {}]", rustc_version.semver)
 }
 
-pub fn get_build_info() -> String {
+fn get_build_info() -> String {
     // See: https://reproducible-builds.org/docs/timestamps/
     let git_revision = get_git_revision();
     let separator = if git_revision.is_empty() { "" } else { ":" };
@@ -78,7 +78,7 @@ pub fn get_git_tag() -> String {
     option_env!("RUSTPYTHON_GIT_TAG").unwrap_or("").to_owned()
 }
 
-pub fn get_git_branch() -> String {
+fn get_git_branch() -> String {
     option_env!("RUSTPYTHON_GIT_BRANCH")
         .unwrap_or("")
         .to_owned()
@@ -107,21 +107,14 @@ fn get_git_timestamp_datetime() -> DateTime<Local> {
     datetime
 }
 
-pub fn get_git_date() -> String {
+fn get_git_date() -> String {
     let datetime = get_git_timestamp_datetime();
 
     datetime.format("%b %e %Y").to_string()
 }
 
-pub fn get_git_time() -> String {
+fn get_git_time() -> String {
     let datetime = get_git_timestamp_datetime();
 
     datetime.format("%H:%M:%S").to_string()
-}
-
-pub fn get_git_datetime() -> String {
-    let date = get_git_date();
-    let time = get_git_time();
-
-    format!("{} {}", date, time)
 }
