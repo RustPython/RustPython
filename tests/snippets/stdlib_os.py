@@ -265,7 +265,7 @@ with TestWithTempDir() as tmpdir:
 	with TestWithTempCurrentDir():
 		os.chdir(tmpdir)
 		assert os.getcwd() == os.path.realpath(tmpdir)
-		os.path.exists(FILE_NAME)
+		assert os.path.exists(FILE_NAME)
 
 # supports
 assert isinstance(os.supports_fd, set)
