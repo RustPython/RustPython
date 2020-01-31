@@ -51,3 +51,7 @@ else:
 p = subprocess.Popen(["echo", "test"], stdout=subprocess.PIPE)
 (stdout, stderr) = p.communicate()
 assert stdout.strip() == b"test"
+
+p = subprocess.Popen(["sleep", "5"], stdout=subprocess.PIPE)
+with assert_raises(subprocess.TimeoutExpired):
+	p.communicate(timeout=1)
