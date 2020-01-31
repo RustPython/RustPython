@@ -937,10 +937,15 @@ impl Frame {
                 let kwargs = if *has_kwargs {
                     let kw_dict: PyDictRef =
                         self.pop_value().downcast().expect("Kwargs must be a dict.");
-                    kw_dict
-                        .into_iter()
-                        .map(|elem| (objstr::clone_value(&elem.0), elem.1))
-                        .collect()
+                    let mut kwargs = IndexMap::new();
+                    for (key, value) in kw_dict.into_iter() {
+                        if let Some(key) = key.payload_if_subclass::<objstr::PyString>(vm) {
+                            kwargs.insert(key.as_str().to_owned(), value);
+                        } else {
+                            return Err(vm.new_type_error("keywords must be strings".to_owned()));
+                        }
+                    }
+                    kwargs
                 } else {
                     IndexMap::new()
                 };
