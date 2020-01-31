@@ -22,6 +22,7 @@ use nix::pty::openpty;
 use nix::unistd::{self, Gid, Pid, Uid};
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
+#[cfg(unix)]
 use uname;
 
 use super::errno::errors;
@@ -1157,6 +1158,7 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
 
 #[pystruct_sequence(name = "os.uname_result")]
 #[derive(Debug)]
+#[cfg(unix)]
 struct UnameResult {
     sysname: String,
     nodename: String,
@@ -1165,6 +1167,7 @@ struct UnameResult {
     machine: String,
 }
 
+#[cfg(unix)]
 impl UnameResult {
     fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
         self.into_struct_sequence(vm, vm.class("_os", "uname_result"))
@@ -1173,6 +1176,7 @@ impl UnameResult {
     }
 }
 
+#[cfg(unix)]
 fn os_uname(vm: &VirtualMachine) -> PyResult {
     let info = uname::uname().map_err(|err| convert_io_error(vm, err))?;
     Ok(UnameResult {
@@ -1274,7 +1278,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     let stat_result = StatResult::make_class(ctx);
-    let uname_result = UnameResult::make_class(ctx);
 
     struct SupportFunc<'a> {
         name: &'a str,
@@ -1363,8 +1366,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "urandom" => ctx.new_function(os_urandom),
         "isatty" => ctx.new_function(os_isatty),
         "lseek" => ctx.new_function(os_lseek),
-        "uname" => ctx.new_function(os_uname),
-        "uname_result" => uname_result,
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
@@ -1417,6 +1418,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[cfg(unix)]
 fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
     let ctx = &vm.ctx;
+
+    let uname_result = UnameResult::make_class(ctx);
+
     extend_module!(vm, module, {
         "access" => ctx.new_function(os_access),
         "chmod" => ctx.new_function(os_chmod),
@@ -1437,6 +1441,8 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setuid" => ctx.new_function(os_setuid),
         "system" => ctx.new_function(os_system),
         "ttyname" => ctx.new_function(os_ttyname),
+        "uname" => ctx.new_function(os_uname),
+        "uname_result" => uname_result,
         "EX_OK" => ctx.new_int(exitcode::OK as i8),
         "EX_USAGE" => ctx.new_int(exitcode::USAGE as i8),
         "EX_DATAERR" => ctx.new_int(exitcode::DATAERR as i8),
