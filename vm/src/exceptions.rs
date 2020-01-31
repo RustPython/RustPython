@@ -131,7 +131,7 @@ impl PyBaseException {
 
     #[pymethod(name = "__str__")]
     fn str(&self, vm: &VirtualMachine) -> PyStringRef {
-        let str_args = exception_args_as_string(vm, self.args(), false);
+        let str_args = exception_args_as_string(vm, self.args(), true);
         match str_args.into_iter().exactly_one() {
             Err(i) if i.len() == 0 => PyString::from("").into_ref(vm),
             Ok(s) => s,
@@ -616,6 +616,18 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef, &VirtualMachine) -
     }
 }
 
+fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStringRef {
+    let args = exc.args();
+    if args.as_slice().len() == 1 {
+        exception_args_as_string(vm, args, false)
+            .into_iter()
+            .exactly_one()
+            .unwrap()
+    } else {
+        exc.str(vm)
+    }
+}
+
 pub fn init(ctx: &PyContext) {
     let excs = &ctx.exceptions;
 
@@ -636,6 +648,10 @@ pub fn init(ctx: &PyContext) {
 
     extend_class!(ctx, &excs.stop_iteration, {
         "value" => ctx.new_property(make_arg_getter(0)),
+    });
+
+    extend_class!(ctx, &excs.key_error, {
+        "__str__" => ctx.new_method(key_error_str),
     });
 
     extend_class!(ctx, &excs.unicode_decode_error, {

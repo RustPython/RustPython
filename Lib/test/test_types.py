@@ -1168,8 +1168,6 @@ class ClassCreationTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             X = types.new_class("X", (int(), C))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_one_argument_type(self):
         expected_message = 'type.__new__() takes exactly 3 arguments (1 given)'
 
