@@ -155,16 +155,17 @@ fn parse_fill_and_align(text: &str) -> (Option<char>, Option<FormatAlign>, &str)
     }
 }
 
-fn parse_number(text: &str) -> (Option<usize>, &str) {
+fn parse_number(text: &str) -> Result<(Option<usize>, &str), &'static str> {
     let num_digits: usize = get_num_digits(text);
     if num_digits == 0 {
-        return (None, text);
+        return Ok((None, text));
     }
-    // This should never fail
-    (
-        Some(text[..num_digits].parse::<usize>().unwrap()),
-        &text[num_digits..],
-    )
+    if let Ok(num) = text[..num_digits].parse::<usize>() {
+        Ok((Some(num), &text[num_digits..]))
+    } else {
+        // NOTE: this condition is different from CPython
+        Err("Too many decimal digits in format string")
+    }
 }
 
 fn parse_sign(text: &str) -> (Option<FormatSign>, &str) {
@@ -193,11 +194,11 @@ fn parse_zero(text: &str) -> (bool, &str) {
     }
 }
 
-fn parse_precision(text: &str) -> (Option<usize>, &str) {
+fn parse_precision(text: &str) -> Result<(Option<usize>, &str), &'static str> {
     let mut chars = text.chars();
-    match chars.next() {
+    Ok(match chars.next() {
         Some('.') => {
-            let (size, remaining) = parse_number(&chars.as_str());
+            let (size, remaining) = parse_number(&chars.as_str())?;
             if size.is_some() {
                 (size, remaining)
             } else {
@@ -205,7 +206,7 @@ fn parse_precision(text: &str) -> (Option<usize>, &str) {
             }
         }
         _ => (None, text),
-    }
+    })
 }
 
 fn parse_grouping_option(text: &str) -> (Option<FormatGrouping>, &str) {
@@ -239,14 +240,15 @@ fn parse_format_type(text: &str) -> (Option<FormatType>, &str) {
 }
 
 fn parse_format_spec(text: &str) -> Result<FormatSpec, &'static str> {
+    // get_integer in CPython
     let (preconversor, after_preconversor) = parse_preconversor(text);
     let (mut fill, mut align, after_align) = parse_fill_and_align(after_preconversor);
     let (sign, after_sign) = parse_sign(after_align);
     let (alternate_form, after_alternate_form) = parse_alternate_form(after_sign);
     let (zero, after_zero) = parse_zero(after_alternate_form);
-    let (width, after_width) = parse_number(after_zero);
+    let (width, after_width) = parse_number(after_zero)?;
     let (grouping_option, after_grouping_option) = parse_grouping_option(after_width);
-    let (precision, after_precision) = parse_precision(after_grouping_option);
+    let (precision, after_precision) = parse_precision(after_grouping_option)?;
     let (format_type, after_format_type) = parse_format_type(after_precision);
     if !after_format_type.is_empty() {
         return Err("Invalid format specifier");
