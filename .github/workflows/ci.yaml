@@ -18,6 +18,13 @@ jobs:
       - name: Convert symlinks to hardlink (windows only)
         run: powershell.exe scripts/symlinks-to-hardlinks.ps1
         if: matrix.os == 'windows-latest'
+      - name: Cache cargo dependencies
+        uses: actions/cache@v1
+        with:
+          key: ${{ runner.os }}-rust_tests-${{ hashFiles('Cargo.lock') }}
+          path: target
+          restore-keys: |
+            ${{ runner.os }}-rust_tests-
       - name: run rust tests
         uses: actions-rs/cargo@v1
         with:
@@ -36,6 +43,13 @@ jobs:
       - name: Convert symlinks to hardlink (windows only)
         run: powershell.exe scripts/symlinks-to-hardlinks.ps1
         if: matrix.os == 'windows-latest'
+      - name: Cache cargo dependencies
+        uses: actions/cache@v1
+        with:
+          key: ${{ runner.os }}-snippets-${{ hashFiles('Cargo.lock') }}
+          path: target
+          restore-keys: |
+            ${{ runner.os }}-snippets-
       - name: build rustpython
         uses: actions-rs/cargo@v1
         with:
