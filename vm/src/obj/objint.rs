@@ -531,9 +531,13 @@ impl PyInt {
         zelf
     }
 
-    #[pymethod]
+    #[pyclassmethod]
     #[allow(clippy::match_bool)]
-    fn from_bytes(args: IntFromByteArgs, vm: &VirtualMachine) -> PyResult<BigInt> {
+    fn from_bytes(
+        cls: PyClassRef,
+        args: IntFromByteArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
         let signed = if let OptionalArg::Present(signed) = args.signed {
             signed.to_bool()
         } else {
@@ -555,7 +559,7 @@ impl PyInt {
                 )
             }
         };
-        Ok(x)
+        PyInt::new(x).into_ref_with_type(vm, cls)
     }
 
     #[pymethod]
