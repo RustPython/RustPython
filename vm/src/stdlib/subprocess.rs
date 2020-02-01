@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::ffi::OsString;
 use std::fs::File;
+use std::io::ErrorKind;
 use std::time::Duration;
 
 use subprocess;
@@ -191,13 +192,21 @@ impl PopenRef {
         vm: &VirtualMachine,
     ) -> PyResult<(Option<Vec<u8>>, Option<Vec<u8>>)> {
         let bytes = match args.input {
-            OptionalArg::Present(ref bytes) => Some(bytes.get_value()),
+            OptionalArg::Present(ref bytes) => Some(bytes.get_value().to_vec()),
             OptionalArg::Missing => None,
         };
-        self.process
-            .borrow_mut()
-            .communicate_bytes(bytes)
-            .map_err(|err| convert_io_error(vm, err))
+        let mut communicator = self.process.borrow_mut().communicate_start(bytes);
+        if let OptionalArg::Present(timeout) = args.timeout {
+            communicator = communicator.limit_time(Duration::new(timeout, 0));
+        }
+        communicator.read().map_err(|err| {
+            if err.error.kind() == ErrorKind::TimedOut {
+                let timeout_expired = vm.try_class("_subprocess", "TimeoutExpired").unwrap();
+                vm.new_exception_msg(timeout_expired, "Timeout".to_string())
+            } else {
+                convert_io_error(vm, err.error)
+            }
+        })
     }
 
     fn pid(self, _vm: &VirtualMachine) -> Option<u32> {

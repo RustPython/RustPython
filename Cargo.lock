@@ -1793,11 +1793,10 @@ checksum = "6446ced80d6c486436db5c078dde11a9f73d42b57fb273121e160b84f63d894c"
 
 [[package]]
 name = "subprocess"
-version = "0.1.20"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68713fc0f9d941642c1e020d622e6421dfe09e8891ddd4bfa2109fda9a40431d"
+checksum = "e7d50729bec6e0706af02ead50d1209a063f6813199cf99262cce281b05a942a"
 dependencies = [
- "crossbeam-utils",
  "libc",
  "winapi",
 ]
