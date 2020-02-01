@@ -24,16 +24,16 @@ impl Default for PyTpFlags {
 }
 
 #[derive(Default)]
-pub struct PyClassSlots {
+pub struct PyClassSlot {
     pub flags: PyTpFlags,
     pub new: Option<PyNativeFunc>,
     pub call: Option<PyNativeFunc>,
     pub descr_get: Option<PyNativeFunc>,
 }
 
-impl std::fmt::Debug for PyClassSlots {
+impl std::fmt::Debug for PyClassSlot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("PyClassSlots")
+        f.write_str("PyClassSlot")
     }
 }
 

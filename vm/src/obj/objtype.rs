@@ -14,7 +14,7 @@ use crate::pyobject::{
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef,
     PyResult, PyValue, TypeProtocol,
 };
-use crate::slots::{PyClassSlots, PyTpFlags};
+use crate::slots::{PyClassSlot, PyTpFlags};
 use crate::vm::VirtualMachine;
 
 /// type(object_or_name, bases, dict)
@@ -24,11 +24,12 @@ use crate::vm::VirtualMachine;
 #[derive(Debug)]
 pub struct PyClass {
     pub name: String,
-    pub bases: Vec<PyClassRef>,
+    pub base: Option<PyClassRef>, // tp_base
+    pub bases: Vec<PyClassRef>,   // tp_bases
     pub mro: Vec<PyClassRef>,
     pub subclasses: RefCell<Vec<PyWeak>>,
     pub attributes: RefCell<PyAttributes>,
-    pub slots: RefCell<PyClassSlots>,
+    pub slots: RefCell<PyClassSlot>,
 }
 
 impl fmt::Display for PyClass {
@@ -361,6 +362,22 @@ pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
     subclass.is(cls) || mro.iter().any(|c| c.is(cls.as_object()))
 }
 
+pub fn is_subtype_base_chain(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
+    let mut a = subclass;
+    loop {
+        if subclass.is(cls) {
+            return true;
+        } else {
+            if let Some(ref base) = a.base {
+                a = base;
+            } else {
+                break;
+            }
+        }
+    }
+    cls.base.is_none()
+}
+
 pub fn type_new(
     zelf: PyClassRef,
     cls: PyClassRef,
@@ -491,7 +508,7 @@ fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Option<Vec<PyClassRef>> {
 pub fn new(
     typ: PyClassRef,
     name: &str,
-    _base: PyClassRef,
+    base: PyClassRef,
     bases: Vec<PyClassRef>,
     dict: HashMap<String, PyObjectRef>,
 ) -> PyResult<PyClassRef> {
@@ -500,6 +517,7 @@ pub fn new(
     let new_type = PyObject {
         payload: PyClass {
             name: String::from(name),
+            base: Some(base.clone()),
             bases,
             mro,
             subclasses: RefCell::default(),
@@ -548,8 +566,8 @@ fn calculate_meta_class(
 }
 
 fn best_base<'a>(bases: &'a [PyClassRef], vm: &VirtualMachine) -> PyResult<PyClassRef> {
-    // let mut base = None;
-    // let mut winner = None;
+    let mut base = None;
+    let mut winner = None;
 
     for base_i in bases {
         // base_proto = PyTuple_GET_ITEM(bases, i);
@@ -571,28 +589,41 @@ fn best_base<'a>(bases: &'a [PyClassRef], vm: &VirtualMachine) -> PyResult<PyCla
                 base_i.name
             )));
         }
-        // candidate = solid_base(base_i);
-        // if (winner == NULL) {
-        //     winner = candidate;
-        //     base = base_i;
-        // }
-        // else if (PyType_IsSubtype(winner, candidate))
-        //     ;
-        // else if (PyType_IsSubtype(candidate, winner)) {
-        //     winner = candidate;
-        //     base = base_i;
-        // }
-        // else {
-        //     PyErr_SetString(
-        //         PyExc_TypeError,
-        //         "multiple bases have "
-        //         "instance lay-out conflict");
-        //     return NULL;
-        // }
+        let candidate = solid_base(base_i, vm);
+        if winner.is_none() {
+            winner = Some(candidate);
+            base = Some(base_i);
+        } else if issubclass(winner.unwrap(), candidate) {
+        } else if issubclass(candidate, winner.unwrap()) {
+            winner = Some(candidate);
+            base = Some(base_i);
+        } else {
+            return Err(
+                vm.new_type_error("multiple bases have instance lay-out conflict".to_owned())
+            );
+        }
     }
 
-    // FIXME: Ok(base.unwrap()) is expected
-    Ok(bases[0].clone())
+    Ok(base.unwrap().clone())
+}
+
+fn extra_ivars(_typ: &PyClassRef, _base: &PyClassRef) -> bool {
+    // TODO
+    false
+}
+
+fn solid_base<'a>(typ: &'a PyClassRef, vm: &'a VirtualMachine) -> &'a PyClassRef {
+    let base = if let Some(ref tp_base) = typ.base {
+        solid_base(tp_base, vm)
+    } else {
+        &vm.ctx.types.type_type
+    };
+
+    if extra_ivars(typ, base) {
+        typ
+    } else {
+        base
+    }
 }
 
 #[cfg(test)]

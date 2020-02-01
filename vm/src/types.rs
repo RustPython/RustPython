@@ -279,6 +279,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
                 dict: None,
                 payload: PyClass {
                     name: String::from("type"),
+                    base: None,
                     bases: vec![],
                     mro: vec![],
                     subclasses: RefCell::default(),
@@ -293,6 +294,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
                 dict: None,
                 payload: PyClass {
                     name: String::from("object"),
+                    base: None,
                     bases: vec![],
                     mro: vec![],
                     subclasses: RefCell::default(),
@@ -319,6 +321,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             // dummy PyClass
             let cls = PyClass {
                 name: Default::default(),
+                base: Default::default(),
                 bases: Default::default(),
                 mro: Default::default(),
                 subclasses: Default::default(),
@@ -348,6 +351,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
         let object_type = PyClassRef::new_ref_unchecked(Rc::from_raw(object_type_ptr));
 
         (*type_type_ptr).payload.mro = vec![object_type.clone()];
+        (*type_type_ptr).payload.base = Some(object_type.clone());
         (*type_type_ptr).payload.bases = vec![object_type.clone()];
 
         (type_type, object_type)
