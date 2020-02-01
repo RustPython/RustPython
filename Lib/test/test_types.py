@@ -1191,7 +1191,6 @@ class ClassCreationTests(unittest.TestCase):
 
 class SimpleNamespaceTests(unittest.TestCase):
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_constructor(self):
         ns1 = types.SimpleNamespace()
         ns2 = types.SimpleNamespace(x=1, y=2)
