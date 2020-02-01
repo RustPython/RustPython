@@ -3,22 +3,60 @@
 use std::cell::RefCell;
 
 use num_bigint::{BigInt, Sign};
+use num_traits::Signed;
+use rand::RngCore;
 
-use rand::distributions::Distribution;
-use rand::{RngCore, SeedableRng};
-use rand::rngs::SmallRng;
-use rand_distr::Normal;
-
-use crate::function::OptionalArg;
+use crate::function::OptionalOption;
+use crate::obj::objint::PyIntRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyValue, PyResult};
+use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::VirtualMachine;
 
-use crate::vm::VirtualMachine;
+mod mersenne;
+
+#[derive(Debug)]
+enum PyRng {
+    Std(rand::rngs::ThreadRng),
+    MT(mersenne::MT19937),
+}
+
+impl Default for PyRng {
+    fn default() -> Self {
+        PyRng::Std(rand::thread_rng())
+    }
+}
+
+impl RngCore for PyRng {
+    fn next_u32(&mut self) -> u32 {
+        match self {
+            Self::Std(s) => s.next_u32(),
+            Self::MT(m) => m.next_u32(),
+        }
+    }
+    fn next_u64(&mut self) -> u64 {
+        match self {
+            Self::Std(s) => s.next_u64(),
+            Self::MT(m) => m.next_u64(),
+        }
+    }
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        match self {
+            Self::Std(s) => s.fill_bytes(dest),
+            Self::MT(m) => m.fill_bytes(dest),
+        }
+    }
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
+        match self {
+            Self::Std(s) => s.try_fill_bytes(dest),
+            Self::MT(m) => m.try_fill_bytes(dest),
+        }
+    }
+}
 
 #[pyclass(name = "Random")]
 #[derive(Debug)]
 struct PyRandom {
-    rng: RefCell<SmallRng>
+    rng: RefCell<PyRng>,
 }
 
 impl PyValue for PyRandom {
@@ -27,86 +65,74 @@ impl PyValue for PyRandom {
     }
 }
 
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyRandom {
     #[pyslot(new)]
     fn new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRandom {
-            rng: RefCell::new(SmallRng::from_entropy())
-        }.into_ref_with_type(vm, cls)
-    }
-
-    #[pymethod] 
-    fn seed(&self, n: Option<usize>, vm: &VirtualMachine) -> PyResult {
-        let rng = match n {
-            None => SmallRng::from_entropy(),
-            Some(n) => {
-                let seed = n as u64;
-                SmallRng::seed_from_u64(seed)
-            }
-        };
-        
-        *self.rng.borrow_mut() = rng;
-        
-        Ok(vm.ctx.none())
+            rng: RefCell::new(PyRng::default()),
+        }
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod]
-    fn getrandbits(&self, k: usize, vm: &VirtualMachine) -> PyResult {
-        let bytes = (k - 1) / 8 + 1;
-        let mut bytearray = vec![0u8; bytes];
-        self.rng.borrow_mut().fill_bytes(&mut bytearray);
+    fn random(&self) -> f64 {
+        gen_res53(&mut *self.rng.borrow_mut())
+    }
 
-        let bits = bytes % 8;
-        if bits > 0 {
-            bytearray[0] >>= 8 - bits;
+    #[pymethod]
+    fn seed(&self, n: OptionalOption<PyIntRef>) {
+        let new_rng = match n.flat_option() {
+            None => PyRng::default(),
+            Some(n) => {
+                let (_, mut key) = n.as_bigint().abs().to_u32_digits();
+                if cfg!(target_endian = "big") {
+                    key.reverse();
+                }
+                PyRng::MT(mersenne::MT19937::new_with_slice_seed(&key))
+            }
+        };
+
+        *self.rng.borrow_mut() = new_rng;
+    }
+
+    #[pymethod]
+    fn getrandbits(&self, mut k: usize) -> BigInt {
+        let mut rng = self.rng.borrow_mut();
+
+        let mut gen_u32 = |k| rng.next_u32() >> (32 - k) as u32;
+
+        if k <= 32 {
+            return gen_u32(k).into();
         }
-        
-        println!("{:?}", k);
-        println!("{:?}", bytearray);
 
-        let result = BigInt::from_bytes_be(Sign::Plus, &bytearray);
-        Ok(vm.ctx.new_bigint(&result))
+        let words = (k - 1) / 8 + 1;
+        let mut wordarray = vec![0u32; words];
+
+        let it = wordarray.iter_mut();
+        #[cfg(target_endian = "big")]
+        let it = it.rev();
+        for word in it {
+            *word = gen_u32(k);
+            k -= 32;
+        }
+
+        BigInt::from_slice(Sign::NoSign, &wordarray)
     }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
-    let random_type = PyRandom::make_class(ctx);
-
     py_module!(vm, "_random", {
-        "Random" => random_type,
-        "gauss" => ctx.new_function(random_normalvariate), // TODO: is this the same?
-        "normalvariate" => ctx.new_function(random_normalvariate),
-        "random" => ctx.new_function(random_random),
-        // "weibull", ctx.new_function(random_weibullvariate),
+        "Random" => PyRandom::make_class(ctx),
     })
 }
 
-fn random_normalvariate(mu: f64, sigma: f64, vm: &VirtualMachine) -> PyResult<f64> {
-    let normal = Normal::new(mu, sigma).map_err(|rand_err| {
-        vm.new_exception_msg(
-            vm.ctx.exceptions.arithmetic_error.clone(),
-            format!("invalid normal distribution: {:?}", rand_err),
-        )
-    })?;
-    let value = normal.sample(&mut rand::thread_rng());
-    Ok(value)
+// taken from the translated mersenne twister
+/* generates a random number on [0,1) with 53-bit resolution*/
+fn gen_res53<R: RngCore>(rng: &mut R) -> f64 {
+    let a = rng.next_u32() >> 5;
+    let b = rng.next_u32() >> 6;
+    (a as f64 * 67108864.0 + b as f64) * (1.0 / 9007199254740992.0)
 }
-
-fn random_random(_vm: &VirtualMachine) -> f64 {
-    rand::random()
-}
-
-/*
- * TODO: enable this function:
-fn random_weibullvariate(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(alpha, Some(vm.ctx.float_type())), (beta, Some(vm.ctx.float_type()))]);
-    let alpha = objfloat::get_value(alpha);
-    let beta = objfloat::get_value(beta);
-    let weibull = Weibull::new(alpha, beta);
-    let value = weibull.sample(&mut rand::thread_rng());
-    let py_value = vm.ctx.new_float(value);
-    Ok(py_value)
-}
-*/
+/* These real versions are due to Isaku Wada, 2002/01/09 added */
