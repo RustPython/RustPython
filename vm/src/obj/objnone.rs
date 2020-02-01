@@ -1,9 +1,6 @@
-use super::objproperty::PyPropertyRef;
-use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -50,66 +47,6 @@ impl PyNone {
     #[pymethod(name = "__bool__")]
     fn bool(&self, _vm: &VirtualMachine) -> PyResult<bool> {
         Ok(false)
-    }
-
-    #[pymethod(name = "__getattribute__")]
-    fn get_attribute(zelf: PyRef<Self>, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        vm_trace!("None.__getattribute__({:?}, {:?})", self, name);
-        let cls = zelf.class();
-
-        // Properties use a comparision with None to determine if they are either invoked by am
-        // instance binding or a class binding. But if the object itself is None then this detection
-        // won't work. Instead we call a special function on property that bypasses this check, as
-        // we are invoking it as a instance binding.
-        //
-        // In CPython they instead call the slot tp_descr_get with NULL to indicates it's an
-        // instance binding.
-        // https://github.com/python/cpython/blob/master/Objects/typeobject.c#L3281
-        fn call_descriptor(
-            descriptor: PyObjectRef,
-            get_func: PyObjectRef,
-            obj: PyObjectRef,
-            cls: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            if let Ok(property) = PyPropertyRef::try_from_object(vm, descriptor.clone()) {
-                property.instance_binding_get(obj, vm)
-            } else {
-                vm.invoke(&get_func, vec![descriptor, obj, cls])
-            }
-        }
-
-        if let Some(attr) = cls.get_attr(name.as_str()) {
-            let attr_class = attr.class();
-            if attr_class.has_attr("__set__") {
-                if let Some(get_func) = attr_class.get_attr("__get__") {
-                    return call_descriptor(
-                        attr,
-                        get_func,
-                        zelf.into_object(),
-                        cls.into_object(),
-                        vm,
-                    );
-                }
-            }
-        }
-
-        // None has no attributes and cannot have attributes set on it.
-        // if let Some(obj_attr) = zelf.as_object().get_attr(name.as_str()) {
-        //     Ok(obj_attr)
-        // } else
-        if let Some(attr) = cls.get_attr(name.as_str()) {
-            let attr_class = attr.class();
-            if let Some(get_func) = attr_class.get_attr("__get__") {
-                call_descriptor(attr, get_func, zelf.into_object(), cls.into_object(), vm)
-            } else {
-                Ok(attr)
-            }
-        } else if let Some(getter) = cls.get_attr("__getattr__") {
-            vm.invoke(&getter, vec![zelf.into_object(), name.into_object()])
-        } else {
-            Err(vm.new_attribute_error(format!("{} has no attribute '{}'", zelf.as_object(), name)))
-        }
     }
 
     #[pymethod(name = "__eq__")]
