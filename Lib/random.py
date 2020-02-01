@@ -41,12 +41,11 @@ from warnings import warn as _warn
 from types import MethodType as _MethodType, BuiltinMethodType as _BuiltinMethodType
 from math import log as _log, exp as _exp, pi as _pi, e as _e, ceil as _ceil
 from math import sqrt as _sqrt, acos as _acos, cos as _cos, sin as _sin
-# from os import urandom as _urandom
+from os import urandom as _urandom
 from _collections_abc import Set as _Set, Sequence as _Sequence
 from hashlib import sha512 as _sha512
 import itertools as _itertools
 import bisect as _bisect
-import os as _os
 
 __all__ = ["Random","seed","random","uniform","randint","choice","sample",
            "randrange","shuffle","normalvariate","lognormvariate",
@@ -225,12 +224,11 @@ class Random(_random.Random):
                    Method=_MethodType, BuiltinMethod=_BuiltinMethodType):
         "Return a random int in the range [0,n).  Raises ValueError if n==0."
 
-        # random = self.random
+        random = self.random
         getrandbits = self.getrandbits
         # Only call self.getrandbits if the original random() builtin method
         # has not been overridden or if a new getrandbits() was supplied.
-        # if type(random) is BuiltinMethod or type(getrandbits) is Method:
-        if True:
+        if type(random) is BuiltinMethod or type(getrandbits) is Method:
             k = n.bit_length()  # don't use (n-1) here because n can be 1
             r = getrandbits(k)          # 0 <= r < 2**k
             while r >= n:
@@ -394,7 +392,7 @@ class Random(_random.Random):
             u = 1.0 - u
             c = 1.0 - c
             low, high = high, low
-        return low + (high - low) * _sqrt(u * c)
+        return low + (high - low) * (u * c) ** 0.5
 
 ## -------------------- normal distribution --------------------
 
@@ -546,7 +544,7 @@ class Random(_random.Random):
                     return x * beta
 
         elif alpha == 1.0:
-            # expovariate(1/beta)
+            # expovariate(1)
             u = random()
             while u <= 1e-7:
                 u = random()
@@ -707,14 +705,14 @@ def _test_generator(n, func, args):
     sqsum = 0.0
     smallest = 1e10
     largest = -1e10
-    t0 = time.perf_counter()
+    t0 = time.time()
     for i in range(n):
         x = func(*args)
         total += x
         sqsum = sqsum + x*x
         smallest = min(x, smallest)
         largest = max(x, largest)
-    t1 = time.perf_counter()
+    t1 = time.time()
     print(round(t1-t0, 3), 'sec,', end=' ')
     avg = total/n
     stddev = _sqrt(sqsum/n - avg*avg)
@@ -748,7 +746,7 @@ def _test(N=2000):
 
 _inst = Random()
 seed = _inst.seed
-# random = _inst.random
+random = _inst.random
 uniform = _inst.uniform
 triangular = _inst.triangular
 randint = _inst.randint
@@ -769,10 +767,6 @@ weibullvariate = _inst.weibullvariate
 getstate = _inst.getstate
 setstate = _inst.setstate
 getrandbits = _inst.getrandbits
-
-if hasattr(_os, "fork"):
-    _os.register_at_fork(after_in_child=_inst.seed)
-
 
 if __name__ == '__main__':
     _test()
