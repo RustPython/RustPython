@@ -107,15 +107,6 @@ impl PyProperty {
 
     // Descriptor methods
 
-    // specialised version that doesn't check for None
-    pub(crate) fn instance_binding_get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(ref getter) = self.getter.as_ref() {
-            vm.invoke(getter, obj)
-        } else {
-            Err(vm.new_attribute_error("unreadable attribute".to_owned()))
-        }
-    }
-
     #[pymethod(name = "__set__")]
     fn set(&self, obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(ref setter) = self.setter.as_ref() {
