@@ -94,6 +94,7 @@ assert bool({"key": "value"}) is True
 assert bool([1]) is True
 assert bool(set([1,2])) is True
 
+assert repr(True) == "True"
 
 # Check __len__ work
 class TestMagicMethodLenZero:

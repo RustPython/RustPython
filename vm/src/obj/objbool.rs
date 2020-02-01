@@ -3,7 +3,8 @@ use num_traits::Zero;
 
 use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -78,26 +79,94 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
     Ok(rs_bool)
 }
 
-pub fn init(context: &PyContext) {
-    let bool_doc = "bool(x) -> bool
+/// bool(x) -> bool
+///
+/// Returns True when the argument x is true, False otherwise.
+/// The builtins True and False are the only two instances of the class bool.
+/// The class bool is a subclass of the class int, and cannot be subclassed.
+#[pyclass]
+struct PyBool;
 
-Returns True when the argument x is true, False otherwise.
-The builtins True and False are the only two instances of the class bool.
-The class bool is a subclass of the class int, and cannot be subclassed.";
+#[pyimpl]
+impl PyBool {
+    #[pymethod(magic)]
+    fn repr(zelf: bool) -> String {
+        if zelf { "True" } else { "False" }.to_owned()
+    }
 
-    let bool_type = &context.types.bool_type;
-    extend_class!(context, bool_type, {
-        (slot new) => bool_new,
-        "__repr__" => context.new_method(bool_repr),
-        "__format__" => context.new_method(bool_format),
-        "__or__" => context.new_method(bool_or),
-        "__ror__" => context.new_method(bool_or),
-        "__and__" => context.new_method(bool_and),
-        "__rand__" => context.new_method(bool_and),
-        "__xor__" => context.new_method(bool_xor),
-        "__rxor__" => context.new_method(bool_xor),
-        "__doc__" => context.new_str(bool_doc.to_owned()),
-    });
+    #[pymethod(magic)]
+    fn format(
+        obj: PyObjectRef,
+        format_spec: PyStringRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStringRef> {
+        if format_spec.as_str().is_empty() {
+            vm.to_str(&obj)
+        } else {
+            Err(vm.new_type_error("unsupported format string passed to bool.__format__".to_owned()))
+        }
+    }
+
+    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
+    fn or(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&lhs, &vm.ctx.bool_type())
+            && objtype::isinstance(&rhs, &vm.ctx.bool_type())
+        {
+            let lhs = get_value(&lhs);
+            let rhs = get_value(&rhs);
+            (lhs || rhs).into_pyobject(vm)
+        } else {
+            get_py_int(&lhs).or(rhs.clone(), vm).into_pyobject(vm)
+        }
+    }
+
+    #[pymethod(name = "__rand__")]
+    #[pymethod(magic)]
+    fn and(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&lhs, &vm.ctx.bool_type())
+            && objtype::isinstance(&rhs, &vm.ctx.bool_type())
+        {
+            let lhs = get_value(&lhs);
+            let rhs = get_value(&rhs);
+            (lhs && rhs).into_pyobject(vm)
+        } else {
+            get_py_int(&lhs).and(rhs.clone(), vm).into_pyobject(vm)
+        }
+    }
+
+    #[pymethod(name = "__rxor__")]
+    #[pymethod(magic)]
+    fn xor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&lhs, &vm.ctx.bool_type())
+            && objtype::isinstance(&rhs, &vm.ctx.bool_type())
+        {
+            let lhs = get_value(&lhs);
+            let rhs = get_value(&rhs);
+            (lhs ^ rhs).into_pyobject(vm)
+        } else {
+            get_py_int(&lhs).xor(rhs.clone(), vm).into_pyobject(vm)
+        }
+    }
+
+    #[pyslot]
+    fn tp_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+        arg_check!(
+            vm,
+            args,
+            required = [(_zelf, Some(vm.ctx.type_type()))],
+            optional = [(val, None)]
+        );
+        let value = match val {
+            Some(val) => boolval(vm, val.clone())?,
+            None => false,
+        };
+        Ok(vm.new_bool(value))
+    }
+}
+
+pub(crate) fn init(context: &PyContext) {
+    PyBool::extend_class(context, &context.types.bool_type);
 }
 
 pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<bool> {
@@ -116,76 +185,6 @@ pub fn get_value(obj: &PyObjectRef) -> bool {
 
 pub fn get_py_int(obj: &PyObjectRef) -> &PyInt {
     &obj.payload::<PyInt>().unwrap()
-}
-
-fn bool_repr(obj: bool) -> String {
-    if obj {
-        "True".to_owned()
-    } else {
-        "False".to_owned()
-    }
-}
-
-fn bool_format(
-    obj: PyObjectRef,
-    format_spec: PyStringRef,
-    vm: &VirtualMachine,
-) -> PyResult<PyStringRef> {
-    if format_spec.as_str().is_empty() {
-        vm.to_str(&obj)
-    } else {
-        Err(vm.new_type_error("unsupported format string passed to bool.__format__".to_owned()))
-    }
-}
-
-fn bool_or(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if objtype::isinstance(&lhs, &vm.ctx.bool_type())
-        && objtype::isinstance(&rhs, &vm.ctx.bool_type())
-    {
-        let lhs = get_value(&lhs);
-        let rhs = get_value(&rhs);
-        (lhs || rhs).into_pyobject(vm)
-    } else {
-        get_py_int(&lhs).or(rhs.clone(), vm).into_pyobject(vm)
-    }
-}
-
-fn bool_and(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if objtype::isinstance(&lhs, &vm.ctx.bool_type())
-        && objtype::isinstance(&rhs, &vm.ctx.bool_type())
-    {
-        let lhs = get_value(&lhs);
-        let rhs = get_value(&rhs);
-        (lhs && rhs).into_pyobject(vm)
-    } else {
-        get_py_int(&lhs).and(rhs.clone(), vm).into_pyobject(vm)
-    }
-}
-
-fn bool_xor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if objtype::isinstance(&lhs, &vm.ctx.bool_type())
-        && objtype::isinstance(&rhs, &vm.ctx.bool_type())
-    {
-        let lhs = get_value(&lhs);
-        let rhs = get_value(&rhs);
-        (lhs ^ rhs).into_pyobject(vm)
-    } else {
-        get_py_int(&lhs).xor(rhs.clone(), vm).into_pyobject(vm)
-    }
-}
-
-fn bool_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(_zelf, Some(vm.ctx.type_type()))],
-        optional = [(val, None)]
-    );
-    let value = match val {
-        Some(val) => boolval(vm, val.clone())?,
-        None => false,
-    };
-    Ok(vm.new_bool(value))
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
