@@ -337,17 +337,16 @@ impl Class {
             };
             if name == "pymethod" {
                 self.add_item(Self::extract_method(sig, meta)?, meta_span)?;
-                attr_idxs.push(i);
             } else if name == "pyclassmethod" {
                 self.add_item(Self::extract_classmethod(sig, meta)?, meta_span)?;
-                attr_idxs.push(i);
             } else if name == "pyproperty" {
                 self.add_item(Self::extract_property(sig, meta)?, meta_span)?;
-                attr_idxs.push(i);
             } else if name == "pyslot" {
                 self.add_item(Self::extract_slot(sig, meta)?, meta_span)?;
-                attr_idxs.push(i);
+            } else {
+                continue;
             }
+            attr_idxs.push(i);
         }
         let mut i = 0;
         let mut attr_idxs = &*attr_idxs;

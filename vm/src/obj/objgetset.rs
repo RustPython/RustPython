@@ -3,18 +3,57 @@
 */
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 use crate::slots::PyBuiltinDescriptor;
 use crate::vm::VirtualMachine;
 
-pub type PyGetter = dyn Fn(PyObjectRef, &VirtualMachine) -> PyResult;
-pub type PySetter = dyn Fn(PyObjectRef, PyObjectRef, &VirtualMachine) -> PyResult<()>;
+pub type PyGetterFunc = Box<dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult>;
+pub type PySetterFunc = Box<dyn Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult<()>>;
+
+pub trait IntoPyGetterFunc<T, R> {
+    fn into_getter(self) -> PyGetterFunc;
+}
+
+impl<F, T, R> IntoPyGetterFunc<T, R> for F
+where
+    F: Fn(T, &VirtualMachine) -> R + 'static,
+    T: TryFromObject,
+    R: IntoPyObject,
+{
+    fn into_getter(self) -> PyGetterFunc {
+        Box::new(move |vm, obj| {
+            let obj = T::try_from_object(vm, obj)?;
+            (self)(obj, vm).into_pyobject(vm)
+        })
+    }
+}
+
+pub trait IntoPySetterFunc<T, V> {
+    fn into_setter(self) -> PySetterFunc;
+}
+
+impl<F, T, V> IntoPySetterFunc<T, V> for F
+where
+    F: Fn(T, V, &VirtualMachine) -> PyResult<()> + 'static,
+    T: TryFromObject,
+    V: TryFromObject,
+{
+    fn into_setter(self) -> PySetterFunc {
+        Box::new(move |vm, obj, value| {
+            let obj = T::try_from_object(vm, obj)?;
+            let value = V::try_from_object(vm, value)?;
+            (self)(obj, value, vm)
+        })
+    }
+}
 
 #[pyclass]
 pub struct PyGetSet {
-    // name: String,
-    getter: Box<PyGetter>,
-    setter: Box<PySetter>,
+    name: String,
+    getter: Option<PyGetterFunc>,
+    setter: Option<PySetterFunc>,
     // doc: Option<String>,
 }
 
@@ -22,8 +61,18 @@ impl std::fmt::Debug for PyGetSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "PyGetSet {{ getter: {:p}, setter: {:p} }}",
-            self.getter, self.setter
+            "PyGetSet {{ name: {}, getter: {}, setter: {} }}",
+            self.name,
+            if self.getter.is_some() {
+                "Some"
+            } else {
+                "None"
+            },
+            if self.setter.is_some() {
+                "Some"
+            } else {
+                "None"
+            },
         )
     }
 }
@@ -43,15 +92,39 @@ impl PyBuiltinDescriptor for PyGetSet {
         _cls: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        (zelf.getter)(obj, vm)
+        if let Some(ref f) = zelf.getter {
+            f(vm, obj)
+        } else {
+            Err(vm.new_attribute_error(format!(
+                "attribute '{}' of '{}' objects is not readable",
+                zelf.name,
+                Self::class(vm).name
+            )))
+        }
     }
 }
 
 impl PyGetSet {
-    pub fn new(getter: &'static PyGetter, setter: &'static PySetter) -> Self {
+    pub fn with_get<G, T, R>(name: String, getter: G) -> Self
+    where
+        G: IntoPyGetterFunc<T, R>,
+    {
         Self {
-            getter: Box::new(getter),
-            setter: Box::new(setter),
+            name,
+            getter: Some(getter.into_getter()),
+            setter: None,
+        }
+    }
+
+    pub fn with_get_set<G, S, GT, GR, ST, SV>(name: String, getter: G, setter: S) -> Self
+    where
+        G: IntoPyGetterFunc<GT, GR>,
+        S: IntoPySetterFunc<ST, SV>,
+    {
+        Self {
+            name,
+            getter: Some(getter.into_getter()),
+            setter: Some(setter.into_setter()),
         }
     }
 }
@@ -62,7 +135,15 @@ impl PyGetSet {
 
     #[pymethod(magic)]
     fn set(&self, obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        (self.setter)(obj, value, vm)
+        if let Some(ref f) = self.setter {
+            f(vm, obj, value)
+        } else {
+            Err(vm.new_attribute_error(format!(
+                "attribute '{}' of '{}' objects is not writable",
+                self.name,
+                Self::class(vm).name
+            )))
+        }
     }
 }
 
