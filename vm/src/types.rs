@@ -14,6 +14,7 @@ use crate::obj::objfloat;
 use crate::obj::objframe;
 use crate::obj::objfunction;
 use crate::obj::objgenerator;
+use crate::obj::objgetset;
 use crate::obj::objint;
 use crate::obj::objiter;
 use crate::obj::objlist;
@@ -94,6 +95,7 @@ pub struct TypeZoo {
     pub method_descriptor_type: PyClassRef,
     pub property_type: PyClassRef,
     pub readonly_property_type: PyClassRef,
+    pub getset_type: PyClassRef,
     pub module_type: PyClassRef,
     pub namespace_type: PyClassRef,
     pub bound_method_type: PyClassRef,
@@ -125,6 +127,7 @@ impl TypeZoo {
         let method_descriptor_type = create_type("method_descriptor", &type_type, &object_type);
         let property_type = create_type("property", &type_type, &object_type);
         let readonly_property_type = create_type("readonly_property", &type_type, &object_type);
+        let getset_type = create_type("getset_descriptor", &type_type, &object_type);
         let super_type = create_type("super", &type_type, &object_type);
         let weakref_type = create_type("ref", &type_type, &object_type);
         let weakproxy_type = create_type("weakproxy", &type_type, &object_type);
@@ -220,6 +223,7 @@ impl TypeZoo {
             mappingproxy_type,
             property_type,
             readonly_property_type,
+            getset_type,
             generator_type,
             module_type,
             namespace_type,
@@ -381,6 +385,7 @@ pub fn initialize_types(context: &PyContext) {
     objbytes::init(&context);
     objbytearray::init(&context);
     objproperty::init(&context);
+    objgetset::init(&context);
     objmemory::init(&context);
     objstr::init(&context);
     objrange::init(&context);
