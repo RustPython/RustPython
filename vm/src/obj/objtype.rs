@@ -185,7 +185,7 @@ impl PyClassRef {
         if let Some(cls_attr) = self.get_attr(&name) {
             Ok(cls_attr)
         } else if let Some(attr) = mcl.get_attr(&name) {
-            vm.call_get_descriptor(attr, self.into_object())
+            vm.call_if_get_descriptor(attr, self.into_object())
         } else if let Some(ref getter) = self.get_attr("__getattr__") {
             vm.invoke(getter, vec![mcl.into_object(), name_ref.into_object()])
         } else {
