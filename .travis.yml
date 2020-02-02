@@ -102,33 +102,6 @@ jobs:
           on:
             branch: release
 
-    - name: WASM online demo
-      language: rust
-      rust: stable
-      cache: cargo
-      install:
-        - nvm install node
-        # install wasm-pack
-        - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      script:
-        - cd wasm/demo
-        - npm install
-        - npm run dist
-      if: branch = release
-      env:
-        - JOBCACHE=5
-      deploy:
-        - provider: pages
-          repo: RustPython/demo
-          target-branch: master
-          local-dir: wasm/demo/dist
-          skip-cleanup: true
-          # Set in the settings page of your repository, as a secure variable
-          github-token: $WEBSITE_GITHUB_TOKEN
-          keep-history: true
-          on:
-            branch: release
-
     - name: Code Coverage
       language: python
       python: 3.8
