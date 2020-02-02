@@ -618,23 +618,28 @@ impl VirtualMachine {
         objbool::boolval(self, ret)
     }
 
-    pub fn call_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
-        let attr_class = attr.class();
-        let slots = attr_class.slots.borrow();
-        if let Some(descr_get) = slots.borrow().descr_get.as_ref() {
+    pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {
+        let descr_class = descr.class();
+        let slots = descr_class.slots.borrow();
+        Some(if let Some(descr_get) = slots.borrow().descr_get.as_ref() {
             let cls = obj.class();
             descr_get(
                 self,
-                attr,
+                descr,
                 Some(obj.clone()),
                 OptionalArg::Present(cls.into_object()),
             )
-        } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
+        } else if let Some(ref descriptor) = descr_class.get_attr("__get__") {
             let cls = obj.class();
-            self.invoke(descriptor, vec![attr, obj.clone(), cls.into_object()])
+            self.invoke(descriptor, vec![descr, obj.clone(), cls.into_object()])
         } else {
-            Ok(attr)
-        }
+            return None;
+        })
+    }
+
+    pub fn call_if_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
+        self.call_get_descriptor(attr.clone(), obj)
+            .unwrap_or(Ok(attr))
     }
 
     pub fn call_method<T>(&self, obj: &PyObjectRef, method_name: &str, args: T) -> PyResult
@@ -654,7 +659,7 @@ impl VirtualMachine {
                     method_name,
                     func
                 );
-                let wrapped = self.call_get_descriptor(func, obj.clone())?;
+                let wrapped = self.call_if_get_descriptor(func, obj.clone())?;
                 self.invoke(&wrapped, args)
             }
             None => Err(self.new_type_error(format!("Unsupported method: {}", method_name))),
@@ -787,7 +792,7 @@ impl VirtualMachine {
     {
         let cls = obj.class();
         match cls.get_attr(method_name) {
-            Some(method) => self.call_get_descriptor(method, obj.clone()),
+            Some(method) => self.call_if_get_descriptor(method, obj.clone()),
             None => Err(self.new_type_error(err_msg())),
         }
     }
@@ -796,7 +801,7 @@ impl VirtualMachine {
     pub fn get_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
         let cls = obj.class();
         let method = cls.get_attr(method_name)?;
-        Some(self.call_get_descriptor(method, obj.clone()))
+        Some(self.call_if_get_descriptor(method, obj.clone()))
     }
 
     /// Calls a method on `obj` passing `arg`, if the method exists.
@@ -848,6 +853,7 @@ impl VirtualMachine {
         })
     }
 
+    /// CPython _PyObject_GenericGetAttrWithDict
     pub fn generic_getattribute(
         &self,
         obj: PyObjectRef,
@@ -859,10 +865,8 @@ impl VirtualMachine {
         if let Some(attr) = cls.get_attr(&name) {
             let attr_class = attr.class();
             if attr_class.has_attr("__set__") {
-                if let Some(descriptor) = attr_class.get_attr("__get__") {
-                    return self
-                        .invoke(&descriptor, vec![attr, obj, cls.into_object()])
-                        .map(Some);
+                if let Some(r) = self.call_get_descriptor(attr, obj.clone()) {
+                    return r.map(Some);
                 }
             }
         }
@@ -876,7 +880,7 @@ impl VirtualMachine {
         if let Some(obj_attr) = attr {
             Ok(Some(obj_attr))
         } else if let Some(attr) = cls.get_attr(&name) {
-            self.call_get_descriptor(attr, obj).map(Some)
+            self.call_if_get_descriptor(attr, obj).map(Some)
         } else if let Some(getter) = cls.get_attr("__getattr__") {
             self.invoke(&getter, vec![obj, name_str.into_object()])
                 .map(Some)

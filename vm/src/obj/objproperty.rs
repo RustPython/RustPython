@@ -73,6 +73,7 @@ struct PropertyArgs {
 }
 
 impl SlotDescriptor for PyProperty {
+    #[allow(clippy::collapsible_if)]
     fn descr_get(
         vm: &VirtualMachine,
         zelf: PyObjectRef,
@@ -80,14 +81,14 @@ impl SlotDescriptor for PyProperty {
         _cls: OptionalArg<PyObjectRef>,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        if let Some(getter) = zelf.getter.as_ref() {
-            if obj.is(vm.ctx.none.as_object()) {
-                Ok(zelf.into_object())
-            } else {
-                vm.invoke(&getter, obj)
-            }
+        if vm.is_none(&obj) {
+            Ok(zelf.into_object())
         } else {
-            Err(vm.new_attribute_error("unreadable attribute".to_owned()))
+            if let Some(getter) = zelf.getter.as_ref() {
+                vm.invoke(&getter, obj)
+            } else {
+                Err(vm.new_attribute_error("unreadable attribute".to_string()))
+            }
         }
     }
 }
