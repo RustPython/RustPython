@@ -563,7 +563,8 @@ class TypesTests(unittest.TestCase):
         test(12345.6, "1=20", '111111111111112345.6')
         test(12345.6, "*=20", '*************12345.6')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_format_spec_errors(self):
         # int, float, and string all share the same format spec
         # mini-language parser.
