@@ -44,36 +44,57 @@ where
     }
 }
 
-pub trait IntoPySetterFunc<T, V> {
+pub trait IntoPyNoResult {
+    fn into_noresult(self) -> PyResult<()>;
+}
+
+impl IntoPyNoResult for () {
+    fn into_noresult(self) -> PyResult<()> {
+        Ok(())
+    }
+}
+
+impl IntoPyNoResult for PyResult<()> {
+    fn into_noresult(self) -> PyResult<()> {
+        self
+    }
+}
+
+pub trait IntoPySetterFunc<T, V, R>
+where
+    R: IntoPyNoResult,
+{
     fn into_setter(self) -> PySetterFunc;
 }
 
-impl<F, T, V> IntoPySetterFunc<OwnedParam<T>, V> for F
+impl<F, T, V, R> IntoPySetterFunc<OwnedParam<T>, V, R> for F
 where
-    F: Fn(T, V, &VirtualMachine) -> PyResult<()> + 'static,
+    F: Fn(T, V, &VirtualMachine) -> R + 'static,
     T: TryFromObject,
     V: TryFromObject,
+    R: IntoPyNoResult,
 {
     fn into_setter(self) -> PySetterFunc {
         Box::new(move |vm, obj, value| {
             let obj = T::try_from_object(vm, obj)?;
             let value = V::try_from_object(vm, value)?;
-            (self)(obj, value, vm)
+            (self)(obj, value, vm).into_noresult()
         })
     }
 }
 
-impl<F, S, V> IntoPySetterFunc<RefParam<S>, V> for F
+impl<F, S, V, R> IntoPySetterFunc<RefParam<S>, V, R> for F
 where
-    F: Fn(&S, V, &VirtualMachine) -> PyResult<()> + 'static,
+    F: Fn(&S, V, &VirtualMachine) -> R + 'static,
     S: PyValue,
     V: TryFromObject,
+    R: IntoPyNoResult,
 {
     fn into_setter(self) -> PySetterFunc {
         Box::new(move |vm, obj, value| {
             let zelf = PyRef::<S>::try_from_object(vm, obj)?;
             let value = V::try_from_object(vm, value)?;
-            (self)(&zelf, value, vm)
+            (self)(&zelf, value, vm).into_noresult()
         })
     }
 }
@@ -145,10 +166,11 @@ impl PyGetSet {
         }
     }
 
-    pub fn with_get_set<G, S, GT, GR, ST, SV>(name: String, getter: G, setter: S) -> Self
+    pub fn with_get_set<G, S, GT, GR, ST, SV, SR>(name: String, getter: G, setter: S) -> Self
     where
         G: IntoPyGetterFunc<GT, GR>,
-        S: IntoPySetterFunc<ST, SV>,
+        S: IntoPySetterFunc<ST, SV, SR>,
+        SR: IntoPyNoResult,
     {
         Self {
             name,
