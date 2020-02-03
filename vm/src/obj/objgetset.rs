@@ -2,7 +2,7 @@
 
 */
 use super::objtype::PyClassRef;
-use crate::function::OptionalArg;
+use crate::function::{OptionalArg, OwnedParam, RefParam};
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
@@ -16,7 +16,7 @@ pub trait IntoPyGetterFunc<T, R> {
     fn into_getter(self) -> PyGetterFunc;
 }
 
-impl<F, T, R> IntoPyGetterFunc<T, R> for F
+impl<F, T, R> IntoPyGetterFunc<OwnedParam<T>, R> for F
 where
     F: Fn(T, &VirtualMachine) -> R + 'static,
     T: TryFromObject,
@@ -30,11 +30,25 @@ where
     }
 }
 
+impl<F, S, R> IntoPyGetterFunc<RefParam<S>, R> for F
+where
+    F: Fn(&S, &VirtualMachine) -> R + 'static,
+    S: PyValue,
+    R: IntoPyObject,
+{
+    fn into_getter(self) -> PyGetterFunc {
+        Box::new(move |vm, obj| {
+            let zelf = PyRef::<S>::try_from_object(vm, obj)?;
+            (self)(&zelf, vm).into_pyobject(vm)
+        })
+    }
+}
+
 pub trait IntoPySetterFunc<T, V> {
     fn into_setter(self) -> PySetterFunc;
 }
 
-impl<F, T, V> IntoPySetterFunc<T, V> for F
+impl<F, T, V> IntoPySetterFunc<OwnedParam<T>, V> for F
 where
     F: Fn(T, V, &VirtualMachine) -> PyResult<()> + 'static,
     T: TryFromObject,
@@ -45,6 +59,21 @@ where
             let obj = T::try_from_object(vm, obj)?;
             let value = V::try_from_object(vm, value)?;
             (self)(obj, value, vm)
+        })
+    }
+}
+
+impl<F, S, V> IntoPySetterFunc<RefParam<S>, V> for F
+where
+    F: Fn(&S, V, &VirtualMachine) -> PyResult<()> + 'static,
+    S: PyValue,
+    V: TryFromObject,
+{
+    fn into_setter(self) -> PySetterFunc {
+        Box::new(move |vm, obj, value| {
+            let zelf = PyRef::<S>::try_from_object(vm, obj)?;
+            let value = V::try_from_object(vm, value)?;
+            (self)(&zelf, value, vm)
         })
     }
 }
