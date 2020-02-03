@@ -268,7 +268,7 @@ impl<'a> PropertyBuilder<'a> {
         }
     }
 
-    pub fn add_getter<I, V, VM, F: IntoPyNativeFunc<I, V, VM>>(self, func: F) -> Self {
+    pub fn add_getter<I, R, VM, F: IntoPyNativeFunc<I, R, VM>>(self, func: F) -> Self {
         let func = self.ctx.new_method(func);
         Self {
             ctx: self.ctx,
