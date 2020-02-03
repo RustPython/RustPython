@@ -4,13 +4,14 @@
 use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, OwnedParam, RefParam};
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    IntoPyObject, IntoPySetResult, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PySetResult, PyValue, TryFromObject,
 };
 use crate::slots::PyBuiltinDescriptor;
 use crate::vm::VirtualMachine;
 
 pub type PyGetterFunc = Box<dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult>;
-pub type PySetterFunc = Box<dyn Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult<()>>;
+pub type PySetterFunc = Box<dyn Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PySetResult>;
 
 pub trait IntoPyGetterFunc<T, R> {
     fn into_getter(self) -> PyGetterFunc;
@@ -44,36 +45,41 @@ where
     }
 }
 
-pub trait IntoPySetterFunc<T, V> {
+pub trait IntoPySetterFunc<T, V, R>
+where
+    R: IntoPySetResult,
+{
     fn into_setter(self) -> PySetterFunc;
 }
 
-impl<F, T, V> IntoPySetterFunc<OwnedParam<T>, V> for F
+impl<F, T, V, R> IntoPySetterFunc<OwnedParam<T>, V, R> for F
 where
-    F: Fn(T, V, &VirtualMachine) -> PyResult<()> + 'static,
+    F: Fn(T, V, &VirtualMachine) -> R + 'static,
     T: TryFromObject,
     V: TryFromObject,
+    R: IntoPySetResult,
 {
     fn into_setter(self) -> PySetterFunc {
         Box::new(move |vm, obj, value| {
             let obj = T::try_from_object(vm, obj)?;
             let value = V::try_from_object(vm, value)?;
-            (self)(obj, value, vm)
+            (self)(obj, value, vm).into_pysetresult()
         })
     }
 }
 
-impl<F, S, V> IntoPySetterFunc<RefParam<S>, V> for F
+impl<F, S, V, R> IntoPySetterFunc<RefParam<S>, V, R> for F
 where
-    F: Fn(&S, V, &VirtualMachine) -> PyResult<()> + 'static,
+    F: Fn(&S, V, &VirtualMachine) -> R + 'static,
     S: PyValue,
     V: TryFromObject,
+    R: IntoPySetResult,
 {
     fn into_setter(self) -> PySetterFunc {
         Box::new(move |vm, obj, value| {
             let zelf = PyRef::<S>::try_from_object(vm, obj)?;
             let value = V::try_from_object(vm, value)?;
-            (self)(&zelf, value, vm)
+            (self)(&zelf, value, vm).into_pysetresult()
         })
     }
 }
@@ -145,10 +151,11 @@ impl PyGetSet {
         }
     }
 
-    pub fn with_get_set<G, S, GT, GR, ST, SV>(name: String, getter: G, setter: S) -> Self
+    pub fn with_get_set<G, S, GT, GR, ST, SV, SR>(name: String, getter: G, setter: S) -> Self
     where
         G: IntoPyGetterFunc<GT, GR>,
-        S: IntoPySetterFunc<ST, SV>,
+        S: IntoPySetterFunc<ST, SV, SR>,
+        SR: IntoPySetResult,
     {
         Self {
             name,
@@ -163,7 +170,7 @@ impl PyGetSet {
     // Descriptor methods
 
     #[pymethod(magic)]
-    fn set(&self, obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set(&self, obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PySetResult {
         if let Some(ref f) = self.setter {
             f(vm, obj, value)
         } else {

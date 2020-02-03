@@ -67,6 +67,9 @@ pub type PyObjectRef = Rc<PyObject<dyn PyObjectPayload>>;
 /// since exceptions are also python objects.
 pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid value, or an exception
 
+/// Use this type for functions which return None or an exception.
+pub type PySetResult = PyResult<()>; // None, or an exception
+
 /// For attributes we do not use a dict, but a hashmap. This is probably
 /// faster, unordered, and only supports strings as keys.
 /// TODO: class attributes should maintain insertion order (use IndexMap here)
@@ -1051,6 +1054,22 @@ where
 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         Ok(PyObject::new(self, T::class(vm), None))
+    }
+}
+
+pub trait IntoPySetResult {
+    fn into_pysetresult(self) -> PySetResult;
+}
+
+impl IntoPySetResult for () {
+    fn into_pysetresult(self) -> PySetResult {
+        Ok(())
+    }
+}
+
+impl IntoPySetResult for PySetResult {
+    fn into_pysetresult(self) -> PySetResult {
+        self
     }
 }
 

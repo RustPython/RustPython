@@ -6,8 +6,8 @@ use std::cell::RefCell;
 use super::objtype::PyClassRef;
 use crate::function::{IntoPyNativeFunc, OptionalArg};
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    IdProtocol, IntoPySetResult, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::slots::PyBuiltinDescriptor;
 use crate::vm::VirtualMachine;
@@ -259,11 +259,6 @@ pub struct PropertyBuilder<'a> {
     setter: Option<PyObjectRef>,
 }
 
-pub trait PropertySetterResult {}
-
-impl PropertySetterResult for PyResult<()> {}
-impl PropertySetterResult for () {}
-
 impl<'a> PropertyBuilder<'a> {
     pub fn new(ctx: &'a PyContext) -> Self {
         Self {
@@ -282,7 +277,7 @@ impl<'a> PropertyBuilder<'a> {
         }
     }
 
-    pub fn add_setter<I, V, VM, F: IntoPyNativeFunc<(I, V), impl PropertySetterResult, VM>>(
+    pub fn add_setter<I, V, VM, F: IntoPyNativeFunc<(I, V), impl IntoPySetResult, VM>>(
         self,
         func: F,
     ) -> Self {

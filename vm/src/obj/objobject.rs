@@ -7,7 +7,7 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassImpl, PyComparisonValue,
-    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyContext, PyObject, PyObjectRef, PyResult, PySetResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -180,7 +180,7 @@ impl PyBaseObject {
     }
 
     #[pyproperty(name = "__class__", setter)]
-    fn set_class(instance: PyObjectRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_class(instance: PyObjectRef, _value: PyObjectRef, vm: &VirtualMachine) -> PySetResult {
         let type_repr = vm.to_pystr(&instance.class())?;
         Err(vm.new_type_error(format!("can't change class of type '{}'", type_repr)))
     }
@@ -237,7 +237,7 @@ pub(crate) fn setattr(
     attr_name: PyStringRef,
     value: PyObjectRef,
     vm: &VirtualMachine,
-) -> PyResult<()> {
+) -> PySetResult {
     vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
     let cls = obj.class();
 
