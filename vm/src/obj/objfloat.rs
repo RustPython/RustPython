@@ -498,12 +498,12 @@ impl PyFloat {
         pyhash::hash_float(self.value)
     }
 
-    #[pyproperty(name = "real")]
+    #[pyproperty]
     fn real(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyFloatRef {
         zelf
     }
 
-    #[pyproperty(name = "imag")]
+    #[pyproperty]
     fn imag(&self, _vm: &VirtualMachine) -> f64 {
         0.0f64
     }

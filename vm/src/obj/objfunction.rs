@@ -249,17 +249,17 @@ impl PyFunction {
         self.invoke(args, vm)
     }
 
-    #[pyproperty(name = "__code__")]
+    #[pyproperty(magic)]
     fn code(&self, _vm: &VirtualMachine) -> PyCodeRef {
         self.code.clone()
     }
 
-    #[pyproperty(name = "__defaults__")]
+    #[pyproperty(magic)]
     fn defaults(&self, _vm: &VirtualMachine) -> Option<PyTupleRef> {
         self.defaults.clone()
     }
 
-    #[pyproperty(name = "__kwdefaults__")]
+    #[pyproperty(magic)]
     fn kwdefaults(&self, _vm: &VirtualMachine) -> Option<PyDictRef> {
         self.kw_only_defaults.clone()
     }

@@ -405,8 +405,8 @@ fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnosti
     let properties = properties
         .into_iter()
         .map(|(name, prop)| {
-            let getter = match prop.0 {
-                Some(getter) => getter,
+            let getter_func = match prop.0 {
+                Some(func) => func,
                 None => {
                     push_err_span!(
                         diagnostics,
@@ -417,14 +417,17 @@ fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnosti
                     return TokenStream2::new();
                 }
             };
-            let add_setter = prop.1.map(|setter| quote!(.add_setter(Self::#setter)));
+            let (new, setter) = match prop.1 {
+                Some(func) => (quote! { with_get_set }, quote! { , &Self::#func }),
+                None => (quote! { with_get }, quote! { }),
+            };
+            let str_name = name.to_string();
             quote! {
                 class.set_str_attr(
                     #name,
-                    ::rustpython_vm::obj::objproperty::PropertyBuilder::new(ctx)
-                        .add_getter(Self::#getter)
-                        #add_setter
-                        .create(),
+                    ::rustpython_vm::pyobject::PyObject::new(
+                        ::rustpython_vm::obj::objgetset::PyGetSet::#new(#str_name.into(), &Self::#getter_func #setter),
+                        ctx.getset_type(), None)
                 );
             }
         })

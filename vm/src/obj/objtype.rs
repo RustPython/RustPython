@@ -145,6 +145,13 @@ impl PyClassRef {
             .unwrap_or_else(|| vm.ctx.new_str("builtins".to_owned()))
     }
 
+    #[pyproperty(magic, setter)]
+    fn set_module(self, value: PyObjectRef) {
+        self.attributes
+            .borrow_mut()
+            .insert("__module__".to_owned(), value);
+    }
+
     #[pymethod(magic)]
     fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
