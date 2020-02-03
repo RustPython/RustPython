@@ -80,7 +80,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__traceback__")]
-    fn get_traceback(&self, _vm: &VirtualMachine) -> Option<PyTracebackRef> {
+    fn get_traceback(&self) -> Option<PyTracebackRef> {
         self.traceback.borrow().clone()
     }
 
@@ -95,8 +95,13 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__cause__", setter)]
-    fn setter_cause(&self, cause: Option<PyBaseExceptionRef>, _vm: &VirtualMachine) {
+    fn setter_cause(
+        &self,
+        cause: Option<PyBaseExceptionRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.cause.replace(cause);
+        Ok(())
     }
 
     #[pyproperty(name = "__context__")]
@@ -105,8 +110,13 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__context__", setter)]
-    fn setter_context(&self, context: Option<PyBaseExceptionRef>, _vm: &VirtualMachine) {
+    fn setter_context(
+        &self,
+        context: Option<PyBaseExceptionRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.context.replace(context);
+        Ok(())
     }
 
     #[pyproperty(name = "__suppress_context__")]
