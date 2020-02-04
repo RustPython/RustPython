@@ -17,7 +17,7 @@ mod mersenne;
 #[derive(Debug)]
 enum PyRng {
     Std(rand::rngs::ThreadRng),
-    MT(mersenne::MT19937),
+    MT(Box<mersenne::MT19937>),
 }
 
 impl Default for PyRng {
@@ -89,7 +89,7 @@ impl PyRandom {
                 if cfg!(target_endian = "big") {
                     key.reverse();
                 }
-                PyRng::MT(mersenne::MT19937::new_with_slice_seed(&key))
+                PyRng::MT(Box::new(mersenne::MT19937::new_with_slice_seed(&key)))
             }
         };
 

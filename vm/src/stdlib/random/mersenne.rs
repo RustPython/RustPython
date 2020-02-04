@@ -1,3 +1,5 @@
+#![allow(clippy::unreadable_literal)]
+
 /*
    A C-program for MT19937, with initialization improved 2002/1/26.
    Coded by Takuji Nishimura and Makoto Matsumoto.
@@ -78,7 +80,7 @@ impl MT19937 {
 
     /* initializes self.mt[N] with a seed */
     fn seed(&mut self, s: u32) {
-        self.mt[0] = s & 0xffffffffu32;
+        self.mt[0] = s;
         self.mti = 1;
         while self.mti < N {
             self.mt[self.mti] = 1812433253u32
@@ -88,8 +90,6 @@ impl MT19937 {
             /* In the previous versions, MSBs of the seed affect   */
             /* only MSBs of the array self.mt[].                        */
             /* 2002/01/09 modified by Makoto Matsumoto             */
-            self.mt[self.mti] &= 0xffffffffu32;
-            /* for >32 bit machines */
             self.mti += 1;
         }
     }
@@ -205,6 +205,7 @@ impl rand::RngCore for MT19937 {
         rand_core::impls::fill_bytes_via_next(self, dest)
     }
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
-        Ok(self.fill_bytes(dest))
+        self.fill_bytes(dest);
+        Ok(())
     }
 }
