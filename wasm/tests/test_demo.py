@@ -1,8 +1,6 @@
 import time
 import sys
 
-from selenium import webdriver
-from selenium.webdriver.firefox.options import Options
 import pytest
 
 RUN_CODE_TEMPLATE = """
