@@ -15,6 +15,8 @@ exc = KeyError('message')
 assert str(exc) == "'message'"
 assert round_trip_repr(exc)
 
+assert LookupError.__str__(exc) == "message"
+
 exc = KeyError('message', 'another message')
 assert str(exc) == "('message', 'another message')"
 assert round_trip_repr(exc)

@@ -254,13 +254,20 @@ impl PyClassRef {
     fn tp_new(metatype: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
 
-        if metatype.is(&vm.ctx.types.type_type) {
-            if args.args.len() == 1 && args.kwargs.is_empty() {
-                return Ok(args.args[0].class().into_object());
-            }
-            if args.args.len() != 3 {
-                return Err(vm.new_type_error("type() takes 1 or 3 arguments".to_string()));
-            }
+        let is_type_type = metatype.is(&vm.ctx.types.type_type);
+        if is_type_type && args.args.len() == 1 && args.kwargs.is_empty() {
+            return Ok(args.args[0].class().into_object());
+        }
+
+        if args.args.len() != 3 {
+            return Err(vm.new_type_error(if is_type_type {
+                "type() takes 1 or 3 arguments".to_string()
+            } else {
+                format!(
+                    "type.__new__() takes exactly 3 arguments ({} given)",
+                    args.args.len()
+                )
+            }));
         }
 
         let (name, bases, dict): (PyStringRef, PyIterable<PyClassRef>, PyDictRef) =
