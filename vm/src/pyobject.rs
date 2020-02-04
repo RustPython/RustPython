@@ -534,11 +534,11 @@ impl PyContext {
         )
     }
 
-    pub fn new_instance(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
+    pub fn new_base_object(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
             typ: class,
             dict: dict.map(RefCell::new),
-            payload: objobject::PyInstance,
+            payload: objobject::PyBaseObject,
         }
         .into_ref()
     }

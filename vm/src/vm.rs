@@ -1298,7 +1298,7 @@ impl VirtualMachine {
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        objobject::object_setattr(module.clone(), attr_name.try_into_ref(self)?, val, self)
+        objobject::setattr(module.clone(), attr_name.try_into_ref(self)?, val, self)
     }
 }
 
