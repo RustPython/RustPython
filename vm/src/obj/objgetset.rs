@@ -7,7 +7,7 @@ use crate::pyobject::{
     IntoPyObject, IntoPySetResult, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PySetResult, PyValue, TryFromObject,
 };
-use crate::slots::PyBuiltinDescriptor;
+use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
 
 pub type PyGetterFunc = Box<dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult>;
@@ -163,13 +163,17 @@ impl PyValue for PyGetSet {
 
 pub type PyGetSetRef = PyRef<PyGetSet>;
 
-impl PyBuiltinDescriptor for PyGetSet {
-    fn get(
-        zelf: PyRef<Self>,
-        obj: PyObjectRef,
-        _cls: OptionalArg<PyObjectRef>,
+impl SlotDescriptor for PyGetSet {
+    fn descr_get(
         vm: &VirtualMachine,
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        _cls: OptionalArg<PyObjectRef>,
     ) -> PyResult {
+        let (zelf, obj) = match Self::_check(zelf, obj, vm) {
+            Ok(obj) => obj,
+            Err(result) => return result,
+        };
         if let Some(ref f) = zelf.getter {
             f(vm, obj)
         } else {
@@ -207,7 +211,7 @@ impl PyGetSet {
     }
 }
 
-#[pyimpl(with(PyBuiltinDescriptor))]
+#[pyimpl(with(SlotDescriptor))]
 impl PyGetSet {
     // Descriptor methods
 

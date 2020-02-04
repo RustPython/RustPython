@@ -452,8 +452,13 @@ fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnosti
             slot_ident,
             item_ident,
         } => {
+            let transform = if vec!["new", "call"].contains(&slot_ident.to_string().as_str()) {
+                quote! { ::rustpython_vm::function::IntoPyNativeFunc::into_func }
+            } else {
+                quote! { Box::new }
+            };
             let into_func = quote_spanned! {item_ident.span()=>
-                ::rustpython_vm::function::IntoPyNativeFunc::into_func(Self::#item_ident)
+                #transform(Self::#item_ident)
             };
             Some(quote! {
                 (*class.slots.borrow_mut()).#slot_ident = Some(#into_func);
