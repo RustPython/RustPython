@@ -77,7 +77,7 @@ impl PyRandom {
 
     #[pymethod]
     fn random(&self) -> f64 {
-        gen_res53(&mut *self.rng.borrow_mut())
+        mersenne::gen_res53(&mut *self.rng.borrow_mut())
     }
 
     #[pymethod]
@@ -127,12 +127,3 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "Random" => PyRandom::make_class(ctx),
     })
 }
-
-// taken from the translated mersenne twister
-/* generates a random number on [0,1) with 53-bit resolution*/
-fn gen_res53<R: RngCore>(rng: &mut R) -> f64 {
-    let a = rng.next_u32() >> 5;
-    let b = rng.next_u32() >> 6;
-    (a as f64 * 67108864.0 + b as f64) * (1.0 / 9007199254740992.0)
-}
-/* These real versions are due to Isaku Wada, 2002/01/09 added */

@@ -186,6 +186,14 @@ impl MT19937 {
     }
 }
 
+/* generates a random number on [0,1) with 53-bit resolution*/
+pub fn gen_res53<R: rand::RngCore>(rng: &mut R) -> f64 {
+    let a = rng.next_u32() >> 5;
+    let b = rng.next_u32() >> 6;
+    (a as f64 * 67108864.0 + b as f64) * (1.0 / 9007199254740992.0)
+}
+/* These real versions are due to Isaku Wada, 2002/01/09 added */
+
 impl rand::RngCore for MT19937 {
     fn next_u32(&mut self) -> u32 {
         self.gen_u32()
