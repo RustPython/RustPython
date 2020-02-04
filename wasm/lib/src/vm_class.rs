@@ -2,19 +2,23 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
-use js_sys::{Object, Reflect, SyntaxError, TypeError};
+use js_sys::{Object, TypeError};
 use wasm_bindgen::prelude::*;
 
 use rustpython_compiler::compile;
 use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue};
+use rustpython_vm::pyobject::{
+    ItemProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue,
+};
 use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::{InitParameter, PySettings, VirtualMachine};
 
 use crate::browser_module::setup_browser_module;
-use crate::convert;
+use crate::convert::{self, PyResultExt};
 use crate::js_module;
 use crate::wasm_builtins;
+use rustpython_compiler::mode::Mode;
+use rustpython_vm::obj::objstr::PyStringRef;
 
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
@@ -251,7 +255,68 @@ impl WASMVirtualMachine {
     }
 
     #[wasm_bindgen(js_name = injectModule)]
-    pub fn inject_module(&self, name: String, module: Object) -> Result<(), JsValue> {
+    pub fn inject_module(
+        &self,
+        name: String,
+        source: &str,
+        imports: Option<Object>,
+        strict_private: Option<bool>,
+    ) -> Result<(), JsValue> {
+        self.with(|StoredVirtualMachine { ref vm, .. }| {
+            let code = vm
+                .compile(source, Mode::Exec, name.clone())
+                .map_err(convert::syntax_err)?;
+            let attrs = vm.ctx.new_dict();
+            attrs
+                .set_item("__name__", vm.new_str(name.clone()), vm)
+                .to_js(vm)?;
+
+            if let Some(imports) = imports {
+                for entry in convert::object_entries(&imports) {
+                    let (key, value) = entry?;
+                    let key:String = Object::from(key).to_string().into();
+                    attrs.set_item(&key, convert::js_to_py(vm, value), vm).to_js(vm)?;
+                }
+            }
+
+            vm.run_code_obj(code, Scope::new(None, attrs.clone(), vm))
+                .to_js(vm)?;
+
+            let module_attrs = if strict_private.unwrap_or(false) {
+                let all = attrs
+                    .get_item_option("__all__", vm)
+                    .to_js(vm)?
+                    .ok_or_else(|| {
+                        TypeError::new(
+                            "you must define __all__ in your module if you pass strict_private: true",
+                        )
+                    })?;
+                let all = vm.extract_elements::<PyStringRef>(&all).to_js(vm)?;
+
+                let actual_attrs = vm.ctx.new_dict();
+                for member in all {
+                    actual_attrs
+                        .set_item(member.as_str(), attrs.get_item(member.as_str(), vm).to_js(vm)?, vm)
+                        .to_js(vm)?;
+                }
+                actual_attrs
+            } else {
+                attrs
+            };
+
+            let module = vm.new_module(&name, module_attrs);
+
+            let sys_modules = vm
+                .get_attribute(vm.sys_module.clone(), "modules")
+                .to_js(vm)?;
+            sys_modules.set_item(&name, module, vm).to_js(vm)?;
+
+            Ok(())
+        })?
+    }
+
+    #[wasm_bindgen(js_name = injectJSModule)]
+    pub fn inject_js_module(&self, name: String, module: Object) -> Result<(), JsValue> {
         self.with(|StoredVirtualMachine { ref vm, .. }| {
             let mut module_items: HashMap<String, PyObjectRef> = HashMap::new();
             for entry in convert::object_entries(&module) {
