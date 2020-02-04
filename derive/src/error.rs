@@ -49,6 +49,14 @@ macro_rules! push_err_span {
     };
 }
 
+macro_rules! push_diag_result {
+    ($diags:expr, $x:expr $(,)?) => {
+        if let Err(e) = $x {
+            $diags.push(e);
+        }
+    };
+}
+
 #[derive(Debug)]
 pub struct Diagnostic {
     inner: Repr,

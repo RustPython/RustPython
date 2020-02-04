@@ -1,5 +1,9 @@
 use super::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::function::OptionalArg;
+use crate::pyobject::{
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
+use crate::slots::PyBuiltinDescriptor;
 use crate::vm::VirtualMachine;
 
 /// classmethod(function) -> method
@@ -25,9 +29,15 @@ use crate::vm::VirtualMachine;
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct PyClassMethod {
-    pub callable: PyObjectRef,
+    callable: PyObjectRef,
 }
 pub type PyClassMethodRef = PyRef<PyClassMethod>;
+
+impl PyClassMethod {
+    pub fn new(value: PyObjectRef) -> Self {
+        Self { callable: value }
+    }
+}
 
 impl PyValue for PyClassMethod {
     const HAVE_DICT: bool = true;
@@ -37,10 +47,22 @@ impl PyValue for PyClassMethod {
     }
 }
 
-#[pyimpl]
+impl PyBuiltinDescriptor for PyClassMethod {
+    fn get(
+        zelf: PyRef<Self>,
+        obj: PyObjectRef,
+        cls: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let cls = cls.unwrap_or_else(|| obj.class().into_object());
+        Ok(vm.ctx.new_bound_method(zelf.callable.clone(), cls))
+    }
+}
+
+#[pyimpl(with(PyBuiltinDescriptor), flags(BASETYPE))]
 impl PyClassMethod {
-    #[pymethod(name = "__new__")]
-    fn new(
+    #[pyslot]
+    fn tp_new(
         cls: PyClassRef,
         callable: PyObjectRef,
         vm: &VirtualMachine,
@@ -51,19 +73,12 @@ impl PyClassMethod {
         .into_ref_with_type(vm, cls)
     }
 
-    #[pymethod(name = "__get__")]
-    fn get(&self, _inst: PyObjectRef, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm
-            .ctx
-            .new_bound_method(self.callable.clone(), owner.clone()))
-    }
-
     #[pyproperty(name = "__func__")]
     fn func(&self, _vm: &VirtualMachine) -> PyObjectRef {
         self.callable.clone()
     }
 }
 
-pub fn init(context: &PyContext) {
-    PyClassMethod::extend_class(context, &context.classmethod_type);
+pub(crate) fn init(context: &PyContext) {
+    PyClassMethod::extend_class(context, &context.types.classmethod_type);
 }

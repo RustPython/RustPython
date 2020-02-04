@@ -8,14 +8,17 @@ extern crate futures;
 extern crate js_sys;
 #[macro_use]
 extern crate rustpython_vm;
+extern crate rustpython_compiler;
 extern crate wasm_bindgen;
 extern crate wasm_bindgen_futures;
 extern crate web_sys;
 
 use js_sys::{Object, Reflect, TypeError};
+use rustpython_compiler::compile::Mode;
 use std::panic;
 use wasm_bindgen::prelude::*;
 
+pub use crate::convert::PyError;
 pub use crate::vm_class::*;
 
 const PY_EVAL_VM_ID: &str = "__py_eval_vm";
@@ -43,27 +46,8 @@ pub fn setup_console_error() {
     std::panic::set_hook(Box::new(panic_hook));
 }
 
-// Hack to comment out wasm-bindgen's generated typescript definitons
-#[wasm_bindgen(typescript_custom_section)]
-const TS_CMT_START: &'static str = "/*";
-
-#[wasm_bindgen(js_name = pyEval)]
-/// Evaluate Python code
-///
-/// ```js
-/// pyEval(code, options?);
-/// ```
-///
-/// `code`: `string`: The Python code to run
-///
-/// `options`:
-///
-/// -   `vars?`: `{ [key: string]: any }`: Variables passed to the VM that can be
-///     accessed in Python with the variable `js_vars`. Functions do work, and
-///     receive the Python kwargs as the `this` argument.
-/// -   `stdout?`: `(out: string) => void`: A function to replace the native print
-///     function, by default `console.log`.
-pub fn eval_py(source: String, options: Option<Object>) -> Result<JsValue, JsValue> {
+fn run_py(source: &str, options: Option<Object>, mode: Mode) -> Result<JsValue, JsValue> {
+    let vm = VMStore::init(PY_EVAL_VM_ID.into(), Some(true));
     let options = options.unwrap_or_else(Object::new);
     let js_vars = {
         let prop = Reflect::get(&options, &"vars".into())?;
@@ -75,33 +59,60 @@ pub fn eval_py(source: String, options: Option<Object>) -> Result<JsValue, JsVal
             return Err(TypeError::new("vars must be an object").into());
         }
     };
-    let stdout = {
-        let prop = Reflect::get(&options, &"stdout".into())?;
-        if prop.is_undefined() {
-            None
-        } else {
-            Some(prop)
-        }
-    };
 
-    let vm = VMStore::init(PY_EVAL_VM_ID.into(), Some(true));
-
-    vm.set_stdout(stdout.unwrap_or(JsValue::UNDEFINED))?;
+    vm.set_stdout(Reflect::get(&options, &"stdout".into())?)?;
 
     if let Some(js_vars) = js_vars {
         vm.add_to_scope("js_vars".into(), js_vars.into())?;
     }
-
-    vm.exec(source)
+    vm.run(source, mode, None)
 }
 
-#[wasm_bindgen(typescript_custom_section)]
-const TYPESCRIPT_DEFS: &'static str = r#"
-*/
-export interface PyEvalOptions {
-    stdout: (out: string) => void;
-    vars: { [key: string]: any };
+/// Evaluate Python code
+///
+/// ```js
+/// var result = pyEval(code, options?);
+/// ```
+///
+/// `code`: `string`: The Python code to run in eval mode
+///
+/// `options`:
+///
+/// -   `vars?`: `{ [key: string]: any }`: Variables passed to the VM that can be
+///     accessed in Python with the variable `js_vars`. Functions do work, and
+///     receive the Python kwargs as the `this` argument.
+/// -   `stdout?`: `"console" | ((out: string) => void) | null`: A function to replace the
+///     native print native print function, and it will be `console.log` when giving
+///     `undefined` or "console", and it will be a dumb function when giving null.
+#[wasm_bindgen(js_name = pyEval)]
+pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
+    run_py(source, options, Mode::Eval)
 }
 
-export function pyEval(code: string, options?: PyEvalOptions): any;
-"#;
+/// Evaluate Python code
+///
+/// ```js
+/// pyExec(code, options?);
+/// ```
+///
+/// `code`: `string`: The Python code to run in exec mode
+///
+/// `options`: The options are the same as eval mode
+#[wasm_bindgen(js_name = pyExec)]
+pub fn exec_py(source: &str, options: Option<Object>) -> Result<(), JsValue> {
+    run_py(source, options, Mode::Exec).map(drop)
+}
+
+/// Evaluate Python code
+///
+/// ```js
+/// var result = pyExecSingle(code, options?);
+/// ```
+///
+/// `code`: `string`: The Python code to run in exec single mode
+///
+/// `options`: The options are the same as eval mode
+#[wasm_bindgen(js_name = pyExecSingle)]
+pub fn exec_single_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
+    run_py(source, options, Mode::Single)
+}

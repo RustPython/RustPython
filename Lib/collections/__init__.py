@@ -17,7 +17,12 @@ list, set, and tuple.
 __all__ = ['deque', 'defaultdict', 'namedtuple', 'UserDict', 'UserList',
             'UserString', 'Counter', 'OrderedDict', 'ChainMap']
 
+# For backwards compatibility, continue to make the collections ABCs
+# available through the collections module.
+from _collections_abc import *
 import _collections_abc
+__all__ += _collections_abc.__all__
+
 from operator import itemgetter as _itemgetter, eq as _eq
 from keyword import iskeyword as _iskeyword
 import sys as _sys

@@ -13,8 +13,6 @@
 )]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
-#![cfg_attr(not(feature = "use-proc-macro-hack"), feature(proc_macro_hygiene))]
-#![cfg_attr(target_os = "redox", feature(vecdeque_rotate))]
 
 #[cfg(feature = "flame-it")]
 #[macro_use]
@@ -22,8 +20,6 @@ extern crate flamer;
 
 #[macro_use]
 extern crate bitflags;
-#[macro_use]
-extern crate lazy_static;
 extern crate lexical;
 #[macro_use]
 extern crate log;
@@ -38,9 +34,19 @@ extern crate self as rustpython_vm;
 
 pub use rustpython_derive::*;
 
-#[cfg(feature = "use-proc-macro-hack")]
-#[proc_macro_hack::proc_macro_hack]
-pub use rustpython_derive::py_compile_bytecode;
+#[doc(hidden)]
+pub use rustpython_derive::py_compile_bytecode as _py_compile_bytecode;
+
+#[macro_export]
+macro_rules! py_compile_bytecode {
+    ($($arg:tt)*) => {{
+        #[macro_use]
+        mod __m {
+            $crate::_py_compile_bytecode!($($arg)*);
+        }
+        __proc_macro_call!()
+    }};
+}
 
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};
@@ -54,7 +60,7 @@ pub mod cformat;
 mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;
-mod exceptions;
+pub mod exceptions;
 pub mod format;
 mod frame;
 mod frozen;
@@ -65,20 +71,20 @@ pub mod py_serde;
 mod pyhash;
 pub mod pyobject;
 pub mod scope;
+mod sequence;
+pub mod slots;
 pub mod stdlib;
 mod sysmodule;
-mod traceback;
+pub mod types;
 pub mod util;
 mod version;
 mod vm;
 
 // pub use self::pyobject::Executor;
-pub use self::exceptions::print_exception;
-pub use self::vm::{PySettings, VirtualMachine};
+pub use self::vm::{InitParameter, PySettings, VirtualMachine};
 pub use rustpython_bytecode::*;
 
 #[doc(hidden)]
 pub mod __exports {
-    pub use bincode;
     pub use maplit::hashmap;
 }

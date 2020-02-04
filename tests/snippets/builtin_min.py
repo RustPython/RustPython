@@ -17,17 +17,17 @@ assert min({
 assert min([1, 2], default=0) == 1
 assert min([], default=0) == 0
 
-assert_raises(ValueError, lambda: min([]))
+assert_raises(ValueError, min, [])
 
 # key parameter
 assert min(1, 2, -3, key=abs) == 1
 assert min([1, 2, -3], key=abs) == 1
 
 # no argument
-assert_raises(TypeError, lambda: min())
+assert_raises(TypeError, min)
 
 # one non-iterable argument
-assert_raises(TypeError, lambda: min(1))
+assert_raises(TypeError, min, 1)
 
 
 # custom class
@@ -52,4 +52,4 @@ class MyNotComparable():
     pass
 
 
-assert_raises(TypeError, lambda: min(MyNotComparable(), MyNotComparable()))
+assert_raises(TypeError, min, MyNotComparable(), MyNotComparable())

@@ -1,9 +1,9 @@
 use js_sys::{Array, Object, Reflect};
+use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::Args;
 use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStringRef, objtype::PyClassRef};
-use rustpython_vm::pyobject::{
-    create_type, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-};
+use rustpython_vm::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use rustpython_vm::types::create_type;
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
 
@@ -234,17 +234,21 @@ struct NewObjectOptions {
     prototype: Option<PyJsValueRef>,
 }
 
-fn new_js_error(vm: &VirtualMachine, err: JsValue) -> PyObjectRef {
-    let exc = vm.new_exception(vm.class("_js", "JsError"), format!("{:?}", err));
-    vm.set_attr(&exc, "js_value", PyJsValue::new(err).into_ref(vm))
-        .unwrap();
+fn new_js_error(vm: &VirtualMachine, err: JsValue) -> PyBaseExceptionRef {
+    let exc = vm.new_exception_msg(vm.class("_js", "JsError"), format!("{:?}", err));
+    vm.set_attr(
+        exc.as_object(),
+        "js_value",
+        PyJsValue::new(err).into_ref(vm),
+    )
+    .unwrap();
     exc
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     py_module!(vm, "_js", {
-        "JsError" => create_type("JsError", &ctx.type_type, &ctx.exceptions.exception_type),
+        "JsError" => create_type("JsError", &ctx.type_type(), &ctx.exceptions.exception_type),
         "JsValue" => PyJsValue::make_class(ctx),
     })
 }

@@ -24,6 +24,7 @@ textarea {
     color: tomato;
     margin-top: 10px;
     font-family: monospace;
+    white-space: pre;
 }
 
 #code-wrapper {

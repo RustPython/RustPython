@@ -58,7 +58,7 @@ def normalize_encoding(encoding):
 
     chars = []
     punct = False
-    for c in encoding:
+    for c in encoding.lower():
         if c.isalnum() or c == '.':
             if punct and chars:
                 chars.append('_')

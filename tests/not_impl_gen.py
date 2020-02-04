@@ -5,6 +5,7 @@
 import pkgutil
 import os
 import sys
+import warnings
 
 sys.path = list(
     filter(
@@ -25,46 +26,84 @@ def attr_is_not_inherited(type_, attr):
 
 
 def gen_methods(header, footer, output):
-    objects = [
+    types = [
         bool,
         bytearray,
         bytes,
         complex,
         dict,
+        enumerate,
+        filter,
         float,
         frozenset,
         int,
         list,
+        map,
         memoryview,
         range,
         set,
+        slice,
         str,
+        super,
         tuple,
         object,
+        zip,
+
+        classmethod,
+        staticmethod,
+        property,
+
+        Exception,
+        BaseException,
+    ]
+    objects = [(t.__name__, t.__name__) for t in types]
+    objects.extend([
+        ('NoneType', 'type(None)'),
+    ])
+
+    iters = [
+        ('bytearray_iterator', 'type(bytearray().__iter__())'),
+        ('bytes_iterator', 'type(bytes().__iter__())'),
+        ('dict_keyiterator', 'type(dict().__iter__())'),
+        ('dict_valueiterator', 'type(dict().values().__iter__())'),
+        ('dict_itemiterator', 'type(dict().items().__iter__())'),
+        ('dict_values', 'type(dict().values())'),
+        ('dict_items', 'type(dict().items())'),
+        ('set_iterator', 'type(set().__iter__())'),
+        ('list_iterator', 'type(list().__iter__())'),
+        ('range_iterator', 'type(range(0).__iter__())'),
+        ('str_iterator', 'type(str().__iter__())'),
+        ('tuple_iterator', 'type(tuple().__iter__())'),
     ]
 
     output.write(header.read())
     output.write("expected_methods = {\n")
 
-    for obj in objects:
-        output.write(f" '{obj.__name__}': ({obj.__name__}, [\n")
+    for name, typ_code in objects + iters:
+        typ = eval(typ_code)
+        output.write(f" '{name}': ({typ_code}, [\n")
         output.write(
             "\n".join(
                 f"    {attr!r},"
-                for attr in dir(obj)
-                if attr_is_not_inherited(obj, attr)
+                for attr in dir(typ)
+                if attr_is_not_inherited(typ, attr)
             )
         )
-        output.write("\n ])," + ("\n" if objects[-1] == obj else "\n\n"))
+        output.write("\n ])," + ("\n" if objects[-1] == typ else "\n\n"))
 
     output.write("}\n\n")
     output.write(footer.read())
 
 def get_module_methods(name):
-    try:
-        return set(dir(__import__(name))) if name not in ("this", "antigravity") else None
-    except ModuleNotFoundError:
-        return None
+    with warnings.catch_warnings():
+        # ignore warnings caused by importing deprecated modules
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        try:
+            return set(dir(__import__(name))) if name not in ("this", "antigravity") else None
+        except ModuleNotFoundError:
+            return None
+        except Exception as e:
+            print("!!! {} skipped because {}: {}".format(name, type(e).__name__, str(e)))
 
 
 def gen_modules(header, footer, output):

@@ -94,7 +94,7 @@ fn bench_rustpy_nbody(b: &mut test::Bencher) {
 
     let vm = VirtualMachine::default();
 
-    let code = match vm.compile(source, &compile::Mode::Single, "<stdin>".to_string()) {
+    let code = match vm.compile(source, compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => code,
         Err(e) => panic!("{:?}", e),
     };
@@ -113,7 +113,7 @@ fn bench_rustpy_mandelbrot(b: &mut test::Bencher) {
 
     let vm = VirtualMachine::default();
 
-    let code = match vm.compile(source, &compile::Mode::Single, "<stdin>".to_string()) {
+    let code = match vm.compile(source, compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => code,
         Err(e) => panic!("{:?}", e),
     };

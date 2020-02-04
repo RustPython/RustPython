@@ -37,6 +37,7 @@ pub struct CodeObject {
     /// Jump targets.
     pub label_map: HashMap<Label, usize>,
     pub locations: Vec<Location>,
+    pub flags: CodeFlags,
     pub arg_names: Vec<String>, // Names of positional arguments
     pub varargs: Varargs,       // *args or *
     pub kwonlyarg_names: Vec<String>,
@@ -44,25 +45,56 @@ pub struct CodeObject {
     pub source_path: String,
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
-    pub is_generator: bool,
 }
 
 bitflags! {
     #[derive(Serialize, Deserialize)]
-    pub struct FunctionOpArg: u8 {
+    pub struct CodeFlags: u8 {
         const HAS_DEFAULTS = 0x01;
         const HAS_KW_ONLY_DEFAULTS = 0x02;
         const HAS_ANNOTATIONS = 0x04;
+        const NEW_LOCALS = 0x08;
+        const IS_GENERATOR = 0x10;
+        const IS_COROUTINE = 0x20;
     }
 }
 
-pub type Label = usize;
+impl Default for CodeFlags {
+    fn default() -> Self {
+        Self::NEW_LOCALS
+    }
+}
+
+impl CodeFlags {
+    pub const NAME_MAPPING: &'static [(&'static str, CodeFlags)] = &[
+        ("GENERATOR", CodeFlags::IS_GENERATOR),
+        ("COROUTINE", CodeFlags::IS_COROUTINE),
+    ];
+}
+
+#[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Label(usize);
+
+impl Label {
+    pub fn new(label: usize) -> Self {
+        Label(label)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// An indication where the name must be accessed.
 pub enum NameScope {
+    /// The name will be in the local scope.
     Local,
+
+    /// The name will be located in scope surrounding the current scope.
     NonLocal,
+
+    /// The name will be in global scope.
     Global,
+
+    /// The name will be located in any scope between the current scope and the top scope.
+    Free,
 }
 
 /// Transforms a value prior to formatting it.
@@ -84,10 +116,7 @@ pub enum Instruction {
         symbols: Vec<String>,
         level: usize,
     },
-    ImportStar {
-        name: Option<String>,
-        level: usize,
-    },
+    ImportStar,
     ImportFrom {
         name: String,
     },
@@ -102,6 +131,7 @@ pub enum Instruction {
     DeleteName {
         name: String,
     },
+    Subscript,
     StoreSubscript,
     DeleteSubscript,
     StoreAttr {
@@ -132,21 +162,30 @@ pub enum Instruction {
     },
     Duplicate,
     GetIter,
-    Pass,
     Continue,
     Break,
     Jump {
         target: Label,
     },
-    JumpIf {
+    /// Pop the top of the stack, and jump if this value is true.
+    JumpIfTrue {
         target: Label,
     },
+    /// Pop the top of the stack, and jump if this value is false.
     JumpIfFalse {
         target: Label,
     },
-    MakeFunction {
-        flags: FunctionOpArg,
+    /// Peek at the top of the stack, and jump if this value is true.
+    /// Otherwise, pop top of stack.
+    JumpIfTrueOrPop {
+        target: Label,
     },
+    /// Peek at the top of the stack, and jump if this value is false.
+    /// Otherwise, pop top of stack.
+    JumpIfFalseOrPop {
+        target: Label,
+    },
+    MakeFunction,
     CallFunction {
         typ: CallType,
     },
@@ -160,15 +199,34 @@ pub enum Instruction {
         start: Label,
         end: Label,
     },
+
+    /// Setup a finally handler, which will be called whenever one of this events occurs:
+    /// - the block is popped
+    /// - the function returns
+    /// - an exception is returned
+    SetupFinally {
+        handler: Label,
+    },
+
+    /// Enter a finally block, without returning, excepting, just because we are there.
+    EnterFinally,
+
+    /// Marker bytecode for the end of a finally sequence.
+    /// When this bytecode is executed, the eval loop does one of those things:
+    /// - Continue at a certain bytecode position
+    /// - Propagate the exception
+    /// - Return from a function
+    /// - Do nothing at all, just continue
+    EndFinally,
+
     SetupExcept {
         handler: Label,
     },
     SetupWith {
         end: Label,
     },
-    CleanupWith {
-        end: Label,
-    },
+    WithCleanupStart,
+    WithCleanupFinish,
     PopBlock,
     Raise {
         argc: usize,
@@ -191,6 +249,7 @@ pub enum Instruction {
     BuildMap {
         size: usize,
         unpack: bool,
+        for_call: bool,
     },
     BuildSlice {
         size: usize,
@@ -213,12 +272,20 @@ pub enum Instruction {
         before: usize,
         after: usize,
     },
-    Unpack,
     FormatValue {
         conversion: Option<ConversionFlag>,
-        spec: String,
     },
     PopException,
+    Reverse {
+        amount: usize,
+    },
+    GetAwaitable,
+    BeforeAsyncWith,
+    SetupAsyncWith {
+        end: Label,
+    },
+    GetAIter,
+    GetANext,
 }
 
 use self::Instruction::*;
@@ -256,6 +323,7 @@ pub enum ComparisonOperator {
     NotIn,
     Is,
     IsNot,
+    ExceptionMatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -268,7 +336,6 @@ pub enum BinaryOperator {
     Modulo,
     Add,
     Subtract,
-    Subscript,
     Lshift,
     Rshift,
     And,
@@ -300,7 +367,9 @@ pub enum BlockType {
 */
 
 impl CodeObject {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        flags: CodeFlags,
         arg_names: Vec<String>,
         varargs: Varargs,
         kwonlyarg_names: Vec<String>,
@@ -313,6 +382,7 @@ impl CodeObject {
             instructions: Vec::new(),
             label_map: HashMap::new(),
             locations: Vec::new(),
+            flags,
             arg_names,
             varargs,
             kwonlyarg_names,
@@ -320,8 +390,19 @@ impl CodeObject {
             source_path,
             first_line_number,
             obj_name,
-            is_generator: false,
         }
+    }
+
+    /// Load a code object from bytes
+    pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+        let data = lz4_compress::decompress(data)?;
+        bincode::deserialize::<Self>(&data).map_err(|e| e.into())
+    }
+
+    /// Serialize this bytecode to bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let data = bincode::serialize(&self).expect("Code object must be serializable");
+        lz4_compress::compress(&data)
     }
 
     pub fn get_constants(&self) -> impl Iterator<Item = &Constant> {
@@ -333,10 +414,13 @@ impl CodeObject {
             }
         })
     }
-}
 
-impl fmt::Display for CodeObject {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn display_inner(
+        &self,
+        f: &mut fmt::Formatter,
+        expand_codeobjects: bool,
+        level: usize,
+    ) -> fmt::Result {
         let label_targets: HashSet<&usize> = self.label_map.values().collect();
         for (offset, instruction) in self.instructions.iter().enumerate() {
             let arrow = if label_targets.contains(&offset) {
@@ -344,15 +428,40 @@ impl fmt::Display for CodeObject {
             } else {
                 "  "
             };
-            write!(f, "          {} {:5} ", arrow, offset)?;
-            instruction.fmt_dis(f, &self.label_map)?;
+            for _ in 0..level {
+                write!(f, "          ")?;
+            }
+            write!(f, "{} {:5} ", arrow, offset)?;
+            instruction.fmt_dis(f, &self.label_map, expand_codeobjects, level)?;
         }
         Ok(())
+    }
+
+    pub fn display_expand_codeobjects<'a>(&'a self) -> impl fmt::Display + 'a {
+        struct Display<'a>(&'a CodeObject);
+        impl fmt::Display for Display<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                self.0.display_inner(f, true, 1)
+            }
+        }
+        Display(self)
+    }
+}
+
+impl fmt::Display for CodeObject {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.display_inner(f, false, 1)
     }
 }
 
 impl Instruction {
-    fn fmt_dis(&self, f: &mut fmt::Formatter, label_map: &HashMap<Label, usize>) -> fmt::Result {
+    fn fmt_dis(
+        &self,
+        f: &mut fmt::Formatter,
+        label_map: &HashMap<Label, usize>,
+        expand_codeobjects: bool,
+        level: usize,
+    ) -> fmt::Result {
         macro_rules! w {
             ($variant:ident) => {
                 write!(f, "{:20}\n", stringify!($variant))
@@ -386,16 +495,24 @@ impl Instruction {
                 format!("{:?}", symbols),
                 level
             ),
-            ImportStar { name, level } => w!(ImportStar, format!("{:?}", name), level),
+            ImportStar => w!(ImportStar),
             ImportFrom { name } => w!(ImportFrom, name),
             LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
             StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
             DeleteName { name } => w!(DeleteName, name),
+            Subscript => w!(Subscript),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),
             StoreAttr { name } => w!(StoreAttr, name),
             DeleteAttr { name } => w!(DeleteAttr, name),
-            LoadConst { value } => w!(LoadConst, value),
+            LoadConst { value } => match value {
+                Constant::Code { code } if expand_codeobjects => {
+                    writeln!(f, "LoadConst ({:?}):", code)?;
+                    code.display_inner(f, true, level + 1)?;
+                    Ok(())
+                }
+                _ => w!(LoadConst, value),
+            },
             UnaryOperation { op } => w!(UnaryOperation, format!("{:?}", op)),
             BinaryOperation { op, inplace } => w!(BinaryOperation, format!("{:?}", op), inplace),
             LoadAttr { name } => w!(LoadAttr, name),
@@ -404,29 +521,40 @@ impl Instruction {
             Rotate { amount } => w!(Rotate, amount),
             Duplicate => w!(Duplicate),
             GetIter => w!(GetIter),
-            Pass => w!(Pass),
             Continue => w!(Continue),
             Break => w!(Break),
             Jump { target } => w!(Jump, label_map[target]),
-            JumpIf { target } => w!(JumpIf, label_map[target]),
+            JumpIfTrue { target } => w!(JumpIfTrue, label_map[target]),
             JumpIfFalse { target } => w!(JumpIfFalse, label_map[target]),
-            MakeFunction { flags } => w!(MakeFunction, format!("{:?}", flags)),
+            JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, label_map[target]),
+            JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, label_map[target]),
+            MakeFunction => w!(MakeFunction),
             CallFunction { typ } => w!(CallFunction, format!("{:?}", typ)),
             ForIter { target } => w!(ForIter, label_map[target]),
             ReturnValue => w!(ReturnValue),
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupLoop { start, end } => w!(SetupLoop, label_map[start], label_map[end]),
-            SetupExcept { handler } => w!(SetupExcept, handler),
-            SetupWith { end } => w!(SetupWith, end),
-            CleanupWith { end } => w!(CleanupWith, end),
+            SetupExcept { handler } => w!(SetupExcept, label_map[handler]),
+            SetupFinally { handler } => w!(SetupFinally, label_map[handler]),
+            EnterFinally => w!(EnterFinally),
+            EndFinally => w!(EndFinally),
+            SetupWith { end } => w!(SetupWith, label_map[end]),
+            WithCleanupStart => w!(WithCleanupStart),
+            WithCleanupFinish => w!(WithCleanupFinish),
+            BeforeAsyncWith => w!(BeforeAsyncWith),
+            SetupAsyncWith { end } => w!(SetupAsyncWith, label_map[end]),
             PopBlock => w!(PopBlock),
             Raise { argc } => w!(Raise, argc),
             BuildString { size } => w!(BuildString, size),
             BuildTuple { size, unpack } => w!(BuildTuple, size, unpack),
             BuildList { size, unpack } => w!(BuildList, size, unpack),
             BuildSet { size, unpack } => w!(BuildSet, size, unpack),
-            BuildMap { size, unpack } => w!(BuildMap, size, unpack),
+            BuildMap {
+                size,
+                unpack,
+                for_call,
+            } => w!(BuildMap, size, unpack, for_call),
             BuildSlice { size } => w!(BuildSlice, size),
             ListAppend { i } => w!(ListAppend, i),
             SetAdd { i } => w!(SetAdd, i),
@@ -435,9 +563,12 @@ impl Instruction {
             LoadBuildClass => w!(LoadBuildClass),
             UnpackSequence { size } => w!(UnpackSequence, size),
             UnpackEx { before, after } => w!(UnpackEx, before, after),
-            Unpack => w!(Unpack),
-            FormatValue { spec, .. } => w!(FormatValue, spec), // TODO: write conversion
+            FormatValue { .. } => w!(FormatValue), // TODO: write conversion
             PopException => w!(PopException),
+            Reverse { amount } => w!(Reverse, amount),
+            GetAwaitable => w!(GetAwaitable),
+            GetAIter => w!(GetAIter),
+            GetANext => w!(GetANext),
         }
     }
 }

@@ -14,7 +14,7 @@
 //! ```
 
 use crate::{extract_spans, Diagnostic};
-use bincode;
+use once_cell::sync::Lazy;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use rustpython_bytecode::bytecode::{CodeObject, FrozenModule};
@@ -25,6 +25,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use syn::parse::{Parse, ParseStream, Result as ParseResult};
 use syn::{self, parse2, Lit, LitByteStr, LitStr, Meta, Token};
+
+static CARGO_MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| {
+    PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"))
+});
 
 enum CompilationSourceKind {
     File(PathBuf),
@@ -38,27 +42,29 @@ struct CompilationSource {
 }
 
 impl CompilationSource {
-    fn compile_string(
+    fn compile_string<D: std::fmt::Display, F: FnOnce() -> D>(
         &self,
         source: &str,
-        mode: &compile::Mode,
+        mode: compile::Mode,
         module_name: String,
+        origin: F,
     ) -> Result<CodeObject, Diagnostic> {
-        compile::compile(source, mode, module_name, 0)
-            .map_err(|err| Diagnostic::spans_error(self.span, format!("Compile error: {}", err)))
+        compile::compile(source, mode, module_name, 0).map_err(|err| {
+            Diagnostic::spans_error(
+                self.span,
+                format!("Python compile error from {}: {}", origin(), err),
+            )
+        })
     }
 
     fn compile(
         &self,
-        mode: &compile::Mode,
+        mode: compile::Mode,
         module_name: String,
     ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         Ok(match &self.kind {
             CompilationSourceKind::File(rel_path) => {
-                let mut path = PathBuf::from(
-                    env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"),
-                );
-                path.push(rel_path);
+                let path = CARGO_MANIFEST_DIR.join(rel_path);
                 let source = fs::read_to_string(&path).map_err(|err| {
                     Diagnostic::spans_error(
                         self.span,
@@ -67,7 +73,7 @@ impl CompilationSource {
                 })?;
                 hashmap! {
                     module_name.clone() => FrozenModule {
-                        code: self.compile_string(&source, mode, module_name.clone())?,
+                        code: self.compile_string(&source, mode, module_name, || rel_path.display())?,
                         package: false,
                     },
                 }
@@ -75,17 +81,13 @@ impl CompilationSource {
             CompilationSourceKind::SourceCode(code) => {
                 hashmap! {
                     module_name.clone() => FrozenModule {
-                        code: self.compile_string(code, mode, module_name.clone())?,
+                        code: self.compile_string(code, mode, module_name, || "string literal")?,
                         package: false,
                     },
                 }
             }
             CompilationSourceKind::Dir(rel_path) => {
-                let mut path = PathBuf::from(
-                    env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"),
-                );
-                path.push(rel_path);
-                self.compile_dir(&path, String::new(), mode)?
+                self.compile_dir(&CARGO_MANIFEST_DIR.join(rel_path), String::new(), mode)?
             }
         })
     }
@@ -94,7 +96,7 @@ impl CompilationSource {
         &self,
         path: &Path,
         parent: String,
-        mode: &compile::Mode,
+        mode: compile::Mode,
     ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         let mut code_map = HashMap::new();
         let paths = fs::read_dir(&path).map_err(|err| {
@@ -133,7 +135,12 @@ impl CompilationSource {
                 code_map.insert(
                     module_name.clone(),
                     FrozenModule {
-                        code: self.compile_string(&source, mode, module_name)?,
+                        code: self.compile_string(&source, mode, module_name, || {
+                            path.strip_prefix(&*CARGO_MANIFEST_DIR)
+                                .ok()
+                                .unwrap_or(&path)
+                                .display()
+                        })?,
                         package: is_init,
                     },
                 );
@@ -168,22 +175,24 @@ impl PyCompileInput {
 
         for meta in &self.metas {
             if let Meta::NameValue(name_value) = meta {
-                if name_value.ident == "mode" {
-                    mode = Some(match &name_value.lit {
-                        Lit::Str(s) => match s.value().as_str() {
-                            "exec" => compile::Mode::Exec,
-                            "eval" => compile::Mode::Eval,
-                            "single" => compile::Mode::Single,
-                            _ => bail_span!(s, "mode must be exec, eval, or single"),
+                let ident = match name_value.path.get_ident() {
+                    Some(ident) => ident,
+                    None => continue,
+                };
+                if ident == "mode" {
+                    match &name_value.lit {
+                        Lit::Str(s) => match s.value().parse() {
+                            Ok(mode_val) => mode = Some(mode_val),
+                            Err(e) => bail_span!(s, "{}", e),
                         },
                         _ => bail_span!(name_value.lit, "mode must be a string"),
-                    })
-                } else if name_value.ident == "module_name" {
+                    }
+                } else if ident == "module_name" {
                     module_name = Some(match &name_value.lit {
                         Lit::Str(s) => s.value(),
                         _ => bail_span!(name_value.lit, "module_name must be string"),
                     })
-                } else if name_value.ident == "source" {
+                } else if ident == "source" {
                     assert_source_empty(&source)?;
                     let code = match &name_value.lit {
                         Lit::Str(s) => s.value(),
@@ -193,7 +202,7 @@ impl PyCompileInput {
                         kind: CompilationSourceKind::SourceCode(code),
                         span: extract_spans(&name_value).unwrap(),
                     });
-                } else if name_value.ident == "file" {
+                } else if ident == "file" {
                     assert_source_empty(&source)?;
                     let path = match &name_value.lit {
                         Lit::Str(s) => PathBuf::from(s.value()),
@@ -203,7 +212,7 @@ impl PyCompileInput {
                         kind: CompilationSourceKind::File(path),
                         span: extract_spans(&name_value).unwrap(),
                     });
-                } else if name_value.ident == "dir" {
+                } else if ident == "dir" {
                     assert_source_empty(&source)?;
                     let path = match &name_value.lit {
                         Lit::Str(s) => PathBuf::from(s.value()),
@@ -225,7 +234,7 @@ impl PyCompileInput {
                 )
             })?
             .compile(
-                &mode.unwrap_or(compile::Mode::Exec),
+                mode.unwrap_or(compile::Mode::Exec),
                 module_name.unwrap_or_else(|| "frozen".to_string()),
             )
     }
@@ -251,11 +260,11 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
         .into_iter()
         .map(|(module_name, FrozenModule { code, package })| {
             let module_name = LitStr::new(&module_name, Span::call_site());
-            let bytes = bincode::serialize(&code).expect("Failed to serialize");
+            let bytes = code.to_bytes();
             let bytes = LitByteStr::new(&bytes, Span::call_site());
             quote! {
                 #module_name.into() => ::rustpython_vm::bytecode::FrozenModule {
-                    code: bincode::deserialize::<::rustpython_vm::bytecode::CodeObject>(
+                    code: ::rustpython_vm::bytecode::CodeObject::from_bytes(
                         #bytes
                     ).expect("Deserializing CodeObject failed"),
                     package: #package,
@@ -265,7 +274,6 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
 
     let output = quote! {
         ({
-            use ::rustpython_vm::__exports::bincode;
             use ::rustpython_vm::__exports::hashmap;
             hashmap! {
                 #(#modules),*

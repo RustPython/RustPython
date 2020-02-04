@@ -1,18 +1,11 @@
-//! Implement abstract syntax tree nodes for the python language.
+//! Implement abstract syntax tree (AST) nodes for the python language.
 //!
-//! Roughly equivalent to this: https://docs.python.org/3/library/ast.html
+//! Roughly equivalent to [the python AST](https://docs.python.org/3/library/ast.html)
+//! Many AST nodes have a location attribute, to determine the sourcecode
+//! location of the node.
 
 pub use crate::location::Location;
 use num_bigint::BigInt;
-
-/*
-#[derive(Debug)]
-
-#[derive(Debug)]
-pub struct Node {
-    pub location: Location,
-}
-*/
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
@@ -23,8 +16,9 @@ pub enum Top {
 }
 
 #[derive(Debug, PartialEq)]
+/// A full python program, it's a sequence of statements.
 pub struct Program {
-    pub statements: Vec<Statement>,
+    pub statements: Suite,
 }
 
 #[derive(Debug, PartialEq)]
@@ -40,93 +34,136 @@ pub struct Located<T> {
 }
 
 pub type Statement = Located<StatementType>;
+pub type Suite = Vec<Statement>;
 
 /// Abstract syntax tree nodes for python statements.
 #[derive(Debug, PartialEq)]
 pub enum StatementType {
+    /// A [`break`](https://docs.python.org/3/reference/simple_stmts.html#the-break-statement) statement.
     Break,
+
+    /// A [`continue`](https://docs.python.org/3/reference/simple_stmts.html#the-continue-statement) statement.
     Continue,
-    Return {
-        value: Option<Expression>,
-    },
-    Import {
-        names: Vec<ImportSymbol>,
-    },
+
+    /// A [`return`](https://docs.python.org/3/reference/simple_stmts.html#the-return-statement) statement.
+    /// This is used to return from a function.
+    Return { value: Option<Expression> },
+
+    /// An [`import`](https://docs.python.org/3/reference/simple_stmts.html#the-import-statement) statement.
+    Import { names: Vec<ImportSymbol> },
+
+    /// An [`import` `from`](https://docs.python.org/3/reference/simple_stmts.html#the-import-statement) statement.
     ImportFrom {
         level: usize,
         module: Option<String>,
         names: Vec<ImportSymbol>,
     },
+
+    /// A [`pass`](https://docs.python.org/3/reference/simple_stmts.html#pass) statement.
     Pass,
+
+    /// An [`assert`](https://docs.python.org/3/reference/simple_stmts.html#the-assert-statement) statement.
     Assert {
         test: Expression,
         msg: Option<Expression>,
     },
-    Delete {
-        targets: Vec<Expression>,
-    },
+
+    /// A `del` statement, to delete some variables.
+    Delete { targets: Vec<Expression> },
+
+    /// Variable assignment. Note that we can assign to multiple targets.
     Assign {
         targets: Vec<Expression>,
         value: Expression,
     },
+
+    /// Augmented assignment.
     AugAssign {
         target: Box<Expression>,
         op: Operator,
         value: Box<Expression>,
     },
-    Expression {
-        expression: Expression,
+
+    /// A type annotated assignment.
+    AnnAssign {
+        target: Box<Expression>,
+        annotation: Box<Expression>,
+        value: Option<Expression>,
     },
-    Global {
-        names: Vec<String>,
-    },
-    Nonlocal {
-        names: Vec<String>,
-    },
+
+    /// An expression used as a statement.
+    Expression { expression: Expression },
+
+    /// The [`global`](https://docs.python.org/3/reference/simple_stmts.html#the-global-statement) statement,
+    /// to declare names as global variables.
+    Global { names: Vec<String> },
+
+    /// A [`nonlocal`](https://docs.python.org/3/reference/simple_stmts.html#the-nonlocal-statement) statement,
+    /// to declare names a non-local variables.
+    Nonlocal { names: Vec<String> },
+
+    /// An [`if`](https://docs.python.org/3/reference/compound_stmts.html#the-if-statement) statement.
     If {
         test: Expression,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
+        body: Suite,
+        orelse: Option<Suite>,
     },
+
+    /// A [`while`](https://docs.python.org/3/reference/compound_stmts.html#the-while-statement) statement.
     While {
         test: Expression,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
+        body: Suite,
+        orelse: Option<Suite>,
     },
+
+    /// The [`with`](https://docs.python.org/3/reference/compound_stmts.html#the-with-statement) statement.
     With {
         is_async: bool,
         items: Vec<WithItem>,
-        body: Vec<Statement>,
+        body: Suite,
     },
+
+    /// A [`for`](https://docs.python.org/3/reference/compound_stmts.html#the-for-statement) statement.
+    /// Contains the body of the loop, and the `else` clause.
     For {
         is_async: bool,
         target: Box<Expression>,
         iter: Box<Expression>,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
+        body: Suite,
+        orelse: Option<Suite>,
     },
+
+    /// A `raise` statement.
     Raise {
         exception: Option<Expression>,
         cause: Option<Expression>,
     },
+
+    /// A [`try`](https://docs.python.org/3/reference/compound_stmts.html#the-try-statement) statement.
     Try {
-        body: Vec<Statement>,
+        body: Suite,
         handlers: Vec<ExceptHandler>,
-        orelse: Option<Vec<Statement>>,
-        finalbody: Option<Vec<Statement>>,
+        orelse: Option<Suite>,
+        finalbody: Option<Suite>,
     },
+
+    /// A [class definition](https://docs.python.org/3/reference/compound_stmts.html#class-definitions).
     ClassDef {
         name: String,
-        body: Vec<Statement>,
+        body: Suite,
         bases: Vec<Expression>,
         keywords: Vec<Keyword>,
         decorator_list: Vec<Expression>,
     },
+
+    /// A [function definition](https://docs.python.org/3/reference/compound_stmts.html#function-definitions).
+    /// Contains the name of the function, it's body
+    /// some decorators and formal parameters to the function.
     FunctionDef {
         is_async: bool,
         name: String,
         args: Box<Parameters>,
-        body: Vec<Statement>,
+        body: Suite,
         decorator_list: Vec<Expression>,
         returns: Option<Expression>,
     },
@@ -138,96 +175,150 @@ pub struct WithItem {
     pub optional_vars: Option<Expression>,
 }
 
+/// An expression at a given location in the sourcecode.
 pub type Expression = Located<ExpressionType>;
 
+/// A certain type of expression.
 #[derive(Debug, PartialEq)]
 pub enum ExpressionType {
     BoolOp {
-        a: Box<Expression>,
         op: BooleanOperator,
-        b: Box<Expression>,
+        values: Vec<Expression>,
     },
+
+    /// A binary operation on two operands.
     Binop {
         a: Box<Expression>,
         op: Operator,
         b: Box<Expression>,
     },
+
+    /// Subscript operation.
     Subscript {
         a: Box<Expression>,
         b: Box<Expression>,
     },
+
+    /// An unary operation.
     Unop {
         op: UnaryOperator,
         a: Box<Expression>,
     },
+
+    /// An await expression.
     Await {
         value: Box<Expression>,
     },
+
+    /// A yield expression.
     Yield {
         value: Option<Box<Expression>>,
     },
+
+    // A yield from expression.
     YieldFrom {
         value: Box<Expression>,
     },
+
+    /// A chained comparison. Note that in python you can use
+    /// `1 < a < 10` for example.
     Compare {
         vals: Vec<Expression>,
         ops: Vec<Comparison>,
     },
+
+    /// Attribute access in the form of `value.name`.
     Attribute {
         value: Box<Expression>,
         name: String,
     },
+
+    /// A call expression.
     Call {
         function: Box<Expression>,
         args: Vec<Expression>,
         keywords: Vec<Keyword>,
     },
+
+    /// A numeric literal.
     Number {
         value: Number,
     },
+
+    /// A `list` literal value.
     List {
         elements: Vec<Expression>,
     },
+
+    /// A `tuple` literal value.
     Tuple {
         elements: Vec<Expression>,
     },
+
+    /// A `dict` literal value.
+    /// For example: `{2: 'two', 3: 'three'}`
     Dict {
         elements: Vec<(Option<Expression>, Expression)>,
     },
+
+    /// A `set` literal.
     Set {
         elements: Vec<Expression>,
     },
+
     Comprehension {
         kind: Box<ComprehensionKind>,
         generators: Vec<Comprehension>,
     },
+
+    /// A starred expression.
     Starred {
         value: Box<Expression>,
     },
+
+    /// A slice expression.
     Slice {
         elements: Vec<Expression>,
     },
+
+    /// A string literal.
     String {
         value: StringGroup,
     },
+
+    /// A bytes literal.
     Bytes {
         value: Vec<u8>,
     },
+
+    /// An identifier, designating a certain variable or type.
     Identifier {
         name: String,
     },
+
+    /// A `lambda` function expression.
     Lambda {
         args: Box<Parameters>,
         body: Box<Expression>,
     },
+
+    /// An if-expression.
     IfExpression {
         test: Box<Expression>,
         body: Box<Expression>,
         orelse: Box<Expression>,
     },
+
+    /// The literal 'True'.
     True,
+
+    /// The literal 'False'.
     False,
+
+    // The literal `None`.
     None,
+
+    /// The ellipsis literal `...`.
     Ellipsis,
 }
 
@@ -277,10 +368,10 @@ impl Expression {
     }
 }
 
-/*
- * In cpython this is called arguments, but we choose parameters to
- * distinguish between function parameters and actual call arguments.
- */
+/// Formal parameters to a function.
+///
+/// In cpython this is called arguments, but we choose parameters to
+/// distinguish between function parameters and actual call arguments.
 #[derive(Debug, PartialEq, Default)]
 pub struct Parameters {
     pub args: Vec<Parameter>,
@@ -291,6 +382,7 @@ pub struct Parameters {
     pub kw_defaults: Vec<Option<Expression>>,
 }
 
+/// A single formal parameter to a function.
 #[derive(Debug, PartialEq, Default)]
 pub struct Parameter {
     pub location: Location,
@@ -307,12 +399,20 @@ pub enum ComprehensionKind {
     Dict { key: Expression, value: Expression },
 }
 
+/// A list/set/dict/generator compression.
 #[derive(Debug, PartialEq)]
 pub struct Comprehension {
     pub location: Location,
     pub target: Expression,
     pub iter: Expression,
     pub ifs: Vec<Expression>,
+    pub is_async: bool,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ArgumentList {
+    pub args: Vec<Expression>,
+    pub keywords: Vec<Keyword>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -326,9 +426,10 @@ pub struct ExceptHandler {
     pub location: Location,
     pub typ: Option<Expression>,
     pub name: Option<String>,
-    pub body: Vec<Statement>,
+    pub body: Suite,
 }
 
+/// An operator for a binary operation (an operation with two operands).
 #[derive(Debug, PartialEq)]
 pub enum Operator {
     Add,
@@ -346,12 +447,14 @@ pub enum Operator {
     FloorDiv,
 }
 
+/// A boolean operation.
 #[derive(Debug, PartialEq)]
 pub enum BooleanOperator {
     And,
     Or,
 }
 
+/// An unary operator. This is an operation with only a single operand.
 #[derive(Debug, PartialEq)]
 pub enum UnaryOperator {
     Pos,
@@ -360,6 +463,7 @@ pub enum UnaryOperator {
     Inv,
 }
 
+/// A comparison operation.
 #[derive(Debug, PartialEq)]
 pub enum Comparison {
     Equal,
@@ -374,6 +478,7 @@ pub enum Comparison {
     IsNot,
 }
 
+/// A numeric literal.
 #[derive(Debug, PartialEq)]
 pub enum Number {
     Integer { value: BigInt },
@@ -400,7 +505,7 @@ pub enum StringGroup {
     FormattedValue {
         value: Box<Expression>,
         conversion: Option<ConversionFlag>,
-        spec: String,
+        spec: Option<Box<StringGroup>>,
     },
     Joined {
         values: Vec<StringGroup>,

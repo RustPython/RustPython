@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 try:
     raise BaseException()
@@ -118,7 +118,7 @@ try:
 except ZeroDivisionError as ex:
     assert ex.__cause__ == None
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     raise ZeroDivisionError from 5
 
 try:
@@ -126,13 +126,13 @@ try:
 except ZeroDivisionError as ex:
     assert type(ex.__cause__) == NameError
 
-with assertRaises(NameError):
+with assert_raises(NameError):
     try:
         raise NameError
     except:
         raise
 
-with assertRaises(RuntimeError):
+with assert_raises(RuntimeError):
     raise
 
 context = None
@@ -171,13 +171,13 @@ except NameError as ex2:
 def f():
     raise
 
-with assertRaises(ZeroDivisionError):
+with assert_raises(ZeroDivisionError):
     try:
         1/0
     except:
         f()
 
-with assertRaises(ZeroDivisionError):
+with assert_raises(ZeroDivisionError):
     try:
         1/0
     except ZeroDivisionError:
@@ -186,6 +186,19 @@ with assertRaises(ZeroDivisionError):
         except NameError:
             pass
         raise
+
+# try-return-finally behavior:
+l = []
+def foo():
+    try:
+        return 33
+    finally:
+        l.append(1337)
+
+r = foo()
+assert r == 33
+assert l == [1337]
+
 
 # Regression https://github.com/RustPython/RustPython/issues/867
 for _ in [1, 2]:
@@ -237,4 +250,38 @@ try:
     except ZeroDivisionError as ex:
         raise NameError from ex
 except NameError as ex2:
+    assert isinstance(ex2.__cause__, ZeroDivisionError)
+else:
+    assert False, "no raise"
+
+
+try:
+    try:
+        try:
+            raise ZeroDivisionError
+        except ZeroDivisionError as ex:
+            raise NameError from ex
+    except NameError:
+        raise
+except NameError as ex2:
+    assert isinstance(ex2.__cause__, ZeroDivisionError)
+else:
+    assert False, "no raise"
+
+
+# the else clause requires at least one except clause:
+with assert_raises(SyntaxError):
+    exec("""
+try:
     pass
+else:
+    pass
+    """)
+
+
+# Try requires at least except or finally (or both)
+with assert_raises(SyntaxError):
+    exec("""
+try:
+    pass
+""")

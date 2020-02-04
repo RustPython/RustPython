@@ -1,399 +1,676 @@
-use std::cell::RefCell;
-use std::io;
-use std::io::Read;
-use std::io::Write;
-use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::cell::{Cell, Ref, RefCell};
+use std::io::{self, prelude::*};
+use std::net::{Ipv4Addr, Shutdown, SocketAddr, ToSocketAddrs};
+use std::time::Duration;
 
+use byteorder::{BigEndian, ByteOrder};
+use gethostname::gethostname;
+#[cfg(all(unix, not(target_os = "redox")))]
+use nix::unistd::sethostname;
+use socket2::{Domain, Protocol, Socket, Type as SocketType};
+
+use super::os::convert_io_error;
+#[cfg(unix)]
+use super::os::convert_nix_error;
+use crate::exceptions::PyBaseExceptionRef;
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::obj::objbytearray::PyByteArrayRef;
+use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objint::PyIntRef;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
-use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use crate::obj::objtype::PyClassRef;
+use crate::pyobject::{
+    Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 use crate::vm::VirtualMachine;
 
-use crate::obj::objtype::PyClassRef;
-use num_traits::ToPrimitive;
+#[cfg(unix)]
+type RawSocket = std::os::unix::io::RawFd;
+#[cfg(windows)]
+type RawSocket = std::os::windows::raw::SOCKET;
 
-#[derive(Debug, Copy, Clone)]
-enum AddressFamily {
-    Unix = 1,
-    Inet = 2,
-    Inet6 = 3,
+#[cfg(unix)]
+mod c {
+    pub use libc::*;
+    // TODO: open a PR to add these constants to libc; then just use libc
+    #[cfg(target_os = "android")]
+    pub const AI_PASSIVE: c_int = 0x00000001;
+    #[cfg(target_os = "android")]
+    pub const AI_CANONNAME: c_int = 0x00000002;
+    #[cfg(target_os = "android")]
+    pub const AI_NUMERICHOST: c_int = 0x00000004;
+    #[cfg(target_os = "android")]
+    pub const AI_NUMERICSERV: c_int = 0x00000008;
+    #[cfg(target_os = "android")]
+    pub const AI_MASK: c_int =
+        AI_PASSIVE | AI_CANONNAME | AI_NUMERICHOST | AI_NUMERICSERV | AI_ADDRCONFIG;
+    #[cfg(target_os = "android")]
+    pub const AI_ALL: c_int = 0x00000100;
+    #[cfg(target_os = "android")]
+    pub const AI_V4MAPPED_CFG: c_int = 0x00000200;
+    #[cfg(target_os = "android")]
+    pub const AI_ADDRCONFIG: c_int = 0x00000400;
+    #[cfg(target_os = "android")]
+    pub const AI_V4MAPPED: c_int = 0x00000800;
+    #[cfg(target_os = "android")]
+    pub const AI_DEFAULT: c_int = AI_V4MAPPED_CFG | AI_ADDRCONFIG;
+    #[cfg(target_os = "android")]
+    pub const IPPROTO_NONE: c_int = 59;
+}
+#[cfg(windows)]
+mod c {
+    pub use winapi::shared::ws2def::*;
+    pub use winapi::um::winsock2::{
+        SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SOCK_DGRAM, SOCK_RAW,
+        SOCK_RDM, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_REUSEADDR, *,
+    };
 }
 
-impl TryFromObject for AddressFamily {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match i32::try_from_object(vm, obj)? {
-            1 => Ok(AddressFamily::Unix),
-            2 => Ok(AddressFamily::Inet),
-            3 => Ok(AddressFamily::Inet6),
-            value => Err(vm.new_os_error(format!("Unknown address family value: {}", value))),
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-enum SocketKind {
-    Stream = 1,
-    Dgram = 2,
-}
-
-impl TryFromObject for SocketKind {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match i32::try_from_object(vm, obj)? {
-            1 => Ok(SocketKind::Stream),
-            2 => Ok(SocketKind::Dgram),
-            value => Err(vm.new_os_error(format!("Unknown socket kind value: {}", value))),
-        }
-    }
-}
-
+#[pyclass]
 #[derive(Debug)]
-enum Connection {
-    TcpListener(TcpListener),
-    TcpStream(TcpStream),
-    UdpSocket(UdpSocket),
+pub struct PySocket {
+    kind: Cell<i32>,
+    family: Cell<i32>,
+    proto: Cell<i32>,
+    sock: RefCell<Socket>,
 }
 
-impl Connection {
-    fn accept(&mut self) -> io::Result<(TcpStream, SocketAddr)> {
-        match self {
-            Connection::TcpListener(con) => con.accept(),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
-        }
-    }
-
-    fn local_addr(&self) -> io::Result<SocketAddr> {
-        match self {
-            Connection::TcpListener(con) => con.local_addr(),
-            Connection::UdpSocket(con) => con.local_addr(),
-            Connection::TcpStream(con) => con.local_addr(),
-        }
-    }
-
-    fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        match self {
-            Connection::UdpSocket(con) => con.recv_from(buf),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
-        }
-    }
-
-    fn send_to<A: ToSocketAddrs>(&self, buf: &[u8], addr: A) -> io::Result<usize> {
-        match self {
-            Connection::UdpSocket(con) => con.send_to(buf, addr),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
-        }
-    }
-
-    #[cfg(unix)]
-    fn fileno(&self) -> i64 {
-        use std::os::unix::io::AsRawFd;
-        let raw_fd = match self {
-            Connection::TcpListener(con) => con.as_raw_fd(),
-            Connection::UdpSocket(con) => con.as_raw_fd(),
-            Connection::TcpStream(con) => con.as_raw_fd(),
-        };
-        i64::from(raw_fd)
-    }
-
-    #[cfg(windows)]
-    fn fileno(&self) -> i64 {
-        use std::os::windows::io::AsRawSocket;
-        let raw_fd = match self {
-            Connection::TcpListener(con) => con.as_raw_socket(),
-            Connection::UdpSocket(con) => con.as_raw_socket(),
-            Connection::TcpStream(con) => con.as_raw_socket(),
-        };
-        raw_fd as i64
-    }
-
-    #[cfg(all(not(unix), not(windows)))]
-    fn fileno(&self) -> i64 {
-        unimplemented!();
-    }
-}
-
-impl Read for Connection {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self {
-            Connection::TcpStream(con) => con.read(buf),
-            Connection::UdpSocket(con) => con.recv(buf),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
-        }
-    }
-}
-
-impl Write for Connection {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self {
-            Connection::TcpStream(con) => con.write(buf),
-            Connection::UdpSocket(con) => con.send(buf),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
-        }
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct Socket {
-    address_family: AddressFamily,
-    socket_kind: SocketKind,
-    con: RefCell<Option<Connection>>,
-}
-
-impl PyValue for Socket {
+impl PyValue for PySocket {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("socket", "socket")
+        vm.class("_socket", "socket")
     }
 }
 
-impl Socket {
-    fn new(address_family: AddressFamily, socket_kind: SocketKind) -> Socket {
-        Socket {
-            address_family,
-            socket_kind,
-            con: RefCell::new(None),
+pub type PySocketRef = PyRef<PySocket>;
+
+#[pyimpl(flags(BASETYPE))]
+impl PySocket {
+    fn sock(&self) -> Ref<Socket> {
+        self.sock.borrow()
+    }
+
+    #[pyslot]
+    fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        PySocket {
+            kind: Cell::default(),
+            family: Cell::default(),
+            proto: Cell::default(),
+            sock: RefCell::new(invalid_sock()),
         }
+        .into_ref_with_type(vm, cls)
     }
-}
 
-type SocketRef = PyRef<Socket>;
-
-impl SocketRef {
-    fn new(
-        cls: PyClassRef,
-        family: AddressFamily,
-        kind: SocketKind,
+    #[pymethod(name = "__init__")]
+    fn init(
+        &self,
+        family: i32,
+        socket_kind: i32,
+        proto: i32,
+        fileno: Option<RawSocket>,
         vm: &VirtualMachine,
-    ) -> PyResult<SocketRef> {
-        Socket::new(family, kind).into_ref_with_type(vm, cls)
-    }
-
-    fn connect(self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let address_string = address.get_address_string();
-
-        match self.socket_kind {
-            SocketKind::Stream => match TcpStream::connect(address_string) {
-                Ok(stream) => {
-                    self.con.borrow_mut().replace(Connection::TcpStream(stream));
-                    Ok(())
-                }
-                Err(s) => Err(vm.new_os_error(s.to_string())),
-            },
-            SocketKind::Dgram => {
-                if let Some(Connection::UdpSocket(con)) = self.con.borrow().as_ref() {
-                    match con.connect(address_string) {
-                        Ok(_) => Ok(()),
-                        Err(s) => Err(vm.new_os_error(s.to_string())),
-                    }
-                } else {
-                    Err(vm.new_type_error("".to_string()))
-                }
+    ) -> PyResult<()> {
+        let sock = if let Some(fileno) = fileno {
+            #[cfg(unix)]
+            {
+                use std::os::unix::io::FromRawFd;
+                unsafe { Socket::from_raw_fd(fileno) }
             }
-        }
-    }
+            #[cfg(windows)]
+            {
+                use std::os::windows::io::FromRawSocket;
+                unsafe { Socket::from_raw_socket(fileno) }
+            }
+        } else {
+            let sock = Socket::new(
+                Domain::from(family),
+                SocketType::from(socket_kind),
+                Some(Protocol::from(proto)),
+            )
+            .map_err(|err| convert_sock_error(vm, err))?;
 
-    fn bind(self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let address_string = address.get_address_string();
-
-        match self.socket_kind {
-            SocketKind::Stream => match TcpListener::bind(address_string) {
-                Ok(stream) => {
-                    self.con
-                        .borrow_mut()
-                        .replace(Connection::TcpListener(stream));
-                    Ok(())
-                }
-                Err(s) => Err(vm.new_os_error(s.to_string())),
-            },
-            SocketKind::Dgram => match UdpSocket::bind(address_string) {
-                Ok(dgram) => {
-                    self.con.borrow_mut().replace(Connection::UdpSocket(dgram));
-                    Ok(())
-                }
-                Err(s) => Err(vm.new_os_error(s.to_string())),
-            },
-        }
-    }
-
-    fn listen(self, _num: PyIntRef, _vm: &VirtualMachine) {}
-
-    fn accept(self, vm: &VirtualMachine) -> PyResult {
-        let ret = match self.con.borrow_mut().as_mut() {
-            Some(v) => v.accept(),
-            None => return Err(vm.new_type_error("".to_string())),
+            self.family.set(family);
+            self.kind.set(socket_kind);
+            self.proto.set(proto);
+            sock
         };
-
-        let (tcp_stream, addr) = match ret {
-            Ok((socket, addr)) => (socket, addr),
-            Err(s) => return Err(vm.new_os_error(s.to_string())),
-        };
-
-        let socket = Socket {
-            address_family: self.address_family,
-            socket_kind: self.socket_kind,
-            con: RefCell::new(Some(Connection::TcpStream(tcp_stream))),
-        }
-        .into_ref(vm);
-
-        let addr_tuple = get_addr_tuple(vm, addr)?;
-
-        Ok(vm.ctx.new_tuple(vec![socket.into_object(), addr_tuple]))
-    }
-
-    fn recv(self, bufsize: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        let mut buffer = vec![0u8; bufsize.as_bigint().to_usize().unwrap()];
-        match self.con.borrow_mut().as_mut() {
-            Some(v) => match v.read_exact(&mut buffer) {
-                Ok(_) => (),
-                Err(s) => return Err(vm.new_os_error(s.to_string())),
-            },
-            None => return Err(vm.new_type_error("".to_string())),
-        };
-        Ok(vm.ctx.new_bytes(buffer))
-    }
-
-    fn recvfrom(self, bufsize: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        let mut buffer = vec![0u8; bufsize.as_bigint().to_usize().unwrap()];
-        let ret = match self.con.borrow().as_ref() {
-            Some(v) => v.recv_from(&mut buffer),
-            None => return Err(vm.new_type_error("".to_string())),
-        };
-
-        let addr = match ret {
-            Ok((_size, addr)) => addr,
-            Err(s) => return Err(vm.new_os_error(s.to_string())),
-        };
-
-        let addr_tuple = get_addr_tuple(vm, addr)?;
-
-        Ok(vm.ctx.new_tuple(vec![vm.ctx.new_bytes(buffer), addr_tuple]))
-    }
-
-    fn send(self, bytes: PyBytesRef, vm: &VirtualMachine) -> PyResult<()> {
-        match self.con.borrow_mut().as_mut() {
-            Some(v) => match v.write(&bytes) {
-                Ok(_) => (),
-                Err(s) => return Err(vm.new_os_error(s.to_string())),
-            },
-            None => return Err(vm.new_type_error("".to_string())),
-        };
+        self.sock.replace(sock);
         Ok(())
     }
 
-    fn sendto(self, bytes: PyBytesRef, address: Address, vm: &VirtualMachine) -> PyResult<()> {
-        let address_string = address.get_address_string();
+    #[pymethod]
+    fn connect(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
+        let sock_addr = get_addr(vm, address)?;
+        let res = if let Some(duration) = self.sock().read_timeout().unwrap() {
+            self.sock().connect_timeout(&sock_addr, duration)
+        } else {
+            self.sock().connect(&sock_addr)
+        };
+        res.map_err(|err| convert_sock_error(vm, err))
+    }
 
-        match self.socket_kind {
-            SocketKind::Dgram => {
-                if let Some(v) = self.con.borrow().as_ref() {
-                    return match v.send_to(&bytes, address_string) {
-                        Ok(_) => Ok(()),
-                        Err(s) => Err(vm.new_os_error(s.to_string())),
-                    };
-                }
-                // Doing implicit bind
-                match UdpSocket::bind("0.0.0.0:0") {
-                    Ok(dgram) => match dgram.send_to(&bytes, address_string) {
-                        Ok(_) => {
-                            self.con.borrow_mut().replace(Connection::UdpSocket(dgram));
-                            Ok(())
-                        }
-                        Err(s) => Err(vm.new_os_error(s.to_string())),
-                    },
-                    Err(s) => Err(vm.new_os_error(s.to_string())),
-                }
+    #[pymethod]
+    fn bind(&self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
+        let sock_addr = get_addr(vm, address)?;
+        self.sock()
+            .bind(&sock_addr)
+            .map_err(|err| convert_sock_error(vm, err))
+    }
+
+    #[pymethod]
+    fn listen(&self, backlog: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<()> {
+        let backlog = backlog.unwrap_or(128);
+        let backlog = if backlog < 0 { 0 } else { backlog };
+        self.sock()
+            .listen(backlog)
+            .map_err(|err| convert_sock_error(vm, err))
+    }
+
+    #[pymethod]
+    fn _accept(&self, vm: &VirtualMachine) -> PyResult<(RawSocket, AddrTuple)> {
+        let (sock, addr) = self
+            .sock()
+            .accept()
+            .map_err(|err| convert_sock_error(vm, err))?;
+
+        let fd = into_sock_fileno(sock);
+        Ok((fd, get_addr_tuple(addr)))
+    }
+
+    #[pymethod]
+    fn recv(&self, bufsize: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let mut buffer = vec![0u8; bufsize];
+        let n = self
+            .sock()
+            .recv(&mut buffer)
+            .map_err(|err| convert_sock_error(vm, err))?;
+        buffer.truncate(n);
+        Ok(buffer)
+    }
+
+    #[pymethod]
+    fn recv_into(&self, buf: PyByteArrayRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let mut buffer = buf.borrow_value_mut();
+        self.sock()
+            .recv(&mut buffer.elements)
+            .map_err(|err| convert_sock_error(vm, err))
+    }
+
+    #[pymethod]
+    fn recvfrom(&self, bufsize: usize, vm: &VirtualMachine) -> PyResult<(Vec<u8>, AddrTuple)> {
+        let mut buffer = vec![0u8; bufsize];
+        let (n, addr) = self
+            .sock()
+            .recv_from(&mut buffer)
+            .map_err(|err| convert_sock_error(vm, err))?;
+        buffer.truncate(n);
+        Ok((buffer, get_addr_tuple(addr)))
+    }
+
+    #[pymethod]
+    fn send(&self, bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        bytes
+            .with_ref(|b| self.sock().send(b))
+            .map_err(|err| convert_sock_error(vm, err))
+    }
+
+    #[pymethod]
+    fn sendall(&self, bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+        bytes
+            .with_ref(|b| self.sock.borrow_mut().write_all(b))
+            .map_err(|err| convert_sock_error(vm, err))
+    }
+
+    #[pymethod]
+    fn sendto(&self, bytes: PyBytesLike, address: Address, vm: &VirtualMachine) -> PyResult<()> {
+        let addr = get_addr(vm, address)?;
+        bytes
+            .with_ref(|b| self.sock().send_to(b, &addr))
+            .map_err(|err| convert_sock_error(vm, err))?;
+        Ok(())
+    }
+
+    #[pymethod]
+    fn close(&self, _vm: &VirtualMachine) {
+        self.sock.replace(invalid_sock());
+    }
+
+    #[pymethod]
+    fn fileno(&self, _vm: &VirtualMachine) -> RawSocket {
+        sock_fileno(&self.sock())
+    }
+
+    #[pymethod]
+    fn getsockname(&self, vm: &VirtualMachine) -> PyResult<AddrTuple> {
+        let addr = self
+            .sock()
+            .local_addr()
+            .map_err(|err| convert_sock_error(vm, err))?;
+
+        Ok(get_addr_tuple(addr))
+    }
+    #[pymethod]
+    fn getpeername(&self, vm: &VirtualMachine) -> PyResult<AddrTuple> {
+        let addr = self
+            .sock()
+            .peer_addr()
+            .map_err(|err| convert_sock_error(vm, err))?;
+
+        Ok(get_addr_tuple(addr))
+    }
+
+    #[pymethod]
+    fn gettimeout(&self, vm: &VirtualMachine) -> PyResult<Option<f64>> {
+        let dur = self
+            .sock()
+            .read_timeout()
+            .map_err(|err| convert_sock_error(vm, err))?;
+        Ok(dur.map(|d| d.as_secs_f64()))
+    }
+
+    #[pymethod]
+    fn setblocking(&self, block: bool, vm: &VirtualMachine) -> PyResult<()> {
+        self.sock()
+            .set_nonblocking(!block)
+            .map_err(|err| convert_sock_error(vm, err))
+    }
+
+    #[pymethod]
+    fn getblocking(&self, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(self.gettimeout(vm)?.map_or(false, |t| t == 0.0))
+    }
+
+    #[pymethod]
+    fn settimeout(&self, timeout: Option<Duration>, vm: &VirtualMachine) -> PyResult<()> {
+        // timeout is None: blocking, no timeout
+        // timeout is 0: non-blocking, no timeout
+        // otherwise: timeout is timeout, don't change blocking
+        let (block, timeout) = match timeout {
+            None => (Some(true), None),
+            Some(d) if d == Duration::from_secs(0) => (Some(false), None),
+            Some(d) => (None, Some(d)),
+        };
+        self.sock()
+            .set_read_timeout(timeout)
+            .map_err(|err| convert_sock_error(vm, err))?;
+        self.sock()
+            .set_write_timeout(timeout)
+            .map_err(|err| convert_sock_error(vm, err))?;
+        if let Some(blocking) = block {
+            self.sock()
+                .set_nonblocking(!blocking)
+                .map_err(|err| convert_sock_error(vm, err))?;
+        }
+        Ok(())
+    }
+
+    #[pymethod]
+    fn setsockopt(
+        &self,
+        level: i32,
+        name: i32,
+        value: Option<Either<PyBytesLike, i32>>,
+        optlen: OptionalArg<u32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let fd = sock_fileno(&self.sock()) as _;
+        let ret = match (value, optlen) {
+            (Some(Either::A(b)), OptionalArg::Missing) => b.with_ref(|b| unsafe {
+                c::setsockopt(fd, level, name, b.as_ptr() as *const _, b.len() as _)
+            }),
+            (Some(Either::B(ref val)), OptionalArg::Missing) => unsafe {
+                c::setsockopt(
+                    fd,
+                    level,
+                    name,
+                    val as *const i32 as *const _,
+                    std::mem::size_of::<i32>() as _,
+                )
+            },
+            (None, OptionalArg::Present(optlen)) => unsafe {
+                c::setsockopt(fd, level, name, std::ptr::null(), optlen as _)
+            },
+            _ => {
+                return Err(
+                    vm.new_type_error("expected the value arg xor the optlen arg".to_string())
+                );
             }
-            _ => Err(vm.new_not_implemented_error("".to_string())),
+        };
+        if ret < 0 {
+            Err(convert_sock_error(vm, io::Error::last_os_error()))
+        } else {
+            Ok(())
         }
     }
 
-    fn close(self, _vm: &VirtualMachine) {
-        self.con.borrow_mut().take();
+    #[pymethod]
+    fn shutdown(&self, how: i32, vm: &VirtualMachine) -> PyResult<()> {
+        let how = match how {
+            c::SHUT_RD => Shutdown::Read,
+            c::SHUT_WR => Shutdown::Write,
+            c::SHUT_RDWR => Shutdown::Both,
+            _ => {
+                return Err(
+                    vm.new_value_error("`how` must be SHUT_RD, SHUT_WR, or SHUT_RDWR".to_string())
+                )
+            }
+        };
+        self.sock()
+            .shutdown(how)
+            .map_err(|err| convert_sock_error(vm, err))
     }
 
-    fn fileno(self, vm: &VirtualMachine) -> PyResult {
-        let fileno = match self.con.borrow_mut().as_mut() {
-            Some(v) => v.fileno(),
-            None => return Err(vm.new_type_error("".to_string())),
-        };
-        Ok(vm.ctx.new_int(fileno))
+    #[pyproperty(name = "type")]
+    fn kind(&self, _vm: &VirtualMachine) -> i32 {
+        self.kind.get()
     }
-
-    fn getsockname(self, vm: &VirtualMachine) -> PyResult {
-        let addr = match self.con.borrow().as_ref() {
-            Some(v) => v.local_addr(),
-            None => return Err(vm.new_type_error("".to_string())),
-        };
-
-        match addr {
-            Ok(addr) => get_addr_tuple(vm, addr),
-            Err(s) => Err(vm.new_os_error(s.to_string())),
-        }
+    #[pyproperty]
+    fn family(&self, _vm: &VirtualMachine) -> i32 {
+        self.family.get()
+    }
+    #[pyproperty]
+    fn proto(&self, _vm: &VirtualMachine) -> i32 {
+        self.proto.get()
     }
 }
 
 struct Address {
-    host: String,
-    port: usize,
+    host: PyStringRef,
+    port: u16,
 }
 
-impl Address {
-    fn get_address_string(self) -> String {
-        format!("{}:{}", self.host, self.port.to_string())
+impl ToSocketAddrs for Address {
+    type Iter = std::vec::IntoIter<SocketAddr>;
+    fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
+        (self.host.as_str(), self.port).to_socket_addrs()
     }
 }
 
 impl TryFromObject for Address {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let tuple = PyTupleRef::try_from_object(vm, obj)?;
-        if tuple.elements.len() != 2 {
+        if tuple.as_slice().len() != 2 {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_string()))
         } else {
-            Ok(Address {
-                host: PyStringRef::try_from_object(vm, tuple.elements[0].clone())?
-                    .value
-                    .to_string(),
-                port: PyIntRef::try_from_object(vm, tuple.elements[1].clone())?
-                    .as_bigint()
-                    .to_usize()
-                    .unwrap(),
-            })
+            let host = PyStringRef::try_from_object(vm, tuple.as_slice()[0].clone())?;
+            let host = if host.as_str().is_empty() {
+                PyString::from("0.0.0.0").into_ref(vm)
+            } else {
+                host
+            };
+            let port = u16::try_from_object(vm, tuple.as_slice()[1].clone())?;
+            Ok(Address { host, port })
         }
     }
 }
 
-fn get_addr_tuple(vm: &VirtualMachine, addr: SocketAddr) -> PyResult {
-    let port = vm.ctx.new_int(addr.port());
-    let ip = vm.ctx.new_str(addr.ip().to_string());
+type AddrTuple = (String, u16);
 
-    Ok(vm.ctx.new_tuple(vec![ip, port]))
+fn get_addr_tuple<A: Into<socket2::SockAddr>>(addr: A) -> AddrTuple {
+    let addr = addr.into();
+    if let Some(addr) = addr.as_inet() {
+        (addr.ip().to_string(), addr.port())
+    } else if let Some(addr) = addr.as_inet6() {
+        (addr.ip().to_string(), addr.port())
+    } else {
+        (String::new(), 0)
+    }
+}
+
+fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
+    gethostname()
+        .into_string()
+        .map(|hostname| vm.new_str(hostname))
+        .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+fn socket_sethostname(hostname: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    sethostname(hostname.as_str()).map_err(|err| convert_nix_error(vm, err))
+}
+
+fn socket_inet_aton(ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    ip_string
+        .as_str()
+        .parse::<Ipv4Addr>()
+        .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
+        .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_string()))
+}
+
+fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    if packed_ip.len() != 4 {
+        return Err(vm.new_os_error("packed IP wrong length for inet_ntoa".to_string()));
+    }
+    let ip_num = BigEndian::read_u32(&packed_ip);
+    Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
+}
+
+fn socket_hton<U: num_traits::int::PrimInt>(host: U, _vm: &VirtualMachine) -> U {
+    U::to_be(host)
+}
+
+fn socket_ntoh<U: num_traits::int::PrimInt>(network: U, _vm: &VirtualMachine) -> U {
+    U::from_be(network)
+}
+
+#[derive(FromArgs)]
+struct GAIOptions {
+    #[pyarg(positional_only)]
+    host: Option<PyStringRef>,
+    #[pyarg(positional_only)]
+    port: Option<Either<PyStringRef, i32>>,
+
+    #[pyarg(positional_only, default = "0")]
+    family: i32,
+    #[pyarg(positional_only, default = "0")]
+    ty: i32,
+    #[pyarg(positional_only, default = "0")]
+    proto: i32,
+    #[pyarg(positional_only, default = "0")]
+    flags: i32,
+}
+
+#[cfg(not(target_os = "redox"))]
+fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
+    let hints = dns_lookup::AddrInfoHints {
+        socktype: opts.ty,
+        protocol: opts.proto,
+        address: opts.family,
+        flags: opts.flags,
+    };
+
+    let host = opts.host.as_ref().map(|s| s.as_str());
+    let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<str> {
+        match p {
+            Either::A(ref s) => s.as_str().into(),
+            Either::B(i) => i.to_string().into(),
+        }
+    });
+    let port = port.as_ref().map(|p| p.as_ref());
+
+    let addrs = dns_lookup::getaddrinfo(host, port, Some(hints)).map_err(|err| {
+        let error_type = vm.class("_socket", "gaierror");
+        vm.new_exception_msg(error_type, io::Error::from(err).to_string())
+    })?;
+
+    let list = addrs
+        .map(|ai| {
+            ai.map(|ai| {
+                vm.ctx.new_tuple(vec![
+                    vm.new_int(ai.address),
+                    vm.new_int(ai.socktype),
+                    vm.new_int(ai.protocol),
+                    match ai.canonname {
+                        Some(s) => vm.new_str(s),
+                        None => vm.get_none(),
+                    },
+                    get_addr_tuple(ai.sockaddr).into_pyobject(vm).unwrap(),
+                ])
+            })
+        })
+        .collect::<io::Result<Vec<_>>>()
+        .map_err(|e| convert_sock_error(vm, e))?;
+    Ok(vm.ctx.new_list(list))
+}
+
+#[cfg(not(target_os = "redox"))]
+fn socket_gethostbyaddr(
+    addr: PyStringRef,
+    vm: &VirtualMachine,
+) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
+    // TODO: figure out how to do this properly
+    let ai = dns_lookup::getaddrinfo(Some(addr.as_str()), None, None)
+        .map_err(|e| convert_sock_error(vm, e.into()))?
+        .next()
+        .unwrap()
+        .map_err(|e| convert_sock_error(vm, e))?;
+    let (hostname, _) =
+        dns_lookup::getnameinfo(&ai.sockaddr, 0).map_err(|e| convert_sock_error(vm, e.into()))?;
+    Ok((
+        hostname,
+        vm.ctx.new_list(vec![]),
+        vm.ctx
+            .new_list(vec![vm.new_str(ai.sockaddr.ip().to_string())]),
+    ))
+}
+
+fn get_addr<T, I>(vm: &VirtualMachine, addr: T) -> PyResult<socket2::SockAddr>
+where
+    T: ToSocketAddrs<Iter = I>,
+    I: ExactSizeIterator<Item = SocketAddr>,
+{
+    match addr.to_socket_addrs() {
+        Ok(mut sock_addrs) => {
+            if sock_addrs.len() == 0 {
+                let error_type = vm.class("_socket", "gaierror");
+                Err(vm.new_exception_msg(
+                    error_type,
+                    "nodename nor servname provided, or not known".to_string(),
+                ))
+            } else {
+                Ok(sock_addrs.next().unwrap().into())
+            }
+        }
+        Err(e) => {
+            let error_type = vm.class("_socket", "gaierror");
+            Err(vm.new_exception_msg(error_type, e.to_string()))
+        }
+    }
+}
+
+fn sock_fileno(sock: &Socket) -> RawSocket {
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        sock.as_raw_fd()
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawSocket;
+        sock.as_raw_socket()
+    }
+}
+fn into_sock_fileno(sock: Socket) -> RawSocket {
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::IntoRawFd;
+        sock.into_raw_fd()
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::IntoRawSocket;
+        sock.into_raw_socket()
+    }
+}
+
+fn invalid_sock() -> Socket {
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::FromRawFd;
+        unsafe { Socket::from_raw_fd(-1) }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::FromRawSocket;
+        unsafe { Socket::from_raw_socket(winapi::um::winsock2::INVALID_SOCKET as RawSocket) }
+    }
+}
+
+fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
+    if err.kind() == io::ErrorKind::TimedOut {
+        let socket_timeout = vm.class("_socket", "timeout");
+        vm.new_exception_msg(socket_timeout, "Timed out".to_string())
+    } else {
+        convert_io_error(vm, err)
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
+    let socket_timeout = ctx.new_class("socket.timeout", vm.ctx.exceptions.os_error.clone());
+    let socket_gaierror = ctx.new_class("socket.gaierror", vm.ctx.exceptions.os_error.clone());
 
-    let socket = py_class!(ctx, "socket", ctx.object(), {
-         "__new__" => ctx.new_rustfunc(SocketRef::new),
-         "connect" => ctx.new_rustfunc(SocketRef::connect),
-         "recv" => ctx.new_rustfunc(SocketRef::recv),
-         "send" => ctx.new_rustfunc(SocketRef::send),
-         "bind" => ctx.new_rustfunc(SocketRef::bind),
-         "accept" => ctx.new_rustfunc(SocketRef::accept),
-         "listen" => ctx.new_rustfunc(SocketRef::listen),
-         "close" => ctx.new_rustfunc(SocketRef::close),
-         "getsockname" => ctx.new_rustfunc(SocketRef::getsockname),
-         "sendto" => ctx.new_rustfunc(SocketRef::sendto),
-         "recvfrom" => ctx.new_rustfunc(SocketRef::recvfrom),
-         "fileno" => ctx.new_rustfunc(SocketRef::fileno),
+    let module = py_module!(vm, "_socket", {
+        "socket" => PySocket::make_class(ctx),
+        "error" => ctx.exceptions.os_error.clone(),
+        "timeout" => socket_timeout,
+        "gaierror" => socket_gaierror,
+        "inet_aton" => ctx.new_function(socket_inet_aton),
+        "inet_ntoa" => ctx.new_function(socket_inet_ntoa),
+        "gethostname" => ctx.new_function(socket_gethostname),
+        "htonl" => ctx.new_function(socket_hton::<u32>),
+        "htons" => ctx.new_function(socket_hton::<u16>),
+        "ntohl" => ctx.new_function(socket_ntoh::<u32>),
+        "ntohs" => ctx.new_function(socket_ntoh::<u16>),
+        "getdefaulttimeout" => ctx.new_function(|vm: &VirtualMachine| vm.get_none()),
+        "has_ipv6" => ctx.new_bool(false),
+        // constants
+        "AF_UNSPEC" => ctx.new_int(0),
+        "AF_INET" => ctx.new_int(c::AF_INET),
+        "AF_INET6" => ctx.new_int(c::AF_INET6),
+        "SOCK_STREAM" => ctx.new_int(c::SOCK_STREAM),
+        "SOCK_DGRAM" => ctx.new_int(c::SOCK_DGRAM),
+        "SHUT_RD" => ctx.new_int(c::SHUT_RD),
+        "SHUT_WR" => ctx.new_int(c::SHUT_WR),
+        "SHUT_RDWR" => ctx.new_int(c::SHUT_RDWR),
+        "MSG_PEEK" => ctx.new_int(c::MSG_PEEK),
+        "IPPROTO_TCP" => ctx.new_int(c::IPPROTO_TCP),
+        "IPPROTO_UDP" => ctx.new_int(c::IPPROTO_UDP),
+        "IPPROTO_IP" => ctx.new_int(c::IPPROTO_IP),
+        "IPPROTO_IPIP" => ctx.new_int(c::IPPROTO_IP),
+        "IPPROTO_IPV6" => ctx.new_int(c::IPPROTO_IPV6),
+        "SOL_SOCKET" => ctx.new_int(c::SOL_SOCKET),
+        "SO_REUSEADDR" => ctx.new_int(c::SO_REUSEADDR),
+        "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
+        "SO_BROADCAST" => ctx.new_int(c::SO_BROADCAST),
     });
 
-    py_module!(vm, "socket", {
-        "AF_INET" => ctx.new_int(AddressFamily::Inet as i32),
-        "SOCK_STREAM" => ctx.new_int(SocketKind::Stream as i32),
-         "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
-         "socket" => socket,
-    })
+    #[cfg(not(target_os = "redox"))]
+    extend_module!(vm, module, {
+        "getaddrinfo" => ctx.new_function(socket_getaddrinfo),
+        "gethostbyaddr" => ctx.new_function(socket_gethostbyaddr),
+        // non-redox constants
+        "MSG_OOB" => ctx.new_int(c::MSG_OOB),
+        "MSG_WAITALL" => ctx.new_int(c::MSG_WAITALL),
+        "AI_ALL" => ctx.new_int(c::AI_ALL),
+        "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
+        "IPPROTO_NONE" => ctx.new_int(c::IPPROTO_NONE),
+    });
+
+    extend_module_platform_specific(vm, &module);
+
+    module
+}
+
+#[cfg(not(unix))]
+fn extend_module_platform_specific(_vm: &VirtualMachine, _module: &PyObjectRef) {}
+
+#[cfg(unix)]
+fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
+    let ctx = &vm.ctx;
+
+    #[cfg(not(target_os = "redox"))]
+    extend_module!(vm, module, {
+        "sethostname" => ctx.new_function(socket_sethostname),
+    });
 }

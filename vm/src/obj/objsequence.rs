@@ -1,27 +1,27 @@
-use crate::function::OptionalArg;
-use crate::obj::objnone::PyNone;
-use std::cell::RefCell;
 use std::marker::Sized;
-use std::ops::{Deref, DerefMut, Range};
+use std::ops::Range;
 
-use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
-
-use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use super::objbool;
 use super::objint::{PyInt, PyIntRef};
 use super::objlist::PyList;
+use super::objnone::PyNone;
 use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
+use crate::function::OptionalArg;
+use crate::pyobject::{PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 pub trait PySliceableSequence {
-    fn do_slice(&self, range: Range<usize>) -> Self;
-    fn do_slice_reverse(&self, range: Range<usize>) -> Self;
-    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self;
-    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self;
-    fn empty() -> Self;
+    type Sliced;
+
+    fn do_slice(&self, range: Range<usize>) -> Self::Sliced;
+    fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced;
+    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced;
+    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced;
+    fn empty() -> Self::Sliced;
+
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
     fn get_pos(&self, p: i32) -> Option<usize> {
@@ -63,7 +63,7 @@ pub trait PySliceableSequence {
         start..stop
     }
 
-    fn get_slice_items(&self, vm: &VirtualMachine, slice: &PyObjectRef) -> Result<Self, PyObjectRef>
+    fn get_slice_items(&self, vm: &VirtualMachine, slice: &PyObjectRef) -> PyResult<Self::Sliced>
     where
         Self: Sized,
     {
@@ -121,25 +121,27 @@ pub trait PySliceableSequence {
 }
 
 impl<T: Clone> PySliceableSequence for Vec<T> {
-    fn do_slice(&self, range: Range<usize>) -> Self {
+    type Sliced = Vec<T>;
+
+    fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
         self[range].to_vec()
     }
 
-    fn do_slice_reverse(&self, range: Range<usize>) -> Self {
+    fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
         let mut slice = self[range].to_vec();
         slice.reverse();
         slice
     }
 
-    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self {
+    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
         self[range].iter().step_by(step).cloned().collect()
     }
 
-    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self {
+    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
         self[range].iter().rev().step_by(step).cloned().collect()
     }
 
-    fn empty() -> Self {
+    fn empty() -> Self::Sliced {
         Vec::new()
     }
 
@@ -159,14 +161,17 @@ pub enum SequenceIndex {
 
 impl TryFromObject for SequenceIndex {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match_class!(obj,
-            i @ PyInt => Ok(SequenceIndex::Int(i32::try_from_object(vm, i.into_object())?)),
+        match_class!(match obj {
+            i @ PyInt => Ok(SequenceIndex::Int(i32::try_from_object(
+                vm,
+                i.into_object()
+            )?)),
             s @ PySlice => Ok(SequenceIndex::Slice(s)),
             obj => Err(vm.new_type_error(format!(
                 "sequence indices be integers or slices, not {}",
                 obj.class(),
-            )))
-        )
+            ))),
+        })
     }
 }
 
@@ -235,237 +240,56 @@ pub fn get_item(
         }
     } else {
         Err(vm.new_type_error(format!(
-            "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
+            "indexing type {:?} with index {:?} is not supported (yet?)",
             sequence, subscript
         )))
     }
 }
 
-type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef> + 'a>;
-
-#[allow(clippy::len_without_is_empty)]
-pub trait SimpleSeq {
-    fn len(&self) -> usize;
-    fn iter(&self) -> DynPyIter;
-}
-
-impl SimpleSeq for &[PyObjectRef] {
-    fn len(&self) -> usize {
-        (&**self).len()
-    }
-    fn iter(&self) -> DynPyIter {
-        Box::new((&**self).iter())
-    }
-}
-
-impl SimpleSeq for std::collections::VecDeque<PyObjectRef> {
-    fn len(&self) -> usize {
-        self.len()
-    }
-    fn iter(&self) -> DynPyIter {
-        Box::new(self.iter())
-    }
-}
-
-// impl<'a, I>
-
-pub fn seq_equal(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
-    if zelf.len() == other.len() {
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            if !a.is(b) {
-                let eq = vm._eq(a.clone(), b.clone())?;
-                let value = objbool::boolval(vm, eq)?;
-                if !value {
-                    return Ok(false);
-                }
-            }
-        }
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
-pub fn seq_lt(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
-    if zelf.len() == other.len() {
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let lt = vm._lt(a.clone(), b.clone())?;
-            let value = objbool::boolval(vm, lt)?;
-            if !value {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    } else {
-        // This case is more complicated because it can still return true if
-        // `zelf` is the head of `other` e.g. [1,2,3] < [1,2,3,4] should return true
-        let mut head = true; // true if `zelf` is the head of `other`
-
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let lt = vm._lt(a.clone(), b.clone())?;
-            let eq = vm._eq(a.clone(), b.clone())?;
-            let lt_value = objbool::boolval(vm, lt)?;
-            let eq_value = objbool::boolval(vm, eq)?;
-
-            if !lt_value && !eq_value {
-                return Ok(false);
-            } else if !eq_value {
-                head = false;
-            }
-        }
-
-        if head {
-            Ok(zelf.len() < other.len())
-        } else {
-            Ok(true)
-        }
-    }
-}
-
-pub fn seq_gt(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
-    if zelf.len() == other.len() {
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let gt = vm._gt(a.clone(), b.clone())?;
-            let value = objbool::boolval(vm, gt)?;
-            if !value {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    } else {
-        let mut head = true; // true if `other` is the head of `zelf`
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            // This case is more complicated because it can still return true if
-            // `other` is the head of `zelf` e.g. [1,2,3,4] > [1,2,3] should return true
-            let gt = vm._gt(a.clone(), b.clone())?;
-            let eq = vm._eq(a.clone(), b.clone())?;
-            let gt_value = objbool::boolval(vm, gt)?;
-            let eq_value = objbool::boolval(vm, eq)?;
-
-            if !gt_value && !eq_value {
-                return Ok(false);
-            } else if !eq_value {
-                head = false;
-            }
-        }
-
-        if head {
-            Ok(zelf.len() > other.len())
-        } else {
-            Ok(true)
-        }
-    }
-}
-
-pub fn seq_ge(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
-    Ok(seq_gt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
-}
-
-pub fn seq_le(
-    vm: &VirtualMachine,
-    zelf: &dyn SimpleSeq,
-    other: &dyn SimpleSeq,
-) -> Result<bool, PyObjectRef> {
-    Ok(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
-}
-
-pub struct SeqMul<'a> {
-    seq: &'a dyn SimpleSeq,
-    repetitions: usize,
-    iter: Option<DynPyIter<'a>>,
-}
-impl<'a> Iterator for SeqMul<'a> {
-    type Item = &'a PyObjectRef;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.seq.len() == 0 {
-            return None;
-        }
-        match self.iter.as_mut().and_then(Iterator::next) {
-            Some(item) => Some(item),
-            None => {
-                if self.repetitions == 0 {
-                    None
-                } else {
-                    self.repetitions -= 1;
-                    self.iter = Some(self.seq.iter());
-                    self.next()
-                }
-            }
-        }
-    }
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let size = self.iter.as_ref().map_or(0, ExactSizeIterator::len)
-            + (self.repetitions * self.seq.len());
-        (size, Some(size))
-    }
-}
-impl ExactSizeIterator for SeqMul<'_> {}
-
-pub fn seq_mul(seq: &dyn SimpleSeq, repetitions: isize) -> SeqMul {
-    SeqMul {
-        seq,
-        repetitions: repetitions.max(0) as usize,
-        iter: None,
-    }
-}
-
-pub fn get_elements_cell<'a>(obj: &'a PyObjectRef) -> &'a RefCell<Vec<PyObjectRef>> {
-    if let Some(list) = obj.payload::<PyList>() {
-        return &list.elements;
-    }
-    panic!("Cannot extract elements from non-sequence");
-}
-
-pub fn get_elements_list<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
-    if let Some(list) = obj.payload::<PyList>() {
-        return list.elements.borrow();
-    }
-    panic!("Cannot extract elements from non-sequence");
-}
-
-pub fn get_elements_tuple<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
-    if let Some(tuple) = obj.payload::<PyTuple>() {
-        return &tuple.elements;
-    }
-    panic!("Cannot extract elements from non-sequence");
-}
-
-pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<PyObjectRef>> + 'a {
-    if let Some(list) = obj.payload::<PyList>() {
-        return list.elements.borrow_mut();
-    }
-    panic!("Cannot extract elements from non-sequence");
-}
-
-//Check if given arg could be used with PySciceableSequance.get_slice_range()
+//Check if given arg could be used with PySliceableSequence.get_slice_range()
 pub fn is_valid_slice_arg(
     arg: OptionalArg<PyObjectRef>,
     vm: &VirtualMachine,
-) -> Result<Option<BigInt>, PyObjectRef> {
+) -> PyResult<Option<BigInt>> {
     if let OptionalArg::Present(value) = arg {
-        match_class!(value,
-        i @ PyInt => Ok(Some(i.as_bigint().clone())),
-        _obj @ PyNone => Ok(None),
-        _=> {return Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()));}
-        // TODO: check for an __index__ method
-        )
+        match_class!(match value {
+            i @ PyInt => Ok(Some(i.as_bigint().clone())),
+            _obj @ PyNone => Ok(None),
+            _ => Err(vm.new_type_error(
+                "slice indices must be integers or None or have an __index__ method".to_string()
+            )), // TODO: check for an __index__ method
+        })
     } else {
         Ok(None)
     }
+}
+
+pub fn opt_len(obj: &PyObjectRef, vm: &VirtualMachine) -> Option<PyResult<usize>> {
+    vm.get_method(obj.clone(), "__len__").map(|len| {
+        let len = vm.invoke(&len?, vec![])?;
+        let len = len
+            .payload_if_subclass::<PyInt>(vm)
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "'{}' object cannot be interpreted as an integer",
+                    len.class().name
+                ))
+            })?
+            .as_bigint();
+        if len.is_negative() {
+            return Err(vm.new_value_error("__len__() should return >= 0".to_string()));
+        }
+        len.to_usize().ok_or_else(|| {
+            vm.new_overflow_error("cannot fit __len__() result into usize".to_string())
+        })
+    })
+}
+
+pub fn len(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    opt_len(obj, vm).unwrap_or_else(|| {
+        Err(vm.new_type_error(format!(
+            "object of type '{}' has no len()",
+            obj.class().name
+        )))
+    })
 }

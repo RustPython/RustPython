@@ -1,6 +1,6 @@
+use super::objtype::PyClassRef;
 use super::objweakref::PyWeak;
 use crate::function::OptionalArg;
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -21,8 +21,8 @@ pub type PyWeakProxyRef = PyRef<PyWeakProxy>;
 #[pyimpl]
 impl PyWeakProxy {
     // TODO: callbacks
-    #[pymethod(name = "__new__")]
-    fn create(
+    #[pyslot]
+    fn tp_new(
         cls: PyClassRef,
         referent: PyObjectRef,
         callback: OptionalArg<PyObjectRef>,
@@ -41,7 +41,7 @@ impl PyWeakProxy {
     fn getattr(&self, attr_name: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.weak.upgrade() {
             Some(obj) => vm.get_attribute(obj, attr_name),
-            None => Err(vm.new_exception(
+            None => Err(vm.new_exception_msg(
                 vm.ctx.exceptions.reference_error.clone(),
                 "weakly-referenced object no longer exists".to_string(),
             )),
@@ -52,7 +52,7 @@ impl PyWeakProxy {
     fn setattr(&self, attr_name: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.weak.upgrade() {
             Some(obj) => vm.set_attr(&obj, attr_name, value),
-            None => Err(vm.new_exception(
+            None => Err(vm.new_exception_msg(
                 vm.ctx.exceptions.reference_error.clone(),
                 "weakly-referenced object no longer exists".to_string(),
             )),
@@ -61,5 +61,5 @@ impl PyWeakProxy {
 }
 
 pub fn init(context: &PyContext) {
-    PyWeakProxy::extend_class(&context, &context.weakproxy_type);
+    PyWeakProxy::extend_class(&context, &context.types.weakproxy_type);
 }

@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 src = """
 def valid_func():
@@ -14,5 +14,49 @@ except SyntaxError as ex:
 else:
     raise AssertionError("Must throw syntax error")
 
-with assertRaises(SyntaxError):
+src = """
+if True:
+pass
+"""
+
+with assert_raises(IndentationError):
+    compile(src, '', 'exec')
+
+src = """
+if True:
+  pass
+    pass
+"""
+
+with assert_raises(IndentationError):
+    compile(src, '', 'exec')
+
+src = """
+if True:
+    pass
+  pass
+"""
+
+with assert_raises(IndentationError):
+    compile(src, '', 'exec')
+
+src = """
+if True:
+    pass
+\tpass
+"""
+
+with assert_raises(TabError):
+    compile(src, '', 'exec')
+
+with assert_raises(SyntaxError):
     compile('0xX', 'test.py', 'exec')
+
+
+src = """
+"aaaa" \a
+"bbbb"
+"""
+
+with assert_raises(SyntaxError):
+    compile(src, 'test.py', 'exec')

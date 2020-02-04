@@ -4,16 +4,18 @@ use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
+use super::objint::{PyInt, PyIntRef};
+use super::objiter;
+use super::objslice::{PySlice, PySliceRef};
+use super::objtuple::PyTuple;
+use super::objtype::PyClassRef;
+
 use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyhash;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-
-use super::objint::{PyInt, PyIntRef};
-use super::objiter;
-use super::objslice::{PySlice, PySliceRef};
-use super::objtype::{self, PyClassRef};
 
 /// range(stop) -> range object
 /// range(start, stop[, step]) -> range object
@@ -75,27 +77,42 @@ impl PyRange {
     #[inline]
     pub fn get(&self, index: &BigInt) -> Option<BigInt> {
         let start = self.start.as_bigint();
-        let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
+        let index = index.clone();
+        if self.is_empty() {
+            return None;
+        }
 
-        let index = if *index < BigInt::zero() {
-            let index = stop + index;
-            if index < BigInt::zero() {
+        let length = self.length();
+
+        let index = if index.is_negative() {
+            let new_index: BigInt = &length + &index;
+            if new_index.is_negative() {
+                return None;
+            }
+            length + index
+        } else {
+            if length <= index {
                 return None;
             }
             index
-        } else {
-            index.clone()
         };
 
-        let result = start + step * &index;
+        let result = start + step * index;
+        Some(result)
+    }
 
-        if (self.forward() && !self.is_empty() && result < *stop)
-            || (!self.forward() && !self.is_empty() && result > *stop)
-        {
-            Some(result)
-        } else {
-            None
+    #[inline]
+    fn length(&self) -> BigInt {
+        let start = self.start.as_bigint();
+        let stop = self.stop.as_bigint();
+        let step = self.step.as_bigint();
+
+        match step.sign() {
+            Sign::Plus if start < stop => (stop - start - 1usize) / step + 1,
+            Sign::Minus if start > stop => (start - stop - 1usize) / (-step) + 1,
+            Sign::Plus | Sign::Minus => BigInt::zero(),
+            Sign::NoSign => unreachable!(),
         }
     }
 }
@@ -105,19 +122,18 @@ pub fn get_value(obj: &PyObjectRef) -> PyRange {
 }
 
 pub fn init(context: &PyContext) {
-    PyRange::extend_class(context, &context.range_type);
-    PyRangeIterator::extend_class(context, &context.rangeiterator_type);
+    PyRange::extend_class(context, &context.types.range_type);
+    PyRangeIterator::extend_class(context, &context.types.rangeiterator_type);
 }
 
 type PyRangeRef = PyRef<PyRange>;
 
 #[pyimpl]
 impl PyRange {
-    #[pymethod(name = "__new__")]
     fn new(cls: PyClassRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
         PyRange {
             start: PyInt::new(BigInt::zero()).into_ref(vm),
-            stop: stop.clone(),
+            stop,
             step: PyInt::new(BigInt::one()).into_ref(vm),
         }
         .into_ref_with_type(vm, cls)
@@ -194,17 +210,8 @@ impl PyRange {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self, _vm: &VirtualMachine) -> PyInt {
-        let start = self.start.as_bigint();
-        let stop = self.stop.as_bigint();
-        let step = self.step.as_bigint();
-
-        match step.sign() {
-            Sign::Plus if start < stop => PyInt::new((stop - start - 1usize) / step + 1),
-            Sign::Minus if start > stop => PyInt::new((start - stop - 1usize) / (-step) + 1),
-            Sign::Plus | Sign::Minus => PyInt::new(0),
-            Sign::NoSign => unreachable!(),
-        }
+    fn len(&self, _vm: &VirtualMachine) -> BigInt {
+        self.length()
     }
 
     #[pymethod(name = "__repr__")]
@@ -233,43 +240,81 @@ impl PyRange {
         }
     }
 
+    fn inner_eq(&self, rhs: &PyRange) -> bool {
+        if self.length() != rhs.length() {
+            return false;
+        }
+
+        if self.length().is_zero() {
+            return true;
+        }
+
+        if self.start.as_bigint() != rhs.start.as_bigint() {
+            return false;
+        }
+        let step = self.step.as_bigint();
+        if step.is_one() || step == rhs.step.as_bigint() {
+            return true;
+        }
+
+        false
+    }
+
     #[pymethod(name = "__eq__")]
-    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> bool {
-        if objtype::isinstance(&rhs, &vm.ctx.range_type()) {
-            let rhs = get_value(&rhs);
-            self.start.as_bigint() == rhs.start.as_bigint()
-                && self.stop.as_bigint() == rhs.stop.as_bigint()
-                && self.step.as_bigint() == rhs.step.as_bigint()
+    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if let Some(rhs) = rhs.payload::<PyRange>() {
+            let eq = self.inner_eq(rhs);
+            vm.ctx.new_bool(eq)
         } else {
-            false
+            vm.ctx.not_implemented()
+        }
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if let Some(rhs) = rhs.payload::<PyRange>() {
+            let eq = self.inner_eq(rhs);
+            vm.ctx.new_bool(!eq)
+        } else {
+            vm.ctx.not_implemented()
         }
     }
 
     #[pymethod(name = "__lt__")]
-    fn lt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn lt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn gt(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn ge(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
     }
 
     #[pymethod(name = "__le__")]
-    fn le(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented())
+    fn le(&self, _rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
+    }
+
+    #[pymethod(name = "__reduce__")]
+    fn reduce(&self, vm: &VirtualMachine) -> (PyClassRef, PyTuple) {
+        let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
+            .iter()
+            .map(|x| x.as_object().clone())
+            .collect();
+        let range_paramters_tuple = PyTuple::from(range_paramters);
+        (vm.ctx.range_type(), range_paramters_tuple)
     }
 
     #[pymethod(name = "index")]
-    fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyInt> {
+    fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
         if let Ok(int) = needle.downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
-                Some(idx) => Ok(PyInt::new(idx)),
+                Some(idx) => Ok(idx),
                 None => Err(vm.new_value_error(format!("{} is not in range", int))),
             }
         } else {
@@ -278,68 +323,69 @@ impl PyRange {
     }
 
     #[pymethod(name = "count")]
-    fn count(&self, item: PyObjectRef, _vm: &VirtualMachine) -> PyInt {
+    fn count(&self, item: PyObjectRef, _vm: &VirtualMachine) -> usize {
         if let Ok(int) = item.downcast::<PyInt>() {
             if self.index_of(int.as_bigint()).is_some() {
-                PyInt::new(1)
+                1
             } else {
-                PyInt::new(0)
+                0
             }
         } else {
-            PyInt::new(0)
+            0
         }
     }
 
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, subscript: RangeIndex, vm: &VirtualMachine) -> PyResult {
         match subscript {
-            RangeIndex::Int(index) => {
-                if let Some(value) = self.get(index.as_bigint()) {
-                    Ok(PyInt::new(value).into_ref(vm).into_object())
-                } else {
-                    Err(vm.new_index_error("range object index out of range".to_string()))
-                }
-            }
             RangeIndex::Slice(slice) => {
-                let new_start = if let Some(int) = slice.start_index(vm)? {
-                    if let Some(i) = self.get(&int) {
-                        PyInt::new(i).into_ref(vm)
-                    } else {
-                        self.start.clone()
-                    }
-                } else {
-                    self.start.clone()
-                };
+                let (mut substart, mut substop, mut substep) =
+                    slice.inner_indices(&self.length(), vm)?;
+                let range_step = self.step(vm);
+                let range_start = self.start(vm);
 
-                let new_end = if let Some(int) = slice.stop_index(vm)? {
-                    if let Some(i) = self.get(&int) {
-                        PyInt::new(i).into_ref(vm)
-                    } else {
-                        self.stop.clone()
-                    }
-                } else {
-                    self.stop.clone()
-                };
-
-                let new_step = if let Some(int) = slice.step_index(vm)? {
-                    PyInt::new(int * self.step.as_bigint()).into_ref(vm)
-                } else {
-                    self.step.clone()
-                };
+                substep *= range_step.as_bigint();
+                substart = (substart * range_step.as_bigint()) + range_start.as_bigint();
+                substop = (substop * range_step.as_bigint()) + range_start.as_bigint();
 
                 Ok(PyRange {
-                    start: new_start,
-                    stop: new_end,
-                    step: new_step,
+                    start: PyInt::new(substart).into_ref(vm),
+                    stop: PyInt::new(substop).into_ref(vm),
+                    step: PyInt::new(substep).into_ref(vm),
                 }
                 .into_ref(vm)
                 .into_object())
             }
+            RangeIndex::Int(index) => match self.get(index.as_bigint()) {
+                Some(value) => Ok(PyInt::new(value).into_ref(vm).into_object()),
+                None => Err(vm.new_index_error("range object index out of range".to_string())),
+            },
         }
     }
 
-    #[pymethod(name = "__new__")]
-    fn range_new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__hash__")]
+    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+        let length = zelf.length();
+        let elements = if length.is_zero() {
+            vec![vm.ctx.new_int(length), vm.get_none(), vm.get_none()]
+        } else if length.is_one() {
+            vec![
+                vm.ctx.new_int(length),
+                zelf.start(vm).into_object(),
+                vm.get_none(),
+            ]
+        } else {
+            vec![
+                vm.ctx.new_int(length),
+                zelf.start(vm).into_object(),
+                zelf.step(vm).into_object(),
+            ]
+        };
+        pyhash::hash_iter(elements.iter(), vm)
+    }
+
+    #[pyslot]
+    fn tp_new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         let range = if args.args.len() <= 2 {
             let (cls, stop) = args.bind(vm)?;
             PyRange::new(cls, stop, vm)
@@ -393,13 +439,13 @@ pub enum RangeIndex {
 
 impl TryFromObject for RangeIndex {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match_class!(obj,
+        match_class!(match obj {
             i @ PyInt => Ok(RangeIndex::Int(i)),
             s @ PySlice => Ok(RangeIndex::Slice(s)),
             obj => Err(vm.new_type_error(format!(
                 "sequence indices be integers or slices, not {}",
                 obj.class(),
-            )))
-        )
+            ))),
+        })
     }
 }

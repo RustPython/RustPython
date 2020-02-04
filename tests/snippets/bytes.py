@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 # new
 assert bytes([1, 2, 3])
@@ -7,9 +7,9 @@ assert bytes(range(4))
 assert bytes(3)
 assert b"bla"
 assert bytes("bla", "utf8") == bytes("bla", encoding="utf-8") == b"bla"
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytes("bla")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytes("bla", encoding=b"jilj")
 
 assert (
@@ -72,7 +72,7 @@ assert b"d" in b"abcd"
 assert b"dc" not in b"abcd"
 assert 97 in b"abcd"
 assert 150 not in b"abcd"
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     350 in b"abcd"
 
 
@@ -144,7 +144,7 @@ try:
     bytes.fromhex("6Z2")
 except ValueError as e:
     str(e) == "non-hexadecimal number found in fromhex() arg at position 1"
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bytes.fromhex(b"hhjjk")
 # center
 assert [b"koki".center(i, b"|") for i in range(3, 10)] == [
@@ -168,11 +168,11 @@ assert [b"kok".center(i, b"|") for i in range(2, 10)] == [
     b"|||kok|||",
 ]
 b"kok".center(4) == b" kok"  # " test no arg"
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     b"b".center(2, "a")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     b"b".center(2, b"ba")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     b"b".center(b"ba")
 assert b"kok".center(5, bytearray(b"x")) == b"xkokx"
 b"kok".center(-5) == b"kok"
@@ -200,11 +200,11 @@ assert [b"kok".ljust(i, b"|") for i in range(2, 10)] == [
 ]
 
 b"kok".ljust(4) == b"kok "  # " test no arg"
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     b"b".ljust(2, "a")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     b"b".ljust(2, b"ba")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     b"b".ljust(b"ba")
 assert b"kok".ljust(5, bytearray(b"x")) == b"kokxx"
 assert b"kok".ljust(-5) == b"kok"
@@ -232,11 +232,11 @@ assert [b"kok".rjust(i, b"|") for i in range(2, 10)] == [
 
 
 b"kok".rjust(4) == b" kok"  # " test no arg"
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     b"b".rjust(2, "a")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     b"b".rjust(2, b"ba")
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     b"b".rjust(b"ba")
 assert b"kok".rjust(5, bytearray(b"x")) == b"xxkok"
 assert b"kok".rjust(-5) == b"kok"
@@ -258,7 +258,7 @@ assert b"azeazerazeazopia".count(b"aze", None, 7) == 2
 assert b"azeazerazeazopia".count(b"aze", 2, 7) == 1
 assert b"azeazerazeazopia".count(b"aze", -13, -10) == 1
 assert b"azeazerazeazopia".count(b"aze", 1, 10000) == 2
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     b"ilj".count(3550)
 assert b"azeazerazeazopia".count(97) == 5
 
@@ -267,8 +267,10 @@ assert (
     b"".join((b"jiljl", bytearray(b"kmoomk"), memoryview(b"aaaa")))
     == b"jiljlkmoomkaaaa"
 )
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     b"".join((b"km", "kl"))
+
+assert b"abc".join((b"123", b"xyz")) == b"123abcxyz"
 
 
 # endswith startswith
@@ -292,13 +294,13 @@ assert b"abcd".index(b"cd") == 2
 assert b"abcd".index(b"cd", 0) == 2
 assert b"abcd".index(b"cd", 1) == 2
 assert b"abcd".index(99) == 2
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     b"abcde".index(b"c", 3, 1)
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     b"abcd".index(b"cdaaaaa")
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     b"abcd".index(b"b", 3, 4)
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     b"abcd".index(1)
 
 
@@ -339,11 +341,11 @@ assert b"hjhtuyfjtyhuhjuyj".translate(None, delete=b"ht") == b"juyfjyujuyj"
 
 
 # strip lstrip rstrip
-assert b"   spacious   ".strip() == b"spacious"
+assert b" \n  spacious \n  ".strip() == b"spacious"
 assert b"www.example.com".strip(b"cmowz.") == b"example"
-assert b"   spacious   ".lstrip() == b"spacious   "
+assert b" \n  spacious   ".lstrip() == b"spacious   "
 assert b"www.example.com".lstrip(b"cmowz.") == b"example.com"
-assert b"   spacious   ".rstrip() == b"   spacious"
+assert b"   spacious \n  ".rstrip() == b"   spacious"
 assert b"mississippi".rstrip(b"ipz") == b"mississ"
 
 
@@ -581,6 +583,9 @@ assert b"123456789123".replace(b"23", b"XX", 1) == b"1XX456789123"
 assert b"123456789123".replace(b"23", b"XX", 0) == b"123456789123"
 assert b"123456789123".replace(b"23", b"XX", -1) == b"1XX4567891XX"
 assert b"123456789123".replace(b"23", b"") == b"14567891"
+assert b"123456789123".replace(b"23", b"X") == b"1X4567891X"
+assert b"rust  python".replace(b" ", b"-") == b"rust--python"
+assert b"rust  python".replace(b"  ", b"-") == b"rust-python"
 
 # title
 assert b"Hello world".title() == b"Hello World"
@@ -605,3 +610,13 @@ assert b'\xc2\xae\x75\x73\x74'.decode('ascii', 'ignore') == 'ust'
 assert b'\xc2\xae\x75\x73\x74'.decode('utf-8') == '®ust'
 assert b'\xc2\xae\x75\x73\x74'.decode() == '®ust'
 assert b'\xe4\xb8\xad\xe6\x96\x87\xe5\xad\x97'.decode('utf-8') == '中文字'
+
+# mod
+assert b'rust%bpython%b' % (b' ', b'!') == b'rust python!'
+assert b'x=%i y=%f' % (1, 2.5) == b'x=1 y=2.500000'
+
+class A:
+    def __bytes__(self):
+        return b"bytess"
+
+assert bytes(A()) == b"bytess"

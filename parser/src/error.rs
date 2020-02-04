@@ -20,8 +20,14 @@ pub enum LexicalErrorType {
     StringError,
     UnicodeError,
     NestingError,
+    IndentationError,
+    TabError,
+    DefaultArgumentError,
+    PositionalArgumentError,
+    DuplicateKeywordArgumentError,
     UnrecognizedToken { tok: char },
     FStringError(FStringErrorType),
+    LineContinuationError,
     OtherError(String),
 }
 
@@ -32,11 +38,35 @@ impl fmt::Display for LexicalErrorType {
             LexicalErrorType::FStringError(error) => write!(f, "Got error in f-string: {}", error),
             LexicalErrorType::UnicodeError => write!(f, "Got unexpected unicode"),
             LexicalErrorType::NestingError => write!(f, "Got unexpected nesting"),
+            LexicalErrorType::IndentationError => {
+                write!(f, "unindent does not match any outer indentation level")
+            }
+            LexicalErrorType::TabError => {
+                write!(f, "inconsistent use of tabs and spaces in indentation")
+            }
+            LexicalErrorType::DefaultArgumentError => {
+                write!(f, "non-default argument follows default argument")
+            }
+            LexicalErrorType::DuplicateKeywordArgumentError => {
+                write!(f, "keyword argument repeated")
+            }
+            LexicalErrorType::PositionalArgumentError => {
+                write!(f, "positional argument follows keyword argument")
+            }
             LexicalErrorType::UnrecognizedToken { tok } => {
                 write!(f, "Got unexpected token {}", tok)
             }
+            LexicalErrorType::LineContinuationError => {
+                write!(f, "unexpected character after line continuation character")
+            }
             LexicalErrorType::OtherError(msg) => write!(f, "{}", msg),
         }
+    }
+}
+
+impl From<LexicalError> for LalrpopError<Location, Tok, LexicalError> {
+    fn from(err: LexicalError) -> Self {
+        lalrpop_util::ParseError::User { error: err }
     }
 }
 
@@ -55,6 +85,7 @@ pub enum FStringErrorType {
     InvalidConversionFlag,
     EmptyExpression,
     MismatchedDelimiter,
+    ExpressionNestedTooDeeply,
 }
 
 impl fmt::Display for FStringErrorType {
@@ -68,6 +99,9 @@ impl fmt::Display for FStringErrorType {
             FStringErrorType::InvalidConversionFlag => write!(f, "Invalid conversion flag"),
             FStringErrorType::EmptyExpression => write!(f, "Empty expression"),
             FStringErrorType::MismatchedDelimiter => write!(f, "Mismatched delimiter"),
+            FStringErrorType::ExpressionNestedTooDeeply => {
+                write!(f, "expressions nested too deeply")
+            }
         }
     }
 }
@@ -99,7 +133,7 @@ pub enum ParseErrorType {
     /// Parser encountered an invalid token
     InvalidToken,
     /// Parser encountered an unexpected token
-    UnrecognizedToken(Tok, Vec<String>),
+    UnrecognizedToken(Tok, Option<String>),
     /// Maps to `User` type from `lalrpop-util`
     Lexical(LexicalErrorType),
 }
@@ -122,18 +156,22 @@ impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
                 location: error.location,
             },
             LalrpopError::UnrecognizedToken { token, expected } => {
-                match token {
-                    Some(tok) => ParseError {
-                        error: ParseErrorType::UnrecognizedToken(tok.1, expected),
-                        location: tok.0,
-                    },
-                    // EOF was observed when it was unexpected
-                    None => ParseError {
-                        error: ParseErrorType::EOF,
-                        location: Default::default(),
-                    },
+                // Hacky, but it's how CPython does it. See PyParser_AddToken,
+                // in particular "Only one possible expected token" comment.
+                let expected = if expected.len() == 1 {
+                    Some(expected[0].clone())
+                } else {
+                    None
+                };
+                ParseError {
+                    error: ParseErrorType::UnrecognizedToken(token.1, expected),
+                    location: token.0,
                 }
             }
+            LalrpopError::UnrecognizedEOF { location, .. } => ParseError {
+                error: ParseErrorType::EOF,
+                location,
+            },
         }
     }
 }
@@ -150,8 +188,14 @@ impl fmt::Display for ParseErrorType {
             ParseErrorType::EOF => write!(f, "Got unexpected EOF"),
             ParseErrorType::ExtraToken(ref tok) => write!(f, "Got extraneous token: {:?}", tok),
             ParseErrorType::InvalidToken => write!(f, "Got invalid token"),
-            ParseErrorType::UnrecognizedToken(ref tok, _) => {
-                write!(f, "Got unexpected token: {:?}", tok)
+            ParseErrorType::UnrecognizedToken(ref tok, ref expected) => {
+                if *tok == Tok::Indent {
+                    write!(f, "unexpected indent")
+                } else if expected.clone() == Some("Indent".to_string()) {
+                    write!(f, "expected an indented block")
+                } else {
+                    write!(f, "Got unexpected token {}", tok)
+                }
             }
             ParseErrorType::Lexical(ref error) => write!(f, "{}", error),
         }

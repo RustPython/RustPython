@@ -9,14 +9,14 @@ use web_sys::{self, console};
 
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::obj::{objstr, objtype};
-use rustpython_vm::pyobject::{IdProtocol, PyObjectRef, PyResult, TypeProtocol};
+use rustpython_vm::pyobject::{IdProtocol, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
 
 pub(crate) fn window() -> web_sys::Window {
     web_sys::window().expect("Window to be available")
 }
 
-pub fn format_print_args(vm: &VirtualMachine, args: PyFuncArgs) -> Result<String, PyObjectRef> {
+pub fn format_print_args(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult<String> {
     // Handle 'sep' kwarg:
     let sep_arg = args
         .get_optional_kwarg("sep")

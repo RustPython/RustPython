@@ -1,15 +1,12 @@
 use futures::Future;
 use js_sys::Promise;
-use num_traits::cast::ToPrimitive;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::import::import_file;
-use rustpython_vm::obj::{
-    objdict::PyDictRef, objint::PyIntRef, objstr::PyStringRef, objtype::PyClassRef,
-};
+use rustpython_vm::obj::{objdict::PyDictRef, objstr::PyStringRef, objtype::PyClassRef};
 use rustpython_vm::pyobject::{
     PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
 };
@@ -24,7 +21,7 @@ enum FetchResponseFormat {
 }
 
 impl FetchResponseFormat {
-    fn from_str(vm: &VirtualMachine, s: &str) -> Result<Self, PyObjectRef> {
+    fn from_str(vm: &VirtualMachine, s: &str) -> PyResult<Self> {
         match s {
             "json" => Ok(FetchResponseFormat::Json),
             "text" => Ok(FetchResponseFormat::Text),
@@ -133,11 +130,11 @@ fn browser_request_animation_frame(func: PyCallable, vm: &VirtualMachine) -> PyR
         let vm = &stored_vm.vm;
         let func = func.clone();
         let args = vec![vm.ctx.new_float(time)];
-        let _ = vm.invoke(func.into_object(), args);
+        let _ = vm.invoke(&func.into_object(), args);
 
         let closure = f.borrow_mut().take();
         drop(closure);
-    }) as Box<Fn(f64)>));
+    }) as Box<dyn Fn(f64)>));
 
     let id = window()
         .request_animation_frame(&js_sys::Function::from(
@@ -148,14 +145,7 @@ fn browser_request_animation_frame(func: PyCallable, vm: &VirtualMachine) -> PyR
     Ok(vm.ctx.new_int(id))
 }
 
-fn browser_cancel_animation_frame(id: PyIntRef, vm: &VirtualMachine) -> PyResult {
-    let id = id.as_bigint().to_i32().ok_or_else(|| {
-        vm.new_exception(
-            vm.ctx.exceptions.value_error.clone(),
-            "Integer too large to convert to i32 for animationFrame id".into(),
-        )
-    })?;
-
+fn browser_cancel_animation_frame(id: i32, vm: &VirtualMachine) -> PyResult {
     window()
         .cancel_animation_frame(id)
         .map_err(|err| convert::js_py_typeerror(vm, err))?;
@@ -212,12 +202,12 @@ impl PyPromise {
                     } else {
                         vec![convert::js_to_py(vm, val)]
                     };
-                    vm.invoke(on_fulfill.into_object(), PyFuncArgs::new(args, vec![]))
+                    vm.invoke(&on_fulfill.into_object(), PyFuncArgs::new(args, vec![]))
                 }
                 Err(err) => {
                     if let OptionalArg::Present(on_reject) = on_reject {
                         let err = convert::js_to_py(vm, err);
-                        vm.invoke(on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]))
+                        vm.invoke(&on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]))
                     } else {
                         return Err(err);
                     }
@@ -240,7 +230,7 @@ impl PyPromise {
                     .expect("that the vm is valid when the promise resolves");
                 let vm = &stored_vm.vm;
                 let err = convert::js_to_py(vm, err);
-                let res = vm.invoke(on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]));
+                let res = vm.invoke(&on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]));
                 convert::pyresult_to_jsresult(vm, res)
             })
         });
@@ -267,7 +257,7 @@ impl Document {
     fn query(&self, query: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let elem = self
             .doc
-            .query_selector(&query.value)
+            .query_selector(query.as_str())
             .map_err(|err| convert::js_py_typeerror(vm, err))?;
         let elem = match elem {
             Some(elem) => Element { elem }.into_ref(vm).into_object(),
@@ -298,7 +288,7 @@ impl Element {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
-        match self.elem.get_attribute(&attr.value) {
+        match self.elem.get_attribute(attr.as_str()) {
             Some(s) => vm.new_str(s),
             None => default.into_option().unwrap_or_else(|| vm.get_none()),
         }
@@ -307,8 +297,8 @@ impl Element {
     #[pymethod]
     fn set_attr(&self, attr: PyStringRef, value: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
         self.elem
-            .set_attribute(&attr.value, &value.value)
-            .map_err(|err| convert::js_to_py(vm, err))
+            .set_attribute(attr.as_str(), value.as_str())
+            .map_err(|err| convert::js_py_typeerror(vm, err))
     }
 }
 
@@ -366,14 +356,14 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let element = Element::make_class(ctx);
 
     py_module!(vm, "browser", {
-        "fetch" => ctx.new_rustfunc(browser_fetch),
-        "request_animation_frame" => ctx.new_rustfunc(browser_request_animation_frame),
-        "cancel_animation_frame" => ctx.new_rustfunc(browser_cancel_animation_frame),
+        "fetch" => ctx.new_function(browser_fetch),
+        "request_animation_frame" => ctx.new_function(browser_request_animation_frame),
+        "cancel_animation_frame" => ctx.new_function(browser_cancel_animation_frame),
         "Promise" => promise,
         "Document" => document_class,
         "document" => document,
         "Element" => element,
-        "load_module" => ctx.new_rustfunc(browser_load_module),
+        "load_module" => ctx.new_function(browser_load_module),
     })
 }
 

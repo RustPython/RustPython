@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::{env, mem};
 
 use crate::frame::FrameRef;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, TypeProtocol,
@@ -14,10 +14,14 @@ use crate::vm::{PySettings, VirtualMachine};
  * The magic sys module.
  */
 
-fn argv(ctx: &PyContext) -> PyObjectRef {
-    let mut argv: Vec<PyObjectRef> = env::args().map(|x| ctx.new_str(x)).collect();
-    argv.remove(0);
-    ctx.new_list(argv)
+fn argv(vm: &VirtualMachine) -> PyObjectRef {
+    vm.ctx.new_list(
+        vm.settings
+            .argv
+            .iter()
+            .map(|arg| vm.new_str(arg.to_owned()))
+            .collect(),
+    )
 }
 
 fn executable(ctx: &PyContext) -> PyObjectRef {
@@ -93,21 +97,21 @@ impl SysFlags {
     }
 }
 
-fn sys_getrefcount(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(object, None)]);
-    let size = Rc::strong_count(&object);
-    Ok(vm.ctx.new_int(size))
+fn sys_getrefcount(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
+    Rc::strong_count(&obj)
 }
 
-fn sys_getsizeof(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(object, None)]);
+fn sys_getsizeof(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
     // TODO: implement default optional argument.
-    let size = mem::size_of_val(&object);
-    Ok(vm.ctx.new_int(size))
+    mem::size_of_val(&obj)
 }
 
 fn sys_getfilesystemencoding(_vm: &VirtualMachine) -> String {
-    // TODO: implmement non-utf-8 mode.
+    // TODO: implement non-utf-8 mode.
+    "utf-8".to_string()
+}
+
+fn sys_getdefaultencoding(_vm: &VirtualMachine) -> String {
     "utf-8".to_string()
 }
 
@@ -147,20 +151,54 @@ fn update_use_tracing(vm: &VirtualMachine) {
     vm.use_tracing.replace(tracing);
 }
 
+fn sys_getrecursionlimit(vm: &VirtualMachine) -> usize {
+    vm.recursion_limit.get()
+}
+
+fn sys_setrecursionlimit(recursion_limit: usize, vm: &VirtualMachine) -> PyResult {
+    let recursion_depth = vm.frames.borrow().len();
+
+    if recursion_limit > recursion_depth + 1 {
+        vm.recursion_limit.set(recursion_limit);
+        Ok(vm.ctx.none())
+    } else {
+        Err(vm.new_recursion_error(format!(
+            "cannot set the recursion limit to {} at the recursion depth {}: the limit is too low",
+            recursion_limit, recursion_depth
+        )))
+    }
+}
+
 // TODO implement string interning, this will be key for performance
 fn sys_intern(value: PyStringRef, _vm: &VirtualMachine) -> PyStringRef {
     value
 }
 
-fn sys_exc_info(vm: &VirtualMachine) -> PyResult {
-    Ok(vm.ctx.new_tuple(match vm.current_exception() {
+fn sys_exc_info(vm: &VirtualMachine) -> PyObjectRef {
+    let exc_info = match vm.current_exception() {
         Some(exception) => vec![
             exception.class().into_object(),
-            exception.clone(),
-            vm.get_none(),
+            exception.clone().into_object(),
+            exception
+                .traceback()
+                .map_or(vm.get_none(), |tb| tb.into_object()),
         ],
         None => vec![vm.get_none(), vm.get_none(), vm.get_none()],
-    }))
+    };
+    vm.ctx.new_tuple(exc_info)
+}
+
+fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
+    vm.ctx.new_tuple(vec![
+        vm.ctx.new_str("RustPython".to_string()),
+        vm.ctx.new_str(version::get_git_identifier()),
+        vm.ctx.new_str(version::get_git_revision()),
+    ])
+}
+
+fn sys_exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    let code = code.unwrap_or_else(|| vm.new_int(0));
+    Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
 }
 
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
@@ -171,9 +209,14 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         .into_struct_sequence(vm, flags_type)
         .unwrap();
 
+    let version_info_type = version::VersionInfo::make_class(ctx);
+    let version_info = version::get_version_info()
+        .into_struct_sequence(vm, version_info_type)
+        .unwrap();
+
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {
-        "name" => ctx.new_str("RustPython".to_string()),
+        "name" => ctx.new_str("rustpython".to_string()),
         "cache_tag" => ctx.new_str("rustpython-01".to_string()),
     });
 
@@ -197,6 +240,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
     } else {
         "unknown".to_string()
     };
+
+    let framework = "".to_string();
 
     // https://doc.rust-lang.org/reference/conditional-compilation.html#target_endian
     let bytorder = if cfg!(target_endian = "little") {
@@ -292,44 +337,56 @@ settrace() -- set the global debug tracing function
 
     let prefix = option_env!("RUSTPYTHON_PREFIX").unwrap_or("/usr/local");
     let base_prefix = option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or(prefix);
+    let exec_prefix = option_env!("RUSTPYTHON_EXECPREFIX").unwrap_or(prefix);
+    let base_exec_prefix = option_env!("RUSTPYTHON_BASEEXECPREFIX").unwrap_or(exec_prefix);
 
     extend_module!(vm, module, {
       "__name__" => ctx.new_str(String::from("sys")),
-      "argv" => argv(ctx),
+      "argv" => argv(vm),
       "builtin_module_names" => builtin_module_names,
       "byteorder" => ctx.new_str(bytorder),
       "copyright" => ctx.new_str(copyright.to_string()),
       "executable" => executable(ctx),
       "flags" => flags,
-      "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
-      "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
+      "getrefcount" => ctx.new_function(sys_getrefcount),
+      "getrecursionlimit" => ctx.new_function(sys_getrecursionlimit),
+      "getsizeof" => ctx.new_function(sys_getsizeof),
       "implementation" => implementation,
-      "getfilesystemencoding" => ctx.new_rustfunc(sys_getfilesystemencoding),
-      "getfilesystemencodeerrors" => ctx.new_rustfunc(sys_getfilesystemencodeerrors),
-      "getprofile" => ctx.new_rustfunc(sys_getprofile),
-      "gettrace" => ctx.new_rustfunc(sys_gettrace),
-      "intern" => ctx.new_rustfunc(sys_intern),
+      "getfilesystemencoding" => ctx.new_function(sys_getfilesystemencoding),
+      "getfilesystemencodeerrors" => ctx.new_function(sys_getfilesystemencodeerrors),
+      "getdefaultencoding" => ctx.new_function(sys_getdefaultencoding),
+      "getprofile" => ctx.new_function(sys_getprofile),
+      "gettrace" => ctx.new_function(sys_gettrace),
+      "intern" => ctx.new_function(sys_intern),
       "maxunicode" => ctx.new_int(0x0010_FFFF),
       "maxsize" => ctx.new_int(std::isize::MAX),
       "path" => path,
       "ps1" => ctx.new_str(">>>>> ".to_string()),
       "ps2" => ctx.new_str("..... ".to_string()),
       "__doc__" => ctx.new_str(sys_doc.to_string()),
-      "_getframe" => ctx.new_rustfunc(getframe),
+      "_getframe" => ctx.new_function(getframe),
       "modules" => modules.clone(),
       "warnoptions" => ctx.new_list(vec![]),
       "platform" => ctx.new_str(platform),
+      "_framework" => ctx.new_str(framework),
       "meta_path" => ctx.new_list(vec![]),
       "path_hooks" => ctx.new_list(vec![]),
       "path_importer_cache" => ctx.new_dict(),
       "pycache_prefix" => vm.get_none(),
       "dont_write_bytecode" => vm.new_bool(vm.settings.dont_write_bytecode),
-      "setprofile" => ctx.new_rustfunc(sys_setprofile),
-      "settrace" => ctx.new_rustfunc(sys_settrace),
+      "setprofile" => ctx.new_function(sys_setprofile),
+      "setrecursionlimit" => ctx.new_function(sys_setrecursionlimit),
+      "settrace" => ctx.new_function(sys_settrace),
       "version" => vm.new_str(version::get_version()),
-      "exc_info" => ctx.new_rustfunc(sys_exc_info),
+      "version_info" => version_info,
+      "_git" => sys_git_info(vm),
+      "exc_info" => ctx.new_function(sys_exc_info),
       "prefix" => ctx.new_str(prefix.to_string()),
       "base_prefix" => ctx.new_str(base_prefix.to_string()),
+      "exec_prefix" => ctx.new_str(exec_prefix.to_string()),
+      "base_exec_prefix" => ctx.new_str(base_exec_prefix.to_string()),
+      "exit" => ctx.new_function(sys_exit),
+      "abiflags" => ctx.new_str("".to_string()),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();

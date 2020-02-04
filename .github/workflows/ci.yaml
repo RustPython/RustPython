@@ -1,0 +1,159 @@
+on:
+  push:
+    branches: [master, release]
+  pull_request:  
+
+name: CI
+
+jobs:
+  rust_tests:
+    name: Run rust tests
+    runs-on:  ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@master
+      - name: Convert symlinks to hardlink (windows only)
+        run: powershell.exe scripts/symlinks-to-hardlinks.ps1
+        if: runner.os == 'Windows'
+      - name: Cache cargo dependencies
+        uses: actions/cache@v1
+        with:
+          key: ${{ runner.os }}-rust_tests-${{ hashFiles('Cargo.lock') }}
+          path: target
+          restore-keys: |
+            ${{ runner.os }}-rust_tests-
+      - name: run rust tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose --all
+
+  snippets:
+    name: Run snippets tests
+    runs-on:  ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@master
+      - name: Convert symlinks to hardlink (windows only)
+        run: powershell.exe scripts/symlinks-to-hardlinks.ps1
+        if: runner.os == 'Windows'
+      - name: Cache cargo dependencies
+        uses: actions/cache@v1
+        with:
+          key: ${{ runner.os }}-snippets-${{ hashFiles('Cargo.lock') }}
+          path: target
+          restore-keys: |
+            ${{ runner.os }}-snippets-
+      - name: build rustpython
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --verbose --all
+      - uses: actions/setup-python@v1
+        with:
+          python-version: 3.6
+      - name: Install pipenv
+        run: |
+          python -V
+          python -m pip install --upgrade pip
+          python -m pip install pipenv
+      - run: pipenv install
+        working-directory: ./tests
+      - name: run snippets
+        run: pipenv run pytest -v
+        working-directory: ./tests
+
+  format:
+    name: Check Rust code with rustfmt and clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: actions-rs/toolchain@v1
+        with:
+            profile: minimal
+            toolchain: stable
+            components: rustfmt
+            override: true
+      - name: run rustfmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+      - name: run clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --all -- -Dwarnings
+
+  lint:
+    name: Lint Python code with flake8
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: actions/setup-python@v1
+        with:
+          python-version: 3.6
+      - name: install flake8
+        run: python -m pip install flake8
+      - name: run lint
+        run: flake8 . --count --exclude=./.*,./Lib,./vm/Lib  --select=E9,F63,F7,F82 --show-source --statistics
+
+  cpython:
+    name: Run CPython test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: build rustpython
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --verbose --all
+      - name: run tests
+        run: |
+          export RUSTPYTHONPATH=`pwd`/Lib
+          cargo run -- -m test -v
+
+  wasm:
+    name: Check the WASM package and demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: install geckodriver
+        run: |
+          wget https://github.com/mozilla/geckodriver/releases/download/v0.24.0/geckodriver-v0.24.0-linux32.tar.gz
+          mkdir geckodriver
+          tar -xzf geckodriver-v0.24.0-linux32.tar.gz -C geckodriver
+      - uses: actions/setup-python@v1
+        with:
+          python-version: 3.6
+      - name: Install pipenv
+        run: |
+          python -V
+          python -m pip install --upgrade pip
+          python -m pip install pipenv
+      - run: pipenv install
+        working-directory: ./wasm/tests
+      - uses: actions/setup-node@v1
+      - name: run test
+        run: |
+          export PATH=$PATH:`pwd`/../../geckodriver
+          npm install
+          npm run test
+        working-directory: ./wasm/demo
+      - name: Deploy demo to Github Pages
+        if: success() && github.ref == 'refs/heads/release'
+        uses: peaceiris/actions-gh-pages@v2
+        env:
+          ACTIONS_DEPLOY_KEY: ${{ secrets.ACTIONS_DEMO_DEPLOY_KEY }}
+          PUBLISH_DIR: ./wasm/demo/dist
+          EXTERNAL_REPOSITORY: RustPython/demo
+          PUBLISH_BRANCH: master
+

@@ -1,13 +1,15 @@
 /*! Python `property` descriptor class.
 
 */
+use std::cell::RefCell;
 
-use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
-use crate::obj::objtype::PyClassRef;
+use super::objtype::PyClassRef;
+use crate::function::{IntoPyNativeFunc, OptionalArg};
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol,
 };
+use crate::slots::PyBuiltinDescriptor;
 use crate::vm::VirtualMachine;
 
 // Read-only property, doesn't have __set__ or __delete__
@@ -25,22 +27,27 @@ impl PyValue for PyReadOnlyProperty {
 
 pub type PyReadOnlyPropertyRef = PyRef<PyReadOnlyProperty>;
 
-#[pyimpl]
-impl PyReadOnlyProperty {
-    #[pymethod(name = "__get__")]
+impl PyBuiltinDescriptor for PyReadOnlyProperty {
     fn get(
         zelf: PyRef<Self>,
         obj: PyObjectRef,
-        _owner: OptionalArg<PyClassRef>,
+        cls: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        if obj.is(vm.ctx.none.as_object()) {
-            Ok(zelf.into_object())
+        if vm.is_none(&obj) {
+            if Self::_cls_is(&cls, &vm.ctx.types.type_type) {
+                vm.invoke(&zelf.getter, cls.unwrap())
+            } else {
+                Ok(zelf.into_object())
+            }
         } else {
-            vm.invoke(zelf.getter.clone(), obj)
+            vm.invoke(&zelf.getter, obj)
         }
     }
 }
+
+#[pyimpl(with(PyBuiltinDescriptor))]
+impl PyReadOnlyProperty {}
 
 /// Property attribute.
 ///
@@ -80,7 +87,7 @@ pub struct PyProperty {
     getter: Option<PyObjectRef>,
     setter: Option<PyObjectRef>,
     deleter: Option<PyObjectRef>,
-    doc: Option<PyObjectRef>,
+    doc: RefCell<Option<PyObjectRef>>,
 }
 
 impl PyValue for PyProperty {
@@ -91,36 +98,46 @@ impl PyValue for PyProperty {
 
 pub type PyPropertyRef = PyRef<PyProperty>;
 
-#[pyimpl]
-impl PyProperty {
-    #[pymethod(name = "__new__")]
-    fn new_property(
-        cls: PyClassRef,
-        args: PyFuncArgs,
+#[derive(FromArgs)]
+struct PropertyArgs {
+    #[pyarg(positional_or_keyword, default = "None")]
+    fget: Option<PyObjectRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    fset: Option<PyObjectRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    fdel: Option<PyObjectRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    doc: Option<PyObjectRef>,
+}
+
+impl PyBuiltinDescriptor for PyProperty {
+    fn get(
+        zelf: PyRef<Self>,
+        obj: PyObjectRef,
+        _cls: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyPropertyRef> {
-        arg_check!(
-            vm,
-            args,
-            required = [],
-            optional = [(fget, None), (fset, None), (fdel, None), (doc, None)]
-        );
-
-        fn into_option(vm: &VirtualMachine, arg: Option<&PyObjectRef>) -> Option<PyObjectRef> {
-            arg.and_then(|arg| {
-                if vm.ctx.none().is(arg) {
-                    None
-                } else {
-                    Some(arg.clone())
-                }
-            })
+    ) -> PyResult {
+        if let Some(getter) = zelf.getter.as_ref() {
+            if obj.is(vm.ctx.none.as_object()) {
+                Ok(zelf.into_object())
+            } else {
+                vm.invoke(&getter, obj)
+            }
+        } else {
+            Err(vm.new_attribute_error("unreadable attribute".to_string()))
         }
+    }
+}
 
+#[pyimpl(with(PyBuiltinDescriptor), flags(BASETYPE))]
+impl PyProperty {
+    #[pyslot]
+    fn tp_new(cls: PyClassRef, args: PropertyArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {
         PyProperty {
-            getter: into_option(vm, fget),
-            setter: into_option(vm, fset),
-            deleter: into_option(vm, fdel),
-            doc: into_option(vm, doc),
+            getter: args.fget,
+            setter: args.fset,
+            deleter: args.fdel,
+            doc: RefCell::new(args.doc),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -129,26 +146,8 @@ impl PyProperty {
 
     // specialised version that doesn't check for None
     pub(crate) fn instance_binding_get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(getter) = self.getter.as_ref() {
-            vm.invoke(getter.clone(), obj)
-        } else {
-            Err(vm.new_attribute_error("unreadable attribute".to_string()))
-        }
-    }
-
-    #[pymethod(name = "__get__")]
-    fn get(
-        zelf: PyRef<Self>,
-        obj: PyObjectRef,
-        _owner: OptionalArg<PyClassRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        if let Some(getter) = zelf.getter.as_ref() {
-            if obj.is(vm.ctx.none.as_object()) {
-                Ok(zelf.into_object())
-            } else {
-                vm.invoke(getter.clone(), obj)
-            }
+        if let Some(ref getter) = self.getter.as_ref() {
+            vm.invoke(getter, obj)
         } else {
             Err(vm.new_attribute_error("unreadable attribute".to_string()))
         }
@@ -156,8 +155,8 @@ impl PyProperty {
 
     #[pymethod(name = "__set__")]
     fn set(&self, obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(setter) = self.setter.as_ref() {
-            vm.invoke(setter.clone(), vec![obj, value])
+        if let Some(ref setter) = self.setter.as_ref() {
+            vm.invoke(setter, vec![obj, value])
         } else {
             Err(vm.new_attribute_error("can't set attribute".to_string()))
         }
@@ -165,8 +164,8 @@ impl PyProperty {
 
     #[pymethod(name = "__delete__")]
     fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(deleter) = self.deleter.as_ref() {
-            vm.invoke(deleter.clone(), obj)
+        if let Some(ref deleter) = self.deleter.as_ref() {
+            vm.invoke(deleter, obj)
         } else {
             Err(vm.new_attribute_error("can't delete attribute".to_string()))
         }
@@ -189,6 +188,14 @@ impl PyProperty {
         self.deleter.clone()
     }
 
+    fn doc_getter(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+        self.doc.borrow().clone()
+    }
+
+    fn doc_setter(&self, value: PyObjectRef, vm: &VirtualMachine) {
+        self.doc.replace(py_none_to_option(vm, &value));
+    }
+
     // Python builder functions
 
     #[pymethod]
@@ -201,7 +208,7 @@ impl PyProperty {
             getter: getter.or_else(|| zelf.getter.clone()),
             setter: zelf.setter.clone(),
             deleter: zelf.deleter.clone(),
-            doc: None,
+            doc: RefCell::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }
@@ -216,7 +223,7 @@ impl PyProperty {
             getter: zelf.getter.clone(),
             setter: setter.or_else(|| zelf.setter.clone()),
             deleter: zelf.deleter.clone(),
-            doc: None,
+            doc: RefCell::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }
@@ -231,9 +238,18 @@ impl PyProperty {
             getter: zelf.getter.clone(),
             setter: zelf.setter.clone(),
             deleter: deleter.or_else(|| zelf.deleter.clone()),
-            doc: None,
+            doc: RefCell::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
+    }
+}
+
+/// Take a python object and turn it into an option object, where python None maps to rust None.
+fn py_none_to_option(vm: &VirtualMachine, value: &PyObjectRef) -> Option<PyObjectRef> {
+    if vm.ctx.none().is(value) {
+        None
+    } else {
+        Some(value.clone())
     }
 }
 
@@ -242,6 +258,11 @@ pub struct PropertyBuilder<'a> {
     getter: Option<PyObjectRef>,
     setter: Option<PyObjectRef>,
 }
+
+pub trait PropertySetterResult {}
+
+impl PropertySetterResult for PyResult<()> {}
+impl PropertySetterResult for () {}
 
 impl<'a> PropertyBuilder<'a> {
     pub fn new(ctx: &'a PyContext) -> Self {
@@ -252,8 +273,8 @@ impl<'a> PropertyBuilder<'a> {
         }
     }
 
-    pub fn add_getter<I, V, F: IntoPyNativeFunc<I, V>>(self, func: F) -> Self {
-        let func = self.ctx.new_rustfunc(func);
+    pub fn add_getter<I, V, VM, F: IntoPyNativeFunc<I, V, VM>>(self, func: F) -> Self {
+        let func = self.ctx.new_method(func);
         Self {
             ctx: self.ctx,
             getter: Some(func),
@@ -261,8 +282,11 @@ impl<'a> PropertyBuilder<'a> {
         }
     }
 
-    pub fn add_setter<I, V, F: IntoPyNativeFunc<(I, V), PyResult>>(self, func: F) -> Self {
-        let func = self.ctx.new_rustfunc(func);
+    pub fn add_setter<I, V, VM, F: IntoPyNativeFunc<(I, V), impl PropertySetterResult, VM>>(
+        self,
+        func: F,
+    ) -> Self {
+        let func = self.ctx.new_method(func);
         Self {
             ctx: self.ctx,
             getter: self.getter,
@@ -276,7 +300,7 @@ impl<'a> PropertyBuilder<'a> {
                 getter: self.getter.clone(),
                 setter: self.setter.clone(),
                 deleter: None,
-                doc: None,
+                doc: RefCell::new(None),
             };
 
             PyObject::new(payload, self.ctx.property_type(), None)
@@ -293,6 +317,17 @@ impl<'a> PropertyBuilder<'a> {
 }
 
 pub fn init(context: &PyContext) {
-    PyReadOnlyProperty::extend_class(context, &context.readonly_property_type);
-    PyProperty::extend_class(context, &context.property_type);
+    PyReadOnlyProperty::extend_class(context, &context.types.readonly_property_type);
+
+    PyProperty::extend_class(context, &context.types.property_type);
+
+    // This is a bit unfortunate, but this instance attribute overlaps with the
+    // class __doc__ string..
+    extend_class!(context, &context.types.property_type, {
+        "__doc__" =>
+        PropertyBuilder::new(context)
+            .add_getter(PyProperty::doc_getter)
+            .add_setter(PyProperty::doc_setter)
+            .create(),
+    });
 }

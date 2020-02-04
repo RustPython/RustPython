@@ -1,4 +1,4 @@
-from testutils import assert_raises, assertRaises
+from testutils import assert_raises
 
 a = 1
 del a
@@ -17,5 +17,5 @@ del (x, y)
 assert_raises(NameError, lambda: x)  # noqa: F821
 assert_raises(NameError, lambda: y)  # noqa: F821
 
-with assertRaises(NameError):
+with assert_raises(NameError):
     del y  # noqa: F821

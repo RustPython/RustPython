@@ -63,27 +63,30 @@ assert os.fspath(b"Testing") == b"Testing"
 assert_raises(TypeError, lambda: os.fspath([1,2,3]))
 
 class TestWithTempDir():
-	def __enter__(self):
-		if os.name == "nt":
-			base_folder = os.environ["TEMP"]
-		else:
-			base_folder = "/tmp"
-		name = os.path.join(base_folder, "rustpython_test_os_" + str(int(time.time())))
-		os.mkdir(name)
-		self.name = name
-		return name
+    def __enter__(self):
+        if os.name == "nt":
+            base_folder = os.environ["TEMP"]
+        else:
+            base_folder = "/tmp"
 
-	def __exit__(self, exc_type, exc_val, exc_tb):
-		# TODO: Delete temp dir
-		pass
+        name = os.path.join(base_folder, "rustpython_test_os_" + str(int(time.time())))
 
+        while os.path.isdir(name):
+            name = name + "_"
+
+        os.mkdir(name)
+        self.name = name
+        return name
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
 
 class TestWithTempCurrentDir():
-	def __enter__(self):
-		self.prev_cwd = os.getcwd()
+    def __enter__(self):
+        self.prev_cwd = os.getcwd()
 
-	def __exit__(self, exc_type, exc_val, exc_tb):
-		os.chdir(self.prev_cwd)
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        os.chdir(self.prev_cwd)
 
 
 FILE_NAME = "test1"
@@ -121,6 +124,17 @@ with TestWithTempDir() as tmpdir:
 	fd = os.open(fname3, 0)
 	assert os.read(fd, len(CONTENT2) + len(CONTENT3)) == CONTENT2 + CONTENT3
 	os.close(fd)
+
+	assert not os.isatty(fd)
+
+  # TODO: get os.lseek working on windows
+	if os.name != 'nt':
+		fd = os.open(fname3, 0)
+		assert os.read(fd, len(CONTENT2)) == CONTENT2
+		assert os.read(fd, len(CONTENT3)) == CONTENT3
+		os.lseek(fd, len(CONTENT2), os.SEEK_SET)
+		assert os.read(fd, len(CONTENT3)) == CONTENT3
+		os.close(fd)
 
 	os.rename(fname3, fname)
 	assert os.path.exists(fname3) == False
@@ -232,6 +246,11 @@ with TestWithTempDir() as tmpdir:
 	os.stat(fname, follow_symlinks=False).st_ino == os.stat(symlink_file, follow_symlinks=False).st_ino
 	os.stat(fname, follow_symlinks=False).st_mode == os.stat(symlink_file, follow_symlinks=False).st_mode
 
+	# os.chmod
+	if os.name != "nt":
+	    os.chmod(fname, 0o666)
+	    assert oct(os.stat(fname).st_mode) == '0o100666'
+
 	# os.path
 	assert os.path.exists(fname) == True
 	assert os.path.exists("NO_SUCH_FILE") == False
@@ -246,7 +265,7 @@ with TestWithTempDir() as tmpdir:
 	with TestWithTempCurrentDir():
 		os.chdir(tmpdir)
 		assert os.getcwd() == os.path.realpath(tmpdir)
-		os.path.exists(FILE_NAME)
+		assert os.path.exists(FILE_NAME)
 
 # supports
 assert isinstance(os.supports_fd, set)
@@ -266,11 +285,115 @@ if "win" not in sys.platform:
     assert isinstance(os.getppid(), int)
     assert isinstance(os.getpgid(os.getpid()), int)
 
-    assert os.getppid() < os.getpid()
-
     if os.getuid() != 0:
         assert_raises(PermissionError, lambda: os.setgid(42))
         assert_raises(PermissionError, lambda: os.setegid(42))
         assert_raises(PermissionError, lambda: os.setpgid(os.getpid(), 42))
         assert_raises(PermissionError, lambda: os.setuid(42))
         assert_raises(PermissionError, lambda: os.seteuid(42))
+
+    # pty
+    a, b = os.openpty()
+    assert isinstance(a, int)
+    assert isinstance(b, int)
+    assert isinstance(os.ttyname(b), str)
+    assert_raises(OSError, lambda: os.ttyname(9999))
+    os.close(b)
+    os.close(a)
+
+    # os.get_blocking, os.set_blocking
+    # TODO: windows support should be added for below functions
+    # os.pipe,
+    # os.set_inheritable, os.get_inheritable,
+    rfd, wfd = os.pipe()
+    try:
+        os.write(wfd, CONTENT2)
+        assert os.read(rfd, len(CONTENT2)) == CONTENT2
+        assert not os.get_inheritable(rfd)
+        assert not os.get_inheritable(wfd)
+        os.set_inheritable(rfd, True)
+        os.set_inheritable(wfd, True)
+        assert os.get_inheritable(rfd)
+        assert os.get_inheritable(wfd)
+        os.set_inheritable(rfd, True)
+        os.set_inheritable(wfd, True)
+        os.set_inheritable(rfd, True)
+        os.set_inheritable(wfd, True)
+        assert os.get_inheritable(rfd)
+        assert os.get_inheritable(wfd)
+
+        assert os.get_blocking(rfd)
+        assert os.get_blocking(wfd)
+        os.set_blocking(rfd, False)
+        os.set_blocking(wfd, False)
+        assert not os.get_blocking(rfd)
+        assert not os.get_blocking(wfd)
+        os.set_blocking(rfd, True)
+        os.set_blocking(wfd, True)
+        os.set_blocking(rfd, True)
+        os.set_blocking(wfd, True)
+        assert os.get_blocking(rfd)
+        assert os.get_blocking(wfd)
+    finally:
+        os.close(rfd)
+        os.close(wfd)
+
+# os.pipe2
+if sys.platform.startswith('linux') or sys.platform.startswith('freebsd'):
+    rfd, wfd = os.pipe2(0)
+    try:
+        os.write(wfd, CONTENT2)
+        assert os.read(rfd, len(CONTENT2)) == CONTENT2
+        assert os.get_inheritable(rfd)
+        assert os.get_inheritable(wfd)
+        assert os.get_blocking(rfd)
+        assert os.get_blocking(wfd)
+    finally:
+        os.close(rfd)
+        os.close(wfd)
+    rfd, wfd = os.pipe2(os.O_CLOEXEC | os.O_NONBLOCK)
+    try:
+        os.write(wfd, CONTENT2)
+        assert os.read(rfd, len(CONTENT2)) == CONTENT2
+        assert not os.get_inheritable(rfd)
+        assert not os.get_inheritable(wfd)
+        assert not os.get_blocking(rfd)
+        assert not os.get_blocking(wfd)
+    finally:
+        os.close(rfd)
+        os.close(wfd)
+
+
+with TestWithTempDir() as tmpdir:
+    for i in range(0, 4):
+        file_name = os.path.join(tmpdir, 'file' + str(i))
+        with open(file_name, 'w') as f:
+            f.write('test')
+
+    expected_files = ['file0', 'file1', 'file2', 'file3']
+
+    dir_iter = os.scandir(tmpdir)
+    collected_files = [dir_entry.name for dir_entry in dir_iter]
+
+    assert set(collected_files) == set(expected_files)
+
+    with assert_raises(StopIteration):
+        next(dir_iter)
+
+    dir_iter.close()
+
+    with TestWithTempCurrentDir():
+        os.chdir(tmpdir)
+        with os.scandir() as dir_iter:
+            collected_files = [dir_entry.name for dir_entry in dir_iter]
+            assert set(collected_files) == set(expected_files)
+
+# system()
+if "win" not in sys.platform:
+    assert os.system('ls') == 0
+    assert os.system('{') != 0
+
+    for arg in [None, 1, 1.0, TabError]:
+        assert_raises(TypeError, os.system, arg)
+
+

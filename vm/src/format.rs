@@ -1,4 +1,5 @@
 use num_bigint::{BigInt, Sign};
+use num_traits::cast::ToPrimitive;
 use num_traits::Signed;
 use std::cmp;
 use std::str::FromStr;
@@ -8,6 +9,7 @@ pub enum FormatPreconversor {
     Str,
     Repr,
     Ascii,
+    Bytes,
 }
 
 impl FormatPreconversor {
@@ -16,6 +18,7 @@ impl FormatPreconversor {
             's' => Some(FormatPreconversor::Str),
             'r' => Some(FormatPreconversor::Repr),
             'a' => Some(FormatPreconversor::Ascii),
+            'b' => Some(FormatPreconversor::Bytes),
             _ => None,
         }
     }
@@ -95,6 +98,7 @@ pub enum FormatType {
     GeneralFormatUpper,
     FixedPointLower,
     FixedPointUpper,
+    Percentage,
 }
 
 #[derive(Debug, PartialEq)]
@@ -151,16 +155,17 @@ fn parse_fill_and_align(text: &str) -> (Option<char>, Option<FormatAlign>, &str)
     }
 }
 
-fn parse_number(text: &str) -> (Option<usize>, &str) {
+fn parse_number(text: &str) -> Result<(Option<usize>, &str), &'static str> {
     let num_digits: usize = get_num_digits(text);
     if num_digits == 0 {
-        return (None, text);
+        return Ok((None, text));
     }
-    // This should never fail
-    (
-        Some(text[..num_digits].parse::<usize>().unwrap()),
-        &text[num_digits..],
-    )
+    if let Ok(num) = text[..num_digits].parse::<usize>() {
+        Ok((Some(num), &text[num_digits..]))
+    } else {
+        // NOTE: this condition is different from CPython
+        Err("Too many decimal digits in format string")
+    }
 }
 
 fn parse_sign(text: &str) -> (Option<FormatSign>, &str) {
@@ -181,19 +186,19 @@ fn parse_alternate_form(text: &str) -> (bool, &str) {
     }
 }
 
-fn parse_zero(text: &str) -> &str {
+fn parse_zero(text: &str) -> (bool, &str) {
     let mut chars = text.chars();
     match chars.next() {
-        Some('0') => chars.as_str(),
-        _ => text,
+        Some('0') => (true, chars.as_str()),
+        _ => (false, text),
     }
 }
 
-fn parse_precision(text: &str) -> (Option<usize>, &str) {
+fn parse_precision(text: &str) -> Result<(Option<usize>, &str), &'static str> {
     let mut chars = text.chars();
-    match chars.next() {
+    Ok(match chars.next() {
         Some('.') => {
-            let (size, remaining) = parse_number(&chars.as_str());
+            let (size, remaining) = parse_number(&chars.as_str())?;
             if size.is_some() {
                 (size, remaining)
             } else {
@@ -201,7 +206,7 @@ fn parse_precision(text: &str) -> (Option<usize>, &str) {
             }
         }
         _ => (None, text),
-    }
+    })
 }
 
 fn parse_grouping_option(text: &str) -> (Option<FormatGrouping>, &str) {
@@ -229,22 +234,32 @@ fn parse_format_type(text: &str) -> (Option<FormatType>, &str) {
         Some('g') => (Some(FormatType::GeneralFormatLower), chars.as_str()),
         Some('G') => (Some(FormatType::GeneralFormatUpper), chars.as_str()),
         Some('n') => (Some(FormatType::Number), chars.as_str()),
+        Some('%') => (Some(FormatType::Percentage), chars.as_str()),
         _ => (None, text),
     }
 }
 
-fn parse_format_spec(text: &str) -> FormatSpec {
+fn parse_format_spec(text: &str) -> Result<FormatSpec, &'static str> {
+    // get_integer in CPython
     let (preconversor, after_preconversor) = parse_preconversor(text);
-    let (fill, align, after_align) = parse_fill_and_align(after_preconversor);
+    let (mut fill, mut align, after_align) = parse_fill_and_align(after_preconversor);
     let (sign, after_sign) = parse_sign(after_align);
     let (alternate_form, after_alternate_form) = parse_alternate_form(after_sign);
-    let after_zero = parse_zero(after_alternate_form);
-    let (width, after_width) = parse_number(after_zero);
+    let (zero, after_zero) = parse_zero(after_alternate_form);
+    let (width, after_width) = parse_number(after_zero)?;
     let (grouping_option, after_grouping_option) = parse_grouping_option(after_width);
-    let (precision, after_precision) = parse_precision(after_grouping_option);
-    let (format_type, _) = parse_format_type(after_precision);
+    let (precision, after_precision) = parse_precision(after_grouping_option)?;
+    let (format_type, after_format_type) = parse_format_type(after_precision);
+    if !after_format_type.is_empty() {
+        return Err("Invalid format specifier");
+    }
 
-    FormatSpec {
+    if zero && fill.is_none() {
+        fill.replace('0');
+        align = align.or(Some(FormatAlign::AfterSign));
+    }
+
+    Ok(FormatSpec {
         preconversor,
         fill,
         align,
@@ -254,11 +269,11 @@ fn parse_format_spec(text: &str) -> FormatSpec {
         grouping_option,
         precision,
         format_type,
-    }
+    })
 }
 
 impl FormatSpec {
-    pub fn parse(text: &str) -> FormatSpec {
+    pub fn parse(text: &str) -> Result<FormatSpec, &'static str> {
         parse_format_spec(text)
     }
 
@@ -274,16 +289,21 @@ impl FormatSpec {
         separator: char,
     ) -> String {
         let mut result = String::new();
-        let mut remaining: usize = magnitude_string.len() % interval;
-        if remaining == 0 {
-            remaining = interval;
-        }
-        for c in magnitude_string.chars() {
+
+        // Don't add separators to the floating decimal point of numbers
+        let mut parts = magnitude_string.splitn(2, '.');
+        let magnitude_integer_string = parts.next().unwrap();
+        let mut remaining: usize = magnitude_integer_string.len();
+        for c in magnitude_integer_string.chars() {
             result.push(c);
-            if remaining == 0 {
+            remaining -= 1;
+            if remaining % interval == 0 && remaining > 0 {
                 result.push(separator);
-                remaining = interval;
             }
+        }
+        if let Some(part) = parts.next() {
+            result.push('.');
+            result.push_str(part);
         }
         result
     }
@@ -296,6 +316,7 @@ impl FormatSpec {
             Some(FormatType::HexLower) => 4,
             Some(FormatType::HexUpper) => 4,
             Some(FormatType::Number) => 3,
+            Some(FormatType::FixedPointLower) | Some(FormatType::FixedPointUpper) => 3,
             None => 3,
             _ => panic!("Separators only valid for numbers!"),
         }
@@ -317,8 +338,80 @@ impl FormatSpec {
         }
     }
 
+    pub fn format_float(&self, num: f64) -> Result<String, &'static str> {
+        let precision = self.precision.unwrap_or(6);
+        let magnitude = num.abs();
+        let raw_magnitude_string_result: Result<String, &'static str> = match self.format_type {
+            Some(FormatType::FixedPointUpper) => match magnitude {
+                magnitude if magnitude.is_nan() => Ok("NAN".to_string()),
+                magnitude if magnitude.is_infinite() => Ok("INF".to_string()),
+                _ => Ok(format!("{:.*}", precision, magnitude)),
+            },
+            Some(FormatType::FixedPointLower) => match magnitude {
+                magnitude if magnitude.is_nan() => Ok("nan".to_string()),
+                magnitude if magnitude.is_infinite() => Ok("inf".to_string()),
+                _ => Ok(format!("{:.*}", precision, magnitude)),
+            },
+            Some(FormatType::Decimal) => Err("Unknown format code 'd' for object of type 'float'"),
+            Some(FormatType::Binary) => Err("Unknown format code 'b' for object of type 'float'"),
+            Some(FormatType::Octal) => Err("Unknown format code 'o' for object of type 'float'"),
+            Some(FormatType::HexLower) => Err("Unknown format code 'x' for object of type 'float'"),
+            Some(FormatType::HexUpper) => Err("Unknown format code 'X' for object of type 'float'"),
+            Some(FormatType::String) => Err("Unknown format code 's' for object of type 'float'"),
+            Some(FormatType::Character) => {
+                Err("Unknown format code 'c' for object of type 'float'")
+            }
+            Some(FormatType::Number) => {
+                Err("Format code 'n' for object of type 'float' not implemented yet")
+            }
+            Some(FormatType::GeneralFormatUpper) => {
+                Err("Format code 'G' for object of type 'float' not implemented yet")
+            }
+            Some(FormatType::GeneralFormatLower) => {
+                Err("Format code 'g' for object of type 'float' not implemented yet")
+            }
+            Some(FormatType::ExponentUpper) => {
+                Err("Format code 'E' for object of type 'float' not implemented yet")
+            }
+            Some(FormatType::ExponentLower) => {
+                Err("Format code 'e' for object of type 'float' not implemented yet")
+            }
+            Some(FormatType::Percentage) => match magnitude {
+                magnitude if magnitude.is_nan() => Ok("nan%".to_string()),
+                magnitude if magnitude.is_infinite() => Ok("inf%".to_string()),
+                _ => Ok(format!("{:.*}%", precision, magnitude * 100.0)),
+            },
+            None => {
+                match magnitude {
+                    magnitude if magnitude.is_nan() => Ok("nan".to_string()),
+                    magnitude if magnitude.is_infinite() => Ok("inf".to_string()),
+                    // Using the Debug format here to prevent the automatic conversion of floats
+                    // ending in .0 to their integer representation (e.g., 1.0 -> 1)
+                    _ => Ok(format!("{:?}", magnitude)),
+                }
+            }
+        };
+
+        if raw_magnitude_string_result.is_err() {
+            return raw_magnitude_string_result;
+        }
+
+        let magnitude_string = self.add_magnitude_separators(raw_magnitude_string_result.unwrap());
+        let format_sign = self.sign.unwrap_or(FormatSign::Minus);
+        let sign_str = if num.is_sign_negative() && !num.is_nan() {
+            "-"
+        } else {
+            match format_sign {
+                FormatSign::Plus => "+",
+                FormatSign::Minus => "",
+                FormatSign::MinusOrSpace => " ",
+            }
+        };
+
+        self.format_sign_and_align(magnitude_string, sign_str)
+    }
+
     pub fn format_int(&self, num: &BigInt) -> Result<String, &'static str> {
-        let fill_char = self.fill.unwrap_or(' ');
         let magnitude = num.abs();
         let prefix = if self.alternate_form {
             match self.format_type {
@@ -356,12 +449,12 @@ impl FormatSpec {
             Some(FormatType::ExponentLower) => {
                 Err("Unknown format code 'e' for object of type 'int'")
             }
-            Some(FormatType::FixedPointUpper) => {
-                Err("Unknown format code 'F' for object of type 'int'")
-            }
-            Some(FormatType::FixedPointLower) => {
-                Err("Unknown format code 'f' for object of type 'int'")
-            }
+            Some(FormatType::FixedPointUpper)
+            | Some(FormatType::FixedPointLower)
+            | Some(FormatType::Percentage) => match num.to_f64() {
+                Some(float) => return self.format_float(float),
+                _ => Err("Unable to convert int to float"),
+            },
             None => Ok(magnitude.to_str_radix(10)),
         };
         if raw_magnitude_string_result.is_err() {
@@ -372,10 +465,6 @@ impl FormatSpec {
             prefix,
             self.add_magnitude_separators(raw_magnitude_string_result.unwrap())
         );
-        let align = self.align.unwrap_or(FormatAlign::Right);
-
-        // Use the byte length as the string length since we're in ascii
-        let num_chars = magnitude_string.len();
 
         let format_sign = self.sign.unwrap_or(FormatSign::Minus);
         let sign_str = match num.sign() {
@@ -387,6 +476,19 @@ impl FormatSpec {
             },
         };
 
+        self.format_sign_and_align(magnitude_string, sign_str)
+    }
+
+    fn format_sign_and_align(
+        &self,
+        magnitude_string: String,
+        sign_str: &str,
+    ) -> Result<String, &'static str> {
+        let align = self.align.unwrap_or(FormatAlign::Right);
+
+        // Use the byte length as the string length since we're in ascii
+        let num_chars = magnitude_string.len();
+        let fill_char = self.fill.unwrap_or(' ');
         let fill_chars_needed: i32 = self.width.map_or(0, |w| {
             cmp::max(0, (w as i32) - (num_chars as i32) - (sign_str.len() as i32))
         });
@@ -435,7 +537,7 @@ pub enum FormatParseError {
 impl FromStr for FormatSpec {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(FormatSpec::parse(s))
+        FormatSpec::parse(s)
     }
 }
 
@@ -496,7 +598,7 @@ impl FormatString {
                 }
                 Err(err) => {
                     if !result_string.is_empty() {
-                        return Ok((FormatPart::Literal(result_string.to_string()), cur_text));
+                        return Ok((FormatPart::Literal(result_string), cur_text));
                     } else {
                         return Err(err);
                     }
@@ -612,7 +714,7 @@ mod tests {
 
     #[test]
     fn test_width_only() {
-        let expected = FormatSpec {
+        let expected = Ok(FormatSpec {
             preconversor: None,
             fill: None,
             align: None,
@@ -622,13 +724,13 @@ mod tests {
             grouping_option: None,
             precision: None,
             format_type: None,
-        };
+        });
         assert_eq!(parse_format_spec("33"), expected);
     }
 
     #[test]
     fn test_fill_and_width() {
-        let expected = FormatSpec {
+        let expected = Ok(FormatSpec {
             preconversor: None,
             fill: Some('<'),
             align: Some(FormatAlign::Right),
@@ -638,13 +740,13 @@ mod tests {
             grouping_option: None,
             precision: None,
             format_type: None,
-        };
+        });
         assert_eq!(parse_format_spec("<>33"), expected);
     }
 
     #[test]
     fn test_all() {
-        let expected = FormatSpec {
+        let expected = Ok(FormatSpec {
             preconversor: None,
             fill: Some('<'),
             align: Some(FormatAlign::Right),
@@ -654,38 +756,52 @@ mod tests {
             grouping_option: Some(FormatGrouping::Comma),
             precision: Some(11),
             format_type: Some(FormatType::Binary),
-        };
+        });
         assert_eq!(parse_format_spec("<>-#23,.11b"), expected);
     }
 
     #[test]
     fn test_format_int() {
         assert_eq!(
-            parse_format_spec("d").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+            parse_format_spec("d")
+                .unwrap()
+                .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
             Ok("16".to_string())
         );
         assert_eq!(
-            parse_format_spec("x").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+            parse_format_spec("x")
+                .unwrap()
+                .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
             Ok("10".to_string())
         );
         assert_eq!(
-            parse_format_spec("b").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+            parse_format_spec("b")
+                .unwrap()
+                .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
             Ok("10000".to_string())
         );
         assert_eq!(
-            parse_format_spec("o").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+            parse_format_spec("o")
+                .unwrap()
+                .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
             Ok("20".to_string())
         );
         assert_eq!(
-            parse_format_spec("+d").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+            parse_format_spec("+d")
+                .unwrap()
+                .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
             Ok("+16".to_string())
         );
         assert_eq!(
-            parse_format_spec("^ 5d").format_int(&BigInt::from_bytes_be(Sign::Minus, b"\x10")),
+            parse_format_spec("^ 5d")
+                .unwrap()
+                .format_int(&BigInt::from_bytes_be(Sign::Minus, b"\x10")),
             Ok(" -16 ".to_string())
         );
         assert_eq!(
-            parse_format_spec("0>+#10x").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+            parse_format_spec("0>+#10x")
+                .unwrap()
+                .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
             Ok("00000+0x10".to_string())
         );
     }
@@ -723,5 +839,16 @@ mod tests {
         });
 
         assert_eq!(FormatString::from_str("{{{key}}}ddfe"), expected);
+    }
+
+    #[test]
+    fn test_format_invalid_specification() {
+        assert_eq!(parse_format_spec("%3"), Err("Invalid format specifier"));
+        assert_eq!(parse_format_spec(".2fa"), Err("Invalid format specifier"));
+        assert_eq!(parse_format_spec("ds"), Err("Invalid format specifier"));
+        assert_eq!(parse_format_spec("x+"), Err("Invalid format specifier"));
+        assert_eq!(parse_format_spec("b4"), Err("Invalid format specifier"));
+        assert_eq!(parse_format_spec("o!"), Err("Invalid format specifier"));
+        assert_eq!(parse_format_spec("d "), Err("Invalid format specifier"));
     }
 }

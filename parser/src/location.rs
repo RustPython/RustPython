@@ -1,5 +1,8 @@
+//! Datatypes to support source location information.
+
 use std::fmt;
 
+/// A location somewhere in the sourcecode.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Location {
     row: usize,
@@ -9,6 +12,17 @@ pub struct Location {
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "line {} column {}", self.row, self.column)
+    }
+}
+
+impl Location {
+    pub fn visualize(&self, desc: &str) -> String {
+        format!(
+            "{}↑\n{}{}",
+            " ".repeat(self.column - 1),
+            " ".repeat(self.column - 1),
+            desc
+        )
     }
 }
 

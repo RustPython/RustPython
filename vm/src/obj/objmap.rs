@@ -1,9 +1,8 @@
+use super::objiter;
+use super::objtype::PyClassRef;
 use crate::function::Args;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
-
-use super::objiter;
-use super::objtype::PyClassRef;
 
 /// map(func, *iterables) --> map object
 ///
@@ -23,25 +22,26 @@ impl PyValue for PyMap {
     }
 }
 
-fn map_new(
-    cls: PyClassRef,
-    function: PyObjectRef,
-    iterables: Args,
-    vm: &VirtualMachine,
-) -> PyResult<PyMapRef> {
-    let iterators = iterables
-        .into_iter()
-        .map(|iterable| objiter::get_iter(vm, &iterable))
-        .collect::<Result<Vec<_>, _>>()?;
-    PyMap {
-        mapper: function.clone(),
-        iterators,
-    }
-    .into_ref_with_type(vm, cls.clone())
-}
-
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyMap {
+    #[pyslot]
+    fn tp_new(
+        cls: PyClassRef,
+        function: PyObjectRef,
+        iterables: Args,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyMapRef> {
+        let iterators = iterables
+            .into_iter()
+            .map(|iterable| objiter::get_iter(vm, &iterable))
+            .collect::<Result<Vec<_>, _>>()?;
+        PyMap {
+            mapper: function.clone(),
+            iterators,
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         let next_objs = self
@@ -51,18 +51,24 @@ impl PyMap {
             .collect::<Result<Vec<_>, _>>()?;
 
         // the mapper itself can raise StopIteration which does stop the map iteration
-        vm.invoke(self.mapper.clone(), next_objs)
+        vm.invoke(&self.mapper, next_objs)
     }
 
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
     }
+
+    #[pymethod(name = "__length_hint__")]
+    fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        self.iterators.iter().try_fold(0, |prev, cur| {
+            let cur = objiter::length_hint(vm, cur.clone())?.unwrap_or(0);
+            let max = std::cmp::max(prev, cur);
+            Ok(max)
+        })
+    }
 }
 
 pub fn init(context: &PyContext) {
-    PyMap::extend_class(context, &context.map_type);
-    extend_class!(context, &context.map_type, {
-        "__new__" => context.new_rustfunc(map_new),
-    });
+    PyMap::extend_class(context, &context.types.map_type);
 }

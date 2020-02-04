@@ -1,5 +1,6 @@
-from testutils import assert_raises
+from testutils import assert_raises, AssertRaises
 
+assert "".__eq__(1) == NotImplemented
 assert "a" == 'a'
 assert """a""" == "a"
 assert len(""" " "" " "" """) == 11
@@ -21,6 +22,10 @@ assert str(1) == "1"
 assert str(2.1) == "2.1"
 assert str() == ""
 assert str("abc") == "abc"
+
+assert_raises(TypeError, lambda: str("abc", "utf-8"))
+assert str(b"abc", "utf-8") == "abc"
+assert str(b"abc", encoding="ascii") == "abc"
 
 assert repr("a") == "'a'"
 assert repr("can't") == '"can\'t"'
@@ -163,6 +168,9 @@ assert not 'abcd'.startswith('', 4, 3)
 
 assert '   '.isspace()
 assert 'hello\nhallo\nHallo'.splitlines() == ['hello', 'hallo', 'Hallo']
+assert 'hello\nhallo\nHallo\n'.splitlines() == ['hello', 'hallo', 'Hallo']
+assert 'hello\nhallo\nHallo'.splitlines(keepends=True) == ['hello\n', 'hallo\n', 'Hallo']
+assert 'hello\nhallo\nHallo\n'.splitlines(keepends=True) == ['hello\n', 'hallo\n', 'Hallo\n']
 assert 'abc\t12345\txyz'.expandtabs() == 'abc     12345   xyz'
 assert '-'.join(['1', '2', '3']) == '1-2-3'
 assert 'HALLO'.isupper()
@@ -212,11 +220,18 @@ assert "%(first)s %(second)s" % {'second': 'World!', 'first': "Hello,"} == "Hell
 assert "%(key())s" % {'key()': 'aaa'}
 assert "%s %a %r" % (f, f, f) == "str(Foo) repr(Foo) repr(Foo)"
 assert "repr() shows quotes: %r; str() doesn't: %s" % ("test1", "test2") == "repr() shows quotes: 'test1'; str() doesn't: test2"
+assert "%f" % (1.2345) == "1.234500"
+assert "%+f" % (1.2345) == "+1.234500"
+assert "% f" % (1.2345) == " 1.234500"
+assert "%f" % (-1.2345) == "-1.234500"
+assert "%f" % (1.23456789012) == "1.234568"
+assert "%f" % (123) == "123.000000"
+assert "%f" % (-123) == "-123.000000"
 
-assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25), msg="format requires a mapping")
-assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo", msg="format requires a mapping")
-assert_raises(ValueError, lambda: "This %(food}s is great!" % {"food": "cookie"}, msg="incomplete format key")
-assert_raises(ValueError, lambda: "My name is %" % "Foo", msg="incomplete format")
+assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25), _msg='format requires a mapping')
+assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo", _msg='format requires a mapping')
+assert_raises(ValueError, lambda: "This %(food}s is great!" % {"food": "cookie"}, _msg='incomplete format key')
+assert_raises(ValueError, lambda: "My name is %" % "Foo", _msg='incomplete format')
 
 assert 'a' < 'b'
 assert 'a' <= 'b'
@@ -255,7 +270,7 @@ assert "abcdefg".isprintable()
 assert not "abcdefg\n".isprintable()
 assert "ʹ".isprintable()
 
-# test unicode iterals
+# test unicode literals
 assert "\xac" == "¬"
 assert "\u0037" == "7"
 assert "\u0040" == "@"
@@ -265,7 +280,7 @@ assert "\u9487" == "钇"
 assert "\U0001F609" == "😉"
 
 # test str iter
-iterable_str = "123456789"
+iterable_str = "12345678😉"
 str_iter = iter(iterable_str)
 
 assert next(str_iter) == "1"
@@ -276,13 +291,13 @@ assert next(str_iter) == "5"
 assert next(str_iter) == "6"
 assert next(str_iter) == "7"
 assert next(str_iter) == "8"
-assert next(str_iter) == "9"
+assert next(str_iter) == "😉"
 assert next(str_iter, None) == None
-assert_raises(StopIteration, lambda: next(str_iter))
+assert_raises(StopIteration, next, str_iter)
 
 str_iter_reversed = reversed(iterable_str)
 
-assert next(str_iter_reversed) == "9"
+assert next(str_iter_reversed) == "😉"
 assert next(str_iter_reversed) == "8"
 assert next(str_iter_reversed) == "7"
 assert next(str_iter_reversed) == "6"
@@ -292,4 +307,146 @@ assert next(str_iter_reversed) == "3"
 assert next(str_iter_reversed) == "2"
 assert next(str_iter_reversed) == "1"
 assert next(str_iter_reversed, None) == None
-assert_raises(StopIteration, lambda: next(str_iter_reversed))
+assert_raises(StopIteration, next, str_iter_reversed)
+
+assert str.__rmod__('%i', 30) == NotImplemented
+assert_raises(TypeError, lambda: str.__rmod__(30, '%i'))
+
+# test str index
+index_str = 'Rust Python'
+
+assert index_str[0] == 'R'
+assert index_str[-1] == 'n'
+
+assert_raises(TypeError, lambda: index_str['a'])
+
+assert chr(9).__repr__() == "'\\t'"
+assert chr(99).__repr__() == "'c'"
+assert chr(999).__repr__() == "'ϧ'"
+assert chr(9999).__repr__() == "'✏'"
+assert chr(99999).__repr__() == "'𘚟'"
+assert chr(999999).__repr__() == "'\\U000f423f'"
+
+assert "a".__ne__("b")
+assert not "a".__ne__("a")
+assert not "".__ne__("")
+assert "".__ne__(1) == NotImplemented
+
+# check non-cased characters
+assert "A_B".isupper()
+assert "a_b".islower()
+assert "A1".isupper()
+assert "1A".isupper()
+assert "a1".islower()
+assert "1a".islower()
+assert "가나다a".islower()
+assert "가나다A".isupper()
+
+# test str.format_map()
+#
+# The following tests were performed in Python 3.7.5:
+# Python 3.7.5 (default, Dec 19 2019, 17:11:32)
+# [GCC 5.4.0 20160609] on linux
+
+# >>> '{x} {y}'.format_map({'x': 1, 'y': 2})
+# '1 2'
+assert '{x} {y}'.format_map({'x': 1, 'y': 2}) == '1 2'
+
+# >>> '{x:04d}'.format_map({'x': 1})
+# '0001'
+assert '{x:04d}'.format_map({'x': 1}) == '0001'
+
+# >>> '{x} {y}'.format_map('foo')
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# TypeError: string indices must be integers
+with AssertRaises(TypeError, None):
+    '{x} {y}'.format_map('foo')
+
+# >>> '{x} {y}'.format_map(['foo'])
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# TypeError: list indices must be integers or slices, not str
+with AssertRaises(TypeError, None):
+    '{x} {y}'.format_map(['foo'])
+
+# >>> '{x} {y}'.format_map()
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# TypeError: format_map() takes exactly one argument (0 given)
+with AssertRaises(TypeError, msg='TypeError: format_map() takes exactly one argument (0 given)'):
+    '{x} {y}'.format_map(),
+
+# >>> '{x} {y}'.format_map('foo', 'bar')
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# TypeError: format_map() takes exactly one argument (2 given)
+with AssertRaises(TypeError, msg='TypeError: format_map() takes exactly one argument (2 given)'):
+    '{x} {y}'.format_map('foo', 'bar')
+
+# >>> '{x} {y}'.format_map({'x': 1})
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# KeyError: 'y'
+with AssertRaises(KeyError, msg="KeyError: 'y'"):
+    '{x} {y}'.format_map({'x': 1})
+
+# >>> '{x} {y}'.format_map({'x': 1, 'z': 2})
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# KeyError: 'y'
+with AssertRaises(KeyError, msg="KeyError: 'y'"):
+    '{x} {y}'.format_map({'x': 1, 'z': 2})
+
+# >>> '{{literal}}'.format_map('foo')
+# '{literal}'
+assert '{{literal}}'.format_map('foo') == '{literal}'
+
+# test formatting float values
+assert f'{5:f}' == '5.000000'
+assert f'{-5:f}' == '-5.000000'
+assert f'{5.0:f}' == '5.000000'
+assert f'{-5.0:f}' == '-5.000000'
+assert f'{5:.2f}' == '5.00'
+assert f'{5.0:.2f}' == '5.00'
+assert f'{-5:.2f}' == '-5.00'
+assert f'{-5.0:.2f}' == '-5.00'
+assert f'{5.0:04f}' == '5.000000'
+assert f'{5.1234:+f}' == '+5.123400'
+assert f'{5.1234: f}' == ' 5.123400'
+assert f'{5.1234:-f}' == '5.123400'
+assert f'{-5.1234:-f}' == '-5.123400'
+assert f'{1.0:+}' == '+1.0'
+assert f'--{1.0:f>4}--' == '--f1.0--'
+assert f'--{1.0:f<4}--' == '--1.0f--'
+assert f'--{1.0:d^4}--' == '--1.0d--'
+assert f'--{1.0:d^5}--' == '--d1.0d--'
+assert f'--{1.1:f>6}--' == '--fff1.1--'
+assert '{}'.format(float('nan')) == 'nan'
+assert '{:f}'.format(float('nan')) == 'nan'
+assert '{:f}'.format(float('-nan')) == 'nan'
+assert '{:F}'.format(float('nan')) == 'NAN'
+assert '{}'.format(float('inf')) == 'inf'
+assert '{:f}'.format(float('inf')) == 'inf'
+assert '{:f}'.format(float('-inf')) == '-inf'
+assert '{:F}'.format(float('inf')) == 'INF'
+assert f'{1234567890.1234:,.2f}' == '1,234,567,890.12'
+assert f'{1234567890.1234:_.2f}' == '1_234_567_890.12'
+with AssertRaises(ValueError, msg="Unknown format code 'd' for object of type 'float'"):
+    f'{5.0:04d}'
+
+# Test % formatting
+assert f'{10:%}' == '1000.000000%'
+assert f'{10.0:%}' == '1000.000000%'
+assert f'{10.0:.2%}' == '1000.00%'
+assert f'{10.0:.8%}' == '1000.00000000%'
+assert f'{-10:%}' == '-1000.000000%'
+assert f'{-10.0:%}' == '-1000.000000%'
+assert f'{-10.0:.2%}' == '-1000.00%'
+assert f'{-10.0:.8%}' == '-1000.00000000%'
+assert '{:%}'.format(float('nan')) == 'nan%'
+assert '{:.2%}'.format(float('nan')) == 'nan%'
+assert '{:%}'.format(float('inf')) == 'inf%'
+assert '{:.2%}'.format(float('inf')) == 'inf%'
+with AssertRaises(ValueError, msg='Invalid format specifier'):
+    f'{10.0:%3}'

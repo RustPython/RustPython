@@ -2,15 +2,17 @@
  * Various types to support iteration.
  */
 
+use num_traits::{Signed, ToPrimitive};
 use std::cell::Cell;
 
+use super::objint::PyInt;
+use super::objsequence;
+use super::objtype::{self, PyClassRef};
+use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-
-use super::objtype;
-use super::objtype::PyClassRef;
 
 /*
  * This helper function is called at multiple places. First, it is called
@@ -20,7 +22,7 @@ use super::objtype::PyClassRef;
 pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
     if let Some(method_or_err) = vm.get_method(iter_target.clone(), "__iter__") {
         let method = method_or_err?;
-        vm.invoke(method, vec![])
+        vm.invoke(&method, vec![])
     } else {
         vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
             format!("Cannot iterate over {}", iter_target.class().name)
@@ -61,21 +63,77 @@ pub fn get_next_object(
 }
 
 /* Retrieve all elements from an iterator */
-pub fn get_all(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
-    let mut elements = vec![];
-    loop {
-        let element = get_next_object(vm, iter_obj)?;
-        match element {
-            Some(v) => elements.push(v),
-            None => break,
-        }
+pub fn get_all<T: TryFromObject>(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<T>> {
+    let cap = length_hint(vm, iter_obj.clone())?.unwrap_or(0);
+    // TODO: fix extend to do this check (?), see test_extend in Lib/test/list_tests.py,
+    // https://github.com/python/cpython/blob/master/Objects/listobject.c#L934-L940
+    if cap >= isize::max_value() as usize {
+        return Ok(Vec::new());
     }
+    let mut elements = Vec::with_capacity(cap);
+    while let Some(element) = get_next_object(vm, iter_obj)? {
+        elements.push(T::try_from_object(vm, element)?);
+    }
+    elements.shrink_to_fit();
     Ok(elements)
 }
 
-pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
+pub fn new_stop_iteration(vm: &VirtualMachine) -> PyBaseExceptionRef {
     let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-    vm.new_exception(stop_iteration_type, "End of iterator".to_string())
+    vm.new_exception_empty(stop_iteration_type)
+}
+
+pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyResult {
+    let args = exc.args();
+    let val = args
+        .as_slice()
+        .first()
+        .cloned()
+        .unwrap_or_else(|| vm.get_none());
+    Ok(val)
+}
+
+pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<usize>> {
+    if let Some(len) = objsequence::opt_len(&iter, vm) {
+        match len {
+            Ok(len) => return Ok(Some(len)),
+            Err(e) => {
+                if !objtype::isinstance(&e, &vm.ctx.exceptions.type_error) {
+                    return Err(e);
+                }
+            }
+        }
+    }
+    let hint = match vm.get_method(iter, "__length_hint__") {
+        Some(hint) => hint?,
+        None => return Ok(None),
+    };
+    let result = match vm.invoke(&hint, vec![]) {
+        Ok(res) => res,
+        Err(e) => {
+            if objtype::isinstance(&e, &vm.ctx.exceptions.type_error) {
+                return Ok(None);
+            } else {
+                return Err(e);
+            }
+        }
+    };
+    let result = result
+        .payload_if_subclass::<PyInt>(vm)
+        .ok_or_else(|| {
+            vm.new_type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                result.class().name
+            ))
+        })?
+        .as_bigint();
+    if result.is_negative() {
+        return Err(vm.new_value_error("__length_hint__() should return >= 0".to_string()));
+    }
+    let hint = result.to_usize().ok_or_else(|| {
+        vm.new_value_error("Python int too large to convert to Rust usize".to_string())
+    })?;
+    Ok(Some(hint))
 }
 
 #[pyclass]
@@ -119,8 +177,30 @@ impl PySequenceIterator {
     fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
     }
+
+    #[pymethod(name = "__length_hint__")]
+    fn length_hint(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        let pos = self.position.get();
+        let hint = if self.reversed {
+            pos + 1
+        } else {
+            let len = objsequence::opt_len(&self.obj, vm).unwrap_or_else(|| {
+                Err(vm.new_type_error("sequence has no __len__ method".to_string()))
+            })?;
+            len as isize - pos
+        };
+        Ok(hint)
+    }
+}
+
+pub fn seq_iter_method(obj: PyObjectRef, _vm: &VirtualMachine) -> PySequenceIterator {
+    PySequenceIterator {
+        position: Cell::new(0),
+        obj,
+        reversed: false,
+    }
 }
 
 pub fn init(context: &PyContext) {
-    PySequenceIterator::extend_class(context, &context.iter_type);
+    PySequenceIterator::extend_class(context, &context.types.iter_type);
 }

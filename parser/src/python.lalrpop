@@ -7,6 +7,7 @@ use std::iter::FromIterator;
 
 use crate::ast;
 use crate::fstring::parse_located_fstring;
+use crate::function::{parse_args, parse_params};
 use crate::error::LexicalError;
 use crate::lexer;
 use crate::location;
@@ -31,22 +32,22 @@ Program: ast::Program = {
 };
 
 // A file line either has a declaration, or an empty newline:
-FileLine: Vec<ast::Statement> = {
+FileLine: ast::Suite = {
     Statement,
     "\n" => vec![],
 };
 
-Suite: Vec<ast::Statement> = {
+Suite: ast::Suite = {
     SimpleStatement,
-    "\n" indent <s:Statement+> dedent => s.into_iter().flatten().collect(),
+    "\n" Indent <s:Statement+> Dedent => s.into_iter().flatten().collect(),
 };
 
-Statement: Vec<ast::Statement> = {
+Statement: ast::Suite = {
     SimpleStatement,
     <s:CompoundStatement> => vec![s],
 };
 
-SimpleStatement: Vec<ast::Statement> = {
+SimpleStatement: ast::Suite = {
     <s1:SmallStatement> <s2:(";" SmallStatement)*> ";"? "\n" => {
         let mut statements = vec![s1];
         statements.extend(s2.into_iter().map(|e| e.1));
@@ -107,13 +108,23 @@ ExpressionStatement: ast::Statement = {
             }
         }
     },
-    <location:@L> <expr:TestOrStarExprList> <op:AugAssign> <rhs:TestList> => {
+    <location:@L> <target:TestOrStarExprList> <op:AugAssign> <rhs:TestList> => {
         ast::Statement {
             location,
             node: ast::StatementType::AugAssign {
-                target: Box::new(expr),
+                target: Box::new(target),
                 op,
                 value: Box::new(rhs)
+            },
+        }
+    },
+    <location:@L> <target:Test> ":" <annotation:Test> <rhs:("=" Test)?> => {
+        ast::Statement {
+            location,
+            node: ast::StatementType::AnnAssign {
+                target: Box::new(target),
+                annotation: Box::new(annotation),
+                value: rhs.map(|e| e.1)
             },
         }
     },
@@ -202,18 +213,19 @@ RaiseStatement: ast::Statement = {
 };
 
 ImportStatement: ast::Statement = {
-    <location:@L> "import" <names: Comma<ImportPart<<DottedName>>>> => {
+    <location:@L> "import" <names: OneOrMore<ImportAsAlias<DottedName>>> => {
         ast::Statement {
             location,
             node: ast::StatementType::Import { names },
         }
     },
-    <location:@L> "from" <n:ImportFromLocation> "import" <names: ImportAsNames> => {
+    <location:@L> "from" <source:ImportFromLocation> "import" <names: ImportAsNames> => {
+        let (level, module) = source;
         ast::Statement {
             location,
             node: ast::StatementType::ImportFrom {
-                level: n.0,
-                module: n.1,
+                level,
+                module,
                 names
             },
         }
@@ -235,8 +247,8 @@ ImportDots: usize = {
 };
 
 ImportAsNames: Vec<ast::ImportSymbol> = {
-    <i:Comma<ImportPart<Identifier>>> => i,
-    "(" <i:Comma<ImportPart<Identifier>>> ")" => i,
+    <i:OneOrMore<ImportAsAlias<Identifier>>> => i,
+    "(" <i:OneOrMore<ImportAsAlias<Identifier>>> ","? ")" => i,
     "*" => {
         // Star import all
         vec![ast::ImportSymbol { symbol: "*".to_string(), alias: None }]
@@ -245,7 +257,7 @@ ImportAsNames: Vec<ast::ImportSymbol> = {
 
 
 #[inline]
-ImportPart<I>: ast::ImportSymbol = {
+ImportAsAlias<I>: ast::ImportSymbol = {
     <symbol:I> <a: ("as" Identifier)?> => ast::ImportSymbol { symbol, alias: a.map(|a| a.1) },
 };
 
@@ -354,9 +366,23 @@ ForStatement: ast::Statement = {
 };
 
 TryStatement: ast::Statement = {
-    <location:@L> "try" ":" <body:Suite> <handlers:ExceptClause*> <else_suite:("else" ":" Suite)?> <finally:("finally" ":" Suite)?> => {
+    <location:@L> "try" ":" <body:Suite> <handlers:ExceptClause+> <else_suite:("else" ":" Suite)?> <finally:("finally" ":" Suite)?> => {
         let orelse = else_suite.map(|s| s.2);
         let finalbody = finally.map(|s| s.2);
+        ast::Statement {
+            location,
+            node: ast::StatementType::Try {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            },
+        }
+    },
+    <location:@L> "try" ":" <body:Suite> <finally:("finally" ":" Suite)> => {
+        let handlers = vec![];
+        let orelse = None;
+        let finalbody = Some(finally.2);
         ast::Statement {
             location,
             node: ast::StatementType::Try {
@@ -429,23 +455,23 @@ Parameters: ast::Parameters = {
 // Note that this is a macro which is used once for function defs, and
 // once for lambda defs.
 ParameterList<ArgType>: ast::Parameters = {
-    <param1:ParameterDefs<ArgType>> <args2:("," ParameterListStarArgs<ArgType>)?> ","? => {
-        let (names, default_elements) = param1;
+    <param1:ParameterDefs<ArgType>> <args2:("," ParameterListStarArgs<ArgType>)?> ","? =>? {
+        let (names, default_elements) = parse_params(param1)?;
 
         // Now gather rest of parameters:
         let (vararg, kwonlyargs, kw_defaults, kwarg) = args2.map_or((None, vec![], vec![], None), |x| x.1);
 
-        ast::Parameters {
+        Ok(ast::Parameters {
             args: names,
             kwonlyargs,
             vararg: vararg.into(),
             kwarg: kwarg.into(),
             defaults: default_elements,
             kw_defaults: kw_defaults,
-        }
+        })
     },
-    <param1:ParameterDefs<ArgType>> <kw:("," KwargParameter<ArgType>)> ","? => {
-        let (names, default_elements) = param1;
+    <param1:ParameterDefs<ArgType>> <kw:("," KwargParameter<ArgType>)> ","? =>? {
+        let (names, default_elements) = parse_params(param1)?;
 
         // Now gather rest of parameters:
         let vararg = None;
@@ -453,14 +479,14 @@ ParameterList<ArgType>: ast::Parameters = {
         let kw_defaults = vec![];
         let kwarg = Some(kw.1);
 
-        ast::Parameters {
+        Ok(ast::Parameters {
             args: names,
             kwonlyargs,
             vararg: vararg.into(),
             kwarg: kwarg.into(),
             defaults: default_elements,
             kw_defaults: kw_defaults,
-        }
+        })
     },
     <params:ParameterListStarArgs<ArgType>> ","? => {
         let (vararg, kwonlyargs, kw_defaults, kwarg) = params;
@@ -487,27 +513,9 @@ ParameterList<ArgType>: ast::Parameters = {
 
 // Use inline here to make sure the "," is not creating an ambiguity.
 #[inline]
-ParameterDefs<ArgType>: (Vec<ast::Parameter>, Vec<ast::Expression>) = {
+ParameterDefs<ArgType>: Vec<(ast::Parameter, Option<ast::Expression>)> = {
     <args:OneOrMore<ParameterDef<ArgType>>> => {
-        let mut names = vec![];
-        let mut default_elements = vec![];
-
-        for (name, default) in args.into_iter() {
-            if let Some(default) = default {
-                default_elements.push(default);
-            } else {
-                if default_elements.len() > 0 {
-                    // Once we have started with defaults, all remaining arguments must
-                    // have defaults
-                    panic!("non-default argument follows default argument: {}", &name.arg);
-                }
-            }
-            names.push(name);
-        }
-
-        //Ok(
-            (names, default_elements)
-        //)
+        args
     }
 };
 
@@ -555,7 +563,7 @@ KwargParameter<ArgType>: Option<ast::Parameter> = {
 ClassDef: ast::Statement = {
     <decorator_list:Decorator*> <location:@L> "class" <name:Identifier> <a:("(" ArgumentList ")")?> ":" <body:Suite> => {
         let (bases, keywords) = match a {
-            Some((_, args, _)) => args,
+            Some((_, arg, _)) => (arg.args, arg.keywords),
             None => (vec![], vec![]),
         };
         ast::Statement {
@@ -591,14 +599,13 @@ Path: ast::Expression = {
 Decorator: ast::Expression = {
     "@" <p:Path> <a: (@L "(" ArgumentList ")")?> "\n" => {
         match a {
-            Some((location, _, args, _)) => {
-                let (args, keywords) = args;
+            Some((location, _, arg, _)) => {
                 ast::Expression {
                     location,
                     node: ast::ExpressionType::Call {
                         function: Box::new(p),
-                        args,
-                        keywords,
+                        args: arg.args,
+                        keywords: arg.keywords,
                     }
                 }
             },
@@ -648,18 +655,32 @@ LambdaDef: ast::Expression = {
 }
 
 OrTest: ast::Expression = {
-    AndTest,
-    <e1:OrTest> <location:@L> "or" <e2:AndTest> => ast::Expression {
-        location,
-        node: ast::ExpressionType::BoolOp { a: Box::new(e1), op: ast::BooleanOperator::Or, b: Box::new(e2) }
+    <e1:AndTest> <location:@L> <e2:("or" AndTest)*> => {
+        if e2.is_empty() {
+            e1
+        } else {
+            let mut values = vec![e1];
+            values.extend(e2.into_iter().map(|e| e.1));
+            ast::Expression {
+                location,
+                node: ast::ExpressionType::BoolOp { op: ast::BooleanOperator::Or, values }
+            }
+        }
     },
 };
 
 AndTest: ast::Expression = {
-    NotTest,
-    <e1:AndTest> <location:@L> "and" <e2:NotTest> => ast::Expression {
-        location,
-        node: ast::ExpressionType::BoolOp { a: Box::new(e1), op: ast::BooleanOperator::And, b: Box::new(e2) }
+    <e1:NotTest> <location:@L> <e2:("and" NotTest)*> => {
+        if e2.is_empty() {
+            e1
+        } else {
+            let mut values = vec![e1];
+            values.extend(e2.into_iter().map(|e| e.1));
+            ast::Expression {
+                location,
+                node: ast::ExpressionType::BoolOp { op: ast::BooleanOperator::And, values }
+            }
+        }
     },
 };
 
@@ -808,10 +829,9 @@ AtomExpr: ast::Expression = {
 AtomExpr2: ast::Expression = {
     Atom,
     <f:AtomExpr2> <location:@L> "(" <a:ArgumentList> ")" => {
-        let (args, keywords) = a;
         ast::Expression {
             location,
-            node: ast::ExpressionType::Call { function: Box::new(f), args, keywords }
+            node: ast::ExpressionType::Call { function: Box::new(f), args: a.args, keywords: a.keywords }
         }
     },
     <e:AtomExpr2> <location:@L> "[" <s:SubscriptList> "]" => ast::Expression {
@@ -876,75 +896,76 @@ Atom: ast::Expression = {
         location,
         node: ast::ExpressionType::Identifier { name }
     },
-    <location:@L> "[" <e:TestListComp?> "]" => {
+    <location:@L> "[" <e:ListLiteralValues?> "]" => {
         let elements = e.unwrap_or_default();
         ast::Expression {
             location,
             node: ast::ExpressionType::List { elements }
         }
     },
-    "[" <e:TestListComp2> "]" => e,
+    <location:@L> "[" <element:TestOrStarExpr> <generators:CompFor> "]" => {
+        ast::Expression {
+            location,
+            node: ast::ExpressionType::Comprehension {
+                kind: Box::new(ast::ComprehensionKind::List { element }),
+                generators,
+            }
+        }
+    },
     <location:@L> "(" <elements:TestOrStarExprList?> ")" => {
         elements.unwrap_or(ast::Expression {
              location,
              node: ast::ExpressionType::Tuple { elements: Vec::new() }
         })
     },
-    <location:@L> "(" <e:Test> <c:CompFor> ")" => {
+    "(" <e:YieldExpr> ")" => e,
+    <location:@L> "(" <element:Test> <generators:CompFor> ")" => {
         ast::Expression {
             location,
             node: ast::ExpressionType::Comprehension {
-                kind: Box::new(ast::ComprehensionKind::GeneratorExpression { element: e }),
-                generators: c,
+                kind: Box::new(ast::ComprehensionKind::GeneratorExpression { element }),
+                generators,
             }
         }
     },
-    <location:@L> "{" <e:TestDict?> "}" => ast::Expression {
+    <location:@L> "{" <e:DictLiteralValues?> "}" => ast::Expression {
         location,
         node: ast::ExpressionType::Dict { elements: e.unwrap_or_default() }
     },
-    "{" <e:TestDictComp> "}" => e,
-    <location:@L> "{" <e:TestSet> "}" => ast::Expression {
-        location,
-        node: ast::ExpressionType::Set { elements: e }
+    <location:@L> "{" <e1:DictEntry> <generators:CompFor> "}" => {
+        ast::Expression {
+            location,
+            node: ast::ExpressionType::Comprehension {
+                kind: Box::new(ast::ComprehensionKind::Dict { key: e1.0, value: e1.1 }),
+                generators,
+            }
+        }
     },
-    "{" <e:TestSetComp> "}" => e,
+    <location:@L> "{" <elements:SetLiteralValues> "}" => ast::Expression {
+        location,
+        node: ast::ExpressionType::Set { elements }
+    },
+    <location:@L> "{" <element:Test> <generators:CompFor> "}" => {
+        ast::Expression {
+            location,
+            node: ast::ExpressionType::Comprehension {
+                kind: Box::new(ast::ComprehensionKind::Set { element }),
+                generators,
+            }
+        }
+    },
     <location:@L> "True" => ast::Expression { location, node: ast::ExpressionType::True },
     <location:@L> "False" => ast::Expression { location, node: ast::ExpressionType::False },
     <location:@L> "None" => ast::Expression { location, node: ast::ExpressionType::None },
     <location:@L> "..." => ast::Expression { location, node: ast::ExpressionType::Ellipsis },
 };
 
-TestListComp: Vec<ast::Expression> = {
-    <e:OneOrMore<TestOrStarExpr>> <_trailing_comma:","?> => e,
+ListLiteralValues: Vec<ast::Expression> = {
+    <e:OneOrMore<TestOrStarExpr>> ","? => e,
 };
 
-TestListComp2: ast::Expression = {
-    <location:@L> <e:TestOrStarExpr> <c:CompFor> => {
-        ast::Expression {
-            location,
-            node: ast::ExpressionType::Comprehension {
-                kind: Box::new(ast::ComprehensionKind::List { element: e }),
-                generators: c,
-            }
-        }
-    },
-};
-
-TestDict: Vec<(Option<ast::Expression>, ast::Expression)> = {
-    <elements:OneOrMore<DictElement>> <_trailing_comma:","?> => elements,
-};
-
-TestDictComp: ast::Expression = {
-    <location:@L> <e1:DictEntry> <c:CompFor> => {
-        ast::Expression {
-            location,
-            node: ast::ExpressionType::Comprehension {
-                kind: Box::new(ast::ComprehensionKind::Dict { key: e1.0, value: e1.1 }),
-                generators: c,
-            }
-        }
-    }
+DictLiteralValues: Vec<(Option<ast::Expression>, ast::Expression)> = {
+    <elements:OneOrMore<DictElement>> ","? => elements,
 };
 
 DictEntry: (ast::Expression, ast::Expression) = {
@@ -956,20 +977,8 @@ DictElement: (Option<ast::Expression>, ast::Expression) = {
     "**" <e:Expression> => (None, e),
 };
 
-TestSet: Vec<ast::Expression> = {
-    <e1:OneOrMore<Test>> ","? => e1
-};
-
-TestSetComp: ast::Expression = {
-    <location:@L> <e1:Test> <c:CompFor> => {
-        ast::Expression {
-            location,
-            node: ast::ExpressionType::Comprehension {
-                kind: Box::new(ast::ComprehensionKind::Set { element: e1 }),
-                generators: c,
-            }
-        }
-    }
+SetLiteralValues: Vec<ast::Expression> = {
+    <e1:OneOrMore<TestOrStarExpr>> ","? => e1
 };
 
 ExpressionOrStarExpression = {
@@ -1023,39 +1032,19 @@ StarExpr: ast::Expression = {
 CompFor: Vec<ast::Comprehension> = <c:SingleForComprehension+> => c;
 
 SingleForComprehension: ast::Comprehension = {
-    <location:@L> "for" <target:ExpressionList> "in" <iter:OrTest> <ifs:ComprehensionIf*> => {
-        ast::Comprehension { location, target, iter, ifs }
+    <location:@L> <is_async:"async"?> "for" <target:ExpressionList> "in" <iter:OrTest> <ifs:ComprehensionIf*> => {
+        let is_async = is_async.is_some();
+        ast::Comprehension { location, target, iter, ifs, is_async }
     }
 };
 
 ExpressionNoCond: ast::Expression = OrTest;
 ComprehensionIf: ast::Expression = "if" <c:ExpressionNoCond> => c;
 
-ArgumentList: (Vec<ast::Expression>, Vec<ast::Keyword>) = {
-    <e: Comma<FunctionArgument>> => {
-        let mut args = vec![];
-        let mut keywords = vec![];
-        for (name, value) in e {
-            match name {
-                Some(n) => {
-                    keywords.push(ast::Keyword { name: n, value: value });
-                },
-                None => {
-                    // Allow starred args after keyword arguments.
-                    let is_starred = if let ast::ExpressionType::Starred { .. } = &value.node {
-                        true
-                    } else {
-                        false
-                    };
-
-                    if keywords.len() > 0 && !is_starred {
-                        panic!("positional argument follows keyword argument {:?}", keywords);
-                    };
-                    args.push(value);
-                },
-            }
-        }
-        (args, keywords)
+ArgumentList: ast::ArgumentList = {
+    <e: Comma<FunctionArgument>> =>? {
+        let arg_list = parse_args(e)?;
+        Ok(arg_list)
     }
 };
 
@@ -1135,8 +1124,8 @@ extern {
     type Error = LexicalError;
 
     enum lexer::Tok {
-        indent => lexer::Tok::Indent,
-        dedent => lexer::Tok::Dedent,
+        Indent => lexer::Tok::Indent,
+        Dedent => lexer::Tok::Dedent,
         StartProgram => lexer::Tok::StartProgram,
         StartStatement => lexer::Tok::StartStatement,
         StartExpression => lexer::Tok::StartExpression,

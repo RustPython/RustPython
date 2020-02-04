@@ -1,9 +1,8 @@
-use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
-use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
-
 use super::objbool;
 use super::objiter;
-use crate::obj::objtype::PyClassRef;
+use super::objtype::PyClassRef;
+use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::vm::VirtualMachine;
 
 pub type PyFilterRef = PyRef<PyFilter>;
 
@@ -24,23 +23,24 @@ impl PyValue for PyFilter {
     }
 }
 
-fn filter_new(
-    cls: PyClassRef,
-    function: PyObjectRef,
-    iterable: PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult<PyFilterRef> {
-    let iterator = objiter::get_iter(vm, &iterable)?;
-
-    PyFilter {
-        predicate: function.clone(),
-        iterator,
-    }
-    .into_ref_with_type(vm, cls)
-}
-
-#[pyimpl]
+#[pyimpl(flags(BASETYPE))]
 impl PyFilter {
+    #[pyslot]
+    fn tp_new(
+        cls: PyClassRef,
+        function: PyObjectRef,
+        iterable: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyFilterRef> {
+        let iterator = objiter::get_iter(vm, &iterable)?;
+
+        PyFilter {
+            predicate: function.clone(),
+            iterator,
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         let predicate = &self.predicate;
@@ -52,7 +52,7 @@ impl PyFilter {
             } else {
                 // the predicate itself can raise StopIteration which does stop the filter
                 // iteration
-                vm.invoke(predicate.clone(), vec![next_obj.clone()])?
+                vm.invoke(&predicate, vec![next_obj.clone()])?
             };
             if objbool::boolval(vm, predicate_value)? {
                 return Ok(next_obj);
@@ -67,8 +67,5 @@ impl PyFilter {
 }
 
 pub fn init(context: &PyContext) {
-    PyFilter::extend_class(context, &context.filter_type);
-    extend_class!(context, &context.filter_type, {
-        "__new__" => context.new_rustfunc(filter_new),
-    });
+    PyFilter::extend_class(context, &context.types.filter_type);
 }

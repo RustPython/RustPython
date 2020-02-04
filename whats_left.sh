@@ -15,6 +15,8 @@ h() {
 
 cd "$(dirname "$0")"
 
+export RUSTPYTHONPATH=Lib
+
 (
   cd tests
   # -I means isolate from environment; we don't want any pip packages to be listed

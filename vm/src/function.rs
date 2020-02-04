@@ -3,7 +3,9 @@ use std::mem;
 use std::ops::RangeInclusive;
 
 use indexmap::IndexMap;
+use result_like::impl_option_like;
 
+use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{
@@ -100,7 +102,7 @@ impl PyFuncArgs {
         key: &str,
         ty: PyClassRef,
         vm: &VirtualMachine,
-    ) -> Result<Option<PyObjectRef>, PyObjectRef> {
+    ) -> PyResult<Option<PyObjectRef>> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
                 if isinstance(&kwarg, &ty) {
@@ -131,7 +133,7 @@ impl PyFuncArgs {
     }
 
     pub fn take_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
-        self.kwargs.remove(name)
+        self.kwargs.swap_remove(name)
     }
 
     pub fn remaining_keywords<'a>(
@@ -207,11 +209,11 @@ pub enum ArgumentError {
     RequiredKeywordArgument(String),
     /// An exception was raised while binding arguments to the function
     /// parameters.
-    Exception(PyObjectRef),
+    Exception(PyBaseExceptionRef),
 }
 
-impl From<PyObjectRef> for ArgumentError {
-    fn from(ex: PyObjectRef) -> Self {
+impl From<PyBaseExceptionRef> for ArgumentError {
+    fn from(ex: PyBaseExceptionRef) -> Self {
         ArgumentError::Exception(ex)
     }
 }
@@ -277,7 +279,7 @@ impl<T> IntoIterator for KwArgs<T> {
 
 /// A list of positional argument values.
 ///
-/// A built-in function with a `Args` parameter is analagous to a Python
+/// A built-in function with a `Args` parameter is analogous to a Python
 /// function with `*args`. All remaining positional arguments are extracted
 /// (and hence the function will permit an arbitrary number of them).
 ///
@@ -285,6 +287,12 @@ impl<T> IntoIterator for KwArgs<T> {
 /// or conversions of each argument.
 #[derive(Clone)]
 pub struct Args<T = PyObjectRef>(Vec<T>);
+
+impl<T> Args<T> {
+    pub fn into_vec(self) -> Vec<T> {
+        self.0
+    }
+}
 
 impl<T: PyValue> Args<PyRef<T>> {
     pub fn into_tuple(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -335,54 +343,22 @@ where
 /// An argument that may or may not be provided by the caller.
 ///
 /// This style of argument is not possible in pure Python.
-#[derive(Debug)]
+#[derive(Debug, is_macro::Is)]
 pub enum OptionalArg<T = PyObjectRef> {
     Present(T),
     Missing,
 }
 
-impl<T> OptionalArg<T> {
+impl_option_like!(OptionalArg, Present, Missing);
+
+pub type OptionalOption<T> = OptionalArg<Option<T>>;
+
+impl<T> OptionalOption<T> {
     #[inline]
-    pub fn is_present(&self) -> bool {
+    pub fn flat_option(self) -> Option<T> {
         match self {
-            Present(_) => true,
-            Missing => false,
-        }
-    }
-
-    #[inline]
-    pub fn into_option(self) -> Option<T> {
-        match self {
-            Present(value) => Some(value),
-            Missing => None,
-        }
-    }
-
-    pub fn unwrap_or(self, default: T) -> T {
-        match self {
-            Present(value) => value,
-            Missing => default,
-        }
-    }
-
-    pub fn unwrap_or_else<F>(self, f: F) -> T
-    where
-        F: FnOnce() -> T,
-    {
-        match self {
-            Present(value) => value,
-            Missing => f(),
-        }
-    }
-
-    pub fn map_or_else<U, D, F>(self, default: D, f: F) -> U
-    where
-        D: FnOnce() -> U,
-        F: FnOnce(T) -> U,
-    {
-        match self {
-            Present(value) => f(value),
-            Missing => default(),
+            Present(Some(value)) => Some(value),
+            _ => None,
         }
     }
 }
@@ -469,11 +445,11 @@ pub type PyNativeFunc = Box<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 's
 ///
 /// A bare `PyNativeFunc` also implements this trait, allowing the above to be
 /// done manually, for rare situations that don't fit into this model.
-pub trait IntoPyNativeFunc<T, R> {
+pub trait IntoPyNativeFunc<T, R, VM> {
     fn into_func(self) -> PyNativeFunc;
 }
 
-impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult> for F
+impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult, VirtualMachine> for F
 where
     F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static,
 {
@@ -491,7 +467,7 @@ pub struct RefParam<T>(std::marker::PhantomData<T>);
 // Note that this could be done without a macro - it is simply to avoid repetition.
 macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),*) => {
-        impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R> for F
+        impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
             F: Fn($($T,)* &VirtualMachine) -> R + 'static,
             $($T: FromArgs,)*
@@ -506,7 +482,7 @@ macro_rules! into_py_native_func_tuple {
             }
         }
 
-        impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R> for F
+        impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
             F: Fn(&S, $($T,)* &VirtualMachine) -> R + 'static,
             S: PyValue,
@@ -519,6 +495,29 @@ macro_rules! into_py_native_func_tuple {
 
                     (self)(&zelf, $($n,)* vm).into_pyobject(vm)
                 })
+            }
+        }
+
+        impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, ()> for F
+        where
+            F: Fn($($T,)*) -> R + 'static,
+            $($T: FromArgs,)*
+            R: IntoPyObject,
+        {
+            fn into_func(self) -> PyNativeFunc {
+                IntoPyNativeFunc::into_func(move |$($n,)* _vm: &VirtualMachine| (self)($($n,)*))
+            }
+        }
+
+        impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
+        where
+            F: Fn(&S, $($T,)*) -> R + 'static,
+            S: PyValue,
+            $($T: FromArgs,)*
+            R: IntoPyObject,
+        {
+            fn into_func(self) -> PyNativeFunc {
+                IntoPyNativeFunc::into_func(move |zelf: &S, $($n,)* _vm: &VirtualMachine| (self)(zelf, $($n,)*))
             }
         }
     };
@@ -541,17 +540,35 @@ pub fn single_or_tuple_any<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>>(
     message: fn(&PyObjectRef) -> String,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
-    match_class!(obj,
-        obj @ T => predicate(obj),
-        tuple @ PyTuple => {
-            for obj in tuple.elements.iter() {
-                let inner_val = PyRef::<T>::try_from_object(vm, obj.clone())?;
-                if predicate(inner_val)? {
-                    return Ok(true);
+    // TODO: figure out some way to have recursive calls without... this
+    use std::marker::PhantomData;
+    struct Checker<'vm, T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>> {
+        predicate: F,
+        message: fn(&PyObjectRef) -> String,
+        vm: &'vm VirtualMachine,
+        t: PhantomData<T>,
+    }
+    impl<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>> Checker<'_, T, F> {
+        fn check(&self, obj: PyObjectRef) -> PyResult<bool> {
+            match_class!(match obj {
+                obj @ T => (self.predicate)(obj),
+                tuple @ PyTuple => {
+                    for obj in tuple.as_slice().iter() {
+                        if self.check(obj.clone())? {
+                            return Ok(true);
+                        }
+                    }
+                    Ok(false)
                 }
-            }
-            Ok(false)
-        },
-        obj => Err(vm.new_type_error(message(&obj)))
-    )
+                obj => Err(self.vm.new_type_error((self.message)(&obj))),
+            })
+        }
+    }
+    let checker = Checker {
+        predicate,
+        message,
+        vm,
+        t: PhantomData,
+    };
+    checker.check(obj)
 }

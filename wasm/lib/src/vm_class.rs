@@ -7,10 +7,9 @@ use wasm_bindgen::prelude::*;
 
 use rustpython_compiler::compile;
 use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::import;
 use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::scope::{NameProtocol, Scope};
-use rustpython_vm::VirtualMachine;
+use rustpython_vm::{InitParameter, PySettings, VirtualMachine};
 
 use crate::browser_module::setup_browser_module;
 use crate::convert;
@@ -27,7 +26,13 @@ pub(crate) struct StoredVirtualMachine {
 
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
-        let mut vm: VirtualMachine = Default::default();
+        let mut settings = PySettings::default();
+
+        // After js, browser modules injected, the VM will not be initialized.
+        settings.initialization_parameter = InitParameter::NoInitialize;
+
+        let mut vm: VirtualMachine = VirtualMachine::new(settings);
+
         vm.wasm_id = Some(id);
         let scope = vm.new_scope_with_builtins();
 
@@ -44,7 +49,7 @@ impl StoredVirtualMachine {
             setup_browser_module(&vm);
         }
 
-        import::init_importlib(&vm, false).unwrap();
+        vm.initialize(InitParameter::InitializeInternal);
 
         StoredVirtualMachine {
             vm,
@@ -216,25 +221,27 @@ impl WASMVirtualMachine {
             }
             let print_fn: PyObjectRef = if let Some(s) = stdout.as_string() {
                 match s.as_str() {
-                    "console" => vm.ctx.new_rustfunc(wasm_builtins::builtin_print_console),
+                    "console" => vm.ctx.new_method(wasm_builtins::builtin_print_console),
                     _ => return Err(error()),
                 }
             } else if stdout.is_function() {
                 let func = js_sys::Function::from(stdout);
                 vm.ctx
-                    .new_rustfunc(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
+                    .new_method(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
                         func.call1(
                             &JsValue::UNDEFINED,
                             &wasm_builtins::format_print_args(vm, args)?.into(),
                         )
-                        .map_err(|err| convert::js_to_py(vm, err))?;
+                        .map_err(|err| convert::js_py_typeerror(vm, err))?;
                         Ok(vm.get_none())
                     })
-            } else if stdout.is_undefined() || stdout.is_null() {
+            } else if stdout.is_null() {
                 fn noop(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
                     Ok(vm.get_none())
                 }
-                vm.ctx.new_rustfunc(noop)
+                vm.ctx.new_method(noop)
+            } else if stdout.is_undefined() {
+                vm.ctx.new_method(wasm_builtins::builtin_print_console)
             } else {
                 return Err(error());
             };
@@ -256,7 +263,7 @@ impl WASMVirtualMachine {
             let mod_name = name.clone();
 
             let stdlib_init_fn = move |vm: &VirtualMachine| {
-                let module = vm.ctx.new_module(&name, vm.ctx.new_dict());
+                let module = vm.new_module(&name, vm.ctx.new_dict());
                 for (key, value) in module_items.clone() {
                     vm.set_attr(&module, key, value).unwrap();
                 }
@@ -271,13 +278,19 @@ impl WASMVirtualMachine {
         })?
     }
 
-    fn run(&self, source: String, mode: compile::Mode) -> Result<JsValue, JsValue> {
+    pub(crate) fn run(
+        &self,
+        source: &str,
+        mode: compile::Mode,
+        source_path: Option<String>,
+    ) -> Result<JsValue, JsValue> {
         self.assert_valid()?;
         self.with_unchecked(
             |StoredVirtualMachine {
                  ref vm, ref scope, ..
              }| {
-                let code = vm.compile(&source, &mode, "<wasm>".to_string());
+                let source_path = source_path.unwrap_or_else(|| "<wasm>".to_string());
+                let code = vm.compile(source, mode, source_path);
                 let code = code.map_err(|err| {
                     let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
                     let _ =
@@ -295,16 +308,20 @@ impl WASMVirtualMachine {
         )
     }
 
-    pub fn exec(&self, source: String) -> Result<JsValue, JsValue> {
-        self.run(source, compile::Mode::Exec)
+    pub fn exec(&self, source: &str, source_path: Option<String>) -> Result<JsValue, JsValue> {
+        self.run(source, compile::Mode::Exec, source_path)
     }
 
-    pub fn eval(&self, source: String) -> Result<JsValue, JsValue> {
-        self.run(source, compile::Mode::Eval)
+    pub fn eval(&self, source: &str, source_path: Option<String>) -> Result<JsValue, JsValue> {
+        self.run(source, compile::Mode::Eval, source_path)
     }
 
     #[wasm_bindgen(js_name = execSingle)]
-    pub fn exec_single(&self, source: String) -> Result<JsValue, JsValue> {
-        self.run(source, compile::Mode::Single)
+    pub fn exec_single(
+        &self,
+        source: &str,
+        source_path: Option<String>,
+    ) -> Result<JsValue, JsValue> {
+        self.run(source, compile::Mode::Single, source_path)
     }
 }

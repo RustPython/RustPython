@@ -15,6 +15,8 @@ exc = KeyError('message')
 assert str(exc) == "'message'"
 assert round_trip_repr(exc)
 
+assert LookupError.__str__(exc) == "message"
+
 exc = KeyError('message', 'another message')
 assert str(exc) == "('message', 'another message')"
 assert round_trip_repr(exc)
@@ -51,3 +53,15 @@ assert exc.name == 'name'
 assert exc.path == 'path'
 assert exc.msg == 'hello'
 assert exc.args == ('hello',)
+
+
+class NewException(Exception):
+
+	def __init__(self, value):
+		self.value = value
+
+
+try:
+	raise NewException("test")
+except NewException as e:
+	assert e.value == "test"

@@ -33,6 +33,10 @@ class Bar:
         assert __class__ is Bar
         return self.x
 
+    def doc_func(self):
+        "doc string"
+        pass
+
     @classmethod
     def fubar(cls, x):
         assert __class__ is cls
@@ -48,6 +52,8 @@ class Bar:
 assert Bar.__doc__ == " W00t "
 
 bar = Bar(42)
+assert bar.get_x.__doc__ == None
+assert bar.doc_func.__doc__ == "doc string"
 
 bar.fubar(2)
 Bar.fubar(2)
@@ -155,3 +161,47 @@ assert T4.t1.__doc__ == "t1"
 
 cm = classmethod(lambda cls: cls)
 assert cm.__func__(int) is int
+
+assert str(super(int, 5)) == "<super: <class 'int'>, <int object>>"
+
+class T5(int):
+    pass
+
+assert str(super(int, T5(5))) == "<super: <class 'int'>, <T5 object>>"
+
+#assert str(super(type, None)) == "<super: <class 'type'>, NULL>"
+
+a = 1
+class A:
+    a = 2
+    def b():
+        assert a == 1
+    b()
+    assert a == 2
+A.b()
+
+class A:
+    pass
+
+assert A.__doc__ == None
+
+class B:
+    "Docstring"
+
+assert B.__doc__ == "Docstring"
+
+# TODO: uncomment once free vars/cells are working
+# The symboltable sees that b() is referring to a in the nested scope,
+# so it marks it as non local. When it's executed, it walks up the scopes
+# and still finds the a from the class scope.
+# a = 1
+# def nested_scope():
+#     a = 2
+#     class A:
+#         a = 3
+#         def b():
+#             assert a == 2
+#         b()
+#         assert a == 3
+#     A.b()
+# nested_scope()

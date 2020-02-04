@@ -1,6 +1,10 @@
 use crate::function::OptionalArg;
-use crate::obj::{objbool, objsequence, objtype::PyClassRef};
-use crate::pyobject::{IdProtocol, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::obj::{objiter, objtype::PyClassRef};
+use crate::pyobject::{
+    IdProtocol, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef,
+    PyRef, PyResult, PyValue,
+};
+use crate::sequence::{self, SimpleSeq};
 use crate::vm::ReprGuard;
 use crate::VirtualMachine;
 use itertools::Itertools;
@@ -13,6 +17,7 @@ struct PyDeque {
     deque: RefCell<VecDeque<PyObjectRef>>,
     maxlen: Cell<Option<usize>>,
 }
+type PyDequeRef = PyRef<PyDeque>;
 
 impl PyValue for PyDeque {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -26,10 +31,16 @@ struct PyDequeOptions {
     maxlen: Option<usize>,
 }
 
-#[pyimpl]
 impl PyDeque {
-    #[pymethod(name = "__new__")]
-    fn new(
+    fn borrow_deque<'a>(&'a self) -> impl std::ops::Deref<Target = VecDeque<PyObjectRef>> + 'a {
+        self.deque.borrow()
+    }
+}
+
+#[pyimpl(flags(BASETYPE))]
+impl PyDeque {
+    #[pyslot]
+    fn tp_new(
         cls: PyClassRef,
         iter: OptionalArg<PyIterable>,
         PyDequeOptions { maxlen }: PyDequeOptions,
@@ -77,7 +88,7 @@ impl PyDeque {
     fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count = 0;
         for elem in self.deque.borrow().iter() {
-            if objbool::boolval(vm, vm._eq(elem.clone(), obj.clone())?)? {
+            if vm.identical_or_equal(elem, &obj)? {
                 count += 1;
             }
         }
@@ -113,7 +124,7 @@ impl PyDeque {
         let start = start.unwrap_or(0);
         let stop = stop.unwrap_or_else(|| deque.len());
         for (i, elem) in deque.iter().skip(start).take(stop - start).enumerate() {
-            if objbool::boolval(vm, vm._eq(elem.clone(), obj.clone())?)? {
+            if vm.identical_or_equal(elem, &obj)? {
                 return Ok(i);
             }
         }
@@ -170,7 +181,7 @@ impl PyDeque {
         let mut deque = self.deque.borrow_mut();
         let mut idx = None;
         for (i, elem) in deque.iter().enumerate() {
-            if objbool::boolval(vm, vm._eq(elem.clone(), obj.clone())?)? {
+            if vm.identical_or_equal(elem, &obj)? {
                 idx = Some(i);
                 break;
             }
@@ -200,10 +211,10 @@ impl PyDeque {
     fn maxlen(&self, _vm: &VirtualMachine) -> Option<usize> {
         self.maxlen.get()
     }
+
     #[pyproperty(setter)]
-    fn set_maxlen(&self, maxlen: Option<usize>, vm: &VirtualMachine) -> PyResult {
+    fn set_maxlen(&self, maxlen: Option<usize>, _vm: &VirtualMachine) {
         self.maxlen.set(maxlen);
-        Ok(vm.get_none())
     }
 
     #[pymethod(name = "__repr__")]
@@ -227,100 +238,97 @@ impl PyDeque {
         Ok(repr)
     }
 
+    #[inline]
+    fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>
+    where
+        F: Fn(&VecDeque<PyObjectRef>, &VecDeque<PyObjectRef>) -> PyResult<bool>,
+    {
+        let r = if let Some(other) = other.payload_if_subclass::<PyDeque>(vm) {
+            Implemented(op(&*self.borrow_deque(), &*other.borrow_deque())?)
+        } else {
+            NotImplemented
+        };
+        Ok(r)
+    }
+
     #[pymethod(name = "__eq__")]
-    fn eq(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn eq(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         if zelf.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
+            Ok(Implemented(true))
+        } else {
+            zelf.cmp(other, |a, b| sequence::eq(vm, a, b), vm)
         }
+    }
 
-        let other = match_class!(other,
-            other @ Self => other,
-            _ => return Ok(vm.ctx.not_implemented()),
-        );
-
-        let lhs: &VecDeque<_> = &zelf.deque.borrow();
-        let rhs: &VecDeque<_> = &other.deque.borrow();
-
-        let eq = objsequence::seq_equal(vm, lhs, rhs)?;
-        Ok(vm.new_bool(eq))
+    #[pymethod(name = "__ne__")]
+    fn ne(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Ok(PyDeque::eq(zelf, other, vm)?.map(|v| !v))
     }
 
     #[pymethod(name = "__lt__")]
-    fn lt(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn lt(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         if zelf.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
+            Ok(Implemented(false))
+        } else {
+            zelf.cmp(other, |a, b| sequence::lt(vm, a, b), vm)
         }
-
-        let other = match_class!(other,
-            other @ Self => other,
-            _ => return Ok(vm.ctx.not_implemented()),
-        );
-
-        let lhs: &VecDeque<_> = &zelf.deque.borrow();
-        let rhs: &VecDeque<_> = &other.deque.borrow();
-
-        let eq = objsequence::seq_lt(vm, lhs, rhs)?;
-        Ok(vm.new_bool(eq))
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn gt(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         if zelf.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
+            Ok(Implemented(false))
+        } else {
+            zelf.cmp(other, |a, b| sequence::gt(vm, a, b), vm)
         }
-
-        let other = match_class!(other,
-            other @ Self => other,
-            _ => return Ok(vm.ctx.not_implemented()),
-        );
-
-        let lhs: &VecDeque<_> = &zelf.deque.borrow();
-        let rhs: &VecDeque<_> = &other.deque.borrow();
-
-        let eq = objsequence::seq_gt(vm, lhs, rhs)?;
-        Ok(vm.new_bool(eq))
     }
 
     #[pymethod(name = "__le__")]
-    fn le(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn le(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         if zelf.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
+            Ok(Implemented(true))
+        } else {
+            zelf.cmp(other, |a, b| sequence::le(vm, a, b), vm)
         }
-
-        let other = match_class!(other,
-            other @ Self => other,
-            _ => return Ok(vm.ctx.not_implemented()),
-        );
-
-        let lhs: &VecDeque<_> = &zelf.deque.borrow();
-        let rhs: &VecDeque<_> = &other.deque.borrow();
-
-        let eq = objsequence::seq_le(vm, lhs, rhs)?;
-        Ok(vm.new_bool(eq))
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn ge(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         if zelf.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
+            Ok(Implemented(true))
+        } else {
+            zelf.cmp(other, |a, b| sequence::ge(vm, a, b), vm)
         }
-
-        let other = match_class!(other,
-            other @ Self => other,
-            _ => return Ok(vm.ctx.not_implemented()),
-        );
-
-        let lhs: &VecDeque<_> = &zelf.deque.borrow();
-        let rhs: &VecDeque<_> = &other.deque.borrow();
-
-        let eq = objsequence::seq_ge(vm, lhs, rhs)?;
-        Ok(vm.new_bool(eq))
     }
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, n: isize, _vm: &VirtualMachine) -> Self {
         let deque: &VecDeque<_> = &self.deque.borrow();
-        let mul = objsequence::seq_mul(deque, n);
+        let mul = sequence::seq_mul(deque, n);
         let skipped = if let Some(maxlen) = self.maxlen.get() {
             mul.len() - maxlen
         } else {
@@ -337,10 +345,51 @@ impl PyDeque {
     fn len(&self, _vm: &VirtualMachine) -> usize {
         self.deque.borrow().len()
     }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyDequeIterator {
+        PyDequeIterator {
+            position: Cell::new(0),
+            deque: zelf,
+        }
+    }
+}
+
+#[pyclass(name = "_deque_iterator")]
+#[derive(Debug)]
+struct PyDequeIterator {
+    position: Cell<usize>,
+    deque: PyDequeRef,
+}
+
+impl PyValue for PyDequeIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("_collections", "_deque_iterator")
+    }
+}
+
+#[pyimpl]
+impl PyDequeIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        if self.position.get() < self.deque.deque.borrow().len() {
+            let ret = self.deque.deque.borrow()[self.position.get()].clone();
+            self.position.set(self.position.get() + 1);
+            Ok(ret)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     py_module!(vm, "_collections", {
         "deque" => PyDeque::make_class(&vm.ctx),
+        "_deque_iterator" => PyDequeIterator::make_class(&vm.ctx),
     })
 }

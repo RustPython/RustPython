@@ -41,8 +41,8 @@ impl PyHasher {
         }
     }
 
-    #[pymethod(name = "__new__")]
-    fn py_new(_cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    #[pyslot]
+    fn tp_new(_cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(PyHasher::new("md5", HashWrapper::md5())
             .into_ref(vm)
             .into_object())
@@ -86,24 +86,30 @@ fn hashlib_new(
     data: OptionalArg<PyBytesRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyHasher> {
-    let hasher = match name.value.as_ref() {
-        "md5" => Ok(PyHasher::new("md5", HashWrapper::md5())),
-        "sha1" => Ok(PyHasher::new("sha1", HashWrapper::sha1())),
-        "sha224" => Ok(PyHasher::new("sha224", HashWrapper::sha224())),
-        "sha256" => Ok(PyHasher::new("sha256", HashWrapper::sha256())),
-        "sha384" => Ok(PyHasher::new("sha384", HashWrapper::sha384())),
-        "sha512" => Ok(PyHasher::new("sha512", HashWrapper::sha512())),
-        "sha3_224" => Ok(PyHasher::new("sha3_224", HashWrapper::sha3_224())),
-        "sha3_256" => Ok(PyHasher::new("sha3_256", HashWrapper::sha3_256())),
-        "sha3_384" => Ok(PyHasher::new("sha3_384", HashWrapper::sha3_384())),
-        "sha3_512" => Ok(PyHasher::new("sha3_512", HashWrapper::sha3_512())),
-        // TODO: "shake128" => Ok(PyHasher::new("shake128", HashWrapper::shake128())),
-        // TODO: "shake256" => Ok(PyHasher::new("shake256", HashWrapper::shake256())),
-        "blake2b" => Ok(PyHasher::new("blake2b", HashWrapper::blake2b())),
-        "blake2s" => Ok(PyHasher::new("blake2s", HashWrapper::blake2s())),
+    match name.as_str() {
+        "md5" => md5(data, vm),
+        "sha1" => sha1(data, vm),
+        "sha224" => sha224(data, vm),
+        "sha256" => sha256(data, vm),
+        "sha384" => sha384(data, vm),
+        "sha512" => sha512(data, vm),
+        "sha3_224" => sha3_224(data, vm),
+        "sha3_256" => sha3_256(data, vm),
+        "sha3_384" => sha3_384(data, vm),
+        "sha3_512" => sha3_512(data, vm),
+        // TODO: "shake128" => shake128(data, vm),
+        // TODO: "shake256" => shake256(data, vm),
+        "blake2b" => blake2b(data, vm),
+        "blake2s" => blake2s(data, vm),
         other => Err(vm.new_value_error(format!("Unknown hashing algorithm: {}", other))),
-    }?;
+    }
+}
 
+fn init(
+    hasher: PyHasher,
+    data: OptionalArg<PyBytesRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyHasher> {
     if let OptionalArg::Present(data) = data {
         hasher.update(data, vm)?;
     }
@@ -111,64 +117,62 @@ fn hashlib_new(
     Ok(hasher)
 }
 
-fn md5(_vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Ok(PyHasher::new("md5", HashWrapper::md5()))
+fn md5(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    init(PyHasher::new("md5", HashWrapper::md5()), data, vm)
 }
 
-fn sha1(_vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Ok(PyHasher::new("sha1", HashWrapper::sha1()))
+fn sha1(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha1", HashWrapper::sha1()), data, vm)
 }
 
-fn sha224(_vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Ok(PyHasher::new("sha224", HashWrapper::sha224()))
+fn sha224(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha224", HashWrapper::sha224()), data, vm)
 }
 
-fn sha256(_vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Ok(PyHasher::new("sha256", HashWrapper::sha256()))
+fn sha256(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha256", HashWrapper::sha256()), data, vm)
 }
 
-fn sha384(_vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Ok(PyHasher::new("sha384", HashWrapper::sha384()))
+fn sha384(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha384", HashWrapper::sha384()), data, vm)
 }
 
-fn sha512(_vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Ok(PyHasher::new("sha512", HashWrapper::sha512()))
+fn sha512(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha512", HashWrapper::sha512()), data, vm)
 }
 
-fn sha3_224(_vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Ok(PyHasher::new("sha3_224", HashWrapper::sha3_224()))
+fn sha3_224(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha3_224", HashWrapper::sha3_224()), data, vm)
 }
 
-fn sha3_256(_vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Ok(PyHasher::new("sha3_256", HashWrapper::sha3_256()))
+fn sha3_256(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha3_256", HashWrapper::sha3_256()), data, vm)
 }
 
-fn sha3_384(_vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Ok(PyHasher::new("sha3_384", HashWrapper::sha3_384()))
+fn sha3_384(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha3_384", HashWrapper::sha3_384()), data, vm)
 }
 
-fn sha3_512(_vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Ok(PyHasher::new("sha3_512", HashWrapper::sha3_512()))
+fn sha3_512(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    init(PyHasher::new("sha3_512", HashWrapper::sha3_512()), data, vm)
 }
 
-fn shake128(vm: &VirtualMachine) -> PyResult<PyHasher> {
+fn shake128(_data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
     Err(vm.new_not_implemented_error("shake256".to_string()))
-    // Ok(PyHasher::new("shake128", HashWrapper::shake128()))
 }
 
-fn shake256(vm: &VirtualMachine) -> PyResult<PyHasher> {
+fn shake256(_data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
     Err(vm.new_not_implemented_error("shake256".to_string()))
-    // TODO: Ok(PyHasher::new("shake256", HashWrapper::shake256()))
 }
 
-fn blake2b(_vm: &VirtualMachine) -> PyResult<PyHasher> {
+fn blake2b(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
     // TODO: handle parameters
-    Ok(PyHasher::new("blake2b", HashWrapper::blake2b()))
+    init(PyHasher::new("blake2b", HashWrapper::blake2b()), data, vm)
 }
 
-fn blake2s(_vm: &VirtualMachine) -> PyResult<PyHasher> {
+fn blake2s(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
     // TODO: handle parameters
-    Ok(PyHasher::new("blake2s", HashWrapper::blake2s()))
+    init(PyHasher::new("blake2s", HashWrapper::blake2s()), data, vm)
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -177,21 +181,21 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let hasher_type = PyHasher::make_class(ctx);
 
     py_module!(vm, "hashlib", {
-        "new" => ctx.new_rustfunc(hashlib_new),
-        "md5" => ctx.new_rustfunc(md5),
-        "sha1" => ctx.new_rustfunc(sha1),
-        "sha224" => ctx.new_rustfunc(sha224),
-        "sha256" => ctx.new_rustfunc(sha256),
-        "sha384" => ctx.new_rustfunc(sha384),
-        "sha512" => ctx.new_rustfunc(sha512),
-        "sha3_224" => ctx.new_rustfunc(sha3_224),
-        "sha3_256" => ctx.new_rustfunc(sha3_256),
-        "sha3_384" => ctx.new_rustfunc(sha3_384),
-        "sha3_512" => ctx.new_rustfunc(sha3_512),
-        "shake128" => ctx.new_rustfunc(shake128),
-        "shake256" => ctx.new_rustfunc(shake256),
-        "blake2b" => ctx.new_rustfunc(blake2b),
-        "blake2s" => ctx.new_rustfunc(blake2s),
+        "new" => ctx.new_function(hashlib_new),
+        "md5" => ctx.new_function(md5),
+        "sha1" => ctx.new_function(sha1),
+        "sha224" => ctx.new_function(sha224),
+        "sha256" => ctx.new_function(sha256),
+        "sha384" => ctx.new_function(sha384),
+        "sha512" => ctx.new_function(sha512),
+        "sha3_224" => ctx.new_function(sha3_224),
+        "sha3_256" => ctx.new_function(sha3_256),
+        "sha3_384" => ctx.new_function(sha3_384),
+        "sha3_512" => ctx.new_function(sha3_512),
+        "shake128" => ctx.new_function(shake128),
+        "shake256" => ctx.new_function(shake256),
+        "blake2b" => ctx.new_function(blake2b),
+        "blake2s" => ctx.new_function(blake2s),
         "hasher" => hasher_type,
     })
 }
@@ -204,8 +208,7 @@ struct HashWrapper {
 impl HashWrapper {
     fn new<D: 'static>(d: D) -> Self
     where
-        D: DynDigest,
-        D: Sized,
+        D: DynDigest + Sized,
     {
         HashWrapper { inner: Box::new(d) }
     }

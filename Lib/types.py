@@ -19,11 +19,12 @@ def _g():
     yield 1
 GeneratorType = type(_g())
 
-# async def _c(): pass
-# _c = _c()
-# CoroutineType = type(_c)
-# _c.close()  # Prevent ResourceWarning
+async def _c(): pass
+_c = _c()
+CoroutineType = type(_c)
+_c.close()  # Prevent ResourceWarning
 
+# XXX RUSTPYTHON TODO: async generators
 # async def _ag():
 #     yield
 # _ag = _ag()
@@ -240,7 +241,8 @@ def coroutine(func):
     if not callable(func):
         raise TypeError('types.coroutine() expects a callable')
 
-    if (func.__class__ is FunctionType and
+    # XXX RUSTPYTHON TODO: iterable coroutine
+    if (False and func.__class__ is FunctionType and
         getattr(func, '__code__', None).__class__ is CodeType):
 
         co_flags = func.__code__.co_flags
@@ -276,6 +278,8 @@ def coroutine(func):
     def wrapped(*args, **kwargs):
         coro = func(*args, **kwargs)
         if (coro.__class__ is CoroutineType or
+            # XXX RUSTPYTHON TODO: iterable coroutine
+            False and 
             coro.__class__ is GeneratorType and coro.gi_code.co_flags & 0x100):
             # 'coro' is a native coroutine object or an iterable coroutine
             return coro

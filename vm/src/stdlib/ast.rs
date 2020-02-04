@@ -7,10 +7,9 @@ use std::ops::Deref;
 
 use num_complex::Complex64;
 
-use rustpython_parser::{ast, parser};
+use rustpython_parser::{ast, mode::Mode, parser};
 
 use crate::obj::objlist::PyListRef;
-use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -19,9 +18,12 @@ use crate::vm::VirtualMachine;
 struct AstNode;
 type AstNodeRef = PyRef<AstNode>;
 
+const MODULE_NAME: &str = "_ast";
+pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
+
 impl PyValue for AstNode {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("ast", "AST")
+        vm.class(MODULE_NAME, "AST")
     }
 }
 
@@ -48,14 +50,17 @@ macro_rules! node {
     }
 }
 
-fn program_to_ast(vm: &VirtualMachine, program: &ast::Program) -> PyResult<AstNodeRef> {
-    let py_body = statements_to_ast(vm, &program.statements)?;
-    Ok(node!(vm, Module, { body => py_body }))
+fn top_to_ast(vm: &VirtualMachine, top: &ast::Top) -> PyResult<PyListRef> {
+    match top {
+        ast::Top::Program(program) => statements_to_ast(vm, &program.statements),
+        ast::Top::Statement(statements) => statements_to_ast(vm, statements),
+        ast::Top::Expression(_) => unimplemented!("top_to_ast unimplemented ast::Top::Expression"),
+    }
 }
 
 // Create a node class instance
 fn create_node(vm: &VirtualMachine, name: &str) -> PyResult<AstNodeRef> {
-    AstNode.into_ref_with_type(vm, vm.class("ast", name))
+    AstNode.into_ref_with_type(vm, vm.class(MODULE_NAME, name))
 }
 
 fn statements_to_ast(vm: &VirtualMachine, statements: &[ast::Statement]) -> PyResult<PyListRef> {
@@ -216,6 +221,15 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
             op => vm.ctx.new_str(operator_string(op)),
             value => expression_to_ast(vm, value)?,
         }),
+        AnnAssign {
+            target,
+            annotation,
+            value,
+        } => node!(vm, AnnAssign, {
+            target => expression_to_ast(vm, target)?,
+            annotation => expression_to_ast(vm, annotation)?,
+            value => optional_expression_to_ast(vm, value)?,
+        }),
         Raise { exception, cause } => node!(vm, Raise, {
             exc => optional_expression_to_ast(vm, exception)?,
             cause => optional_expression_to_ast(vm, cause)?,
@@ -243,7 +257,7 @@ fn optional_statements_to_ast(
     let statements = if let Some(statements) = statements {
         statements_to_ast(vm, statements)?.into_object()
     } else {
-        vm.ctx.none()
+        vm.ctx.new_list(vec![])
     };
     Ok(statements)
 }
@@ -272,6 +286,17 @@ fn make_string_list(vm: &VirtualMachine, names: &[String]) -> PyObjectRef {
             .map(|x| vm.ctx.new_str(x.to_string()))
             .collect(),
     )
+}
+
+fn optional_expressions_to_ast(
+    vm: &VirtualMachine,
+    expressions: &[Option<ast::Expression>],
+) -> PyResult<PyListRef> {
+    let py_expression_nodes: PyResult<_> = expressions
+        .iter()
+        .map(|expression| Ok(optional_expression_to_ast(vm, expression)?))
+        .collect();
+    Ok(vm.ctx.new_list(py_expression_nodes?).downcast().unwrap())
 }
 
 fn optional_expression_to_ast(vm: &VirtualMachine, value: &Option<ast::Expression>) -> PyResult {
@@ -323,11 +348,8 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 operand => expression_to_ast(vm, a)?,
             })
         }
-        BoolOp { a, op, b } => {
-            // Attach values:
-            let py_a = expression_to_ast(vm, a)?.into_object();
-            let py_b = expression_to_ast(vm, b)?.into_object();
-            let py_values = vm.ctx.new_tuple(vec![py_a, py_b]);
+        BoolOp { op, values } => {
+            let py_values = expressions_to_ast(vm, values)?;
 
             let str_op = match op {
                 ast::BooleanOperator::And => "And",
@@ -439,18 +461,25 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             let py_generators = map_ast(comprehension_to_ast, vm, generators)?;
 
             match kind.deref() {
-                ast::ComprehensionKind::GeneratorExpression { .. } => {
-                    node!(vm, GeneratorExp, {generators => py_generators})
+                ast::ComprehensionKind::GeneratorExpression { element } => {
+                    node!(vm, GeneratorExp, {
+                        elt => expression_to_ast(vm, element)?,
+                        generators => py_generators
+                    })
                 }
-                ast::ComprehensionKind::List { .. } => {
-                    node!(vm, ListComp, {generators => py_generators})
-                }
-                ast::ComprehensionKind::Set { .. } => {
-                    node!(vm, SetComp, {generators => py_generators})
-                }
-                ast::ComprehensionKind::Dict { .. } => {
-                    node!(vm, DictComp, {generators => py_generators})
-                }
+                ast::ComprehensionKind::List { element } => node!(vm, ListComp, {
+                    elt => expression_to_ast(vm, element)?,
+                    generators => py_generators
+                }),
+                ast::ComprehensionKind::Set { element } => node!(vm, SetComp, {
+                    elt => expression_to_ast(vm, element)?,
+                    generators => py_generators
+                }),
+                ast::ComprehensionKind::Dict { key, value } => node!(vm, DictComp, {
+                    key => expression_to_ast(vm, key)?,
+                    value => expression_to_ast(vm, value)?,
+                    generators => py_generators
+                }),
             }
         }
         Await { value } => {
@@ -520,8 +549,23 @@ fn operator_string(op: &ast::Operator) -> String {
 }
 
 fn parameters_to_ast(vm: &VirtualMachine, args: &ast::Parameters) -> PyResult<AstNodeRef> {
-    let args = map_ast(parameter_to_ast, vm, &args.args)?;
-    Ok(node!(vm, arguments, { args => args }))
+    Ok(node!(vm, arguments, {
+        args => map_ast(parameter_to_ast, vm, &args.args)?,
+        vararg => vararg_to_ast(vm, &args.vararg)?,
+        kwonlyargs => map_ast(parameter_to_ast, vm, &args.kwonlyargs)?,
+        kw_defaults => optional_expressions_to_ast(vm, &args.kw_defaults)?,
+        kwarg => vararg_to_ast(vm, &args.kwarg)?,
+        defaults => expressions_to_ast(vm, &args.defaults)?
+    }))
+}
+
+fn vararg_to_ast(vm: &VirtualMachine, vararg: &ast::Varargs) -> PyResult {
+    let py_node = match vararg {
+        ast::Varargs::None => vm.get_none(),
+        ast::Varargs::Unnamed => vm.get_none(),
+        ast::Varargs::Named(parameter) => parameter_to_ast(vm, parameter)?.into_object(),
+    };
+    Ok(py_node)
 }
 
 fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult<AstNodeRef> {
@@ -531,10 +575,15 @@ fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult
         vm.ctx.none()
     };
 
-    Ok(node!(vm, arg, {
+    let py_node = node!(vm, arg, {
         arg => vm.ctx.new_str(parameter.arg.to_string()),
         annotation => py_annotation
-    }))
+    });
+
+    let lineno = vm.ctx.new_int(parameter.location.row());
+    vm.set_attr(py_node.as_object(), "lineno", lineno)?;
+
+    Ok(py_node)
 }
 
 fn optional_string_to_py_obj(vm: &VirtualMachine, name: &Option<String>) -> PyObjectRef {
@@ -556,7 +605,7 @@ fn map_ast<T>(
     f: fn(vm: &VirtualMachine, &T) -> PyResult<AstNodeRef>,
     vm: &VirtualMachine,
     items: &[T],
-) -> PyResult<PyObjectRef> {
+) -> PyResult {
     let list: PyResult<Vec<PyObjectRef>> =
         items.iter().map(|x| Ok(f(vm, x)?.into_object())).collect();
     Ok(vm.ctx.new_list(list?))
@@ -570,6 +619,7 @@ fn comprehension_to_ast(
         target => expression_to_ast(vm, &comprehension.target)?,
         iter => expression_to_ast(vm, &comprehension.iter)?,
         ifs => expressions_to_ast(vm, &comprehension.ifs)?,
+        is_async => vm.new_bool(comprehension.is_async),
     }))
 }
 
@@ -589,24 +639,22 @@ fn string_to_ast(vm: &VirtualMachine, string: &ast::StringGroup) -> PyResult<Ast
     Ok(string)
 }
 
-fn ast_parse(source: PyStringRef, vm: &VirtualMachine) -> PyResult<AstNodeRef> {
-    let internal_ast = parser::parse_program(&source.value)
-        .map_err(|err| vm.new_value_error(format!("{}", err)))?;
-    // source.clone();
-    program_to_ast(&vm, &internal_ast)
+pub(crate) fn parse(vm: &VirtualMachine, source: &str, mode: Mode) -> PyResult {
+    let ast = parser::parse(source, mode).map_err(|err| vm.new_value_error(format!("{}", err)))?;
+    let py_body = top_to_ast(vm, &ast)?;
+    Ok(node!(vm, Module, { body => py_body }).into_object())
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let ast_base = py_class!(ctx, "AST", ctx.object(), {});
-    py_module!(vm, "ast", {
-        "parse" => ctx.new_rustfunc(ast_parse),
-        "AST" => ast_base.clone(),
+    py_module!(vm, MODULE_NAME, {
         // TODO: There's got to be a better way!
         "alias" => py_class!(ctx, "alias", ast_base.clone(), {}),
         "arg" => py_class!(ctx, "arg", ast_base.clone(), {}),
         "arguments" => py_class!(ctx, "arguments", ast_base.clone(), {}),
+        "AnnAssign" => py_class!(ctx, "AnnAssign", ast_base.clone(), {}),
         "Assign" => py_class!(ctx, "Assign", ast_base.clone(), {}),
         "AugAssign" => py_class!(ctx, "AugAssign", ast_base.clone(), {}),
         "AsyncFor" => py_class!(ctx, "AsyncFor", ast_base.clone(), {}),
@@ -666,5 +714,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "withitem" => py_class!(ctx, "withitem", ast_base.clone(), {}),
         "Yield" => py_class!(ctx, "Yield", ast_base.clone(), {}),
         "YieldFrom" => py_class!(ctx, "YieldFrom", ast_base.clone(), {}),
+        "AST" => ast_base,
+        "PyCF_ONLY_AST" => ctx.new_int(PY_COMPILE_FLAG_AST_ONLY),
     })
 }

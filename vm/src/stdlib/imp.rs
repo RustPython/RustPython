@@ -35,8 +35,8 @@ fn imp_is_frozen(name: PyStringRef, vm: &VirtualMachine) -> bool {
 
 fn imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
-
-    let name = &objstr::get_value(&vm.get_attribute(spec.clone(), "name")?);
+    let spec = vm.get_attribute(spec.clone(), "name")?;
+    let name = objstr::borrow_value(&spec);
 
     if let Ok(module) = sys_modules.get_item(name, vm) {
         Ok(module)
@@ -87,18 +87,18 @@ fn imp_fix_co_filename(_code: PyObjectRef, _path: PyStringRef, _vm: &VirtualMach
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     let module = py_module!(vm, "_imp", {
-        "extension_suffixes" => ctx.new_rustfunc(imp_extension_suffixes),
-        "acquire_lock" => ctx.new_rustfunc(imp_acquire_lock),
-        "release_lock" => ctx.new_rustfunc(imp_release_lock),
-        "lock_held" => ctx.new_rustfunc(imp_lock_held),
-        "is_builtin" => ctx.new_rustfunc(imp_is_builtin),
-        "is_frozen" => ctx.new_rustfunc(imp_is_frozen),
-        "create_builtin" => ctx.new_rustfunc(imp_create_builtin),
-        "exec_builtin" => ctx.new_rustfunc(imp_exec_builtin),
-        "get_frozen_object" => ctx.new_rustfunc(imp_get_frozen_object),
-        "init_frozen" => ctx.new_rustfunc(imp_init_frozen),
-        "is_frozen_package" => ctx.new_rustfunc(imp_is_frozen_package),
-        "_fix_co_filename" => ctx.new_rustfunc(imp_fix_co_filename),
+        "extension_suffixes" => ctx.new_function(imp_extension_suffixes),
+        "acquire_lock" => ctx.new_function(imp_acquire_lock),
+        "release_lock" => ctx.new_function(imp_release_lock),
+        "lock_held" => ctx.new_function(imp_lock_held),
+        "is_builtin" => ctx.new_function(imp_is_builtin),
+        "is_frozen" => ctx.new_function(imp_is_frozen),
+        "create_builtin" => ctx.new_function(imp_create_builtin),
+        "exec_builtin" => ctx.new_function(imp_exec_builtin),
+        "get_frozen_object" => ctx.new_function(imp_get_frozen_object),
+        "init_frozen" => ctx.new_function(imp_init_frozen),
+        "is_frozen_package" => ctx.new_function(imp_is_frozen_package),
+        "_fix_co_filename" => ctx.new_function(imp_fix_co_filename),
     });
 
     module

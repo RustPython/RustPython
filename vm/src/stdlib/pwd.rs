@@ -44,7 +44,7 @@ impl PasswdRef {
 }
 
 fn pwd_getpwnam(name: PyStringRef, vm: &VirtualMachine) -> PyResult<Passwd> {
-    match Passwd::from_name(&name.value) {
+    match Passwd::from_name(name.as_str()) {
         Ok(Some(passwd)) => Ok(passwd),
         _ => {
             let name_repr = vm.to_repr(name.as_object())?;
@@ -79,7 +79,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     py_module!(vm, "pwd", {
         "struct_passwd" => passwd_type,
-        "getpwnam" => ctx.new_rustfunc(pwd_getpwnam),
-        "getpwuid" => ctx.new_rustfunc(pwd_getpwuid),
+        "getpwnam" => ctx.new_function(pwd_getpwnam),
+        "getpwuid" => ctx.new_function(pwd_getpwuid),
     })
 }

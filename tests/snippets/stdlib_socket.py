@@ -1,6 +1,6 @@
 import socket
 import os
-from testutils import assertRaises
+from testutils import assert_raises
 
 MESSAGE_A = b'aaaa'
 MESSAGE_B= b'bbbbb'
@@ -39,30 +39,30 @@ connector.close()
 listener.close()
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-with assertRaises(TypeError):
+with assert_raises(TypeError):
 	s.connect(("127.0.0.1", 8888, 8888))
 
-with assertRaises(OSError):
+with assert_raises(OSError):
 	# Lets hope nobody is listening on port 1
 	s.connect(("127.0.0.1", 1))
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
 	s.bind(("127.0.0.1", 8888, 8888))
 
-with assertRaises(OSError):
+with assert_raises(OSError):
 	# Lets hope nobody run this test on machine with ip 1.2.3.4
 	s.bind(("1.2.3.4", 8888))
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
 	s.bind((888, 8888))
 
 s.close()
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.bind(("127.0.0.1", 0))
-with assertRaises(OSError):
+with assert_raises(OSError):
 	s.recv(100)
 
-with assertRaises(OSError):
+with assert_raises(OSError):
 	s.send(MESSAGE_A)
 
 s.close()
@@ -105,13 +105,46 @@ sock1.close()
 sock3.close()
 
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-with assertRaises(OSError):
+with assert_raises(OSError):
 	s.bind(("1.2.3.4", 888))
 
 s.close()
 ### Errors
-with assertRaises(OSError):
+with assert_raises(OSError):
 	socket.socket(100, socket.SOCK_STREAM)
 
-with assertRaises(OSError):
+with assert_raises(OSError):
 	socket.socket(socket.AF_INET, 1000)
+
+with assert_raises(OSError):
+	socket.inet_aton("test")
+
+with assert_raises(OverflowError):
+	socket.htonl(-1)
+
+assert socket.htonl(0)==0
+assert socket.htonl(10)==167772160
+
+assert socket.inet_aton("127.0.0.1")==b"\x7f\x00\x00\x01"
+assert socket.inet_aton("255.255.255.255")==b"\xff\xff\xff\xff"
+
+
+assert socket.inet_ntoa(b"\x7f\x00\x00\x01")=="127.0.0.1"
+assert socket.inet_ntoa(b"\xff\xff\xff\xff")=="255.255.255.255"
+
+with assert_raises(OSError):
+	socket.inet_ntoa(b"\xff\xff\xff\xff\xff")
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+	pass
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+	listener.bind(("127.0.0.1", 0))
+	listener.listen(1)
+	connector = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	connector.connect(("127.0.0.1", listener.getsockname()[1]))
+	(connection, addr) = listener.accept()
+	connection.settimeout(1.0)
+	with assert_raises(OSError): # TODO: check that it raises a socket.timeout
+		# testing that it doesn't work with the timeout; that it stops blocking eventually
+		connection.recv(len(MESSAGE_A))

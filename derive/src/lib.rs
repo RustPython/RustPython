@@ -12,6 +12,7 @@ mod error;
 mod compile_bytecode;
 mod from_args;
 mod pyclass;
+mod util;
 
 use error::{extract_spans, Diagnostic};
 use proc_macro::TokenStream;
@@ -20,10 +21,7 @@ use quote::ToTokens;
 use syn::{parse_macro_input, AttributeArgs, DeriveInput, Item};
 
 fn result_to_tokens(result: Result<TokenStream2, Diagnostic>) -> TokenStream {
-    match result {
-        Ok(tokens) => tokens.into(),
-        Err(diagnostic) => diagnostic.into_token_stream().into(),
-    }
+    result.unwrap_or_else(ToTokens::into_token_stream).into()
 }
 
 #[proc_macro_derive(FromArgs, attributes(pyarg))]
@@ -53,8 +51,17 @@ pub fn pystruct_sequence(attr: TokenStream, item: TokenStream) -> TokenStream {
     result_to_tokens(pyclass::impl_pystruct_sequence(attr, item))
 }
 
-#[cfg_attr(feature = "proc-macro-hack", proc_macro_hack::proc_macro_hack)]
-#[cfg_attr(not(feature = "proc-macro-hack"), proc_macro)]
+fn result_to_tokens_expr(result: Result<TokenStream2, Diagnostic>) -> TokenStream {
+    let tokens2 = result.unwrap_or_else(ToTokens::into_token_stream);
+    let ret = quote::quote! {
+        macro_rules! __proc_macro_call {
+            () => {{ #tokens2 }}
+        }
+    };
+    ret.into()
+}
+
+#[proc_macro]
 pub fn py_compile_bytecode(input: TokenStream) -> TokenStream {
-    result_to_tokens(compile_bytecode::impl_py_compile_bytecode(input.into()))
+    result_to_tokens_expr(compile_bytecode::impl_py_compile_bytecode(input.into()))
 }

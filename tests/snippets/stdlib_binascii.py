@@ -1,5 +1,5 @@
 import binascii
-from testutils import assertRaises
+from testutils import assert_raises, assert_equal
 
 
 # hexlify tests
@@ -11,7 +11,7 @@ assert h(1000 * b"x") == 1000 * b"78"
 # assert h(bytearray(b"a")) = b"61"
 assert binascii.b2a_hex(b"aa") == b"6161"
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     h("a")
 
 
@@ -25,15 +25,28 @@ assert uh(h(x)) == x
 assert uh(b"ABCDEF") == b"\xab\xcd\xef"
 assert binascii.a2b_hex(b"6161") == b"aa"
 
-# unhexlify on strings not supported yet
-# assert uh("abcd") == b"\xab\xcd"
+assert uh("abcd") == b"\xab\xcd"
 
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     uh(b"a")  # Odd-length string
 
-with assertRaises(ValueError):
+with assert_raises(ValueError):
     uh(b"nn")  # Non-hexadecimal digit found
 
 assert binascii.crc32(b"hello world") == 222957957
 assert binascii.crc32(b"hello world", 555555) == 1216827162
-assert binascii.crc32(b"goodbye interesting world",777777) == 1885538403
+assert binascii.crc32(b"goodbye interesting world", 777777) == 1885538403
+
+enc_b64 = binascii.b2a_base64
+
+assert_equal(enc_b64(b"213"), b"MjEz\n")
+assert_equal(enc_b64(b"213", newline=False), b"MjEz")
+
+dec_b64 = binascii.a2b_base64
+
+assert_equal(dec_b64(b"UnVzdFB5dGhvbg==\n"), b"RustPython")
+assert_equal(
+    dec_b64(b"4pii8J+QoyAg4ZaH8J2TpPCdlYrRguKTn/CdlZDwnZWl5Y2Ez4PwnZSrICDimazwn5Gj\n"),
+    "☢🐣  ᖇ𝓤𝕊тⓟ𝕐𝕥卄σ𝔫  ♬👣".encode(),
+)
+

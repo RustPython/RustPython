@@ -3,9 +3,10 @@
 */
 
 use std::fmt;
+use std::ops::Deref;
 
+use super::objtype::PyClassRef;
 use crate::bytecode;
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -13,6 +14,13 @@ pub type PyCodeRef = PyRef<PyCode>;
 
 pub struct PyCode {
     pub code: bytecode::CodeObject,
+}
+
+impl Deref for PyCode {
+    type Target = bytecode::CodeObject;
+    fn deref(&self) -> &Self::Target {
+        &self.code
+    }
 }
 
 impl PyCode {
@@ -78,12 +86,16 @@ impl PyCodeRef {
     fn co_name(self, _vm: &VirtualMachine) -> String {
         self.code.obj_name.clone()
     }
+
+    fn co_flags(self, _vm: &VirtualMachine) -> u8 {
+        self.code.flags.bits()
+    }
 }
 
 pub fn init(context: &PyContext) {
-    extend_class!(context, &context.code_type, {
-        "__new__" => context.new_rustfunc(PyCodeRef::new),
-        "__repr__" => context.new_rustfunc(PyCodeRef::repr),
+    extend_class!(context, &context.types.code_type, {
+        (slot new) => PyCodeRef::new,
+        "__repr__" => context.new_method(PyCodeRef::repr),
 
         "co_argcount" => context.new_property(PyCodeRef::co_argcount),
         "co_consts" => context.new_property(PyCodeRef::co_consts),
@@ -91,5 +103,6 @@ pub fn init(context: &PyContext) {
         "co_firstlineno" => context.new_property(PyCodeRef::co_firstlineno),
         "co_kwonlyargcount" => context.new_property(PyCodeRef::co_kwonlyargcount),
         "co_name" => context.new_property(PyCodeRef::co_name),
+        "co_flags" => context.new_property(PyCodeRef::co_flags),
     });
 }

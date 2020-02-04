@@ -13,10 +13,10 @@ use crate::vm::VirtualMachine;
 
 fn tokenize_tokenize(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(readline, Some(vm.ctx.str_type()))]);
-    let source = objstr::get_value(readline);
+    let source = objstr::borrow_value(readline);
 
     // TODO: implement generator when the time has come.
-    let lexer1 = lexer::make_tokenizer(&source);
+    let lexer1 = lexer::make_tokenizer(source);
 
     let tokens = lexer1.map(|st| vm.ctx.new_str(format!("{:?}", st.unwrap().1)));
     let tokens = Vec::from_iter(tokens);
@@ -29,6 +29,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     py_module!(vm, "tokenize", {
-        "tokenize" => ctx.new_rustfunc(tokenize_tokenize)
+        "tokenize" => ctx.new_function(tokenize_tokenize)
     })
 }

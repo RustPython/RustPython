@@ -1,11 +1,12 @@
-use crate::eval::get_compile_mode;
+use std::fmt;
+
+use rustpython_compiler::{compile, error::CompileError, symboltable};
+use rustpython_parser::parser;
+
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
-use rustpython_compiler::{compile, error::CompileError, symboltable};
-use rustpython_parser::parser;
-use std::fmt;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
@@ -14,7 +15,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let symbol_type = PySymbol::make_class(ctx);
 
     py_module!(vm, "symtable", {
-        "symtable" => ctx.new_rustfunc(symtable_symtable),
+        "symtable" => ctx.new_function(symtable_symtable),
         "SymbolTable" => symbol_table_type,
         "Symbol" => symbol_type,
     })
@@ -24,22 +25,27 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 /// See docs: https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.symtable
 fn symtable_symtable(
     source: PyStringRef,
-    _filename: PyStringRef,
+    filename: PyStringRef,
     mode: PyStringRef,
     vm: &VirtualMachine,
 ) -> PyResult<PySymbolTableRef> {
-    let mode = get_compile_mode(vm, &mode.value)?;
-    let symtable =
-        source_to_symtable(&source.value, mode).map_err(|err| vm.new_syntax_error(&err))?;
+    let mode = mode
+        .as_str()
+        .parse::<compile::Mode>()
+        .map_err(|err| vm.new_value_error(err.to_string()))?;
+    let symtable = source_to_symtable(source.as_str(), mode).map_err(|mut err| {
+        err.update_source_path(filename.as_str());
+        vm.new_syntax_error(&err)
+    })?;
 
-    let py_symbol_table = to_py_symbol_table("top".to_string(), symtable);
+    let py_symbol_table = to_py_symbol_table(symtable);
     Ok(py_symbol_table.into_ref(vm))
 }
 
 fn source_to_symtable(
     source: &str,
     mode: compile::Mode,
-) -> Result<symboltable::SymbolScope, CompileError> {
+) -> Result<symboltable::SymbolTable, CompileError> {
     let symtable = match mode {
         compile::Mode::Exec | compile::Mode::Single => {
             let ast = parser::parse_program(source)?;
@@ -54,8 +60,8 @@ fn source_to_symtable(
     Ok(symtable)
 }
 
-fn to_py_symbol_table(name: String, symtable: symboltable::SymbolScope) -> PySymbolTable {
-    PySymbolTable { name, symtable }
+fn to_py_symbol_table(symtable: symboltable::SymbolTable) -> PySymbolTable {
+    PySymbolTable { symtable }
 }
 
 type PySymbolTableRef = PyRef<PySymbolTable>;
@@ -63,8 +69,7 @@ type PySymbolRef = PyRef<PySymbol>;
 
 #[pyclass(name = "SymbolTable")]
 struct PySymbolTable {
-    name: String,
-    symtable: symboltable::SymbolScope,
+    symtable: symboltable::SymbolTable,
 }
 
 impl fmt::Debug for PySymbolTable {
@@ -82,21 +87,42 @@ impl PyValue for PySymbolTable {
 #[pyimpl]
 impl PySymbolTable {
     #[pymethod(name = "get_name")]
-    fn get_name(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.name.clone()))
+    fn get_name(&self, _vm: &VirtualMachine) -> String {
+        self.symtable.name.clone()
+    }
+
+    #[pymethod(name = "get_type")]
+    fn get_type(&self, _vm: &VirtualMachine) -> String {
+        self.symtable.typ.to_string()
+    }
+
+    #[pymethod(name = "get_lineno")]
+    fn get_lineno(&self, _vm: &VirtualMachine) -> usize {
+        self.symtable.line_number
     }
 
     #[pymethod(name = "lookup")]
     fn lookup(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
-        let name = &name.value;
+        let name = name.as_str();
         if let Some(symbol) = self.symtable.symbols.get(name) {
             Ok(PySymbol {
                 symbol: symbol.clone(),
             }
             .into_ref(vm))
         } else {
-            Err(vm.ctx.new_str(name.to_string()))
+            Err(vm.new_lookup_error(name.to_string()))
         }
+    }
+
+    #[pymethod(name = "get_identifiers")]
+    fn get_identifiers(&self, vm: &VirtualMachine) -> PyResult {
+        let symbols = self
+            .symtable
+            .symbols
+            .keys()
+            .map(|s| vm.ctx.new_str(s.to_string()))
+            .collect();
+        Ok(vm.ctx.new_list(symbols))
     }
 
     #[pymethod(name = "get_symbols")]
@@ -110,17 +136,18 @@ impl PySymbolTable {
         Ok(vm.ctx.new_list(symbols))
     }
 
+    #[pymethod(name = "has_children")]
+    fn has_children(&self, _vm: &VirtualMachine) -> bool {
+        !self.symtable.sub_tables.is_empty()
+    }
+
     #[pymethod(name = "get_children")]
     fn get_children(&self, vm: &VirtualMachine) -> PyResult {
         let children = self
             .symtable
-            .sub_scopes
+            .sub_tables
             .iter()
-            .map(|s| {
-                to_py_symbol_table("bla".to_string(), s.clone())
-                    .into_ref(vm)
-                    .into_object()
-            })
+            .map(|t| to_py_symbol_table(t.clone()).into_ref(vm).into_object())
             .collect();
         Ok(vm.ctx.new_list(children))
     }
@@ -146,43 +173,43 @@ impl PyValue for PySymbol {
 #[pyimpl]
 impl PySymbol {
     #[pymethod(name = "get_name")]
-    fn get_name(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.symbol.name.clone()))
+    fn get_name(&self, _vm: &VirtualMachine) -> String {
+        self.symbol.name.clone()
     }
 
     #[pymethod(name = "is_global")]
-    fn is_global(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_global))
+    fn is_global(&self, _vm: &VirtualMachine) -> bool {
+        self.symbol.is_global()
     }
 
     #[pymethod(name = "is_local")]
-    fn is_local(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_local))
+    fn is_local(&self, _vm: &VirtualMachine) -> bool {
+        self.symbol.is_local()
     }
 
     #[pymethod(name = "is_referenced")]
-    fn is_referenced(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_referenced))
+    fn is_referenced(&self, _vm: &VirtualMachine) -> bool {
+        self.symbol.is_referenced
     }
 
     #[pymethod(name = "is_assigned")]
-    fn is_assigned(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_assigned))
+    fn is_assigned(&self, _vm: &VirtualMachine) -> bool {
+        self.symbol.is_assigned
     }
 
     #[pymethod(name = "is_parameter")]
-    fn is_parameter(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_parameter))
+    fn is_parameter(&self, _vm: &VirtualMachine) -> bool {
+        self.symbol.is_parameter
     }
 
     #[pymethod(name = "is_free")]
-    fn is_free(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self.symbol.is_free))
+    fn is_free(&self, _vm: &VirtualMachine) -> bool {
+        self.symbol.is_free
     }
 
     #[pymethod(name = "is_namespace")]
-    fn is_namespace(&self, vm: &VirtualMachine) -> PyResult {
+    fn is_namespace(&self, _vm: &VirtualMachine) -> bool {
         // TODO
-        Ok(vm.ctx.new_bool(false))
+        false
     }
 }
