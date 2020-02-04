@@ -9,7 +9,7 @@ use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol,
 };
-use crate::slots::PyBuiltinDescriptor;
+use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
 
 // Read-only property, doesn't have __set__ or __delete__
@@ -27,13 +27,14 @@ impl PyValue for PyReadOnlyProperty {
 
 pub type PyReadOnlyPropertyRef = PyRef<PyReadOnlyProperty>;
 
-impl PyBuiltinDescriptor for PyReadOnlyProperty {
-    fn get(
-        zelf: PyRef<Self>,
-        obj: PyObjectRef,
-        cls: OptionalArg<PyObjectRef>,
+impl SlotDescriptor for PyReadOnlyProperty {
+    fn descr_get(
         vm: &VirtualMachine,
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        cls: OptionalArg<PyObjectRef>,
     ) -> PyResult {
+        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         if vm.is_none(&obj) {
             if Self::_cls_is(&cls, &vm.ctx.types.type_type) {
                 vm.invoke(&zelf.getter, cls.unwrap())
@@ -46,7 +47,7 @@ impl PyBuiltinDescriptor for PyReadOnlyProperty {
     }
 }
 
-#[pyimpl(with(PyBuiltinDescriptor))]
+#[pyimpl(with(SlotDescriptor))]
 impl PyReadOnlyProperty {}
 
 /// Property attribute.
@@ -110,13 +111,14 @@ struct PropertyArgs {
     doc: Option<PyObjectRef>,
 }
 
-impl PyBuiltinDescriptor for PyProperty {
-    fn get(
-        zelf: PyRef<Self>,
-        obj: PyObjectRef,
-        _cls: OptionalArg<PyObjectRef>,
+impl SlotDescriptor for PyProperty {
+    fn descr_get(
         vm: &VirtualMachine,
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        _cls: OptionalArg<PyObjectRef>,
     ) -> PyResult {
+        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         if let Some(getter) = zelf.getter.as_ref() {
             if obj.is(vm.ctx.none.as_object()) {
                 Ok(zelf.into_object())
@@ -129,7 +131,7 @@ impl PyBuiltinDescriptor for PyProperty {
     }
 }
 
-#[pyimpl(with(PyBuiltinDescriptor), flags(BASETYPE))]
+#[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
 impl PyProperty {
     #[pyslot]
     fn tp_new(cls: PyClassRef, args: PropertyArgs, vm: &VirtualMachine) -> PyResult<PyPropertyRef> {

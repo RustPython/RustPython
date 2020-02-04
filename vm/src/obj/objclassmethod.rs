@@ -3,7 +3,7 @@ use crate::function::OptionalArg;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
-use crate::slots::PyBuiltinDescriptor;
+use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
 
 /// classmethod(function) -> method
@@ -47,19 +47,20 @@ impl PyValue for PyClassMethod {
     }
 }
 
-impl PyBuiltinDescriptor for PyClassMethod {
-    fn get(
-        zelf: PyRef<Self>,
-        obj: PyObjectRef,
-        cls: OptionalArg<PyObjectRef>,
+impl SlotDescriptor for PyClassMethod {
+    fn descr_get(
         vm: &VirtualMachine,
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        cls: OptionalArg<PyObjectRef>,
     ) -> PyResult {
+        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         let cls = cls.unwrap_or_else(|| obj.class().into_object());
         Ok(vm.ctx.new_bound_method(zelf.callable.clone(), cls))
     }
 }
 
-#[pyimpl(with(PyBuiltinDescriptor), flags(BASETYPE))]
+#[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
 impl PyClassMethod {
     #[pyslot]
     fn tp_new(

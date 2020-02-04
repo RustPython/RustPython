@@ -9,7 +9,7 @@ use super::objproperty::PropertyBuilder;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
-use crate::function::PyFuncArgs;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef,
     PyResult, PyValue, TypeProtocol,
@@ -170,7 +170,11 @@ impl PyClassRef {
 
         if let Some(attr) = self.get_attr(&name) {
             let attr_class = attr.class();
-            if let Some(ref descriptor) = attr_class.get_attr("__get__") {
+            let slots = attr_class.slots.borrow();
+            if let Some(ref descr_get) = slots.descr_get {
+                return descr_get(vm, attr, None, OptionalArg::Present(self.into_object()));
+            } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
+                // TODO: is this nessessary?
                 return vm.invoke(descriptor, vec![attr, vm.get_none(), self.into_object()]);
             }
         }

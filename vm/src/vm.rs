@@ -24,7 +24,7 @@ use crate::bytecode;
 use crate::exceptions::{PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
-use crate::function::PyFuncArgs;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::import;
 use crate::obj::objbool;
 use crate::obj::objcode::{PyCode, PyCodeRef};
@@ -623,7 +623,12 @@ impl VirtualMachine {
         let slots = attr_class.slots.borrow();
         if let Some(descr_get) = slots.borrow().descr_get.as_ref() {
             let cls = obj.class();
-            descr_get(self, vec![attr, obj.clone(), cls.into_object()].into())
+            descr_get(
+                self,
+                attr,
+                Some(obj.clone()),
+                OptionalArg::Present(cls.into_object()),
+            )
         } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
             let cls = obj.class();
             self.invoke(descriptor, vec![attr, obj.clone(), cls.into_object()])
