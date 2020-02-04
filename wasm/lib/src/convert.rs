@@ -1,7 +1,9 @@
-use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, Uint8Array};
+use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
 use serde_wasm_bindgen;
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
+use rustpython_compiler::error::{CompileError, CompileErrorType};
+use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::obj::{objbyteinner::PyBytesLike, objtype};
@@ -214,5 +216,30 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
     } else {
         py_serde::deserialize(vm, serde_wasm_bindgen::Deserializer::from(js_val))
             .unwrap_or_else(|_| vm.get_none())
+    }
+}
+
+pub fn syntax_err(err: CompileError) -> SyntaxError {
+    let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
+    let _ = Reflect::set(&js_err, &"row".into(), &(err.location.row() as u32).into());
+    let _ = Reflect::set(
+        &js_err,
+        &"col".into(),
+        &(err.location.column() as u32).into(),
+    );
+    let can_continue = match &err.error {
+        CompileErrorType::Parse(ParseErrorType::EOF) => true,
+        _ => false,
+    };
+    let _ = Reflect::set(&js_err, &"canContinue".into(), &can_continue.into());
+    js_err
+}
+
+pub trait PyResultExt<T> {
+    fn to_js(self, vm: &VirtualMachine) -> Result<T, JsValue>;
+}
+impl<T> PyResultExt<T> for PyResult<T> {
+    fn to_js(self, vm: &VirtualMachine) -> Result<T, JsValue> {
+        self.map_err(|err| py_err_to_js_err(vm, &err))
     }
 }

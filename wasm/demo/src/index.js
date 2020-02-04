@@ -127,7 +127,7 @@ async function readPrompts() {
         try {
             terminalVM.execSingle(input);
         } catch (err) {
-            if (err instanceof SyntaxError && err.message.includes('EOF')) {
+            if (err.canContinue) {
                 continuing = true;
                 continue;
             } else if (err instanceof WebAssembly.RuntimeError) {

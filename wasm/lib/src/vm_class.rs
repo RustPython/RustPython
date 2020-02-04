@@ -284,28 +284,17 @@ impl WASMVirtualMachine {
         mode: compile::Mode,
         source_path: Option<String>,
     ) -> Result<JsValue, JsValue> {
-        self.assert_valid()?;
-        self.with_unchecked(
+        self.with(
             |StoredVirtualMachine {
                  ref vm, ref scope, ..
              }| {
                 let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
                 let code = vm.compile(source, mode, source_path);
-                let code = code.map_err(|err| {
-                    let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
-                    let _ =
-                        Reflect::set(&js_err, &"row".into(), &(err.location.row() as u32).into());
-                    let _ = Reflect::set(
-                        &js_err,
-                        &"col".into(),
-                        &(err.location.column() as u32).into(),
-                    );
-                    js_err
-                })?;
+                let code = code.map_err(convert::syntax_err)?;
                 let result = vm.run_code_obj(code, scope.borrow().clone());
                 convert::pyresult_to_jsresult(vm, result)
             },
-        )
+        )?
     }
 
     pub fn exec(&self, source: &str, source_path: Option<String>) -> Result<JsValue, JsValue> {
