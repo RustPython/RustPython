@@ -92,17 +92,17 @@ impl PyCodeRef {
     }
 }
 
-pub fn init(context: &PyContext) {
-    extend_class!(context, &context.types.code_type, {
+pub fn init(ctx: &PyContext) {
+    extend_class!(ctx, &ctx.types.code_type, {
         (slot new) => PyCodeRef::new,
-        "__repr__" => context.new_method(PyCodeRef::repr),
+        "__repr__" => ctx.new_method(PyCodeRef::repr),
 
-        "co_argcount" => context.new_property(PyCodeRef::co_argcount),
-        "co_consts" => context.new_property(PyCodeRef::co_consts),
-        "co_filename" => context.new_property(PyCodeRef::co_filename),
-        "co_firstlineno" => context.new_property(PyCodeRef::co_firstlineno),
-        "co_kwonlyargcount" => context.new_property(PyCodeRef::co_kwonlyargcount),
-        "co_name" => context.new_property(PyCodeRef::co_name),
-        "co_flags" => context.new_property(PyCodeRef::co_flags),
+        "co_argcount" => ctx.new_readonly_getset("co_argcount", PyCodeRef::co_argcount),
+        "co_consts" => ctx.new_readonly_getset("co_consts", PyCodeRef::co_consts),
+        "co_filename" => ctx.new_readonly_getset("co_filename", PyCodeRef::co_filename),
+        "co_firstlineno" => ctx.new_readonly_getset("co_firstlineno", PyCodeRef::co_firstlineno),
+        "co_kwonlyargcount" => ctx.new_readonly_getset("co_kwonlyargcount", PyCodeRef::co_kwonlyargcount),
+        "co_name" => ctx.new_readonly_getset("co_name", PyCodeRef::co_name),
+        "co_flags" => ctx.new_readonly_getset("co_flags", PyCodeRef::co_flags),
     });
 }

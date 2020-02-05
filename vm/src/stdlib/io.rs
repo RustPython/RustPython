@@ -564,7 +564,7 @@ mod fileio {
         vm.set_attr(&file_io, "name", name)?;
         vm.set_attr(&file_io, "__fileno", vm.new_int(file_no))?;
         vm.set_attr(&file_io, "closefd", vm.new_bool(false))?;
-        vm.set_attr(&file_io, "closed", vm.new_bool(false))?;
+        vm.set_attr(&file_io, "__closed", vm.new_bool(false))?;
         Ok(vm.get_none())
     }
 
@@ -665,7 +665,7 @@ mod fileio {
             winapi::um::handleapi::CloseHandle(raw_handle as _);
         }
         vm.set_attr(&instance, "closefd", vm.new_bool(true))?;
-        vm.set_attr(&instance, "closed", vm.new_bool(true))?;
+        vm.set_attr(&instance, "__closed", vm.new_bool(true))?;
         Ok(())
     }
 
@@ -676,7 +676,7 @@ mod fileio {
             libc::close(raw_fd as _);
         }
         vm.set_attr(&instance, "closefd", vm.new_bool(true))?;
-        vm.set_attr(&instance, "closed", vm.new_bool(true))?;
+        vm.set_attr(&instance, "__closed", vm.new_bool(true))?;
         Ok(())
     }
 
@@ -952,7 +952,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "readable" => ctx.new_method(io_base_readable),
         "writable" => ctx.new_method(io_base_writable),
         "flush" => ctx.new_method(io_base_flush),
-        "closed" => ctx.new_property(io_base_closed),
+        "closed" => ctx.new_readonly_getset("closed", io_base_closed),
         "__closed" => ctx.new_bool(false),
         "close" => ctx.new_method(io_base_close),
         "readline" => ctx.new_method(io_base_readline),
@@ -1017,7 +1017,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "tell" => ctx.new_method(PyStringIORef::tell),
         "readline" => ctx.new_method(PyStringIORef::readline),
         "truncate" => ctx.new_method(PyStringIORef::truncate),
-        "closed" => ctx.new_property(PyStringIORef::closed),
+        "closed" => ctx.new_readonly_getset("closed", PyStringIORef::closed),
         "close" => ctx.new_method(PyStringIORef::close),
     });
 
@@ -1033,7 +1033,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "tell" => ctx.new_method(PyBytesIORef::tell),
         "readline" => ctx.new_method(PyBytesIORef::readline),
         "truncate" => ctx.new_method(PyBytesIORef::truncate),
-        "closed" => ctx.new_property(PyBytesIORef::closed),
+        "closed" => ctx.new_readonly_getset("closed", PyBytesIORef::closed),
         "close" => ctx.new_method(PyBytesIORef::close),
     });
 
