@@ -6,8 +6,8 @@ use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::py_serde;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PySetResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::slots::PyTpFlags;
 use crate::types::create_type;
@@ -73,7 +73,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(setter)]
-    fn set_args(&self, args: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_args(&self, args: PyIterable, vm: &VirtualMachine) -> PySetResult {
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
         self.args.replace(PyTuple::from(args).into_ref(vm));
         Ok(())

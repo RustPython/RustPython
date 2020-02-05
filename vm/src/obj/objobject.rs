@@ -195,7 +195,7 @@ impl PyBaseObject {
     }
 
     #[pyproperty(magic, setter)]
-    fn set_dict(instance: PyObjectRef, value: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_dict(instance: PyObjectRef, value: PyDictRef, vm: &VirtualMachine) -> PySetResult {
         if let Some(dict) = &instance.dict {
             *dict.borrow_mut() = value;
             Ok(())

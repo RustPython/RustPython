@@ -2,7 +2,9 @@ use js_sys::{Array, Object, Reflect};
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::Args;
 use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStringRef, objtype::PyClassRef};
-use rustpython_vm::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use rustpython_vm::pyobject::{
+    PyClassImpl, PyObjectRef, PyRef, PyResult, PySetResult, PyValue, TryFromObject,
+};
 use rustpython_vm::types::create_type;
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
@@ -125,7 +127,7 @@ impl PyJsValue {
     }
 
     #[pymethod]
-    fn set_prop(&self, name: JsProperty, value: PyJsValueRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_prop(&self, name: JsProperty, value: PyJsValueRef, vm: &VirtualMachine) -> PySetResult {
         set_prop(&self.value, &name.into_jsvalue(), &value.value)
             .map_err(|err| new_js_error(vm, err))
     }

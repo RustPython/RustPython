@@ -12,7 +12,7 @@ use super::objweakref::PyWeak;
 use crate::function::PyFuncArgs;
 use crate::pyobject::{
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
+    PyResult, PySetResult, PyValue, TypeProtocol,
 };
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
@@ -86,7 +86,7 @@ impl PyClassRef {
         PyTuple::from(elements)
     }
 
-    fn _set_mro(self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn _set_mro(self, _value: PyObjectRef, vm: &VirtualMachine) -> PySetResult {
         Err(vm.new_attribute_error("read-only attribute".to_owned()))
     }
 

@@ -8,7 +8,7 @@ use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::import::import_file;
 use rustpython_vm::obj::{objdict::PyDictRef, objstr::PyStringRef, objtype::PyClassRef};
 use rustpython_vm::pyobject::{
-    PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PySetResult, PyValue,
 };
 use rustpython_vm::VirtualMachine;
 
@@ -295,7 +295,7 @@ impl Element {
     }
 
     #[pymethod]
-    fn set_attr(&self, attr: PyStringRef, value: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_attr(&self, attr: PyStringRef, value: PyStringRef, vm: &VirtualMachine) -> PySetResult {
         self.elem
             .set_attribute(attr.as_str(), value.as_str())
             .map_err(|err| convert::js_py_typeerror(vm, err))

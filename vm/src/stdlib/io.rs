@@ -19,7 +19,7 @@ use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PySetResult, PyValue, TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -573,7 +573,7 @@ mod fileio {
         let fileno = i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
         Ok(os::rust_file(fileno))
     }
-    fn fio_set_fileno(instance: &PyObjectRef, f: fs::File, vm: &VirtualMachine) -> PyResult<()> {
+    fn fio_set_fileno(instance: &PyObjectRef, f: fs::File, vm: &VirtualMachine) -> PySetResult {
         let updated = os::raw_file_number(f);
         vm.set_attr(&instance, "__fileno", vm.ctx.new_int(updated))?;
         Ok(())
