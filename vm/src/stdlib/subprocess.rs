@@ -134,11 +134,11 @@ impl PopenRef {
         .into_ref_with_type(vm, cls)
     }
 
-    fn poll(self, _vm: &VirtualMachine) -> Option<subprocess::ExitStatus> {
+    fn poll(self) -> Option<subprocess::ExitStatus> {
         self.process.borrow_mut().poll()
     }
 
-    fn return_code(self, _vm: &VirtualMachine) -> Option<subprocess::ExitStatus> {
+    fn return_code(self) -> Option<subprocess::ExitStatus> {
         self.process.borrow().exit_status()
     }
 
@@ -209,11 +209,11 @@ impl PopenRef {
         })
     }
 
-    fn pid(self, _vm: &VirtualMachine) -> Option<u32> {
+    fn pid(self) -> Option<u32> {
         self.process.borrow().pid()
     }
 
-    fn enter(self, _vm: &VirtualMachine) -> Self {
+    fn enter(self) -> Self {
         self
     }
 
@@ -222,7 +222,6 @@ impl PopenRef {
         _exception_type: PyObjectRef,
         _exception_value: PyObjectRef,
         _traceback: PyObjectRef,
-        _vm: &VirtualMachine,
     ) {
         let mut process = self.process.borrow_mut();
         process.stdout.take();
@@ -230,7 +229,7 @@ impl PopenRef {
         process.stderr.take();
     }
 
-    fn args(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn args(self) -> PyObjectRef {
         self.args.clone()
     }
 }

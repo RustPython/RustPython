@@ -174,7 +174,7 @@ impl PySequenceIterator {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -193,7 +193,7 @@ impl PySequenceIterator {
     }
 }
 
-pub fn seq_iter_method(obj: PyObjectRef, _vm: &VirtualMachine) -> PySequenceIterator {
+pub fn seq_iter_method(obj: PyObjectRef) -> PySequenceIterator {
     PySequenceIterator {
         position: Cell::new(0),
         obj,

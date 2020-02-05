@@ -45,7 +45,7 @@ impl PyGenerator {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyGeneratorRef, _vm: &VirtualMachine) -> PyGeneratorRef {
+    fn iter(zelf: PyGeneratorRef) -> PyGeneratorRef {
         zelf
     }
 

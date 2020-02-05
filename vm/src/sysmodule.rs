@@ -97,11 +97,11 @@ impl SysFlags {
     }
 }
 
-fn sys_getrefcount(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
+fn sys_getrefcount(obj: PyObjectRef) -> usize {
     Rc::strong_count(&obj)
 }
 
-fn sys_getsizeof(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
+fn sys_getsizeof(obj: PyObjectRef) -> usize {
     // TODO: implement default optional argument.
     mem::size_of_val(&obj)
 }
@@ -170,7 +170,7 @@ fn sys_setrecursionlimit(recursion_limit: usize, vm: &VirtualMachine) -> PyResul
 }
 
 // TODO implement string interning, this will be key for performance
-fn sys_intern(value: PyStringRef, _vm: &VirtualMachine) -> PyStringRef {
+fn sys_intern(value: PyStringRef) -> PyStringRef {
     value
 }
 

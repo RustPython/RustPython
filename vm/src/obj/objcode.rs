@@ -47,7 +47,7 @@ impl PyCodeRef {
         Err(vm.new_type_error("Cannot directly create code object".to_owned()))
     }
 
-    fn repr(self, _vm: &VirtualMachine) -> String {
+    fn repr(self) -> String {
         let code = &self.code;
         format!(
             "<code object {} at 0x{:x} file {:?}, line {}>",
@@ -58,19 +58,19 @@ impl PyCodeRef {
         )
     }
 
-    fn co_argcount(self, _vm: &VirtualMachine) -> usize {
+    fn co_argcount(self) -> usize {
         self.code.arg_names.len()
     }
 
-    fn co_filename(self, _vm: &VirtualMachine) -> String {
+    fn co_filename(self) -> String {
         self.code.source_path.clone()
     }
 
-    fn co_firstlineno(self, _vm: &VirtualMachine) -> usize {
+    fn co_firstlineno(self) -> usize {
         self.code.first_line_number
     }
 
-    fn co_kwonlyargcount(self, _vm: &VirtualMachine) -> usize {
+    fn co_kwonlyargcount(self) -> usize {
         self.code.kwonlyarg_names.len()
     }
 
@@ -83,11 +83,11 @@ impl PyCodeRef {
         vm.ctx.new_tuple(consts)
     }
 
-    fn co_name(self, _vm: &VirtualMachine) -> String {
+    fn co_name(self) -> String {
         self.code.obj_name.clone()
     }
 
-    fn co_flags(self, _vm: &VirtualMachine) -> u8 {
+    fn co_flags(self) -> u8 {
         self.code.flags.bits()
     }
 }

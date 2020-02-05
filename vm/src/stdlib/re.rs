@@ -312,7 +312,7 @@ fn re_compile(
     make_regex(vm, pattern.as_str(), flags)
 }
 
-fn re_escape(pattern: PyStringRef, _vm: &VirtualMachine) -> String {
+fn re_escape(pattern: PyStringRef) -> String {
     regex::escape(pattern.as_str())
 }
 

@@ -231,12 +231,12 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn close(&self, _vm: &VirtualMachine) {
+    fn close(&self) {
         self.sock.replace(invalid_sock());
     }
 
     #[pymethod]
-    fn fileno(&self, _vm: &VirtualMachine) -> RawSocket {
+    fn fileno(&self) -> RawSocket {
         sock_fileno(&self.sock())
     }
 
@@ -361,15 +361,15 @@ impl PySocket {
     }
 
     #[pyproperty(name = "type")]
-    fn kind(&self, _vm: &VirtualMachine) -> i32 {
+    fn kind(&self) -> i32 {
         self.kind.get()
     }
     #[pyproperty]
-    fn family(&self, _vm: &VirtualMachine) -> i32 {
+    fn family(&self) -> i32 {
         self.family.get()
     }
     #[pyproperty]
-    fn proto(&self, _vm: &VirtualMachine) -> i32 {
+    fn proto(&self) -> i32 {
         self.proto.get()
     }
 }
@@ -445,11 +445,11 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
 }
 
-fn socket_hton<U: num_traits::int::PrimInt>(host: U, _vm: &VirtualMachine) -> U {
+fn socket_hton<U: num_traits::int::PrimInt>(host: U) -> U {
     U::to_be(host)
 }
 
-fn socket_ntoh<U: num_traits::int::PrimInt>(network: U, _vm: &VirtualMachine) -> U {
+fn socket_ntoh<U: num_traits::int::PrimInt>(network: U) -> U {
     U::from_be(network)
 }
 

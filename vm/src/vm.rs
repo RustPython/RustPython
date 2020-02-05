@@ -1220,7 +1220,7 @@ impl VirtualMachine {
     pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<pyhash::PyHash> {
         let hash_obj = self.call_method(obj, "__hash__", vec![])?;
         if let Some(hash_value) = hash_obj.payload_if_subclass::<PyInt>(self) {
-            Ok(hash_value.hash(self))
+            Ok(hash_value.hash())
         } else {
             Err(self.new_type_error("__hash__ method should return an integer".to_owned()))
         }

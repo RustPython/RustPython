@@ -33,7 +33,7 @@ fn time_sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 #[cfg(not(unix))]
-fn time_sleep(dur: Duration, _vm: &VirtualMachine) {
+fn time_sleep(dur: Duration) {
     std::thread::sleep(dur);
 }
 
@@ -125,7 +125,7 @@ fn time_asctime(t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_str(formatted_time))
 }
 
-fn time_ctime(secs: OptionalArg<Either<f64, i64>>, _vm: &VirtualMachine) -> String {
+fn time_ctime(secs: OptionalArg<Either<f64, i64>>) -> String {
     let instant = optional_or_localtime(secs);
     instant.format(&CFMT).to_string()
 }

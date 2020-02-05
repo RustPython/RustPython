@@ -250,17 +250,17 @@ impl PyFunction {
     }
 
     #[pyproperty(magic)]
-    fn code(&self, _vm: &VirtualMachine) -> PyCodeRef {
+    fn code(&self) -> PyCodeRef {
         self.code.clone()
     }
 
     #[pyproperty(magic)]
-    fn defaults(&self, _vm: &VirtualMachine) -> Option<PyTupleRef> {
+    fn defaults(&self) -> Option<PyTupleRef> {
         self.defaults.clone()
     }
 
     #[pyproperty(magic)]
-    fn kwdefaults(&self, _vm: &VirtualMachine) -> Option<PyDictRef> {
+    fn kwdefaults(&self) -> Option<PyDictRef> {
         self.kw_only_defaults.clone()
     }
 }

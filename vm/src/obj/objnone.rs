@@ -40,12 +40,12 @@ impl PyNone {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
+    fn repr(&self) -> PyResult<String> {
         Ok("None".to_owned())
     }
 
     #[pymethod(name = "__bool__")]
-    fn bool(&self, _vm: &VirtualMachine) -> PyResult<bool> {
+    fn bool(&self) -> PyResult<bool> {
         Ok(false)
     }
 

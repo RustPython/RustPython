@@ -154,22 +154,22 @@ impl PyRange {
     }
 
     #[pyproperty(name = "start")]
-    fn start(&self, _vm: &VirtualMachine) -> PyIntRef {
+    fn start(&self) -> PyIntRef {
         self.start.clone()
     }
 
     #[pyproperty(name = "stop")]
-    fn stop(&self, _vm: &VirtualMachine) -> PyIntRef {
+    fn stop(&self) -> PyIntRef {
         self.stop.clone()
     }
 
     #[pyproperty(name = "step")]
-    fn step(&self, _vm: &VirtualMachine) -> PyIntRef {
+    fn step(&self) -> PyIntRef {
         self.step.clone()
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRangeIterator {
+    fn iter(zelf: PyRef<Self>) -> PyRangeIterator {
         PyRangeIterator {
             position: Cell::new(0),
             range: zelf,
@@ -210,12 +210,12 @@ impl PyRange {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self, _vm: &VirtualMachine) -> BigInt {
+    fn len(&self) -> BigInt {
         self.length()
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> String {
+    fn repr(&self) -> String {
         if self.step.as_bigint().is_one() {
             format!("range({}, {})", self.start, self.stop)
         } else {
@@ -224,12 +224,12 @@ impl PyRange {
     }
 
     #[pymethod(name = "__bool__")]
-    fn bool(&self, _vm: &VirtualMachine) -> bool {
+    fn bool(&self) -> bool {
         !self.is_empty()
     }
 
     #[pymethod(name = "__contains__")]
-    fn contains(&self, needle: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    fn contains(&self, needle: PyObjectRef) -> bool {
         if let Ok(int) = needle.downcast::<PyInt>() {
             match self.offset(int.as_bigint()) {
                 Some(ref offset) => offset.is_multiple_of(self.step.as_bigint()),
@@ -323,7 +323,7 @@ impl PyRange {
     }
 
     #[pymethod(name = "count")]
-    fn count(&self, item: PyObjectRef, _vm: &VirtualMachine) -> usize {
+    fn count(&self, item: PyObjectRef) -> usize {
         if let Ok(int) = item.downcast::<PyInt>() {
             if self.index_of(int.as_bigint()).is_some() {
                 1
@@ -341,8 +341,8 @@ impl PyRange {
             RangeIndex::Slice(slice) => {
                 let (mut substart, mut substop, mut substep) =
                     slice.inner_indices(&self.length(), vm)?;
-                let range_step = self.step(vm);
-                let range_start = self.start(vm);
+                let range_step = &self.step;
+                let range_start = &self.start;
 
                 substep *= range_step.as_bigint();
                 substart = (substart * range_step.as_bigint()) + range_start.as_bigint();
@@ -371,14 +371,14 @@ impl PyRange {
         } else if length.is_one() {
             vec![
                 vm.ctx.new_int(length),
-                zelf.start(vm).into_object(),
+                zelf.start().into_object(),
                 vm.get_none(),
             ]
         } else {
             vec![
                 vm.ctx.new_int(length),
-                zelf.start(vm).into_object(),
-                zelf.step(vm).into_object(),
+                zelf.start().into_object(),
+                zelf.step().into_object(),
             ]
         };
         pyhash::hash_iter(elements.iter(), vm)
@@ -427,7 +427,7 @@ impl PyRangeIterator {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRangeIteratorRef {
+    fn iter(zelf: PyRef<Self>) -> PyRangeIteratorRef {
         zelf
     }
 }

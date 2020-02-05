@@ -413,17 +413,17 @@ impl PyInt {
     }
 
     #[pymethod(name = "__neg__")]
-    fn neg(&self, _vm: &VirtualMachine) -> BigInt {
+    fn neg(&self) -> BigInt {
         -(&self.value)
     }
 
     #[pymethod(name = "__hash__")]
-    pub fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+    pub fn hash(&self) -> pyhash::PyHash {
         pyhash::hash_bigint(&self.value)
     }
 
     #[pymethod(name = "__abs__")]
-    fn abs(&self, _vm: &VirtualMachine) -> BigInt {
+    fn abs(&self) -> BigInt {
         self.value.abs()
     }
 
@@ -457,12 +457,12 @@ impl PyInt {
     }
 
     #[pymethod(name = "__int__")]
-    fn int(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn int(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
     #[pymethod(name = "__pos__")]
-    fn pos(&self, _vm: &VirtualMachine) -> BigInt {
+    fn pos(&self) -> BigInt {
         self.value.clone()
     }
 
@@ -472,32 +472,32 @@ impl PyInt {
     }
 
     #[pymethod(name = "__trunc__")]
-    fn trunc(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn trunc(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
     #[pymethod(name = "__floor__")]
-    fn floor(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn floor(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
     #[pymethod(name = "__ceil__")]
-    fn ceil(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn ceil(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
     #[pymethod(name = "__index__")]
-    fn index(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn index(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
     #[pymethod(name = "__invert__")]
-    fn invert(&self, _vm: &VirtualMachine) -> BigInt {
+    fn invert(&self) -> BigInt {
         !(&self.value)
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> String {
+    fn repr(&self) -> String {
         self.value.to_string()
     }
 
@@ -512,22 +512,22 @@ impl PyInt {
     }
 
     #[pymethod(name = "__bool__")]
-    fn bool(&self, _vm: &VirtualMachine) -> bool {
+    fn bool(&self) -> bool {
         !self.value.is_zero()
     }
 
     #[pymethod(name = "__sizeof__")]
-    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+    fn sizeof(&self) -> usize {
         size_of::<Self>() + ((self.value.bits() + 7) & !7) / 8
     }
 
     #[pymethod]
-    fn bit_length(&self, _vm: &VirtualMachine) -> usize {
+    fn bit_length(&self) -> usize {
         self.value.bits()
     }
 
     #[pymethod]
-    fn conjugate(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn conjugate(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
@@ -631,17 +631,17 @@ impl PyInt {
     }
 
     #[pyproperty]
-    fn imag(&self, _vm: &VirtualMachine) -> usize {
+    fn imag(&self) -> usize {
         0
     }
 
     #[pyproperty]
-    fn numerator(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn numerator(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
     #[pyproperty]
-    fn denominator(&self, _vm: &VirtualMachine) -> usize {
+    fn denominator(&self) -> usize {
         1
     }
 }

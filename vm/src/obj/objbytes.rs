@@ -109,7 +109,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self, _vm: &VirtualMachine) -> usize {
+    fn len(&self) -> usize {
         self.inner.len()
     }
 
@@ -135,12 +135,12 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+    fn hash(&self) -> pyhash::PyHash {
         self.inner.hash()
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyBytesIterator {
+    fn iter(zelf: PyRef<Self>) -> PyBytesIterator {
         PyBytesIterator {
             position: Cell::new(0),
             bytes: zelf,
@@ -148,7 +148,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__sizeof__")]
-    fn sizeof(&self, _vm: &VirtualMachine) -> PyResult<usize> {
+    fn sizeof(&self) -> PyResult<usize> {
         Ok(size_of::<Self>() + self.inner.elements.len() * size_of::<u8>())
     }
 
@@ -176,67 +176,67 @@ impl PyBytes {
     }
 
     #[pymethod(name = "isalnum")]
-    fn isalnum(&self, _vm: &VirtualMachine) -> bool {
+    fn isalnum(&self) -> bool {
         self.inner.isalnum()
     }
 
     #[pymethod(name = "isalpha")]
-    fn isalpha(&self, _vm: &VirtualMachine) -> bool {
+    fn isalpha(&self) -> bool {
         self.inner.isalpha()
     }
 
     #[pymethod(name = "isascii")]
-    fn isascii(&self, _vm: &VirtualMachine) -> bool {
+    fn isascii(&self) -> bool {
         self.inner.isascii()
     }
 
     #[pymethod(name = "isdigit")]
-    fn isdigit(&self, _vm: &VirtualMachine) -> bool {
+    fn isdigit(&self) -> bool {
         self.inner.isdigit()
     }
 
     #[pymethod(name = "islower")]
-    fn islower(&self, _vm: &VirtualMachine) -> bool {
+    fn islower(&self) -> bool {
         self.inner.islower()
     }
 
     #[pymethod(name = "isspace")]
-    fn isspace(&self, _vm: &VirtualMachine) -> bool {
+    fn isspace(&self) -> bool {
         self.inner.isspace()
     }
 
     #[pymethod(name = "isupper")]
-    fn isupper(&self, _vm: &VirtualMachine) -> bool {
+    fn isupper(&self) -> bool {
         self.inner.isupper()
     }
 
     #[pymethod(name = "istitle")]
-    fn istitle(&self, _vm: &VirtualMachine) -> bool {
+    fn istitle(&self) -> bool {
         self.inner.istitle()
     }
 
     #[pymethod(name = "lower")]
-    fn lower(&self, _vm: &VirtualMachine) -> PyBytes {
+    fn lower(&self) -> PyBytes {
         self.inner.lower().into()
     }
 
     #[pymethod(name = "upper")]
-    fn upper(&self, _vm: &VirtualMachine) -> PyBytes {
+    fn upper(&self) -> PyBytes {
         self.inner.upper().into()
     }
 
     #[pymethod(name = "capitalize")]
-    fn capitalize(&self, _vm: &VirtualMachine) -> PyBytes {
+    fn capitalize(&self) -> PyBytes {
         self.inner.capitalize().into()
     }
 
     #[pymethod(name = "swapcase")]
-    fn swapcase(&self, _vm: &VirtualMachine) -> PyBytes {
+    fn swapcase(&self) -> PyBytes {
         self.inner.swapcase().into()
     }
 
     #[pymethod(name = "hex")]
-    fn hex(&self, _vm: &VirtualMachine) -> String {
+    fn hex(&self) -> String {
         self.inner.hex()
     }
 
@@ -330,17 +330,17 @@ impl PyBytes {
     }
 
     #[pymethod(name = "strip")]
-    fn strip(&self, chars: OptionalArg<PyByteInner>, _vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn strip(&self, chars: OptionalArg<PyByteInner>) -> PyResult<PyBytes> {
         Ok(self.inner.strip(chars, ByteInnerPosition::All)?.into())
     }
 
     #[pymethod(name = "lstrip")]
-    fn lstrip(&self, chars: OptionalArg<PyByteInner>, _vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn lstrip(&self, chars: OptionalArg<PyByteInner>) -> PyResult<PyBytes> {
         Ok(self.inner.strip(chars, ByteInnerPosition::Left)?.into())
     }
 
     #[pymethod(name = "rstrip")]
-    fn rstrip(&self, chars: OptionalArg<PyByteInner>, _vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn rstrip(&self, chars: OptionalArg<PyByteInner>) -> PyResult<PyBytes> {
         Ok(self.inner.strip(chars, ByteInnerPosition::Right)?.into())
     }
 
@@ -386,7 +386,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "expandtabs")]
-    fn expandtabs(&self, options: ByteInnerExpandtabsOptions, _vm: &VirtualMachine) -> PyBytes {
+    fn expandtabs(&self, options: ByteInnerExpandtabsOptions) -> PyBytes {
         self.inner.expandtabs(options).into()
     }
 
@@ -402,7 +402,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "zfill")]
-    fn zfill(&self, width: PyIntRef, _vm: &VirtualMachine) -> PyBytes {
+    fn zfill(&self, width: PyIntRef) -> PyBytes {
         self.inner.zfill(width).into()
     }
 
@@ -412,24 +412,23 @@ impl PyBytes {
         old: PyByteInner,
         new: PyByteInner,
         count: OptionalArg<PyIntRef>,
-        _vm: &VirtualMachine,
     ) -> PyResult<PyBytes> {
         Ok(self.inner.replace(old, new, count)?.into())
     }
 
     #[pymethod(name = "title")]
-    fn title(&self, _vm: &VirtualMachine) -> PyBytes {
+    fn title(&self) -> PyBytes {
         self.inner.title().into()
     }
 
     #[pymethod(name = "__mul__")]
-    fn repeat(&self, n: isize, _vm: &VirtualMachine) -> PyBytes {
+    fn repeat(&self, n: isize) -> PyBytes {
         self.inner.repeat(n).into()
     }
 
     #[pymethod(name = "__rmul__")]
-    fn rmul(&self, n: isize, vm: &VirtualMachine) -> PyBytes {
-        self.repeat(n, vm)
+    fn rmul(&self, n: isize) -> PyBytes {
+        self.repeat(n)
     }
 
     fn do_cformat(
@@ -512,7 +511,7 @@ impl PyBytesIterator {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }

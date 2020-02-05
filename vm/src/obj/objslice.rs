@@ -51,14 +51,14 @@ impl PySlice {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
-        let start = self.start(_vm);
-        let stop = self.stop(_vm);
-        let step = self.step(_vm);
+    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+        let start = self.start(vm);
+        let stop = self.stop(vm);
+        let step = self.step(vm);
 
-        let start_repr = _vm.to_repr(&start)?;
-        let stop_repr = _vm.to_repr(&stop)?;
-        let step_repr = _vm.to_repr(&step)?;
+        let start_repr = vm.to_repr(&start)?;
+        let stop_repr = vm.to_repr(&stop)?;
+        let step_repr = vm.to_repr(&step)?;
 
         Ok(format!(
             "slice({}, {}, {})",

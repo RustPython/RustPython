@@ -81,7 +81,7 @@ fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult {
 }
 
 #[cfg(unix)]
-fn alarm(time: u32, _vm: &VirtualMachine) -> u32 {
+fn alarm(time: u32) -> u32 {
     let prev_time = if time == 0 {
         sig_alarm::cancel()
     } else {

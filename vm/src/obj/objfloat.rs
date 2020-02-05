@@ -273,7 +273,7 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__abs__")]
-    fn abs(&self, _vm: &VirtualMachine) -> f64 {
+    fn abs(&self) -> f64 {
         self.value.abs()
     }
 
@@ -315,7 +315,7 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__bool__")]
-    fn bool(&self, _vm: &VirtualMachine) -> bool {
+    fn bool(&self) -> bool {
         self.value != 0.0
     }
 
@@ -350,12 +350,12 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__pos__")]
-    fn pos(&self, _vm: &VirtualMachine) -> f64 {
+    fn pos(&self) -> f64 {
         self.value
     }
 
     #[pymethod(name = "__neg__")]
-    fn neg(&self, _vm: &VirtualMachine) -> f64 {
+    fn neg(&self) -> f64 {
         -self.value
     }
 
@@ -380,14 +380,14 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, vm: &VirtualMachine) -> String {
+    fn repr(&self) -> String {
         let value = format!("{:e}", self.value);
         if let Some(position) = value.find('e') {
             let significand = &value[..position];
             let exponent = &value[position + 1..];
             let exponent = exponent.parse::<i32>().unwrap();
             if exponent < 16 && exponent > -5 {
-                if self.is_integer(vm) {
+                if self.is_integer() {
                     format!("{:.1?}", self.value)
                 } else {
                     self.value.to_string()
@@ -489,32 +489,32 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__float__")]
-    fn float(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyFloatRef {
+    fn float(zelf: PyRef<Self>) -> PyFloatRef {
         zelf
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+    fn hash(&self) -> pyhash::PyHash {
         pyhash::hash_float(self.value)
     }
 
     #[pyproperty]
-    fn real(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyFloatRef {
+    fn real(zelf: PyRef<Self>) -> PyFloatRef {
         zelf
     }
 
     #[pyproperty]
-    fn imag(&self, _vm: &VirtualMachine) -> f64 {
+    fn imag(&self) -> f64 {
         0.0f64
     }
 
     #[pymethod(name = "conjugate")]
-    fn conjugate(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyFloatRef {
+    fn conjugate(zelf: PyRef<Self>) -> PyFloatRef {
         zelf
     }
 
     #[pymethod(name = "is_integer")]
-    fn is_integer(&self, _vm: &VirtualMachine) -> bool {
+    fn is_integer(&self) -> bool {
         let v = self.value;
         (v - v.round()).abs() < std::f64::EPSILON
     }
@@ -592,7 +592,7 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn hex(&self, _vm: &VirtualMachine) -> String {
+    fn hex(&self) -> String {
         to_hex(self.value)
     }
 }

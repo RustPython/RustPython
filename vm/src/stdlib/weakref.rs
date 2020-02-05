@@ -9,7 +9,7 @@ use crate::pyobject::PyObjectRef;
 use crate::vm::VirtualMachine;
 use std::rc::Rc;
 
-fn weakref_getweakrefcount(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
+fn weakref_getweakrefcount(obj: PyObjectRef) -> usize {
     Rc::weak_count(&obj)
 }
 
@@ -18,7 +18,7 @@ fn weakref_getweakrefs(_obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
     vm.ctx.new_list(vec![])
 }
 
-fn weakref_remove_dead_weakref(_obj: PyObjectRef, _key: PyObjectRef, _vm: &VirtualMachine) {
+fn weakref_remove_dead_weakref(_obj: PyObjectRef, _key: PyObjectRef) {
     // TODO
 }
 

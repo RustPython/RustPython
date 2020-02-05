@@ -68,7 +68,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "args")]
-    fn get_args(&self, _vm: &VirtualMachine) -> PyTupleRef {
+    fn get_args(&self) -> PyTupleRef {
         self.args.borrow().clone()
     }
 
@@ -90,51 +90,39 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__cause__")]
-    fn get_cause(&self, _vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
+    fn get_cause(&self) -> Option<PyBaseExceptionRef> {
         self.cause.borrow().clone()
     }
 
     #[pyproperty(name = "__cause__", setter)]
-    fn setter_cause(
-        &self,
-        cause: Option<PyBaseExceptionRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn setter_cause(&self, cause: Option<PyBaseExceptionRef>) -> PyResult<()> {
         self.cause.replace(cause);
         Ok(())
     }
 
     #[pyproperty(name = "__context__")]
-    fn get_context(&self, _vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
+    fn get_context(&self) -> Option<PyBaseExceptionRef> {
         self.context.borrow().clone()
     }
 
     #[pyproperty(name = "__context__", setter)]
-    fn setter_context(
-        &self,
-        context: Option<PyBaseExceptionRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn setter_context(&self, context: Option<PyBaseExceptionRef>) -> PyResult<()> {
         self.context.replace(context);
         Ok(())
     }
 
     #[pyproperty(name = "__suppress_context__")]
-    fn get_suppress_context(&self, _vm: &VirtualMachine) -> bool {
+    fn get_suppress_context(&self) -> bool {
         self.suppress_context.get()
     }
 
     #[pyproperty(name = "__suppress_context__", setter)]
-    fn set_suppress_context(&self, suppress_context: bool, _vm: &VirtualMachine) {
+    fn set_suppress_context(&self, suppress_context: bool) {
         self.suppress_context.set(suppress_context);
     }
 
     #[pymethod]
-    fn with_traceback(
-        zelf: PyRef<Self>,
-        tb: Option<PyTracebackRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult {
+    fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
         zelf.traceback.replace(tb);
         Ok(zelf.as_object().clone())
     }

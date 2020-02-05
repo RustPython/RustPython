@@ -49,7 +49,7 @@ impl PyHasher {
     }
 
     #[pyproperty(name = "name")]
-    fn name(&self, _vm: &VirtualMachine) -> String {
+    fn name(&self) -> String {
         self.name.clone()
     }
 
@@ -65,13 +65,13 @@ impl PyHasher {
     }
 
     #[pymethod(name = "digest")]
-    fn digest(&self, _vm: &VirtualMachine) -> PyBytes {
+    fn digest(&self) -> PyBytes {
         let result = self.get_digest();
         PyBytes::new(result)
     }
 
     #[pymethod(name = "hexdigest")]
-    fn hexdigest(&self, _vm: &VirtualMachine) -> String {
+    fn hexdigest(&self) -> String {
         let result = self.get_digest();
         hex::encode(result)
     }

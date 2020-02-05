@@ -87,7 +87,7 @@ fn make_path(_vm: &VirtualMachine, path: PyStringRef, dir_fd: &DirFd) -> PyStrin
     }
 }
 
-fn os_close(fileno: i64, _vm: &VirtualMachine) {
+fn os_close(fileno: i64) {
     //The File type automatically closes when it goes out of scope.
     //To enable us to close these file descriptors (and hence prevent leaks)
     //we seek to create the relevant File and simply let it pass out of scope!
@@ -519,11 +519,11 @@ struct FollowSymlinks {
 }
 
 impl DirEntryRef {
-    fn name(self, _vm: &VirtualMachine) -> String {
+    fn name(self) -> String {
         self.entry.file_name().into_string().unwrap()
     }
 
-    fn path(self, _vm: &VirtualMachine) -> String {
+    fn path(self) -> String {
         self.entry.path().to_str().unwrap().to_owned()
     }
 
@@ -568,7 +568,7 @@ impl DirEntryRef {
 
     fn stat(self, dir_fd: DirFd, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
         os_stat(
-            Either::A(self.path(vm).try_into_ref(vm)?),
+            Either::A(self.path().try_into_ref(vm)?),
             dir_fd,
             follow_symlinks,
             vm,
@@ -610,23 +610,23 @@ impl ScandirIterator {
     }
 
     #[pymethod]
-    fn close(&self, _vm: &VirtualMachine) {
+    fn close(&self) {
         self.exhausted.set(true);
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
     #[pymethod(name = "__enter__")]
-    fn enter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
     #[pymethod(name = "__exit__")]
-    fn exit(zelf: PyRef<Self>, _args: PyFuncArgs, vm: &VirtualMachine) {
-        zelf.close(vm)
+    fn exit(zelf: PyRef<Self>, _args: PyFuncArgs) {
+        zelf.close()
     }
 }
 
@@ -814,7 +814,6 @@ fn os_stat(
     _file: Either<PyStringRef, i64>,
     _dir_fd: DirFd,
     _follow_symlinks: FollowSymlinks,
-    _vm: &VirtualMachine,
 ) -> PyResult {
     unimplemented!();
 }
@@ -980,7 +979,7 @@ fn os_pipe2(flags: libc::c_int, vm: &VirtualMachine) -> PyResult<(RawFd, RawFd)>
 }
 
 #[cfg(unix)]
-fn os_system(command: PyStringRef, _vm: &VirtualMachine) -> PyResult<i32> {
+fn os_system(command: PyStringRef) -> PyResult<i32> {
     use libc::system;
     use std::ffi::CString;
 
@@ -1039,7 +1038,7 @@ fn os_cpu_count(vm: &VirtualMachine) -> PyObjectRef {
     vm.new_int(cpu_count)
 }
 
-fn os_exit(code: i32, _vm: &VirtualMachine) {
+fn os_exit(code: i32) {
     std::process::exit(code)
 }
 
@@ -1203,7 +1202,7 @@ macro_rules! suppress_iph {
     }};
 }
 
-fn os_isatty(fd: i32, _vm: &VirtualMachine) -> bool {
+fn os_isatty(fd: i32) -> bool {
     unsafe { suppress_iph!(libc::isatty(fd)) != 0 }
 }
 
