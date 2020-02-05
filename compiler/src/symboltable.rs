@@ -105,7 +105,7 @@ pub struct Symbol {
 impl Symbol {
     fn new(name: &str) -> Self {
         Symbol {
-            name: name.to_string(),
+            name: name.to_owned(),
             // table,
             scope: SymbolScope::Unknown,
             is_param: false,
@@ -304,7 +304,7 @@ impl SymbolTableBuilder {
     }
 
     fn enter_scope(&mut self, name: &str, typ: SymbolTableType, line_number: usize) {
-        let table = SymbolTable::new(name.to_string(), typ, line_number);
+        let table = SymbolTable::new(name.to_owned(), typ, line_number);
         self.tables.push(table);
     }
 
@@ -793,7 +793,7 @@ impl SymbolTableBuilder {
         // Insert symbol when required:
         if !containing {
             let symbol = Symbol::new(name);
-            table.symbols.insert(name.to_string(), symbol);
+            table.symbols.insert(name.to_owned(), symbol);
         }
 
         // Set proper flags on symbol:

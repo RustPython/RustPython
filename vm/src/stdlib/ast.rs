@@ -35,7 +35,7 @@ macro_rules! node {
         $(
             let field_name = stringify!($attr_name);
             $vm.set_attr(node.as_object(), field_name, $attr_value)?;
-            field_names.push($vm.ctx.new_str(field_name.to_string()));
+            field_names.push($vm.ctx.new_str(field_name.to_owned()));
         )*
         $vm.set_attr(node.as_object(), "_fields", $vm.ctx.new_tuple(field_names))?;
         node
@@ -81,7 +81,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
             decorator_list,
             ..
         } => node!(vm, ClassDef, {
-            name => vm.ctx.new_str(name.to_string()),
+            name => vm.ctx.new_str(name.to_owned()),
             keywords => map_ast(keyword_to_ast, vm, keywords)?,
             body => statements_to_ast(vm, body)?,
             decorator_list => expressions_to_ast(vm, decorator_list)?,
@@ -96,7 +96,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
         } => {
             if *is_async {
                 node!(vm, AsyncFunctionDef, {
-                    name => vm.ctx.new_str(name.to_string()),
+                    name => vm.ctx.new_str(name.to_owned()),
                     args => parameters_to_ast(vm, args)?,
                     body => statements_to_ast(vm, body)?,
                     decorator_list => expressions_to_ast(vm, decorator_list)?,
@@ -104,7 +104,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
                 })
             } else {
                 node!(vm, FunctionDef, {
-                    name => vm.ctx.new_str(name.to_string()),
+                    name => vm.ctx.new_str(name.to_owned()),
                     args => parameters_to_ast(vm, args)?,
                     body => statements_to_ast(vm, body)?,
                     decorator_list => expressions_to_ast(vm, decorator_list)?,
@@ -245,7 +245,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
 
 fn alias_to_ast(vm: &VirtualMachine, alias: &ast::ImportSymbol) -> PyResult<AstNodeRef> {
     Ok(node!(vm, alias, {
-        name => vm.ctx.new_str(alias.symbol.to_string()),
+        name => vm.ctx.new_str(alias.symbol.to_owned()),
         asname => optional_string_to_py_obj(vm, &alias.alias)
     }))
 }
@@ -280,12 +280,8 @@ fn handler_to_ast(vm: &VirtualMachine, handler: &ast::ExceptHandler) -> PyResult
 }
 
 fn make_string_list(vm: &VirtualMachine, names: &[String]) -> PyObjectRef {
-    vm.ctx.new_list(
-        names
-            .iter()
-            .map(|x| vm.ctx.new_str(x.to_string()))
-            .collect(),
-    )
+    vm.ctx
+        .new_list(names.iter().map(|x| vm.ctx.new_str(x.to_owned())).collect())
 }
 
 fn optional_expressions_to_ast(
@@ -344,7 +340,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 ast::UnaryOperator::Pos => "UAdd",
             };
             node!(vm, UnaryOp, {
-                op => vm.ctx.new_str(op.to_string()),
+                op => vm.ctx.new_str(op.to_owned()),
                 operand => expression_to_ast(vm, a)?,
             })
         }
@@ -355,7 +351,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 ast::BooleanOperator::And => "And",
                 ast::BooleanOperator::Or => "Or",
             };
-            let py_op = vm.ctx.new_str(str_op.to_string());
+            let py_op = vm.ctx.new_str(str_op.to_owned());
 
             node!(vm, BoolOp, {
                 op => py_op,
@@ -380,7 +376,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             };
             let ops = vm.ctx.new_list(
                 ops.iter()
-                    .map(|x| vm.ctx.new_str(to_operator(x).to_string()))
+                    .map(|x| vm.ctx.new_str(to_operator(x).to_owned()))
                     .collect(),
             );
 
@@ -510,7 +506,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
         }),
         Attribute { value, name } => node!(vm, Attribute, {
             value => expression_to_ast(vm, value)?,
-            attr => vm.ctx.new_str(name.to_string()),
+            attr => vm.ctx.new_str(name.to_owned()),
             ctx => vm.ctx.none()
         }),
         Starred { value } => node!(vm, Starred, {
@@ -545,7 +541,7 @@ fn operator_string(op: &ast::Operator) -> String {
         BitAnd => "BitAnd",
         FloorDiv => "FloorDiv",
     }
-    .to_string()
+    .to_owned()
 }
 
 fn parameters_to_ast(vm: &VirtualMachine, args: &ast::Parameters) -> PyResult<AstNodeRef> {
@@ -576,7 +572,7 @@ fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult
     };
 
     let py_node = node!(vm, arg, {
-        arg => vm.ctx.new_str(parameter.arg.to_string()),
+        arg => vm.ctx.new_str(parameter.arg.to_owned()),
         annotation => py_annotation
     });
 
@@ -588,7 +584,7 @@ fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult
 
 fn optional_string_to_py_obj(vm: &VirtualMachine, name: &Option<String>) -> PyObjectRef {
     if let Some(name) = name {
-        vm.ctx.new_str(name.to_string())
+        vm.ctx.new_str(name.to_owned())
     } else {
         vm.ctx.none()
     }

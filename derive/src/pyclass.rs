@@ -620,7 +620,7 @@ fn generate_class_def(
             let meta = attr.parse_meta().expect("expected doc attr to be a meta");
             if let Meta::NameValue(name_value) = meta {
                 if let Lit::Str(s) = name_value.lit {
-                    let val = s.value().trim().to_string();
+                    let val = s.value().trim().to_owned();
                     match doc {
                         Some(ref mut doc) => doc.push(val),
                         None => doc = Some(vec![val]),

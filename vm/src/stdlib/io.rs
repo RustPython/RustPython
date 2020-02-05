@@ -770,7 +770,7 @@ fn text_io_wrapper_write(
         return Err(vm.new_value_error("not writable".to_owned()));
     }
 
-    let bytes = obj.as_str().to_string().into_bytes();
+    let bytes = obj.as_str().to_owned().into_bytes();
 
     let len = vm.call_method(&raw, "write", vec![vm.ctx.new_bytes(bytes.clone())])?;
     let len = objint::get_value(&len)
@@ -858,7 +858,7 @@ fn split_mode_string(mode_string: &str) -> Result<(String, String), String> {
     if mode == '\0' {
         return Err(
             "Must have exactly one of create/read/write/append mode and at most one plus"
-                .to_string(),
+                .to_owned(),
         );
     }
     let mut mode = mode.to_string();
@@ -1102,21 +1102,21 @@ mod tests {
             split_mode_string(""),
             Err(
                 "Must have exactly one of create/read/write/append mode and at most one plus"
-                    .to_string()
+                    .to_owned()
             )
         );
         assert_eq!(
             split_mode_string("b"),
             Err(
                 "Must have exactly one of create/read/write/append mode and at most one plus"
-                    .to_string()
+                    .to_owned()
             )
         );
         assert_eq!(
             split_mode_string("t"),
             Err(
                 "Must have exactly one of create/read/write/append mode and at most one plus"
-                    .to_string()
+                    .to_owned()
             )
         );
     }

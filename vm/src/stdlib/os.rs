@@ -312,7 +312,7 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
     let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
         vm.new_value_error(
             "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK"
-                .to_string(),
+                .to_owned(),
         )
     })?;
 
@@ -340,7 +340,7 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
 }
 
 fn os_error(message: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
-    let msg = message.map_or("".to_owned(), |msg| msg.as_str().to_string());
+    let msg = message.map_or("".to_owned(), |msg| msg.as_str().to_owned());
 
     Err(vm.new_os_error(msg))
 }
@@ -524,7 +524,7 @@ impl DirEntryRef {
     }
 
     fn path(self, _vm: &VirtualMachine) -> String {
-        self.entry.path().to_str().unwrap().to_string()
+        self.entry.path().to_str().unwrap().to_owned()
     }
 
     #[allow(clippy::match_bool)]
@@ -877,7 +877,7 @@ fn os_getcwd(vm: &VirtualMachine) -> PyResult<String> {
         .as_path()
         .to_str()
         .unwrap()
-        .to_string())
+        .to_owned())
 }
 
 fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {

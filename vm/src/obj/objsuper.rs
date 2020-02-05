@@ -92,7 +92,7 @@ impl PySuper {
                 _ => {
                     return Err(vm.new_type_error(
                         "super must be called with 1 argument or from inside class method"
-                            .to_string(),
+                            .to_owned(),
                     ));
                 }
             }
@@ -172,6 +172,6 @@ pub fn init(context: &PyContext) {
                      super().cmeth(arg)\n";
 
     extend_class!(context, super_type, {
-        "__doc__" => context.new_str(super_doc.to_string()),
+        "__doc__" => context.new_str(super_doc.to_owned()),
     });
 }

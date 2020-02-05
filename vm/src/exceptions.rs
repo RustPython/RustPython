@@ -225,7 +225,7 @@ fn print_source_line<W: Write>(output: &mut W, filename: &str, lineno: usize) ->
 
 /// Print exception occurrence location from traceback element
 fn write_traceback_entry<W: Write>(output: &mut W, tb_entry: &PyTracebackRef) -> io::Result<()> {
-    let filename = tb_entry.frame.code.source_path.to_string();
+    let filename = tb_entry.frame.code.source_path.to_owned();
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,

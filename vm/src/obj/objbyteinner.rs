@@ -442,7 +442,7 @@ impl PyByteInner {
                 i @ PyMemoryView => Ok(i.try_value().unwrap()),
                 _ => Err(vm.new_index_error(
                     "can assign only bytes, buffers, or iterables of ints in range(0, 256)"
-                        .to_string()
+                        .to_owned()
                 )),
             }),
         };

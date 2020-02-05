@@ -553,7 +553,7 @@ impl PyItertoolsIslice {
             Some(pyobject_to_opt_usize(stop, &vm).ok_or_else(|| {
                 vm.new_value_error(
                     "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize."
-                        .to_string(),
+                        .to_owned(),
                 )
             })?)
         } else {

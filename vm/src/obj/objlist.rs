@@ -453,7 +453,7 @@ impl PyList {
             let mut str_parts = Vec::with_capacity(zelf.elements.borrow().len());
             for elem in zelf.elements.borrow().iter() {
                 let s = vm.to_repr(elem)?;
-                str_parts.push(s.as_str().to_string());
+                str_parts.push(s.as_str().to_owned());
             }
             format!("[{}]", str_parts.join(", "))
         } else {

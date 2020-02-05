@@ -36,7 +36,7 @@ impl PyValue for PyHasher {
 impl PyHasher {
     fn new(name: &str, d: HashWrapper) -> Self {
         PyHasher {
-            name: name.to_string(),
+            name: name.to_owned(),
             buffer: RefCell::new(d),
         }
     }

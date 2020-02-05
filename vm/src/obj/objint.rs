@@ -94,7 +94,7 @@ macro_rules! impl_try_from_object_int {
                         vm.new_overflow_error(concat!(
                             "Int value cannot fit into Rust ",
                             stringify!($t)
-                        ).to_string())
+                        ).to_owned())
                     ),
                 }
             }

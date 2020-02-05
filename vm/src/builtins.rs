@@ -146,7 +146,7 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
                 .parse::<compile::Mode>()
                 .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-            vm.compile(&source, mode, args.filename.as_str().to_string())
+            vm.compile(&source, mode, args.filename.as_str().to_owned())
                 .map(|o| o.into_object())
                 .map_err(|err| vm.new_syntax_error(&err))
         }
@@ -920,7 +920,7 @@ pub fn builtin_build_class_(
     vm: &VirtualMachine,
 ) -> PyResult {
     let name = qualified_name.as_str().split('.').next_back().unwrap();
-    let name_obj = vm.new_str(name.to_string());
+    let name_obj = vm.new_str(name.to_owned());
 
     let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
         PyClassRef::try_from_object(vm, metaclass)?

@@ -110,7 +110,7 @@ impl PySymbolTable {
             }
             .into_ref(vm))
         } else {
-            Err(vm.new_lookup_error(name.to_string()))
+            Err(vm.new_lookup_error(name.to_owned()))
         }
     }
 
@@ -120,7 +120,7 @@ impl PySymbolTable {
             .symtable
             .symbols
             .keys()
-            .map(|s| vm.ctx.new_str(s.to_string()))
+            .map(|s| vm.ctx.new_str(s.to_owned()))
             .collect();
         Ok(vm.ctx.new_list(symbols))
     }

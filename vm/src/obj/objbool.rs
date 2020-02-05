@@ -96,7 +96,7 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
         "__rand__" => context.new_method(bool_and),
         "__xor__" => context.new_method(bool_xor),
         "__rxor__" => context.new_method(bool_xor),
-        "__doc__" => context.new_str(bool_doc.to_string()),
+        "__doc__" => context.new_str(bool_doc.to_owned()),
     });
 }
 

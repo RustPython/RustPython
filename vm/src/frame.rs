@@ -1154,7 +1154,7 @@ impl Frame {
             .new_pyfunction(code_obj, scope, defaults, kw_only_defaults);
 
         let name = qualified_name.as_str().split('.').next_back().unwrap();
-        vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_string()))?;
+        vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_owned()))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
         let module = self
             .scope
@@ -1319,13 +1319,13 @@ impl Frame {
     fn store_attr(&self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let value = self.pop_value();
-        vm.set_attr(&parent, vm.new_str(attr_name.to_string()), value)?;
+        vm.set_attr(&parent, vm.new_str(attr_name.to_owned()), value)?;
         Ok(None)
     }
 
     fn delete_attr(&self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
-        let name = vm.ctx.new_str(attr_name.to_string());
+        let name = vm.ctx.new_str(attr_name.to_owned());
         vm.del_attr(&parent, name)?;
         Ok(None)
     }

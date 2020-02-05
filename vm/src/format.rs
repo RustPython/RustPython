@@ -614,7 +614,7 @@ impl FormatString {
         let arg_part = parts[0];
 
         let format_spec = if parts.len() > 1 {
-            parts[1].to_string()
+            parts[1].to_owned()
         } else {
             String::new()
         };
@@ -638,7 +638,7 @@ impl FormatString {
         if let Ok(index) = arg_part.parse::<usize>() {
             Ok(FormatPart::IndexSpec(index, format_spec))
         } else {
-            Ok(FormatPart::KeywordSpec(arg_part.to_string(), format_spec))
+            Ok(FormatPart::KeywordSpec(arg_part.to_owned(), format_spec))
         }
     }
 

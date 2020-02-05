@@ -283,7 +283,7 @@ fn make_regex(vm: &VirtualMachine, pattern: &str, flags: PyRegexFlags) -> PyResu
         })?;
     Ok(PyPattern {
         regex: r,
-        pattern: pattern.to_string(),
+        pattern: pattern.to_owned(),
     })
 }
 

@@ -106,7 +106,7 @@ impl PopenRef {
         let stdout = convert_redirection(args.stdout, vm)?;
         let stderr = convert_redirection(args.stderr, vm)?;
         let command_list = match &args.args {
-            Either::A(command) => vec![command.as_str().to_string()],
+            Either::A(command) => vec![command.as_str().to_owned()],
             Either::B(command_list) => command_list
                 .borrow_elements()
                 .iter()

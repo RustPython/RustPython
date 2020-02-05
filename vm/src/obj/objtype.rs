@@ -101,7 +101,7 @@ impl PyClassRef {
         let attributes = self.get_attributes();
         let attributes: Vec<PyObjectRef> = attributes
             .keys()
-            .map(|k| vm.ctx.new_str(k.to_string()))
+            .map(|k| vm.ctx.new_str(k.to_owned()))
             .collect();
         PyList::from(attributes)
     }
@@ -220,7 +220,7 @@ impl PyClassRef {
             self.attributes.borrow_mut().remove(attr_name.as_str());
             Ok(())
         } else {
-            Err(vm.new_attribute_error(attr_name.as_str().to_string()))
+            Err(vm.new_attribute_error(attr_name.as_str().to_owned()))
         }
     }
 
@@ -228,7 +228,7 @@ impl PyClassRef {
     pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
         self.attributes
             .borrow_mut()
-            .insert(attr_name.to_string(), value.into());
+            .insert(attr_name.to_owned(), value.into());
     }
 
     #[pymethod(magic)]
@@ -448,7 +448,7 @@ impl PyClassRef {
 
         for bc in base_classes {
             for (name, value) in bc.attributes.borrow().iter() {
-                attributes.insert(name.to_string(), value.clone());
+                attributes.insert(name.to_owned(), value.clone());
             }
         }
 
@@ -548,7 +548,7 @@ fn calculate_meta_class(
         return Err(vm.new_type_error(
             "metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass \
              of the metaclasses of all its bases"
-                .to_string(),
+                .to_owned(),
         ));
     }
     Ok(winner)

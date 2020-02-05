@@ -128,7 +128,7 @@ impl CompilationSource {
                 let module_name = if is_init {
                     parent.clone()
                 } else if parent.is_empty() {
-                    stem.to_string()
+                    stem.to_owned()
                 } else {
                     format!("{}.{}", parent, stem)
                 };

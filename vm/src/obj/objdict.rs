@@ -524,7 +524,7 @@ macro_rules! dict_iterator {
                     let mut str_parts = vec![];
                     for (key, value) in zelf.dict.clone() {
                         let s = vm.to_repr(&$result_fn(vm, &key, &value))?;
-                        str_parts.push(s.as_str().to_string());
+                        str_parts.push(s.as_str().to_owned());
                     }
                     format!("{}([{}])", $class_name, str_parts.join(", "))
                 } else {

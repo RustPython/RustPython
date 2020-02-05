@@ -35,7 +35,7 @@ impl ReaderOption {
                 1 => bytes[0],
                 _ => {
                     let msg = r#""delimiter" must be a 1-character string"#;
-                    return Err(vm.new_type_error(msg.to_string()));
+                    return Err(vm.new_type_error(msg.to_owned()));
                 }
             }
         } else {
@@ -48,7 +48,7 @@ impl ReaderOption {
                 1 => bytes[0],
                 _ => {
                     let msg = r#""quotechar" must be a 1-character string"#;
-                    return Err(vm.new_type_error(msg.to_string()));
+                    return Err(vm.new_type_error(msg.to_owned()));
                 }
             }
         } else {

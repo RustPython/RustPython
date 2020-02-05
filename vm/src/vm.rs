@@ -576,7 +576,7 @@ impl VirtualMachine {
                 let from_list = self.ctx.new_tuple(
                     from_list
                         .iter()
-                        .map(|name| self.new_str(name.to_string()))
+                        .map(|name| self.new_str(name.to_owned()))
                         .collect(),
                 );
                 self.invoke(
@@ -908,7 +908,7 @@ impl VirtualMachine {
         compile::compile(source, mode, source_path, self.settings.optimize)
             .map(|codeobj| PyCode::new(codeobj).into_ref(self))
             .map_err(|mut compile_error| {
-                compile_error.update_statement_info(source.trim_end().to_string());
+                compile_error.update_statement_info(source.trim_end().to_owned());
                 compile_error
             })
     }
