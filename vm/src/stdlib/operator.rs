@@ -78,16 +78,15 @@ fn operator_compare_digest(
         (Either::A(a), Either::A(b)) => {
             if !a.as_str().is_ascii() || !b.as_str().is_ascii() {
                 return Err(vm.new_type_error(
-                    "comparing strings with non-ASCII characters is not supported".to_string(),
+                    "comparing strings with non-ASCII characters is not supported".to_owned(),
                 ));
             }
             timing_safe_cmp(a.as_str().as_bytes(), b.as_str().as_bytes())
         }
         (Either::B(a), Either::B(b)) => a.with_ref(|a| b.with_ref(|b| timing_safe_cmp(a, b))),
         _ => {
-            return Err(vm.new_type_error(
-                "unsupported operand types(s) or combination of types".to_string(),
-            ))
+            return Err(vm
+                .new_type_error("unsupported operand types(s) or combination of types".to_owned()))
         }
     };
     Ok(res)

@@ -563,7 +563,7 @@ impl VirtualMachine {
             None => {
                 let import_func = self
                     .get_attribute(self.builtins.clone(), "__import__")
-                    .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
+                    .map_err(|_| self.new_import_error("__import__ not found".to_owned()))?;
 
                 let (locals, globals) = if let Some(frame) = self.current_frame() {
                     (
@@ -576,7 +576,7 @@ impl VirtualMachine {
                 let from_list = self.ctx.new_tuple(
                     from_list
                         .iter()
-                        .map(|name| self.new_str(name.to_string()))
+                        .map(|name| self.new_str(name.to_owned()))
                         .collect(),
                 );
                 self.invoke(
@@ -908,7 +908,7 @@ impl VirtualMachine {
         compile::compile(source, mode, source_path, self.settings.optimize)
             .map(|codeobj| PyCode::new(codeobj).into_ref(self))
             .map_err(|mut compile_error| {
-                compile_error.update_statement_info(source.trim_end().to_string());
+                compile_error.update_statement_info(source.trim_end().to_owned());
                 compile_error
             })
     }
@@ -1213,7 +1213,7 @@ impl VirtualMachine {
         if let Some(hash_value) = hash_obj.payload_if_subclass::<PyInt>(self) {
             Ok(hash_value.hash(self))
         } else {
-            Err(self.new_type_error("__hash__ method should return an integer".to_string()))
+            Err(self.new_type_error("__hash__ method should return an integer".to_owned()))
         }
     }
 

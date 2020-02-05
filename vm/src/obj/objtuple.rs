@@ -185,7 +185,7 @@ impl PyTuple {
                 format!("({})", str_parts.join(", "))
             }
         } else {
-            "(...)".to_string()
+            "(...)".to_owned()
         };
         Ok(s)
     }
@@ -215,7 +215,7 @@ impl PyTuple {
                 return Ok(index);
             }
         }
-        Err(vm.new_value_error("tuple.index(x): x not in tuple".to_string()))
+        Err(vm.new_value_error("tuple.index(x): x not in tuple".to_owned()))
     }
 
     #[pymethod(name = "__contains__")]

@@ -73,7 +73,7 @@ pub trait PySliceableSequence {
                 let stop = slice.stop_index(vm)?;
                 let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
                 if step.is_zero() {
-                    Err(vm.new_value_error("slice step cannot be zero".to_string()))
+                    Err(vm.new_value_error("slice step cannot be zero".to_owned()))
                 } else if step.is_positive() {
                     let range = self.get_slice_range(&start, &stop);
                     if range.start < range.end {
@@ -182,7 +182,7 @@ pub fn get_sequence_index(vm: &VirtualMachine, index: &PyIntRef, length: usize) 
         if value < 0 {
             let from_end: usize = -value as usize;
             if from_end > length {
-                Err(vm.new_index_error("Index out of bounds!".to_string()))
+                Err(vm.new_index_error("Index out of bounds!".to_owned()))
             } else {
                 let index = length - from_end;
                 Ok(index)
@@ -190,13 +190,13 @@ pub fn get_sequence_index(vm: &VirtualMachine, index: &PyIntRef, length: usize) 
         } else {
             let index = value as usize;
             if index >= length {
-                Err(vm.new_index_error("Index out of bounds!".to_string()))
+                Err(vm.new_index_error("Index out of bounds!".to_owned()))
             } else {
                 Ok(index)
             }
         }
     } else {
-        Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
+        Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned()))
     }
 }
 
@@ -213,11 +213,11 @@ pub fn get_item(
                     let obj = elements[pos_index].clone();
                     Ok(obj)
                 } else {
-                    Err(vm.new_index_error("Index out of bounds!".to_string()))
+                    Err(vm.new_index_error("Index out of bounds!".to_owned()))
                 }
             }
             None => {
-                Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
+                Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned()))
             }
         };
     }
@@ -256,7 +256,7 @@ pub fn is_valid_slice_arg(
             i @ PyInt => Ok(Some(i.as_bigint().clone())),
             _obj @ PyNone => Ok(None),
             _ => Err(vm.new_type_error(
-                "slice indices must be integers or None or have an __index__ method".to_string()
+                "slice indices must be integers or None or have an __index__ method".to_owned()
             )), // TODO: check for an __index__ method
         })
     } else {
@@ -277,10 +277,10 @@ pub fn opt_len(obj: &PyObjectRef, vm: &VirtualMachine) -> Option<PyResult<usize>
             })?
             .as_bigint();
         if len.is_negative() {
-            return Err(vm.new_value_error("__len__() should return >= 0".to_string()));
+            return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
         }
         len.to_usize().ok_or_else(|| {
-            vm.new_overflow_error("cannot fit __len__() result into usize".to_string())
+            vm.new_overflow_error("cannot fit __len__() result into usize".to_owned())
         })
     })
 }

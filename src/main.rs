@@ -364,7 +364,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
 
     // Figure out if a -c option was given:
     if let Some(command) = matches.value_of("c") {
-        run_command(&vm, scope, command.to_string())?;
+        run_command(&vm, scope, command.to_owned())?;
     } else if let Some(module) = matches.value_of("m") {
         run_module(&vm, module)?;
     } else if let Some(filename) = matches.value_of("script") {
@@ -389,7 +389,7 @@ fn _run_string(vm: &VirtualMachine, scope: Scope, source: &str, source_path: Str
 
 fn run_command(vm: &VirtualMachine, scope: Scope, source: String) -> PyResult<()> {
     debug!("Running command {}", source);
-    _run_string(vm, scope, &source, "<stdin>".to_string())?;
+    _run_string(vm, scope, &source, "<stdin>".to_owned())?;
     Ok(())
 }
 
@@ -426,13 +426,13 @@ fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<
         process::exit(1);
     };
 
-    let dir = file_path.parent().unwrap().to_str().unwrap().to_string();
+    let dir = file_path.parent().unwrap().to_str().unwrap().to_owned();
     let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
     vm.call_method(&sys_path, "insert", vec![vm.new_int(0), vm.new_str(dir)])?;
 
     match util::read_file(&file_path) {
         Ok(source) => {
-            _run_string(vm, scope, &source, file_path.to_str().unwrap().to_string())?;
+            _run_string(vm, scope, &source, file_path.to_str().unwrap().to_owned())?;
         }
         Err(err) => {
             error!(

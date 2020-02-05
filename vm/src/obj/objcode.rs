@@ -44,7 +44,7 @@ impl PyValue for PyCode {
 impl PyCodeRef {
     #[allow(clippy::new_ret_no_self)]
     fn new(_cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error("Cannot directly create code object".to_string()))
+        Err(vm.new_type_error("Cannot directly create code object".to_owned()))
     }
 
     fn repr(self, _vm: &VirtualMachine) -> String {

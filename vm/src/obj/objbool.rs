@@ -58,7 +58,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
                         let len_val = int_obj.as_bigint();
                         if len_val.sign() == Sign::Minus {
                             return Err(
-                                vm.new_value_error("__len__() should return >= 0".to_string())
+                                vm.new_value_error("__len__() should return >= 0".to_owned())
                             );
                         }
 
@@ -96,7 +96,7 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
         "__rand__" => context.new_method(bool_and),
         "__xor__" => context.new_method(bool_xor),
         "__rxor__" => context.new_method(bool_xor),
-        "__doc__" => context.new_str(bool_doc.to_string()),
+        "__doc__" => context.new_str(bool_doc.to_owned()),
     });
 }
 
@@ -120,9 +120,9 @@ pub fn get_py_int(obj: &PyObjectRef) -> &PyInt {
 
 fn bool_repr(obj: bool, _vm: &VirtualMachine) -> String {
     if obj {
-        "True".to_string()
+        "True".to_owned()
     } else {
-        "False".to_string()
+        "False".to_owned()
     }
 }
 
@@ -134,7 +134,7 @@ fn bool_format(
     if format_spec.as_str().is_empty() {
         vm.to_str(&obj)
     } else {
-        Err(vm.new_type_error("unsupported format string passed to bool.__format__".to_string()))
+        Err(vm.new_type_error("unsupported format string passed to bool.__format__".to_owned()))
     }
 }
 

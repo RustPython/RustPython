@@ -21,7 +21,7 @@ enum ShellExecResult {
 }
 
 fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResult {
-    match vm.compile(source, compile::Mode::Single, "<stdin>".to_string()) {
+    match vm.compile(source, compile::Mode::Single, "<stdin>".to_owned()) {
         Ok(code) => {
             match vm.run_code_obj(code, scope.clone()) {
                 Ok(value) => {

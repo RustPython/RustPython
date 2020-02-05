@@ -35,7 +35,7 @@ fn executable(ctx: &PyContext) -> PyObjectRef {
 fn getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
     let offset = offset.into_option().unwrap_or(0);
     if offset > vm.frames.borrow().len() - 1 {
-        return Err(vm.new_value_error("call stack is not deep enough".to_string()));
+        return Err(vm.new_value_error("call stack is not deep enough".to_owned()));
     }
     let idx = vm.frames.borrow().len() - offset - 1;
     let frame = &vm.frames.borrow()[idx];
@@ -108,21 +108,21 @@ fn sys_getsizeof(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
 
 fn sys_getfilesystemencoding(_vm: &VirtualMachine) -> String {
     // TODO: implement non-utf-8 mode.
-    "utf-8".to_string()
+    "utf-8".to_owned()
 }
 
 fn sys_getdefaultencoding(_vm: &VirtualMachine) -> String {
-    "utf-8".to_string()
+    "utf-8".to_owned()
 }
 
 #[cfg(not(windows))]
 fn sys_getfilesystemencodeerrors(_vm: &VirtualMachine) -> String {
-    "surrogateescape".to_string()
+    "surrogateescape".to_owned()
 }
 
 #[cfg(windows)]
 fn sys_getfilesystemencodeerrors(_vm: &VirtualMachine) -> String {
-    "surrogatepass".to_string()
+    "surrogatepass".to_owned()
 }
 
 fn sys_getprofile(vm: &VirtualMachine) -> PyObjectRef {
@@ -190,7 +190,7 @@ fn sys_exc_info(vm: &VirtualMachine) -> PyObjectRef {
 
 fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
     vm.ctx.new_tuple(vec![
-        vm.ctx.new_str("RustPython".to_string()),
+        vm.ctx.new_str("RustPython".to_owned()),
         vm.ctx.new_str(version::get_git_identifier()),
         vm.ctx.new_str(version::get_git_revision()),
     ])
@@ -216,8 +216,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
 
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {
-        "name" => ctx.new_str("rustpython".to_string()),
-        "cache_tag" => ctx.new_str("rustpython-01".to_string()),
+        "name" => ctx.new_str("rustpython".to_owned()),
+        "cache_tag" => ctx.new_str("rustpython-01".to_owned()),
     });
 
     let path = ctx.new_list(
@@ -229,27 +229,27 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
     );
 
     let platform = if cfg!(target_os = "linux") {
-        "linux".to_string()
+        "linux".to_owned()
     } else if cfg!(target_os = "macos") {
-        "darwin".to_string()
+        "darwin".to_owned()
     } else if cfg!(target_os = "windows") {
-        "win32".to_string()
+        "win32".to_owned()
     } else if cfg!(target_os = "android") {
         // Linux as well. see https://bugs.python.org/issue32637
-        "linux".to_string()
+        "linux".to_owned()
     } else {
-        "unknown".to_string()
+        "unknown".to_owned()
     };
 
-    let framework = "".to_string();
+    let framework = "".to_owned();
 
     // https://doc.rust-lang.org/reference/conditional-compilation.html#target_endian
     let bytorder = if cfg!(target_endian = "little") {
-        "little".to_string()
+        "little".to_owned()
     } else if cfg!(target_endian = "big") {
-        "big".to_string()
+        "big".to_owned()
     } else {
-        "unknown".to_string()
+        "unknown".to_owned()
     };
 
     let copyright = "Copyright (c) 2019 RustPython Team";
@@ -324,8 +324,8 @@ setrecursionlimit() -- set the max recursion depth for the interpreter
 settrace() -- set the global debug tracing function
 ";
     let mut module_names: Vec<String> = vm.stdlib_inits.borrow().keys().cloned().collect();
-    module_names.push("sys".to_string());
-    module_names.push("builtins".to_string());
+    module_names.push("sys".to_owned());
+    module_names.push("builtins".to_owned());
     module_names.sort();
     let builtin_module_names = ctx.new_tuple(
         module_names
@@ -345,7 +345,7 @@ settrace() -- set the global debug tracing function
       "argv" => argv(vm),
       "builtin_module_names" => builtin_module_names,
       "byteorder" => ctx.new_str(bytorder),
-      "copyright" => ctx.new_str(copyright.to_string()),
+      "copyright" => ctx.new_str(copyright.to_owned()),
       "executable" => executable(ctx),
       "flags" => flags,
       "getrefcount" => ctx.new_function(sys_getrefcount),
@@ -361,9 +361,9 @@ settrace() -- set the global debug tracing function
       "maxunicode" => ctx.new_int(0x0010_FFFF),
       "maxsize" => ctx.new_int(std::isize::MAX),
       "path" => path,
-      "ps1" => ctx.new_str(">>>>> ".to_string()),
-      "ps2" => ctx.new_str("..... ".to_string()),
-      "__doc__" => ctx.new_str(sys_doc.to_string()),
+      "ps1" => ctx.new_str(">>>>> ".to_owned()),
+      "ps2" => ctx.new_str("..... ".to_owned()),
+      "__doc__" => ctx.new_str(sys_doc.to_owned()),
       "_getframe" => ctx.new_function(getframe),
       "modules" => modules.clone(),
       "warnoptions" => ctx.new_list(vec![]),
@@ -381,12 +381,12 @@ settrace() -- set the global debug tracing function
       "version_info" => version_info,
       "_git" => sys_git_info(vm),
       "exc_info" => ctx.new_function(sys_exc_info),
-      "prefix" => ctx.new_str(prefix.to_string()),
-      "base_prefix" => ctx.new_str(base_prefix.to_string()),
-      "exec_prefix" => ctx.new_str(exec_prefix.to_string()),
-      "base_exec_prefix" => ctx.new_str(base_exec_prefix.to_string()),
+      "prefix" => ctx.new_str(prefix.to_owned()),
+      "base_prefix" => ctx.new_str(base_prefix.to_owned()),
+      "exec_prefix" => ctx.new_str(exec_prefix.to_owned()),
+      "base_exec_prefix" => ctx.new_str(base_exec_prefix.to_owned()),
       "exit" => ctx.new_function(sys_exit),
-      "abiflags" => ctx.new_str("".to_string()),
+      "abiflags" => ctx.new_str("".to_owned()),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();

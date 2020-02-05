@@ -194,7 +194,7 @@ impl PyStructTime {
     }
 
     fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
-        let invalid = || vm.new_value_error("invalid struct_time parameter".to_string());
+        let invalid = || vm.new_value_error("invalid struct_time parameter".to_owned());
         macro_rules! field {
             ($field:ident) => {
                 TryFromObject::try_from_object(vm, self.$field.clone())?
@@ -225,7 +225,7 @@ impl TryFromObject for PyStructTime {
         let seq = vm.extract_elements::<PyObjectRef>(&seq)?;
         if seq.len() != 9 {
             return Err(
-                vm.new_type_error("time.struct_time() takes a sequence of length 9".to_string())
+                vm.new_type_error("time.struct_time() takes a sequence of length 9".to_owned())
             );
         }
         let mut i = seq.into_iter();

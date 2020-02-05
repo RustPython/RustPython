@@ -88,7 +88,7 @@ fn with_compiler(
 ) -> Result<CodeObject, CompileError> {
     let mut compiler = Compiler::new(optimize);
     compiler.source_path = Some(source_path);
-    compiler.push_new_code_object("<module>".to_string());
+    compiler.push_new_code_object("<module>".to_owned());
     f(&mut compiler)?;
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
@@ -290,7 +290,7 @@ impl<O: OutputStream> Compiler<O> {
     fn load_name(&mut self, name: &str) {
         let scope = self.scope_for_name(name);
         self.emit(Instruction::LoadName {
-            name: name.to_string(),
+            name: name.to_owned(),
             scope,
         });
     }
@@ -298,7 +298,7 @@ impl<O: OutputStream> Compiler<O> {
     fn store_name(&mut self, name: &str) {
         let scope = self.scope_for_name(name);
         self.emit(Instruction::StoreName {
-            name: name.to_string(),
+            name: name.to_owned(),
             scope,
         });
     }
@@ -359,7 +359,7 @@ impl<O: OutputStream> Compiler<O> {
                     for name in names {
                         // import symbol from module:
                         self.emit(Instruction::ImportFrom {
-                            name: name.symbol.to_string(),
+                            name: name.symbol.to_owned(),
                         });
 
                         // Store module under proper name:
@@ -619,13 +619,13 @@ impl<O: OutputStream> Compiler<O> {
         match &expression.node {
             ast::ExpressionType::Identifier { name } => {
                 self.emit(Instruction::DeleteName {
-                    name: name.to_string(),
+                    name: name.to_owned(),
                 });
             }
             ast::ExpressionType::Attribute { value, name } => {
                 self.compile_expression(value)?;
                 self.emit(Instruction::DeleteAttr {
-                    name: name.to_string(),
+                    name: name.to_owned(),
                 });
             }
             ast::ExpressionType::Subscript { a, b } => {
@@ -701,7 +701,7 @@ impl<O: OutputStream> Compiler<O> {
             compile_varargs(&args.kwarg),
             self.source_path.clone().unwrap(),
             line_number,
-            name.to_string(),
+            name.to_owned(),
         ));
         self.enter_scope();
 
@@ -897,7 +897,7 @@ impl<O: OutputStream> Compiler<O> {
             // key:
             self.emit(Instruction::LoadConst {
                 value: bytecode::Constant::String {
-                    value: "return".to_string(),
+                    value: "return".to_owned(),
                 },
             });
             // value:
@@ -909,7 +909,7 @@ impl<O: OutputStream> Compiler<O> {
             if let Some(annotation) = &arg.annotation {
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String {
-                        value: arg.arg.to_string(),
+                        value: arg.arg.to_owned(),
                     },
                 });
                 self.compile_expression(&annotation)?;
@@ -982,18 +982,18 @@ impl<O: OutputStream> Compiler<O> {
             Varargs::None,
             self.source_path.clone().unwrap(),
             line_number,
-            name.to_string(),
+            name.to_owned(),
         ));
         self.enter_scope();
 
         let (new_body, doc_str) = get_doc(body);
 
         self.emit(Instruction::LoadName {
-            name: "__name__".to_string(),
+            name: "__name__".to_owned(),
             scope: bytecode::NameScope::Global,
         });
         self.emit(Instruction::StoreName {
-            name: "__module__".to_string(),
+            name: "__module__".to_owned(),
             scope: bytecode::NameScope::Free,
         });
         self.emit(Instruction::LoadConst {
@@ -1002,7 +1002,7 @@ impl<O: OutputStream> Compiler<O> {
             },
         });
         self.emit(Instruction::StoreName {
-            name: "__qualname__".to_string(),
+            name: "__qualname__".to_owned(),
             scope: bytecode::NameScope::Free,
         });
         self.compile_statements(new_body)?;
@@ -1022,7 +1022,7 @@ impl<O: OutputStream> Compiler<O> {
         });
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::String {
-                value: name.to_string(),
+                value: name.to_owned(),
             },
         });
 
@@ -1044,7 +1044,7 @@ impl<O: OutputStream> Compiler<O> {
             for keyword in keywords {
                 if let Some(name) = &keyword.name {
                     kwarg_names.push(bytecode::Constant::String {
-                        value: name.to_string(),
+                        value: name.to_owned(),
                     });
                 } else {
                     // This means **kwargs!
@@ -1090,7 +1090,7 @@ impl<O: OutputStream> Compiler<O> {
 
         self.emit(Instruction::Rotate { amount: 2 });
         self.emit(Instruction::StoreAttr {
-            name: "__doc__".to_string(),
+            name: "__doc__".to_owned(),
         });
     }
 
@@ -1171,7 +1171,7 @@ impl<O: OutputStream> Compiler<O> {
             self.set_label(check_asynciter_label);
             self.emit(Instruction::Duplicate);
             self.emit(Instruction::LoadName {
-                name: "StopAsyncIteration".to_string(),
+                name: "StopAsyncIteration".to_owned(),
                 scope: bytecode::NameScope::Global,
             });
             self.emit(Instruction::CompareOperation {
@@ -1308,7 +1308,7 @@ impl<O: OutputStream> Compiler<O> {
             });
             self.emit(Instruction::LoadConst {
                 value: bytecode::Constant::String {
-                    value: name.to_string(),
+                    value: name.to_owned(),
                 },
             });
             self.emit(Instruction::StoreSubscript);
@@ -1332,7 +1332,7 @@ impl<O: OutputStream> Compiler<O> {
             ast::ExpressionType::Attribute { value, name } => {
                 self.compile_expression(value)?;
                 self.emit(Instruction::StoreAttr {
-                    name: name.to_string(),
+                    name: name.to_owned(),
                 });
             }
             ast::ExpressionType::List { elements } | ast::ExpressionType::Tuple { elements } => {
@@ -1605,7 +1605,7 @@ impl<O: OutputStream> Compiler<O> {
             Attribute { value, name } => {
                 self.compile_expression(value)?;
                 self.emit(Instruction::LoadAttr {
-                    name: name.to_string(),
+                    name: name.to_owned(),
                 });
             }
             Compare { vals, ops } => {
@@ -1732,7 +1732,7 @@ impl<O: OutputStream> Compiler<O> {
                     func: FunctionContext::Function,
                 };
 
-                let name = "<lambda>".to_string();
+                let name = "<lambda>".to_owned();
                 self.enter_function(&name, args)?;
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
@@ -1795,7 +1795,7 @@ impl<O: OutputStream> Compiler<O> {
                     if let Some(name) = &keyword.name {
                         self.emit(Instruction::LoadConst {
                             value: bytecode::Constant::String {
-                                value: name.to_string(),
+                                value: name.to_owned(),
                             },
                         });
                         self.compile_expression(&keyword.value)?;
@@ -1858,7 +1858,7 @@ impl<O: OutputStream> Compiler<O> {
                 for keyword in keywords {
                     if let Some(name) = &keyword.name {
                         kwarg_names.push(bytecode::Constant::String {
-                            value: name.to_string(),
+                            value: name.to_owned(),
                         });
                     } else {
                         // This means **kwargs!
@@ -1927,13 +1927,13 @@ impl<O: OutputStream> Compiler<O> {
             ast::ComprehensionKind::Set { .. } => "<setcomp>",
             ast::ComprehensionKind::Dict { .. } => "<dictcomp>",
         }
-        .to_string();
+        .to_owned();
 
         let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
         self.push_output(CodeObject::new(
             Default::default(),
-            vec![".0".to_string()],
+            vec![".0".to_owned()],
             Varargs::None,
             vec![],
             Varargs::None,
@@ -2099,7 +2099,7 @@ impl<O: OutputStream> Compiler<O> {
                 ast::StringGroup::Constant { value } => {
                     self.emit(Instruction::LoadConst {
                         value: bytecode::Constant::String {
-                            value: value.to_string(),
+                            value: value.to_owned(),
                         },
                     });
                 }
@@ -2264,9 +2264,9 @@ mod tests {
 
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler: Compiler = Default::default();
-        compiler.source_path = Some("source_path".to_string());
-        compiler.push_new_code_object("<module>".to_string());
-        let ast = parser::parse_program(&source.to_string()).unwrap();
+        compiler.source_path = Some("source_path".to_owned());
+        compiler.push_new_code_object("<module>".to_owned());
+        let ast = parser::parse_program(source).unwrap();
         let symbol_scope = make_symbol_table(&ast).unwrap();
         compiler.compile_program(&ast, symbol_scope).unwrap();
         compiler.pop_code_object()

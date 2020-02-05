@@ -119,9 +119,7 @@ impl PyList {
                 Ok(result) => match result.as_bigint().to_u8() {
                     Some(result) => elements.push(result),
                     None => {
-                        return Err(
-                            vm.new_value_error("bytes must be in range (0, 256)".to_string())
-                        )
+                        return Err(vm.new_value_error("bytes must be in range (0, 256)".to_owned()))
                     }
                 },
                 _ => {
@@ -272,7 +270,7 @@ impl PyList {
                 if let Ok(sec) = PyIterable::try_from_object(vm, value) {
                     return self.setslice(slice, sec, vm);
                 }
-                Err(vm.new_type_error("can only assign an iterable to a slice".to_string()))
+                Err(vm.new_type_error("can only assign an iterable to a slice".to_owned()))
             }
         }
     }
@@ -282,7 +280,7 @@ impl PyList {
             self.elements.borrow_mut()[pos_index] = value;
             Ok(vm.get_none())
         } else {
-            Err(vm.new_index_error("list assignment index out of range".to_string()))
+            Err(vm.new_index_error("list assignment index out of range".to_owned()))
         }
     }
 
@@ -290,7 +288,7 @@ impl PyList {
         let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
 
         if step.is_zero() {
-            Err(vm.new_value_error("slice step cannot be zero".to_string()))
+            Err(vm.new_value_error("slice step cannot be zero".to_owned()))
         } else if step.is_positive() {
             let range = self.get_slice_range(&slice.start_index(vm)?, &slice.stop_index(vm)?);
             if range.start < range.end {
@@ -455,18 +453,18 @@ impl PyList {
             let mut str_parts = Vec::with_capacity(zelf.elements.borrow().len());
             for elem in zelf.elements.borrow().iter() {
                 let s = vm.to_repr(elem)?;
-                str_parts.push(s.as_str().to_string());
+                str_parts.push(s.as_str().to_owned());
             }
             format!("[{}]", str_parts.join(", "))
         } else {
-            "[...]".to_string()
+            "[...]".to_owned()
         };
         Ok(s)
     }
 
     #[pymethod(name = "__hash__")]
     fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type".to_string()))
+        Err(vm.new_type_error("unhashable type".to_owned()))
     }
 
     #[pymethod(name = "__mul__")]
@@ -532,9 +530,9 @@ impl PyList {
             i += elements.len() as isize;
         }
         if elements.is_empty() {
-            Err(vm.new_index_error("pop from empty list".to_string()))
+            Err(vm.new_index_error("pop from empty list".to_owned()))
         } else if i < 0 || i as usize >= elements.len() {
-            Err(vm.new_index_error("pop index out of range".to_string()))
+            Err(vm.new_index_error("pop index out of range".to_owned()))
         } else {
             Ok(elements.remove(i as usize))
         }
@@ -627,7 +625,7 @@ impl PyList {
             self.elements.borrow_mut().remove(pos_index);
             Ok(())
         } else {
-            Err(vm.new_index_error("Index out of bounds!".to_string()))
+            Err(vm.new_index_error("Index out of bounds!".to_owned()))
         }
     }
 
@@ -637,7 +635,7 @@ impl PyList {
         let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
 
         if step.is_zero() {
-            Err(vm.new_value_error("slice step cannot be zero".to_string()))
+            Err(vm.new_value_error("slice step cannot be zero".to_owned()))
         } else if step.is_positive() {
             let range = self.get_slice_range(&start, &stop);
             if range.start < range.end {
@@ -756,7 +754,7 @@ impl PyList {
         let temp_elements = self.elements.replace(elements);
 
         if !temp_elements.is_empty() {
-            return Err(vm.new_value_error("list modified during sort".to_string()));
+            return Err(vm.new_value_error("list modified during sort".to_owned()));
         }
 
         Ok(())

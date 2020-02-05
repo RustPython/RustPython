@@ -61,7 +61,7 @@ impl PyString {
 
 impl From<&str> for PyString {
     fn from(s: &str) -> PyString {
-        s.to_string().into()
+        s.to_owned().into()
     }
 }
 
@@ -266,17 +266,18 @@ impl PyString {
                     if let Some(character) = self.value.chars().nth(index) {
                         Ok(vm.new_str(character.to_string()))
                     } else {
-                        Err(vm.new_index_error("string index out of range".to_string()))
+                        Err(vm.new_index_error("string index out of range".to_owned()))
                     }
                 }
-                None => Err(
-                    vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string())
-                ),
+                None => {
+                    Err(vm
+                        .new_index_error("cannot fit 'int' into an index-sized integer".to_owned()))
+                }
             },
             Either::B(slice) => {
                 let string = self
                     .value
-                    .to_string()
+                    .to_owned()
                     .get_slice_items(vm, slice.as_object())?;
                 Ok(vm.new_str(string))
             }
@@ -332,7 +333,7 @@ impl PyString {
             .to_usize()
             .map(|multiplier| self.value.repeat(multiplier))
             .ok_or_else(|| {
-                vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_string())
+                vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
             })
     }
 
@@ -418,21 +419,21 @@ impl PyString {
         let elements: Vec<_> = match (pattern, num_splits.is_negative()) {
             (Some(pattern), true) => value
                 .split(pattern)
-                .map(|o| vm.ctx.new_str(o.to_string()))
+                .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
             (Some(pattern), false) => value
                 .splitn(num_splits as usize + 1, pattern)
-                .map(|o| vm.ctx.new_str(o.to_string()))
+                .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
             (None, true) => value
                 .split(|c: char| c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
-                .map(|o| vm.ctx.new_str(o.to_string()))
+                .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
             (None, false) => value
                 .splitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
-                .map(|o| vm.ctx.new_str(o.to_string()))
+                .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
         };
         vm.ctx.new_list(elements)
@@ -446,21 +447,21 @@ impl PyString {
         let mut elements: Vec<_> = match (pattern, num_splits.is_negative()) {
             (Some(pattern), true) => value
                 .rsplit(pattern)
-                .map(|o| vm.ctx.new_str(o.to_string()))
+                .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
             (Some(pattern), false) => value
                 .rsplitn(num_splits as usize + 1, pattern)
-                .map(|o| vm.ctx.new_str(o.to_string()))
+                .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
             (None, true) => value
                 .rsplit(|c: char| c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
-                .map(|o| vm.ctx.new_str(o.to_string()))
+                .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
             (None, false) => value
                 .rsplitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
-                .map(|o| vm.ctx.new_str(o.to_string()))
+                .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
         };
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
@@ -473,31 +474,31 @@ impl PyString {
     fn strip(&self, chars: OptionalArg<PyStringRef>, _vm: &VirtualMachine) -> String {
         let chars = match chars {
             OptionalArg::Present(ref chars) => &chars.value,
-            OptionalArg::Missing => return self.value.trim().to_string(),
+            OptionalArg::Missing => return self.value.trim().to_owned(),
         };
-        self.value.trim_matches(|c| chars.contains(c)).to_string()
+        self.value.trim_matches(|c| chars.contains(c)).to_owned()
     }
 
     #[pymethod]
     fn lstrip(&self, chars: OptionalArg<PyStringRef>, _vm: &VirtualMachine) -> String {
         let chars = match chars {
             OptionalArg::Present(ref chars) => &chars.value,
-            OptionalArg::Missing => return self.value.trim_start().to_string(),
+            OptionalArg::Missing => return self.value.trim_start().to_owned(),
         };
         self.value
             .trim_start_matches(|c| chars.contains(c))
-            .to_string()
+            .to_owned()
     }
 
     #[pymethod]
     fn rstrip(&self, chars: OptionalArg<PyStringRef>, _vm: &VirtualMachine) -> String {
         let chars = match chars {
             OptionalArg::Present(ref chars) => &chars.value,
-            OptionalArg::Missing => return self.value.trim_end().to_string(),
+            OptionalArg::Missing => return self.value.trim_end().to_owned(),
         };
         self.value
             .trim_end_matches(|c| chars.contains(c))
-            .to_string()
+            .to_owned()
     }
 
     #[pymethod]
@@ -605,7 +606,7 @@ impl PyString {
     fn format(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         if args.args.is_empty() {
             return Err(vm.new_type_error(
-                "descriptor 'format' of 'str' object needs an argument".to_string(),
+                "descriptor 'format' of 'str' object needs an argument".to_owned(),
             ));
         }
 
@@ -623,9 +624,9 @@ impl PyString {
             Ok(format_string) => perform_format(vm, &format_string, &args),
             Err(err) => match err {
                 FormatParseError::UnmatchedBracket => {
-                    Err(vm.new_value_error("expected '}' before end of string".to_string()))
+                    Err(vm.new_value_error("expected '}' before end of string".to_owned()))
                 }
-                _ => Err(vm.new_value_error("Unexpected error parsing format string".to_string())),
+                _ => Err(vm.new_value_error("Unexpected error parsing format string".to_owned())),
             },
         }
     }
@@ -649,9 +650,9 @@ impl PyString {
             Ok(format_string) => perform_format_map(vm, &format_string, &args.args[1]),
             Err(err) => match err {
                 FormatParseError::UnmatchedBracket => {
-                    Err(vm.new_value_error("expected '}' before end of string".to_string()))
+                    Err(vm.new_value_error("expected '}' before end of string".to_owned()))
                 }
-                _ => Err(vm.new_value_error("Unexpected error parsing format string".to_string())),
+                _ => Err(vm.new_value_error("Unexpected error parsing format string".to_owned())),
             },
         }
     }
@@ -786,7 +787,7 @@ impl PyString {
     fn splitlines(&self, args: SplitLineArgs, vm: &VirtualMachine) -> PyObjectRef {
         let keepends = args.keepends.unwrap_or(false);
         let mut elements = vec![];
-        let mut curr = "".to_string();
+        let mut curr = "".to_owned();
         for ch in self.value.chars() {
             if ch == '\n' {
                 if keepends {
@@ -869,10 +870,10 @@ impl PyString {
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
             match value[start..end].find(&sub.value) {
                 Some(num) => Ok(start + num),
-                None => Err(vm.new_value_error("substring not found".to_string())),
+                None => Err(vm.new_value_error("substring not found".to_owned())),
             }
         } else {
-            Err(vm.new_value_error("substring not found".to_string()))
+            Err(vm.new_value_error("substring not found".to_owned()))
         }
     }
 
@@ -888,10 +889,10 @@ impl PyString {
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
             match value[start..end].rfind(&sub.value) {
                 Some(num) => Ok(start + num),
-                None => Err(vm.new_value_error("substring not found".to_string())),
+                None => Err(vm.new_value_error("substring not found".to_owned())),
             }
         } else {
-            Err(vm.new_value_error("substring not found".to_string()))
+            Err(vm.new_value_error("substring not found".to_owned()))
         }
     }
 
@@ -903,13 +904,13 @@ impl PyString {
         if value.contains(sub) {
             new_tup = value
                 .splitn(2, sub)
-                .map(|s| vm.ctx.new_str(s.to_string()))
+                .map(|s| vm.ctx.new_str(s.to_owned()))
                 .collect();
             new_tup.insert(1, vm.ctx.new_str(sub.clone()));
         } else {
             new_tup.push(vm.ctx.new_str(value.clone()));
-            new_tup.push(vm.ctx.new_str("".to_string()));
-            new_tup.push(vm.ctx.new_str("".to_string()));
+            new_tup.push(vm.ctx.new_str("".to_owned()));
+            new_tup.push(vm.ctx.new_str("".to_owned()));
         }
         vm.ctx.new_tuple(new_tup)
     }
@@ -922,13 +923,13 @@ impl PyString {
         if value.contains(sub) {
             new_tup = value
                 .rsplitn(2, sub)
-                .map(|s| vm.ctx.new_str(s.to_string()))
+                .map(|s| vm.ctx.new_str(s.to_owned()))
                 .collect();
             new_tup.swap(0, 1); // so it's in the right order
             new_tup.insert(1, vm.ctx.new_str(sub.clone()));
         } else {
-            new_tup.push(vm.ctx.new_str("".to_string()));
-            new_tup.push(vm.ctx.new_str("".to_string()));
+            new_tup.push(vm.ctx.new_str("".to_owned()));
+            new_tup.push(vm.ctx.new_str("".to_owned()));
             new_tup.push(vm.ctx.new_str(value.clone()));
         }
         vm.ctx.new_tuple(new_tup)
@@ -984,7 +985,7 @@ impl PyString {
     fn zfill(&self, len: usize, _vm: &VirtualMachine) -> String {
         let value = &self.value;
         if len <= value.len() {
-            value.to_string()
+            value.to_owned()
         } else {
             format!("{}{}", "0".repeat(len - value.len()), value)
         }
@@ -1001,9 +1002,8 @@ impl PyString {
         if rep_str.len() == 1 {
             Ok(rep_str)
         } else {
-            Err(vm.new_type_error(
-                "The fill character must be exactly one character long".to_string(),
-            ))
+            Err(vm
+                .new_type_error("The fill character must be exactly one character long".to_owned()))
         }
     }
 
@@ -1017,7 +1017,7 @@ impl PyString {
         let value = &self.value;
         let rep_char = Self::get_fill_char(&rep, vm)?;
         if len <= value.len() {
-            Ok(value.to_string())
+            Ok(value.to_owned())
         } else {
             Ok(format!("{}{}", value, rep_char.repeat(len - value.len())))
         }
@@ -1033,7 +1033,7 @@ impl PyString {
         let value = &self.value;
         let rep_char = Self::get_fill_char(&rep, vm)?;
         if len <= value.len() {
-            Ok(value.to_string())
+            Ok(value.to_owned())
         } else {
             Ok(format!("{}{}", rep_char.repeat(len - value.len()), value))
         }
@@ -1051,7 +1051,7 @@ impl PyString {
         let value_len = self.value.chars().count();
 
         if len <= value_len {
-            return Ok(value.to_string());
+            return Ok(value.to_owned());
         }
         let diff: usize = len - value_len;
         let mut left_buff: usize = diff / 2;
@@ -1264,7 +1264,7 @@ impl IntoPyObject for String {
 
 impl IntoPyObject for &str {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.to_string()))
+        Ok(vm.ctx.new_str(self.to_owned()))
     }
 }
 
@@ -1314,7 +1314,7 @@ fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &
         Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", vec![])?,
         None => argument,
     };
-    let returned_type = vm.ctx.new_str(new_format_spec.to_string());
+    let returned_type = vm.ctx.new_str(new_format_spec.to_owned());
 
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.str_type()) {
@@ -1381,20 +1381,20 @@ fn do_cformat_specifier(
                     match objint::get_value(&obj).to_u32().and_then(char::from_u32) {
                         Some(value) => Ok(value.to_string()),
                         None => {
-                            Err(vm.new_overflow_error("%c arg not in range(0x110000)".to_string()))
+                            Err(vm.new_overflow_error("%c arg not in range(0x110000)".to_owned()))
                         }
                     }
                 } else if objtype::isinstance(&obj, &vm.ctx.str_type()) {
                     let s = borrow_value(&obj);
                     let num_chars = s.chars().count();
                     if num_chars != 1 {
-                        Err(vm.new_type_error("%c requires int or char".to_string()))
+                        Err(vm.new_type_error("%c requires int or char".to_owned()))
                     } else {
                         Ok(s.chars().next().unwrap().to_string())
                     }
                 } else {
                     // TODO re-arrange this block so this error is only created once
-                    Err(vm.new_type_error("%c requires int or char".to_string()))
+                    Err(vm.new_type_error("%c requires int or char".to_owned()))
                 }
             }?;
             format_spec.precision = Some(CFormatQuantity::Amount(1));
@@ -1415,7 +1415,7 @@ fn try_update_quantity_from_tuple(
                 Some(width_obj) => {
                     tuple_index += 1;
                     if !objtype::isinstance(&width_obj, &vm.ctx.int_type()) {
-                        Err(vm.new_type_error("* wants int".to_string()))
+                        Err(vm.new_type_error("* wants int".to_owned()))
                     } else {
                         // TODO: handle errors when truncating BigInt to usize
                         *q = Some(CFormatQuantity::Amount(
@@ -1424,9 +1424,7 @@ fn try_update_quantity_from_tuple(
                         Ok(tuple_index)
                     }
                 }
-                None => {
-                    Err(vm.new_type_error("not enough arguments for format string".to_string()))
-                }
+                None => Err(vm.new_type_error("not enough arguments for format string".to_owned())),
             }
         }
         _ => Ok(tuple_index),
@@ -1456,7 +1454,7 @@ pub fn do_cformat_string(
 
     let values = if mapping_required {
         if !objtype::isinstance(&values_obj, &vm.ctx.dict_type()) {
-            return Err(vm.new_type_error("format requires a mapping".to_string()));
+            return Err(vm.new_type_error("format requires a mapping".to_owned()));
         }
         values_obj.clone()
     } else {
@@ -1467,7 +1465,7 @@ pub fn do_cformat_string(
             && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
         {
             return Err(vm.new_type_error(
-                "not all arguments converted during string formatting".to_string(),
+                "not all arguments converted during string formatting".to_owned(),
             ));
         }
 
@@ -1487,7 +1485,7 @@ pub fn do_cformat_string(
                 let obj: PyObjectRef = match &format_spec.mapping_key {
                     Some(key) => {
                         // TODO: change the KeyError message to match the one in cpython
-                        call_getitem(vm, &values, &vm.ctx.new_str(key.to_string()))?
+                        call_getitem(vm, &values, &vm.ctx.new_str(key.to_owned()))?
                     }
                     None => {
                         let mut elements = objtuple::get_value(&values)
@@ -1511,7 +1509,7 @@ pub fn do_cformat_string(
                         let obj = match elements.next() {
                             Some(obj) => Ok(obj),
                             None => Err(vm.new_type_error(
-                                "not enough arguments for format string".to_string(),
+                                "not enough arguments for format string".to_owned(),
                             )),
                         }?;
                         tuple_index += 1;
@@ -1531,7 +1529,7 @@ pub fn do_cformat_string(
         && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
     {
         return Err(
-            vm.new_type_error("not all arguments converted during string formatting".to_string())
+            vm.new_type_error("not all arguments converted during string formatting".to_owned())
         );
     }
     Ok(final_string)
@@ -1557,8 +1555,7 @@ fn perform_format(
         && format_string.format_parts.iter().any(FormatPart::is_index)
     {
         return Err(vm.new_value_error(
-            "cannot switch from automatic field numbering to manual field specification"
-                .to_string(),
+            "cannot switch from automatic field numbering to manual field specification".to_owned(),
         ));
     }
     let mut auto_argument_index: usize = 1;
@@ -1568,7 +1565,7 @@ fn perform_format(
                 let result = match arguments.args.get(auto_argument_index) {
                     Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
                     None => {
-                        return Err(vm.new_index_error("tuple index out of range".to_string()));
+                        return Err(vm.new_index_error("tuple index out of range".to_owned()));
                     }
                 };
                 auto_argument_index += 1;
@@ -1578,7 +1575,7 @@ fn perform_format(
                 let result = match arguments.args.get(*index + 1) {
                     Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
                     None => {
-                        return Err(vm.new_index_error("tuple index out of range".to_string()));
+                        return Err(vm.new_index_error("tuple index out of range".to_owned()));
                     }
                 };
                 clone_value(&result)
@@ -1587,7 +1584,7 @@ fn perform_format(
                 let result = match arguments.get_optional_kwarg(&keyword) {
                     Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
                     None => {
-                        return Err(vm.new_key_error(vm.new_str(keyword.to_string())));
+                        return Err(vm.new_key_error(vm.new_str(keyword.to_owned())));
                     }
                 };
                 clone_value(&result)
@@ -1609,7 +1606,7 @@ fn perform_format_map(
         let result_string: String = match part {
             FormatPart::AutoSpec(_) | FormatPart::IndexSpec(_, _) => {
                 return Err(
-                    vm.new_value_error("Format string contains positional fields".to_string())
+                    vm.new_value_error("Format string contains positional fields".to_owned())
                 );
             }
             FormatPart::KeywordSpec(keyword, format_spec) => {

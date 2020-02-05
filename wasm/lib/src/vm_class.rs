@@ -39,7 +39,7 @@ impl StoredVirtualMachine {
         js_module::setup_js_module(&vm);
         if inject_browser_module {
             vm.stdlib_inits.borrow_mut().insert(
-                "_window".to_string(),
+                "_window".to_owned(),
                 Box::new(|vm| {
                     py_module!(vm, "_window", {
                         "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(vm),
@@ -289,7 +289,7 @@ impl WASMVirtualMachine {
             |StoredVirtualMachine {
                  ref vm, ref scope, ..
              }| {
-                let source_path = source_path.unwrap_or_else(|| "<wasm>".to_string());
+                let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
                 let code = vm.compile(source, mode, source_path);
                 let code = code.map_err(|err| {
                     let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));

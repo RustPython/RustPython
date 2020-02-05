@@ -303,7 +303,7 @@ where
             if self.chr0 == Some('.') {
                 if self.chr1 == Some('_') {
                     return Err(LexicalError {
-                        error: LexicalErrorType::OtherError("Invalid Syntax".to_string()),
+                        error: LexicalErrorType::OtherError("Invalid Syntax".to_owned()),
                         location: self.get_pos(),
                     });
                 }
@@ -352,7 +352,7 @@ where
                 let value = value_text.parse::<BigInt>().unwrap();
                 if start_is_zero && !value.is_zero() {
                     return Err(LexicalError {
-                        error: LexicalErrorType::OtherError("Invalid Token".to_string()),
+                        error: LexicalErrorType::OtherError("Invalid Token".to_owned()),
                         location: self.get_pos(),
                     });
                 }
@@ -643,7 +643,7 @@ where
                         // This is technically stricter than python3 but spaces after
                         // tabs is even more insane than mixing spaces and tabs.
                         return Some(Err(LexicalError {
-                            error: LexicalErrorType::OtherError("Spaces not allowed as part of indentation after tabs".to_string()),
+                            error: LexicalErrorType::OtherError("Spaces not allowed as part of indentation after tabs".to_owned()),
                             location: self.get_pos(),
                         }));
                     }
@@ -658,7 +658,7 @@ where
                         // tabs is even more insane than mixing spaces and tabs.
                         return Err(LexicalError {
                             error: LexicalErrorType::OtherError(
-                                "Tabs not allowed as part of indentation after spaces".to_string(),
+                                "Tabs not allowed as part of indentation after spaces".to_owned(),
                             ),
                             location: self.get_pos(),
                         });
@@ -1313,11 +1313,11 @@ mod tests {
             tokens,
             vec![
                 Tok::String {
-                    value: "\\\\".to_string(),
+                    value: "\\\\".to_owned(),
                     is_fstring: false,
                 },
                 Tok::String {
-                    value: "\\".to_string(),
+                    value: "\\".to_owned(),
                     is_fstring: false,
                 },
                 Tok::Newline,

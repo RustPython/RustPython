@@ -275,7 +275,7 @@ impl PySetInner {
         if let Some((key, _)) = self.content.pop_front() {
             Ok(key)
         } else {
-            let err_msg = vm.new_str("pop from an empty set".to_string());
+            let err_msg = vm.new_str("pop from an empty set".to_owned());
             Err(vm.new_key_error(err_msg))
         }
     }
@@ -486,11 +486,11 @@ impl PySet {
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let inner = zelf.inner.borrow();
         let s = if inner.len() == 0 {
-            "set()".to_string()
+            "set()".to_owned()
         } else if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
             inner.repr(vm)?
         } else {
-            "set(...)".to_string()
+            "set(...)".to_owned()
         };
         Ok(vm.new_str(s))
     }
@@ -580,7 +580,7 @@ impl PySet {
 
     #[pymethod(name = "__hash__")]
     fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type".to_string()))
+        Err(vm.new_type_error("unhashable type".to_owned()))
     }
 }
 
@@ -742,11 +742,11 @@ impl PyFrozenSet {
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let inner = &zelf.inner;
         let s = if inner.len() == 0 {
-            "frozenset()".to_string()
+            "frozenset()".to_owned()
         } else if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
             format!("frozenset({})", inner.repr(vm)?)
         } else {
-            "frozenset(...)".to_string()
+            "frozenset(...)".to_owned()
         };
         Ok(vm.new_str(s))
     }

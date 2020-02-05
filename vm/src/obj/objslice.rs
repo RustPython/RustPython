@@ -302,7 +302,7 @@ impl PySlice {
 
     #[pymethod(name = "__hash__")]
     fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type".to_string()))
+        Err(vm.new_type_error("unhashable type".to_owned()))
     }
 
     #[pymethod(name = "indices")]
@@ -332,11 +332,11 @@ fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<Big
             if let Some(val) = index_result.payload::<PyInt>() {
                 Ok(Some(val.as_bigint().clone()))
             } else {
-                Err(vm.new_type_error("__index__ method returned non integer".to_string()))
+                Err(vm.new_type_error("__index__ method returned non integer".to_owned()))
             }
         } else {
             Err(vm.new_type_error(
-                "slice indices must be integers or None or have an __index__ method".to_string(),
+                "slice indices must be integers or None or have an __index__ method".to_owned(),
             ))
         }
     }

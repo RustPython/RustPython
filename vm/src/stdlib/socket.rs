@@ -332,7 +332,7 @@ impl PySocket {
             },
             _ => {
                 return Err(
-                    vm.new_type_error("expected the value arg xor the optlen arg".to_string())
+                    vm.new_type_error("expected the value arg xor the optlen arg".to_owned())
                 );
             }
         };
@@ -351,7 +351,7 @@ impl PySocket {
             c::SHUT_RDWR => Shutdown::Both,
             _ => {
                 return Err(
-                    vm.new_value_error("`how` must be SHUT_RD, SHUT_WR, or SHUT_RDWR".to_string())
+                    vm.new_value_error("`how` must be SHUT_RD, SHUT_WR, or SHUT_RDWR".to_owned())
                 )
             }
         };
@@ -390,7 +390,7 @@ impl TryFromObject for Address {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let tuple = PyTupleRef::try_from_object(vm, obj)?;
         if tuple.as_slice().len() != 2 {
-            Err(vm.new_type_error("Address tuple should have only 2 values".to_string()))
+            Err(vm.new_type_error("Address tuple should have only 2 values".to_owned()))
         } else {
             let host = PyStringRef::try_from_object(vm, tuple.as_slice()[0].clone())?;
             let host = if host.as_str().is_empty() {
@@ -434,12 +434,12 @@ fn socket_inet_aton(ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
         .as_str()
         .parse::<Ipv4Addr>()
         .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
-        .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_string()))
+        .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_owned()))
 }
 
 fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     if packed_ip.len() != 4 {
-        return Err(vm.new_os_error("packed IP wrong length for inet_ntoa".to_string()));
+        return Err(vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()));
     }
     let ip_num = BigEndian::read_u32(&packed_ip);
     Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
@@ -545,7 +545,7 @@ where
                 let error_type = vm.class("_socket", "gaierror");
                 Err(vm.new_exception_msg(
                     error_type,
-                    "nodename nor servname provided, or not known".to_string(),
+                    "nodename nor servname provided, or not known".to_owned(),
                 ))
             } else {
                 Ok(sock_addrs.next().unwrap().into())
@@ -599,7 +599,7 @@ fn invalid_sock() -> Socket {
 fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
     if err.kind() == io::ErrorKind::TimedOut {
         let socket_timeout = vm.class("_socket", "timeout");
-        vm.new_exception_msg(socket_timeout, "Timed out".to_string())
+        vm.new_exception_msg(socket_timeout, "Timed out".to_owned())
     } else {
         convert_io_error(vm, err)
     }

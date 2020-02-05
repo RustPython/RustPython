@@ -72,7 +72,7 @@ fn math_isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
     };
 
     if rel_tol < 0.0 || abs_tol < 0.0 {
-        return Err(vm.new_value_error("tolerances must be non-negative".to_string()));
+        return Err(vm.new_value_error("tolerances must be non-negative".to_owned()));
     }
 
     if a == b {
@@ -273,7 +273,7 @@ fn math_gcd(a: PyIntRef, b: PyIntRef, _vm: &VirtualMachine) -> BigInt {
 fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     let value = value.as_bigint();
     if *value < BigInt::zero() {
-        return Err(vm.new_value_error("factorial() not defined for negative values".to_string()));
+        return Err(vm.new_value_error("factorial() not defined for negative values".to_owned()));
     } else if *value <= BigInt::one() {
         return Ok(BigInt::from(1u64));
     }
@@ -306,7 +306,7 @@ fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat) -> PyResult<f64> {
 
 #[cfg(target_arch = "wasm32")]
 fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
-    Err(vm.new_not_implemented_error("not implemented for this platform".to_string()))
+    Err(vm.new_not_implemented_error("not implemented for this platform".to_owned()))
 }
 
 fn fmod(x: f64, y: f64) -> f64 {
@@ -324,7 +324,7 @@ fn math_fmod(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f6
     let r = fmod(x, y);
 
     if r.is_nan() && !x.is_nan() && !y.is_nan() {
-        return Err(vm.new_value_error("math domain error".to_string()));
+        return Err(vm.new_value_error("math domain error".to_owned()));
     }
 
     Ok(r)
@@ -362,7 +362,7 @@ fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResu
         return Ok(std::f64::NAN);
     }
     if y.is_infinite() {
-        return Err(vm.new_value_error("math domain error".to_string()));
+        return Err(vm.new_value_error("math domain error".to_owned()));
     }
     Ok(x)
 }

@@ -105,7 +105,7 @@ fn builtin_callable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
 fn builtin_chr(i: u32, vm: &VirtualMachine) -> PyResult<String> {
     match char::from_u32(i) {
         Some(value) => Ok(value.to_string()),
-        None => Err(vm.new_value_error("chr() arg not in range(0x110000)".to_string())),
+        None => Err(vm.new_value_error("chr() arg not in range(0x110000)".to_owned())),
     }
 }
 
@@ -146,7 +146,7 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
                 .parse::<compile::Mode>()
                 .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-            vm.compile(&source, mode, args.filename.as_str().to_string())
+            vm.compile(&source, mode, args.filename.as_str().to_owned())
                 .map(|o| o.into_object())
                 .map_err(|err| vm.new_syntax_error(&err))
         }
@@ -229,7 +229,7 @@ fn run_code(
     // Determine code object:
     let code_obj = match source {
         Either::A(string) => vm
-            .compile(string.as_str(), mode, "<string>".to_string())
+            .compile(string.as_str(), mode, "<string>".to_owned())
             .map_err(|err| vm.new_syntax_error(&err))?,
         Either::B(code_obj) => code_obj,
     };
@@ -400,14 +400,14 @@ fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         std::cmp::Ordering::Equal => vm.extract_elements(&args.args[0])?,
         std::cmp::Ordering::Less => {
             // zero arguments means type error:
-            return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
+            return Err(vm.new_type_error("Expected 1 or more arguments".to_owned()));
         }
     };
 
     if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
         return default
-            .ok_or_else(|| vm.new_value_error("max() arg is an empty sequence".to_string()));
+            .ok_or_else(|| vm.new_value_error("max() arg is an empty sequence".to_owned()));
     }
 
     let key_func = args.get_optional_kwarg("key");
@@ -446,14 +446,14 @@ fn builtin_min(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         std::cmp::Ordering::Equal => vm.extract_elements(&args.args[0])?,
         std::cmp::Ordering::Less => {
             // zero arguments means type error:
-            return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
+            return Err(vm.new_type_error("Expected 1 or more arguments".to_owned()));
         }
     };
 
     if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
         return default
-            .ok_or_else(|| vm.new_value_error("min() arg is an empty sequence".to_string()));
+            .ok_or_else(|| vm.new_value_error("min() arg is an empty sequence".to_owned()));
     }
 
     let key_func = args.get_optional_kwarg("key");
@@ -540,7 +540,7 @@ fn builtin_ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) ->
             match string.chars().next() {
                 Some(character) => Ok(character as u32),
                 None => Err(vm.new_type_error(
-                    "ord() could not guess the integer representing this character".to_string(),
+                    "ord() could not guess the integer representing this character".to_owned(),
                 )),
             }
         }
@@ -565,18 +565,18 @@ fn builtin_pow(
                 && objtype::isinstance(&y, &vm.ctx.int_type()))
             {
                 return Err(vm.new_type_error(
-                    "pow() 3rd argument not allowed unless all arguments are integers".to_string(),
+                    "pow() 3rd argument not allowed unless all arguments are integers".to_owned(),
                 ));
             }
             let y = objint::get_value(&y);
             if y.sign() == Sign::Minus {
                 return Err(vm.new_value_error(
-                    "pow() 2nd argument cannot be negative when 3rd argument specified".to_string(),
+                    "pow() 2nd argument cannot be negative when 3rd argument specified".to_owned(),
                 ));
             }
             let m = m.as_bigint();
             if m.is_zero() {
-                return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_string()));
+                return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_owned()));
             }
             let x = objint::get_value(&x);
             Ok(vm.new_int(x.modpow(&y, &m)))
@@ -675,7 +675,7 @@ fn builtin_reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm.invoke(&reversed_method?, PyFuncArgs::default())
     } else {
         vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
-            "argument to reversed() must be a sequence".to_string()
+            "argument to reversed() must be a sequence".to_owned()
         })?;
         let len = vm.call_method(&obj.clone(), "__len__", PyFuncArgs::default())?;
         let obj_iterator = objiter::PySequenceIterator {
@@ -920,7 +920,7 @@ pub fn builtin_build_class_(
     vm: &VirtualMachine,
 ) -> PyResult {
     let name = qualified_name.as_str().split('.').next_back().unwrap();
-    let name_obj = vm.new_str(name.to_string());
+    let name_obj = vm.new_str(name.to_owned());
 
     let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
         PyClassRef::try_from_object(vm, metaclass)?

@@ -344,7 +344,7 @@ impl DictKey for &PyObjectRef {
 impl DictKey for &str {
     fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStringRef
-        let raw_hash = pyhash::hash_value(&self.to_string()).to_bigint().unwrap();
+        let raw_hash = pyhash::hash_value(&self.to_owned()).to_bigint().unwrap();
         let raw_hash = pyhash::hash_bigint(&raw_hash);
         let mut hasher = DefaultHasher::new();
         raw_hash.hash(&mut hasher);
@@ -362,7 +362,7 @@ impl DictKey for &str {
             Ok(py_str_value.as_str() == self)
         } else {
             // Fall back to PyString implementation.
-            let s = vm.new_str(self.to_string());
+            let s = vm.new_str(self.to_owned());
             s.do_eq(vm, other_key)
         }
     }
@@ -393,12 +393,12 @@ mod tests {
         assert_eq!(0, dict.len());
 
         let key1 = vm.new_bool(true);
-        let value1 = vm.new_str("abc".to_string());
+        let value1 = vm.new_str("abc".to_owned());
         dict.insert(&vm, &key1, value1.clone()).unwrap();
         assert_eq!(1, dict.len());
 
-        let key2 = vm.new_str("x".to_string());
-        let value2 = vm.new_str("def".to_string());
+        let key2 = vm.new_str("x".to_owned());
+        let value2 = vm.new_str("def".to_owned());
         dict.insert(&vm, &key2, value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
@@ -438,7 +438,7 @@ mod tests {
     fn check_hash_equivalence(text: &str) {
         let vm: VirtualMachine = Default::default();
         let value1 = text;
-        let value2 = vm.new_str(value1.to_string());
+        let value2 = vm.new_str(value1.to_owned());
 
         let hash1 = value1.do_hash(&vm).expect("Hash should not fail.");
         let hash2 = value2.do_hash(&vm).expect("Hash should not fail.");

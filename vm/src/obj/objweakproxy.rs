@@ -43,7 +43,7 @@ impl PyWeakProxy {
             Some(obj) => vm.get_attribute(obj, attr_name),
             None => Err(vm.new_exception_msg(
                 vm.ctx.exceptions.reference_error.clone(),
-                "weakly-referenced object no longer exists".to_string(),
+                "weakly-referenced object no longer exists".to_owned(),
             )),
         }
     }
@@ -54,7 +54,7 @@ impl PyWeakProxy {
             Some(obj) => vm.set_attr(&obj, attr_name, value),
             None => Err(vm.new_exception_msg(
                 vm.ctx.exceptions.reference_error.clone(),
-                "weakly-referenced object no longer exists".to_string(),
+                "weakly-referenced object no longer exists".to_owned(),
             )),
         }
     }

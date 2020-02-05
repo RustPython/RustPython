@@ -87,7 +87,7 @@ impl PyClassRef {
     }
 
     fn _set_mro(self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_attribute_error("read-only attribute".to_string()))
+        Err(vm.new_attribute_error("read-only attribute".to_owned()))
     }
 
     #[pyproperty(magic)]
@@ -101,7 +101,7 @@ impl PyClassRef {
         let attributes = self.get_attributes();
         let attributes: Vec<PyObjectRef> = attributes
             .keys()
-            .map(|k| vm.ctx.new_str(k.to_string()))
+            .map(|k| vm.ctx.new_str(k.to_owned()))
             .collect();
         PyList::from(attributes)
     }
@@ -220,7 +220,7 @@ impl PyClassRef {
             self.attributes.borrow_mut().remove(attr_name.as_str());
             Ok(())
         } else {
-            Err(vm.new_attribute_error(attr_name.as_str().to_string()))
+            Err(vm.new_attribute_error(attr_name.as_str().to_owned()))
         }
     }
 
@@ -228,7 +228,7 @@ impl PyClassRef {
     pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
         self.attributes
             .borrow_mut()
-            .insert(attr_name.to_string(), value.into());
+            .insert(attr_name.to_owned(), value.into());
     }
 
     #[pymethod(magic)]
@@ -261,7 +261,7 @@ impl PyClassRef {
 
         if args.args.len() != 3 {
             return Err(vm.new_type_error(if is_type_type {
-                "type() takes 1 or 3 arguments".to_string()
+                "type() takes 1 or 3 arguments".to_owned()
             } else {
                 format!(
                     "type.__new__() takes exactly 3 arguments ({} given)",
@@ -322,7 +322,7 @@ impl PyClassRef {
             let init_method = init_method_or_err?;
             let res = vm.invoke(&init_method, args)?;
             if !res.is(&vm.get_none()) {
-                return Err(vm.new_type_error("__init__ must return None".to_string()));
+                return Err(vm.new_type_error("__init__ must return None".to_owned()));
             }
         }
         Ok(obj)
@@ -408,7 +408,7 @@ fn type_dict_setter(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     Err(vm.new_not_implemented_error(
-        "Setting __dict__ attribute on a type isn't yet implemented".to_string(),
+        "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
     ))
 }
 
@@ -448,7 +448,7 @@ impl PyClassRef {
 
         for bc in base_classes {
             for (name, value) in bc.attributes.borrow().iter() {
-                attributes.insert(name.to_string(), value.clone());
+                attributes.insert(name.to_owned(), value.clone());
             }
         }
 
@@ -548,7 +548,7 @@ fn calculate_meta_class(
         return Err(vm.new_type_error(
             "metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass \
              of the metaclasses of all its bases"
-                .to_string(),
+                .to_owned(),
         ));
     }
     Ok(winner)

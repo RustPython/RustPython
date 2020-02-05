@@ -28,7 +28,7 @@ fn functools_reduce(
                 let exc_type = vm.ctx.exceptions.type_error.clone();
                 vm.new_exception_msg(
                     exc_type,
-                    "reduce() of empty sequence with no initial value".to_string(),
+                    "reduce() of empty sequence with no initial value".to_owned(),
                 )
             } else {
                 err

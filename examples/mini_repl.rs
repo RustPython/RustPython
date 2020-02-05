@@ -96,7 +96,7 @@ fn main() -> vm::pyobject::PyResult<()> {
             .compile(
                 &input,
                 compiler::compile::Mode::Single,
-                "<embedded>".to_string(),
+                "<embedded>".to_owned(),
             )
             .map_err(|err| vm.new_syntax_error(&err))
             .and_then(|code_obj| vm.run_code_obj(code_obj, scope.clone()))

@@ -225,7 +225,7 @@ fn print_source_line<W: Write>(output: &mut W, filename: &str, lineno: usize) ->
 
 /// Print exception occurrence location from traceback element
 fn write_traceback_entry<W: Write>(output: &mut W, tb_entry: &PyTracebackRef) -> io::Result<()> {
-    let filename = tb_entry.frame.code.source_path.to_string();
+    let filename = tb_entry.frame.code.source_path.to_owned();
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
@@ -347,7 +347,7 @@ impl ExceptionCtor {
             // both are instances; which would we choose?
             (Self::Instance(_exc_a), Some(_exc_b)) => {
                 Err(vm
-                    .new_type_error("instance exception may not have a separate value".to_string()))
+                    .new_type_error("instance exception may not have a separate value".to_owned()))
             }
             // if the "type" is an instance and the value isn't, use the "type"
             (Self::Instance(exc), None) => Ok(exc),

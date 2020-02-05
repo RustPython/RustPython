@@ -301,7 +301,7 @@ impl PyBytes {
     fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let res = self.inner.find(options, false, vm)?;
         if res == -1 {
-            return Err(vm.new_value_error("substring not found".to_string()));
+            return Err(vm.new_value_error("substring not found".to_owned()));
         }
         Ok(res)
     }
@@ -315,7 +315,7 @@ impl PyBytes {
     fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let res = self.inner.find(options, true, vm)?;
         if res == -1 {
-            return Err(vm.new_value_error("substring not found".to_string()));
+            return Err(vm.new_value_error("substring not found".to_owned()));
         }
         Ok(res)
     }

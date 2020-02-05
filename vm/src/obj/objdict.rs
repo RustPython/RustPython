@@ -79,7 +79,7 @@ impl PyDictRef {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
                 loop {
                     fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-                        vm.new_type_error("Iterator must have exactly two elements".to_string())
+                        vm.new_type_error("Iterator must have exactly two elements".to_owned())
                     }
                     let element = match objiter::get_next_object(vm, &iter)? {
                         Some(obj) => obj,
@@ -189,7 +189,7 @@ impl PyDictRef {
 
             format!("{{{}}}", str_parts.join(", "))
         } else {
-            "{...}".to_string()
+            "{...}".to_owned()
         };
         Ok(s)
     }
@@ -343,7 +343,7 @@ impl PyDictRef {
         if let Some((key, value)) = entries.pop_front() {
             Ok(vm.ctx.new_tuple(vec![key, value]))
         } else {
-            let err_msg = vm.new_str("popitem(): dictionary is empty".to_string());
+            let err_msg = vm.new_str("popitem(): dictionary is empty".to_owned());
             Err(vm.new_key_error(err_msg))
         }
     }
@@ -371,7 +371,7 @@ impl PyDictRef {
 
     #[pymethod(magic)]
     fn hash(self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type".to_string()))
+        Err(vm.new_type_error("unhashable type".to_owned()))
     }
 
     pub fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool {
@@ -524,11 +524,11 @@ macro_rules! dict_iterator {
                     let mut str_parts = vec![];
                     for (key, value) in zelf.dict.clone() {
                         let s = vm.to_repr(&$result_fn(vm, &key, &value))?;
-                        str_parts.push(s.as_str().to_string());
+                        str_parts.push(s.as_str().to_owned());
                     }
                     format!("{}([{}])", $class_name, str_parts.join(", "))
                 } else {
-                    "{...}".to_string()
+                    "{...}".to_owned()
                 };
                 Ok(s)
             }
@@ -566,7 +566,7 @@ macro_rules! dict_iterator {
                 if dict.has_changed_size(&self.size) {
                     return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.runtime_error.clone(),
-                        "dictionary changed size during iteration".to_string(),
+                        "dictionary changed size during iteration".to_owned(),
                     ));
                 }
                 match dict.next_entry(&mut position) {

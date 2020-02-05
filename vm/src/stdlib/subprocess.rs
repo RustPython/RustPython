@@ -55,7 +55,7 @@ impl IntoPyObject for subprocess::ExitStatus {
             subprocess::ExitStatus::Exited(status) => status as i32,
             subprocess::ExitStatus::Signaled(status) => -i32::from(status),
             subprocess::ExitStatus::Other(status) => status as i32,
-            _ => return Err(vm.new_os_error("Unknown exist status".to_string())),
+            _ => return Err(vm.new_os_error("Unknown exist status".to_owned())),
         };
         Ok(vm.new_int(status))
     }
@@ -106,7 +106,7 @@ impl PopenRef {
         let stdout = convert_redirection(args.stdout, vm)?;
         let stderr = convert_redirection(args.stderr, vm)?;
         let command_list = match &args.args {
-            Either::A(command) => vec![command.as_str().to_string()],
+            Either::A(command) => vec![command.as_str().to_owned()],
             Either::B(command_list) => command_list
                 .borrow_elements()
                 .iter()
@@ -153,22 +153,22 @@ impl PopenRef {
         .map_err(|s| vm.new_os_error(format!("Could not start program: {}", s)))?;
         if timeout.is_none() {
             let timeout_expired = vm.try_class("_subprocess", "TimeoutExpired")?;
-            Err(vm.new_exception_msg(timeout_expired, "Timeout".to_string()))
+            Err(vm.new_exception_msg(timeout_expired, "Timeout".to_owned()))
         } else {
             Ok(())
         }
     }
 
     fn stdin(self, vm: &VirtualMachine) -> PyResult {
-        convert_to_file_io(&self.process.borrow().stdin, "wb".to_string(), vm)
+        convert_to_file_io(&self.process.borrow().stdin, "wb".to_owned(), vm)
     }
 
     fn stdout(self, vm: &VirtualMachine) -> PyResult {
-        convert_to_file_io(&self.process.borrow().stdout, "rb".to_string(), vm)
+        convert_to_file_io(&self.process.borrow().stdout, "rb".to_owned(), vm)
     }
 
     fn stderr(self, vm: &VirtualMachine) -> PyResult {
-        convert_to_file_io(&self.process.borrow().stderr, "rb".to_string(), vm)
+        convert_to_file_io(&self.process.borrow().stderr, "rb".to_owned(), vm)
     }
 
     fn terminate(self, vm: &VirtualMachine) -> PyResult<()> {
@@ -202,7 +202,7 @@ impl PopenRef {
         communicator.read().map_err(|err| {
             if err.error.kind() == ErrorKind::TimedOut {
                 let timeout_expired = vm.try_class("_subprocess", "TimeoutExpired").unwrap();
-                vm.new_exception_msg(timeout_expired, "Timeout".to_string())
+                vm.new_exception_msg(timeout_expired, "Timeout".to_owned())
             } else {
                 convert_io_error(vm, err.error)
             }
