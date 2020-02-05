@@ -6,19 +6,10 @@ from test import support
 import os
 
 class BoolTest(unittest.TestCase):
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclass(self):
-        try:
+        with self.assertRaises(TypeError):
             class C(bool):
                 pass
-        except TypeError:
-            pass
-        else:
-            self.fail("bool should not be subclassable")
-
-        self.assertRaises(TypeError, int.__new__, bool, 0)
 
     def test_print(self):
         try:
