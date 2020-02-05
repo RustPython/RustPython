@@ -389,7 +389,7 @@ fn _run_string(vm: &VirtualMachine, scope: Scope, source: &str, source_path: Str
 
 fn run_command(vm: &VirtualMachine, scope: Scope, source: String) -> PyResult<()> {
     debug!("Running command {}", source);
-    _run_string(vm, scope, &source, "<stdin>".to_string())?;
+    _run_string(vm, scope, &source, "<stdin>".to_owned())?;
     Ok(())
 }
 

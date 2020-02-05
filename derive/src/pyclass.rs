@@ -224,7 +224,7 @@ impl Class {
         } else {
             Err(Diagnostic::span_error(
                 span,
-                "Duplicate #[py*] attribute on pyimpl".to_string(),
+                "Duplicate #[py*] attribute on pyimpl".to_owned(),
             ))
         }
     }

@@ -347,7 +347,7 @@ impl ExceptionCtor {
             // both are instances; which would we choose?
             (Self::Instance(_exc_a), Some(_exc_b)) => {
                 Err(vm
-                    .new_type_error("instance exception may not have a separate value".to_string()))
+                    .new_type_error("instance exception may not have a separate value".to_owned()))
             }
             // if the "type" is an instance and the value isn't, use the "type"
             (Self::Instance(exc), None) => Ok(exc),

@@ -140,7 +140,7 @@ impl PyByteArray {
 
     #[pymethod(name = "__hash__")]
     fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type: bytearray".to_string()))
+        Err(vm.new_type_error("unhashable type: bytearray".to_owned()))
     }
 
     #[pymethod(name = "__iter__")]
@@ -331,7 +331,7 @@ impl PyByteArray {
     fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let res = self.inner.borrow().find(options, false, vm)?;
         if res == -1 {
-            return Err(vm.new_value_error("substring not found".to_string()));
+            return Err(vm.new_value_error("substring not found".to_owned()));
         }
         Ok(res)
     }
@@ -345,7 +345,7 @@ impl PyByteArray {
     fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let res = self.inner.borrow().find(options, true, vm)?;
         if res == -1 {
-            return Err(vm.new_value_error("substring not found".to_string()));
+            return Err(vm.new_value_error("substring not found".to_owned()));
         }
         Ok(res)
     }
@@ -358,7 +358,7 @@ impl PyByteArray {
         let pos = bytes
             .iter()
             .position(|b| *b == x)
-            .ok_or_else(|| vm.new_value_error("value not found in bytearray".to_string()))?;
+            .ok_or_else(|| vm.new_value_error("value not found in bytearray".to_owned()))?;
 
         bytes.remove(pos);
 
@@ -529,7 +529,7 @@ impl PyByteArray {
     fn insert(&self, mut index: isize, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
         let bytes = &mut self.inner.borrow_mut().elements;
         let len = isize::try_from(bytes.len())
-            .map_err(|_e| vm.new_overflow_error("bytearray too big".to_string()))?;
+            .map_err(|_e| vm.new_overflow_error("bytearray too big".to_owned()))?;
 
         let x = x.as_bigint().byte_or(vm)?;
 
@@ -544,7 +544,7 @@ impl PyByteArray {
         }
 
         let index = usize::try_from(index)
-            .map_err(|_e| vm.new_overflow_error("overflow in index calculation".to_string()))?;
+            .map_err(|_e| vm.new_overflow_error("overflow in index calculation".to_owned()))?;
 
         bytes.insert(index, x);
 
@@ -556,7 +556,7 @@ impl PyByteArray {
         let bytes = &mut self.inner.borrow_mut().elements;
         bytes
             .pop()
-            .ok_or_else(|| vm.new_index_error("pop from empty bytearray".to_string()))
+            .ok_or_else(|| vm.new_index_error("pop from empty bytearray".to_owned()))
     }
 
     #[pymethod(name = "title")]

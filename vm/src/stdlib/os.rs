@@ -340,7 +340,7 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
 }
 
 fn os_error(message: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
-    let msg = message.map_or("".to_string(), |msg| msg.as_str().to_string());
+    let msg = message.map_or("".to_owned(), |msg| msg.as_str().to_string());
 
     Err(vm.new_os_error(msg))
 }
@@ -1150,7 +1150,7 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         Ok(()) => Ok(buf),
         Err(e) => match e.raw_os_error() {
             Some(errno) => Err(convert_io_error(vm, io::Error::from_raw_os_error(errno))),
-            None => Err(vm.new_os_error("Getting random failed".to_string())),
+            None => Err(vm.new_os_error("Getting random failed".to_owned())),
         },
     }
 }
@@ -1224,9 +1224,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let os_name = if cfg!(windows) {
-        "nt".to_string()
+        "nt".to_owned()
     } else {
-        "posix".to_string()
+        "posix".to_owned()
     };
 
     let environ = _os_environ(vm);

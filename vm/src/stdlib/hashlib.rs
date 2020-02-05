@@ -158,11 +158,11 @@ fn sha3_512(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHa
 }
 
 fn shake128(_data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Err(vm.new_not_implemented_error("shake256".to_string()))
+    Err(vm.new_not_implemented_error("shake256".to_owned()))
 }
 
 fn shake256(_data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Err(vm.new_not_implemented_error("shake256".to_string()))
+    Err(vm.new_not_implemented_error("shake256".to_owned()))
 }
 
 fn blake2b(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {

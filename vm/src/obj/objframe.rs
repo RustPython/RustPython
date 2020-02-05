@@ -16,12 +16,12 @@ pub fn init(context: &PyContext) {
 impl FrameRef {
     #[pyslot]
     fn tp_new(_cls: FrameRef, vm: &VirtualMachine) -> PyResult<Self> {
-        Err(vm.new_type_error("Cannot directly create frame object".to_string()))
+        Err(vm.new_type_error("Cannot directly create frame object".to_owned()))
     }
 
     #[pymethod(name = "__repr__")]
     fn repr(self, _vm: &VirtualMachine) -> String {
-        "<frame object at .. >".to_string()
+        "<frame object at .. >".to_owned()
     }
 
     #[pymethod]

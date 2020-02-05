@@ -235,7 +235,7 @@ impl PyCompileInput {
             })?
             .compile(
                 mode.unwrap_or(compile::Mode::Exec),
-                module_name.unwrap_or_else(|| "frozen".to_string()),
+                module_name.unwrap_or_else(|| "frozen".to_owned()),
             )
     }
 }

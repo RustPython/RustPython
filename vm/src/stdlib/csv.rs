@@ -190,7 +190,7 @@ fn csv_reader(fp: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResul
     if let Ok(iterable) = PyIterable::<PyObjectRef>::try_from_object(vm, fp) {
         build_reader(iterable, args, vm)
     } else {
-        Err(vm.new_type_error("argument 1 must be an iterator".to_string()))
+        Err(vm.new_type_error("argument 1 must be an iterator".to_owned()))
     }
 }
 

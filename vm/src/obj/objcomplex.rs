@@ -155,7 +155,7 @@ impl PyComplex {
 
     #[pymethod(name = "__mod__")]
     fn mod_(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error("can't mod complex numbers.".to_string()))
+        Err(vm.new_type_error("can't mod complex numbers.".to_owned()))
     }
 
     #[pymethod(name = "__rmod__")]
@@ -165,7 +165,7 @@ impl PyComplex {
 
     #[pymethod(name = "__floordiv__")]
     fn floordiv(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error("can't take floor of complex number.".to_string()))
+        Err(vm.new_type_error("can't take floor of complex number.".to_owned()))
     }
 
     #[pymethod(name = "__rfloordiv__")]
@@ -175,7 +175,7 @@ impl PyComplex {
 
     #[pymethod(name = "__divmod__")]
     fn divmod(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error("can't take floor or mod of complex number.".to_string()))
+        Err(vm.new_type_error("can't take floor or mod of complex number.".to_owned()))
     }
 
     #[pymethod(name = "__rdivmod__")]

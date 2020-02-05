@@ -140,7 +140,7 @@ impl PyDeque {
         let mut deque = self.deque.borrow_mut();
 
         if self.maxlen.get() == Some(deque.len()) {
-            return Err(vm.new_index_error("deque already at its maximum size".to_string()));
+            return Err(vm.new_index_error("deque already at its maximum size".to_owned()));
         }
 
         let idx = if idx < 0 {
@@ -165,7 +165,7 @@ impl PyDeque {
         self.deque
             .borrow_mut()
             .pop_back()
-            .ok_or_else(|| vm.new_index_error("pop from an empty deque".to_string()))
+            .ok_or_else(|| vm.new_index_error("pop from an empty deque".to_owned()))
     }
 
     #[pymethod]
@@ -173,7 +173,7 @@ impl PyDeque {
         self.deque
             .borrow_mut()
             .pop_front()
-            .ok_or_else(|| vm.new_index_error("pop from an empty deque".to_string()))
+            .ok_or_else(|| vm.new_index_error("pop from an empty deque".to_owned()))
     }
 
     #[pymethod]
@@ -187,7 +187,7 @@ impl PyDeque {
             }
         }
         idx.map(|idx| deque.remove(idx).unwrap())
-            .ok_or_else(|| vm.new_value_error("deque.remove(x): x not in deque".to_string()))
+            .ok_or_else(|| vm.new_value_error("deque.remove(x): x not in deque".to_owned()))
     }
 
     #[pymethod]
@@ -233,7 +233,7 @@ impl PyDeque {
                 .unwrap_or_default();
             format!("deque([{}]{})", elements.into_iter().format(", "), maxlen)
         } else {
-            "[...]".to_string()
+            "[...]".to_owned()
         };
         Ok(repr)
     }

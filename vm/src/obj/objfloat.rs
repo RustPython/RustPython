@@ -80,7 +80,7 @@ fn inner_div(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
     if v2 != 0.0 {
         Ok(v1 / v2)
     } else {
-        Err(vm.new_zero_division_error("float division by zero".to_string()))
+        Err(vm.new_zero_division_error("float division by zero".to_owned()))
     }
 }
 
@@ -88,7 +88,7 @@ fn inner_mod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
     if v2 != 0.0 {
         Ok(v1 % v2)
     } else {
-        Err(vm.new_zero_division_error("float mod by zero".to_string()))
+        Err(vm.new_zero_division_error("float mod by zero".to_owned()))
     }
 }
 
@@ -98,11 +98,11 @@ pub fn try_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
         None => {
             if value.is_infinite() {
                 Err(vm.new_overflow_error(
-                    "OverflowError: cannot convert float infinity to integer".to_string(),
+                    "OverflowError: cannot convert float infinity to integer".to_owned(),
                 ))
             } else if value.is_nan() {
                 Err(vm
-                    .new_value_error("ValueError: cannot convert float NaN to integer".to_string()))
+                    .new_value_error("ValueError: cannot convert float NaN to integer".to_owned()))
             } else {
                 // unreachable unless BigInt has a bug
                 unreachable!(
@@ -118,7 +118,7 @@ fn inner_floordiv(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
     if v2 != 0.0 {
         Ok((v1 / v2).floor())
     } else {
-        Err(vm.new_zero_division_error("float floordiv by zero".to_string()))
+        Err(vm.new_zero_division_error("float floordiv by zero".to_owned()))
     }
 }
 
@@ -126,7 +126,7 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
     if v2 != 0.0 {
         Ok(((v1 / v2).floor(), v1 % v2))
     } else {
-        Err(vm.new_zero_division_error("float divmod()".to_string()))
+        Err(vm.new_zero_division_error("float divmod()".to_owned()))
     }
 }
 
@@ -524,11 +524,11 @@ impl PyFloat {
         let value = self.value;
         if value.is_infinite() {
             return Err(
-                vm.new_overflow_error("cannot convert Infinity to integer ratio".to_string())
+                vm.new_overflow_error("cannot convert Infinity to integer ratio".to_owned())
             );
         }
         if value.is_nan() {
-            return Err(vm.new_value_error("cannot convert NaN to integer ratio".to_string()));
+            return Err(vm.new_value_error("cannot convert NaN to integer ratio".to_owned()));
         }
 
         let ratio = Ratio::from_float(value).unwrap();
@@ -584,7 +584,7 @@ impl PyFloat {
                     }
 
                     hexf_parse::parse_hexf64(hex.as_str(), false).map_err(|_| {
-                        vm.new_value_error("invalid hexadecimal floating-point string".to_string())
+                        vm.new_value_error("invalid hexadecimal floating-point string".to_owned())
                     })
                 }
             }
@@ -661,7 +661,7 @@ fn to_hex(value: f64) -> String {
     match value {
         value if value.is_zero() => format!("{}0x0.0p+0", sign_fmt),
         value if value.is_infinite() => format!("{}inf", sign_fmt),
-        value if value.is_nan() => "nan".to_string(),
+        value if value.is_nan() => "nan".to_owned(),
         _ => {
             const BITS: i16 = 52;
             const FRACT_MASK: u64 = 0xf_ffff_ffff_ffff;

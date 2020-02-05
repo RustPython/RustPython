@@ -563,7 +563,7 @@ impl VirtualMachine {
             None => {
                 let import_func = self
                     .get_attribute(self.builtins.clone(), "__import__")
-                    .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
+                    .map_err(|_| self.new_import_error("__import__ not found".to_owned()))?;
 
                 let (locals, globals) = if let Some(frame) = self.current_frame() {
                     (
@@ -1213,7 +1213,7 @@ impl VirtualMachine {
         if let Some(hash_value) = hash_obj.payload_if_subclass::<PyInt>(self) {
             Ok(hash_value.hash(self))
         } else {
-            Err(self.new_type_error("__hash__ method should return an integer".to_string()))
+            Err(self.new_type_error("__hash__ method should return an integer".to_owned()))
         }
     }
 

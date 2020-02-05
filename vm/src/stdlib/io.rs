@@ -119,7 +119,7 @@ impl PyStringIORef {
         if buffer.is_some() {
             Ok(RefMut::map(buffer, |opt| opt.as_mut().unwrap()))
         } else {
-            Err(vm.new_value_error("I/O operation on closed file.".to_string()))
+            Err(vm.new_value_error("I/O operation on closed file.".to_owned()))
         }
     }
 
@@ -129,7 +129,7 @@ impl PyStringIORef {
 
         match self.buffer(vm)?.write(bytes) {
             Some(value) => Ok(vm.ctx.new_int(value)),
-            None => Err(vm.new_type_error("Error Writing String".to_string())),
+            None => Err(vm.new_type_error("Error Writing String".to_owned())),
         }
     }
 
@@ -137,7 +137,7 @@ impl PyStringIORef {
     fn getvalue(self, vm: &VirtualMachine) -> PyResult {
         match String::from_utf8(self.buffer(vm)?.getvalue()) {
             Ok(result) => Ok(vm.ctx.new_str(result)),
-            Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_string())),
+            Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
         }
     }
 
@@ -145,7 +145,7 @@ impl PyStringIORef {
     fn seek(self, offset: u64, vm: &VirtualMachine) -> PyResult {
         match self.buffer(vm)?.seek(offset) {
             Some(value) => Ok(vm.ctx.new_int(value)),
-            None => Err(vm.new_value_error("Error Performing Operation".to_string())),
+            None => Err(vm.new_value_error("Error Performing Operation".to_owned())),
         }
     }
 
@@ -164,7 +164,7 @@ impl PyStringIORef {
 
         match String::from_utf8(data) {
             Ok(value) => Ok(vm.ctx.new_str(value)),
-            Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_string())),
+            Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
         }
     }
 
@@ -175,7 +175,7 @@ impl PyStringIORef {
     fn readline(self, vm: &VirtualMachine) -> PyResult<String> {
         match self.buffer(vm)?.readline() {
             Some(line) => Ok(line),
-            None => Err(vm.new_value_error("Error Performing Operation".to_string())),
+            None => Err(vm.new_value_error("Error Performing Operation".to_owned())),
         }
     }
 
@@ -237,7 +237,7 @@ impl PyBytesIORef {
         if buffer.is_some() {
             Ok(RefMut::map(buffer, |opt| opt.as_mut().unwrap()))
         } else {
-            Err(vm.new_value_error("I/O operation on closed file.".to_string()))
+            Err(vm.new_value_error("I/O operation on closed file.".to_owned()))
         }
     }
 
@@ -245,7 +245,7 @@ impl PyBytesIORef {
         let mut buffer = self.buffer(vm)?;
         match data.with_ref(|b| buffer.write(b)) {
             Some(value) => Ok(value),
-            None => Err(vm.new_type_error("Error Writing Bytes".to_string())),
+            None => Err(vm.new_type_error("Error Writing Bytes".to_owned())),
         }
     }
     //Retrieves the entire bytes object value from the underlying buffer
@@ -259,7 +259,7 @@ impl PyBytesIORef {
     fn read(self, bytes: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult {
         match self.buffer(vm)?.read(byte_count(bytes)) {
             Some(value) => Ok(vm.ctx.new_bytes(value)),
-            None => Err(vm.new_value_error("Error Retrieving Value".to_string())),
+            None => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
         }
     }
 
@@ -267,7 +267,7 @@ impl PyBytesIORef {
     fn seek(self, offset: u64, vm: &VirtualMachine) -> PyResult {
         match self.buffer(vm)?.seek(offset) {
             Some(value) => Ok(vm.ctx.new_int(value)),
-            None => Err(vm.new_value_error("Error Performing Operation".to_string())),
+            None => Err(vm.new_value_error("Error Performing Operation".to_owned())),
         }
     }
 
@@ -282,7 +282,7 @@ impl PyBytesIORef {
     fn readline(self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         match self.buffer(vm)?.readline() {
             Some(line) => Ok(line.as_bytes().to_vec()),
-            None => Err(vm.new_value_error("Error Performing Operation".to_string())),
+            None => Err(vm.new_value_error("Error Performing Operation".to_owned())),
         }
     }
 
@@ -383,7 +383,7 @@ fn io_base_checkclosed(
     if objbool::boolval(vm, vm.get_attribute(instance, "closed")?)? {
         let msg = msg
             .flat_option()
-            .unwrap_or_else(|| vm.new_str("I/O operation on closed file.".to_string()));
+            .unwrap_or_else(|| vm.new_str("I/O operation on closed file.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -398,7 +398,7 @@ fn io_base_checkreadable(
     if !objbool::boolval(vm, vm.call_method(&instance, "readable", vec![])?)? {
         let msg = msg
             .flat_option()
-            .unwrap_or_else(|| vm.new_str("File or stream is not readable.".to_string()));
+            .unwrap_or_else(|| vm.new_str("File or stream is not readable.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -413,7 +413,7 @@ fn io_base_checkwritable(
     if !objbool::boolval(vm, vm.call_method(&instance, "writable", vec![])?)? {
         let msg = msg
             .flat_option()
-            .unwrap_or_else(|| vm.new_str("File or stream is not writable.".to_string()));
+            .unwrap_or_else(|| vm.new_str("File or stream is not writable.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -428,7 +428,7 @@ fn io_base_checkseekable(
     if !objbool::boolval(vm, vm.call_method(&instance, "seekable", vec![])?)? {
         let msg = msg
             .flat_option()
-            .unwrap_or_else(|| vm.new_str("File or stream is not seekable.".to_string()));
+            .unwrap_or_else(|| vm.new_str("File or stream is not seekable.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -614,7 +614,7 @@ mod fileio {
     ) -> PyResult<()> {
         if !obj.readonly() {
             return Err(vm.new_type_error(
-                "readinto() argument must be read-write bytes-like object".to_string(),
+                "readinto() argument must be read-write bytes-like object".to_owned(),
             ));
         }
 
@@ -632,7 +632,7 @@ mod fileio {
             value_mut.clear();
             match f.read_to_end(value_mut) {
                 Ok(_) => {}
-                Err(_) => return Err(vm.new_value_error("Error reading from Take".to_string())),
+                Err(_) => return Err(vm.new_value_error("Error reading from Take".to_owned())),
             }
         };
 
@@ -736,7 +736,7 @@ fn text_io_wrapper_read(
 
     if !objtype::isinstance(&raw, &buffered_reader_class) {
         // TODO: this should be io.UnsupportedOperation error which derives both from ValueError *and* OSError
-        return Err(vm.new_value_error("not readable".to_string()));
+        return Err(vm.new_value_error("not readable".to_owned()));
     }
 
     let bytes = vm.call_method(
@@ -767,15 +767,15 @@ fn text_io_wrapper_write(
 
     if !objtype::isinstance(&raw, &buffered_writer_class) {
         // TODO: this should be io.UnsupportedOperation error which derives from ValueError and OSError
-        return Err(vm.new_value_error("not writable".to_string()));
+        return Err(vm.new_value_error("not writable".to_owned()));
     }
 
     let bytes = obj.as_str().to_string().into_bytes();
 
     let len = vm.call_method(&raw, "write", vec![vm.ctx.new_bytes(bytes.clone())])?;
-    let len = objint::get_value(&len).to_usize().ok_or_else(|| {
-        vm.new_overflow_error("int to large to convert to Rust usize".to_string())
-    })?;
+    let len = objint::get_value(&len)
+        .to_usize()
+        .ok_or_else(|| vm.new_overflow_error("int to large to convert to Rust usize".to_owned()))?;
 
     // returns the count of unicode code points written
     let len = from_utf8(&bytes[..len])
@@ -795,7 +795,7 @@ fn text_io_wrapper_readline(
 
     if !objtype::isinstance(&raw, &buffered_reader_class) {
         // TODO: this should be io.UnsupportedOperation error which derives both from ValueError *and* OSError
-        return Err(vm.new_value_error("not readable".to_string()));
+        return Err(vm.new_value_error("not readable".to_owned()));
     }
 
     let bytes = vm.call_method(
@@ -833,7 +833,7 @@ fn split_mode_string(mode_string: &str) -> Result<(String, String), String> {
                         // no duplicates allowed
                         return Err(format!("invalid mode: '{}'", mode_string));
                     } else {
-                        return Err("can't have text and binary mode at once".to_string());
+                        return Err("can't have text and binary mode at once".to_owned());
                     }
                 }
                 typ = ch;
@@ -845,7 +845,7 @@ fn split_mode_string(mode_string: &str) -> Result<(String, String), String> {
                         return Err(format!("invalid mode: '{}'", mode_string));
                     } else {
                         return Err(
-                            "must have exactly one of create/read/write/append mode".to_string()
+                            "must have exactly one of create/read/write/append mode".to_owned()
                         );
                     }
                 }
@@ -896,7 +896,7 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let file_io_class = vm.get_attribute(io_module.clone(), "FileIO").map_err(|_| {
         // TODO: UnsupportedOperation here
         vm.new_os_error(
-            "Couldn't get FileIO, io.open likely isn't supported on your platform".to_string(),
+            "Couldn't get FileIO, io.open likely isn't supported on your platform".to_owned(),
         )
     })?;
     let file_io_obj = vm.invoke(
@@ -1084,15 +1084,15 @@ mod tests {
     fn test_invalid_mode() {
         assert_eq!(
             split_mode_string("rbsss"),
-            Err("invalid mode: 'rbsss'".to_string())
+            Err("invalid mode: 'rbsss'".to_owned())
         );
         assert_eq!(
             split_mode_string("rrb"),
-            Err("invalid mode: 'rrb'".to_string())
+            Err("invalid mode: 'rrb'".to_owned())
         );
         assert_eq!(
             split_mode_string("rbb"),
-            Err("invalid mode: 'rbb'".to_string())
+            Err("invalid mode: 'rbb'".to_owned())
         );
     }
 
@@ -1125,7 +1125,7 @@ mod tests {
     fn test_text_and_binary_at_once() {
         assert_eq!(
             split_mode_string("rbt"),
-            Err("can't have text and binary mode at once".to_string())
+            Err("can't have text and binary mode at once".to_owned())
         );
     }
 
@@ -1133,7 +1133,7 @@ mod tests {
     fn test_exactly_one_mode() {
         assert_eq!(
             split_mode_string("rwb"),
-            Err("must have exactly one of create/read/write/append mode".to_string())
+            Err("must have exactly one of create/read/write/append mode".to_owned())
         );
     }
 
@@ -1141,7 +1141,7 @@ mod tests {
     fn test_at_most_one_plus() {
         assert_eq!(
             split_mode_string("a++"),
-            Err("invalid mode: 'a++'".to_string())
+            Err("invalid mode: 'a++'".to_owned())
         );
     }
 

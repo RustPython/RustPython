@@ -62,7 +62,7 @@ impl CompileError {
             match parse {
                 ParseErrorType::Lexical(LexicalErrorType::IndentationError) => true,
                 ParseErrorType::UnrecognizedToken(token, expected) => {
-                    *token == Tok::Indent || expected.clone() == Some("Indent".to_string())
+                    *token == Tok::Indent || expected.clone() == Some("Indent".to_owned())
                 }
                 _ => false,
             }
@@ -88,14 +88,14 @@ impl fmt::Display for CompileError {
         let error_desc = match &self.error {
             CompileErrorType::Assign(target) => format!("can't assign to {}", target),
             CompileErrorType::Delete(target) => format!("can't delete {}", target),
-            CompileErrorType::ExpectExpr => "Expecting expression, got statement".to_string(),
+            CompileErrorType::ExpectExpr => "Expecting expression, got statement".to_owned(),
             CompileErrorType::Parse(err) => err.to_string(),
             CompileErrorType::SyntaxError(err) => err.to_string(),
-            CompileErrorType::StarArgs => "Two starred expressions in assignment".to_string(),
-            CompileErrorType::InvalidBreak => "'break' outside loop".to_string(),
-            CompileErrorType::InvalidContinue => "'continue' outside loop".to_string(),
-            CompileErrorType::InvalidReturn => "'return' outside function".to_string(),
-            CompileErrorType::InvalidYield => "'yield' outside function".to_string(),
+            CompileErrorType::StarArgs => "Two starred expressions in assignment".to_owned(),
+            CompileErrorType::InvalidBreak => "'break' outside loop".to_owned(),
+            CompileErrorType::InvalidContinue => "'continue' outside loop".to_owned(),
+            CompileErrorType::InvalidReturn => "'return' outside function".to_owned(),
+            CompileErrorType::InvalidYield => "'yield' outside function".to_owned(),
         };
 
         if let Some(statement) = &self.statement {

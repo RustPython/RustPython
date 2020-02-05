@@ -15,7 +15,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 fn platform_python_implementation(_vm: &VirtualMachine) -> String {
-    "RustPython".to_string()
+    "RustPython".to_owned()
 }
 
 fn platform_python_version(_vm: &VirtualMachine) -> String {

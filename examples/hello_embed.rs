@@ -10,7 +10,7 @@ fn main() -> vm::pyobject::PyResult<()> {
         .compile(
             r#"print("Hello World!")"#,
             compiler::compile::Mode::Exec,
-            "<embedded>".to_string(),
+            "<embedded>".to_owned(),
         )
         .map_err(|err| vm.new_syntax_error(&err))?;
 

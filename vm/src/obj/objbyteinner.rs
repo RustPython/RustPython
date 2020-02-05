@@ -67,10 +67,10 @@ impl ByteInnerNewOptions {
                         elements: bytes.get_value().to_vec(),
                     })
                 } else {
-                    Err(vm.new_type_error("encoding without a string argument".to_string()))
+                    Err(vm.new_type_error("encoding without a string argument".to_owned()))
                 }
             } else {
-                Err(vm.new_type_error("encoding without a string argument".to_string()))
+                Err(vm.new_type_error("encoding without a string argument".to_owned()))
             }
         // Only one argument
         } else {
@@ -79,12 +79,12 @@ impl ByteInnerNewOptions {
                     i @ PyInt => {
                         let size = objint::get_value(&i.into_object())
                             .to_usize()
-                            .ok_or_else(|| vm.new_value_error("negative count".to_string()))?;
+                            .ok_or_else(|| vm.new_value_error("negative count".to_owned()))?;
                         Ok(vec![0; size])
                     }
                     _l @ PyString => {
                         return Err(
-                            vm.new_type_error("string argument without an encoding".to_string())
+                            vm.new_type_error("string argument without an encoding".to_owned())
                         );
                     }
                     i @ PyBytes => Ok(i.get_value().to_vec()),
@@ -108,9 +108,9 @@ impl ByteInnerNewOptions {
                             if let Some(i) = v.to_u8() {
                                 data_bytes.push(i);
                             } else {
-                                return Err(vm.new_value_error(
-                                    "bytes must be in range(0, 256)".to_string(),
-                                ));
+                                return Err(
+                                    vm.new_value_error("bytes must be in range(0, 256)".to_owned())
+                                );
                             }
                         }
                         Ok(data_bytes)
@@ -230,7 +230,7 @@ impl ByteInnerTranslateOptions {
 
         if table.len() != 256 {
             return Err(
-                vm.new_value_error("translation table must be 256 characters long".to_string())
+                vm.new_value_error("translation table must be 256 characters long".to_owned())
             );
         }
 
@@ -395,7 +395,7 @@ impl PyByteInner {
                 if let Some(idx) = self.elements.get_pos(int) {
                     Ok(vm.new_int(self.elements[idx]))
                 } else {
-                    Err(vm.new_index_error("index out of range".to_string()))
+                    Err(vm.new_index_error("index out of range".to_owned()))
                 }
             }
             Either::B(slice) => Ok(vm
@@ -411,16 +411,16 @@ impl PyByteInner {
                     if let Some(value) = i.as_bigint().to_u8() {
                         Ok(value)
                     } else {
-                        Err(vm.new_value_error("byte must be in range(0, 256)".to_string()))
+                        Err(vm.new_value_error("byte must be in range(0, 256)".to_owned()))
                     }
                 }
-                _ => Err(vm.new_type_error("an integer is required".to_string())),
+                _ => Err(vm.new_type_error("an integer is required".to_owned())),
             });
             let value = result?;
             self.elements[idx] = value;
             Ok(vm.new_int(value))
         } else {
-            Err(vm.new_index_error("index out of range".to_string()))
+            Err(vm.new_index_error("index out of range".to_owned()))
         }
     }
 
@@ -479,7 +479,7 @@ impl PyByteInner {
                     self.elements.remove(idx);
                     Ok(())
                 } else {
-                    Err(vm.new_index_error("index out of range".to_string()))
+                    Err(vm.new_index_error("index out of range".to_owned()))
                 }
             }
             Either::B(slice) => self.delslice(slice, vm),
@@ -493,7 +493,7 @@ impl PyByteInner {
         let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
 
         if step.is_zero() {
-            Err(vm.new_value_error("slice step cannot be zero".to_string()))
+            Err(vm.new_value_error("slice step cannot be zero".to_owned()))
         } else if step.is_positive() {
             let range = self.elements.get_slice_range(&start, &stop);
             if range.start < range.end {
@@ -1215,7 +1215,7 @@ pub trait ByteOr: ToPrimitive {
     fn byte_or(&self, vm: &VirtualMachine) -> PyResult<u8> {
         match self.to_u8() {
             Some(value) => Ok(value),
-            None => Err(vm.new_value_error("byte must be in range(0, 256)".to_string())),
+            None => Err(vm.new_value_error("byte must be in range(0, 256)".to_owned())),
         }
     }
 }

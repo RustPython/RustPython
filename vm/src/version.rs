@@ -59,7 +59,7 @@ pub fn get_build_info() -> String {
     format!(
         "{id}{sep}{revision}, {date:.20}, {time:.9}",
         id = if git_identifier.is_empty() {
-            "default".to_string()
+            "default".to_owned()
         } else {
             git_identifier
         },

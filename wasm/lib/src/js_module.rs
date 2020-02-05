@@ -99,7 +99,7 @@ impl PyJsValue {
             } else if proto.value.is_null() {
                 Object::create(proto.value.unchecked_ref())
             } else {
-                return Err(vm.new_value_error("prototype must be an Object or null".to_string()));
+                return Err(vm.new_value_error("prototype must be an Object or null".to_owned()));
             }
         } else {
             Object::new()
@@ -140,7 +140,7 @@ impl PyJsValue {
         let func = self
             .value
             .dyn_ref::<js_sys::Function>()
-            .ok_or_else(|| vm.new_type_error("JS value is not callable".to_string()))?;
+            .ok_or_else(|| vm.new_type_error("JS value is not callable".to_owned()))?;
         let this = opts
             .this
             .map(|this| this.value.clone())
@@ -164,7 +164,7 @@ impl PyJsValue {
         let ctor = self
             .value
             .dyn_ref::<js_sys::Function>()
-            .ok_or_else(|| vm.new_type_error("JS value is not callable".to_string()))?;
+            .ok_or_else(|| vm.new_type_error("JS value is not callable".to_owned()))?;
         let proto = opts
             .prototype
             .as_ref()
@@ -256,5 +256,5 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub fn setup_js_module(vm: &VirtualMachine) {
     vm.stdlib_inits
         .borrow_mut()
-        .insert("_js".to_string(), Box::new(make_module));
+        .insert("_js".to_owned(), Box::new(make_module));
 }

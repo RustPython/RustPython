@@ -586,7 +586,7 @@ impl Frame {
                 let value = self.pop_value();
                 let elements = vm.extract_elements(&value)?;
                 if elements.len() != *size {
-                    Err(vm.new_value_error("Wrong number of values to unpack".to_string()))
+                    Err(vm.new_value_error("Wrong number of values to unpack".to_owned()))
                 } else {
                     for element in elements.into_iter().rev() {
                         self.push_value(element);
@@ -985,7 +985,7 @@ impl Frame {
                 None => {
                     return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.runtime_error.clone(),
-                        "No active exception to reraise".to_string(),
+                        "No active exception to reraise".to_owned(),
                     ))
                 }
             },
@@ -1390,7 +1390,7 @@ impl fmt::Debug for Frame {
             .iter()
             .map(|elem| {
                 if elem.payload.as_any().is::<Frame>() {
-                    "\n  > {frame}".to_string()
+                    "\n  > {frame}".to_owned()
                 } else {
                     format!("\n  > {:?}", elem)
                 }

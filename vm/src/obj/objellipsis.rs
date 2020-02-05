@@ -22,9 +22,9 @@ fn ellipsis_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn ellipsis_repr(_self: PyEllipsisRef, _vm: &VirtualMachine) -> String {
-    "Ellipsis".to_string()
+    "Ellipsis".to_owned()
 }
 
 fn ellipsis_reduce(_self: PyEllipsisRef, _vm: &VirtualMachine) -> String {
-    "Ellipsis".to_string()
+    "Ellipsis".to_owned()
 }

@@ -252,7 +252,7 @@ fn struct_pack(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                 )))
             }
         } else {
-            Err(vm.new_type_error("First argument must be of str type".to_string()))
+            Err(vm.new_type_error("First argument must be of str type".to_owned()))
         }
     }
 }

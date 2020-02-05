@@ -88,7 +88,7 @@ fn with_compiler(
 ) -> Result<CodeObject, CompileError> {
     let mut compiler = Compiler::new(optimize);
     compiler.source_path = Some(source_path);
-    compiler.push_new_code_object("<module>".to_string());
+    compiler.push_new_code_object("<module>".to_owned());
     f(&mut compiler)?;
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
@@ -897,7 +897,7 @@ impl<O: OutputStream> Compiler<O> {
             // key:
             self.emit(Instruction::LoadConst {
                 value: bytecode::Constant::String {
-                    value: "return".to_string(),
+                    value: "return".to_owned(),
                 },
             });
             // value:
@@ -989,11 +989,11 @@ impl<O: OutputStream> Compiler<O> {
         let (new_body, doc_str) = get_doc(body);
 
         self.emit(Instruction::LoadName {
-            name: "__name__".to_string(),
+            name: "__name__".to_owned(),
             scope: bytecode::NameScope::Global,
         });
         self.emit(Instruction::StoreName {
-            name: "__module__".to_string(),
+            name: "__module__".to_owned(),
             scope: bytecode::NameScope::Free,
         });
         self.emit(Instruction::LoadConst {
@@ -1002,7 +1002,7 @@ impl<O: OutputStream> Compiler<O> {
             },
         });
         self.emit(Instruction::StoreName {
-            name: "__qualname__".to_string(),
+            name: "__qualname__".to_owned(),
             scope: bytecode::NameScope::Free,
         });
         self.compile_statements(new_body)?;
@@ -1090,7 +1090,7 @@ impl<O: OutputStream> Compiler<O> {
 
         self.emit(Instruction::Rotate { amount: 2 });
         self.emit(Instruction::StoreAttr {
-            name: "__doc__".to_string(),
+            name: "__doc__".to_owned(),
         });
     }
 
@@ -1171,7 +1171,7 @@ impl<O: OutputStream> Compiler<O> {
             self.set_label(check_asynciter_label);
             self.emit(Instruction::Duplicate);
             self.emit(Instruction::LoadName {
-                name: "StopAsyncIteration".to_string(),
+                name: "StopAsyncIteration".to_owned(),
                 scope: bytecode::NameScope::Global,
             });
             self.emit(Instruction::CompareOperation {
@@ -1732,7 +1732,7 @@ impl<O: OutputStream> Compiler<O> {
                     func: FunctionContext::Function,
                 };
 
-                let name = "<lambda>".to_string();
+                let name = "<lambda>".to_owned();
                 self.enter_function(&name, args)?;
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
@@ -1933,7 +1933,7 @@ impl<O: OutputStream> Compiler<O> {
         // Create magnificent function <listcomp>:
         self.push_output(CodeObject::new(
             Default::default(),
-            vec![".0".to_string()],
+            vec![".0".to_owned()],
             Varargs::None,
             vec![],
             Varargs::None,
@@ -2264,8 +2264,8 @@ mod tests {
 
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler: Compiler = Default::default();
-        compiler.source_path = Some("source_path".to_string());
-        compiler.push_new_code_object("<module>".to_string());
+        compiler.source_path = Some("source_path".to_owned());
+        compiler.push_new_code_object("<module>".to_owned());
         let ast = parser::parse_program(&source.to_string()).unwrap();
         let symbol_scope = make_symbol_table(&ast).unwrap();
         compiler.compile_program(&ast, symbol_scope).unwrap();

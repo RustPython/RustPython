@@ -393,12 +393,12 @@ mod tests {
         assert_eq!(0, dict.len());
 
         let key1 = vm.new_bool(true);
-        let value1 = vm.new_str("abc".to_string());
+        let value1 = vm.new_str("abc".to_owned());
         dict.insert(&vm, &key1, value1.clone()).unwrap();
         assert_eq!(1, dict.len());
 
-        let key2 = vm.new_str("x".to_string());
-        let value2 = vm.new_str("def".to_string());
+        let key2 = vm.new_str("x".to_owned());
+        let value2 = vm.new_str("def".to_owned());
         dict.insert(&vm, &key2, value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 

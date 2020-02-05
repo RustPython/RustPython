@@ -343,13 +343,13 @@ impl FormatSpec {
         let magnitude = num.abs();
         let raw_magnitude_string_result: Result<String, &'static str> = match self.format_type {
             Some(FormatType::FixedPointUpper) => match magnitude {
-                magnitude if magnitude.is_nan() => Ok("NAN".to_string()),
-                magnitude if magnitude.is_infinite() => Ok("INF".to_string()),
+                magnitude if magnitude.is_nan() => Ok("NAN".to_owned()),
+                magnitude if magnitude.is_infinite() => Ok("INF".to_owned()),
                 _ => Ok(format!("{:.*}", precision, magnitude)),
             },
             Some(FormatType::FixedPointLower) => match magnitude {
-                magnitude if magnitude.is_nan() => Ok("nan".to_string()),
-                magnitude if magnitude.is_infinite() => Ok("inf".to_string()),
+                magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
+                magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
                 _ => Ok(format!("{:.*}", precision, magnitude)),
             },
             Some(FormatType::Decimal) => Err("Unknown format code 'd' for object of type 'float'"),
@@ -377,14 +377,14 @@ impl FormatSpec {
                 Err("Format code 'e' for object of type 'float' not implemented yet")
             }
             Some(FormatType::Percentage) => match magnitude {
-                magnitude if magnitude.is_nan() => Ok("nan%".to_string()),
-                magnitude if magnitude.is_infinite() => Ok("inf%".to_string()),
+                magnitude if magnitude.is_nan() => Ok("nan%".to_owned()),
+                magnitude if magnitude.is_infinite() => Ok("inf%".to_owned()),
                 _ => Ok(format!("{:.*}%", precision, magnitude * 100.0)),
             },
             None => {
                 match magnitude {
-                    magnitude if magnitude.is_nan() => Ok("nan".to_string()),
-                    magnitude if magnitude.is_infinite() => Ok("inf".to_string()),
+                    magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
+                    magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
                     // Using the Debug format here to prevent the automatic conversion of floats
                     // ending in .0 to their integer representation (e.g., 1.0 -> 1)
                     _ => Ok(format!("{:?}", magnitude)),
@@ -625,7 +625,7 @@ impl FormatString {
         let arg_part = parts[0];
 
         let preconversor_spec = if parts.len() > 1 {
-            "!".to_string() + parts[1]
+            "!".to_owned() + parts[1]
         } else {
             String::new()
         };
@@ -766,43 +766,43 @@ mod tests {
             parse_format_spec("d")
                 .unwrap()
                 .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
-            Ok("16".to_string())
+            Ok("16".to_owned())
         );
         assert_eq!(
             parse_format_spec("x")
                 .unwrap()
                 .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
-            Ok("10".to_string())
+            Ok("10".to_owned())
         );
         assert_eq!(
             parse_format_spec("b")
                 .unwrap()
                 .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
-            Ok("10000".to_string())
+            Ok("10000".to_owned())
         );
         assert_eq!(
             parse_format_spec("o")
                 .unwrap()
                 .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
-            Ok("20".to_string())
+            Ok("20".to_owned())
         );
         assert_eq!(
             parse_format_spec("+d")
                 .unwrap()
                 .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
-            Ok("+16".to_string())
+            Ok("+16".to_owned())
         );
         assert_eq!(
             parse_format_spec("^ 5d")
                 .unwrap()
                 .format_int(&BigInt::from_bytes_be(Sign::Minus, b"\x10")),
-            Ok(" -16 ".to_string())
+            Ok(" -16 ".to_owned())
         );
         assert_eq!(
             parse_format_spec("0>+#10x")
                 .unwrap()
                 .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
-            Ok("00000+0x10".to_string())
+            Ok("00000+0x10".to_owned())
         );
     }
 
@@ -810,10 +810,10 @@ mod tests {
     fn test_format_parse() {
         let expected = Ok(FormatString {
             format_parts: vec![
-                FormatPart::Literal("abcd".to_string()),
+                FormatPart::Literal("abcd".to_owned()),
                 FormatPart::IndexSpec(1, String::new()),
-                FormatPart::Literal(":".to_string()),
-                FormatPart::KeywordSpec("key".to_string(), String::new()),
+                FormatPart::Literal(":".to_owned()),
+                FormatPart::KeywordSpec("key".to_owned(), String::new()),
             ],
         });
 
@@ -832,9 +832,9 @@ mod tests {
     fn test_format_parse_escape() {
         let expected = Ok(FormatString {
             format_parts: vec![
-                FormatPart::Literal("{".to_string()),
-                FormatPart::KeywordSpec("key".to_string(), String::new()),
-                FormatPart::Literal("}ddfe".to_string()),
+                FormatPart::Literal("{".to_owned()),
+                FormatPart::KeywordSpec("key".to_owned(), String::new()),
+                FormatPart::Literal("}ddfe".to_owned()),
             ],
         });
 

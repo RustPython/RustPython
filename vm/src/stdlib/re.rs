@@ -266,7 +266,7 @@ fn do_split(
 
 fn make_regex(vm: &VirtualMachine, pattern: &str, flags: PyRegexFlags) -> PyResult<PyPattern> {
     let unicode = if flags.unicode && flags.ascii {
-        return Err(vm.new_value_error("ASCII and UNICODE flags are incompatible".to_string()));
+        return Err(vm.new_value_error("ASCII and UNICODE flags are incompatible".to_owned()));
     } else {
         !flags.ascii
     };

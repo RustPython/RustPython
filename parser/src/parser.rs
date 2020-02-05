@@ -213,7 +213,7 @@ mod tests {
                                 function: Box::new(mk_ident("my_func", 1, 1)),
                                 args: vec![make_string("positional", 1, 10)],
                                 keywords: vec![ast::Keyword {
-                                    name: Some("keyword".to_string()),
+                                    name: Some("keyword".to_owned()),
                                     value: make_int(2, 1, 31),
                                 }],
                             }

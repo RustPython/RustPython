@@ -148,7 +148,7 @@ impl PyRange {
     ) -> PyResult<PyRangeRef> {
         let step = step.unwrap_or_else(|| PyInt::new(BigInt::one()).into_ref(vm));
         if step.as_bigint().is_zero() {
-            return Err(vm.new_value_error("range() arg 3 must not be zero".to_string()));
+            return Err(vm.new_value_error("range() arg 3 must not be zero".to_owned()));
         }
         PyRange { start, stop, step }.into_ref_with_type(vm, cls)
     }
@@ -318,7 +318,7 @@ impl PyRange {
                 None => Err(vm.new_value_error(format!("{} is not in range", int))),
             }
         } else {
-            Err(vm.new_value_error("sequence.index(x): x not in sequence".to_string()))
+            Err(vm.new_value_error("sequence.index(x): x not in sequence".to_owned()))
         }
     }
 
@@ -358,7 +358,7 @@ impl PyRange {
             }
             RangeIndex::Int(index) => match self.get(index.as_bigint()) {
                 Some(value) => Ok(PyInt::new(value).into_ref(vm).into_object()),
-                None => Err(vm.new_index_error("range object index out of range".to_string())),
+                None => Err(vm.new_index_error("range object index out of range".to_owned())),
             },
         }
     }

@@ -124,7 +124,7 @@ impl PyBuiltinDescriptor for PyProperty {
                 vm.invoke(&getter, obj)
             }
         } else {
-            Err(vm.new_attribute_error("unreadable attribute".to_string()))
+            Err(vm.new_attribute_error("unreadable attribute".to_owned()))
         }
     }
 }
@@ -149,7 +149,7 @@ impl PyProperty {
         if let Some(ref getter) = self.getter.as_ref() {
             vm.invoke(getter, obj)
         } else {
-            Err(vm.new_attribute_error("unreadable attribute".to_string()))
+            Err(vm.new_attribute_error("unreadable attribute".to_owned()))
         }
     }
 
@@ -158,7 +158,7 @@ impl PyProperty {
         if let Some(ref setter) = self.setter.as_ref() {
             vm.invoke(setter, vec![obj, value])
         } else {
-            Err(vm.new_attribute_error("can't set attribute".to_string()))
+            Err(vm.new_attribute_error("can't set attribute".to_owned()))
         }
     }
 
@@ -167,7 +167,7 @@ impl PyProperty {
         if let Some(ref deleter) = self.deleter.as_ref() {
             vm.invoke(deleter, obj)
         } else {
-            Err(vm.new_attribute_error("can't delete attribute".to_string()))
+            Err(vm.new_attribute_error("can't delete attribute".to_owned()))
         }
     }
 

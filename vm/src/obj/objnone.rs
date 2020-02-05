@@ -44,7 +44,7 @@ impl PyNone {
 
     #[pymethod(name = "__repr__")]
     fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok("None".to_string())
+        Ok("None".to_owned())
     }
 
     #[pymethod(name = "__bool__")]
