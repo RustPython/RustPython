@@ -17,7 +17,10 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use once_cell::sync::Lazy;
 #[cfg(feature = "rustpython-compiler")]
-use rustpython_compiler::{compile, error::CompileError};
+use rustpython_compiler::{
+    compile::{self, CompileOpts},
+    error::CompileError,
+};
 
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
@@ -1000,6 +1003,16 @@ impl VirtualMachine {
         }
     }
 
+    /// Returns a basic CompileOpts instance with options accurate to the vm. Used
+    /// as the CompileOpts for `vm.compile()`.
+    #[cfg(feature = "rustpython-compiler")]
+    pub fn compile_opts(&self) -> CompileOpts {
+        CompileOpts {
+            optimize: self.settings.optimize,
+            ..Default::default()
+        }
+    }
+
     #[cfg(feature = "rustpython-compiler")]
     pub fn compile(
         &self,
@@ -1007,7 +1020,18 @@ impl VirtualMachine {
         mode: compile::Mode,
         source_path: String,
     ) -> Result<PyCodeRef, CompileError> {
-        compile::compile(source, mode, source_path, self.settings.optimize)
+        self.compile_with_opts(source, mode, source_path, self.compile_opts())
+    }
+
+    #[cfg(feature = "rustpython-compiler")]
+    pub fn compile_with_opts(
+        &self,
+        source: &str,
+        mode: compile::Mode,
+        source_path: String,
+        opts: CompileOpts,
+    ) -> Result<PyCodeRef, CompileError> {
+        compile::compile(source, mode, source_path, opts)
             .map(|codeobj| PyCode::new(codeobj).into_ref(self))
             .map_err(|mut compile_error| {
                 compile_error.update_statement_info(source.trim_end().to_owned());

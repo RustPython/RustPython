@@ -30,7 +30,26 @@ struct Compiler<O: OutputStream = BasicOutputStream> {
     current_source_location: ast::Location,
     current_qualified_path: Option<String>,
     ctx: CompileContext,
-    optimize: u8,
+    opts: CompileOpts,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompileOpts {
+    /// How optimized the bytecode output should be; any optimize > 0 does
+    /// not emit assert statements
+    pub optimize: u8,
+    /// Whether introspection on defined functions/other items should be allowed;
+    /// e.g. when true, `func.__globals__` throws an error (where func is a function defined
+    /// in an incognito context)
+    pub incognito: bool,
+}
+impl Default for CompileOpts {
+    fn default() -> Self {
+        CompileOpts {
+            optimize: 0,
+            incognito: false,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -60,20 +79,20 @@ pub fn compile(
     source: &str,
     mode: Mode,
     source_path: String,
-    optimize: u8,
+    opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source)?;
-            compile_program(ast, source_path, optimize)
+            compile_program(ast, source_path.clone(), opts)
         }
         Mode::Eval => {
             let statement = parser::parse_statement(source)?;
-            compile_statement_eval(statement, source_path, optimize)
+            compile_statement_eval(statement, source_path.clone(), opts)
         }
         Mode::Single => {
             let ast = parser::parse_program(source)?;
-            compile_program_single(ast, source_path, optimize)
+            compile_program_single(ast, source_path.clone(), opts)
         }
     }
 }
@@ -81,10 +100,10 @@ pub fn compile(
 /// A helper function for the shared code of the different compile functions
 fn with_compiler(
     source_path: String,
-    optimize: u8,
+    opts: CompileOpts,
     f: impl FnOnce(&mut Compiler) -> CompileResult<()>,
 ) -> CompileResult<CodeObject> {
-    let mut compiler = Compiler::new(optimize);
+    let mut compiler = Compiler::new(opts);
     compiler.source_path = Some(source_path);
     compiler.push_new_code_object("<module>".to_owned());
     f(&mut compiler)?;
@@ -97,9 +116,9 @@ fn with_compiler(
 pub fn compile_program(
     ast: ast::Program,
     source_path: String,
-    optimize: u8,
+    opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    with_compiler(source_path, optimize, |compiler| {
+    with_compiler(source_path, opts, |compiler| {
         let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program(&ast, symbol_table)
     })
@@ -109,9 +128,9 @@ pub fn compile_program(
 pub fn compile_statement_eval(
     statement: Vec<ast::Statement>,
     source_path: String,
-    optimize: u8,
+    opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    with_compiler(source_path, optimize, |compiler| {
+    with_compiler(source_path, opts, |compiler| {
         let symbol_table = statements_to_symbol_table(&statement)?;
         compiler.compile_statement_eval(&statement, symbol_table)
     })
@@ -121,9 +140,9 @@ pub fn compile_statement_eval(
 pub fn compile_program_single(
     ast: ast::Program,
     source_path: String,
-    optimize: u8,
+    opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    with_compiler(source_path, optimize, |compiler| {
+    with_compiler(source_path, opts, |compiler| {
         let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program_single(&ast, symbol_table)
     })
@@ -134,12 +153,12 @@ where
     O: OutputStream,
 {
     fn default() -> Self {
-        Compiler::new(0)
+        Compiler::new(CompileOpts::default())
     }
 }
 
 impl<O: OutputStream> Compiler<O> {
-    fn new(optimize: u8) -> Self {
+    fn new(opts: CompileOpts) -> Self {
         Compiler {
             output_stack: Vec::new(),
             symbol_table_stack: Vec::new(),
@@ -151,7 +170,7 @@ impl<O: OutputStream> Compiler<O> {
                 in_loop: false,
                 func: FunctionContext::NoFunction,
             },
-            optimize,
+            opts,
         }
     }
 
@@ -167,7 +186,8 @@ impl<O: OutputStream> Compiler<O> {
         }
     }
 
-    fn push_output(&mut self, code: CodeObject) {
+    fn push_output(&mut self, mut code: CodeObject) {
+        code.incognito = self.opts.incognito;
         self.output_stack.push(code.into());
     }
 
@@ -518,7 +538,7 @@ impl<O: OutputStream> Compiler<O> {
             } => self.compile_class_def(name, body, bases, keywords, decorator_list)?,
             Assert { test, msg } => {
                 // if some flag, ignore all assert statements!
-                if self.optimize == 0 {
+                if self.opts.optimize == 0 {
                     let end_label = self.new_label();
                     self.compile_jump_if(test, true, end_label)?;
                     self.emit(Instruction::LoadName {

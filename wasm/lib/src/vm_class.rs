@@ -263,8 +263,13 @@ impl WASMVirtualMachine {
         strict_private: Option<bool>,
     ) -> Result<(), JsValue> {
         self.with(|StoredVirtualMachine { ref vm, .. }| {
+            let strict_private = strict_private.unwrap_or(false);
+            let opts = compile::CompileOpts {
+                incognito: strict_private,
+                ..vm.compile_opts()
+            };
             let code = vm
-                .compile(source, Mode::Exec, name.clone())
+                .compile_with_opts(source, Mode::Exec, name.clone(), opts)
                 .map_err(convert::syntax_err)?;
             let attrs = vm.ctx.new_dict();
             attrs
@@ -282,7 +287,7 @@ impl WASMVirtualMachine {
             vm.run_code_obj(code, Scope::new(None, attrs.clone(), vm))
                 .to_js(vm)?;
 
-            let module_attrs = if strict_private.unwrap_or(false) {
+            let module_attrs = if strict_private {
                 let all = attrs
                     .get_item_option("__all__", vm)
                     .to_js(vm)?

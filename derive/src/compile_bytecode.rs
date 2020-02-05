@@ -49,7 +49,7 @@ impl CompilationSource {
         module_name: String,
         origin: F,
     ) -> Result<CodeObject, Diagnostic> {
-        compile::compile(source, mode, module_name, 0).map_err(|err| {
+        compile::compile(source, mode, module_name, Default::default()).map_err(|err| {
             Diagnostic::spans_error(
                 self.span,
                 format!("Python compile error from {}: {}", origin(), err),
