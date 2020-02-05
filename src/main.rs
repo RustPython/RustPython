@@ -57,7 +57,7 @@ fn main() {
                 1 => match_class!(match args.as_slice()[0].clone() {
                     i @ PyInt => {
                         use num_traits::cast::ToPrimitive;
-                        process::exit(i.as_bigint().to_i32().unwrap());
+                        process::exit(i.as_bigint().to_i32().unwrap_or(0));
                     }
                     arg => {
                         if vm.is_none(&arg) {
