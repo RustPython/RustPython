@@ -68,13 +68,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let passwd_type = py_class!(ctx, "struct_passwd", ctx.object(), {
-        "pw_name" => ctx.new_property(PasswdRef::pw_name),
-        "pw_passwd" => ctx.new_property(PasswdRef::pw_passwd),
-        "pw_uid" => ctx.new_property(PasswdRef::pw_uid),
-        "pw_gid" => ctx.new_property(PasswdRef::pw_gid),
-        "pw_gecos" => ctx.new_property(PasswdRef::pw_gecos),
-        "pw_dir" => ctx.new_property(PasswdRef::pw_dir),
-        "pw_shell" => ctx.new_property(PasswdRef::pw_shell),
+        "pw_name" => ctx.new_readonly_getset("pw_name", PasswdRef::pw_name),
+        "pw_passwd" => ctx.new_readonly_getset("pw_passwd", PasswdRef::pw_passwd),
+        "pw_uid" => ctx.new_readonly_getset("pw_uid", PasswdRef::pw_uid),
+        "pw_gid" => ctx.new_readonly_getset("pw_gid", PasswdRef::pw_gid),
+        "pw_gecos" => ctx.new_readonly_getset("pw_gecos", PasswdRef::pw_gecos),
+        "pw_dir" => ctx.new_readonly_getset("pw_dir", PasswdRef::pw_dir),
+        "pw_shell" => ctx.new_readonly_getset("pw_shell", PasswdRef::pw_shell),
     });
 
     py_module!(vm, "pwd", {

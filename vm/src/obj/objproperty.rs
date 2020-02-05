@@ -4,51 +4,12 @@
 use std::cell::RefCell;
 
 use super::objtype::PyClassRef;
-use crate::function::{IntoPyNativeFunc, OptionalArg};
+use crate::function::OptionalArg;
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
-
-// Read-only property, doesn't have __set__ or __delete__
-#[pyclass]
-#[derive(Debug)]
-pub struct PyReadOnlyProperty {
-    getter: PyObjectRef,
-}
-
-impl PyValue for PyReadOnlyProperty {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.readonly_property_type()
-    }
-}
-
-pub type PyReadOnlyPropertyRef = PyRef<PyReadOnlyProperty>;
-
-impl SlotDescriptor for PyReadOnlyProperty {
-    fn descr_get(
-        vm: &VirtualMachine,
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        cls: OptionalArg<PyObjectRef>,
-    ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        if vm.is_none(&obj) {
-            if Self::_cls_is(&cls, &vm.ctx.types.type_type) {
-                vm.invoke(&zelf.getter, cls.unwrap())
-            } else {
-                Ok(zelf.into_object())
-            }
-        } else {
-            vm.invoke(&zelf.getter, obj)
-        }
-    }
-}
-
-#[pyimpl(with(SlotDescriptor))]
-impl PyReadOnlyProperty {}
 
 /// Property attribute.
 ///
@@ -255,81 +216,12 @@ fn py_none_to_option(vm: &VirtualMachine, value: &PyObjectRef) -> Option<PyObjec
     }
 }
 
-pub struct PropertyBuilder<'a> {
-    ctx: &'a PyContext,
-    getter: Option<PyObjectRef>,
-    setter: Option<PyObjectRef>,
-}
-
-impl<'a> PropertyBuilder<'a> {
-    pub fn new(ctx: &'a PyContext) -> Self {
-        Self {
-            ctx,
-            getter: None,
-            setter: None,
-        }
-    }
-
-    pub fn add_getter<I, R, VM, F: IntoPyNativeFunc<I, R, VM>>(self, func: F) -> Self {
-        let func = self.ctx.new_method(func);
-        Self {
-            ctx: self.ctx,
-            getter: Some(func),
-            setter: self.setter,
-        }
-    }
-
-    pub fn add_setter<
-        I,
-        V,
-        VM,
-        F: IntoPyNativeFunc<(I, V), impl super::objgetset::IntoPyNoResult, VM>,
-    >(
-        self,
-        func: F,
-    ) -> Self {
-        let func = self.ctx.new_method(func);
-        Self {
-            ctx: self.ctx,
-            getter: self.getter,
-            setter: Some(func),
-        }
-    }
-
-    pub fn create(self) -> PyObjectRef {
-        if self.setter.is_some() {
-            let payload = PyProperty {
-                getter: self.getter.clone(),
-                setter: self.setter.clone(),
-                deleter: None,
-                doc: RefCell::new(None),
-            };
-
-            PyObject::new(payload, self.ctx.property_type(), None)
-        } else {
-            let payload = PyReadOnlyProperty {
-                getter: self.getter.expect(
-                    "One of add_getter/add_setter must be called when constructing a property",
-                ),
-            };
-
-            PyObject::new(payload, self.ctx.readonly_property_type(), None)
-        }
-    }
-}
-
-pub fn init(context: &PyContext) {
-    PyReadOnlyProperty::extend_class(context, &context.types.readonly_property_type);
-
+pub(crate) fn init(context: &PyContext) {
     PyProperty::extend_class(context, &context.types.property_type);
 
     // This is a bit unfortunate, but this instance attribute overlaps with the
     // class __doc__ string..
     extend_class!(context, &context.types.property_type, {
-        "__doc__" =>
-        PropertyBuilder::new(context)
-            .add_getter(PyProperty::doc_getter)
-            .add_setter(PyProperty::doc_setter)
-            .create(),
+        "__doc__" => context.new_getset("__doc__", PyProperty::doc_getter, PyProperty::doc_setter),
     });
 }

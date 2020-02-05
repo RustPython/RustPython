@@ -25,13 +25,13 @@ use crate::obj::objcomplex::PyComplex;
 use crate::obj::objdict::{PyDict, PyDictRef};
 use crate::obj::objfloat::PyFloat;
 use crate::obj::objfunction::{PyBoundMethod, PyFunction};
+use crate::obj::objgetset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet};
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objnamespace::PyNamespace;
 use crate::obj::objnone::{PyNone, PyNoneRef};
 use crate::obj::objobject;
-use crate::obj::objproperty::PropertyBuilder;
 use crate::obj::objset::PySet;
 use crate::obj::objstr;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
@@ -503,11 +503,23 @@ impl PyContext {
         )
     }
 
-    pub fn new_property<F, I, V, VM>(&self, f: F) -> PyObjectRef
+    pub fn new_readonly_getset<F, T>(&self, name: impl Into<String>, f: F) -> PyObjectRef
     where
-        F: IntoPyNativeFunc<I, V, VM>,
+        F: IntoPyGetterFunc<T>,
     {
-        PropertyBuilder::new(self).add_getter(f).create()
+        PyObject::new(PyGetSet::with_get(name.into(), f), self.getset_type(), None)
+    }
+
+    pub fn new_getset<G, S, T, U>(&self, name: impl Into<String>, g: G, s: S) -> PyObjectRef
+    where
+        G: IntoPyGetterFunc<T>,
+        S: IntoPySetterFunc<U>,
+    {
+        PyObject::new(
+            PyGetSet::with_get_set(name.into(), g, s),
+            self.getset_type(),
+            None,
+        )
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyCodeRef {

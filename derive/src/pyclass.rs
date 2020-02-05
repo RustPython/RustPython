@@ -692,7 +692,8 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             let property = quote! {
                 class.set_str_attr(
                     #field_name_str,
-                    ctx.new_property(
+                    ctx.new_readonly_getset(
+                        #field_name_str,
                         |zelf: &::rustpython_vm::obj::objtuple::PyTuple,
                          _vm: &::rustpython_vm::VirtualMachine| {
                             zelf.fast_getitem(#idx)

@@ -1235,8 +1235,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     ScandirIterator::extend_class(ctx, &scandir_iter);
 
     let dir_entry = py_class!(ctx, "DirEntry", ctx.object(), {
-         "name" => ctx.new_property(DirEntryRef::name),
-         "path" => ctx.new_property(DirEntryRef::path),
+         "name" => ctx.new_readonly_getset("name", DirEntryRef::name),
+         "path" => ctx.new_readonly_getset("path", DirEntryRef::path),
          "is_dir" => ctx.new_method(DirEntryRef::is_dir),
          "is_file" => ctx.new_method(DirEntryRef::is_file),
          "is_symlink" => ctx.new_method(DirEntryRef::is_symlink),
