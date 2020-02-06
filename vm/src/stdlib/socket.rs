@@ -445,14 +445,6 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
 }
 
-fn socket_hton<U: num_traits::int::PrimInt>(host: U) -> U {
-    U::to_be(host)
-}
-
-fn socket_ntoh<U: num_traits::int::PrimInt>(network: U) -> U {
-    U::from_be(network)
-}
-
 #[derive(FromArgs)]
 struct GAIOptions {
     #[pyarg(positional_only)]
@@ -618,10 +610,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "inet_aton" => ctx.new_function(socket_inet_aton),
         "inet_ntoa" => ctx.new_function(socket_inet_ntoa),
         "gethostname" => ctx.new_function(socket_gethostname),
-        "htonl" => ctx.new_function(socket_hton::<u32>),
-        "htons" => ctx.new_function(socket_hton::<u16>),
-        "ntohl" => ctx.new_function(socket_ntoh::<u32>),
-        "ntohs" => ctx.new_function(socket_ntoh::<u16>),
+        "htonl" => ctx.new_function(u32::to_be),
+        "htons" => ctx.new_function(u16::to_be),
+        "ntohl" => ctx.new_function(u32::from_be),
+        "ntohs" => ctx.new_function(u16::from_be),
         "getdefaulttimeout" => ctx.new_function(|vm: &VirtualMachine| vm.get_none()),
         "has_ipv6" => ctx.new_bool(false),
         // constants

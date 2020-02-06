@@ -67,8 +67,8 @@ impl PyBaseException {
         Ok(())
     }
 
-    #[pyproperty(name = "args")]
-    fn get_args(&self) -> PyTupleRef {
+    #[pyproperty]
+    pub fn args(&self) -> PyTupleRef {
         self.args.borrow().clone()
     }
 
@@ -80,7 +80,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__traceback__")]
-    fn get_traceback(&self) -> Option<PyTracebackRef> {
+    pub fn traceback(&self) -> Option<PyTracebackRef> {
         self.traceback.borrow().clone()
     }
 
@@ -90,25 +90,23 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__cause__")]
-    fn get_cause(&self) -> Option<PyBaseExceptionRef> {
+    pub fn cause(&self) -> Option<PyBaseExceptionRef> {
         self.cause.borrow().clone()
     }
 
     #[pyproperty(name = "__cause__", setter)]
-    fn setter_cause(&self, cause: Option<PyBaseExceptionRef>) -> PyResult<()> {
+    pub fn set_cause(&self, cause: Option<PyBaseExceptionRef>) {
         self.cause.replace(cause);
-        Ok(())
     }
 
     #[pyproperty(name = "__context__")]
-    fn get_context(&self) -> Option<PyBaseExceptionRef> {
+    pub fn context(&self) -> Option<PyBaseExceptionRef> {
         self.context.borrow().clone()
     }
 
     #[pyproperty(name = "__context__", setter)]
-    fn setter_context(&self, context: Option<PyBaseExceptionRef>) -> PyResult<()> {
+    pub fn set_context(&self, context: Option<PyBaseExceptionRef>) {
         self.context.replace(context);
-        Ok(())
     }
 
     #[pyproperty(name = "__suppress_context__")]
@@ -145,28 +143,6 @@ impl PyBaseException {
             Ok(one) => format!("{}({},)", cls.name, one),
             Err(i) => format!("{}({})", cls.name, i.format(", ")),
         }
-    }
-
-    pub fn args(&self) -> PyTupleRef {
-        self.args.borrow().clone()
-    }
-
-    pub fn traceback(&self) -> Option<PyTracebackRef> {
-        self.traceback.borrow().clone()
-    }
-
-    pub fn cause(&self) -> Option<PyBaseExceptionRef> {
-        self.cause.borrow().clone()
-    }
-    pub fn set_cause(&self, cause: Option<PyBaseExceptionRef>) {
-        self.cause.replace(cause);
-    }
-
-    pub fn context(&self) -> Option<PyBaseExceptionRef> {
-        self.context.borrow().clone()
-    }
-    pub fn set_context(&self, context: Option<PyBaseExceptionRef>) {
-        self.context.replace(context);
     }
 }
 
