@@ -15,9 +15,11 @@ class PlatformTest(unittest.TestCase):
         platform._sys_version_cache.clear()
         platform._uname_cache = None
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_architecture(self):
         res = platform.architecture()
 
+    @unittest.skip("TODO: RUSTPYTHON")
     @support.skip_unless_symlink
     def test_architecture_via_symlink(self): # issue3762
         # On Windows, the EXE needs to know where pythonXY.dll and *.pyd is at
@@ -85,6 +87,7 @@ class PlatformTest(unittest.TestCase):
         sys._git = self.save_git
         sys.platform = self.save_platform
 
+    @support.cpython_only
     def test_sys_version(self):
         # Old test.
         for input, output in (
@@ -269,6 +272,7 @@ class PlatformTest(unittest.TestCase):
             self.assertEqual(cpid, pid)
             self.assertEqual(sts, 0)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_libc_ver(self):
         # check that libc_ver(executable) doesn't raise an exception
         if os.path.isdir(sys.executable) and \
@@ -349,6 +353,7 @@ class PlatformTest(unittest.TestCase):
         self.assertLess(V('0.960923'), V('2.2beta29'))
 
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_macos(self):
         self.addCleanup(self.clear_caches)
 
