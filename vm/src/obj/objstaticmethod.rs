@@ -1,7 +1,7 @@
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
-use crate::slots::PyBuiltinDescriptor;
+use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
 
 #[pyclass(name = "staticmethod")]
@@ -17,18 +17,19 @@ impl PyValue for PyStaticMethod {
     }
 }
 
-impl PyBuiltinDescriptor for PyStaticMethod {
-    fn get(
-        zelf: PyRef<Self>,
-        _obj: PyObjectRef,
+impl SlotDescriptor for PyStaticMethod {
+    fn descr_get(
+        vm: &VirtualMachine,
+        zelf: PyObjectRef,
+        _obj: Option<PyObjectRef>,
         _cls: OptionalArg<PyObjectRef>,
-        _vm: &VirtualMachine,
     ) -> PyResult {
+        let zelf = Self::_zelf(zelf, vm)?;
         Ok(zelf.callable.clone())
     }
 }
 
-#[pyimpl(with(PyBuiltinDescriptor), flags(BASETYPE))]
+#[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
 impl PyStaticMethod {
     #[pyslot]
     fn tp_new(

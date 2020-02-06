@@ -337,17 +337,16 @@ impl Class {
             };
             if name == "pymethod" {
                 self.add_item(Self::extract_method(sig, meta)?, meta_span)?;
-                attr_idxs.push(i);
             } else if name == "pyclassmethod" {
                 self.add_item(Self::extract_classmethod(sig, meta)?, meta_span)?;
-                attr_idxs.push(i);
             } else if name == "pyproperty" {
                 self.add_item(Self::extract_property(sig, meta)?, meta_span)?;
-                attr_idxs.push(i);
             } else if name == "pyslot" {
                 self.add_item(Self::extract_slot(sig, meta)?, meta_span)?;
-                attr_idxs.push(i);
+            } else {
+                continue;
             }
+            attr_idxs.push(i);
         }
         let mut i = 0;
         let mut attr_idxs = &*attr_idxs;
@@ -406,8 +405,8 @@ fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnosti
     let properties = properties
         .into_iter()
         .map(|(name, prop)| {
-            let getter = match prop.0 {
-                Some(getter) => getter,
+            let getter_func = match prop.0 {
+                Some(func) => func,
                 None => {
                     push_err_span!(
                         diagnostics,
@@ -418,14 +417,17 @@ fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnosti
                     return TokenStream2::new();
                 }
             };
-            let add_setter = prop.1.map(|setter| quote!(.add_setter(Self::#setter)));
+            let (new, setter) = match prop.1 {
+                Some(func) => (quote! { with_get_set }, quote! { , &Self::#func }),
+                None => (quote! { with_get }, quote! { }),
+            };
+            let str_name = name.to_string();
             quote! {
                 class.set_str_attr(
                     #name,
-                    ::rustpython_vm::obj::objproperty::PropertyBuilder::new(ctx)
-                        .add_getter(Self::#getter)
-                        #add_setter
-                        .create(),
+                    ::rustpython_vm::pyobject::PyObject::new(
+                        ::rustpython_vm::obj::objgetset::PyGetSet::#new(#str_name.into(), &Self::#getter_func #setter),
+                        ctx.getset_type(), None)
                 );
             }
         })
@@ -453,8 +455,13 @@ fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnosti
             slot_ident,
             item_ident,
         } => {
+            let transform = if vec!["new", "call"].contains(&slot_ident.to_string().as_str()) {
+                quote! { ::rustpython_vm::function::IntoPyNativeFunc::into_func }
+            } else {
+                quote! { Box::new }
+            };
             let into_func = quote_spanned! {item_ident.span()=>
-                ::rustpython_vm::function::IntoPyNativeFunc::into_func(Self::#item_ident)
+                #transform(Self::#item_ident)
             };
             Some(quote! {
                 (*class.slots.borrow_mut()).#slot_ident = Some(#into_func);
@@ -685,7 +692,8 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             let property = quote! {
                 class.set_str_attr(
                     #field_name_str,
-                    ctx.new_property(
+                    ctx.new_readonly_getset(
+                        #field_name_str,
                         |zelf: &::rustpython_vm::obj::objtuple::PyTuple,
                          _vm: &::rustpython_vm::VirtualMachine| {
                             zelf.fast_getitem(#idx)

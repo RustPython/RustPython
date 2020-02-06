@@ -80,7 +80,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__traceback__")]
-    fn get_traceback(&self, _vm: &VirtualMachine) -> Option<PyTracebackRef> {
+    fn get_traceback(&self) -> Option<PyTracebackRef> {
         self.traceback.borrow().clone()
     }
 
@@ -95,8 +95,13 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__cause__", setter)]
-    fn setter_cause(&self, cause: Option<PyBaseExceptionRef>, _vm: &VirtualMachine) {
+    fn setter_cause(
+        &self,
+        cause: Option<PyBaseExceptionRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.cause.replace(cause);
+        Ok(())
     }
 
     #[pyproperty(name = "__context__")]
@@ -105,8 +110,13 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__context__", setter)]
-    fn setter_context(&self, context: Option<PyBaseExceptionRef>, _vm: &VirtualMachine) {
+    fn setter_context(
+        &self,
+        context: Option<PyBaseExceptionRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.context.replace(context);
+        Ok(())
     }
 
     #[pyproperty(name = "__suppress_context__")]
@@ -634,20 +644,16 @@ pub fn init(ctx: &PyContext) {
     PyBaseException::extend_class(ctx, &excs.base_exception_type);
 
     extend_class!(ctx, &excs.syntax_error, {
-        "msg" => ctx.new_property(make_arg_getter(0)),
-        "filename" => ctx.new_property(make_arg_getter(1)),
-        "lineno" => ctx.new_property(make_arg_getter(2)),
-        "offset" => ctx.new_property(make_arg_getter(3)),
-        "text" => ctx.new_property(make_arg_getter(4)),
+        "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
     });
 
     extend_class!(ctx, &excs.import_error, {
         "__init__" => ctx.new_method(import_error_init),
-        "msg" => ctx.new_property(make_arg_getter(0)),
+        "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
     });
 
     extend_class!(ctx, &excs.stop_iteration, {
-        "value" => ctx.new_property(make_arg_getter(0)),
+        "value" => ctx.new_readonly_getset("value", make_arg_getter(0)),
     });
 
     extend_class!(ctx, &excs.key_error, {
@@ -655,27 +661,27 @@ pub fn init(ctx: &PyContext) {
     });
 
     extend_class!(ctx, &excs.unicode_decode_error, {
-        "encoding" => ctx.new_property(make_arg_getter(0)),
-        "object" => ctx.new_property(make_arg_getter(1)),
-        "start" => ctx.new_property(make_arg_getter(2)),
-        "end" => ctx.new_property(make_arg_getter(3)),
-        "reason" => ctx.new_property(make_arg_getter(4)),
+        "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
+        "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
+        "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
+        "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
+        "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
     });
 
     extend_class!(ctx, &excs.unicode_encode_error, {
-        "encoding" => ctx.new_property(make_arg_getter(0)),
-        "object" => ctx.new_property(make_arg_getter(1)),
-        "start" => ctx.new_property(make_arg_getter(2)),
-        "end" => ctx.new_property(make_arg_getter(3)),
-        "reason" => ctx.new_property(make_arg_getter(4)),
+        "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
+        "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
+        "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
+        "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
+        "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
     });
 
     extend_class!(ctx, &excs.unicode_translate_error, {
-        "encoding" => ctx.new_property(none_getter),
-        "object" => ctx.new_property(make_arg_getter(0)),
-        "start" => ctx.new_property(make_arg_getter(1)),
-        "end" => ctx.new_property(make_arg_getter(2)),
-        "reason" => ctx.new_property(make_arg_getter(3)),
+        "encoding" => ctx.new_readonly_getset("encoding", none_getter),
+        "object" => ctx.new_readonly_getset("object", make_arg_getter(0)),
+        "start" => ctx.new_readonly_getset("start", make_arg_getter(1)),
+        "end" => ctx.new_readonly_getset("end", make_arg_getter(2)),
+        "reason" => ctx.new_readonly_getset("reason", make_arg_getter(3)),
     });
 }
 

@@ -5,11 +5,10 @@ use std::fmt;
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objmappingproxy::PyMappingProxy;
-use super::objproperty::PropertyBuilder;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
-use crate::function::PyFuncArgs;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef,
     PyResult, PyValue, TypeProtocol,
@@ -80,14 +79,11 @@ impl PyClassRef {
         }
     }
 
-    fn _mro(self, _vm: &VirtualMachine) -> PyTuple {
+    #[pyproperty(name = "__mro__")]
+    fn get_mro(self, _vm: &VirtualMachine) -> PyTuple {
         let elements: Vec<PyObjectRef> =
             _mro(&self).iter().map(|x| x.as_object().clone()).collect();
         PyTuple::from(elements)
-    }
-
-    fn _set_mro(self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_attribute_error("read-only attribute".to_owned()))
     }
 
     #[pyproperty(magic)]
@@ -145,6 +141,13 @@ impl PyClassRef {
             .unwrap_or_else(|| vm.ctx.new_str("builtins".to_owned()))
     }
 
+    #[pyproperty(magic, setter)]
+    fn set_module(self, value: PyObjectRef) {
+        self.attributes
+            .borrow_mut()
+            .insert("__module__".to_owned(), value);
+    }
+
     #[pymethod(magic)]
     fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
@@ -170,7 +173,11 @@ impl PyClassRef {
 
         if let Some(attr) = self.get_attr(&name) {
             let attr_class = attr.class();
-            if let Some(ref descriptor) = attr_class.get_attr("__get__") {
+            let slots = attr_class.slots.borrow();
+            if let Some(ref descr_get) = slots.descr_get {
+                return descr_get(vm, attr, None, OptionalArg::Present(self.into_object()));
+            } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
+                // TODO: is this nessessary?
                 return vm.invoke(descriptor, vec![attr, vm.get_none(), self.into_object()]);
             }
         }
@@ -178,7 +185,7 @@ impl PyClassRef {
         if let Some(cls_attr) = self.get_attr(&name) {
             Ok(cls_attr)
         } else if let Some(attr) = mcl.get_attr(&name) {
-            vm.call_get_descriptor(attr, self.into_object())
+            vm.call_if_get_descriptor(attr, self.into_object())
         } else if let Some(ref getter) = self.get_attr("__getattr__") {
             vm.invoke(getter, vec![mcl.into_object(), name_ref.into_object()])
         } else {
@@ -327,6 +334,18 @@ impl PyClassRef {
         }
         Ok(obj)
     }
+
+    #[pyproperty(magic)]
+    fn dict(self) -> PyMappingProxy {
+        PyMappingProxy::new(self)
+    }
+
+    #[pyproperty(magic, setter)]
+    fn set_dict(self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        Err(vm.new_not_implemented_error(
+            "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
+        ))
+    }
 }
 
 /*
@@ -335,18 +354,6 @@ impl PyClassRef {
 
 pub(crate) fn init(ctx: &PyContext) {
     PyClassRef::extend_class(ctx, &ctx.types.type_type);
-    extend_class!(&ctx, &ctx.types.type_type, {
-        "__dict__" =>
-        PropertyBuilder::new(ctx)
-                .add_getter(type_dict)
-                .add_setter(type_dict_setter)
-                .create(),
-        "__mro__" =>
-            PropertyBuilder::new(ctx)
-                .add_getter(PyClassRef::_mro)
-                .add_setter(PyClassRef::_set_mro)
-                .create(),
-    });
 }
 
 fn _mro(cls: &PyClassRef) -> Vec<PyClassRef> {
@@ -396,20 +403,6 @@ pub fn type_new(
     let new = slots.new.as_ref().unwrap();
 
     new(vm, args.insert(cls.into_object()))
-}
-
-fn type_dict(class: PyClassRef, _vm: &VirtualMachine) -> PyMappingProxy {
-    PyMappingProxy::new(class)
-}
-
-fn type_dict_setter(
-    _instance: PyClassRef,
-    _value: PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult<()> {
-    Err(vm.new_not_implemented_error(
-        "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
-    ))
 }
 
 impl PyClassRef {

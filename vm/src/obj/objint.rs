@@ -626,6 +626,7 @@ impl PyInt {
     }
     #[pyproperty]
     fn real(&self, vm: &VirtualMachine) -> PyObjectRef {
+        // subclasses must return int here
         vm.ctx.new_bigint(&self.value)
     }
 

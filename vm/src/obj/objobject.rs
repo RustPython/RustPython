@@ -175,12 +175,12 @@ impl PyBaseObject {
     }
 
     #[pyproperty(name = "__class__")]
-    fn _class(obj: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
+    fn get_class(obj: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
         obj.class().into_object()
     }
 
     #[pyproperty(name = "__class__", setter)]
-    fn _set_class(instance: PyObjectRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_class(instance: PyObjectRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let type_repr = vm.to_pystr(&instance.class())?;
         Err(vm.new_type_error(format!("can't change class of type '{}'", type_repr)))
     }

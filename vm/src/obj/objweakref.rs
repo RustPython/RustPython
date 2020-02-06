@@ -3,7 +3,7 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult, PyValue,
 };
-use crate::slots::PyBuiltinCallable;
+use crate::slots::SlotCall;
 use crate::vm::VirtualMachine;
 
 use std::rc::{Rc, Weak};
@@ -34,14 +34,14 @@ impl PyValue for PyWeak {
 
 pub type PyWeakRef = PyRef<PyWeak>;
 
-impl PyBuiltinCallable for PyWeak {
+impl SlotCall for PyWeak {
     fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         args.bind::<()>(vm)?;
         Ok(self.referent.upgrade().unwrap_or_else(|| vm.get_none()))
     }
 }
 
-#[pyimpl(with(PyBuiltinCallable), flags(BASETYPE))]
+#[pyimpl(with(SlotCall), flags(BASETYPE))]
 impl PyWeak {
     // TODO callbacks
     #[pyslot]
