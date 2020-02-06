@@ -645,6 +645,11 @@ pub fn init(ctx: &PyContext) {
 
     extend_class!(ctx, &excs.syntax_error, {
         "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
+        // TODO: members
+        "filename" => ctx.none(),
+        "lineno" => ctx.none(),
+        "offset" => ctx.none(),
+        "text" => ctx.none(),
     });
 
     extend_class!(ctx, &excs.import_error, {
