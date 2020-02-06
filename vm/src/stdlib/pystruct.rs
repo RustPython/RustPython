@@ -42,6 +42,20 @@ struct FormatCode {
     code: char,
 }
 
+impl FormatCode {
+    fn size(&self) -> usize {
+        match self.code {
+            'b' | 'B' | '?' => 1,
+            'h' | 'H' => 2,
+            'i' | 'l' | 'I' | 'L' | 'f' => 4,
+            'q' | 'Q' | 'd' => 8,
+            c => {
+                panic!("Unsupported format code {:?}", c);
+            }
+        }
+    }
+}
+
 fn parse_format_string(fmt: String) -> Result<FormatSpec, String> {
     let mut chars = fmt.chars().peekable();
 
@@ -402,6 +416,12 @@ where
     }
 }
 
+fn struct_calcsize(fmt: PyStringRef, vm: &VirtualMachine) -> PyResult<usize> {
+    let fmt_str = fmt.as_str().to_owned();
+    let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;
+    Ok(format_spec.codes.iter().map(|code| code.size()).sum())
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -410,6 +430,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     py_module!(vm, "struct", {
         "pack" => ctx.new_function(struct_pack),
         "unpack" => ctx.new_function(struct_unpack),
+        "calcsize" => ctx.new_function(struct_calcsize),
         "error" => struct_error,
     })
 }
