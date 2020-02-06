@@ -971,14 +971,6 @@ _pypy_sys_version_parser = re.compile(
     r'\(#?([^,]+),\s*([\w ]+),\s*([\w :]+)\)\s*'
     r'\[PyPy [^\]]+\]?')
 
-_rustpython_sys_version_parser = re.compile(
-    r'RustPython '
-    r'([\w.+]+)\s*'  # "version<space>"
-    r'\(#?([^,]+)'  # "(#buildno"
-    r'(?:,\s*([\w ]*)'  # ", builddate"
-    r'(?:,\s*([\w :]*))?)?\)\s*'  # ", buildtime)<space>"
-    r'\[([^\]]+)\]?', re.ASCII)  # "[compiler]"
-
 _sys_version_cache = {}
 
 def _sys_version(sys_version=None):
@@ -1051,16 +1043,6 @@ def _sys_version(sys_version=None):
         version, buildno, builddate, buildtime = match.groups()
         compiler = ""
 
-    elif "RustPython" in sys_version:
-        # RustPython
-        name = "RustPython"
-        match = _rustpython_sys_version_parser.match(sys_version)
-        if match is None:
-            raise ValueError("failed to parse RustPython sys.version: %s" %
-                             repr(sys_version))
-        version, buildno, builddate, buildtime, compiler = \
-              match.groups()
-
     else:
         # CPython
         match = _sys_version_parser.match(sys_version)
@@ -1095,28 +1077,8 @@ def _sys_version(sys_version=None):
     _sys_version_cache[sys_version] = result
     return result
 
-def python_implementation():
-
-    """ Returns a string identifying the Python implementation.
-
-        Currently, the following implementations are identified:
-          'CPython' (C implementation of Python),
-          'IronPython' (.NET implementation of Python),
-          'Jython' (Java implementation of Python),
-          'PyPy' (Python implementation of Python).
-
-    """
-    return _sys_version()[0]
-
-def python_version():
-
-    """ Returns the Python version as string 'major.minor.patchlevel'
-
-        Note that unlike the Python sys.version, the returned value
-        will always include the patchlevel (it defaults to 0).
-
-    """
-    return _sys_version()[1]
+# RustPython specific
+from _platform import *
 
 def python_version_tuple():
 
@@ -1127,50 +1089,7 @@ def python_version_tuple():
         will always include the patchlevel (it defaults to 0).
 
     """
-    return tuple(_sys_version()[1].split('.'))
-
-def python_branch():
-
-    """ Returns a string identifying the Python implementation
-        branch.
-
-        For CPython this is the SCM branch from which the
-        Python binary was built.
-
-        If not available, an empty string is returned.
-
-    """
-
-    return _sys_version()[2]
-
-def python_revision():
-
-    """ Returns a string identifying the Python implementation
-        revision.
-
-        For CPython this is the SCM revision from which the
-        Python binary was built.
-
-        If not available, an empty string is returned.
-
-    """
-    return _sys_version()[3]
-
-def python_build():
-
-    """ Returns a tuple (buildno, builddate) stating the Python
-        build number and date as strings.
-
-    """
-    return _sys_version()[4:6]
-
-def python_compiler():
-
-    """ Returns a string identifying the compiler used for compiling
-        Python.
-
-    """
-    return _sys_version()[6]
+    return tuple(python_version().split('.'))
 
 ### The Opus Magnum of platform strings :-)
 

@@ -23,7 +23,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 pub fn get_version() -> String {
     format!(
-        "RustPython {:.80} ({:.80}) {:.80}",
+        "{:.80} ({:.80}) \n[{:.80}]",
         get_version_number(),
         get_build_info(),
         get_compiler()
@@ -40,16 +40,16 @@ pub fn get_version_info() -> VersionInfo {
     }
 }
 
-fn get_version_number() -> String {
+pub fn get_version_number() -> String {
     format!("{}.{}.{}{}", MAJOR, MINOR, MICRO, RELEASELEVEL)
 }
 
-fn get_compiler() -> String {
+pub fn get_compiler() -> String {
     let rustc_version = rustc_version_runtime::version_meta();
-    format!("\n[rustc {}]", rustc_version.semver)
+    format!("rustc {}", rustc_version.semver)
 }
 
-fn get_build_info() -> String {
+pub fn get_build_info() -> String {
     // See: https://reproducible-builds.org/docs/timestamps/
     let git_revision = get_git_revision();
     let separator = if git_revision.is_empty() { "" } else { ":" };
@@ -78,7 +78,7 @@ pub fn get_git_tag() -> String {
     option_env!("RUSTPYTHON_GIT_TAG").unwrap_or("").to_owned()
 }
 
-fn get_git_branch() -> String {
+pub fn get_git_branch() -> String {
     option_env!("RUSTPYTHON_GIT_BRANCH")
         .unwrap_or("")
         .to_owned()
@@ -107,14 +107,21 @@ fn get_git_timestamp_datetime() -> DateTime<Local> {
     datetime
 }
 
-fn get_git_date() -> String {
+pub fn get_git_date() -> String {
     let datetime = get_git_timestamp_datetime();
 
     datetime.format("%b %e %Y").to_string()
 }
 
-fn get_git_time() -> String {
+pub fn get_git_time() -> String {
     let datetime = get_git_timestamp_datetime();
 
     datetime.format("%H:%M:%S").to_string()
+}
+
+pub fn get_git_datetime() -> String {
+    let date = get_git_date();
+    let time = get_git_time();
+
+    format!("{} {}", date, time)
 }
