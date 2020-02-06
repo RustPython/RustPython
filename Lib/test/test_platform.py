@@ -54,6 +54,7 @@ class PlatformTest(unittest.TestCase):
         finally:
             os.remove(link)
 
+    @unittest.skipUnless(sys.platform == 'linux', "TODO: RUSTPYTHON")
     def test_platform(self):
         for aliased in (False, True):
             for terse in (False, True):
@@ -221,6 +222,7 @@ class PlatformTest(unittest.TestCase):
     def test_win32_ver(self):
         res = platform.win32_ver()
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_mac_ver(self):
         res = platform.mac_ver()
 
@@ -254,6 +256,7 @@ class PlatformTest(unittest.TestCase):
                 self.assertEqual(res[2], 'PowerPC')
 
 
+    @unittest.skip("TODO: RUSTPYTHON")
     @unittest.skipUnless(sys.platform == 'darwin', "OSX only test")
     def test_mac_ver_with_fork(self):
         # Issue7895: platform.mac_ver() crashes when using fork without exec
