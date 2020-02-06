@@ -72,22 +72,22 @@ impl PyJsValue {
     }
 
     #[pymethod]
-    fn null(&self, _vm: &VirtualMachine) -> PyJsValue {
+    fn null(&self) -> PyJsValue {
         PyJsValue::new(JsValue::NULL)
     }
 
     #[pymethod]
-    fn undefined(&self, _vm: &VirtualMachine) -> PyJsValue {
+    fn undefined(&self) -> PyJsValue {
         PyJsValue::new(JsValue::UNDEFINED)
     }
 
     #[pymethod]
-    fn new_from_str(&self, s: PyStringRef, _vm: &VirtualMachine) -> PyJsValue {
+    fn new_from_str(&self, s: PyStringRef) -> PyJsValue {
         PyJsValue::new(s.as_str())
     }
 
     #[pymethod]
-    fn new_from_float(&self, n: PyFloatRef, _vm: &VirtualMachine) -> PyJsValue {
+    fn new_from_float(&self, n: PyFloatRef) -> PyJsValue {
         PyJsValue::new(n.to_f64())
     }
 
@@ -185,29 +185,29 @@ impl PyJsValue {
     }
 
     #[pymethod]
-    fn as_str(&self, _vm: &VirtualMachine) -> Option<String> {
+    fn as_str(&self) -> Option<String> {
         self.value.as_string()
     }
 
     #[pymethod]
-    fn as_float(&self, _vm: &VirtualMachine) -> Option<f64> {
+    fn as_float(&self) -> Option<f64> {
         self.value.as_f64()
     }
 
     #[pymethod]
-    fn as_bool(&self, _vm: &VirtualMachine) -> Option<bool> {
+    fn as_bool(&self) -> Option<bool> {
         self.value.as_bool()
     }
 
     #[pymethod(name = "typeof")]
-    fn type_of(&self, _vm: &VirtualMachine) -> String {
+    fn type_of(&self) -> String {
         type_of(&self.value)
     }
 
     #[pymethod]
     /// Checks that `typeof self == "object" && self !== null`. Use instead
     /// of `value.typeof() == "object"`
-    fn is_object(&self, _vm: &VirtualMachine) -> bool {
+    fn is_object(&self) -> bool {
         self.value.is_object()
     }
 
@@ -217,7 +217,7 @@ impl PyJsValue {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> String {
+    fn repr(&self) -> String {
         format!("{:?}", self.value)
     }
 }

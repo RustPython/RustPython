@@ -127,7 +127,7 @@ impl PyStringIterator {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -163,7 +163,7 @@ impl PyStringReverseIterator {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -225,7 +225,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__bool__")]
-    fn bool(&self, _vm: &VirtualMachine) -> bool {
+    fn bool(&self) -> bool {
         !self.value.is_empty()
     }
 
@@ -248,7 +248,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__contains__")]
-    fn contains(&self, needle: PyStringRef, _vm: &VirtualMachine) -> bool {
+    fn contains(&self, needle: PyStringRef) -> bool {
         self.value.contains(&needle.value)
     }
 
@@ -285,27 +285,27 @@ impl PyString {
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(&self, other: PyStringRef, _vm: &VirtualMachine) -> bool {
+    fn gt(&self, other: PyStringRef) -> bool {
         self.value > other.value
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(&self, other: PyStringRef, _vm: &VirtualMachine) -> bool {
+    fn ge(&self, other: PyStringRef) -> bool {
         self.value >= other.value
     }
 
     #[pymethod(name = "__lt__")]
-    fn lt(&self, other: PyStringRef, _vm: &VirtualMachine) -> bool {
+    fn lt(&self, other: PyStringRef) -> bool {
         self.value < other.value
     }
 
     #[pymethod(name = "__le__")]
-    fn le(&self, other: PyStringRef, _vm: &VirtualMachine) -> bool {
+    fn le(&self, other: PyStringRef) -> bool {
         self.value <= other.value
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+    fn hash(&self) -> pyhash::PyHash {
         match self.hash.get() {
             Some(hash) => hash,
             None => {
@@ -317,12 +317,12 @@ impl PyString {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self, _vm: &VirtualMachine) -> usize {
+    fn len(&self) -> usize {
         self.value.chars().count()
     }
 
     #[pymethod(name = "__sizeof__")]
-    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+    fn sizeof(&self) -> usize {
         size_of::<Self>() + self.value.capacity() * size_of::<u8>()
     }
 
@@ -343,12 +343,12 @@ impl PyString {
     }
 
     #[pymethod(name = "__str__")]
-    fn str(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyStringRef {
+    fn str(zelf: PyRef<Self>) -> PyStringRef {
         zelf
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> String {
+    fn repr(&self) -> String {
         let value = &self.value;
         let quote_char = if count_char(value, '\'') > count_char(value, '"') {
             '"'
@@ -390,23 +390,23 @@ impl PyString {
     }
 
     #[pymethod]
-    fn lower(&self, _vm: &VirtualMachine) -> String {
+    fn lower(&self) -> String {
         self.value.to_lowercase()
     }
 
     // casefold is much more aggressive than lower
     #[pymethod]
-    fn casefold(&self, _vm: &VirtualMachine) -> String {
+    fn casefold(&self) -> String {
         caseless::default_case_fold_str(&self.value)
     }
 
     #[pymethod]
-    fn upper(&self, _vm: &VirtualMachine) -> String {
+    fn upper(&self) -> String {
         self.value.to_uppercase()
     }
 
     #[pymethod]
-    fn capitalize(&self, _vm: &VirtualMachine) -> String {
+    fn capitalize(&self) -> String {
         let (first_part, lower_str) = self.value.split_at(1);
         format!("{}{}", first_part.to_uppercase(), lower_str)
     }
@@ -471,7 +471,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalArg<PyStringRef>, _vm: &VirtualMachine) -> String {
+    fn strip(&self, chars: OptionalArg<PyStringRef>) -> String {
         let chars = match chars {
             OptionalArg::Present(ref chars) => &chars.value,
             OptionalArg::Missing => return self.value.trim().to_owned(),
@@ -480,7 +480,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn lstrip(&self, chars: OptionalArg<PyStringRef>, _vm: &VirtualMachine) -> String {
+    fn lstrip(&self, chars: OptionalArg<PyStringRef>) -> String {
         let chars = match chars {
             OptionalArg::Present(ref chars) => &chars.value,
             OptionalArg::Missing => return self.value.trim_start().to_owned(),
@@ -491,7 +491,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn rstrip(&self, chars: OptionalArg<PyStringRef>, _vm: &VirtualMachine) -> String {
+    fn rstrip(&self, chars: OptionalArg<PyStringRef>) -> String {
         let chars = match chars {
             OptionalArg::Present(ref chars) => &chars.value,
             OptionalArg::Missing => return self.value.trim_end().to_owned(),
@@ -554,17 +554,17 @@ impl PyString {
     }
 
     #[pymethod]
-    fn isalnum(&self, _vm: &VirtualMachine) -> bool {
+    fn isalnum(&self) -> bool {
         !self.value.is_empty() && self.value.chars().all(char::is_alphanumeric)
     }
 
     #[pymethod]
-    fn isnumeric(&self, _vm: &VirtualMachine) -> bool {
+    fn isnumeric(&self) -> bool {
         !self.value.is_empty() && self.value.chars().all(char::is_numeric)
     }
 
     #[pymethod]
-    fn isdigit(&self, _vm: &VirtualMachine) -> bool {
+    fn isdigit(&self) -> bool {
         // python's isdigit also checks if exponents are digits, these are the unicodes for exponents
         let valid_unicodes: [u16; 10] = [
             0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
@@ -581,7 +581,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn isdecimal(&self, _vm: &VirtualMachine) -> bool {
+    fn isdecimal(&self) -> bool {
         if self.value.is_empty() {
             false
         } else {
@@ -660,7 +660,7 @@ impl PyString {
     /// Return a titlecased version of the string where words start with an
     /// uppercase character and the remaining characters are lowercase.
     #[pymethod]
-    fn title(&self, _vm: &VirtualMachine) -> String {
+    fn title(&self) -> String {
         let mut title = String::with_capacity(self.value.len());
         let mut previous_is_cased = false;
         for c in self.value.chars() {
@@ -687,7 +687,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn swapcase(&self, _vm: &VirtualMachine) -> String {
+    fn swapcase(&self) -> String {
         let mut swapped_str = String::with_capacity(self.value.len());
         for c in self.value.chars() {
             // to_uppercase returns an iterator, to_ascii_uppercase returns the char
@@ -703,18 +703,12 @@ impl PyString {
     }
 
     #[pymethod]
-    fn isalpha(&self, _vm: &VirtualMachine) -> bool {
+    fn isalpha(&self) -> bool {
         !self.value.is_empty() && self.value.chars().all(char::is_alphanumeric)
     }
 
     #[pymethod]
-    fn replace(
-        &self,
-        old: PyStringRef,
-        new: PyStringRef,
-        num: OptionalArg<usize>,
-        _vm: &VirtualMachine,
-    ) -> String {
+    fn replace(&self, old: PyStringRef, new: PyStringRef, num: OptionalArg<usize>) -> String {
         match num.into_option() {
             Some(num) => self.value.replacen(&old.value, &new.value, num),
             None => self.value.replace(&old.value, &new.value),
@@ -737,7 +731,7 @@ impl PyString {
     ///   * Zp Separator, Paragraph ('\u2029', PARAGRAPH SEPARATOR)
     ///   * Zs (Separator, Space) other than ASCII space('\x20').
     #[pymethod]
-    fn isprintable(&self, _vm: &VirtualMachine) -> bool {
+    fn isprintable(&self) -> bool {
         self.value
             .chars()
             .all(|c| c == '\u{0020}' || char_is_printable(c))
@@ -746,13 +740,13 @@ impl PyString {
     // cpython's isspace ignores whitespace, including \t and \n, etc, unless the whole string is empty
     // which is why isspace is using is_ascii_whitespace. Same for isupper & islower
     #[pymethod]
-    fn isspace(&self, _vm: &VirtualMachine) -> bool {
+    fn isspace(&self) -> bool {
         !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii_whitespace())
     }
 
     // Return true if all cased characters in the string are uppercase and there is at least one cased character, false otherwise.
     #[pymethod]
-    fn isupper(&self, _vm: &VirtualMachine) -> bool {
+    fn isupper(&self) -> bool {
         let mut cased = false;
         for c in self.value.chars() {
             if is_cased(c) && c.is_uppercase() {
@@ -766,7 +760,7 @@ impl PyString {
 
     // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.
     #[pymethod]
-    fn islower(&self, _vm: &VirtualMachine) -> bool {
+    fn islower(&self) -> bool {
         let mut cased = false;
         for c in self.value.chars() {
             if is_cased(c) && c.is_lowercase() {
@@ -779,7 +773,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn isascii(&self, _vm: &VirtualMachine) -> bool {
+    fn isascii(&self) -> bool {
         !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii())
     }
 
@@ -821,13 +815,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn find(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<isize>,
-        end: OptionalArg<isize>,
-        _vm: &VirtualMachine,
-    ) -> isize {
+    fn find(&self, sub: PyStringRef, start: OptionalArg<isize>, end: OptionalArg<isize>) -> isize {
         let value = &self.value;
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
             match value[start..end].find(&sub.value) {
@@ -840,13 +828,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn rfind(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<isize>,
-        end: OptionalArg<isize>,
-        _vm: &VirtualMachine,
-    ) -> isize {
+    fn rfind(&self, sub: PyStringRef, start: OptionalArg<isize>, end: OptionalArg<isize>) -> isize {
         let value = &self.value;
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
             match value[start..end].rfind(&sub.value) {
@@ -938,7 +920,7 @@ impl PyString {
     /// Return `true` if the sequence is ASCII titlecase and the sequence is not
     /// empty, `false` otherwise.
     #[pymethod]
-    fn istitle(&self, _vm: &VirtualMachine) -> bool {
+    fn istitle(&self) -> bool {
         if self.value.is_empty() {
             return false;
         }
@@ -966,13 +948,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn count(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<isize>,
-        end: OptionalArg<isize>,
-        _vm: &VirtualMachine,
-    ) -> usize {
+    fn count(&self, sub: PyStringRef, start: OptionalArg<isize>, end: OptionalArg<isize>) -> usize {
         let value = &self.value;
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
             self.value[start..end].matches(&sub.value).count()
@@ -982,7 +958,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn zfill(&self, len: usize, _vm: &VirtualMachine) -> String {
+    fn zfill(&self, len: usize) -> String {
         let value = &self.value;
         if len <= value.len() {
             value.to_owned()
@@ -1073,7 +1049,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn expandtabs(&self, tab_stop: OptionalArg<usize>, _vm: &VirtualMachine) -> String {
+    fn expandtabs(&self, tab_stop: OptionalArg<usize>) -> String {
         let tab_stop = tab_stop.into_option().unwrap_or(8 as usize);
         let mut expanded_str = String::with_capacity(self.value.len());
         let mut tab_size = tab_stop;
@@ -1097,7 +1073,7 @@ impl PyString {
     }
 
     #[pymethod]
-    fn isidentifier(&self, _vm: &VirtualMachine) -> bool {
+    fn isidentifier(&self) -> bool {
         let mut chars = self.value.chars();
         let is_identifier_start = chars.next().map_or(false, |c| c == '_' || is_xid_start(c));
         // a string is not an identifier if it has whitespace or starts with a number
@@ -1151,7 +1127,7 @@ impl PyString {
         if let OptionalArg::Present(to_str) = to_str {
             match dict_or_str.downcast::<PyString>() {
                 Ok(from_str) => {
-                    if to_str.len(vm) == from_str.len(vm) {
+                    if to_str.len() == from_str.len() {
                         for (c1, c2) in from_str.value.chars().zip(to_str.value.chars()) {
                             new_dict.set_item(&vm.new_int(c1 as u32), vm.new_int(c2 as u32), vm)?;
                         }
@@ -1184,7 +1160,7 @@ impl PyString {
                                 vm,
                             )?;
                         } else if let Some(string) = key.payload::<PyString>() {
-                            if string.len(vm) == 1 {
+                            if string.len() == 1 {
                                 let num_value = string.value.chars().next().unwrap() as u32;
                                 new_dict.set_item(&num_value.into_pyobject(vm)?, val, vm)?;
                             } else {
@@ -1214,7 +1190,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyStringIterator {
+    fn iter(zelf: PyRef<Self>) -> PyStringIterator {
         PyStringIterator {
             byte_position: Cell::new(0),
             string: zelf,
@@ -1222,7 +1198,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__reversed__")]
-    fn reversed(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyStringReverseIterator {
+    fn reversed(zelf: PyRef<Self>) -> PyStringReverseIterator {
         let begin = zelf.value.chars().count();
 
         PyStringReverseIterator {
@@ -1735,7 +1711,7 @@ mod tests {
             ("Greek ῼitlecases ...", "greek ῳitlecases ..."),
         ];
         for (title, input) in tests {
-            assert_eq!(PyString::from(input).title(&vm).as_str(), title);
+            assert_eq!(PyString::from(input).title().as_str(), title);
         }
     }
 
@@ -1753,7 +1729,7 @@ mod tests {
         ];
 
         for s in pos {
-            assert!(PyString::from(s).istitle(&vm));
+            assert!(PyString::from(s).istitle());
         }
 
         let neg = vec![
@@ -1766,7 +1742,7 @@ mod tests {
             "NOT",
         ];
         for s in neg {
-            assert!(!PyString::from(s).istitle(&vm));
+            assert!(!PyString::from(s).istitle());
         }
     }
 

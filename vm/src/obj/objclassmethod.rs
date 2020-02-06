@@ -75,7 +75,7 @@ impl PyClassMethod {
     }
 
     #[pyproperty(name = "__func__")]
-    fn func(&self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn func(&self) -> PyObjectRef {
         self.callable.clone()
     }
 }

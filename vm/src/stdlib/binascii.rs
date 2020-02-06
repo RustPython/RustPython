@@ -56,7 +56,7 @@ fn hex_nibble(n: u8) -> u8 {
     }
 }
 
-fn binascii_hexlify(data: PyBytesLike, _vm: &VirtualMachine) -> Vec<u8> {
+fn binascii_hexlify(data: PyBytesLike) -> Vec<u8> {
     data.with_ref(|bytes| {
         let mut hex = Vec::<u8>::with_capacity(bytes.len() * 2);
         for b in bytes.iter() {
@@ -124,11 +124,7 @@ fn binascii_a2b_base64(s: SerializedData, vm: &VirtualMachine) -> PyResult<Vec<u
         .map_err(|err| vm.new_value_error(format!("error decoding base64: {}", err)))
 }
 
-fn binascii_b2a_base64(
-    data: PyBytesLike,
-    NewlineArg { newline }: NewlineArg,
-    _vm: &VirtualMachine,
-) -> Vec<u8> {
+fn binascii_b2a_base64(data: PyBytesLike, NewlineArg { newline }: NewlineArg) -> Vec<u8> {
     let mut encoded = data.with_ref(base64::encode).into_bytes();
     if newline {
         encoded.push(b'\n');

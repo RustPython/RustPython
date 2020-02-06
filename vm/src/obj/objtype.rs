@@ -80,7 +80,7 @@ impl PyClassRef {
     }
 
     #[pyproperty(name = "__mro__")]
-    fn get_mro(self, _vm: &VirtualMachine) -> PyTuple {
+    fn get_mro(self) -> PyTuple {
         let elements: Vec<PyObjectRef> =
             _mro(&self).iter().map(|x| x.as_object().clone()).collect();
         PyTuple::from(elements)
@@ -103,22 +103,22 @@ impl PyClassRef {
     }
 
     #[pymethod(magic)]
-    fn instancecheck(self, obj: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    fn instancecheck(self, obj: PyObjectRef) -> bool {
         isinstance(&obj, &self)
     }
 
     #[pymethod(magic)]
-    fn subclasscheck(self, subclass: PyClassRef, _vm: &VirtualMachine) -> bool {
+    fn subclasscheck(self, subclass: PyClassRef) -> bool {
         issubclass(&subclass, &self)
     }
 
     #[pyproperty(magic)]
-    fn name(self, _vm: &VirtualMachine) -> String {
+    fn name(self) -> String {
         self.name.clone()
     }
 
     #[pymethod(magic)]
-    fn repr(self, _vm: &VirtualMachine) -> String {
+    fn repr(self) -> String {
         format!("<class '{}'>", self.name)
     }
 
@@ -239,7 +239,7 @@ impl PyClassRef {
     }
 
     #[pymethod(magic)]
-    fn subclasses(self, _vm: &VirtualMachine) -> PyList {
+    fn subclasses(self) -> PyList {
         let mut subclasses = self.subclasses.borrow_mut();
         subclasses.retain(|x| x.upgrade().is_some());
         PyList::from(

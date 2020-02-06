@@ -21,10 +21,10 @@ fn ellipsis_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-fn ellipsis_repr(_self: PyEllipsisRef, _vm: &VirtualMachine) -> String {
+fn ellipsis_repr(_self: PyEllipsisRef) -> String {
     "Ellipsis".to_owned()
 }
 
-fn ellipsis_reduce(_self: PyEllipsisRef, _vm: &VirtualMachine) -> String {
+fn ellipsis_reduce(_self: PyEllipsisRef) -> String {
     "Ellipsis".to_owned()
 }

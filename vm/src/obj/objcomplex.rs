@@ -57,17 +57,17 @@ fn try_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Comp
 #[pyimpl(flags(BASETYPE))]
 impl PyComplex {
     #[pyproperty(name = "real")]
-    fn real(&self, _vm: &VirtualMachine) -> f64 {
+    fn real(&self) -> f64 {
         self.value.re
     }
 
     #[pyproperty(name = "imag")]
-    fn imag(&self, _vm: &VirtualMachine) -> f64 {
+    fn imag(&self) -> f64 {
         self.value.im
     }
 
     #[pymethod(name = "__abs__")]
-    fn abs(&self, _vm: &VirtualMachine) -> f64 {
+    fn abs(&self) -> f64 {
         let Complex64 { im, re } = self.value;
         re.hypot(im)
     }
@@ -104,7 +104,7 @@ impl PyComplex {
     }
 
     #[pymethod(name = "conjugate")]
-    fn conjugate(&self, _vm: &VirtualMachine) -> Complex64 {
+    fn conjugate(&self) -> Complex64 {
         self.value.conj()
     }
 
@@ -184,12 +184,12 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__neg__")]
-    fn neg(&self, _vm: &VirtualMachine) -> Complex64 {
+    fn neg(&self) -> Complex64 {
         -self.value
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> String {
+    fn repr(&self) -> String {
         let Complex64 { re, im } = self.value;
         if re == 0.0 {
             format!("{}j", im)
@@ -209,7 +209,7 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__bool__")]
-    fn bool(&self, _vm: &VirtualMachine) -> bool {
+    fn bool(&self) -> bool {
         !Complex64::is_zero(&self.value)
     }
 
@@ -235,7 +235,7 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+    fn hash(&self) -> pyhash::PyHash {
         let re_hash = pyhash::hash_float(self.value.re);
         let im_hash = pyhash::hash_float(self.value.im);
         let ret = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(pyhash::IMAG);

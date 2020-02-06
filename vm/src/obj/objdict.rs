@@ -121,7 +121,7 @@ impl PyDictRef {
     }
 
     #[pymethod(magic)]
-    fn bool(self, _vm: &VirtualMachine) -> bool {
+    fn bool(self) -> bool {
         !self.entries.borrow().is_empty()
     }
 
@@ -168,12 +168,12 @@ impl PyDictRef {
     }
 
     #[pymethod(magic)]
-    fn len(self, _vm: &VirtualMachine) -> usize {
+    fn len(self) -> usize {
         self.entries.borrow().len()
     }
 
     #[pymethod(magic)]
-    fn sizeof(self, _vm: &VirtualMachine) -> usize {
+    fn sizeof(self) -> usize {
         size_of::<Self>() + self.entries.borrow().sizeof()
     }
 
@@ -205,27 +205,27 @@ impl PyDictRef {
     }
 
     #[pymethod]
-    fn clear(self, _vm: &VirtualMachine) {
+    fn clear(self) {
         self.entries.borrow_mut().clear()
     }
 
     #[pymethod(magic)]
-    fn iter(self, _vm: &VirtualMachine) -> PyDictKeyIterator {
+    fn iter(self) -> PyDictKeyIterator {
         PyDictKeyIterator::new(self)
     }
 
     #[pymethod]
-    fn keys(self, _vm: &VirtualMachine) -> PyDictKeys {
+    fn keys(self) -> PyDictKeys {
         PyDictKeys::new(self)
     }
 
     #[pymethod]
-    fn values(self, _vm: &VirtualMachine) -> PyDictValues {
+    fn values(self) -> PyDictValues {
         PyDictValues::new(self)
     }
 
     #[pymethod]
-    fn items(self, _vm: &VirtualMachine) -> PyDictItems {
+    fn items(self) -> PyDictItems {
         PyDictItems::new(self)
     }
 
@@ -305,7 +305,7 @@ impl PyDictRef {
     }
 
     #[pymethod]
-    pub fn copy(self, _vm: &VirtualMachine) -> PyDict {
+    pub fn copy(self) -> PyDict {
         PyDict {
             entries: self.entries.clone(),
         }
@@ -508,13 +508,13 @@ macro_rules! dict_iterator {
             }
 
             #[pymethod(name = "__iter__")]
-            fn iter(&self, _vm: &VirtualMachine) -> $iter_name {
+            fn iter(&self) -> $iter_name {
                 $iter_name::new(self.dict.clone())
             }
 
             #[pymethod(name = "__len__")]
-            fn len(&self, vm: &VirtualMachine) -> usize {
-                self.dict.clone().len(vm)
+            fn len(&self) -> usize {
+                self.dict.clone().len()
             }
 
             #[pymethod(name = "__repr__")]
@@ -579,12 +579,12 @@ macro_rules! dict_iterator {
             }
 
             #[pymethod(name = "__iter__")]
-            fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+            fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
                 zelf
             }
 
             #[pymethod(name = "__length_hint__")]
-            fn length_hint(&self, _vm: &VirtualMachine) -> usize {
+            fn length_hint(&self) -> usize {
                 self.dict
                     .entries
                     .borrow()

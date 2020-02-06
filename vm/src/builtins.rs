@@ -87,7 +87,7 @@ pub fn to_ascii(value: &str) -> String {
     ascii
 }
 
-fn builtin_bin(x: PyIntRef, _vm: &VirtualMachine) -> String {
+fn builtin_bin(x: PyIntRef) -> String {
     let x = x.as_bigint();
     if x.is_negative() {
         format!("-0b{:b}", x.abs())
@@ -343,7 +343,7 @@ fn builtin_hex(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-fn builtin_id(obj: PyObjectRef, _vm: &VirtualMachine) -> usize {
+fn builtin_id(obj: PyObjectRef) -> usize {
     obj.get_id()
 }
 
@@ -391,7 +391,7 @@ fn builtin_len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
 
 fn builtin_locals(vm: &VirtualMachine) -> PyDictRef {
     let locals = vm.get_locals();
-    locals.copy(vm).into_ref(vm)
+    locals.copy().into_ref(vm)
 }
 
 fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {

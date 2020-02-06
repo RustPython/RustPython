@@ -47,7 +47,7 @@ fn imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-fn imp_exec_builtin(_mod: PyModuleRef, _vm: &VirtualMachine) -> i32 {
+fn imp_exec_builtin(_mod: PyModuleRef) -> i32 {
     // TOOD: Should we do something here?
     0
 }
@@ -80,7 +80,7 @@ fn imp_is_frozen_package(name: PyStringRef, vm: &VirtualMachine) -> PyResult<boo
         })
 }
 
-fn imp_fix_co_filename(_code: PyObjectRef, _path: PyStringRef, _vm: &VirtualMachine) {
+fn imp_fix_co_filename(_code: PyObjectRef, _path: PyStringRef) {
     // TODO:
 }
 

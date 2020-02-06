@@ -231,12 +231,12 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn close(&self, _vm: &VirtualMachine) {
+    fn close(&self) {
         self.sock.replace(invalid_sock());
     }
 
     #[pymethod]
-    fn fileno(&self, _vm: &VirtualMachine) -> RawSocket {
+    fn fileno(&self) -> RawSocket {
         sock_fileno(&self.sock())
     }
 
@@ -361,15 +361,15 @@ impl PySocket {
     }
 
     #[pyproperty(name = "type")]
-    fn kind(&self, _vm: &VirtualMachine) -> i32 {
+    fn kind(&self) -> i32 {
         self.kind.get()
     }
     #[pyproperty]
-    fn family(&self, _vm: &VirtualMachine) -> i32 {
+    fn family(&self) -> i32 {
         self.family.get()
     }
     #[pyproperty]
-    fn proto(&self, _vm: &VirtualMachine) -> i32 {
+    fn proto(&self) -> i32 {
         self.proto.get()
     }
 }
@@ -443,14 +443,6 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     }
     let ip_num = BigEndian::read_u32(&packed_ip);
     Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
-}
-
-fn socket_hton<U: num_traits::int::PrimInt>(host: U, _vm: &VirtualMachine) -> U {
-    U::to_be(host)
-}
-
-fn socket_ntoh<U: num_traits::int::PrimInt>(network: U, _vm: &VirtualMachine) -> U {
-    U::from_be(network)
 }
 
 #[derive(FromArgs)]
@@ -618,10 +610,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "inet_aton" => ctx.new_function(socket_inet_aton),
         "inet_ntoa" => ctx.new_function(socket_inet_ntoa),
         "gethostname" => ctx.new_function(socket_gethostname),
-        "htonl" => ctx.new_function(socket_hton::<u32>),
-        "htons" => ctx.new_function(socket_hton::<u16>),
-        "ntohl" => ctx.new_function(socket_ntoh::<u32>),
-        "ntohs" => ctx.new_function(socket_ntoh::<u16>),
+        "htonl" => ctx.new_function(u32::to_be),
+        "htons" => ctx.new_function(u16::to_be),
+        "ntohl" => ctx.new_function(u32::from_be),
+        "ntohs" => ctx.new_function(u16::from_be),
         "getdefaulttimeout" => ctx.new_function(|vm: &VirtualMachine| vm.get_none()),
         "has_ipv6" => ctx.new_bool(false),
         // constants

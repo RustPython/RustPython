@@ -343,17 +343,17 @@ impl PySet {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self, _vm: &VirtualMachine) -> usize {
+    fn len(&self) -> usize {
         self.inner.borrow().len()
     }
 
     #[pymethod(name = "__sizeof__")]
-    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+    fn sizeof(&self) -> usize {
         std::mem::size_of::<Self>() + self.inner.borrow().sizeof()
     }
 
     #[pymethod]
-    fn copy(&self, _vm: &VirtualMachine) -> Self {
+    fn copy(&self) -> Self {
         Self {
             inner: RefCell::new(self.inner.borrow().copy()),
         }
@@ -513,7 +513,7 @@ impl PySet {
     }
 
     #[pymethod]
-    fn clear(&self, _vm: &VirtualMachine) {
+    fn clear(&self) {
         self.inner.borrow_mut().clear()
     }
 
@@ -599,17 +599,17 @@ impl PyFrozenSet {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self, _vm: &VirtualMachine) -> usize {
+    fn len(&self) -> usize {
         self.inner.len()
     }
 
     #[pymethod(name = "__sizeof__")]
-    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+    fn sizeof(&self) -> usize {
         std::mem::size_of::<Self>() + self.inner.sizeof()
     }
 
     #[pymethod]
-    fn copy(&self, _vm: &VirtualMachine) -> Self {
+    fn copy(&self) -> Self {
         Self {
             inner: self.inner.copy(),
         }

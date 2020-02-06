@@ -35,7 +35,7 @@ impl PyValue for PySuper {
 #[pyimpl]
 impl PySuper {
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> String {
+    fn repr(&self) -> String {
         let class_type_str = if let Ok(type_class) = self.typ.clone().downcast::<PyClass>() {
             type_class.name.clone()
         } else {

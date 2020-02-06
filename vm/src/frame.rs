@@ -337,7 +337,7 @@ impl Frame {
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
                 let item = self.pop_value();
-                objlist::PyListRef::try_from_object(vm, list_obj)?.append(item, vm);
+                objlist::PyListRef::try_from_object(vm, list_obj)?.append(item);
                 Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {

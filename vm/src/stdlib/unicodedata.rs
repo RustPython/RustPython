@@ -165,7 +165,7 @@ impl PyUCD {
     }
 
     #[pyproperty]
-    fn unidata_version(&self, _vm: &VirtualMachine) -> String {
+    fn unidata_version(&self) -> String {
         self.unic_version.to_string()
     }
 }

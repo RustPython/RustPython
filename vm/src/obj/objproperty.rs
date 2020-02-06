@@ -129,21 +129,21 @@ impl PyProperty {
     // Access functions
 
     #[pyproperty]
-    fn fget(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+    fn fget(&self) -> Option<PyObjectRef> {
         self.getter.clone()
     }
 
     #[pyproperty]
-    fn fset(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+    fn fset(&self) -> Option<PyObjectRef> {
         self.setter.clone()
     }
 
     #[pyproperty]
-    fn fdel(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+    fn fdel(&self) -> Option<PyObjectRef> {
         self.deleter.clone()
     }
 
-    fn doc_getter(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+    fn doc_getter(&self) -> Option<PyObjectRef> {
         self.doc.borrow().clone()
     }
 

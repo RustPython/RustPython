@@ -149,7 +149,7 @@ impl PyStringIORef {
         }
     }
 
-    fn seekable(self, _vm: &VirtualMachine) -> bool {
+    fn seekable(self) -> bool {
         true
     }
 
@@ -186,11 +186,11 @@ impl PyStringIORef {
         Ok(())
     }
 
-    fn closed(self, _vm: &VirtualMachine) -> bool {
+    fn closed(self) -> bool {
         self.buffer.borrow().is_none()
     }
 
-    fn close(self, _vm: &VirtualMachine) {
+    fn close(self) {
         self.buffer.replace(None);
     }
 }
@@ -271,7 +271,7 @@ impl PyBytesIORef {
         }
     }
 
-    fn seekable(self, _vm: &VirtualMachine) -> bool {
+    fn seekable(self) -> bool {
         true
     }
 
@@ -293,11 +293,11 @@ impl PyBytesIORef {
         Ok(())
     }
 
-    fn closed(self, _vm: &VirtualMachine) -> bool {
+    fn closed(self) -> bool {
         self.buffer.borrow().is_none()
     }
 
-    fn close(self, _vm: &VirtualMachine) {
+    fn close(self) {
         self.buffer.replace(None);
     }
 }
@@ -318,7 +318,7 @@ fn bytes_io_new(
     .into_ref_with_type(vm, cls)
 }
 
-fn io_base_cm_enter(instance: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
+fn io_base_cm_enter(instance: PyObjectRef) -> PyObjectRef {
     instance.clone()
 }
 
@@ -328,15 +328,15 @@ fn io_base_cm_exit(instance: PyObjectRef, _args: PyFuncArgs, vm: &VirtualMachine
 }
 
 // TODO Check if closed, then if so raise ValueError
-fn io_base_flush(_self: PyObjectRef, _vm: &VirtualMachine) {}
+fn io_base_flush(_self: PyObjectRef) {}
 
-fn io_base_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+fn io_base_seekable(_self: PyObjectRef) -> bool {
     false
 }
-fn io_base_readable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+fn io_base_readable(_self: PyObjectRef) -> bool {
     false
 }
-fn io_base_writable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+fn io_base_writable(_self: PyObjectRef) -> bool {
     false
 }
 
@@ -435,7 +435,7 @@ fn io_base_checkseekable(
     }
 }
 
-fn io_base_iter(instance: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
+fn io_base_iter(instance: PyObjectRef) -> PyObjectRef {
     instance
 }
 fn io_base_next(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -505,7 +505,7 @@ fn buffered_reader_read(
     )
 }
 
-fn buffered_reader_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+fn buffered_reader_seekable(_self: PyObjectRef) -> bool {
     true
 }
 
@@ -680,7 +680,7 @@ mod fileio {
         Ok(())
     }
 
-    fn file_io_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    fn file_io_seekable(_self: PyObjectRef) -> bool {
         true
     }
 
@@ -709,7 +709,7 @@ fn buffered_writer_write(instance: PyObjectRef, obj: PyObjectRef, vm: &VirtualMa
     vm.call_method(&raw, "write", vec![obj.clone()])
 }
 
-fn buffered_writer_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+fn buffered_writer_seekable(_self: PyObjectRef) -> bool {
     true
 }
 
@@ -722,7 +722,7 @@ fn text_io_wrapper_init(
     Ok(())
 }
 
-fn text_io_wrapper_seekable(_self: PyObjectRef, _vm: &VirtualMachine) -> bool {
+fn text_io_wrapper_seekable(_self: PyObjectRef) -> bool {
     true
 }
 

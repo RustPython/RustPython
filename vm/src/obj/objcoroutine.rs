@@ -105,7 +105,7 @@ impl PyCoroutine {
     }
 
     #[pymethod(name = "__await__")]
-    fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyCoroutineWrapper {
+    fn r#await(zelf: PyRef<Self>) -> PyCoroutineWrapper {
         PyCoroutineWrapper { coro: zelf }
     }
 }
@@ -125,7 +125,7 @@ impl PyValue for PyCoroutineWrapper {
 #[pyimpl]
 impl PyCoroutineWrapper {
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 

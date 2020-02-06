@@ -14,31 +14,31 @@ impl PyValue for Passwd {
 type PasswdRef = PyRef<Passwd>;
 
 impl PasswdRef {
-    fn pw_name(self, _vm: &VirtualMachine) -> String {
+    fn pw_name(self) -> String {
         self.name.clone()
     }
 
-    fn pw_passwd(self, _vm: &VirtualMachine) -> Option<String> {
+    fn pw_passwd(self) -> Option<String> {
         self.passwd.clone()
     }
 
-    fn pw_uid(self, _vm: &VirtualMachine) -> u32 {
+    fn pw_uid(self) -> u32 {
         self.uid
     }
 
-    fn pw_gid(self, _vm: &VirtualMachine) -> u32 {
+    fn pw_gid(self) -> u32 {
         self.gid
     }
 
-    fn pw_gecos(self, _vm: &VirtualMachine) -> Option<String> {
+    fn pw_gecos(self) -> Option<String> {
         self.gecos.clone()
     }
 
-    fn pw_dir(self, _vm: &VirtualMachine) -> String {
+    fn pw_dir(self) -> String {
         self.dir.clone()
     }
 
-    fn pw_shell(self, _vm: &VirtualMachine) -> String {
+    fn pw_shell(self) -> String {
         self.shell.clone()
     }
 }

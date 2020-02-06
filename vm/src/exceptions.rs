@@ -67,8 +67,8 @@ impl PyBaseException {
         Ok(())
     }
 
-    #[pyproperty(name = "args")]
-    fn get_args(&self, _vm: &VirtualMachine) -> PyTupleRef {
+    #[pyproperty]
+    pub fn args(&self) -> PyTupleRef {
         self.args.borrow().clone()
     }
 
@@ -80,7 +80,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__traceback__")]
-    fn get_traceback(&self) -> Option<PyTracebackRef> {
+    pub fn traceback(&self) -> Option<PyTracebackRef> {
         self.traceback.borrow().clone()
     }
 
@@ -90,51 +90,37 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__cause__")]
-    fn get_cause(&self, _vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
+    pub fn cause(&self) -> Option<PyBaseExceptionRef> {
         self.cause.borrow().clone()
     }
 
     #[pyproperty(name = "__cause__", setter)]
-    fn setter_cause(
-        &self,
-        cause: Option<PyBaseExceptionRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    pub fn set_cause(&self, cause: Option<PyBaseExceptionRef>) {
         self.cause.replace(cause);
-        Ok(())
     }
 
     #[pyproperty(name = "__context__")]
-    fn get_context(&self, _vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
+    pub fn context(&self) -> Option<PyBaseExceptionRef> {
         self.context.borrow().clone()
     }
 
     #[pyproperty(name = "__context__", setter)]
-    fn setter_context(
-        &self,
-        context: Option<PyBaseExceptionRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    pub fn set_context(&self, context: Option<PyBaseExceptionRef>) {
         self.context.replace(context);
-        Ok(())
     }
 
     #[pyproperty(name = "__suppress_context__")]
-    fn get_suppress_context(&self, _vm: &VirtualMachine) -> bool {
+    fn get_suppress_context(&self) -> bool {
         self.suppress_context.get()
     }
 
     #[pyproperty(name = "__suppress_context__", setter)]
-    fn set_suppress_context(&self, suppress_context: bool, _vm: &VirtualMachine) {
+    fn set_suppress_context(&self, suppress_context: bool) {
         self.suppress_context.set(suppress_context);
     }
 
     #[pymethod]
-    fn with_traceback(
-        zelf: PyRef<Self>,
-        tb: Option<PyTracebackRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult {
+    fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
         zelf.traceback.replace(tb);
         Ok(zelf.as_object().clone())
     }
@@ -157,28 +143,6 @@ impl PyBaseException {
             Ok(one) => format!("{}({},)", cls.name, one),
             Err(i) => format!("{}({})", cls.name, i.format(", ")),
         }
-    }
-
-    pub fn args(&self) -> PyTupleRef {
-        self.args.borrow().clone()
-    }
-
-    pub fn traceback(&self) -> Option<PyTracebackRef> {
-        self.traceback.borrow().clone()
-    }
-
-    pub fn cause(&self) -> Option<PyBaseExceptionRef> {
-        self.cause.borrow().clone()
-    }
-    pub fn set_cause(&self, cause: Option<PyBaseExceptionRef>) {
-        self.cause.replace(cause);
-    }
-
-    pub fn context(&self) -> Option<PyBaseExceptionRef> {
-        self.context.borrow().clone()
-    }
-    pub fn set_context(&self, context: Option<PyBaseExceptionRef>) {
-        self.context.replace(context);
     }
 }
 

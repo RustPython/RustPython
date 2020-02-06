@@ -127,7 +127,7 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__bool__")]
-    fn bool(&self, _vm: &VirtualMachine) -> bool {
+    fn bool(&self) -> bool {
         !self.elements.is_empty()
     }
 
@@ -158,7 +158,7 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyTupleIterator {
+    fn iter(zelf: PyRef<Self>) -> PyTupleIterator {
         PyTupleIterator {
             position: Cell::new(0),
             tuple: zelf,
@@ -166,7 +166,7 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self, _vm: &VirtualMachine) -> usize {
+    fn len(&self) -> usize {
         self.elements.len()
     }
 
@@ -191,16 +191,12 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__mul__")]
-    fn mul(&self, counter: isize, _vm: &VirtualMachine) -> PyTuple {
+    #[pymethod(name = "__rmul__")]
+    fn mul(&self, counter: isize) -> PyTuple {
         let new_elements: Vec<_> = sequence::seq_mul(&self.elements, counter)
             .cloned()
             .collect();
         new_elements.into()
-    }
-
-    #[pymethod(name = "__rmul__")]
-    fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyTuple {
-        self.mul(counter, vm)
     }
 
     #[pymethod(name = "__getitem__")]
@@ -271,7 +267,7 @@ impl PyTupleIterator {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }

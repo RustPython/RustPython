@@ -118,7 +118,7 @@ pub fn get_py_int(obj: &PyObjectRef) -> &PyInt {
     &obj.payload::<PyInt>().unwrap()
 }
 
-fn bool_repr(obj: bool, _vm: &VirtualMachine) -> String {
+fn bool_repr(obj: bool) -> String {
     if obj {
         "True".to_owned()
     } else {
