@@ -79,7 +79,7 @@ impl PyDictRef {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
                 loop {
                     fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-                        vm.new_type_error("Iterator must have exactly two elements".to_string())
+                        vm.new_type_error("Iterator must have exactly two elements".to_owned())
                     }
                     let element = match objiter::get_next_object(vm, &iter)? {
                         Some(obj) => obj,
@@ -121,7 +121,7 @@ impl PyDictRef {
     }
 
     #[pymethod(magic)]
-    fn bool(self, _vm: &VirtualMachine) -> bool {
+    fn bool(self) -> bool {
         !self.entries.borrow().is_empty()
     }
 
@@ -168,12 +168,12 @@ impl PyDictRef {
     }
 
     #[pymethod(magic)]
-    fn len(self, _vm: &VirtualMachine) -> usize {
+    fn len(self) -> usize {
         self.entries.borrow().len()
     }
 
     #[pymethod(magic)]
-    fn sizeof(self, _vm: &VirtualMachine) -> usize {
+    fn sizeof(self) -> usize {
         size_of::<Self>() + self.entries.borrow().sizeof()
     }
 
@@ -189,7 +189,7 @@ impl PyDictRef {
 
             format!("{{{}}}", str_parts.join(", "))
         } else {
-            "{...}".to_string()
+            "{...}".to_owned()
         };
         Ok(s)
     }
@@ -205,27 +205,27 @@ impl PyDictRef {
     }
 
     #[pymethod]
-    fn clear(self, _vm: &VirtualMachine) {
+    fn clear(self) {
         self.entries.borrow_mut().clear()
     }
 
     #[pymethod(magic)]
-    fn iter(self, _vm: &VirtualMachine) -> PyDictKeyIterator {
+    fn iter(self) -> PyDictKeyIterator {
         PyDictKeyIterator::new(self)
     }
 
     #[pymethod]
-    fn keys(self, _vm: &VirtualMachine) -> PyDictKeys {
+    fn keys(self) -> PyDictKeys {
         PyDictKeys::new(self)
     }
 
     #[pymethod]
-    fn values(self, _vm: &VirtualMachine) -> PyDictValues {
+    fn values(self) -> PyDictValues {
         PyDictValues::new(self)
     }
 
     #[pymethod]
-    fn items(self, _vm: &VirtualMachine) -> PyDictItems {
+    fn items(self) -> PyDictItems {
         PyDictItems::new(self)
     }
 
@@ -305,7 +305,7 @@ impl PyDictRef {
     }
 
     #[pymethod]
-    pub fn copy(self, _vm: &VirtualMachine) -> PyDict {
+    pub fn copy(self) -> PyDict {
         PyDict {
             entries: self.entries.clone(),
         }
@@ -343,7 +343,7 @@ impl PyDictRef {
         if let Some((key, value)) = entries.pop_front() {
             Ok(vm.ctx.new_tuple(vec![key, value]))
         } else {
-            let err_msg = vm.new_str("popitem(): dictionary is empty".to_string());
+            let err_msg = vm.new_str("popitem(): dictionary is empty".to_owned());
             Err(vm.new_key_error(err_msg))
         }
     }
@@ -371,7 +371,7 @@ impl PyDictRef {
 
     #[pymethod(magic)]
     fn hash(self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type".to_string()))
+        Err(vm.new_type_error("unhashable type".to_owned()))
     }
 
     pub fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool {
@@ -508,13 +508,13 @@ macro_rules! dict_iterator {
             }
 
             #[pymethod(name = "__iter__")]
-            fn iter(&self, _vm: &VirtualMachine) -> $iter_name {
+            fn iter(&self) -> $iter_name {
                 $iter_name::new(self.dict.clone())
             }
 
             #[pymethod(name = "__len__")]
-            fn len(&self, vm: &VirtualMachine) -> usize {
-                self.dict.clone().len(vm)
+            fn len(&self) -> usize {
+                self.dict.clone().len()
             }
 
             #[pymethod(name = "__repr__")]
@@ -524,11 +524,11 @@ macro_rules! dict_iterator {
                     let mut str_parts = vec![];
                     for (key, value) in zelf.dict.clone() {
                         let s = vm.to_repr(&$result_fn(vm, &key, &value))?;
-                        str_parts.push(s.as_str().to_string());
+                        str_parts.push(s.as_str().to_owned());
                     }
                     format!("{}([{}])", $class_name, str_parts.join(", "))
                 } else {
-                    "{...}".to_string()
+                    "{...}".to_owned()
                 };
                 Ok(s)
             }
@@ -566,7 +566,7 @@ macro_rules! dict_iterator {
                 if dict.has_changed_size(&self.size) {
                     return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.runtime_error.clone(),
-                        "dictionary changed size during iteration".to_string(),
+                        "dictionary changed size during iteration".to_owned(),
                     ));
                 }
                 match dict.next_entry(&mut position) {
@@ -579,12 +579,12 @@ macro_rules! dict_iterator {
             }
 
             #[pymethod(name = "__iter__")]
-            fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+            fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
                 zelf
             }
 
             #[pymethod(name = "__length_hint__")]
-            fn length_hint(&self, _vm: &VirtualMachine) -> usize {
+            fn length_hint(&self) -> usize {
                 self.dict
                     .entries
                     .borrow()

@@ -217,12 +217,12 @@ impl PyArray {
     }
 
     #[pyproperty]
-    fn typecode(&self, _vm: &VirtualMachine) -> String {
+    fn typecode(&self) -> String {
         self.array.borrow().typecode().to_string()
     }
 
     #[pyproperty]
-    fn itemsize(&self, _vm: &VirtualMachine) -> usize {
+    fn itemsize(&self) -> usize {
         self.array.borrow().itemsize()
     }
 
@@ -232,7 +232,7 @@ impl PyArray {
     }
 
     #[pymethod]
-    fn buffer_info(&self, _vm: &VirtualMachine) -> (usize, usize) {
+    fn buffer_info(&self) -> (usize, usize) {
         let array = self.array.borrow();
         (array.addr(), array.len())
     }
@@ -301,7 +301,7 @@ impl PyArray {
     }
 
     #[pymethod]
-    fn tobytes(&self, _vm: &VirtualMachine) -> Vec<u8> {
+    fn tobytes(&self) -> Vec<u8> {
         self.array.borrow().tobytes()
     }
 
@@ -316,7 +316,7 @@ impl PyArray {
     }
 
     #[pymethod]
-    fn reverse(&self, _vm: &VirtualMachine) {
+    fn reverse(&self) {
         self.array.borrow_mut().reverse()
     }
 
@@ -349,12 +349,12 @@ impl PyArray {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self, _vm: &VirtualMachine) -> usize {
+    fn len(&self) -> usize {
         self.array.borrow().len()
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyArrayIter {
+    fn iter(zelf: PyRef<Self>) -> PyArrayIter {
         PyArrayIter {
             position: Cell::new(0),
             array: zelf,
@@ -394,7 +394,7 @@ impl PyArrayIter {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }

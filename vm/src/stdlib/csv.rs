@@ -35,7 +35,7 @@ impl ReaderOption {
                 1 => bytes[0],
                 _ => {
                     let msg = r#""delimiter" must be a 1-character string"#;
-                    return Err(vm.new_type_error(msg.to_string()));
+                    return Err(vm.new_type_error(msg.to_owned()));
                 }
             }
         } else {
@@ -48,7 +48,7 @@ impl ReaderOption {
                 1 => bytes[0],
                 _ => {
                     let msg = r#""quotechar" must be a 1-character string"#;
-                    return Err(vm.new_type_error(msg.to_string()));
+                    return Err(vm.new_type_error(msg.to_owned()));
                 }
             }
         } else {
@@ -190,7 +190,7 @@ fn csv_reader(fp: PyObjectRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResul
     if let Ok(iterable) = PyIterable::<PyObjectRef>::try_from_object(vm, fp) {
         build_reader(iterable, args, vm)
     } else {
-        Err(vm.new_type_error("argument 1 must be an iterator".to_string()))
+        Err(vm.new_type_error("argument 1 must be an iterator".to_owned()))
     }
 }
 

@@ -16,31 +16,31 @@ pub fn init(context: &PyContext) {
 impl FrameRef {
     #[pyslot]
     fn tp_new(_cls: FrameRef, vm: &VirtualMachine) -> PyResult<Self> {
-        Err(vm.new_type_error("Cannot directly create frame object".to_string()))
+        Err(vm.new_type_error("Cannot directly create frame object".to_owned()))
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(self, _vm: &VirtualMachine) -> String {
-        "<frame object at .. >".to_string()
+    fn repr(self) -> String {
+        "<frame object at .. >".to_owned()
     }
 
     #[pymethod]
-    fn clear(self, _vm: &VirtualMachine) {
+    fn clear(self) {
         // TODO
     }
 
     #[pyproperty]
-    fn f_globals(self, _vm: &VirtualMachine) -> PyDictRef {
+    fn f_globals(self) -> PyDictRef {
         self.scope.globals.clone()
     }
 
     #[pyproperty]
-    fn f_locals(self, _vm: &VirtualMachine) -> PyDictRef {
+    fn f_locals(self) -> PyDictRef {
         self.scope.get_locals()
     }
 
     #[pyproperty]
-    fn f_code(self, _vm: &VirtualMachine) -> PyCodeRef {
+    fn f_code(self) -> PyCodeRef {
         self.code.clone()
     }
 

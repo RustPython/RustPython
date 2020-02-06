@@ -21,7 +21,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let keyword_kwlist = ctx.new_list(
         lexer::get_keywords()
             .keys()
-            .map(|k| ctx.new_str(k.to_string()))
+            .map(|k| ctx.new_str(k.to_owned()))
             .collect(),
     );
 

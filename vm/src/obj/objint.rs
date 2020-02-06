@@ -94,7 +94,7 @@ macro_rules! impl_try_from_object_int {
                         vm.new_overflow_error(concat!(
                             "Int value cannot fit into Rust ",
                             stringify!($t)
-                        ).to_string())
+                        ).to_owned())
                     ),
                 }
             }
@@ -144,7 +144,7 @@ fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
 fn inner_mod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_zero() {
-        Err(vm.new_zero_division_error("integer modulo by zero".to_string()))
+        Err(vm.new_zero_division_error("integer modulo by zero".to_owned()))
     } else {
         Ok(vm.ctx.new_int(int1.mod_floor(int2)))
     }
@@ -152,7 +152,7 @@ fn inner_mod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
 fn inner_floordiv(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_zero() {
-        Err(vm.new_zero_division_error("integer division by zero".to_string()))
+        Err(vm.new_zero_division_error("integer division by zero".to_owned()))
     } else {
         Ok(vm.ctx.new_int(int1.div_floor(&int2)))
     }
@@ -160,7 +160,7 @@ fn inner_floordiv(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult
 
 fn inner_divmod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_zero() {
-        Err(vm.new_zero_division_error("integer division or modulo by zero".to_string()))
+        Err(vm.new_zero_division_error("integer division or modulo by zero".to_owned()))
     } else {
         let (div, modulo) = int1.div_mod_floor(int2);
         Ok(vm
@@ -182,7 +182,7 @@ fn inner_rshift(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
 #[inline]
 fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if i2.is_zero() {
-        return Err(vm.new_zero_division_error("integer division by zero".to_string()));
+        return Err(vm.new_zero_division_error("integer division by zero".to_owned()));
     }
 
     if let (Some(f1), Some(f2)) = (i1.to_f64(), i2.to_f64()) {
@@ -206,7 +206,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
             Ok(vm.ctx.new_float(quotient + rem_part))
         } else {
-            Err(vm.new_overflow_error("int too large to convert to float".to_string()))
+            Err(vm.new_overflow_error("int too large to convert to float".to_owned()))
         }
     }
 }
@@ -413,17 +413,17 @@ impl PyInt {
     }
 
     #[pymethod(name = "__neg__")]
-    fn neg(&self, _vm: &VirtualMachine) -> BigInt {
+    fn neg(&self) -> BigInt {
         -(&self.value)
     }
 
     #[pymethod(name = "__hash__")]
-    pub fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+    pub fn hash(&self) -> pyhash::PyHash {
         pyhash::hash_bigint(&self.value)
     }
 
     #[pymethod(name = "__abs__")]
-    fn abs(&self, _vm: &VirtualMachine) -> BigInt {
+    fn abs(&self) -> BigInt {
         self.value.abs()
     }
 
@@ -457,12 +457,12 @@ impl PyInt {
     }
 
     #[pymethod(name = "__int__")]
-    fn int(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn int(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
     #[pymethod(name = "__pos__")]
-    fn pos(&self, _vm: &VirtualMachine) -> BigInt {
+    fn pos(&self) -> BigInt {
         self.value.clone()
     }
 
@@ -472,32 +472,32 @@ impl PyInt {
     }
 
     #[pymethod(name = "__trunc__")]
-    fn trunc(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn trunc(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
     #[pymethod(name = "__floor__")]
-    fn floor(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn floor(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
     #[pymethod(name = "__ceil__")]
-    fn ceil(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn ceil(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
     #[pymethod(name = "__index__")]
-    fn index(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn index(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
     #[pymethod(name = "__invert__")]
-    fn invert(&self, _vm: &VirtualMachine) -> BigInt {
+    fn invert(&self) -> BigInt {
         !(&self.value)
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> String {
+    fn repr(&self) -> String {
         self.value.to_string()
     }
 
@@ -512,22 +512,22 @@ impl PyInt {
     }
 
     #[pymethod(name = "__bool__")]
-    fn bool(&self, _vm: &VirtualMachine) -> bool {
+    fn bool(&self) -> bool {
         !self.value.is_zero()
     }
 
     #[pymethod(name = "__sizeof__")]
-    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+    fn sizeof(&self) -> usize {
         size_of::<Self>() + ((self.value.bits() + 7) & !7) / 8
     }
 
     #[pymethod]
-    fn bit_length(&self, _vm: &VirtualMachine) -> usize {
+    fn bit_length(&self) -> usize {
         self.value.bits()
     }
 
     #[pymethod]
-    fn conjugate(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn conjugate(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
@@ -555,7 +555,7 @@ impl PyInt {
             },
             _ => {
                 return Err(
-                    vm.new_value_error("byteorder must be either 'little' or 'big'".to_string())
+                    vm.new_value_error("byteorder must be either 'little' or 'big'".to_owned())
                 )
             }
         };
@@ -573,14 +573,14 @@ impl PyInt {
 
         let value = self.as_bigint();
         if value.sign() == Sign::Minus && !signed {
-            return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_string()));
+            return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_owned()));
         }
 
         let byte_len = if let Some(byte_len) = args.length.as_bigint().to_usize() {
             byte_len
         } else {
             return Err(
-                vm.new_overflow_error("Python int too large to convert to C ssize_t".to_string())
+                vm.new_overflow_error("Python int too large to convert to C ssize_t".to_owned())
             );
         };
 
@@ -595,14 +595,14 @@ impl PyInt {
             },
             _ => {
                 return Err(
-                    vm.new_value_error("byteorder must be either 'little' or 'big'".to_string())
+                    vm.new_value_error("byteorder must be either 'little' or 'big'".to_owned())
                 );
             }
         };
 
         let origin_len = origin_bytes.len();
         if origin_len > byte_len {
-            return Err(vm.new_overflow_error("int too big to convert".to_string()));
+            return Err(vm.new_overflow_error("int too big to convert".to_owned()));
         }
 
         let mut append_bytes = match value.sign() {
@@ -626,21 +626,22 @@ impl PyInt {
     }
     #[pyproperty]
     fn real(&self, vm: &VirtualMachine) -> PyObjectRef {
+        // subclasses must return int here
         vm.ctx.new_bigint(&self.value)
     }
 
     #[pyproperty]
-    fn imag(&self, _vm: &VirtualMachine) -> usize {
+    fn imag(&self) -> usize {
         0
     }
 
     #[pyproperty]
-    fn numerator(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+    fn numerator(zelf: PyRef<Self>) -> PyIntRef {
         zelf
     }
 
     #[pyproperty]
-    fn denominator(&self, _vm: &VirtualMachine) -> usize {
+    fn denominator(&self) -> usize {
         1
     }
 }
@@ -661,7 +662,7 @@ impl IntOptions {
                     || objtype::isinstance(&val, &vm.ctx.bytes_type()))
                 {
                     return Err(vm.new_type_error(
-                        "int() can't convert non-string with explicit base".to_string(),
+                        "int() can't convert non-string with explicit base".to_owned(),
                     ));
                 }
                 base
@@ -670,7 +671,7 @@ impl IntOptions {
             };
             to_int(vm, &val, base.as_bigint())
         } else if let OptionalArg::Present(_) = self.base {
-            Err(vm.new_type_error("int() missing string argument".to_string()))
+            Err(vm.new_type_error("int() missing string argument".to_owned()))
         } else {
             Ok(Zero::zero())
         }
@@ -702,11 +703,11 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult
     let base_u32 = match base.to_u32() {
         Some(base_u32) => base_u32,
         None => {
-            return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()))
+            return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned()))
         }
     };
     if base_u32 != 0 && (base_u32 < 2 || base_u32 > 36) {
-        return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_string()));
+        return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned()));
     }
 
     match_class!(match obj.clone() {
@@ -834,7 +835,7 @@ pub fn get_value(obj: &PyObjectRef) -> &BigInt {
 
 pub fn try_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
     int.to_f64()
-        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))
+        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_owned()))
 }
 
 fn get_shift_amount(amount: &BigInt, vm: &VirtualMachine) -> PyResult<usize> {
@@ -842,9 +843,9 @@ fn get_shift_amount(amount: &BigInt, vm: &VirtualMachine) -> PyResult<usize> {
         Ok(n_bits)
     } else {
         match amount {
-            v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
+            v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_owned())),
             v if *v > BigInt::from(usize::max_value()) => {
-                Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
+                Err(vm.new_overflow_error("the number is too large to convert to int".to_owned()))
             }
             _ => panic!("Failed converting {} to rust usize", amount),
         }

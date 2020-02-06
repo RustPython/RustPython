@@ -56,7 +56,7 @@ impl TryFromObject for Selectable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let fno = RawFd::try_from_object(vm, obj.clone()).or_else(|_| {
             let meth = vm.get_method_or_type_error(obj.clone(), "fileno", || {
-                "select arg must be an int or object with a fileno() method".to_string()
+                "select arg must be an int or object with a fileno() method".to_owned()
             })?;
             RawFd::try_from_object(vm, vm.invoke(&meth, vec![])?)
         })?;
@@ -119,7 +119,7 @@ fn select_select(
     });
     if let Some(timeout) = timeout {
         if timeout < 0.0 {
-            return Err(vm.new_value_error("timeout must be positive".to_string()));
+            return Err(vm.new_value_error("timeout must be positive".to_owned()));
         }
     }
     let deadline = timeout.map(|s| super::time_module::get_time() + s);

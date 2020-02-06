@@ -1,5 +1,5 @@
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
-use crate::pyobject::{IdProtocol, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
 
 bitflags! {
@@ -28,7 +28,7 @@ pub struct PyClassSlots {
     pub flags: PyTpFlags,
     pub new: Option<PyNativeFunc>,
     pub call: Option<PyNativeFunc>,
-    pub descr_get: Option<PyNativeFunc>,
+    pub descr_get: Option<PyDescrGetFunc>,
 }
 
 impl std::fmt::Debug for PyClassSlots {
@@ -38,22 +38,73 @@ impl std::fmt::Debug for PyClassSlots {
 }
 
 #[pyimpl]
-pub trait PyBuiltinCallable: PyValue {
+pub trait SlotCall: PyValue {
     #[pymethod(magic)]
     #[pyslot]
     fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult;
 }
 
+pub type PyDescrGetFunc = Box<
+    dyn Fn(&VirtualMachine, PyObjectRef, Option<PyObjectRef>, OptionalArg<PyObjectRef>) -> PyResult,
+>;
+
 #[pyimpl]
-pub trait PyBuiltinDescriptor: PyValue {
+pub trait SlotDescriptor: PyValue {
+    #[pyslot]
+    fn descr_get(
+        vm: &VirtualMachine,
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        cls: OptionalArg<PyObjectRef>,
+    ) -> PyResult;
+
     #[pymethod(magic)]
-    #[pyslot(descr_get)]
     fn get(
-        zelf: PyRef<Self>,
+        zelf: PyObjectRef,
         obj: PyObjectRef,
         cls: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult;
+    ) -> PyResult {
+        Self::descr_get(vm, zelf, Some(obj), cls)
+    }
+
+    fn _zelf(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        PyRef::<Self>::try_from_object(vm, zelf)
+    }
+
+    fn _unwrap(
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyRef<Self>, PyObjectRef)> {
+        let zelf = Self::_zelf(zelf, vm)?;
+        let obj = obj.unwrap_or_else(|| vm.get_none());
+        Ok((zelf, obj))
+    }
+
+    fn _check(
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Result<(PyRef<Self>, PyObjectRef), PyResult> {
+        // CPython descr_check
+        if let Some(obj) = obj {
+            // if (!PyObject_TypeCheck(obj, descr->d_type)) {
+            //     PyErr_Format(PyExc_TypeError,
+            //                  "descriptor '%V' for '%.100s' objects "
+            //                  "doesn't apply to a '%.100s' object",
+            //                  descr_name((PyDescrObject *)descr), "?",
+            //                  descr->d_type->tp_name,
+            //                  obj->ob_type->tp_name);
+            //     *pres = NULL;
+            //     return 1;
+            // } else {
+            Ok((Self::_zelf(zelf, vm).unwrap(), obj))
+        // }
+        } else {
+            Err(Ok(zelf))
+        }
+    }
 
     fn _cls_is<T>(cls: &OptionalArg<PyObjectRef>, other: &T) -> bool
     where

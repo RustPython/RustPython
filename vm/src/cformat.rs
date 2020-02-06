@@ -236,10 +236,10 @@ impl CFormatSpec {
                 format!("{:.*}", precision, magnitude)
             }
             CFormatType::Float(CFloatType::Exponent(_)) => {
-                return Err("Not yet implemented for %e and %E".to_string())
+                return Err("Not yet implemented for %e and %E".to_owned())
             }
             CFormatType::Float(CFloatType::General(_)) => {
-                return Err("Not yet implemented for %g and %G".to_string())
+                return Err("Not yet implemented for %g and %G".to_owned())
             }
             _ => unreachable!(),
         };
@@ -623,36 +623,36 @@ mod tests {
             "%10s"
                 .parse::<CFormatSpec>()
                 .unwrap()
-                .format_string("test".to_string()),
-            "      test".to_string()
+                .format_string("test".to_owned()),
+            "      test".to_owned()
         );
         assert_eq!(
             "%-10s"
                 .parse::<CFormatSpec>()
                 .unwrap()
-                .format_string("test".to_string()),
-            "test      ".to_string()
+                .format_string("test".to_owned()),
+            "test      ".to_owned()
         );
         assert_eq!(
             "%#10x"
                 .parse::<CFormatSpec>()
                 .unwrap()
                 .format_number(&BigInt::from(0x1337)),
-            "    0x1337".to_string()
+            "    0x1337".to_owned()
         );
         assert_eq!(
             "%-#10x"
                 .parse::<CFormatSpec>()
                 .unwrap()
                 .format_number(&BigInt::from(0x1337)),
-            "0x1337    ".to_string()
+            "0x1337    ".to_owned()
         );
     }
 
     #[test]
     fn test_parse_key() {
         let expected = Ok(CFormatSpec {
-            mapping_key: Some("amount".to_string()),
+            mapping_key: Some("amount".to_owned()),
             format_type: CFormatType::Number(CNumberType::Decimal),
             format_char: 'd',
             chars_consumed: 10,
@@ -663,7 +663,7 @@ mod tests {
         assert_eq!("%(amount)d".parse::<CFormatSpec>(), expected);
 
         let expected = Ok(CFormatSpec {
-            mapping_key: Some("m((u(((l((((ti))))p)))l))e".to_string()),
+            mapping_key: Some("m((u(((l((((ti))))p)))l))e".to_owned()),
             format_type: CFormatType::Number(CNumberType::Decimal),
             format_char: 'd',
             chars_consumed: 30,
@@ -725,7 +725,7 @@ mod tests {
         assert_eq!(parsed, expected);
         assert_eq!(
             parsed.unwrap().format_number(&BigInt::from(12)),
-            "+12       ".to_string()
+            "+12       ".to_owned()
         );
     }
 
@@ -735,15 +735,15 @@ mod tests {
             "%5.4s"
                 .parse::<CFormatSpec>()
                 .unwrap()
-                .format_string("Hello, World!".to_string()),
-            " Hell".to_string()
+                .format_string("Hello, World!".to_owned()),
+            " Hell".to_owned()
         );
         assert_eq!(
             "%-5.4s"
                 .parse::<CFormatSpec>()
                 .unwrap()
-                .format_string("Hello, World!".to_string()),
-            "Hell ".to_string()
+                .format_string("Hello, World!".to_owned()),
+            "Hell ".to_owned()
         );
     }
 
@@ -753,8 +753,8 @@ mod tests {
             "%.2s"
                 .parse::<CFormatSpec>()
                 .unwrap()
-                .format_string("❤❤❤❤❤❤❤❤".to_string()),
-            "❤❤".to_string()
+                .format_string("❤❤❤❤❤❤❤❤".to_owned()),
+            "❤❤".to_owned()
         );
     }
 
@@ -765,56 +765,56 @@ mod tests {
                 .parse::<CFormatSpec>()
                 .unwrap()
                 .format_number(&BigInt::from(27)),
-            "00027".to_string()
+            "00027".to_owned()
         );
         assert_eq!(
             "%+05d"
                 .parse::<CFormatSpec>()
                 .unwrap()
                 .format_number(&BigInt::from(27)),
-            "+0027".to_string()
+            "+0027".to_owned()
         );
         assert_eq!(
             "%-d"
                 .parse::<CFormatSpec>()
                 .unwrap()
                 .format_number(&BigInt::from(-27)),
-            "-27".to_string()
+            "-27".to_owned()
         );
         assert_eq!(
             "% d"
                 .parse::<CFormatSpec>()
                 .unwrap()
                 .format_number(&BigInt::from(27)),
-            " 27".to_string()
+            " 27".to_owned()
         );
         assert_eq!(
             "% d"
                 .parse::<CFormatSpec>()
                 .unwrap()
                 .format_number(&BigInt::from(-27)),
-            "-27".to_string()
+            "-27".to_owned()
         );
         assert_eq!(
             "%08x"
                 .parse::<CFormatSpec>()
                 .unwrap()
                 .format_number(&BigInt::from(0x1337)),
-            "00001337".to_string()
+            "00001337".to_owned()
         );
         assert_eq!(
             "%#010x"
                 .parse::<CFormatSpec>()
                 .unwrap()
                 .format_number(&BigInt::from(0x1337)),
-            "0x00001337".to_string()
+            "0x00001337".to_owned()
         );
         assert_eq!(
             "%-#010x"
                 .parse::<CFormatSpec>()
                 .unwrap()
                 .format_number(&BigInt::from(0x1337)),
-            "0x1337    ".to_string()
+            "0x1337    ".to_owned()
         );
     }
 
@@ -825,7 +825,7 @@ mod tests {
                 .unwrap()
                 .format_float(f64::from(1.2345))
                 .ok(),
-            Some("1.234500".to_string())
+            Some("1.234500".to_owned())
         );
         assert_eq!(
             "%+f"
@@ -833,7 +833,7 @@ mod tests {
                 .unwrap()
                 .format_float(f64::from(1.2345))
                 .ok(),
-            Some("+1.234500".to_string())
+            Some("+1.234500".to_owned())
         );
         assert_eq!(
             "% f"
@@ -841,21 +841,21 @@ mod tests {
                 .unwrap()
                 .format_float(f64::from(1.2345))
                 .ok(),
-            Some(" 1.234500".to_string())
+            Some(" 1.234500".to_owned())
         );
         assert_eq!(
             "%f".parse::<CFormatSpec>()
                 .unwrap()
                 .format_float(f64::from(-1.2345))
                 .ok(),
-            Some("-1.234500".to_string())
+            Some("-1.234500".to_owned())
         );
         assert_eq!(
             "%f".parse::<CFormatSpec>()
                 .unwrap()
                 .format_float(f64::from(1.2345678901))
                 .ok(),
-            Some("1.234568".to_string())
+            Some("1.234568".to_owned())
         );
     }
 
@@ -864,7 +864,7 @@ mod tests {
         let fmt = "Hello, my name is %s and I'm %d years old";
         let expected = Ok(CFormatString {
             format_parts: vec![
-                (0, CFormatPart::Literal("Hello, my name is ".to_string())),
+                (0, CFormatPart::Literal("Hello, my name is ".to_owned())),
                 (
                     18,
                     CFormatPart::Spec(CFormatSpec {
@@ -877,7 +877,7 @@ mod tests {
                         flags: CConversionFlags::empty(),
                     }),
                 ),
-                (20, CFormatPart::Literal(" and I'm ".to_string())),
+                (20, CFormatPart::Literal(" and I'm ".to_owned())),
                 (
                     29,
                     CFormatPart::Spec(CFormatSpec {
@@ -890,7 +890,7 @@ mod tests {
                         flags: CConversionFlags::empty(),
                     }),
                 ),
-                (31, CFormatPart::Literal(" years old".to_string())),
+                (31, CFormatPart::Literal(" years old".to_owned())),
             ],
         });
         let result = fmt.parse::<CFormatString>();

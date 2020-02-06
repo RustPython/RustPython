@@ -35,11 +35,11 @@ impl PyValue for PySuper {
 #[pyimpl]
 impl PySuper {
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> String {
+    fn repr(&self) -> String {
         let class_type_str = if let Ok(type_class) = self.typ.clone().downcast::<PyClass>() {
             type_class.name.clone()
         } else {
-            "NONE".to_string()
+            "NONE".to_owned()
         };
         match self.obj_type.clone().downcast::<PyClass>() {
             Ok(obj_class_typ) => format!(
@@ -63,7 +63,7 @@ impl PySuper {
                             // This is a classmethod
                             return Ok(item);
                         }
-                        return vm.call_get_descriptor(item, inst.clone());
+                        return vm.call_if_get_descriptor(item, inst.clone());
                     }
                 }
                 Err(vm.new_attribute_error(format!(
@@ -92,7 +92,7 @@ impl PySuper {
                 _ => {
                     return Err(vm.new_type_error(
                         "super must be called with 1 argument or from inside class method"
-                            .to_string(),
+                            .to_owned(),
                     ));
                 }
             }
@@ -123,7 +123,7 @@ impl PySuper {
                 }
             } else {
                 return Err(vm.new_type_error(
-                    "super must be called with 1 argument or from inside class method".to_string(),
+                    "super must be called with 1 argument or from inside class method".to_owned(),
                 ));
             }
         };
@@ -137,7 +137,7 @@ impl PySuper {
             };
             if !is_subclass {
                 return Err(vm.new_type_error(
-                    "super(type, obj): obj must be an instance or subtype of type".to_string(),
+                    "super(type, obj): obj must be an instance or subtype of type".to_owned(),
                 ));
             }
             PyClassRef::try_from_object(vm, py_obj.clone())?
@@ -172,6 +172,6 @@ pub fn init(context: &PyContext) {
                      super().cmeth(arg)\n";
 
     extend_class!(context, super_type, {
-        "__doc__" => context.new_str(super_doc.to_string()),
+        "__doc__" => context.new_str(super_doc.to_owned()),
     });
 }

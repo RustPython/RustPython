@@ -7,15 +7,12 @@ jobs:
   pool:
     vmImage: 'vs2017-win2016'
   strategy:
-    matrix:
-      Python36:
-        python.version: '3.6'
     maxParallel: 10
 
   steps:
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: '$(python.version)'
+      versionSpec: '3.7'
       architecture: 'x64'
 
   - script: |

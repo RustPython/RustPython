@@ -13,7 +13,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::scope::Scope;
-use crate::slots::{PyBuiltinCallable, PyBuiltinDescriptor};
+use crate::slots::{SlotCall, SlotDescriptor};
 use crate::vm::VirtualMachine;
 
 pub type PyFunctionRef = PyRef<PyFunction>;
@@ -27,13 +27,14 @@ pub struct PyFunction {
     kw_only_defaults: Option<PyDictRef>,
 }
 
-impl PyBuiltinDescriptor for PyFunction {
-    fn get(
-        zelf: PyRef<Self>,
-        obj: PyObjectRef,
-        cls: OptionalArg<PyObjectRef>,
+impl SlotDescriptor for PyFunction {
+    fn descr_get(
         vm: &VirtualMachine,
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        cls: OptionalArg<PyObjectRef>,
     ) -> PyResult {
+        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         if obj.is(&vm.get_none()) && !Self::_cls_is(&cls, &obj.class()) {
             Ok(zelf.into_object())
         } else {
@@ -240,7 +241,7 @@ impl PyValue for PyFunction {
     }
 }
 
-#[pyimpl(with(PyBuiltinDescriptor))]
+#[pyimpl(with(SlotDescriptor))]
 impl PyFunction {
     #[pyslot]
     #[pymethod(magic)]
@@ -248,18 +249,18 @@ impl PyFunction {
         self.invoke(args, vm)
     }
 
-    #[pyproperty(name = "__code__")]
-    fn code(&self, _vm: &VirtualMachine) -> PyCodeRef {
+    #[pyproperty(magic)]
+    fn code(&self) -> PyCodeRef {
         self.code.clone()
     }
 
-    #[pyproperty(name = "__defaults__")]
-    fn defaults(&self, _vm: &VirtualMachine) -> Option<PyTupleRef> {
+    #[pyproperty(magic)]
+    fn defaults(&self) -> Option<PyTupleRef> {
         self.defaults.clone()
     }
 
-    #[pyproperty(name = "__kwdefaults__")]
-    fn kwdefaults(&self, _vm: &VirtualMachine) -> Option<PyDictRef> {
+    #[pyproperty(magic)]
+    fn kwdefaults(&self) -> Option<PyDictRef> {
         self.kw_only_defaults.clone()
     }
 }
@@ -272,7 +273,7 @@ pub struct PyBoundMethod {
     pub function: PyObjectRef,
 }
 
-impl PyBuiltinCallable for PyBoundMethod {
+impl SlotCall for PyBoundMethod {
     fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         let args = args.insert(self.object.clone());
         vm.invoke(&self.function, args)
@@ -285,7 +286,7 @@ impl PyBoundMethod {
     }
 }
 
-#[pyimpl(with(PyBuiltinCallable))]
+#[pyimpl(with(SlotCall))]
 impl PyBoundMethod {
     #[pymethod(magic)]
     fn getattribute(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {

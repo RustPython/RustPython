@@ -87,17 +87,17 @@ impl PyValue for PySymbolTable {
 #[pyimpl]
 impl PySymbolTable {
     #[pymethod(name = "get_name")]
-    fn get_name(&self, _vm: &VirtualMachine) -> String {
+    fn get_name(&self) -> String {
         self.symtable.name.clone()
     }
 
     #[pymethod(name = "get_type")]
-    fn get_type(&self, _vm: &VirtualMachine) -> String {
+    fn get_type(&self) -> String {
         self.symtable.typ.to_string()
     }
 
     #[pymethod(name = "get_lineno")]
-    fn get_lineno(&self, _vm: &VirtualMachine) -> usize {
+    fn get_lineno(&self) -> usize {
         self.symtable.line_number
     }
 
@@ -110,7 +110,7 @@ impl PySymbolTable {
             }
             .into_ref(vm))
         } else {
-            Err(vm.new_lookup_error(name.to_string()))
+            Err(vm.new_lookup_error(name.to_owned()))
         }
     }
 
@@ -120,7 +120,7 @@ impl PySymbolTable {
             .symtable
             .symbols
             .keys()
-            .map(|s| vm.ctx.new_str(s.to_string()))
+            .map(|s| vm.ctx.new_str(s.to_owned()))
             .collect();
         Ok(vm.ctx.new_list(symbols))
     }
@@ -137,7 +137,7 @@ impl PySymbolTable {
     }
 
     #[pymethod(name = "has_children")]
-    fn has_children(&self, _vm: &VirtualMachine) -> bool {
+    fn has_children(&self) -> bool {
         !self.symtable.sub_tables.is_empty()
     }
 
@@ -173,42 +173,42 @@ impl PyValue for PySymbol {
 #[pyimpl]
 impl PySymbol {
     #[pymethod(name = "get_name")]
-    fn get_name(&self, _vm: &VirtualMachine) -> String {
+    fn get_name(&self) -> String {
         self.symbol.name.clone()
     }
 
     #[pymethod(name = "is_global")]
-    fn is_global(&self, _vm: &VirtualMachine) -> bool {
+    fn is_global(&self) -> bool {
         self.symbol.is_global()
     }
 
     #[pymethod(name = "is_local")]
-    fn is_local(&self, _vm: &VirtualMachine) -> bool {
+    fn is_local(&self) -> bool {
         self.symbol.is_local()
     }
 
     #[pymethod(name = "is_referenced")]
-    fn is_referenced(&self, _vm: &VirtualMachine) -> bool {
+    fn is_referenced(&self) -> bool {
         self.symbol.is_referenced
     }
 
     #[pymethod(name = "is_assigned")]
-    fn is_assigned(&self, _vm: &VirtualMachine) -> bool {
+    fn is_assigned(&self) -> bool {
         self.symbol.is_assigned
     }
 
     #[pymethod(name = "is_parameter")]
-    fn is_parameter(&self, _vm: &VirtualMachine) -> bool {
+    fn is_parameter(&self) -> bool {
         self.symbol.is_parameter
     }
 
     #[pymethod(name = "is_free")]
-    fn is_free(&self, _vm: &VirtualMachine) -> bool {
+    fn is_free(&self) -> bool {
         self.symbol.is_free
     }
 
     #[pymethod(name = "is_namespace")]
-    fn is_namespace(&self, _vm: &VirtualMachine) -> bool {
+    fn is_namespace(&self) -> bool {
         // TODO
         false
     }

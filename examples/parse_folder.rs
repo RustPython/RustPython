@@ -78,7 +78,7 @@ fn parse_python_file(filename: &Path) -> ParsedFile {
     match std::fs::read_to_string(filename) {
         Err(e) => ParsedFile {
             // filename: Box::new(filename.to_path_buf()),
-            // code: "".to_string(),
+            // code: "".to_owned(),
             num_lines: 0,
             result: Err(e.to_string()),
         },

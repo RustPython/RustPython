@@ -84,7 +84,7 @@ impl PyUCD {
 
     fn extract_char(&self, character: PyStringRef, vm: &VirtualMachine) -> PyResult<Option<char>> {
         let c = character.as_str().chars().exactly_one().map_err(|_| {
-            vm.new_type_error("argument must be an unicode character, not str".to_string())
+            vm.new_type_error("argument must be an unicode character, not str".to_owned())
         })?;
 
         if self.check_age(c) {
@@ -132,9 +132,7 @@ impl PyUCD {
         }
         match default {
             OptionalArg::Present(obj) => Ok(obj),
-            OptionalArg::Missing => {
-                Err(vm.new_value_error("character name not found!".to_string()))
-            }
+            OptionalArg::Missing => Err(vm.new_value_error("character name not found!".to_owned())),
         }
     }
 
@@ -160,14 +158,14 @@ impl PyUCD {
             "NFKC" => text.nfkc().collect::<String>(),
             "NFD" => text.nfd().collect::<String>(),
             "NFKD" => text.nfkd().collect::<String>(),
-            _ => return Err(vm.new_value_error("invalid normalization form".to_string())),
+            _ => return Err(vm.new_value_error("invalid normalization form".to_owned())),
         };
 
         Ok(normalized_text)
     }
 
     #[pyproperty]
-    fn unidata_version(&self, _vm: &VirtualMachine) -> String {
+    fn unidata_version(&self) -> String {
         self.unic_version.to_string()
     }
 }

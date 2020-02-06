@@ -337,7 +337,7 @@ impl Frame {
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
                 let item = self.pop_value();
-                objlist::PyListRef::try_from_object(vm, list_obj)?.append(item, vm);
+                objlist::PyListRef::try_from_object(vm, list_obj)?.append(item);
                 Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {
@@ -586,7 +586,7 @@ impl Frame {
                 let value = self.pop_value();
                 let elements = vm.extract_elements(&value)?;
                 if elements.len() != *size {
-                    Err(vm.new_value_error("Wrong number of values to unpack".to_string()))
+                    Err(vm.new_value_error("Wrong number of values to unpack".to_owned()))
                 } else {
                     for element in elements.into_iter().rev() {
                         self.push_value(element);
@@ -985,7 +985,7 @@ impl Frame {
                 None => {
                     return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.runtime_error.clone(),
-                        "No active exception to reraise".to_string(),
+                        "No active exception to reraise".to_owned(),
                     ))
                 }
             },
@@ -1154,7 +1154,7 @@ impl Frame {
             .new_pyfunction(code_obj, scope, defaults, kw_only_defaults);
 
         let name = qualified_name.as_str().split('.').next_back().unwrap();
-        vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_string()))?;
+        vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_owned()))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
         let module = self
             .scope
@@ -1319,13 +1319,13 @@ impl Frame {
     fn store_attr(&self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let value = self.pop_value();
-        vm.set_attr(&parent, vm.new_str(attr_name.to_string()), value)?;
+        vm.set_attr(&parent, vm.new_str(attr_name.to_owned()), value)?;
         Ok(None)
     }
 
     fn delete_attr(&self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
-        let name = vm.ctx.new_str(attr_name.to_string());
+        let name = vm.ctx.new_str(attr_name.to_owned());
         vm.del_attr(&parent, name)?;
         Ok(None)
     }
@@ -1390,7 +1390,7 @@ impl fmt::Debug for Frame {
             .iter()
             .map(|elem| {
                 if elem.payload.as_any().is::<Frame>() {
-                    "\n  > {frame}".to_string()
+                    "\n  > {frame}".to_owned()
                 } else {
                     format!("\n  > {:?}", elem)
                 }

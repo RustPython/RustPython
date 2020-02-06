@@ -37,7 +37,7 @@ impl PyBaseObject {
     }
 
     #[pymethod(magic)]
-    fn eq(zelf: PyObjectRef, other: PyObjectRef, _vm: &VirtualMachine) -> PyComparisonValue {
+    fn eq(zelf: PyObjectRef, other: PyObjectRef) -> PyComparisonValue {
         if zelf.is(&other) {
             Implemented(true)
         } else {
@@ -64,27 +64,27 @@ impl PyBaseObject {
     }
 
     #[pymethod(magic)]
-    fn lt(_zelf: PyObjectRef, _other: PyObjectRef, _vm: &VirtualMachine) -> PyComparisonValue {
+    fn lt(_zelf: PyObjectRef, _other: PyObjectRef) -> PyComparisonValue {
         NotImplemented
     }
 
     #[pymethod(magic)]
-    fn le(_zelf: PyObjectRef, _other: PyObjectRef, _vm: &VirtualMachine) -> PyComparisonValue {
+    fn le(_zelf: PyObjectRef, _other: PyObjectRef) -> PyComparisonValue {
         NotImplemented
     }
 
     #[pymethod(magic)]
-    fn gt(_zelf: PyObjectRef, _other: PyObjectRef, _vm: &VirtualMachine) -> PyComparisonValue {
+    fn gt(_zelf: PyObjectRef, _other: PyObjectRef) -> PyComparisonValue {
         NotImplemented
     }
 
     #[pymethod(magic)]
-    fn ge(_zelf: PyObjectRef, _other: PyObjectRef, _vm: &VirtualMachine) -> PyComparisonValue {
+    fn ge(_zelf: PyObjectRef, _other: PyObjectRef) -> PyComparisonValue {
         NotImplemented
     }
 
     #[pymethod(magic)]
-    fn hash(zelf: PyObjectRef, _vm: &VirtualMachine) -> pyhash::PyHash {
+    fn hash(zelf: PyObjectRef) -> pyhash::PyHash {
         zelf.get_id() as pyhash::PyHash
     }
 
@@ -126,7 +126,7 @@ impl PyBaseObject {
     }
 
     #[pymethod(magic)]
-    fn repr(zelf: PyObjectRef, _vm: &VirtualMachine) -> String {
+    fn repr(zelf: PyObjectRef) -> String {
         format!("<{} object at 0x{:x}>", zelf.class().name, zelf.get_id())
     }
 
@@ -175,12 +175,12 @@ impl PyBaseObject {
     }
 
     #[pyproperty(name = "__class__")]
-    fn _class(obj: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
+    fn get_class(obj: PyObjectRef) -> PyObjectRef {
         obj.class().into_object()
     }
 
     #[pyproperty(name = "__class__", setter)]
-    fn _set_class(instance: PyObjectRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_class(instance: PyObjectRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let type_repr = vm.to_pystr(&instance.class())?;
         Err(vm.new_type_error(format!("can't change class of type '{}'", type_repr)))
     }

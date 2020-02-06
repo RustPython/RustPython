@@ -25,7 +25,7 @@ use std::cmp::Ordering;
 // Helper macro:
 macro_rules! make_math_func {
     ( $fname:ident, $fun:ident ) => {
-        fn $fname(value: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+        fn $fname(value: IntoPyFloat) -> f64 {
             value.to_f64().$fun()
         }
     };
@@ -33,7 +33,7 @@ macro_rules! make_math_func {
 
 macro_rules! make_math_func_bool {
     ( $fname:ident, $fun:ident ) => {
-        fn $fname(value: IntoPyFloat, _vm: &VirtualMachine) -> bool {
+        fn $fname(value: IntoPyFloat) -> bool {
             value.to_f64().$fun()
         }
     };
@@ -72,7 +72,7 @@ fn math_isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
     };
 
     if rel_tol < 0.0 || abs_tol < 0.0 {
-        return Err(vm.new_value_error("tolerances must be non-negative".to_string()));
+        return Err(vm.new_value_error("tolerances must be non-negative".to_owned()));
     }
 
     if a == b {
@@ -98,7 +98,7 @@ fn math_isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
     Ok((diff <= (rel_tol * b).abs()) || (diff <= (rel_tol * a).abs()) || (diff <= abs_tol))
 }
 
-fn math_copysign(a: IntoPyFloat, b: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+fn math_copysign(a: IntoPyFloat, b: IntoPyFloat) -> f64 {
     let a = a.to_f64();
     let b = b.to_f64();
     if a.is_nan() || b.is_nan() {
@@ -112,18 +112,18 @@ fn math_copysign(a: IntoPyFloat, b: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
 make_math_func!(math_exp, exp);
 make_math_func!(math_expm1, exp_m1);
 
-fn math_log(x: IntoPyFloat, base: OptionalArg<IntoPyFloat>, _vm: &VirtualMachine) -> f64 {
+fn math_log(x: IntoPyFloat, base: OptionalArg<IntoPyFloat>) -> f64 {
     base.map_or_else(|| x.to_f64().ln(), |base| x.to_f64().log(base.to_f64()))
 }
 
-fn math_log1p(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+fn math_log1p(x: IntoPyFloat) -> f64 {
     (x.to_f64() + 1.0).ln()
 }
 
 make_math_func!(math_log2, log2);
 make_math_func!(math_log10, log10);
 
-fn math_pow(x: IntoPyFloat, y: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+fn math_pow(x: IntoPyFloat, y: IntoPyFloat) -> f64 {
     x.to_f64().powf(y.to_f64())
 }
 
@@ -134,24 +134,24 @@ make_math_func!(math_acos, acos);
 make_math_func!(math_asin, asin);
 make_math_func!(math_atan, atan);
 
-fn math_atan2(y: IntoPyFloat, x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+fn math_atan2(y: IntoPyFloat, x: IntoPyFloat) -> f64 {
     y.to_f64().atan2(x.to_f64())
 }
 
 make_math_func!(math_cos, cos);
 
-fn math_hypot(x: IntoPyFloat, y: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+fn math_hypot(x: IntoPyFloat, y: IntoPyFloat) -> f64 {
     x.to_f64().hypot(y.to_f64())
 }
 
 make_math_func!(math_sin, sin);
 make_math_func!(math_tan, tan);
 
-fn math_degrees(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+fn math_degrees(x: IntoPyFloat) -> f64 {
     x.to_f64() * (180.0 / std::f64::consts::PI)
 }
 
-fn math_radians(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+fn math_radians(x: IntoPyFloat) -> f64 {
     x.to_f64() * (std::f64::consts::PI / 180.0)
 }
 
@@ -164,7 +164,7 @@ make_math_func!(math_sinh, sinh);
 make_math_func!(math_tanh, tanh);
 
 // Special functions:
-fn math_erf(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+fn math_erf(x: IntoPyFloat) -> f64 {
     let x = x.to_f64();
     if x.is_nan() {
         x
@@ -173,7 +173,7 @@ fn math_erf(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
     }
 }
 
-fn math_erfc(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+fn math_erfc(x: IntoPyFloat) -> f64 {
     let x = x.to_f64();
     if x.is_nan() {
         x
@@ -182,7 +182,7 @@ fn math_erfc(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
     }
 }
 
-fn math_gamma(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+fn math_gamma(x: IntoPyFloat) -> f64 {
     let x = x.to_f64();
     if x.is_finite() {
         gamma(x)
@@ -193,7 +193,7 @@ fn math_gamma(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
     }
 }
 
-fn math_lgamma(x: IntoPyFloat, _vm: &VirtualMachine) -> f64 {
+fn math_lgamma(x: IntoPyFloat) -> f64 {
     let x = x.to_f64();
     if x.is_finite() {
         ln_gamma(x)
@@ -251,7 +251,7 @@ fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-fn math_frexp(value: IntoPyFloat, _vm: &VirtualMachine) -> (f64, i32) {
+fn math_frexp(value: IntoPyFloat) -> (f64, i32) {
     let value = value.to_f64();
     if value.is_finite() {
         let (m, e) = objfloat::ufrexp(value);
@@ -261,11 +261,11 @@ fn math_frexp(value: IntoPyFloat, _vm: &VirtualMachine) -> (f64, i32) {
     }
 }
 
-fn math_ldexp(value: PyFloatRef, i: PyIntRef, _vm: &VirtualMachine) -> f64 {
+fn math_ldexp(value: PyFloatRef, i: PyIntRef) -> f64 {
     value.to_f64() * (2_f64).powf(i.as_bigint().to_f64().unwrap())
 }
 
-fn math_gcd(a: PyIntRef, b: PyIntRef, _vm: &VirtualMachine) -> BigInt {
+fn math_gcd(a: PyIntRef, b: PyIntRef) -> BigInt {
     use num_integer::Integer;
     a.as_bigint().gcd(b.as_bigint())
 }
@@ -273,7 +273,7 @@ fn math_gcd(a: PyIntRef, b: PyIntRef, _vm: &VirtualMachine) -> BigInt {
 fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     let value = value.as_bigint();
     if *value < BigInt::zero() {
-        return Err(vm.new_value_error("factorial() not defined for negative values".to_string()));
+        return Err(vm.new_value_error("factorial() not defined for negative values".to_owned()));
     } else if *value <= BigInt::one() {
         return Ok(BigInt::from(1u64));
     }
@@ -281,7 +281,7 @@ fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     Ok(ret)
 }
 
-fn math_modf(x: IntoPyFloat, _vm: &VirtualMachine) -> (f64, f64) {
+fn math_modf(x: IntoPyFloat) -> (f64, f64) {
     let x = x.to_f64();
     if !x.is_finite() {
         if x.is_infinite() {
@@ -306,7 +306,7 @@ fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat) -> PyResult<f64> {
 
 #[cfg(target_arch = "wasm32")]
 fn math_nextafter(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f64> {
-    Err(vm.new_not_implemented_error("not implemented for this platform".to_string()))
+    Err(vm.new_not_implemented_error("not implemented for this platform".to_owned()))
 }
 
 fn fmod(x: f64, y: f64) -> f64 {
@@ -324,7 +324,7 @@ fn math_fmod(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResult<f6
     let r = fmod(x, y);
 
     if r.is_nan() && !x.is_nan() && !y.is_nan() {
-        return Err(vm.new_value_error("math domain error".to_string()));
+        return Err(vm.new_value_error("math domain error".to_owned()));
     }
 
     Ok(r)
@@ -362,7 +362,7 @@ fn math_remainder(x: IntoPyFloat, y: IntoPyFloat, vm: &VirtualMachine) -> PyResu
         return Ok(std::f64::NAN);
     }
     if y.is_infinite() {
-        return Err(vm.new_value_error("math domain error".to_string()));
+        return Err(vm.new_value_error("math domain error".to_owned()));
     }
     Ok(x)
 }

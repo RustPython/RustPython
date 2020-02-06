@@ -55,7 +55,7 @@ impl IntoPyObject for subprocess::ExitStatus {
             subprocess::ExitStatus::Exited(status) => status as i32,
             subprocess::ExitStatus::Signaled(status) => -i32::from(status),
             subprocess::ExitStatus::Other(status) => status as i32,
-            _ => return Err(vm.new_os_error("Unknown exist status".to_string())),
+            _ => return Err(vm.new_os_error("Unknown exist status".to_owned())),
         };
         Ok(vm.new_int(status))
     }
@@ -106,7 +106,7 @@ impl PopenRef {
         let stdout = convert_redirection(args.stdout, vm)?;
         let stderr = convert_redirection(args.stderr, vm)?;
         let command_list = match &args.args {
-            Either::A(command) => vec![command.as_str().to_string()],
+            Either::A(command) => vec![command.as_str().to_owned()],
             Either::B(command_list) => command_list
                 .borrow_elements()
                 .iter()
@@ -134,11 +134,11 @@ impl PopenRef {
         .into_ref_with_type(vm, cls)
     }
 
-    fn poll(self, _vm: &VirtualMachine) -> Option<subprocess::ExitStatus> {
+    fn poll(self) -> Option<subprocess::ExitStatus> {
         self.process.borrow_mut().poll()
     }
 
-    fn return_code(self, _vm: &VirtualMachine) -> Option<subprocess::ExitStatus> {
+    fn return_code(self) -> Option<subprocess::ExitStatus> {
         self.process.borrow().exit_status()
     }
 
@@ -153,22 +153,22 @@ impl PopenRef {
         .map_err(|s| vm.new_os_error(format!("Could not start program: {}", s)))?;
         if timeout.is_none() {
             let timeout_expired = vm.try_class("_subprocess", "TimeoutExpired")?;
-            Err(vm.new_exception_msg(timeout_expired, "Timeout".to_string()))
+            Err(vm.new_exception_msg(timeout_expired, "Timeout".to_owned()))
         } else {
             Ok(())
         }
     }
 
     fn stdin(self, vm: &VirtualMachine) -> PyResult {
-        convert_to_file_io(&self.process.borrow().stdin, "wb".to_string(), vm)
+        convert_to_file_io(&self.process.borrow().stdin, "wb".to_owned(), vm)
     }
 
     fn stdout(self, vm: &VirtualMachine) -> PyResult {
-        convert_to_file_io(&self.process.borrow().stdout, "rb".to_string(), vm)
+        convert_to_file_io(&self.process.borrow().stdout, "rb".to_owned(), vm)
     }
 
     fn stderr(self, vm: &VirtualMachine) -> PyResult {
-        convert_to_file_io(&self.process.borrow().stderr, "rb".to_string(), vm)
+        convert_to_file_io(&self.process.borrow().stderr, "rb".to_owned(), vm)
     }
 
     fn terminate(self, vm: &VirtualMachine) -> PyResult<()> {
@@ -202,18 +202,18 @@ impl PopenRef {
         communicator.read().map_err(|err| {
             if err.error.kind() == ErrorKind::TimedOut {
                 let timeout_expired = vm.try_class("_subprocess", "TimeoutExpired").unwrap();
-                vm.new_exception_msg(timeout_expired, "Timeout".to_string())
+                vm.new_exception_msg(timeout_expired, "Timeout".to_owned())
             } else {
                 convert_io_error(vm, err.error)
             }
         })
     }
 
-    fn pid(self, _vm: &VirtualMachine) -> Option<u32> {
+    fn pid(self) -> Option<u32> {
         self.process.borrow().pid()
     }
 
-    fn enter(self, _vm: &VirtualMachine) -> Self {
+    fn enter(self) -> Self {
         self
     }
 
@@ -222,7 +222,6 @@ impl PopenRef {
         _exception_type: PyObjectRef,
         _exception_value: PyObjectRef,
         _traceback: PyObjectRef,
-        _vm: &VirtualMachine,
     ) {
         let mut process = self.process.borrow_mut();
         process.stdout.take();
@@ -230,7 +229,7 @@ impl PopenRef {
         process.stderr.take();
     }
 
-    fn args(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn args(self) -> PyObjectRef {
         self.args.clone()
     }
 }
@@ -253,18 +252,18 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let popen = py_class!(ctx, "Popen", ctx.object(), {
         (slot new) => PopenRef::new,
         "poll" => ctx.new_method(PopenRef::poll),
-        "returncode" => ctx.new_property(PopenRef::return_code),
+        "returncode" => ctx.new_readonly_getset("returncode", PopenRef::return_code),
         "wait" => ctx.new_method(PopenRef::wait),
-        "stdin" => ctx.new_property(PopenRef::stdin),
-        "stdout" => ctx.new_property(PopenRef::stdout),
-        "stderr" => ctx.new_property(PopenRef::stderr),
+        "stdin" => ctx.new_readonly_getset("stdin", PopenRef::stdin),
+        "stdout" => ctx.new_readonly_getset("stdout", PopenRef::stdout),
+        "stderr" => ctx.new_readonly_getset("stderr", PopenRef::stderr),
         "terminate" => ctx.new_method(PopenRef::terminate),
         "kill" => ctx.new_method(PopenRef::kill),
         "communicate" => ctx.new_method(PopenRef::communicate),
-        "pid" => ctx.new_property(PopenRef::pid),
+        "pid" => ctx.new_readonly_getset("pid", PopenRef::pid),
         "__enter__" => ctx.new_method(PopenRef::enter),
         "__exit__" => ctx.new_method(PopenRef::exit),
-        "args" => ctx.new_property(PopenRef::args),
+        "args" => ctx.new_readonly_getset("args", PopenRef::args),
     });
 
     py_module!(vm, "_subprocess", {

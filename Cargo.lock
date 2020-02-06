@@ -1246,15 +1246,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rand_distr"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96977acbdd3a6576fb1d27391900035bf3863d4a16422973a409b488cf29ffb2"
-dependencies = [
- "rand 0.7.3",
-]
-
-[[package]]
 name = "rand_hc"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1539,7 +1530,7 @@ dependencies = [
  "paste",
  "pwd",
  "rand 0.7.3",
- "rand_distr",
+ "rand_core 0.5.1",
  "regex",
  "result-like",
  "rustc_version_runtime",

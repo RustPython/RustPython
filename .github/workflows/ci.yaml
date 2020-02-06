@@ -124,6 +124,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
+      - name: Cache cargo dependencies
+        uses: actions/cache@v1
+        with:
+          key: ${{ runner.os }}-wasm-${{ hashFiles('**/Cargo.lock') }}
+          path: target
+          restore-keys: |
+            ${{ runner.os }}-wasm-
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver

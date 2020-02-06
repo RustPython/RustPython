@@ -4,7 +4,7 @@ use crate::obj::objcode::{PyCode, PyCodeRef};
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
-fn marshal_dumps(co: PyCodeRef, _vm: &VirtualMachine) -> PyBytes {
+fn marshal_dumps(co: PyCodeRef) -> PyBytes {
     PyBytes::new(co.code.to_bytes())
 }
 

@@ -16,7 +16,7 @@ fn rlock_acquire(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn rlock_release(_zelf: PyObjectRef, _vm: &VirtualMachine) {}
+fn rlock_release(_zelf: PyObjectRef) {}
 
 fn rlock_enter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(instance, None)]);

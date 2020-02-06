@@ -55,7 +55,7 @@ fn signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult
 
     let old = unsafe { libc::signal(signalnum, sig_handler) };
     if old == SIG_ERR {
-        return Err(vm.new_os_error("Failed to set signal".to_string()));
+        return Err(vm.new_os_error("Failed to set signal".to_owned()));
     }
     #[cfg(all(unix, not(target_os = "redox")))]
     {
@@ -81,7 +81,7 @@ fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult {
 }
 
 #[cfg(unix)]
-fn alarm(time: u32, _vm: &VirtualMachine) -> u32 {
+fn alarm(time: u32) -> u32 {
     let prev_time = if time == 0 {
         sig_alarm::cancel()
     } else {

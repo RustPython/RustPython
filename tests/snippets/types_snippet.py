@@ -86,3 +86,7 @@ class C(B, BB):
     pass
 
 assert C.mro() == [C, B, A, BB, AA, object]
+
+
+assert type(Exception.args).__name__ == 'getset_descriptor'
+assert type(None).__bool__(None) is False

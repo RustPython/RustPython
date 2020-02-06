@@ -128,10 +128,10 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
         })?
         .as_bigint();
     if result.is_negative() {
-        return Err(vm.new_value_error("__length_hint__() should return >= 0".to_string()));
+        return Err(vm.new_value_error("__length_hint__() should return >= 0".to_owned()));
     }
     let hint = result.to_usize().ok_or_else(|| {
-        vm.new_value_error("Python int too large to convert to Rust usize".to_string())
+        vm.new_value_error("Python int too large to convert to Rust usize".to_owned())
     })?;
     Ok(Some(hint))
 }
@@ -174,7 +174,7 @@ impl PySequenceIterator {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -185,7 +185,7 @@ impl PySequenceIterator {
             pos + 1
         } else {
             let len = objsequence::opt_len(&self.obj, vm).unwrap_or_else(|| {
-                Err(vm.new_type_error("sequence has no __len__ method".to_string()))
+                Err(vm.new_type_error("sequence has no __len__ method".to_owned()))
             })?;
             len as isize - pos
         };
@@ -193,7 +193,7 @@ impl PySequenceIterator {
     }
 }
 
-pub fn seq_iter_method(obj: PyObjectRef, _vm: &VirtualMachine) -> PySequenceIterator {
+pub fn seq_iter_method(obj: PyObjectRef) -> PySequenceIterator {
     PySequenceIterator {
         position: Cell::new(0),
         obj,

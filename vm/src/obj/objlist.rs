@@ -119,9 +119,7 @@ impl PyList {
                 Ok(result) => match result.as_bigint().to_u8() {
                     Some(result) => elements.push(result),
                     None => {
-                        return Err(
-                            vm.new_value_error("bytes must be in range (0, 256)".to_string())
-                        )
+                        return Err(vm.new_value_error("bytes must be in range (0, 256)".to_owned()))
                     }
                 },
                 _ => {
@@ -149,7 +147,7 @@ pub type PyListRef = PyRef<PyList>;
 #[pyimpl(flags(BASETYPE))]
 impl PyList {
     #[pymethod]
-    pub(crate) fn append(&self, x: PyObjectRef, _vm: &VirtualMachine) {
+    pub(crate) fn append(&self, x: PyObjectRef) {
         self.elements.borrow_mut().push(x);
     }
 
@@ -161,7 +159,7 @@ impl PyList {
     }
 
     #[pymethod]
-    fn insert(&self, position: isize, element: PyObjectRef, _vm: &VirtualMachine) {
+    fn insert(&self, position: isize, element: PyObjectRef) {
         let mut vec = self.elements.borrow_mut();
         let vec_len = vec.len().to_isize().unwrap();
         // This unbounded position can be < 0 or > vec.len()
@@ -203,12 +201,12 @@ impl PyList {
     }
 
     #[pymethod(name = "__bool__")]
-    fn bool(&self, _vm: &VirtualMachine) -> bool {
+    fn bool(&self) -> bool {
         !self.elements.borrow().is_empty()
     }
 
     #[pymethod]
-    fn clear(&self, _vm: &VirtualMachine) {
+    fn clear(&self) {
         self.elements.borrow_mut().clear();
     }
 
@@ -218,22 +216,22 @@ impl PyList {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self, _vm: &VirtualMachine) -> usize {
+    fn len(&self) -> usize {
         self.elements.borrow().len()
     }
 
     #[pymethod(name = "__sizeof__")]
-    fn sizeof(&self, _vm: &VirtualMachine) -> usize {
+    fn sizeof(&self) -> usize {
         size_of::<Self>() + self.elements.borrow().capacity() * size_of::<PyObjectRef>()
     }
 
     #[pymethod]
-    fn reverse(&self, _vm: &VirtualMachine) {
+    fn reverse(&self) {
         self.elements.borrow_mut().reverse();
     }
 
     #[pymethod(name = "__reversed__")]
-    fn reversed(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyListReverseIterator {
+    fn reversed(zelf: PyRef<Self>) -> PyListReverseIterator {
         let final_position = zelf.elements.borrow().len();
         PyListReverseIterator {
             position: Cell::new(final_position),
@@ -252,7 +250,7 @@ impl PyList {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyListIterator {
+    fn iter(zelf: PyRef<Self>) -> PyListIterator {
         PyListIterator {
             position: Cell::new(0),
             list: zelf,
@@ -272,7 +270,7 @@ impl PyList {
                 if let Ok(sec) = PyIterable::try_from_object(vm, value) {
                     return self.setslice(slice, sec, vm);
                 }
-                Err(vm.new_type_error("can only assign an iterable to a slice".to_string()))
+                Err(vm.new_type_error("can only assign an iterable to a slice".to_owned()))
             }
         }
     }
@@ -282,7 +280,7 @@ impl PyList {
             self.elements.borrow_mut()[pos_index] = value;
             Ok(vm.get_none())
         } else {
-            Err(vm.new_index_error("list assignment index out of range".to_string()))
+            Err(vm.new_index_error("list assignment index out of range".to_owned()))
         }
     }
 
@@ -290,7 +288,7 @@ impl PyList {
         let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
 
         if step.is_zero() {
-            Err(vm.new_value_error("slice step cannot be zero".to_string()))
+            Err(vm.new_value_error("slice step cannot be zero".to_owned()))
         } else if step.is_positive() {
             let range = self.get_slice_range(&slice.start_index(vm)?, &slice.stop_index(vm)?);
             if range.start < range.end {
@@ -455,18 +453,18 @@ impl PyList {
             let mut str_parts = Vec::with_capacity(zelf.elements.borrow().len());
             for elem in zelf.elements.borrow().iter() {
                 let s = vm.to_repr(elem)?;
-                str_parts.push(s.as_str().to_string());
+                str_parts.push(s.as_str().to_owned());
             }
             format!("[{}]", str_parts.join(", "))
         } else {
-            "[...]".to_string()
+            "[...]".to_owned()
         };
         Ok(s)
     }
 
     #[pymethod(name = "__hash__")]
     fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_type_error("unhashable type".to_string()))
+        Err(vm.new_type_error("unhashable type".to_owned()))
     }
 
     #[pymethod(name = "__mul__")]
@@ -483,7 +481,7 @@ impl PyList {
     }
 
     #[pymethod(name = "__imul__")]
-    fn imul(zelf: PyRef<Self>, counter: isize, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn imul(zelf: PyRef<Self>, counter: isize) -> PyRef<Self> {
         let new_elements = sequence::seq_mul(&zelf.borrow_sequence(), counter)
             .cloned()
             .collect();
@@ -532,9 +530,9 @@ impl PyList {
             i += elements.len() as isize;
         }
         if elements.is_empty() {
-            Err(vm.new_index_error("pop from empty list".to_string()))
+            Err(vm.new_index_error("pop from empty list".to_owned()))
         } else if i < 0 || i as usize >= elements.len() {
-            Err(vm.new_index_error("pop index out of range".to_string()))
+            Err(vm.new_index_error("pop index out of range".to_owned()))
         } else {
             Ok(elements.remove(i as usize))
         }
@@ -627,7 +625,7 @@ impl PyList {
             self.elements.borrow_mut().remove(pos_index);
             Ok(())
         } else {
-            Err(vm.new_index_error("Index out of bounds!".to_string()))
+            Err(vm.new_index_error("Index out of bounds!".to_owned()))
         }
     }
 
@@ -637,7 +635,7 @@ impl PyList {
         let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
 
         if step.is_zero() {
-            Err(vm.new_value_error("slice step cannot be zero".to_string()))
+            Err(vm.new_value_error("slice step cannot be zero".to_owned()))
         } else if step.is_positive() {
             let range = self.get_slice_range(&start, &stop);
             if range.start < range.end {
@@ -756,7 +754,7 @@ impl PyList {
         let temp_elements = self.elements.replace(elements);
 
         if !temp_elements.is_empty() {
-            return Err(vm.new_value_error("list modified during sort".to_string()));
+            return Err(vm.new_value_error("list modified during sort".to_owned()));
         }
 
         Ok(())
@@ -870,12 +868,12 @@ impl PyListIterator {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
     #[pymethod(name = "__length_hint__")]
-    fn length_hint(&self, _vm: &VirtualMachine) -> usize {
+    fn length_hint(&self) -> usize {
         self.list.elements.borrow().len() - self.position.get()
     }
 }
@@ -908,12 +906,12 @@ impl PyListReverseIterator {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
     #[pymethod(name = "__length_hint__")]
-    fn length_hint(&self, _vm: &VirtualMachine) -> usize {
+    fn length_hint(&self) -> usize {
         self.position.get()
     }
 }

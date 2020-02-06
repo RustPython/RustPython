@@ -176,7 +176,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         E: serde::de::Error,
     {
         // Owned value needed anyway, delegate to visit_string
-        self.visit_string(value.to_string())
+        self.visit_string(value.to_owned())
     }
 
     fn visit_string<E>(self, value: String) -> Result<Self::Value, E>

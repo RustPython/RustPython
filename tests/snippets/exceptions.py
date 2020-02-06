@@ -65,3 +65,11 @@ try:
 	raise NewException("test")
 except NewException as e:
 	assert e.value == "test"
+
+
+exc = SyntaxError('msg', 1, 2, 3, 4, 5)
+assert exc.msg == 'msg'
+assert exc.filename is None
+assert exc.lineno is None
+assert exc.offset is None
+assert exc.text is None

@@ -67,7 +67,7 @@ impl PyItertoolsChain {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -134,7 +134,7 @@ impl PyItertoolsCompress {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -178,14 +178,14 @@ impl PyItertoolsCount {
     }
 
     #[pymethod(name = "__next__")]
-    fn next(&self, _vm: &VirtualMachine) -> PyResult<PyInt> {
+    fn next(&self) -> PyResult<PyInt> {
         let result = self.cur.borrow().clone();
         *self.cur.borrow_mut() += &self.step;
         Ok(PyInt::new(result))
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -252,7 +252,7 @@ impl PyItertoolsCycle {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -304,7 +304,7 @@ impl PyItertoolsRepeat {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -353,7 +353,7 @@ impl PyItertoolsStarmap {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -412,7 +412,7 @@ impl PyItertoolsTakewhile {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -470,7 +470,7 @@ impl PyItertoolsDropwhile {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -528,7 +528,7 @@ impl PyItertoolsIslice {
                 let start = if !start.is(&vm.get_none()) {
                     pyobject_to_opt_usize(start, &vm).ok_or_else(|| {
                         vm.new_value_error(
-                            "Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.".to_string(),
+                            "Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.".to_owned(),
                         )
                     })?
                 } else {
@@ -538,7 +538,7 @@ impl PyItertoolsIslice {
                 let step = if !step.is(&vm.get_none()) {
                     pyobject_to_opt_usize(step, &vm).ok_or_else(|| {
                         vm.new_value_error(
-                            "Step for islice() must be a positive integer or None.".to_string(),
+                            "Step for islice() must be a positive integer or None.".to_owned(),
                         )
                     })?
                 } else {
@@ -553,7 +553,7 @@ impl PyItertoolsIslice {
             Some(pyobject_to_opt_usize(stop, &vm).ok_or_else(|| {
                 vm.new_value_error(
                     "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize."
-                        .to_string(),
+                        .to_owned(),
                 )
             })?)
         } else {
@@ -596,7 +596,7 @@ impl PyItertoolsIslice {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -652,7 +652,7 @@ impl PyItertoolsFilterFalse {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -711,7 +711,7 @@ impl PyItertoolsAccumulate {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -810,7 +810,7 @@ impl PyItertoolsTee {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -927,7 +927,7 @@ impl PyItertoolsProduct {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }
@@ -961,7 +961,7 @@ impl PyItertoolsCombinations {
 
         let r = r.as_bigint();
         if r.is_negative() {
-            return Err(vm.new_value_error("r must be non-negative".to_string()));
+            return Err(vm.new_value_error("r must be non-negative".to_owned()));
         }
         let r = r.to_usize().unwrap();
 
@@ -977,7 +977,7 @@ impl PyItertoolsCombinations {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -1060,7 +1060,7 @@ impl PyItertoolsCombinationsWithReplacement {
 
         let r = r.as_bigint();
         if r.is_negative() {
-            return Err(vm.new_value_error("r must be non-negative".to_string()));
+            return Err(vm.new_value_error("r must be non-negative".to_owned()));
         }
         let r = r.to_usize().unwrap();
 
@@ -1076,7 +1076,7 @@ impl PyItertoolsCombinationsWithReplacement {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -1161,11 +1161,11 @@ impl PyItertoolsPermutations {
             Some(r) => {
                 let val = r
                     .payload::<PyInt>()
-                    .ok_or_else(|| vm.new_type_error("Expected int as r".to_string()))?
+                    .ok_or_else(|| vm.new_type_error("Expected int as r".to_owned()))?
                     .as_bigint();
 
                 if val.is_negative() {
-                    return Err(vm.new_value_error("r must be non-negative".to_string()));
+                    return Err(vm.new_value_error("r must be non-negative".to_owned()));
                 }
                 val.to_usize().unwrap()
             }
@@ -1184,7 +1184,7 @@ impl PyItertoolsPermutations {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -1333,7 +1333,7 @@ impl PyItertoolsZiplongest {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 }

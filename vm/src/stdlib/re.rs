@@ -266,7 +266,7 @@ fn do_split(
 
 fn make_regex(vm: &VirtualMachine, pattern: &str, flags: PyRegexFlags) -> PyResult<PyPattern> {
     let unicode = if flags.unicode && flags.ascii {
-        return Err(vm.new_value_error("ASCII and UNICODE flags are incompatible".to_string()));
+        return Err(vm.new_value_error("ASCII and UNICODE flags are incompatible".to_owned()));
     } else {
         !flags.ascii
     };
@@ -283,7 +283,7 @@ fn make_regex(vm: &VirtualMachine, pattern: &str, flags: PyRegexFlags) -> PyResu
         })?;
     Ok(PyPattern {
         regex: r,
-        pattern: pattern.to_string(),
+        pattern: pattern.to_owned(),
     })
 }
 
@@ -312,7 +312,7 @@ fn re_compile(
     make_regex(vm, pattern.as_str(), flags)
 }
 
-fn re_escape(pattern: PyStringRef, _vm: &VirtualMachine) -> String {
+fn re_escape(pattern: PyStringRef) -> String {
     regex::escape(pattern.as_str())
 }
 

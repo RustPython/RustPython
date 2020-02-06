@@ -3,9 +3,9 @@ use std::fmt;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
-use crate::slots::{PyBuiltinCallable, PyBuiltinDescriptor};
+use crate::slots::{SlotCall, SlotDescriptor};
 use crate::vm::VirtualMachine;
 
 #[pyclass]
@@ -35,13 +35,13 @@ impl PyBuiltinFunction {
     }
 }
 
-impl PyBuiltinCallable for PyBuiltinFunction {
+impl SlotCall for PyBuiltinFunction {
     fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         (self.value)(vm, args)
     }
 }
 
-#[pyimpl(with(PyBuiltinCallable))]
+#[pyimpl(with(SlotCall))]
 impl PyBuiltinFunction {}
 
 #[pyclass]
@@ -73,13 +73,17 @@ impl PyBuiltinMethod {
     }
 }
 
-impl PyBuiltinDescriptor for PyBuiltinMethod {
-    fn get(
-        zelf: PyRef<Self>,
-        obj: PyObjectRef,
-        cls: OptionalArg<PyObjectRef>,
+impl SlotDescriptor for PyBuiltinMethod {
+    fn descr_get(
         vm: &VirtualMachine,
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        cls: OptionalArg<PyObjectRef>,
     ) -> PyResult {
+        let (zelf, obj) = match Self::_check(zelf, obj, vm) {
+            Ok(obj) => obj,
+            Err(result) => return result,
+        };
         if obj.is(&vm.get_none()) && !Self::_cls_is(&cls, &obj.class()) {
             Ok(zelf.into_object())
         } else {
@@ -88,13 +92,13 @@ impl PyBuiltinDescriptor for PyBuiltinMethod {
     }
 }
 
-impl PyBuiltinCallable for PyBuiltinMethod {
+impl SlotCall for PyBuiltinMethod {
     fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         (self.function.value)(vm, args)
     }
 }
 
-#[pyimpl(with(PyBuiltinDescriptor, PyBuiltinCallable))]
+#[pyimpl(with(SlotDescriptor, SlotCall))]
 impl PyBuiltinMethod {}
 
 pub fn init(context: &PyContext) {

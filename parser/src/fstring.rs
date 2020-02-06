@@ -83,7 +83,7 @@ impl<'a> FStringParser<'a> {
                         }))
                     } else {
                         spec = Some(Box::new(Constant {
-                            value: spec_expression.to_string(),
+                            value: spec_expression.to_owned(),
                         }))
                     }
                 }
@@ -274,7 +274,7 @@ mod tests {
                 value: Box::new(mk_ident("foo", 1, 1)),
                 conversion: None,
                 spec: Some(Box::new(Constant {
-                    value: "spec".to_string(),
+                    value: "spec".to_owned(),
                 })),
             }
         );

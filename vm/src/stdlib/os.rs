@@ -87,7 +87,7 @@ fn make_path(_vm: &VirtualMachine, path: PyStringRef, dir_fd: &DirFd) -> PyStrin
     }
 }
 
-fn os_close(fileno: i64, _vm: &VirtualMachine) {
+fn os_close(fileno: i64) {
     //The File type automatically closes when it goes out of scope.
     //To enable us to close these file descriptors (and hence prevent leaks)
     //we seek to create the relevant File and simply let it pass out of scope!
@@ -312,7 +312,7 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
     let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
         vm.new_value_error(
             "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK"
-                .to_string(),
+                .to_owned(),
         )
     })?;
 
@@ -340,7 +340,7 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
 }
 
 fn os_error(message: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
-    let msg = message.map_or("".to_string(), |msg| msg.as_str().to_string());
+    let msg = message.map_or("".to_owned(), |msg| msg.as_str().to_owned());
 
     Err(vm.new_os_error(msg))
 }
@@ -519,12 +519,12 @@ struct FollowSymlinks {
 }
 
 impl DirEntryRef {
-    fn name(self, _vm: &VirtualMachine) -> String {
+    fn name(self) -> String {
         self.entry.file_name().into_string().unwrap()
     }
 
-    fn path(self, _vm: &VirtualMachine) -> String {
-        self.entry.path().to_str().unwrap().to_string()
+    fn path(self) -> String {
+        self.entry.path().to_str().unwrap().to_owned()
     }
 
     #[allow(clippy::match_bool)]
@@ -568,7 +568,7 @@ impl DirEntryRef {
 
     fn stat(self, dir_fd: DirFd, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
         os_stat(
-            Either::A(self.path(vm).try_into_ref(vm)?),
+            Either::A(self.path().try_into_ref(vm)?),
             dir_fd,
             follow_symlinks,
             vm,
@@ -610,23 +610,23 @@ impl ScandirIterator {
     }
 
     #[pymethod]
-    fn close(&self, _vm: &VirtualMachine) {
+    fn close(&self) {
         self.exhausted.set(true);
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
     #[pymethod(name = "__enter__")]
-    fn enter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
     #[pymethod(name = "__exit__")]
-    fn exit(zelf: PyRef<Self>, _args: PyFuncArgs, vm: &VirtualMachine) {
-        zelf.close(vm)
+    fn exit(zelf: PyRef<Self>, _args: PyFuncArgs) {
+        zelf.close()
     }
 }
 
@@ -814,7 +814,6 @@ fn os_stat(
     _file: Either<PyStringRef, i64>,
     _dir_fd: DirFd,
     _follow_symlinks: FollowSymlinks,
-    _vm: &VirtualMachine,
 ) -> PyResult {
     unimplemented!();
 }
@@ -877,7 +876,7 @@ fn os_getcwd(vm: &VirtualMachine) -> PyResult<String> {
         .as_path()
         .to_str()
         .unwrap()
-        .to_string())
+        .to_owned())
 }
 
 fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -980,7 +979,7 @@ fn os_pipe2(flags: libc::c_int, vm: &VirtualMachine) -> PyResult<(RawFd, RawFd)>
 }
 
 #[cfg(unix)]
-fn os_system(command: PyStringRef, _vm: &VirtualMachine) -> PyResult<i32> {
+fn os_system(command: PyStringRef) -> PyResult<i32> {
     use libc::system;
     use std::ffi::CString;
 
@@ -1039,7 +1038,7 @@ fn os_cpu_count(vm: &VirtualMachine) -> PyObjectRef {
     vm.new_int(cpu_count)
 }
 
-fn os_exit(code: i32, _vm: &VirtualMachine) {
+fn os_exit(code: i32) {
     std::process::exit(code)
 }
 
@@ -1150,7 +1149,7 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         Ok(()) => Ok(buf),
         Err(e) => match e.raw_os_error() {
             Some(errno) => Err(convert_io_error(vm, io::Error::from_raw_os_error(errno))),
-            None => Err(vm.new_os_error("Getting random failed".to_string())),
+            None => Err(vm.new_os_error("Getting random failed".to_owned())),
         },
     }
 }
@@ -1203,7 +1202,7 @@ macro_rules! suppress_iph {
     }};
 }
 
-fn os_isatty(fd: i32, _vm: &VirtualMachine) -> bool {
+fn os_isatty(fd: i32) -> bool {
     unsafe { suppress_iph!(libc::isatty(fd)) != 0 }
 }
 
@@ -1224,9 +1223,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let os_name = if cfg!(windows) {
-        "nt".to_string()
+        "nt".to_owned()
     } else {
-        "posix".to_string()
+        "posix".to_owned()
     };
 
     let environ = _os_environ(vm);
@@ -1235,8 +1234,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     ScandirIterator::extend_class(ctx, &scandir_iter);
 
     let dir_entry = py_class!(ctx, "DirEntry", ctx.object(), {
-         "name" => ctx.new_property(DirEntryRef::name),
-         "path" => ctx.new_property(DirEntryRef::path),
+         "name" => ctx.new_readonly_getset("name", DirEntryRef::name),
+         "path" => ctx.new_readonly_getset("path", DirEntryRef::path),
          "is_dir" => ctx.new_method(DirEntryRef::is_dir),
          "is_file" => ctx.new_method(DirEntryRef::is_file),
          "is_symlink" => ctx.new_method(DirEntryRef::is_symlink),

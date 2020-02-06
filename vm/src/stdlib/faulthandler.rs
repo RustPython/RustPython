@@ -20,7 +20,7 @@ fn dump_traceback(_file: OptionalArg<i64>, _all_threads: OptionalArg<bool>, vm: 
     }
 }
 
-fn enable(_file: OptionalArg<i64>, _all_threads: OptionalArg<bool>, _vm: &VirtualMachine) {
+fn enable(_file: OptionalArg<i64>, _all_threads: OptionalArg<bool>) {
     // TODO
 }
 
@@ -29,7 +29,6 @@ fn register(
     _file: OptionalArg<i64>,
     _all_threads: OptionalArg<bool>,
     _chain: OptionalArg<bool>,
-    _vm: &VirtualMachine,
 ) {
     // TODO
 }

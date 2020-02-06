@@ -67,8 +67,8 @@ impl PyBaseException {
         Ok(())
     }
 
-    #[pyproperty(name = "args")]
-    fn get_args(&self, _vm: &VirtualMachine) -> PyTupleRef {
+    #[pyproperty]
+    pub fn args(&self) -> PyTupleRef {
         self.args.borrow().clone()
     }
 
@@ -80,7 +80,7 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__traceback__")]
-    fn get_traceback(&self, _vm: &VirtualMachine) -> Option<PyTracebackRef> {
+    pub fn traceback(&self) -> Option<PyTracebackRef> {
         self.traceback.borrow().clone()
     }
 
@@ -90,41 +90,37 @@ impl PyBaseException {
     }
 
     #[pyproperty(name = "__cause__")]
-    fn get_cause(&self, _vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
+    pub fn cause(&self) -> Option<PyBaseExceptionRef> {
         self.cause.borrow().clone()
     }
 
     #[pyproperty(name = "__cause__", setter)]
-    fn setter_cause(&self, cause: Option<PyBaseExceptionRef>, _vm: &VirtualMachine) {
+    pub fn set_cause(&self, cause: Option<PyBaseExceptionRef>) {
         self.cause.replace(cause);
     }
 
     #[pyproperty(name = "__context__")]
-    fn get_context(&self, _vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
+    pub fn context(&self) -> Option<PyBaseExceptionRef> {
         self.context.borrow().clone()
     }
 
     #[pyproperty(name = "__context__", setter)]
-    fn setter_context(&self, context: Option<PyBaseExceptionRef>, _vm: &VirtualMachine) {
+    pub fn set_context(&self, context: Option<PyBaseExceptionRef>) {
         self.context.replace(context);
     }
 
     #[pyproperty(name = "__suppress_context__")]
-    fn get_suppress_context(&self, _vm: &VirtualMachine) -> bool {
+    fn get_suppress_context(&self) -> bool {
         self.suppress_context.get()
     }
 
     #[pyproperty(name = "__suppress_context__", setter)]
-    fn set_suppress_context(&self, suppress_context: bool, _vm: &VirtualMachine) {
+    fn set_suppress_context(&self, suppress_context: bool) {
         self.suppress_context.set(suppress_context);
     }
 
     #[pymethod]
-    fn with_traceback(
-        zelf: PyRef<Self>,
-        tb: Option<PyTracebackRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult {
+    fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
         zelf.traceback.replace(tb);
         Ok(zelf.as_object().clone())
     }
@@ -147,28 +143,6 @@ impl PyBaseException {
             Ok(one) => format!("{}({},)", cls.name, one),
             Err(i) => format!("{}({})", cls.name, i.format(", ")),
         }
-    }
-
-    pub fn args(&self) -> PyTupleRef {
-        self.args.borrow().clone()
-    }
-
-    pub fn traceback(&self) -> Option<PyTracebackRef> {
-        self.traceback.borrow().clone()
-    }
-
-    pub fn cause(&self) -> Option<PyBaseExceptionRef> {
-        self.cause.borrow().clone()
-    }
-    pub fn set_cause(&self, cause: Option<PyBaseExceptionRef>) {
-        self.cause.replace(cause);
-    }
-
-    pub fn context(&self) -> Option<PyBaseExceptionRef> {
-        self.context.borrow().clone()
-    }
-    pub fn set_context(&self, context: Option<PyBaseExceptionRef>) {
-        self.context.replace(context);
     }
 }
 
@@ -225,7 +199,7 @@ fn print_source_line<W: Write>(output: &mut W, filename: &str, lineno: usize) ->
 
 /// Print exception occurrence location from traceback element
 fn write_traceback_entry<W: Write>(output: &mut W, tb_entry: &PyTracebackRef) -> io::Result<()> {
-    let filename = tb_entry.frame.code.source_path.to_string();
+    let filename = tb_entry.frame.code.source_path.to_owned();
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
@@ -347,7 +321,7 @@ impl ExceptionCtor {
             // both are instances; which would we choose?
             (Self::Instance(_exc_a), Some(_exc_b)) => {
                 Err(vm
-                    .new_type_error("instance exception may not have a separate value".to_string()))
+                    .new_type_error("instance exception may not have a separate value".to_owned()))
             }
             // if the "type" is an instance and the value isn't, use the "type"
             (Self::Instance(exc), None) => Ok(exc),
@@ -634,20 +608,21 @@ pub fn init(ctx: &PyContext) {
     PyBaseException::extend_class(ctx, &excs.base_exception_type);
 
     extend_class!(ctx, &excs.syntax_error, {
-        "msg" => ctx.new_property(make_arg_getter(0)),
-        "filename" => ctx.new_property(make_arg_getter(1)),
-        "lineno" => ctx.new_property(make_arg_getter(2)),
-        "offset" => ctx.new_property(make_arg_getter(3)),
-        "text" => ctx.new_property(make_arg_getter(4)),
+        "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
+        // TODO: members
+        "filename" => ctx.none(),
+        "lineno" => ctx.none(),
+        "offset" => ctx.none(),
+        "text" => ctx.none(),
     });
 
     extend_class!(ctx, &excs.import_error, {
         "__init__" => ctx.new_method(import_error_init),
-        "msg" => ctx.new_property(make_arg_getter(0)),
+        "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
     });
 
     extend_class!(ctx, &excs.stop_iteration, {
-        "value" => ctx.new_property(make_arg_getter(0)),
+        "value" => ctx.new_readonly_getset("value", make_arg_getter(0)),
     });
 
     extend_class!(ctx, &excs.key_error, {
@@ -655,27 +630,27 @@ pub fn init(ctx: &PyContext) {
     });
 
     extend_class!(ctx, &excs.unicode_decode_error, {
-        "encoding" => ctx.new_property(make_arg_getter(0)),
-        "object" => ctx.new_property(make_arg_getter(1)),
-        "start" => ctx.new_property(make_arg_getter(2)),
-        "end" => ctx.new_property(make_arg_getter(3)),
-        "reason" => ctx.new_property(make_arg_getter(4)),
+        "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
+        "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
+        "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
+        "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
+        "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
     });
 
     extend_class!(ctx, &excs.unicode_encode_error, {
-        "encoding" => ctx.new_property(make_arg_getter(0)),
-        "object" => ctx.new_property(make_arg_getter(1)),
-        "start" => ctx.new_property(make_arg_getter(2)),
-        "end" => ctx.new_property(make_arg_getter(3)),
-        "reason" => ctx.new_property(make_arg_getter(4)),
+        "encoding" => ctx.new_readonly_getset("encoding", make_arg_getter(0)),
+        "object" => ctx.new_readonly_getset("object", make_arg_getter(1)),
+        "start" => ctx.new_readonly_getset("start", make_arg_getter(2)),
+        "end" => ctx.new_readonly_getset("end", make_arg_getter(3)),
+        "reason" => ctx.new_readonly_getset("reason", make_arg_getter(4)),
     });
 
     extend_class!(ctx, &excs.unicode_translate_error, {
-        "encoding" => ctx.new_property(none_getter),
-        "object" => ctx.new_property(make_arg_getter(0)),
-        "start" => ctx.new_property(make_arg_getter(1)),
-        "end" => ctx.new_property(make_arg_getter(2)),
-        "reason" => ctx.new_property(make_arg_getter(3)),
+        "encoding" => ctx.new_readonly_getset("encoding", none_getter),
+        "object" => ctx.new_readonly_getset("object", make_arg_getter(0)),
+        "start" => ctx.new_readonly_getset("start", make_arg_getter(1)),
+        "end" => ctx.new_readonly_getset("end", make_arg_getter(2)),
+        "reason" => ctx.new_readonly_getset("reason", make_arg_getter(3)),
     });
 }
 

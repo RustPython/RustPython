@@ -32,22 +32,22 @@ impl PyTraceback {
     }
 
     #[pyproperty(name = "tb_frame")]
-    fn frame(&self, _vm: &VirtualMachine) -> FrameRef {
+    fn frame(&self) -> FrameRef {
         self.frame.clone()
     }
 
     #[pyproperty(name = "tb_lasti")]
-    fn lasti(&self, _vm: &VirtualMachine) -> usize {
+    fn lasti(&self) -> usize {
         self.lasti
     }
 
     #[pyproperty(name = "tb_lineno")]
-    fn lineno(&self, _vm: &VirtualMachine) -> usize {
+    fn lineno(&self) -> usize {
         self.lineno
     }
 
     #[pyproperty(name = "tb_next")]
-    fn next_get(&self, _vm: &VirtualMachine) -> Option<PyTracebackRef> {
+    fn next_get(&self) -> Option<PyTracebackRef> {
         self.next.as_ref().cloned()
     }
 }

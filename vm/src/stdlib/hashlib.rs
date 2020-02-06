@@ -36,7 +36,7 @@ impl PyValue for PyHasher {
 impl PyHasher {
     fn new(name: &str, d: HashWrapper) -> Self {
         PyHasher {
-            name: name.to_string(),
+            name: name.to_owned(),
             buffer: RefCell::new(d),
         }
     }
@@ -49,7 +49,7 @@ impl PyHasher {
     }
 
     #[pyproperty(name = "name")]
-    fn name(&self, _vm: &VirtualMachine) -> String {
+    fn name(&self) -> String {
         self.name.clone()
     }
 
@@ -65,13 +65,13 @@ impl PyHasher {
     }
 
     #[pymethod(name = "digest")]
-    fn digest(&self, _vm: &VirtualMachine) -> PyBytes {
+    fn digest(&self) -> PyBytes {
         let result = self.get_digest();
         PyBytes::new(result)
     }
 
     #[pymethod(name = "hexdigest")]
-    fn hexdigest(&self, _vm: &VirtualMachine) -> String {
+    fn hexdigest(&self) -> String {
         let result = self.get_digest();
         hex::encode(result)
     }
@@ -158,11 +158,11 @@ fn sha3_512(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHa
 }
 
 fn shake128(_data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Err(vm.new_not_implemented_error("shake256".to_string()))
+    Err(vm.new_not_implemented_error("shake256".to_owned()))
 }
 
 fn shake256(_data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {
-    Err(vm.new_not_implemented_error("shake256".to_string()))
+    Err(vm.new_not_implemented_error("shake256".to_owned()))
 }
 
 fn blake2b(data: OptionalArg<PyBytesRef>, vm: &VirtualMachine) -> PyResult<PyHasher> {

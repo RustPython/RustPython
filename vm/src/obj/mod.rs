@@ -17,6 +17,7 @@ pub mod objfloat;
 pub mod objframe;
 pub mod objfunction;
 pub mod objgenerator;
+pub mod objgetset;
 pub mod objint;
 pub mod objiter;
 pub mod objlist;
