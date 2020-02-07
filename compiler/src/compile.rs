@@ -29,6 +29,7 @@ struct Compiler<O: OutputStream = BasicOutputStream> {
     source_path: Option<String>,
     current_source_location: ast::Location,
     current_qualified_path: Option<String>,
+    done_with_future_stmts: bool,
     ctx: CompileContext,
     opts: CompileOpts,
 }
@@ -166,6 +167,7 @@ impl<O: OutputStream> Compiler<O> {
             source_path: None,
             current_source_location: ast::Location::default(),
             current_qualified_path: None,
+            done_with_future_stmts: false,
             ctx: CompileContext {
                 in_loop: false,
                 func: FunctionContext::NoFunction,
@@ -333,6 +335,16 @@ impl<O: OutputStream> Compiler<O> {
         trace!("Compiling {:?}", statement);
         self.set_source_location(statement.location);
         use ast::StatementType::*;
+
+        match &statement.node {
+            // we do this here because `from __future__` still executes that `from` statement at runtime,
+            // we still need to compile the ImportFrom down below
+            ImportFrom { module, names, .. } if module.as_deref() == Some("__future__") => {
+                self.compile_future_features(&names)?
+            }
+            // if we find any other statement, stop accepting future statements
+            _ => self.done_with_future_stmts = true,
+        }
 
         match &statement.node {
             Import { names } => {
@@ -2126,6 +2138,38 @@ impl<O: OutputStream> Compiler<O> {
                     self.emit(Instruction::FormatValue {
                         conversion: conversion.map(compile_conversion_flag),
                     });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_future_features(
+        &mut self,
+        features: &[ast::ImportSymbol],
+    ) -> Result<(), CompileError> {
+        if self.done_with_future_stmts {
+            return Err(CompileError {
+                error: CompileErrorType::InvalidFuturePlacement,
+                location: self.current_source_location.clone(),
+                source_path: self.source_path.clone(),
+                statement: None,
+            });
+        }
+        for feature in features {
+            match &*feature.symbol {
+                // Python 3 features; we've already implemented them by default
+                "nested_scopes" | "generators" | "division" | "absolute_import"
+                | "with_statement" | "print_function" | "unicode_literals" => {}
+                // "generator_stop" => {}
+                // "annotations" => {}
+                other => {
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidFutureFeature(other.to_owned()),
+                        location: self.current_source_location.clone(),
+                        source_path: self.source_path.clone(),
+                        statement: None,
+                    })
                 }
             }
         }

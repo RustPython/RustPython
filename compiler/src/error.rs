@@ -58,6 +58,8 @@ pub enum CompileErrorType {
     InvalidAwait,
     AsyncYieldFrom,
     AsyncReturnValue,
+    InvalidFuturePlacement,
+    InvalidFutureFeature(String),
 }
 
 impl CompileError {
@@ -105,6 +107,12 @@ impl fmt::Display for CompileError {
             CompileErrorType::AsyncYieldFrom => "'yield from' inside async function".to_owned(),
             CompileErrorType::AsyncReturnValue => {
                 "'return' with value inside async generator".to_owned()
+            }
+            CompileErrorType::InvalidFuturePlacement => {
+                "from __future__ imports must occur at the beginning of the file".to_owned()
+            }
+            CompileErrorType::InvalidFutureFeature(feat) => {
+                format!("future feature {} is not defined", feat)
             }
         };
 
