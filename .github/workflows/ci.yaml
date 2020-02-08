@@ -72,6 +72,7 @@ jobs:
         run: cargo run --release -- -m test -v
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
+        if: runner.os != 'Windows'
 
   format:
     name: Check Rust code with rustfmt and clippy
