@@ -189,7 +189,8 @@ impl<O: OutputStream> Compiler<O> {
     }
 
     fn push_output(&mut self, mut code: CodeObject) {
-        code.incognito = self.opts.incognito;
+        code.flags
+            .set(bytecode::CodeFlags::INCOGNITO, self.opts.incognito);
         self.output_stack.push(code.into());
     }
 

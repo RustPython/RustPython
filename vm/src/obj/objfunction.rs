@@ -281,7 +281,7 @@ impl PyFunction {
 
     #[pyproperty(magic)]
     fn globals(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        if self.code.incognito {
+        if self.code.incognito() {
             Err(vm.new_type_error("Can't get __globals__ on an incognito function".to_owned()))
         } else {
             Ok(self.scope.globals.clone())

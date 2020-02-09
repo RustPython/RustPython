@@ -103,7 +103,7 @@ impl PyCodeRef {
     }
 
     #[pyproperty]
-    fn co_flags(self) -> u8 {
+    fn co_flags(self) -> u16 {
         self.code.flags.bits()
     }
 }
