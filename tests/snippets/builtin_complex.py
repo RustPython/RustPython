@@ -57,6 +57,13 @@ assert_raises(TypeError, lambda: divmod(2, complex(2, -3)))
 assert complex(1) ** 2 == 1
 assert 2 ** complex(2) == 4
 
+# __pos__
+
+assert +complex(0, 1) == complex(0, 1)
+assert +complex(1, 0) == complex(1, 0)
+assert +complex(1, -1) == complex(1, -1)
+assert +complex(0, 0) == complex(0, 0)
+
 # __neg__
 
 assert -complex(1, -1) == complex(-1, 1)
