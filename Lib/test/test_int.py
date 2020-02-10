@@ -2,8 +2,8 @@ import sys
 
 import unittest
 from test import support
-from test.test_grammar import (VALID_UNDERSCORE_LITERALS,
-                               INVALID_UNDERSCORE_LITERALS)
+# from test.test_grammar import (VALID_UNDERSCORE_LITERALS,
+#                                INVALID_UNDERSCORE_LITERALS)
 
 L = [
         ('0', 0),
@@ -31,6 +31,7 @@ class IntSubclass(int):
 
 class IntTestCases(unittest.TestCase):
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_basic(self):
         self.assertEqual(int(314), 314)
         self.assertEqual(int(3.14), 3)
@@ -214,6 +215,7 @@ class IntTestCases(unittest.TestCase):
         self.assertEqual(int('2br45qc', 35), 4294967297)
         self.assertEqual(int('1z141z5', 36), 4294967297)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_underscores(self):
         for lit in VALID_UNDERSCORE_LITERALS:
             if any(ch in lit for ch in '.eEjJ'):
@@ -278,6 +280,7 @@ class IntTestCases(unittest.TestCase):
         with self.assertRaises(TypeError):
             int('0', 5.0)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_int_base_indexable(self):
         class MyIndexable(object):
             def __init__(self, value):
@@ -295,6 +298,7 @@ class IntTestCases(unittest.TestCase):
         self.assertEqual(int('101', base=MyIndexable(10)), 101)
         self.assertEqual(int('101', base=MyIndexable(36)), 1 + 36**2)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_non_numeric_input_types(self):
         # Test possible non-numeric types for the argument x, including
         # subclasses of the explicitly documented accepted types.
@@ -340,6 +344,7 @@ class IntTestCases(unittest.TestCase):
     def test_string_float(self):
         self.assertRaises(ValueError, int, '1.2')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_intconversion(self):
         # Test __int__()
         class ClassicMissingMethods:
@@ -433,6 +438,8 @@ class IntTestCases(unittest.TestCase):
 
         self.assertRaises(TypeError, int, BadInt())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_int_returns_int_subclass(self):
         class BadInt:
             def __int__(self):
@@ -476,6 +483,8 @@ class IntTestCases(unittest.TestCase):
         self.assertEqual(n, 1)
         self.assertIs(type(n), IntSubclass)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_error_message(self):
         def check(s, base=None):
             with self.assertRaises(ValueError,
