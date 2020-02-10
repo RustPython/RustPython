@@ -78,6 +78,7 @@ pwd = "1"
 
 [target.'cfg(unix)'.dependencies]
 exitcode = "1.1.2"
+uname = "0.1.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 crc32fast = "1.2.0"
