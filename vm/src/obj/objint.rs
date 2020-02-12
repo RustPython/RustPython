@@ -521,6 +521,14 @@ impl PyInt {
         size_of::<Self>() + ((self.value.bits() + 7) & !7) / 8
     }
 
+    #[pymethod(name = "as_integer_ratio")]
+    fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_bigint(&self.value),
+            vm.ctx.new_bigint(&BigInt::one()),
+        ]))
+    }
+
     #[pymethod]
     fn bit_length(&self) -> usize {
         self.value.bits()

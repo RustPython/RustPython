@@ -61,6 +61,12 @@ assert (6).__rmod__(10) == 4
 with assert_raises(ZeroDivisionError):
     (0).__rmod__(10)
 
+# as_integer_ratio
+# TODO uncomment the following tests once #1705 lands (or when the CPython version in test pipeline is upgraded to 3.8)
+# assert (42).as_integer_ratio() == (42, 1)
+# assert (-17).as_integer_ratio() == (-17, 1)
+# assert (0).as_integer_ratio() == (0, 1)
+
 # real/imag attributes
 assert (1).real == 1
 assert (1).imag == 0
