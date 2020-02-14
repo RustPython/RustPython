@@ -1469,8 +1469,6 @@ class CoroutineTests(unittest.TestCase):
         self.assertIs(foo(), coro)
         self.assertIs(foo().__await__(), coro)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_duck_gen(self):
         class GenLike:
             def send(self): pass
