@@ -361,6 +361,7 @@ pub struct ExceptionZoo {
     pub arithmetic_error: PyClassRef,
     pub assertion_error: PyClassRef,
     pub attribute_error: PyClassRef,
+    pub buffer_error: PyClassRef,
     pub base_exception_type: PyClassRef,
     pub exception_type: PyClassRef,
     pub import_error: PyClassRef,
@@ -369,14 +370,17 @@ pub struct ExceptionZoo {
     pub lookup_error: PyClassRef,
     pub module_not_found_error: PyClassRef,
     pub name_error: PyClassRef,
+    pub unbound_local_error: PyClassRef,
     pub not_implemented_error: PyClassRef,
     pub recursion_error: PyClassRef,
+    pub floating_point_error: PyClassRef,
     pub overflow_error: PyClassRef,
     pub reference_error: PyClassRef,
     pub runtime_error: PyClassRef,
     pub stop_iteration: PyClassRef,
     pub stop_async_iteration: PyClassRef,
     pub syntax_error: PyClassRef,
+    pub target_scope_error: PyClassRef,
     pub indentation_error: PyClassRef,
     pub tab_error: PyClassRef,
     pub system_error: PyClassRef,
@@ -391,16 +395,21 @@ pub struct ExceptionZoo {
     pub memory_error: PyClassRef,
 
     pub os_error: PyClassRef,
-    pub file_not_found_error: PyClassRef,
-    pub permission_error: PyClassRef,
-    pub file_exists_error: PyClassRef,
     pub blocking_io_error: PyClassRef,
-    pub interrupted_error: PyClassRef,
+    pub child_process_error: PyClassRef,
     pub connection_error: PyClassRef,
-    pub connection_reset_error: PyClassRef,
-    pub connection_refused_error: PyClassRef,
-    pub connection_aborted_error: PyClassRef,
     pub broken_pipe_error: PyClassRef,
+    pub connection_aborted_error: PyClassRef,
+    pub connection_refused_error: PyClassRef,
+    pub connection_reset_error: PyClassRef,
+    pub file_exists_error: PyClassRef,
+    pub file_not_found_error: PyClassRef,
+    pub interrupted_error: PyClassRef,
+    pub is_a_directory_error: PyClassRef,
+    pub not_a_directory_error: PyClassRef,
+    pub permission_error: PyClassRef,
+    pub process_lookup_error: PyClassRef,
+    pub timeout_error: PyClassRef,
 
     pub warning: PyClassRef,
     pub bytes_warning: PyClassRef,
@@ -432,19 +441,23 @@ impl ExceptionZoo {
         let arithmetic_error = create_exception_type("ArithmeticError", &exception_type);
         let assertion_error = create_exception_type("AssertionError", &exception_type);
         let attribute_error = create_exception_type("AttributeError", &exception_type);
+        let buffer_error = create_exception_type("BufferError", &exception_type);
         let import_error = create_exception_type("ImportError", &exception_type);
         let lookup_error = create_exception_type("LookupError", &exception_type);
         let index_error = create_exception_type("IndexError", &lookup_error);
         let key_error = create_exception_type("KeyError", &lookup_error);
         let name_error = create_exception_type("NameError", &exception_type);
+        let unbound_local_error = create_exception_type("UnboundLocalError", &name_error);
         let runtime_error = create_exception_type("RuntimeError", &exception_type);
         let reference_error = create_exception_type("ReferenceError", &exception_type);
         let stop_iteration = create_exception_type("StopIteration", &exception_type);
         let stop_async_iteration = create_exception_type("StopAsyncIteration", &exception_type);
         let syntax_error = create_exception_type("SyntaxError", &exception_type);
+        let target_scope_error = create_exception_type("TargetScopeError", &syntax_error);
         let system_error = create_exception_type("SystemError", &exception_type);
         let type_error = create_exception_type("TypeError", &exception_type);
         let value_error = create_exception_type("ValueError", &exception_type);
+        let floating_point_error = create_exception_type("FloatingPointError", &arithmetic_error);
         let overflow_error = create_exception_type("OverflowError", &arithmetic_error);
         let zero_division_error = create_exception_type("ZeroDivisionError", &arithmetic_error);
         let module_not_found_error = create_exception_type("ModuleNotFoundError", &import_error);
@@ -462,20 +475,24 @@ impl ExceptionZoo {
 
         // os errors
         let os_error = create_exception_type("OSError", &exception_type);
-
-        let file_not_found_error = create_exception_type("FileNotFoundError", &os_error);
-        let permission_error = create_exception_type("PermissionError", &os_error);
-        let file_exists_error = create_exception_type("FileExistsError", &os_error);
         let blocking_io_error = create_exception_type("BlockingIOError", &os_error);
-        let interrupted_error = create_exception_type("InterruptedError", &os_error);
+        let child_process_error = create_exception_type("ChildProcessError", &os_error);
         let connection_error = create_exception_type("ConnectionError", &os_error);
-        let connection_reset_error =
-            create_exception_type("ConnectionResetError", &connection_error);
-        let connection_refused_error =
-            create_exception_type("ConnectionRefusedError", &connection_error);
         let connection_aborted_error =
             create_exception_type("ConnectionAbortedError", &connection_error);
+        let connection_refused_error =
+            create_exception_type("ConnectionRefusedError", &connection_error);
+        let connection_reset_error =
+            create_exception_type("ConnectionResetError", &connection_error);
+        let file_exists_error = create_exception_type("FileExistsError", &os_error);
+        let file_not_found_error = create_exception_type("FileNotFoundError", &os_error);
+        let interrupted_error = create_exception_type("InterruptedError", &os_error);
+        let is_a_directory_error = create_exception_type("IsADirectoryError", &os_error);
+        let not_a_directory_error = create_exception_type("NotADirectoryError", &os_error);
         let broken_pipe_error = create_exception_type("BrokenPipeError", &connection_error);
+        let permission_error = create_exception_type("PermissionError", &os_error);
+        let process_lookup_error = create_exception_type("ProcessLookupError", &os_error);
+        let timeout_error = create_exception_type("TimeoutError", &os_error);
 
         let warning = create_exception_type("Warning", &exception_type);
         let bytes_warning = create_exception_type("BytesWarning", &warning);
@@ -498,6 +515,7 @@ impl ExceptionZoo {
             arithmetic_error,
             assertion_error,
             attribute_error,
+            buffer_error,
             base_exception_type,
             exception_type,
             import_error,
@@ -506,13 +524,16 @@ impl ExceptionZoo {
             lookup_error,
             module_not_found_error,
             name_error,
+            unbound_local_error,
             not_implemented_error,
             recursion_error,
+            floating_point_error,
             overflow_error,
             runtime_error,
             stop_iteration,
             stop_async_iteration,
             syntax_error,
+            target_scope_error,
             indentation_error,
             tab_error,
             system_error,
@@ -526,15 +547,21 @@ impl ExceptionZoo {
             eof_error,
             memory_error,
             os_error,
-            file_not_found_error,
-            permission_error,
-            file_exists_error,
             blocking_io_error,
-            interrupted_error,
+            child_process_error,
             connection_error,
-            connection_reset_error,
-            connection_refused_error,
             connection_aborted_error,
+            connection_refused_error,
+            connection_reset_error,
+            file_exists_error,
+            file_not_found_error,
+            interrupted_error,
+            is_a_directory_error,
+            not_a_directory_error,
+            permission_error,
+            process_lookup_error,
+            timeout_error,
+
             broken_pipe_error,
             warning,
             bytes_warning,
