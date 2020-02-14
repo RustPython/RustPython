@@ -139,10 +139,7 @@ impl PyBaseException {
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
         let repr_args = exception_args_as_string(vm, zelf.args(), false);
         let cls = zelf.class();
-        match repr_args.into_iter().exactly_one() {
-            Ok(one) => format!("{}({},)", cls.name, one),
-            Err(i) => format!("{}({})", cls.name, i.format(", ")),
-        }
+        format!("{}({})", cls.name, repr_args.iter().format(", "))
     }
 }
 

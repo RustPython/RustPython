@@ -86,8 +86,6 @@ class ExceptionClassTests(unittest.TestCase):
             self.assertEqual(given, expected, "%s: %s != %s" % (test_name,
                 given, expected))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_interface_single_arg(self):
         # Make sure interface works properly when given a single argument
         arg = "spam"
