@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use super::objdict::PyDictRef;
@@ -15,6 +15,7 @@ use crate::pyobject::{
 };
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
+use itertools::Itertools;
 
 /// type(object_or_name, bases, dict)
 /// type(object) -> the object's type
@@ -312,7 +313,14 @@ impl PyClassRef {
         };
 
         let attributes = dict.to_attributes();
-        let typ = new(metatype, name.as_str(), base.clone(), bases, attributes)?;
+        let typ = new(
+            metatype,
+            name.as_str(),
+            base.clone(),
+            bases,
+            attributes,
+            Some(vm),
+        )?;
         typ.slots.borrow_mut().flags = base.slots.borrow().flags;
         Ok(typ.into())
     }
@@ -462,19 +470,33 @@ fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> Option<(PyClassRef, Vec<Ve
         }
     }
 
-    if let Some(head) = next {
-        for item in &mut bases {
-            if item[0].is(&head) {
-                item.remove(0);
-            }
+    let head = next?;
+    for item in &mut bases {
+        if item[0].is(&head) {
+            item.remove(0);
         }
-        return Some((head, bases));
     }
-    None
+    Some((head, bases))
 }
 
 fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Option<Vec<PyClassRef>> {
     vm_trace!("Linearising MRO: {:?}", bases);
+    // Python requires that the class direct bases are kept in the same order.
+    // This is called local precedence ordering.
+    // This means we must verify that for classes A(), B(A) we must reject C(A, B) even though this
+    // algorithm will allow the mro ordering of [C, B, A, object].
+    // To verify this, we make sure non of the direct bases are in the mro of bases after them.
+    for (i, base_mro) in bases.iter().enumerate() {
+        let base = &base_mro[0]; // Mros cannot be empty.
+        for later_mro in bases[i + 1..].iter() {
+            // We start at index 1 to skip direct bases.
+            // This will not catch duplicate bases, but such a thing is already tested for.
+            if later_mro[1..].iter().any(|cls| cls.is(base)) {
+                return None;
+            }
+        }
+    }
+
     let mut result = vec![];
     loop {
         if (&bases).iter().all(Vec::is_empty) {
@@ -494,9 +516,31 @@ pub fn new(
     _base: PyClassRef,
     bases: Vec<PyClassRef>,
     dict: HashMap<String, PyObjectRef>,
+    optional_vm: Option<&VirtualMachine>,
 ) -> PyResult<PyClassRef> {
+    // Check for duplicates in bases.
+    let mut unique_bases = HashSet::new();
+    for base in bases.iter() {
+        if !unique_bases.insert(base.get_id()) {
+            let vm = optional_vm
+                .expect("Could not create a class made by internal code due to duplicate bases.");
+            return Err(vm.new_type_error(format!("duplicate base class {}", base.name)));
+        }
+    }
+
     let mros = bases.iter().map(|x| _mro(&x)).collect();
-    let mro = linearise_mro(mros).unwrap();
+    let mro = linearise_mro(mros);
+    if mro.is_none() {
+        let vm =
+            optional_vm.expect("Could not create consistent MRO for class made by internal code.");
+        let mut error_string = bases.iter().join(", ");
+        error_string.insert_str(
+            0,
+            "Cannot create a consistent method resolution order (MRO) for bases ",
+        );
+        return Err(vm.new_type_error(error_string));
+    }
+    let mro = mro.unwrap();
     let new_type = PyObject {
         payload: PyClass {
             name: String::from(name),
@@ -619,6 +663,7 @@ mod tests {
             object.clone(),
             vec![object.clone()],
             HashMap::new(),
+            None,
         )
         .unwrap();
         let b = new(
@@ -627,6 +672,7 @@ mod tests {
             object.clone(),
             vec![object.clone()],
             HashMap::new(),
+            None,
         )
         .unwrap();
 

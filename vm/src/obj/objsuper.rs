@@ -11,7 +11,8 @@ use super::objstr::PyStringRef;
 use super::objtype::{self, PyClass, PyClassRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::scope::NameProtocol;
 use crate::vm::VirtualMachine;
@@ -53,27 +54,30 @@ impl PySuper {
     #[pymethod(name = "__getattribute__")]
     fn getattribute(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let inst = self.obj.clone();
-        let typ = self.typ.clone();
 
-        match typ.payload::<PyClass>() {
-            Some(PyClass { ref mro, .. }) => {
-                for class in mro {
-                    if let Ok(item) = vm.get_attribute(class.as_object().clone(), name.clone()) {
-                        if item.payload_is::<PyBoundMethod>() {
-                            // This is a classmethod
-                            return Ok(item);
-                        }
-                        return vm.call_if_get_descriptor(item, inst.clone());
-                    }
-                }
-                Err(vm.new_attribute_error(format!(
-                    "{} has no attribute '{}'",
-                    inst,
-                    name.as_str()
-                )))
-            }
+        // Super should be the next matching class in the object original class' mro after the current one.
+        let mut mro_iter = match self.obj_type.payload::<PyClass>() {
+            Some(PyClass { ref mro, .. }) => mro.iter(),
             _ => panic!("not Class"),
+        };
+        // The type itself is not in its mro, so skip finding the current class if its the type.
+        if !self.typ.is(&self.obj_type) {
+            let index = mro_iter.find(|&x| x.as_object().is(&self.typ));
+            if index.is_none() {
+                panic!("Current super type is not in instance's type mro");
+            }
         }
+
+        for class in mro_iter {
+            if let Ok(item) = vm.get_attribute(class.as_object().clone(), name.clone()) {
+                if item.payload_is::<PyBoundMethod>() {
+                    // This is a classmethod
+                    return Ok(item);
+                }
+                return vm.call_if_get_descriptor(item, inst.clone());
+            }
+        }
+        Err(vm.new_attribute_error(format!("{} has no attribute '{}'", inst, name.as_str())))
     }
 
     #[pyslot]
