@@ -2390,8 +2390,9 @@ class io:
     BinaryIO = BinaryIO
 
 
-io.__name__ = __name__ + '.io'
-sys.modules[io.__name__] = io
+# XXX RustPython TODO: editable type.__name__
+# io.__name__ = __name__ + '.io'
+sys.modules[__name__ + '.io'] = io
 
 
 Pattern = _TypeAlias('Pattern', AnyStr, type(stdlib_re.compile('')),
@@ -2408,5 +2409,6 @@ class re:
     Match = Match
 
 
-re.__name__ = __name__ + '.re'
-sys.modules[re.__name__] = re
+# XXX RustPython TODO: editable type.__name__
+# re.__name__ = __name__ + '.re'
+sys.modules[__name__ + '.re'] = re
