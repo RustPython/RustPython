@@ -632,3 +632,6 @@ assert next(it) == 4
 assert it.__length_hint__() == 3
 assert list(it) == [3,2,1]
 assert it.__length_hint__() == 0
+
+a = [*[1, 2], 3, *[4, 5]]
+assert a == [1, 2, 3, 4, 5]
