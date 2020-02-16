@@ -44,45 +44,15 @@ impl PyValue for PyClass {
     }
 }
 
-struct IterMro<'a> {
-    cls: &'a PyClassRef,
-    offset: Option<usize>,
-}
-
-impl<'a> Iterator for IterMro<'a> {
-    type Item = &'a PyClassRef;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.offset {
-            None => {
-                self.offset = Some(0);
-                Some(&self.cls)
-            }
-            Some(offset) => {
-                if offset < self.cls.mro.len() {
-                    self.offset = Some(offset + 1);
-                    Some(&self.cls.mro[offset])
-                } else {
-                    None
-                }
-            }
-        }
-    }
-}
-
 #[pyimpl(flags(BASETYPE))]
 impl PyClassRef {
-    fn iter_mro(&self) -> IterMro {
-        IterMro {
-            cls: self,
-            offset: None,
+    pub fn iter_mro<'a>(&'a self) -> impl Iterator<Item = &'a PyClassRef> + DoubleEndedIterator {
+        std::iter::once(self).chain(self.mro.iter())
         }
-    }
 
     #[pyproperty(name = "__mro__")]
     fn get_mro(self) -> PyTuple {
-        let elements: Vec<PyObjectRef> =
-            _mro(&self).iter().map(|x| x.as_object().clone()).collect();
+        let elements: Vec<PyObjectRef> = self.iter_mro().map(|x| x.as_object().clone()).collect();
         PyTuple::from(elements)
     }
 
@@ -252,11 +222,12 @@ impl PyClassRef {
 
     #[pymethod]
     fn mro(self, vm: &VirtualMachine) -> PyObjectRef {
-        let mut mro = vec![self.clone().into_object()];
-        mro.extend(self.mro.iter().map(|x| x.clone().into_object()));
-        vm.ctx.new_list(mro)
+        vm.ctx.new_list(
+            self.iter_mro()
+                .map(|cls| cls.clone().into_object())
+                .collect(),
+        )
     }
-
     #[pyslot]
     fn tp_new(metatype: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
@@ -356,10 +327,6 @@ pub(crate) fn init(ctx: &PyContext) {
     PyClassRef::extend_class(ctx, &ctx.types.type_type);
 }
 
-fn _mro(cls: &PyClassRef) -> Vec<PyClassRef> {
-    cls.iter_mro().cloned().collect()
-}
-
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
 #[inline]
@@ -371,8 +338,8 @@ pub fn isinstance<T: TypeProtocol>(obj: &T, cls: &PyClassRef) -> bool {
 /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
 /// method.
 pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
-    let mro = &subclass.mro;
-    subclass.is(cls) || mro.iter().any(|c| c.is(cls.as_object()))
+    subclass.iter_mro().any(|c| c.is(cls))
+}
 }
 
 pub fn type_new(
@@ -425,10 +392,7 @@ impl PyClassRef {
 
     // This is the internal has_attr implementation for fast lookup on a class.
     pub fn has_attr(&self, attr_name: &str) -> bool {
-        self.attributes.borrow().contains_key(attr_name)
-            || self
-                .mro
-                .iter()
+        self.iter_mro()
                 .any(|c| c.attributes.borrow().contains_key(attr_name))
     }
 
@@ -436,10 +400,7 @@ impl PyClassRef {
         // Gather all members here:
         let mut attributes = PyAttributes::new();
 
-        let mut base_classes: Vec<&PyClassRef> = self.iter_mro().collect();
-        base_classes.reverse();
-
-        for bc in base_classes {
+        for bc in self.iter_mro().rev() {
             for (name, value) in bc.attributes.borrow().iter() {
                 attributes.insert(name.to_owned(), value.clone());
             }
@@ -495,7 +456,10 @@ pub fn new(
     bases: Vec<PyClassRef>,
     dict: HashMap<String, PyObjectRef>,
 ) -> PyResult<PyClassRef> {
-    let mros = bases.iter().map(|x| _mro(&x)).collect();
+    let mros = bases
+        .iter()
+        .map(|x| x.iter_mro().cloned().collect())
+        .collect();
     let mro = linearise_mro(mros).unwrap();
     let new_type = PyObject {
         payload: PyClass {
