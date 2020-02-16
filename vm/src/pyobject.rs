@@ -33,6 +33,7 @@ use crate::obj::objnamespace::PyNamespace;
 use crate::obj::objnone::{PyNone, PyNoneRef};
 use crate::obj::objobject;
 use crate::obj::objset::PySet;
+use crate::obj::objstaticmethod::PyStaticMethod;
 use crate::obj::objstr;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
@@ -499,6 +500,16 @@ impl PyContext {
         PyObject::new(
             PyClassMethod::new(self.new_method(f)),
             self.classmethod_type(),
+            None,
+        )
+    }
+    pub fn new_staticmethod<F, T, R, VM>(&self, f: F) -> PyObjectRef
+    where
+        F: IntoPyNativeFunc<T, R, VM>,
+    {
+        PyObject::new(
+            PyStaticMethod::new(self.new_method(f)),
+            self.staticmethod_type(),
             None,
         )
     }
