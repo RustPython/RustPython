@@ -1008,7 +1008,7 @@ ExpressionList2: Vec<ast::Expression> = {
 // - a single expression
 // - a single expression followed by a trailing comma
 TestList: ast::Expression = {
-    <location:@L> <elements:OneOrMore<Test>> <trailing_comma: ","?> => {
+    <location:@L> <elements:OneOrMore<TestOrStarExpr>> <trailing_comma: ","?> => {
         if elements.len() == 1 && trailing_comma.is_none() {
             elements.into_iter().next().unwrap()
         } else {
