@@ -5,6 +5,7 @@ use std::fmt;
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objmappingproxy::PyMappingProxy;
+use super::objstaticmethod::PyStaticMethod;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
@@ -48,7 +49,7 @@ impl PyValue for PyClass {
 impl PyClassRef {
     pub fn iter_mro<'a>(&'a self) -> impl Iterator<Item = &'a PyClassRef> + DoubleEndedIterator {
         std::iter::once(self).chain(self.mro.iter())
-        }
+    }
 
     #[pyproperty(name = "__mro__")]
     fn get_mro(self) -> PyTuple {
@@ -282,9 +283,16 @@ impl PyClassRef {
             (metatype, base, bases)
         };
 
-        let attributes = dict.to_attributes();
+        let mut attributes = dict.to_attributes();
+        if let Some(f) = attributes.get_mut("__new__") {
+            if f.class().is(&vm.ctx.function_type()) {
+                *f = PyStaticMethod::new(f.clone()).into_ref(vm).into_object();
+            }
+        }
+
         let typ = new(metatype, name.as_str(), base.clone(), bases, attributes)?;
         typ.slots.borrow_mut().flags = base.slots.borrow().flags;
+        vm.ctx.add_tp_new_wrapper(&typ);
         Ok(typ.into())
     }
 
@@ -292,9 +300,12 @@ impl PyClassRef {
     #[pymethod(magic)]
     fn call(self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", self);
-        let new = vm.get_attribute(self.as_object().clone(), "__new__")?;
-        let new_args = args.insert(self.into_object());
-        let obj = vm.invoke(&new, new_args)?;
+        let obj = call_tp_new(self.clone(), self.clone(), args.clone(), vm)?;
+
+        if (self.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !isinstance(&obj, &self)
+        {
+            return Ok(obj);
+        }
 
         if let Some(init_method_or_err) = vm.get_method(obj.clone(), "__init__") {
             let init_method = init_method_or_err?;
@@ -340,9 +351,32 @@ pub fn isinstance<T: TypeProtocol>(obj: &T, cls: &PyClassRef) -> bool {
 pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
     subclass.iter_mro().any(|c| c.is(cls))
 }
+
+fn call_tp_new(
+    typ: PyClassRef,
+    subtype: PyClassRef,
+    args: PyFuncArgs,
+    vm: &VirtualMachine,
+) -> PyResult {
+    for cls in typ.iter_mro() {
+        if let Some(new_meth) = cls.get_attr("__new__") {
+            if !vm.ctx.is_tp_new_wrapper(&new_meth) {
+                let new_meth = vm.call_if_get_descriptor(new_meth, typ.clone().into_object())?;
+                return vm.invoke(&new_meth, args.insert(typ.clone().into_object()));
+            }
+        }
+    }
+    let class_with_new_slot = typ
+        .iter_mro()
+        .cloned()
+        .find(|cls| cls.slots.borrow().new.is_some())
+        .expect("Should be able to find a new slot somewhere in the mro");
+    let slots = class_with_new_slot.slots.borrow();
+    let new_slot = slots.new.as_ref().unwrap();
+    new_slot(vm, args.insert(subtype.into_object()))
 }
 
-pub fn type_new(
+pub fn tp_new_wrapper(
     zelf: PyClassRef,
     cls: PyClassRef,
     args: PyFuncArgs,
@@ -355,21 +389,7 @@ pub fn type_new(
             cls = cls.name,
         )));
     }
-
-    let class_with_new_slot = if cls.slots.borrow().new.is_some() {
-        cls.clone()
-    } else {
-        cls.mro
-            .iter()
-            .cloned()
-            .find(|cls| cls.slots.borrow().new.is_some())
-            .expect("Should be able to find a new slot somewhere in the mro")
-    };
-
-    let slots = class_with_new_slot.slots.borrow();
-    let new = slots.new.as_ref().unwrap();
-
-    new(vm, args.insert(cls.into_object()))
+    call_tp_new(zelf, cls, args, vm)
 }
 
 impl PyClassRef {
@@ -393,7 +413,7 @@ impl PyClassRef {
     // This is the internal has_attr implementation for fast lookup on a class.
     pub fn has_attr(&self, attr_name: &str) -> bool {
         self.iter_mro()
-                .any(|c| c.attributes.borrow().contains_key(attr_name))
+            .any(|c| c.attributes.borrow().contains_key(attr_name))
     }
 
     pub fn get_attributes(self) -> PyAttributes {

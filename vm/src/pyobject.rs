@@ -106,6 +106,7 @@ pub struct PyContext {
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
     pub int_cache_pool: Vec<PyObjectRef>,
+    tp_new_wrapper: PyObjectRef,
 }
 
 pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
@@ -160,6 +161,12 @@ impl PyContext {
 
         let empty_tuple = create_object(PyTuple::from(vec![]), &types.tuple_type);
 
+        let tp_new_wrapper = create_object(
+            PyBuiltinFunction::new(objtype::tp_new_wrapper.into_func()),
+            &types.builtin_function_or_method_type,
+        )
+        .into_object();
+
         let context = PyContext {
             true_value,
             false_value,
@@ -172,6 +179,7 @@ impl PyContext {
             types,
             exceptions,
             int_cache_pool,
+            tp_new_wrapper,
         };
         initialize_types(&context);
 
@@ -591,6 +599,19 @@ impl PyContext {
             bytecode::Constant::None => self.none(),
             bytecode::Constant::Ellipsis => self.ellipsis(),
         }
+    }
+
+    pub fn add_tp_new_wrapper(&self, ty: &PyClassRef) {
+        if !ty.attributes.borrow().contains_key("__new__") {
+            let new_wrapper =
+                self.new_bound_method(self.tp_new_wrapper.clone(), ty.clone().into_object());
+            ty.set_str_attr("__new__", new_wrapper);
+        }
+    }
+
+    pub fn is_tp_new_wrapper(&self, obj: &PyObjectRef) -> bool {
+        obj.payload::<PyBoundMethod>()
+            .map_or(false, |bound| bound.function.is(&self.tp_new_wrapper))
     }
 }
 
@@ -1231,6 +1252,7 @@ pub trait PyClassImpl: PyClassDef {
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
         Self::impl_extend_class(ctx, class);
         class.slots.borrow_mut().flags = Self::TP_FLAGS;
+        ctx.add_tp_new_wrapper(&class);
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc.into()));
         }
