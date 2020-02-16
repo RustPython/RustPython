@@ -634,23 +634,32 @@ impl VirtualMachine {
         objbool::boolval(self, ret)
     }
 
-    pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {
+    pub fn call_get_descriptor_specific(
+        &self,
+        descr: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        cls: Option<PyObjectRef>,
+    ) -> Option<PyResult> {
         let descr_class = descr.class();
         let slots = descr_class.slots.borrow();
-        Some(if let Some(descr_get) = slots.borrow().descr_get.as_ref() {
-            let cls = obj.class();
-            descr_get(
-                self,
-                descr,
-                Some(obj.clone()),
-                OptionalArg::Present(cls.into_object()),
-            )
+        if let Some(descr_get) = slots.descr_get.as_ref() {
+            Some(descr_get(self, descr, obj, OptionalArg::from_option(cls)))
         } else if let Some(ref descriptor) = descr_class.get_attr("__get__") {
-            let cls = obj.class();
-            self.invoke(descriptor, vec![descr, obj.clone(), cls.into_object()])
+            Some(self.invoke(
+                descriptor,
+                vec![
+                    descr,
+                    obj.unwrap_or(self.get_none()),
+                    cls.unwrap_or(self.get_none()),
+                ],
+            ))
         } else {
-            return None;
-        })
+            None
+        }
+    }
+
+    pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {
+        self.call_get_descriptor_specific(descr, Some(obj.clone()), Some(obj.class().into_object()))
     }
 
     pub fn call_if_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
