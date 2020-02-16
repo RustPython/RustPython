@@ -44,6 +44,16 @@ impl From<PyObjectRef> for PyFuncArgs {
     }
 }
 
+impl From<(Args, KwArgs)> for PyFuncArgs {
+    fn from(arg: (Args, KwArgs)) -> Self {
+        let Args(args) = arg.0;
+        let KwArgs(kwargs) = arg.1;
+        PyFuncArgs {
+            args,
+            kwargs: kwargs.into_iter().collect(),
+        }
+    }
+}
 impl From<(&Args, &KwArgs)> for PyFuncArgs {
     fn from(arg: (&Args, &KwArgs)) -> Self {
         let Args(args) = arg.0;
@@ -291,6 +301,11 @@ pub struct Args<T = PyObjectRef>(Vec<T>);
 impl<T> Args<T> {
     pub fn into_vec(self) -> Vec<T> {
         self.0
+    }
+}
+impl<T> From<Vec<T>> for Args<T> {
+    fn from(v: Vec<T>) -> Self {
+        Args(v)
     }
 }
 

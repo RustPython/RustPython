@@ -959,7 +959,10 @@ pub fn builtin_build_class_(
 
     let class = vm.invoke(
         metaclass.as_object(),
-        vec![name_obj, bases, namespace.into_object()],
+        (
+            Args::from(vec![name_obj, bases, namespace.into_object()]),
+            kwargs,
+        ),
     )?;
     cells.set_item("__class__", class.clone(), vm)?;
     Ok(class)
