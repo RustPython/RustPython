@@ -210,8 +210,7 @@ impl PyBaseObject {
     #[pymethod(magic)]
     fn getattribute(obj: PyObjectRef, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
-        vm.generic_getattribute(obj.clone(), name.clone())?
-            .ok_or_else(|| vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
+        vm.generic_getattribute(obj, name)
     }
 
     #[pymethod(magic)]

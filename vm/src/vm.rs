@@ -869,8 +869,13 @@ impl VirtualMachine {
         })
     }
 
+    pub fn generic_getattribute(&self, obj: PyObjectRef, name: PyStringRef) -> PyResult {
+        self.generic_getattribute_opt(obj.clone(), name.clone())?
+            .ok_or_else(|| self.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
+    }
+
     /// CPython _PyObject_GenericGetAttrWithDict
-    pub fn generic_getattribute(
+    pub fn generic_getattribute_opt(
         &self,
         obj: PyObjectRef,
         name_str: PyStringRef,
