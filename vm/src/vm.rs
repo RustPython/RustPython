@@ -21,7 +21,7 @@ use rustpython_compiler::{compile, error::CompileError};
 
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
-use crate::exceptions::{PyBaseException, PyBaseExceptionRef};
+use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
 use crate::function::{OptionalArg, PyFuncArgs};
@@ -234,8 +234,10 @@ impl VirtualMachine {
                 #[cfg(not(target_arch = "wasm32"))]
                 import::import_builtin(self, "signal").expect("Couldn't initialize signal module");
 
-                import::init_importlib(self, initialize_parameter)
-                    .expect("Initialize importlib fail");
+                self.expect_pyresult(
+                    import::init_importlib(self, initialize_parameter),
+                    "Initialize importlib fail",
+                );
 
                 self.initialized = true;
             }
@@ -488,6 +490,20 @@ impl VirtualMachine {
     pub fn new_import_error(&self, msg: String) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.clone();
         self.new_exception_msg(import_error, msg)
+    }
+
+    // TODO: #[track_caller] when stabilized
+    pub fn unwrap_pyresult<T>(&self, result: PyResult<T>) -> T {
+        result.unwrap_or_else(|exc| {
+            exceptions::print_exception(self, &exc);
+            panic!("called `vm.unwrap_pyresult()` on an `Err` value; exception backtrace above");
+        })
+    }
+    pub fn expect_pyresult<T>(&self, result: PyResult<T>, msg: &str) -> T {
+        result.unwrap_or_else(|exc| {
+            exceptions::print_exception(self, &exc);
+            panic!("{}; exception backtrace above", msg);
+        })
     }
 
     pub fn new_scope_with_builtins(&self) -> Scope {
