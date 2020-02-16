@@ -169,7 +169,9 @@ class T5(int):
 
 assert str(super(int, T5(5))) == "<super: <class 'int'>, <T5 object>>"
 
-#assert str(super(type, None)) == "<super: <class 'type'>, NULL>"
+assert str(super(type, None)) == "<super: <class 'type'>, NULL>"
+
+assert str(super(int).__get__(T5(5))) == "<super: <class 'int'>, <T5 object>>"
 
 a = 1
 class A:
