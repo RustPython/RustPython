@@ -47,7 +47,7 @@ impl PyValue for PyClass {
 
 #[pyimpl(flags(BASETYPE))]
 impl PyClassRef {
-    pub fn iter_mro<'a>(&'a self) -> impl Iterator<Item = &'a PyClassRef> + DoubleEndedIterator {
+    pub fn iter_mro(&self) -> impl Iterator<Item = &PyClassRef> + DoubleEndedIterator {
         std::iter::once(self).chain(self.mro.iter())
     }
 

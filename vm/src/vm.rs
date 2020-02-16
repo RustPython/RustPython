@@ -649,8 +649,8 @@ impl VirtualMachine {
                 descriptor,
                 vec![
                     descr,
-                    obj.unwrap_or(self.get_none()),
-                    cls.unwrap_or(self.get_none()),
+                    obj.unwrap_or_else(|| self.get_none()),
+                    cls.unwrap_or_else(|| self.get_none()),
                 ],
             ))
         } else {
