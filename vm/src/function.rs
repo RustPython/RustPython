@@ -289,6 +289,10 @@ impl<T> IntoIterator for KwArgs<T> {
 pub struct Args<T = PyObjectRef>(Vec<T>);
 
 impl<T> Args<T> {
+    pub fn new(args: Vec<T>) -> Self {
+        Args(args)
+    }
+
     pub fn into_vec(self) -> Vec<T> {
         self.0
     }
