@@ -1698,8 +1698,6 @@ mod tests {
 
     #[test]
     fn str_title() {
-        let vm: VirtualMachine = Default::default();
-
         let tests = vec![
             (" Hello ", " hello "),
             ("Hello ", "hello "),
@@ -1717,8 +1715,6 @@ mod tests {
 
     #[test]
     fn str_istitle() {
-        let vm: VirtualMachine = Default::default();
-
         let pos = vec![
             "A",
             "A Titlecased Line",
