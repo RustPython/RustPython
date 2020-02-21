@@ -120,6 +120,10 @@ impl FormatSpec {
 
         Ok(PyTuple::from(items))
     }
+
+    fn size(&self) -> usize {
+        self.codes.iter().map(FormatCode::size).sum()
+    }
 }
 
 /// Parse endianness
@@ -413,7 +417,7 @@ where
 fn struct_calcsize(fmt: PyStringRef, vm: &VirtualMachine) -> PyResult<usize> {
     let fmt_str = fmt.as_str();
     let format_spec = FormatSpec::parse(fmt_str).map_err(|e| vm.new_value_error(e))?;
-    Ok(format_spec.codes.iter().map(|code| code.size()).sum())
+    Ok(format_spec.size())
 }
 
 #[pyclass(name = "Struct")]
@@ -441,6 +445,10 @@ impl PyStruct {
     #[pyproperty]
     fn format(&self) -> PyStringRef {
         self.fmt_str.clone()
+    }
+    #[pyproperty]
+    fn size(&self) -> usize {
+        self.spec.size()
     }
 
     #[pymethod]
