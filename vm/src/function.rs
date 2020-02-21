@@ -294,6 +294,12 @@ impl<T> Args<T> {
     }
 }
 
+impl<T> AsRef<[T]> for Args<T> {
+    fn as_ref(&self) -> &[T] {
+        &self.0
+    }
+}
+
 impl<T: PyValue> Args<PyRef<T>> {
     pub fn into_tuple(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx

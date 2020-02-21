@@ -99,7 +99,11 @@ impl SlotCall for PyBuiltinMethod {
 }
 
 #[pyimpl(with(SlotDescriptor, SlotCall))]
-impl PyBuiltinMethod {}
+impl PyBuiltinMethod {
+    // TODO: give builtin functions names
+    #[pyproperty(magic)]
+    fn name(&self) {}
+}
 
 pub fn init(context: &PyContext) {
     PyBuiltinFunction::extend_class(context, &context.types.builtin_function_or_method_type);

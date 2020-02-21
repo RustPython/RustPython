@@ -14,20 +14,12 @@ use std::iter::Peekable;
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
 
-use crate::function::PyFuncArgs;
+use crate::function::Args;
 use crate::obj::{
-    objbytes::PyBytesRef,
-    objstr::{self, PyStringRef},
-    objtype,
+    objbytes::PyBytesRef, objstr::PyStringRef, objtuple::PyTuple, objtype::PyClassRef,
 };
-use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
+use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
-
-#[derive(Debug)]
-struct FormatSpec {
-    endianness: Endianness,
-    codes: Vec<FormatCode>,
-}
 
 #[derive(Debug)]
 enum Endianness {
@@ -56,16 +48,82 @@ impl FormatCode {
     }
 }
 
-fn parse_format_string(fmt: String) -> Result<FormatSpec, String> {
-    let mut chars = fmt.chars().peekable();
+#[derive(Debug)]
+struct FormatSpec {
+    endianness: Endianness,
+    codes: Vec<FormatCode>,
+}
 
-    // First determine "<", ">","!" or "="
-    let endianness = parse_endiannes(&mut chars);
+impl FormatSpec {
+    fn parse(fmt: &str) -> Result<FormatSpec, String> {
+        let mut chars = fmt.chars().peekable();
 
-    // Now, analyze struct string furter:
-    let codes = parse_format_codes(&mut chars)?;
+        // First determine "<", ">","!" or "="
+        let endianness = parse_endiannes(&mut chars);
 
-    Ok(FormatSpec { endianness, codes })
+        // Now, analyze struct string furter:
+        let codes = parse_format_codes(&mut chars)?;
+
+        Ok(FormatSpec { endianness, codes })
+    }
+
+    fn pack(&self, args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        if self.codes.len() != args.len() {
+            return Err(vm.new_exception_msg(
+                vm.try_class("_struct", "error")?,
+                format!(
+                    "pack expected {} items for packing (got {})",
+                    self.codes.len(),
+                    args.len()
+                ),
+            ));
+        }
+
+        // Create data vector:
+        let mut data = Vec::<u8>::new();
+        // Loop over all opcodes:
+        for (code, arg) in self.codes.iter().zip(args.iter()) {
+            debug!("code: {:?}", code);
+            match self.endianness {
+                Endianness::Little => {
+                    pack_item::<byteorder::LittleEndian>(vm, code, arg, &mut data)?
+                }
+                Endianness::Big => pack_item::<byteorder::BigEndian>(vm, code, arg, &mut data)?,
+                Endianness::Network => {
+                    pack_item::<byteorder::NetworkEndian>(vm, code, arg, &mut data)?
+                }
+                Endianness::Native => {
+                    pack_item::<byteorder::NativeEndian>(vm, code, arg, &mut data)?
+                }
+            }
+        }
+
+        Ok(data)
+    }
+
+    fn unpack(&self, data: &[u8], vm: &VirtualMachine) -> PyResult<PyTuple> {
+        let mut rdr = Cursor::new(data);
+
+        let mut items = vec![];
+        for code in &self.codes {
+            debug!("unpack code: {:?}", code);
+            let item = match self.endianness {
+                Endianness::Little => unpack_code::<byteorder::LittleEndian>(vm, &code, &mut rdr)?,
+                Endianness::Big => unpack_code::<byteorder::BigEndian>(vm, &code, &mut rdr)?,
+                Endianness::Network => {
+                    unpack_code::<byteorder::NetworkEndian>(vm, &code, &mut rdr)?
+                }
+                Endianness::Native => unpack_code::<byteorder::NativeEndian>(vm, &code, &mut rdr)?,
+            };
+            items.push(item);
+        }
+
+        Ok(PyTuple::from(items))
+    }
+
+    fn size(&self) -> usize {
+        self.codes.iter().map(FormatCode::size).sum()
+    }
 }
 
 /// Parse endianness
@@ -222,53 +280,9 @@ where
     Ok(())
 }
 
-fn struct_pack(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.is_empty() {
-        Err(vm.new_type_error(format!(
-            "Expected at least 1 argument (got: {})",
-            args.args.len()
-        )))
-    } else {
-        let fmt_arg = args.args[0].clone();
-        if objtype::isinstance(&fmt_arg, &vm.ctx.str_type()) {
-            let fmt_str = objstr::clone_value(&fmt_arg);
-
-            let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;
-
-            if format_spec.codes.len() + 1 == args.args.len() {
-                // Create data vector:
-                let mut data = Vec::<u8>::new();
-                // Loop over all opcodes:
-                for (code, arg) in format_spec.codes.iter().zip(args.args.iter().skip(1)) {
-                    debug!("code: {:?}", code);
-                    match format_spec.endianness {
-                        Endianness::Little => {
-                            pack_item::<byteorder::LittleEndian>(vm, code, arg, &mut data)?
-                        }
-                        Endianness::Big => {
-                            pack_item::<byteorder::BigEndian>(vm, code, arg, &mut data)?
-                        }
-                        Endianness::Network => {
-                            pack_item::<byteorder::NetworkEndian>(vm, code, arg, &mut data)?
-                        }
-                        Endianness::Native => {
-                            pack_item::<byteorder::NativeEndian>(vm, code, arg, &mut data)?
-                        }
-                    }
-                }
-
-                Ok(vm.ctx.new_bytes(data))
-            } else {
-                Err(vm.new_type_error(format!(
-                    "Expected {} arguments (got: {})",
-                    format_spec.codes.len() + 1,
-                    args.args.len()
-                )))
-            }
-        } else {
-            Err(vm.new_type_error("First argument must be of str type".to_owned()))
-        }
-    }
+fn struct_pack(fmt: PyStringRef, args: Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    let format_spec = FormatSpec::parse(fmt.as_str()).map_err(|e| vm.new_value_error(e))?;
+    format_spec.pack(args.as_ref(), vm)
 }
 
 fn unpack_i8(vm: &VirtualMachine, rdr: &mut dyn Read) -> PyResult {
@@ -372,26 +386,10 @@ where
     }
 }
 
-fn struct_unpack(fmt: PyStringRef, buffer: PyBytesRef, vm: &VirtualMachine) -> PyResult {
-    let fmt_str = fmt.as_str().to_owned();
-
-    let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;
-    let data = buffer.get_value().to_vec();
-    let mut rdr = Cursor::new(data);
-
-    let mut items = vec![];
-    for code in format_spec.codes {
-        debug!("unpack code: {:?}", code);
-        let item = match format_spec.endianness {
-            Endianness::Little => unpack_code::<byteorder::LittleEndian>(vm, &code, &mut rdr)?,
-            Endianness::Big => unpack_code::<byteorder::BigEndian>(vm, &code, &mut rdr)?,
-            Endianness::Network => unpack_code::<byteorder::NetworkEndian>(vm, &code, &mut rdr)?,
-            Endianness::Native => unpack_code::<byteorder::NativeEndian>(vm, &code, &mut rdr)?,
-        };
-        items.push(item);
-    }
-
-    Ok(vm.ctx.new_tuple(items))
+fn struct_unpack(fmt: PyStringRef, buffer: PyBytesRef, vm: &VirtualMachine) -> PyResult<PyTuple> {
+    let fmt_str = fmt.as_str();
+    let format_spec = FormatSpec::parse(fmt_str).map_err(|e| vm.new_value_error(e))?;
+    format_spec.unpack(buffer.get_value(), vm)
 }
 
 fn unpack_code<Endianness>(vm: &VirtualMachine, code: &FormatCode, rdr: &mut dyn Read) -> PyResult
@@ -417,20 +415,67 @@ where
 }
 
 fn struct_calcsize(fmt: PyStringRef, vm: &VirtualMachine) -> PyResult<usize> {
-    let fmt_str = fmt.as_str().to_owned();
-    let format_spec = parse_format_string(fmt_str).map_err(|e| vm.new_value_error(e))?;
-    Ok(format_spec.codes.iter().map(|code| code.size()).sum())
+    let fmt_str = fmt.as_str();
+    let format_spec = FormatSpec::parse(fmt_str).map_err(|e| vm.new_value_error(e))?;
+    Ok(format_spec.size())
 }
+
+#[pyclass(name = "Struct")]
+#[derive(Debug)]
+struct PyStruct {
+    spec: FormatSpec,
+    fmt_str: PyStringRef,
+}
+
+impl PyValue for PyStruct {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("_struct", "Struct")
+    }
+}
+
+#[pyimpl]
+impl PyStruct {
+    #[pyslot]
+    fn tp_new(cls: PyClassRef, fmt_str: PyStringRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        let spec = FormatSpec::parse(fmt_str.as_str()).map_err(|e| vm.new_value_error(e))?;
+
+        PyStruct { spec, fmt_str }.into_ref_with_type(vm, cls)
+    }
+
+    #[pyproperty]
+    fn format(&self) -> PyStringRef {
+        self.fmt_str.clone()
+    }
+    #[pyproperty]
+    fn size(&self) -> usize {
+        self.spec.size()
+    }
+
+    #[pymethod]
+    fn pack(&self, args: Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        self.spec.pack(args.as_ref(), vm)
+    }
+    #[pymethod]
+    fn unpack(&self, data: PyBytesRef, vm: &VirtualMachine) -> PyResult<PyTuple> {
+        self.spec.unpack(data.get_value(), vm)
+    }
+}
+
+// seems weird that this is part of the "public" API, but whatever
+// TODO: implement a format code->spec cache like CPython does?
+fn clearcache() {}
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let struct_error = ctx.new_class("struct.error", ctx.object());
+    let struct_error = ctx.new_class("struct.error", ctx.exceptions.exception_type.clone());
 
-    py_module!(vm, "struct", {
+    py_module!(vm, "_struct", {
+        "_clearcache" => ctx.new_function(clearcache),
         "pack" => ctx.new_function(struct_pack),
         "unpack" => ctx.new_function(struct_unpack),
         "calcsize" => ctx.new_function(struct_calcsize),
         "error" => struct_error,
+        "Struct" => PyStruct::make_class(ctx),
     })
 }

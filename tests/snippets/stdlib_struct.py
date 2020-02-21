@@ -44,3 +44,6 @@ with assert_raises(Exception):
 
 assert struct.calcsize("B") == 1
 assert struct.calcsize("<L4B") == 8
+
+assert struct.Struct('3B').pack(65, 66, 67) == bytes([65, 66, 67])
+
