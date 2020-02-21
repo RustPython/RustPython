@@ -882,6 +882,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "MemoryError" => ctx.exceptions.memory_error.clone(),
 
         "OSError" => ctx.exceptions.os_error.clone(),
+        "IOError" => ctx.exceptions.os_error.clone(),
         "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone(),
         "PermissionError" => ctx.exceptions.permission_error.clone(),
         "FileExistsError" => ctx.exceptions.file_exists_error.clone(),
