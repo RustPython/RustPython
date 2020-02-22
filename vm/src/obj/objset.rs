@@ -298,7 +298,7 @@ impl PySetInner {
         others: Args<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let temp_inner = self.copy();
+        let mut temp_inner = self.copy();
         self.clear();
         for iterable in others {
             for item in iterable.iter(vm)? {
@@ -307,6 +307,7 @@ impl PySetInner {
                     self.add(&obj, vm)?;
                 }
             }
+            temp_inner = self.copy()
         }
         Ok(())
     }
