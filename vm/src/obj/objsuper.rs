@@ -146,7 +146,7 @@ impl PySuper {
                 panic!("Current super type is not in instance's type mro");
             }
         }
-        let mro: Vec<PyClassRef> = mro_iter.map(|c| c.clone()).collect();
+        let mro: Vec<PyClassRef> = mro_iter.cloned().collect();
 
         PySuper {
             obj: py_obj,
