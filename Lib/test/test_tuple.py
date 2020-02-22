@@ -18,12 +18,16 @@ JUST_SHOW_HASH_RESULTS = False # if RUN_ALL_HASH_TESTS, just display
 class TupleTest(seq_tests.CommonTest):
     type2test = tuple
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getitem_error(self):
         t = ()
         msg = "tuple indices must be integers or slices"
         with self.assertRaisesRegex(TypeError, msg):
             t['a']
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_constructors(self):
         super().test_constructors()
         # calling built-in types without argument must return empty
@@ -77,6 +81,7 @@ class TupleTest(seq_tests.CommonTest):
     # We expect tuples whose base components have deterministic hashes to
     # have deterministic hashes too - and, indeed, the same hashes across
     # platforms with hash codes of the same bit width.
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_hash_exact(self):
         def check_one_exact(t, e32, e64):
             got = hash(t)
@@ -343,6 +348,7 @@ class TupleTest(seq_tests.CommonTest):
         check(10)       # check our checking code
         check(1000000)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_iterator_pickle(self):
         # Userlist iterators don't support pickling yet since
         # they are based on generators.
@@ -359,6 +365,7 @@ class TupleTest(seq_tests.CommonTest):
             d = pickle.dumps(it, proto)
             self.assertEqual(self.type2test(it), self.type2test(data)[1:])
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_reversed_pickle(self):
         data = self.type2test([4, 5, 6, 7])
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
