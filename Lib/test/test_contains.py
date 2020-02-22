@@ -35,6 +35,7 @@ class TestContains(unittest.TestCase):
 
         self.assertRaises(TypeError, lambda: None in 'abc')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_builtin_sequence_types(self):
         # a collection of tests on builtin sequence types
         a = range(10)
@@ -65,6 +66,8 @@ class TestContains(unittest.TestCase):
 
         self.assertNotIn(Deviant1(), Deviant1.aList)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nonreflexive(self):
         # containment and equality tests involving elements that are
         # not necessarily equal to themselves
