@@ -244,10 +244,8 @@ pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyC
         base.clone(),
         vec![base.clone()],
         dict,
-        // We are assuming that anyone calling this internal function will not have errors in type creation so we don't need a VM instance.
-        None,
     )
-    .unwrap()
+    .expect("Failed to create a new type in internal code.")
 }
 
 /// Paritally initialize a struct, ensuring that all fields are

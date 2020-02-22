@@ -25,6 +25,7 @@ pub struct PySuper {
     obj: PyObjectRef,
     typ: PyObjectRef,
     obj_type: PyObjectRef,
+    mro: Vec<PyClassRef>,
 }
 
 impl PyValue for PySuper {
@@ -55,20 +56,7 @@ impl PySuper {
     fn getattribute(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let inst = self.obj.clone();
 
-        // Super should be the next matching class in the object original class' mro after the current one.
-        let mut mro_iter = match self.obj_type.payload::<PyClass>() {
-            Some(PyClass { ref mro, .. }) => mro.iter(),
-            _ => panic!("not Class"),
-        };
-        // The type itself is not in its mro, so skip finding the current class if its the type.
-        if !self.typ.is(&self.obj_type) {
-            let index = mro_iter.find(|&x| x.as_object().is(&self.typ));
-            if index.is_none() {
-                panic!("Current super type is not in instance's type mro");
-            }
-        }
-
-        for class in mro_iter {
+        for class in self.mro.iter() {
             if let Ok(item) = vm.get_attribute(class.as_object().clone(), name.clone()) {
                 if item.payload_is::<PyBoundMethod>() {
                     // This is a classmethod
@@ -149,10 +137,22 @@ impl PySuper {
             py_obj.class()
         };
 
+        // Super should be the next matching class in the object original class' mro after the current one.
+        let mut mro_iter = obj_type.mro.iter();
+        // The type itself is not in its mro, so skip finding the current class if its the type.
+        if !py_type.is(&obj_type) {
+            let index = mro_iter.find(|&x| x.as_object().is(&py_type));
+            if index.is_none() {
+                panic!("Current super type is not in instance's type mro");
+            }
+        }
+        let mro: Vec<PyClassRef> = mro_iter.map(|c| c.clone()).collect();
+
         PySuper {
             obj: py_obj,
             typ: py_type.into_object(),
             obj_type: obj_type.into_object(),
+            mro,
         }
         .into_ref_with_type(vm, cls)
     }
