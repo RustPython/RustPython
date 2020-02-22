@@ -206,8 +206,11 @@ impl PySetInner {
     fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let mut new_inner = self.clone();
 
-        for item in other.iter(vm)? {
-            new_inner.content.delete_or_insert(vm, &item?, ())?
+        // We want to remove duplicates in other
+        let other_set = Self::new(other, vm)?;
+
+        for item in other_set.content.keys() {
+            new_inner.content.delete_or_insert(vm, &item, ())?
         }
 
         Ok(new_inner)
@@ -322,8 +325,10 @@ impl PySetInner {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
-            for item in iterable.iter(vm)? {
-                self.content.delete_or_insert(vm, &item?, ())?;
+            // We want to remove duplicates in iterable
+            let iterable_set = Self::new(iterable, vm)?;
+            for item in iterable_set.content.keys() {
+                self.content.delete_or_insert(vm, &item, ())?;
             }
         }
         Ok(())

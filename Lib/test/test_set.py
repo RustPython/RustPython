@@ -172,7 +172,6 @@ class TestJointOps:
         else:
             self.fail("s-t did not screen-out general iterables")
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_symmetric_difference(self):
         i = self.s.symmetric_difference(self.otherword)
         for c in self.letters:
@@ -187,7 +186,6 @@ class TestJointOps:
             self.assertEqual(self.thetype('abcba').symmetric_difference(C('ccb')), set('a'))
             self.assertEqual(self.thetype('abcba').symmetric_difference(C('ef')), set('abcef'))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_xor(self):
         i = self.s.symmetric_difference(self.otherword)
         self.assertEqual(self.s ^ set(self.otherword), i)
@@ -582,7 +580,6 @@ class TestSet(TestJointOps, unittest.TestCase):
             else:
                 self.assertNotIn(c, self.s)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_symmetric_difference_update(self):
         retval = self.s.symmetric_difference_update(self.otherword)
         self.assertEqual(retval, None)
