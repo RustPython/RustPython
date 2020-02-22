@@ -84,6 +84,19 @@ pub fn hash_iter<'a, I: std::iter::Iterator<Item = &'a PyObjectRef>>(
     Ok(hasher.finish() as PyHash)
 }
 
+pub fn hash_iter_no_order<I: std::iter::Iterator<Item = PyObjectRef>>(
+    iter: I,
+    vm: &VirtualMachine,
+) -> PyResult<PyHash> {
+    let mut hash: PyHash = 0;
+    for element in iter {
+        let item_hash = vm._hash(&element)?;
+        // xor is commutative and hash should be independent of order
+        hash ^= item_hash;
+    }
+    Ok(hash)
+}
+
 pub fn hash_bigint(value: &BigInt) -> PyHash {
     match value.to_i64() {
         Some(i64_value) => (i64_value % MODULUS as i64),

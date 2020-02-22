@@ -9,6 +9,7 @@ use super::objlist::PyListIterator;
 use super::objtype::{self, PyClassRef};
 use crate::dictdatatype;
 use crate::function::{Args, OptionalArg};
+use crate::pyhash;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -332,6 +333,11 @@ impl PySetInner {
             }
         }
         Ok(())
+    }
+
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+        // let items: Vec<PyObjectRef> = self.content.keys().collect();
+        pyhash::hash_iter_no_order(self.content.keys(), vm)
     }
 }
 
@@ -784,6 +790,11 @@ impl PyFrozenSet {
             "frozenset(...)".to_owned()
         };
         Ok(vm.new_str(s))
+    }
+
+    #[pymethod(name = "__hash__")]
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+        self.inner.hash(vm)
     }
 }
 

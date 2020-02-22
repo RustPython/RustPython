@@ -205,7 +205,6 @@ class TestJointOps:
         self.assertNotEqual(self.s, frozenset(self.otherword))
         self.assertEqual(self.s != self.word, True)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_setOfFrozensets(self):
         t = map(frozenset, ['abcdef', 'bcd', 'bdcb', 'fed', 'fedccba'])
         s = self.thetype(t)
@@ -710,7 +709,6 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
         t = self.thetype(s)
         self.assertEqual(id(s), id(t))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_hash(self):
         self.assertEqual(hash(self.thetype('abcdeb')),
                          hash(self.thetype('ebecda')))
@@ -729,7 +727,6 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
         dup = self.s.copy()
         self.assertEqual(id(self.s), id(dup))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_frozen_as_dictkey(self):
         seq = list(range(10)) + list('abcdefg') + ['apple']
         key1 = self.thetype(seq)
