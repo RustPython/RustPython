@@ -70,10 +70,17 @@ pub fn raw_file_number(handle: File) -> i64 {
 
 #[cfg(windows)]
 pub fn rust_file(raw_fileno: i64) -> File {
-    use std::os::windows::io::FromRawHandle;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
+
+    let raw_fileno = match raw_fileno {
+        0 => io::stdin().as_raw_handle(),
+        1 => io::stdout().as_raw_handle(),
+        2 => io::stderr().as_raw_handle(),
+        fno => fno as RawHandle,
+    };
 
     //This seems to work as expected but further testing is required.
-    unsafe { File::from_raw_handle(raw_fileno as *mut ffi::c_void) }
+    unsafe { File::from_raw_handle(raw_fileno) }
 }
 
 #[cfg(all(not(unix), not(windows)))]
