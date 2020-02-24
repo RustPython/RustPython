@@ -109,7 +109,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     // disable some modules on WASM
     #[cfg(not(target_arch = "wasm32"))]
     {
-        modules.insert("_os".to_owned(), Box::new(os::make_module));
+        modules.insert(os::MODULE_NAME.to_owned(), Box::new(os::make_module));
         modules.insert("_socket".to_owned(), Box::new(socket::make_module));
         modules.insert(
             "_multiprocessing".to_owned(),

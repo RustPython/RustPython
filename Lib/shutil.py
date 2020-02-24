@@ -1015,9 +1015,7 @@ if hasattr(os, 'statvfs'):
 
 elif os.name == 'nt':
 
-    # XXX RustPython TODO: figure out what to do with posix vs nt vs os
-    # import nt
-    import os as nt
+    import nt
     __all__.append('disk_usage')
     _ntuple_diskusage = collections.namedtuple('usage', 'total used free')
 
