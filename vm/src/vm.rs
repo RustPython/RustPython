@@ -231,13 +231,41 @@ impl VirtualMachine {
                 builtins::make_module(self, self.builtins.clone());
                 sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
 
-                #[cfg(not(target_arch = "wasm32"))]
-                import::import_builtin(self, "signal").expect("Couldn't initialize signal module");
+                let inner_init = || -> PyResult<()> {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    import::import_builtin(self, "signal")?;
 
-                self.expect_pyresult(
-                    import::init_importlib(self, initialize_parameter),
-                    "Initialize importlib fail",
-                );
+                    import::init_importlib(self, initialize_parameter)?;
+
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        let io = self.import("io", &[], 0)?;
+                        let io_open = self.get_attribute(io.clone(), "open")?;
+                        let set_stdio = |name, fd, mode: &str| {
+                            let stdio = self.invoke(
+                                &io_open,
+                                vec![self.new_int(fd), self.new_str(mode.to_owned())],
+                            )?;
+                            self.set_attr(
+                                &self.sys_module,
+                                format!("__{}__", name), // e.g. __stdin__
+                                stdio.clone(),
+                            )?;
+                            self.set_attr(&self.sys_module, name, stdio)?;
+                            Ok(())
+                        };
+                        set_stdio("stdin", 0, "r")?;
+                        set_stdio("stdout", 1, "w")?;
+                        set_stdio("stderr", 2, "w")?;
+
+                        let open_wrapper = self.get_attribute(io, "OpenWrapper")?;
+                        self.set_attr(&self.builtins, "open", open_wrapper)?;
+                    }
+
+                    Ok(())
+                };
+
+                self.expect_pyresult(inner_init(), "initializiation failed");
 
                 self.initialized = true;
             }
