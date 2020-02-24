@@ -1605,7 +1605,8 @@ def _setup(_bootstrap_module):
     setattr(self_module, '_weakref', weakref_module)
 
     # Directly load the winreg module (needed during bootstrap).
-    if builtin_os == 'nt':
+    # XXX RustPython TODO: winreg module
+    if builtin_os == 'nt' and False:
         winreg_module = _bootstrap._builtin_from_name('winreg')
         setattr(self_module, '_winreg', winreg_module)
 
