@@ -355,42 +355,29 @@ pub fn normalize(
 
 #[derive(Debug)]
 pub struct ExceptionZoo {
+    pub base_exception_type: PyClassRef,
+    pub system_exit: PyClassRef,
+    pub keyboard_interrupt: PyClassRef,
+    pub generator_exit: PyClassRef,
+    pub exception_type: PyClassRef,
+    pub stop_iteration: PyClassRef,
+    pub stop_async_iteration: PyClassRef,
     pub arithmetic_error: PyClassRef,
+    pub floating_point_error: PyClassRef,
+    pub overflow_error: PyClassRef,
+    pub zero_division_error: PyClassRef,
     pub assertion_error: PyClassRef,
     pub attribute_error: PyClassRef,
     pub buffer_error: PyClassRef,
-    pub base_exception_type: PyClassRef,
-    pub exception_type: PyClassRef,
+    pub eof_error: PyClassRef,
     pub import_error: PyClassRef,
+    pub module_not_found_error: PyClassRef,
+    pub lookup_error: PyClassRef,
     pub index_error: PyClassRef,
     pub key_error: PyClassRef,
-    pub lookup_error: PyClassRef,
-    pub module_not_found_error: PyClassRef,
+    pub memory_error: PyClassRef,
     pub name_error: PyClassRef,
     pub unbound_local_error: PyClassRef,
-    pub not_implemented_error: PyClassRef,
-    pub recursion_error: PyClassRef,
-    pub floating_point_error: PyClassRef,
-    pub overflow_error: PyClassRef,
-    pub reference_error: PyClassRef,
-    pub runtime_error: PyClassRef,
-    pub stop_iteration: PyClassRef,
-    pub stop_async_iteration: PyClassRef,
-    pub syntax_error: PyClassRef,
-    pub target_scope_error: PyClassRef,
-    pub indentation_error: PyClassRef,
-    pub tab_error: PyClassRef,
-    pub system_error: PyClassRef,
-    pub type_error: PyClassRef,
-    pub value_error: PyClassRef,
-    pub unicode_error: PyClassRef,
-    pub unicode_decode_error: PyClassRef,
-    pub unicode_encode_error: PyClassRef,
-    pub unicode_translate_error: PyClassRef,
-    pub zero_division_error: PyClassRef,
-    pub eof_error: PyClassRef,
-    pub memory_error: PyClassRef,
-
     pub os_error: PyClassRef,
     pub blocking_io_error: PyClassRef,
     pub child_process_error: PyClassRef,
@@ -407,22 +394,33 @@ pub struct ExceptionZoo {
     pub permission_error: PyClassRef,
     pub process_lookup_error: PyClassRef,
     pub timeout_error: PyClassRef,
+    pub reference_error: PyClassRef,
+    pub runtime_error: PyClassRef,
+    pub not_implemented_error: PyClassRef,
+    pub recursion_error: PyClassRef,
+    pub syntax_error: PyClassRef,
+    pub target_scope_error: PyClassRef,
+    pub indentation_error: PyClassRef,
+    pub tab_error: PyClassRef,
+    pub system_error: PyClassRef,
+    pub type_error: PyClassRef,
+    pub value_error: PyClassRef,
+    pub unicode_error: PyClassRef,
+    pub unicode_decode_error: PyClassRef,
+    pub unicode_encode_error: PyClassRef,
+    pub unicode_translate_error: PyClassRef,
 
     pub warning: PyClassRef,
-    pub bytes_warning: PyClassRef,
-    pub unicode_warning: PyClassRef,
     pub deprecation_warning: PyClassRef,
     pub pending_deprecation_warning: PyClassRef,
+    pub runtime_warning: PyClassRef,
+    pub syntax_warning: PyClassRef,
+    pub user_warning: PyClassRef,
     pub future_warning: PyClassRef,
     pub import_warning: PyClassRef,
-    pub syntax_warning: PyClassRef,
+    pub unicode_warning: PyClassRef,
+    pub bytes_warning: PyClassRef,
     pub resource_warning: PyClassRef,
-    pub runtime_warning: PyClassRef,
-    pub user_warning: PyClassRef,
-
-    pub keyboard_interrupt: PyClassRef,
-    pub generator_exit: PyClassRef,
-    pub system_exit: PyClassRef,
 }
 
 impl ExceptionZoo {
@@ -434,41 +432,29 @@ impl ExceptionZoo {
         };
         // Sorted By Hierarchy then alphabetized.
         let base_exception_type = create_exception_type("BaseException", &object_type);
+        let system_exit = create_exception_type("SystemExit", &base_exception_type);
+        let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);
+        let generator_exit = create_exception_type("GeneratorExit", &base_exception_type);
+
         let exception_type = create_exception_type("Exception", &base_exception_type);
-        let arithmetic_error = create_exception_type("ArithmeticError", &exception_type);
-        let assertion_error = create_exception_type("AssertionError", &exception_type);
-        let attribute_error = create_exception_type("AttributeError", &exception_type);
-        let buffer_error = create_exception_type("BufferError", &exception_type);
-        let import_error = create_exception_type("ImportError", &exception_type);
-        let lookup_error = create_exception_type("LookupError", &exception_type);
-        let index_error = create_exception_type("IndexError", &lookup_error);
-        let key_error = create_exception_type("KeyError", &lookup_error);
-        let name_error = create_exception_type("NameError", &exception_type);
-        let unbound_local_error = create_exception_type("UnboundLocalError", &name_error);
-        let runtime_error = create_exception_type("RuntimeError", &exception_type);
-        let reference_error = create_exception_type("ReferenceError", &exception_type);
         let stop_iteration = create_exception_type("StopIteration", &exception_type);
         let stop_async_iteration = create_exception_type("StopAsyncIteration", &exception_type);
-        let syntax_error = create_exception_type("SyntaxError", &exception_type);
-        let target_scope_error = create_exception_type("TargetScopeError", &syntax_error);
-        let system_error = create_exception_type("SystemError", &exception_type);
-        let type_error = create_exception_type("TypeError", &exception_type);
-        let value_error = create_exception_type("ValueError", &exception_type);
+        let arithmetic_error = create_exception_type("ArithmeticError", &exception_type);
         let floating_point_error = create_exception_type("FloatingPointError", &arithmetic_error);
         let overflow_error = create_exception_type("OverflowError", &arithmetic_error);
         let zero_division_error = create_exception_type("ZeroDivisionError", &arithmetic_error);
-        let module_not_found_error = create_exception_type("ModuleNotFoundError", &import_error);
-        let not_implemented_error = create_exception_type("NotImplementedError", &runtime_error);
-        let recursion_error = create_exception_type("RecursionError", &runtime_error);
+        let assertion_error = create_exception_type("AssertionError", &exception_type);
+        let attribute_error = create_exception_type("AttributeError", &exception_type);
+        let buffer_error = create_exception_type("BufferError", &exception_type);
         let eof_error = create_exception_type("EOFError", &exception_type);
-        let indentation_error = create_exception_type("IndentationError", &syntax_error);
-        let tab_error = create_exception_type("TabError", &indentation_error);
-        let unicode_error = create_exception_type("UnicodeError", &value_error);
-        let unicode_decode_error = create_exception_type("UnicodeDecodeError", &unicode_error);
-        let unicode_encode_error = create_exception_type("UnicodeEncodeError", &unicode_error);
-        let unicode_translate_error =
-            create_exception_type("UnicodeTranslateError", &unicode_error);
+        let import_error = create_exception_type("ImportError", &exception_type);
+        let module_not_found_error = create_exception_type("ModuleNotFoundError", &import_error);
+        let lookup_error = create_exception_type("LookupError", &exception_type);
+        let index_error = create_exception_type("IndexError", &lookup_error);
+        let key_error = create_exception_type("KeyError", &lookup_error);
         let memory_error = create_exception_type("MemoryError", &exception_type);
+        let name_error = create_exception_type("NameError", &exception_type);
+        let unbound_local_error = create_exception_type("UnboundLocalError", &name_error);
 
         // os errors
         let os_error = create_exception_type("OSError", &exception_type);
@@ -491,62 +477,65 @@ impl ExceptionZoo {
         let process_lookup_error = create_exception_type("ProcessLookupError", &os_error);
         let timeout_error = create_exception_type("TimeoutError", &os_error);
 
+        let reference_error = create_exception_type("ReferenceError", &exception_type);
+        let runtime_error = create_exception_type("RuntimeError", &exception_type);
+        let not_implemented_error = create_exception_type("NotImplementedError", &runtime_error);
+        let recursion_error = create_exception_type("RecursionError", &runtime_error);
+        let syntax_error = create_exception_type("SyntaxError", &exception_type);
+        let indentation_error = create_exception_type("IndentationError", &syntax_error);
+        let tab_error = create_exception_type("TabError", &indentation_error);
+        let target_scope_error = create_exception_type("TargetScopeError", &syntax_error);
+        let system_error = create_exception_type("SystemError", &exception_type);
+        let type_error = create_exception_type("TypeError", &exception_type);
+        let value_error = create_exception_type("ValueError", &exception_type);
+        let unicode_error = create_exception_type("UnicodeError", &value_error);
+        let unicode_decode_error = create_exception_type("UnicodeDecodeError", &unicode_error);
+        let unicode_encode_error = create_exception_type("UnicodeEncodeError", &unicode_error);
+        let unicode_translate_error =
+            create_exception_type("UnicodeTranslateError", &unicode_error);
+
         let warning = create_exception_type("Warning", &exception_type);
-        let bytes_warning = create_exception_type("BytesWarning", &warning);
-        let unicode_warning = create_exception_type("UnicodeWarning", &warning);
         let deprecation_warning = create_exception_type("DeprecationWarning", &warning);
         let pending_deprecation_warning =
             create_exception_type("PendingDeprecationWarning", &warning);
+        let runtime_warning = create_exception_type("RuntimeWarning", &warning);
+        let syntax_warning = create_exception_type("SyntaxWarning", &warning);
+        let user_warning = create_exception_type("UserWarning", &warning);
         let future_warning = create_exception_type("FutureWarning", &warning);
         let import_warning = create_exception_type("ImportWarning", &warning);
-        let syntax_warning = create_exception_type("SyntaxWarning", &warning);
+        let unicode_warning = create_exception_type("UnicodeWarning", &warning);
+        let bytes_warning = create_exception_type("BytesWarning", &warning);
         let resource_warning = create_exception_type("ResourceWarning", &warning);
-        let runtime_warning = create_exception_type("RuntimeWarning", &warning);
-        let user_warning = create_exception_type("UserWarning", &warning);
-
-        let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);
-        let generator_exit = create_exception_type("GeneratorExit", &base_exception_type);
-        let system_exit = create_exception_type("SystemExit", &base_exception_type);
 
         ExceptionZoo {
+            base_exception_type,
+            system_exit,
+            keyboard_interrupt,
+            generator_exit,
+            exception_type,
+            stop_iteration,
+            stop_async_iteration,
             arithmetic_error,
+            floating_point_error,
+            overflow_error,
+            zero_division_error,
             assertion_error,
             attribute_error,
             buffer_error,
-            base_exception_type,
-            exception_type,
+            eof_error,
             import_error,
+            module_not_found_error,
+            lookup_error,
             index_error,
             key_error,
-            lookup_error,
-            module_not_found_error,
+            memory_error,
             name_error,
             unbound_local_error,
-            not_implemented_error,
-            recursion_error,
-            floating_point_error,
-            overflow_error,
-            runtime_error,
-            stop_iteration,
-            stop_async_iteration,
-            syntax_error,
-            target_scope_error,
-            indentation_error,
-            tab_error,
-            system_error,
-            type_error,
-            value_error,
-            unicode_error,
-            unicode_decode_error,
-            unicode_encode_error,
-            unicode_translate_error,
-            zero_division_error,
-            eof_error,
-            memory_error,
             os_error,
             blocking_io_error,
             child_process_error,
             connection_error,
+            broken_pipe_error,
             connection_aborted_error,
             connection_refused_error,
             connection_reset_error,
@@ -558,23 +547,33 @@ impl ExceptionZoo {
             permission_error,
             process_lookup_error,
             timeout_error,
+            reference_error,
+            runtime_error,
+            not_implemented_error,
+            recursion_error,
+            syntax_error,
+            target_scope_error,
+            indentation_error,
+            tab_error,
+            system_error,
+            type_error,
+            value_error,
+            unicode_error,
+            unicode_decode_error,
+            unicode_encode_error,
+            unicode_translate_error,
 
-            broken_pipe_error,
             warning,
-            bytes_warning,
-            unicode_warning,
             deprecation_warning,
             pending_deprecation_warning,
+            runtime_warning,
+            syntax_warning,
+            user_warning,
             future_warning,
             import_warning,
-            syntax_warning,
+            unicode_warning,
+            bytes_warning,
             resource_warning,
-            runtime_warning,
-            reference_error,
-            user_warning,
-            keyboard_interrupt,
-            generator_exit,
-            system_exit,
         }
     }
 }
