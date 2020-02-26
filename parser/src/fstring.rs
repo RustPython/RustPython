@@ -29,7 +29,7 @@ impl<'a> FStringParser<'a> {
 
         while let Some(ch) = self.chars.next() {
             match ch {
-                '!' if delims.is_empty() => {
+                '!' if !delims.is_empty() => {
                     conversion = Some(match self.chars.next() {
                         Some('s') => ConversionFlag::Str,
                         Some('a') => ConversionFlag::Ascii,
@@ -42,7 +42,7 @@ impl<'a> FStringParser<'a> {
                         }
                     })
                 }
-                ':' if delims.is_empty() => {
+                ':' if !delims.is_empty() => {
                     let mut nested = false;
                     let mut in_nested = false;
                     let mut spec_expression = String::new();
