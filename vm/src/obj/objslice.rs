@@ -3,7 +3,6 @@ use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
-    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
@@ -323,23 +322,12 @@ fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<Big
         return Ok(None);
     }
 
-    if let Some(val) = obj.payload::<PyInt>() {
-        Ok(Some(val.as_bigint().clone()))
-    } else {
-        let cls = obj.class();
-        if cls.has_attr("__index__") {
-            let index_result = vm.call_method(obj, "__index__", vec![])?;
-            if let Some(val) = index_result.payload::<PyInt>() {
-                Ok(Some(val.as_bigint().clone()))
-            } else {
-                Err(vm.new_type_error("__index__ method returned non integer".to_owned()))
-            }
-        } else {
-            Err(vm.new_type_error(
-                "slice indices must be integers or None or have an __index__ method".to_owned(),
-            ))
-        }
-    }
+    let result = vm.to_index(obj).unwrap_or_else(|| {
+        Err(vm.new_type_error(
+            "slice indices must be integers or None or have an __index__ method".to_owned(),
+        ))
+    })?;
+    Ok(Some(result.as_bigint().clone()))
 }
 
 pub fn init(context: &PyContext) {
