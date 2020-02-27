@@ -81,6 +81,7 @@ pub struct FStringError {
 pub enum FStringErrorType {
     UnclosedLbrace,
     UnopenedRbrace,
+    ExpectedRbrace,
     InvalidExpression(Box<ParseErrorType>),
     InvalidConversionFlag,
     EmptyExpression,
@@ -91,8 +92,9 @@ pub enum FStringErrorType {
 impl fmt::Display for FStringErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            FStringErrorType::UnclosedLbrace => write!(f, "Unclosed '('"),
-            FStringErrorType::UnopenedRbrace => write!(f, "Unopened ')'"),
+            FStringErrorType::UnclosedLbrace => write!(f, "Unclosed '{{'"),
+            FStringErrorType::UnopenedRbrace => write!(f, "Unopened '}}'"),
+            FStringErrorType::ExpectedRbrace => write!(f, "Expected '}}' after conversion flag."),
             FStringErrorType::InvalidExpression(error) => {
                 write!(f, "Invalid expression: {}", error)
             }
