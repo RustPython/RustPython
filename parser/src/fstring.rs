@@ -29,7 +29,11 @@ impl<'a> FStringParser<'a> {
 
         while let Some(ch) = self.chars.next() {
             match ch {
-                '!' if delims.is_empty() => {
+                '!' if delims.is_empty() && self.chars.peek() != Some(&'=') => {
+                    if expression.trim().is_empty() {
+                        return Err(EmptyExpression);
+                    }
+
                     conversion = Some(match self.chars.next() {
                         Some('s') => ConversionFlag::Str,
                         Some('a') => ConversionFlag::Ascii,
@@ -38,9 +42,13 @@ impl<'a> FStringParser<'a> {
                             return Err(InvalidConversionFlag);
                         }
                         None => {
-                            break;
+                            return Err(ExpectedRbrace);
                         }
-                    })
+                    });
+
+                    if self.chars.peek() != Some(&'}') {
+                        return Err(ExpectedRbrace);
+                    }
                 }
                 ':' if delims.is_empty() => {
                     let mut nested = false;
@@ -292,13 +300,32 @@ mod tests {
 
     #[test]
     fn test_parse_invalid_fstring() {
-        assert_eq!(parse_fstring("{"), Err(UnclosedLbrace));
-        assert_eq!(parse_fstring("}"), Err(UnopenedRbrace));
+        assert_eq!(parse_fstring("{5!a"), Err(ExpectedRbrace));
+        assert_eq!(parse_fstring("{5!a1}"), Err(ExpectedRbrace));
+        assert_eq!(parse_fstring("{5!"), Err(ExpectedRbrace));
+
+        assert_eq!(parse_fstring("abc{!a 'cat'}"), Err(EmptyExpression));
+        assert_eq!(parse_fstring("{!a"), Err(EmptyExpression));
+        assert_eq!(parse_fstring("{ !a}"), Err(EmptyExpression));
+
+        assert_eq!(parse_fstring("{5!}"), Err(InvalidConversionFlag));
+        assert_eq!(parse_fstring("{5!x}"), Err(InvalidConversionFlag));
+
         assert_eq!(parse_fstring("{a:{a:{b}}"), Err(ExpressionNestedTooDeeply));
+
         assert_eq!(parse_fstring("{a:b}}"), Err(UnopenedRbrace));
+        assert_eq!(parse_fstring("}"), Err(UnopenedRbrace));
         assert_eq!(parse_fstring("{a:{b}"), Err(UnclosedLbrace));
+        assert_eq!(parse_fstring("{"), Err(UnclosedLbrace));
 
         // TODO: check for InvalidExpression enum?
         assert!(parse_fstring("{class}").is_err());
+    }
+
+    #[test]
+    fn test_parse_fstring_not_equals() {
+        let source = String::from("{1 != 2}");
+        let parse_ast = parse_fstring(&source);
+        assert!(parse_ast.is_ok());
     }
 }
