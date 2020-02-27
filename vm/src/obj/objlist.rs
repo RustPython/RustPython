@@ -477,7 +477,7 @@ impl PyList {
                 .collect();
             return Ok(vm.ctx.new_list(new_elements));
         }
-        return Err(vm.new_memory_error("".to_owned()));
+        Err(vm.new_memory_error("".to_owned()))
     }
 
     #[pymethod(name = "__rmul__")]
@@ -486,15 +486,15 @@ impl PyList {
     }
 
     #[pymethod(name = "__imul__")]
-    fn imul(zelf: PyRef<Self>, counter: isize) -> PyResult<Self> {
+    fn imul(zelf: PyRef<Self>, counter: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         if counter < 0 || zelf.len() * (counter as usize) < MAX_MEMORY_SIZE {
             let new_elements = sequence::seq_mul(&zelf.borrow_sequence(), counter)
                 .cloned()
                 .collect();
             zelf.elements.replace(new_elements);
-            return Ok(*zelf);
+            return Ok(zelf);
         }
-        return Err(vm.new_memory_error("".to_owned()));
+        Err(vm.new_memory_error("".to_owned()))
     }
 
     #[pymethod]

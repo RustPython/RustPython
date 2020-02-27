@@ -337,7 +337,7 @@ impl PyString {
                     vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
                 });
         }
-        return Err(vm.new_memory_error("".to_owned()));
+        Err(vm.new_memory_error("".to_owned()))
     }
 
     #[pymethod(name = "__rmul__")]
