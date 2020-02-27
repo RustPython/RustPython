@@ -30,17 +30,39 @@ impl<'a> FStringParser<'a> {
         while let Some(ch) = self.chars.next() {
             match ch {
                 '!' if delims.is_empty() => {
-                    conversion = Some(match self.chars.next() {
-                        Some('s') => ConversionFlag::Str,
-                        Some('a') => ConversionFlag::Ascii,
-                        Some('r') => ConversionFlag::Repr,
-                        Some(_) => {
-                            return Err(InvalidConversionFlag);
+                    let x = self.chars.next();
+                    if let Some('=') = x {
+                        expression.push(ch);
+                        expression.push('=');
+                    } else {
+                        if expression.is_empty() {
+                            return Err(EmptyExpression);
                         }
-                        None => {
-                            break;
+
+                        conversion = Some(match x {
+                            Some('s') => ConversionFlag::Str,
+                            Some('a') => ConversionFlag::Ascii,
+                            Some('r') => ConversionFlag::Repr,
+                            Some(_) => {
+                                return Err(InvalidConversionFlag);
+                            }
+                            None => {
+                                break;
+                            }
+                        });
+
+                        match self.chars.peek() {
+                            Some('}') => {
+                                continue;
+                            }
+                            Some(_) => {
+                                return Err(ExpectedRbrace);
+                            }
+                            None => {
+                                break;
+                            }
                         }
-                    })
+                    }
                 }
                 ':' if delims.is_empty() => {
                     let mut nested = false;
@@ -294,11 +316,23 @@ mod tests {
     fn test_parse_invalid_fstring() {
         assert_eq!(parse_fstring("{"), Err(UnclosedLbrace));
         assert_eq!(parse_fstring("}"), Err(UnopenedRbrace));
+        assert_eq!(parse_fstring("{5!a"), Err(UnclosedLbrace));
+        assert_eq!(parse_fstring("{5!a1}"), Err(ExpectedRbrace));
+        assert_eq!(parse_fstring("abc{!a 'cat'}"), Err(EmptyExpression));
+        assert_eq!(parse_fstring("{!x}"), Err(EmptyExpression));
+
         assert_eq!(parse_fstring("{a:{a:{b}}"), Err(ExpressionNestedTooDeeply));
         assert_eq!(parse_fstring("{a:b}}"), Err(UnopenedRbrace));
         assert_eq!(parse_fstring("{a:{b}"), Err(UnclosedLbrace));
 
         // TODO: check for InvalidExpression enum?
         assert!(parse_fstring("{class}").is_err());
+    }
+
+    #[test]
+    fn test_parse_fstring_not_equals() {
+        let source = String::from("{1 != 2}");
+        let parse_ast = parse_fstring(&source);
+        assert_ne!(parse_ast, Err(InvalidConversionFlag));
     }
 }
