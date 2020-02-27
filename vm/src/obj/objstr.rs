@@ -33,7 +33,7 @@ use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
-use crate::vm::VirtualMachine;
+use crate::vm::{VirtualMachine, MAX_MEMORY_SIZE};
 
 /// str(object='') -> str
 /// str(bytes_or_buffer[, encoding[, errors]]) -> str
@@ -328,13 +328,16 @@ impl PyString {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, multiplier: isize, vm: &VirtualMachine) -> PyResult<String> {
-        multiplier
-            .max(0)
-            .to_usize()
-            .map(|multiplier| self.value.repeat(multiplier))
-            .ok_or_else(|| {
-                vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
-            })
+        if multiplier < 0 || self.len() * (multiplier as usize) < MAX_MEMORY_SIZE {
+            return multiplier
+                .max(0)
+                .to_usize()
+                .map(|multiplier| self.value.repeat(multiplier))
+                .ok_or_else(|| {
+                    vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
+                });
+        }
+        return Err(vm.new_memory_error("".to_owned()));
     }
 
     #[pymethod(name = "__rmul__")]

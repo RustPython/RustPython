@@ -19,7 +19,7 @@ use crate::pyobject::{
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
-use crate::vm::{ReprGuard, VirtualMachine};
+use crate::vm::{ReprGuard, VirtualMachine, MAX_MEMORY_SIZE};
 
 /// Built-in mutable sequence.
 ///
@@ -119,14 +119,16 @@ impl PyList {
                 Ok(result) => match result.as_bigint().to_u8() {
                     Some(result) => elements.push(result),
                     None => {
-                        return Err(vm.new_value_error("bytes must be in range (0, 256)".to_owned()))
+                        return Err(
+                            vm.new_value_error("bytes must be in range (0, 256)".to_owned())
+                        );
                     }
                 },
                 _ => {
                     return Err(vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
                         elem.class().name
-                    )))
+                    )));
                 }
             }
         }
@@ -468,25 +470,31 @@ impl PyList {
     }
 
     #[pymethod(name = "__mul__")]
-    fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = sequence::seq_mul(&self.borrow_sequence(), counter)
-            .cloned()
-            .collect();
-        vm.ctx.new_list(new_elements)
+    fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if counter < 0 || self.len() * (counter as usize) < MAX_MEMORY_SIZE {
+            let new_elements = sequence::seq_mul(&self.borrow_sequence(), counter)
+                .cloned()
+                .collect();
+            return Ok(vm.ctx.new_list(new_elements));
+        }
+        return Err(vm.new_memory_error("".to_owned()));
     }
 
     #[pymethod(name = "__rmul__")]
-    fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+    fn rmul(&self, counter: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         self.mul(counter, &vm)
     }
 
     #[pymethod(name = "__imul__")]
-    fn imul(zelf: PyRef<Self>, counter: isize) -> PyRef<Self> {
-        let new_elements = sequence::seq_mul(&zelf.borrow_sequence(), counter)
-            .cloned()
-            .collect();
-        zelf.elements.replace(new_elements);
-        zelf
+    fn imul(zelf: PyRef<Self>, counter: isize) -> PyResult<Self> {
+        if counter < 0 || zelf.len() * (counter as usize) < MAX_MEMORY_SIZE {
+            let new_elements = sequence::seq_mul(&zelf.borrow_sequence(), counter)
+                .cloned()
+                .collect();
+            zelf.elements.replace(new_elements);
+            return Ok(*zelf);
+        }
+        return Err(vm.new_memory_error("".to_owned()));
     }
 
     #[pymethod]
