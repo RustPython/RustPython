@@ -73,7 +73,7 @@ pub struct VirtualMachine {
 }
 
 pub const NSIG: usize = 64;
-pub const MAX_MEMORY_SIZE: usize = (std::usize::MAX >> 3)+1;
+pub const MAX_MEMORY_SIZE: usize = (std::usize::MAX >> 3) + 1;
 
 #[derive(Copy, Clone)]
 pub enum InitParameter {
