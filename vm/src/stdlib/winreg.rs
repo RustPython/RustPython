@@ -1,6 +1,8 @@
 #![allow(non_snake_case)]
 
 use std::cell::{Ref, RefCell};
+use std::convert::TryInto;
+use std::io;
 
 use super::os;
 use crate::function::OptionalArg;
@@ -9,7 +11,8 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
 
-use winreg::RegKey;
+use winapi::shared::winerror;
+use winreg::{enums::RegType, RegKey, RegValue};
 
 #[pyclass]
 #[derive(Debug)]
@@ -126,15 +129,115 @@ fn winreg_QueryValueEx(
     key: Hkey,
     subkey: Option<PyStringRef>,
     vm: &VirtualMachine,
-) -> PyResult<(usize, Vec<u8>)> {
+) -> PyResult<(PyObjectRef, usize)> {
     let subkey = subkey.as_ref().map_or("", |s| s.as_str());
     key.with_key(|k| k.get_raw_value(subkey))
-        .map(|regval| (regval.vtype as usize, regval.bytes))
+        .map_err(|e| os::convert_io_error(vm, e))
+        .and_then(|regval| {
+            let ty = regval.vtype.clone() as usize;
+            Ok((reg_to_py(regval, vm)?, ty))
+        })
+}
+
+fn winreg_EnumKey(key: Hkey, index: u32, vm: &VirtualMachine) -> PyResult<String> {
+    key.with_key(|k| k.enum_keys().nth(index as usize))
+        .unwrap_or_else(|| {
+            Err(io::Error::from_raw_os_error(
+                winerror::ERROR_NO_MORE_ITEMS as i32,
+            ))
+        })
         .map_err(|e| os::convert_io_error(vm, e))
 }
 
-fn winreg_CloseKey(key: PyHKEYRef) {
-    key.Close();
+fn winreg_EnumValue(
+    key: Hkey,
+    index: u32,
+    vm: &VirtualMachine,
+) -> PyResult<(String, PyObjectRef, usize)> {
+    key.with_key(|k| k.enum_values().nth(index as usize))
+        .unwrap_or_else(|| {
+            Err(io::Error::from_raw_os_error(
+                winerror::ERROR_NO_MORE_ITEMS as i32,
+            ))
+        })
+        .map_err(|e| os::convert_io_error(vm, e))
+        .and_then(|(name, value)| {
+            let ty = value.vtype.clone() as usize;
+            Ok((name, reg_to_py(value, vm)?, ty))
+        })
+}
+
+fn winreg_CloseKey(key: Hkey) {
+    match key {
+        Hkey::PyHKEY(py) => py.Close(),
+        Hkey::Constant(hkey) => drop(RegKey::predef(hkey)),
+    }
+}
+
+fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
+    macro_rules! bytes_to_int {
+        ($int:ident, $f:ident, $name:ident) => {{
+            let i = if value.bytes.is_empty() {
+                Ok(0 as $int)
+            } else {
+                (&*value.bytes).try_into().map($int::$f).map_err(|_| {
+                    vm.new_value_error(format!("{} value is wrong length", stringify!(name)))
+                })
+            };
+            i.map(|i| vm.new_int(i))
+        }};
+    };
+    let bytes_to_wide = |b: &[u8]| -> Option<&[u16]> {
+        if b.len() % 2 == 0 {
+            Some(unsafe { std::slice::from_raw_parts(b.as_ptr().cast(), b.len() / 2) })
+        } else {
+            None
+        }
+    };
+    match value.vtype {
+        RegType::REG_DWORD => bytes_to_int!(u32, from_ne_bytes, REG_DWORD),
+        RegType::REG_DWORD_BIG_ENDIAN => bytes_to_int!(u32, from_be_bytes, REG_DWORD_BIG_ENDIAN),
+        RegType::REG_QWORD => bytes_to_int!(u64, from_ne_bytes, REG_DWORD),
+        // RegType::REG_QWORD_BIG_ENDIAN => bytes_to_int!(u64, from_be_bytes, REG_DWORD_BIG_ENDIAN),
+        RegType::REG_SZ | RegType::REG_EXPAND_SZ => {
+            let wide_slice = bytes_to_wide(&value.bytes).ok_or_else(|| {
+                vm.new_value_error("REG_SZ string doesn't have an even byte length".to_owned())
+            })?;
+            let nul_pos = wide_slice
+                .iter()
+                .position(|w| *w == 0)
+                .unwrap_or_else(|| wide_slice.len());
+            let s = String::from_utf16_lossy(&wide_slice[..nul_pos]);
+            Ok(vm.new_str(s))
+        }
+        RegType::REG_MULTI_SZ => {
+            if value.bytes.is_empty() {
+                return Ok(vm.ctx.new_list(vec![]));
+            }
+            let wide_slice = bytes_to_wide(&value.bytes).ok_or_else(|| {
+                vm.new_value_error(
+                    "REG_MULTI_SZ string doesn't have an even byte length".to_owned(),
+                )
+            })?;
+            let wide_slice = if let Some((0, rest)) = wide_slice.split_last() {
+                rest
+            } else {
+                wide_slice
+            };
+            let strings = wide_slice
+                .split(|c| *c == 0)
+                .map(|s| vm.new_str(String::from_utf16_lossy(s)))
+                .collect();
+            Ok(vm.ctx.new_list(strings))
+        }
+        RegType::REG_BINARY | _ => {
+            if value.bytes.is_empty() {
+                Ok(vm.get_none())
+            } else {
+                Ok(vm.ctx.new_bytes(value.bytes))
+            }
+        }
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -145,6 +248,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "OpenKey" => ctx.new_function(winreg_OpenKey),
         "QueryValue" => ctx.new_function(winreg_QueryValue),
         "QueryValueEx" => ctx.new_function(winreg_QueryValueEx),
+        "EnumKey" => ctx.new_function(winreg_EnumKey),
+        "EnumValue" => ctx.new_function(winreg_EnumValue),
         "CloseKey" => ctx.new_function(winreg_CloseKey),
     });
 

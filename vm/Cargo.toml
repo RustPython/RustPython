@@ -95,7 +95,7 @@ rustyline = "6.0"
 dns-lookup = "1.0"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.6"
+winreg = "0.7"
 
 [target."cfg(windows)".dependencies.winapi]
 version = "0.3"
