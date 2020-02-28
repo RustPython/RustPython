@@ -935,8 +935,12 @@ impl Frame {
             }
             bytecode::CallType::Ex(has_kwargs) => {
                 let kwargs = if *has_kwargs {
-                    let kw_dict: PyDictRef =
-                        self.pop_value().downcast().expect("Kwargs must be a dict.");
+                    let kw_dict: PyDictRef = match self.pop_value().downcast() {
+                        Err(_) => {
+                            return Err(vm.new_type_error("Kwargs must be a dict.".to_owned()));
+                        }
+                        Ok(x) => x,
+                    };
                     let mut kwargs = IndexMap::new();
                     for (key, value) in kw_dict.into_iter() {
                         if let Some(key) = key.payload_if_subclass::<objstr::PyString>(vm) {
