@@ -558,7 +558,7 @@ class DictTest(unittest.TestCase):
         self.assertRaises(Exc, repr, d)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_repr_deep(self):
         d = {}
         for i in range(sys.getrecursionlimit() + 100):

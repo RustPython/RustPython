@@ -248,6 +248,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let subprocess_error = ctx.new_class("SubprocessError", ctx.exceptions.exception_type.clone());
     let timeout_expired = ctx.new_class("TimeoutExpired", subprocess_error.clone());
+    let called_process_error = ctx.new_class("CalledProcessError", subprocess_error.clone());
 
     let popen = py_class!(ctx, "Popen", ctx.object(), {
         (slot new) => PopenRef::new,
@@ -270,6 +271,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "Popen" => popen,
         "SubprocessError" => subprocess_error,
         "TimeoutExpired" => timeout_expired,
+        "CalledProcessError" => called_process_error,
         "PIPE" => ctx.new_int(-1),
         "STDOUT" => ctx.new_int(-2),
         "DEVNULL" => ctx.new_int(-3),
