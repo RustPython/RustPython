@@ -1575,21 +1575,22 @@ def _setup(_bootstrap_module):
         setattr(self_module, builtin_name, builtin_module)
 
     # Directly load the os module (needed during bootstrap).
-    # XXX Changed to fit RustPython!!!
-    builtin_os = "_os"
-    if builtin_os in sys.modules:
-        os_module = sys.modules[builtin_os]
+    os_details = ('posix', ['/']), ('nt', ['\\', '/'])
+    for builtin_os, path_separators in os_details:
+        # Assumption made in _path_join()
+        assert all(len(sep) == 1 for sep in path_separators)
+        path_sep = path_separators[0]
+        if builtin_os in sys.modules:
+            os_module = sys.modules[builtin_os]
+            break
+        else:
+            try:
+                os_module = _bootstrap._builtin_from_name(builtin_os)
+                break
+            except ImportError:
+                continue
     else:
-        try:
-            os_module = _bootstrap._builtin_from_name(builtin_os)
-        except ImportError:
-            raise ImportError('importlib requires _os')
-    path_separators = ['\\', '/'] if os_module.name == 'nt' else ['/']
-    
-    # Assumption made in _path_join()
-    assert all(len(sep) == 1 for sep in path_separators)
-    path_sep = path_separators[0]
-
+        raise ImportError('importlib requires posix or nt')
     setattr(self_module, '_os', os_module)
     setattr(self_module, 'path_sep', path_sep)
     setattr(self_module, 'path_separators', ''.join(path_separators))
@@ -1604,7 +1605,8 @@ def _setup(_bootstrap_module):
     setattr(self_module, '_weakref', weakref_module)
 
     # Directly load the winreg module (needed during bootstrap).
-    if builtin_os == 'nt':
+    # XXX RustPython TODO: winreg module
+    if builtin_os == 'nt' and False:
         winreg_module = _bootstrap._builtin_from_name('winreg')
         setattr(self_module, '_winreg', winreg_module)
 

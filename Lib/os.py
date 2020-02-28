@@ -43,21 +43,50 @@ def _get_exports_list(module):
     except AttributeError:
         return [n for n in dir(module) if n[0] != '_']
 
-import _os
-from _os import *
-from _os import _exit
-__all__.extend(_get_exports_list(_os))
-del _os
-
 # Any new dependencies of the os module and/or changes in path separator
 # requires updating importlib as well.
-if name == 'nt':
-    linesep = '\r\n'
-    import ntpath as path
-else:
+if 'posix' in _names:
+    name = 'posix'
     linesep = '\n'
+    from posix import *
+    try:
+        from posix import _exit
+        __all__.append('_exit')
+    except ImportError:
+        pass
     import posixpath as path
 
+    try:
+        from posix import _have_functions
+    except ImportError:
+        pass
+
+    import posix
+    __all__.extend(_get_exports_list(posix))
+    del posix
+
+elif 'nt' in _names:
+    name = 'nt'
+    linesep = '\r\n'
+    from nt import *
+    try:
+        from nt import _exit
+        __all__.append('_exit')
+    except ImportError:
+        pass
+    import ntpath as path
+
+    import nt
+    __all__.extend(_get_exports_list(nt))
+    del nt
+
+    try:
+        from nt import _have_functions
+    except ImportError:
+        pass
+
+else:
+    raise ImportError('no os specific module found')
 
 sys.modules['os.path'] = path
 from os.path import (curdir, pardir, sep, pathsep, defpath, extsep, altsep,

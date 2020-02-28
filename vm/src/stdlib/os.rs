@@ -42,6 +42,11 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
+#[cfg(windows)]
+pub const MODULE_NAME: &str = "nt";
+#[cfg(not(windows))]
+pub const MODULE_NAME: &str = "posix";
+
 #[cfg(unix)]
 pub fn raw_file_number(handle: File) -> i64 {
     use std::os::unix::io::IntoRawFd;
@@ -504,7 +509,7 @@ type DirEntryRef = PyRef<DirEntry>;
 
 impl PyValue for DirEntry {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("_os", "DirEntry")
+        vm.class(MODULE_NAME, "DirEntry")
     }
 }
 
@@ -587,7 +592,7 @@ struct ScandirIterator {
 
 impl PyValue for ScandirIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("_os", "ScandirIter")
+        vm.class(MODULE_NAME, "ScandirIter")
     }
 }
 
@@ -666,7 +671,7 @@ struct StatResult {
 
 impl StatResult {
     fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-        self.into_struct_sequence(vm, vm.class("_os", "stat_result"))
+        self.into_struct_sequence(vm, vm.class(MODULE_NAME, "stat_result"))
             .unwrap()
             .into_object()
     }
@@ -1170,7 +1175,7 @@ struct UnameResult {
 #[cfg(unix)]
 impl UnameResult {
     fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-        self.into_struct_sequence(vm, vm.class("_os", "uname_result"))
+        self.into_struct_sequence(vm, vm.class(MODULE_NAME, "uname_result"))
             .unwrap()
             .into_object()
     }
@@ -1257,12 +1262,6 @@ fn os_lseek(fd: i32, position: Offset, how: i32, vm: &VirtualMachine) -> PyResul
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let os_name = if cfg!(windows) {
-        "nt".to_owned()
-    } else {
-        "posix".to_owned()
-    };
-
     let environ = _os_environ(vm);
 
     let scandir_iter = ctx.new_class("ScandirIter", ctx.object());
@@ -1342,7 +1341,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let supports_dir_fd = PySet::default().into_ref(vm);
     let supports_follow_symlinks = PySet::default().into_ref(vm);
 
-    let module = py_module!(vm, "_os", {
+    let module = py_module!(vm, MODULE_NAME, {
         "close" => ctx.new_function(os_close),
         "error" => ctx.new_function(os_error),
         "fsync" => ctx.new_function(os_fsync),
@@ -1352,7 +1351,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "putenv" => ctx.new_function(os_putenv),
         "unsetenv" => ctx.new_function(os_unsetenv),
         "environ" => environ,
-        "name" => ctx.new_str(os_name),
         "ScandirIter" => scandir_iter,
         "DirEntry" => dir_entry,
         "stat_result" => stat_result,
@@ -1360,7 +1358,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getcwd" => ctx.new_function(os_getcwd),
         "chdir" => ctx.new_function(os_chdir),
         "fspath" => ctx.new_function(os_fspath),
-         "getpid" => ctx.new_function(os_getpid),
+        "getpid" => ctx.new_function(os_getpid),
         "cpu_count" => ctx.new_function(os_cpu_count),
         "_exit" => ctx.new_function(os_exit),
         "urandom" => ctx.new_function(os_urandom),
