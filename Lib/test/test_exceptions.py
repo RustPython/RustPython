@@ -1201,7 +1201,6 @@ class ExceptionTests(unittest.TestCase):
             self.fail("RecursionError not raised")
         self.assertEqual(wr(), None)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_errno_ENOTDIR(self):
         # Issue #12802: "not a directory" errors are ENOTDIR even on Windows
         with self.assertRaises(OSError) as cm:
