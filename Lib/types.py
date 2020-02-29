@@ -44,13 +44,13 @@ ClassMethodDescriptorType = type(dict.__dict__['fromkeys'])
 
 ModuleType = type(sys)
 
-# try:
-#     raise TypeError
-# except TypeError:
-#     tb = sys.exc_info()[2]
-#     TracebackType = type(tb)
-#     FrameType = type(tb.tb_frame)
-#     tb = None; del tb
+try:
+    raise TypeError
+except TypeError:
+    tb = sys.exc_info()[2]
+    TracebackType = type(tb)
+    FrameType = type(tb.tb_frame)
+    tb = None; del tb
 
 # For Jython, the following two types are identical
 GetSetDescriptorType = type(FunctionType.__code__)
