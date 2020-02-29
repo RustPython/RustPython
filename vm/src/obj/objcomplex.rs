@@ -183,6 +183,11 @@ impl PyComplex {
         self.divmod(other, vm)
     }
 
+    #[pymethod(name = "__pos__")]
+    fn pos(&self) -> Complex64 {
+        self.value
+    }
+
     #[pymethod(name = "__neg__")]
     fn neg(&self) -> Complex64 {
         -self.value

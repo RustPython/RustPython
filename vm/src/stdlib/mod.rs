@@ -76,11 +76,11 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "marshal".to_owned() => Box::new(marshal::make_module),
         "math".to_owned() => Box::new(math::make_module),
         "_operator".to_owned() => Box::new(operator::make_module),
-        "platform".to_owned() => Box::new(platform::make_module),
+        "_platform".to_owned() => Box::new(platform::make_module),
         "regex_crate".to_owned() => Box::new(re::make_module),
         "_random".to_owned() => Box::new(random::make_module),
         "_string".to_owned() => Box::new(string::make_module),
-        "struct".to_owned() => Box::new(pystruct::make_module),
+        "_struct".to_owned() => Box::new(pystruct::make_module),
         "_thread".to_owned() => Box::new(thread::make_module),
         "time".to_owned() => Box::new(time_module::make_module),
         "_weakref".to_owned() => Box::new(weakref::make_module),
@@ -109,7 +109,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     // disable some modules on WASM
     #[cfg(not(target_arch = "wasm32"))]
     {
-        modules.insert("_os".to_owned(), Box::new(os::make_module));
+        modules.insert(os::MODULE_NAME.to_owned(), Box::new(os::make_module));
         modules.insert("_socket".to_owned(), Box::new(socket::make_module));
         modules.insert(
             "_multiprocessing".to_owned(),

@@ -8,7 +8,8 @@ use std::fmt;
 use super::objlist::PyListIterator;
 use super::objtype::{self, PyClassRef};
 use crate::dictdatatype;
-use crate::function::OptionalArg;
+use crate::function::{Args, OptionalArg};
+use crate::pyhash;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -206,8 +207,11 @@ impl PySetInner {
     fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let mut new_inner = self.clone();
 
-        for item in other.iter(vm)? {
-            new_inner.content.delete_or_insert(vm, &item?, ())?
+        // We want to remove duplicates in other
+        let other_set = Self::new(other, vm)?;
+
+        for item in other_set.content.keys() {
+            new_inner.content.delete_or_insert(vm, &item, ())?
         }
 
         Ok(new_inner)
@@ -280,41 +284,60 @@ impl PySetInner {
         }
     }
 
-    fn update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
-        for item in iterable.iter(vm)? {
-            self.add(&item?, vm)?;
-        }
-        Ok(())
-    }
-
-    fn intersection_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
-        let temp_inner = self.copy();
-        self.clear();
-        for item in iterable.iter(vm)? {
-            let obj = item?;
-            if temp_inner.contains(&obj, vm)? {
-                self.add(&obj, vm)?;
+    fn update(&mut self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<()> {
+        for iterable in others {
+            for item in iterable.iter(vm)? {
+                self.add(&item?, vm)?;
             }
         }
         Ok(())
     }
 
-    fn difference_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
-        for item in iterable.iter(vm)? {
-            self.content.delete_if_exists(vm, &item?)?;
+    fn intersection_update(
+        &mut self,
+        others: Args<PyIterable>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let mut temp_inner = self.copy();
+        self.clear();
+        for iterable in others {
+            for item in iterable.iter(vm)? {
+                let obj = item?;
+                if temp_inner.contains(&obj, vm)? {
+                    self.add(&obj, vm)?;
+                }
+            }
+            temp_inner = self.copy()
+        }
+        Ok(())
+    }
+
+    fn difference_update(&mut self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<()> {
+        for iterable in others {
+            for item in iterable.iter(vm)? {
+                self.content.delete_if_exists(vm, &item?)?;
+            }
         }
         Ok(())
     }
 
     fn symmetric_difference_update(
         &mut self,
-        iterable: PyIterable,
+        others: Args<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        for item in iterable.iter(vm)? {
-            self.content.delete_or_insert(vm, &item?, ())?;
+        for iterable in others {
+            // We want to remove duplicates in iterable
+            let iterable_set = Self::new(iterable, vm)?;
+            for item in iterable_set.content.keys() {
+                self.content.delete_or_insert(vm, &item, ())?;
+            }
         }
         Ok(())
+    }
+
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+        pyhash::hash_iter_unordered(self.content.keys(), vm)
     }
 }
 
@@ -326,6 +349,18 @@ macro_rules! try_set_cmp {
             _ => $vm.ctx.not_implemented(),
         }));
     };
+}
+
+macro_rules! multi_args_set {
+    ($vm:expr, $others:expr, $zelf:expr, $op:tt) => {{
+        let mut res = $zelf.inner.borrow().copy();
+        for other in $others {
+            res = res.$op(other, $vm)?
+        }
+        Ok(Self {
+            inner: RefCell::new(res),
+        })
+    }};
 }
 
 #[pyimpl(flags(BASETYPE))]
@@ -395,31 +430,27 @@ impl PySet {
     }
 
     #[pymethod]
-    fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(Self {
-            inner: RefCell::new(self.inner.borrow().union(other, vm)?),
-        })
+    fn union(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<Self> {
+        multi_args_set!(vm, others, self, union)
     }
 
     #[pymethod]
-    fn intersection(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(Self {
-            inner: RefCell::new(self.inner.borrow().intersection(other, vm)?),
-        })
+    fn intersection(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<Self> {
+        multi_args_set!(vm, others, self, intersection)
     }
 
     #[pymethod]
-    fn difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(Self {
-            inner: RefCell::new(self.inner.borrow().difference(other, vm)?),
-        })
+    fn difference(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<Self> {
+        multi_args_set!(vm, others, self, difference)
     }
 
     #[pymethod]
-    fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(Self {
-            inner: RefCell::new(self.inner.borrow().symmetric_difference(other, vm)?),
-        })
+    fn symmetric_difference(
+        &self,
+        others: Args<PyIterable>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
+        multi_args_set!(vm, others, self, symmetric_difference)
     }
 
     #[pymethod]
@@ -529,14 +560,14 @@ impl PySet {
     }
 
     #[pymethod]
-    fn update(&self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().update(iterable, vm)?;
+    fn update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow_mut().update(others, vm)?;
         Ok(vm.get_none())
     }
 
     #[pymethod]
-    fn intersection_update(&self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().intersection_update(iterable, vm)?;
+    fn intersection_update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow_mut().intersection_update(others, vm)?;
         Ok(vm.get_none())
     }
 
@@ -549,8 +580,8 @@ impl PySet {
     }
 
     #[pymethod]
-    fn difference_update(&self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().difference_update(iterable, vm)?;
+    fn difference_update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow_mut().difference_update(others, vm)?;
         Ok(vm.get_none())
     }
 
@@ -563,10 +594,14 @@ impl PySet {
     }
 
     #[pymethod]
-    fn symmetric_difference_update(&self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn symmetric_difference_update(
+        &self,
+        others: Args<PyIterable>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         self.inner
             .borrow_mut()
-            .symmetric_difference_update(iterable, vm)?;
+            .symmetric_difference_update(others, vm)?;
         Ok(vm.get_none())
     }
 
@@ -582,6 +617,16 @@ impl PySet {
     fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error("unhashable type".to_owned()))
     }
+}
+
+macro_rules! multi_args_frozenset {
+    ($vm:expr, $others:expr, $zelf:expr, $op:tt) => {{
+        let mut res = $zelf.inner.copy();
+        for other in $others {
+            res = res.$op(other, $vm)?
+        }
+        Ok(Self { inner: res })
+    }};
 }
 
 #[pyimpl(flags(BASETYPE))]
@@ -651,31 +696,27 @@ impl PyFrozenSet {
     }
 
     #[pymethod]
-    fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(Self {
-            inner: self.inner.union(other, vm)?,
-        })
+    fn union(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<Self> {
+        multi_args_frozenset!(vm, others, self, union)
     }
 
     #[pymethod]
-    fn intersection(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(Self {
-            inner: self.inner.intersection(other, vm)?,
-        })
+    fn intersection(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<Self> {
+        multi_args_frozenset!(vm, others, self, intersection)
     }
 
     #[pymethod]
-    fn difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(Self {
-            inner: self.inner.difference(other, vm)?,
-        })
+    fn difference(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<Self> {
+        multi_args_frozenset!(vm, others, self, difference)
     }
 
     #[pymethod]
-    fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(Self {
-            inner: self.inner.symmetric_difference(other, vm)?,
-        })
+    fn symmetric_difference(
+        &self,
+        others: Args<PyIterable>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
+        multi_args_frozenset!(vm, others, self, symmetric_difference)
     }
 
     #[pymethod]
@@ -750,10 +791,15 @@ impl PyFrozenSet {
         };
         Ok(vm.new_str(s))
     }
+
+    #[pymethod(name = "__hash__")]
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+        self.inner.hash(vm)
+    }
 }
 
 struct SetIterable {
-    iterable: PyIterable,
+    iterable: Args<PyIterable>,
 }
 
 impl TryFromObject for SetIterable {
@@ -762,7 +808,7 @@ impl TryFromObject for SetIterable {
             || objtype::issubclass(&obj.class(), &vm.ctx.frozenset_type())
         {
             Ok(SetIterable {
-                iterable: PyIterable::try_from_object(vm, obj)?,
+                iterable: Args::new(vec![PyIterable::try_from_object(vm, obj)?]),
             })
         } else {
             Err(vm.new_type_error(format!(

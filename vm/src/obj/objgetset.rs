@@ -5,6 +5,7 @@ use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, OwnedParam, RefParam};
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
@@ -238,10 +239,14 @@ impl PyGetSet {
             Err(vm.new_attribute_error(format!(
                 "attribute '{}' of '{}' objects is not writable",
                 self.name,
-                Self::class(vm).name
+                obj.class().name
             )))
         }
     }
+
+    // TODO: give getset_descriptors names
+    #[pyproperty(magic)]
+    fn name(&self) {}
 }
 
 pub(crate) fn init(context: &PyContext) {

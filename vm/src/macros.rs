@@ -153,6 +153,7 @@ macro_rules! extend_class {
         $(
             $crate::extend_class!(@set_attr($ctx, $class, $name, $value));
         )*
+        $ctx.add_tp_new_wrapper(&$class);
     };
 
     (@set_attr($ctx:expr, $class:expr, (slot $slot_name:ident), $value:expr)) => {

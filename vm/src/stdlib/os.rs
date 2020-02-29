@@ -22,6 +22,8 @@ use nix::pty::openpty;
 use nix::unistd::{self, Gid, Pid, Uid};
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
+#[cfg(unix)]
+use uname;
 
 use super::errno::errors;
 use crate::exceptions::PyBaseExceptionRef;
@@ -39,6 +41,11 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+
+#[cfg(windows)]
+pub const MODULE_NAME: &str = "nt";
+#[cfg(not(windows))]
+pub const MODULE_NAME: &str = "posix";
 
 #[cfg(unix)]
 pub fn raw_file_number(handle: File) -> i64 {
@@ -502,7 +509,7 @@ type DirEntryRef = PyRef<DirEntry>;
 
 impl PyValue for DirEntry {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("_os", "DirEntry")
+        vm.class(MODULE_NAME, "DirEntry")
     }
 }
 
@@ -585,7 +592,7 @@ struct ScandirIterator {
 
 impl PyValue for ScandirIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("_os", "ScandirIter")
+        vm.class(MODULE_NAME, "ScandirIter")
     }
 }
 
@@ -664,7 +671,7 @@ struct StatResult {
 
 impl StatResult {
     fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
-        self.into_struct_sequence(vm, vm.class("_os", "stat_result"))
+        self.into_struct_sequence(vm, vm.class(MODULE_NAME, "stat_result"))
             .unwrap()
             .into_object()
     }
@@ -1154,6 +1161,39 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     }
 }
 
+#[pystruct_sequence(name = "os.uname_result")]
+#[derive(Debug)]
+#[cfg(unix)]
+struct UnameResult {
+    sysname: String,
+    nodename: String,
+    release: String,
+    version: String,
+    machine: String,
+}
+
+#[cfg(unix)]
+impl UnameResult {
+    fn into_obj(self, vm: &VirtualMachine) -> PyObjectRef {
+        self.into_struct_sequence(vm, vm.class(MODULE_NAME, "uname_result"))
+            .unwrap()
+            .into_object()
+    }
+}
+
+#[cfg(unix)]
+fn os_uname(vm: &VirtualMachine) -> PyResult {
+    let info = uname::uname().map_err(|err| convert_io_error(vm, err))?;
+    Ok(UnameResult {
+        sysname: info.sysname,
+        nodename: info.nodename,
+        release: info.release,
+        version: info.version,
+        machine: info.machine,
+    }
+    .into_obj(vm))
+}
+
 // this is basically what CPython has for Py_off_t; windows uses long long
 // for offsets, other platforms just use off_t
 #[cfg(not(windows))]
@@ -1221,12 +1261,6 @@ fn os_lseek(fd: i32, position: Offset, how: i32, vm: &VirtualMachine) -> PyResul
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
-
-    let os_name = if cfg!(windows) {
-        "nt".to_owned()
-    } else {
-        "posix".to_owned()
-    };
 
     let environ = _os_environ(vm);
 
@@ -1307,7 +1341,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let supports_dir_fd = PySet::default().into_ref(vm);
     let supports_follow_symlinks = PySet::default().into_ref(vm);
 
-    let module = py_module!(vm, "_os", {
+    let module = py_module!(vm, MODULE_NAME, {
         "close" => ctx.new_function(os_close),
         "error" => ctx.new_function(os_error),
         "fsync" => ctx.new_function(os_fsync),
@@ -1317,7 +1351,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "putenv" => ctx.new_function(os_putenv),
         "unsetenv" => ctx.new_function(os_unsetenv),
         "environ" => environ,
-        "name" => ctx.new_str(os_name),
         "ScandirIter" => scandir_iter,
         "DirEntry" => dir_entry,
         "stat_result" => stat_result,
@@ -1325,7 +1358,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getcwd" => ctx.new_function(os_getcwd),
         "chdir" => ctx.new_function(os_chdir),
         "fspath" => ctx.new_function(os_fspath),
-         "getpid" => ctx.new_function(os_getpid),
+        "getpid" => ctx.new_function(os_getpid),
         "cpu_count" => ctx.new_function(os_cpu_count),
         "_exit" => ctx.new_function(os_exit),
         "urandom" => ctx.new_function(os_urandom),
@@ -1383,6 +1416,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[cfg(unix)]
 fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
     let ctx = &vm.ctx;
+
+    let uname_result = UnameResult::make_class(ctx);
+
     extend_module!(vm, module, {
         "access" => ctx.new_function(os_access),
         "chmod" => ctx.new_function(os_chmod),
@@ -1403,6 +1439,8 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "setuid" => ctx.new_function(os_setuid),
         "system" => ctx.new_function(os_system),
         "ttyname" => ctx.new_function(os_ttyname),
+        "uname" => ctx.new_function(os_uname),
+        "uname_result" => uname_result,
         "EX_OK" => ctx.new_int(exitcode::OK as i8),
         "EX_USAGE" => ctx.new_int(exitcode::USAGE as i8),
         "EX_DATAERR" => ctx.new_int(exitcode::DATAERR as i8),

@@ -23,7 +23,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 pub fn get_version() -> String {
     format!(
-        "{:.80} ({:.80}) {:.80}",
+        "{:.80} ({:.80}) \n[{:.80}]",
         get_version_number(),
         get_build_info(),
         get_compiler()
@@ -46,7 +46,7 @@ pub fn get_version_number() -> String {
 
 pub fn get_compiler() -> String {
     let rustc_version = rustc_version_runtime::version_meta();
-    format!("\n[rustc {}]", rustc_version.semver)
+    format!("rustc {}", rustc_version.semver)
 }
 
 pub fn get_build_info() -> String {

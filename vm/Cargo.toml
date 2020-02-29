@@ -30,9 +30,9 @@ num-traits = "0.2.8"
 num-integer = "0.1.41"
 num-rational = "0.2.2"
 num-iter = "0.1.39"
-rand = "0.7"
+rand = { version = "0.7", features = ["wasm-bindgen"] }
 rand_core = "0.5"
-getrandom = "0.1"
+getrandom = { version = "0.1", features = ["wasm-bindgen"] }
 log = "0.4"
 rustpython-derive = {path = "../derive", version = "0.1.1"}
 rustpython-parser = {path = "../parser", optional = true, version = "0.1.1"}
@@ -78,6 +78,7 @@ pwd = "1"
 
 [target.'cfg(unix)'.dependencies]
 exitcode = "1.1.2"
+uname = "0.1.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 crc32fast = "1.2.0"
