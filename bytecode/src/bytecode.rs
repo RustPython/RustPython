@@ -38,8 +38,9 @@ pub struct CodeObject {
     pub label_map: HashMap<Label, usize>,
     pub locations: Vec<Location>,
     pub flags: CodeFlags,
-    pub arg_names: Vec<String>, // Names of positional arguments
-    pub varargs: Varargs,       // *args or *
+    pub posonlyarg_count: usize, // Number of positional-only arguments
+    pub arg_names: Vec<String>,  // Names of positional arguments
+    pub varargs: Varargs,        // *args or *
     pub kwonlyarg_names: Vec<String>,
     pub varkeywords: Varargs, // **kwargs or **
     pub source_path: String,
@@ -370,6 +371,7 @@ impl CodeObject {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         flags: CodeFlags,
+        posonlyarg_count: usize,
         arg_names: Vec<String>,
         varargs: Varargs,
         kwonlyarg_names: Vec<String>,
@@ -383,6 +385,7 @@ impl CodeObject {
             label_map: HashMap::new(),
             locations: Vec::new(),
             flags,
+            posonlyarg_count,
             arg_names,
             varargs,
             kwonlyarg_names,
