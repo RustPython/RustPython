@@ -41,6 +41,7 @@ class ExceptionTests(unittest.TestCase):
         self.assertEqual(buf1, buf2)
         self.assertEqual(exc.__name__, excname)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def testRaising(self):
         self.raise_catch(AttributeError, "AttributeError")
         self.assertRaises(AttributeError, getattr, sys, "undefined_attribute")
@@ -125,6 +126,8 @@ class ExceptionTests(unittest.TestCase):
 
         self.raise_catch(StopAsyncIteration, "StopAsyncIteration")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSyntaxErrorMessage(self):
         # make sure the right exception message is raised for each of
         # these code fragments
@@ -147,6 +150,8 @@ class ExceptionTests(unittest.TestCase):
         ckmsg(s, "'continue' not properly in loop")
         ckmsg("continue\n", "'continue' not properly in loop")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSyntaxErrorMissingParens(self):
         def ckmsg(src, msg, exception=SyntaxError):
             try:
@@ -175,6 +180,8 @@ class ExceptionTests(unittest.TestCase):
         s = '''if True:\n        print()\n\texec "mixed tabs and spaces"'''
         ckmsg(s, "inconsistent use of tabs and spaces in indentation", TabError)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSyntaxErrorOffset(self):
         def check(src, lineno, offset):
             with self.assertRaises(SyntaxError) as cm:
@@ -324,6 +331,7 @@ class ExceptionTests(unittest.TestCase):
         with self.assertRaisesRegex(OSError, 'Windows Error 0x%x' % code):
             ctypes.pythonapi.PyErr_SetFromWindowsErr(code)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def testAttributes(self):
         # test that exception attributes are happy
 
@@ -471,6 +479,8 @@ class ExceptionTests(unittest.TestCase):
         self.assertIsInstance(e, MyException)
         self.assertEqual(e.__traceback__, tb)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testInvalidTraceback(self):
         try:
             Exception().__traceback__ = 5
@@ -479,6 +489,7 @@ class ExceptionTests(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def testInvalidAttrs(self):
         self.assertRaises(TypeError, setattr, Exception(), '__cause__', 1)
         self.assertRaises(TypeError, delattr, Exception(), '__cause__')
@@ -512,6 +523,8 @@ class ExceptionTests(unittest.TestCase):
         self.assertIsNone(e.__context__)
         self.assertIsNone(e.__cause__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testChainingDescriptors(self):
         try:
             raise Exception()
@@ -530,6 +543,8 @@ class ExceptionTests(unittest.TestCase):
         e.__suppress_context__ = False
         self.assertFalse(e.__suppress_context__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testKeywordArgs(self):
         # test that builtin exception don't take keyword args,
         # but user-defined subclasses can if they want
@@ -572,6 +587,8 @@ class ExceptionTests(unittest.TestCase):
             del e
         self.assertNotIn('e', locals())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testExceptionCleanupState(self):
         # Make sure exception state is cleaned up as soon as the except
         # block is left. See #2507
@@ -699,6 +716,8 @@ class ExceptionTests(unittest.TestCase):
             print_error()
             # implicit "del e" here
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_leaking(self):
         # Test that generator exception state doesn't leak into the calling
         # frame
@@ -729,6 +748,8 @@ class ExceptionTests(unittest.TestCase):
             del g
             self.assertEqual(sys.exc_info()[0], TypeError)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_leaking2(self):
         # See issue 12475.
         def g():
@@ -744,6 +765,8 @@ class ExceptionTests(unittest.TestCase):
             pass
         self.assertEqual(sys.exc_info(), (None, None, None))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_leaking3(self):
         # See issue #23353.  When gen.throw() is called, the caller's
         # exception state should be save and restored.
@@ -763,6 +786,7 @@ class ExceptionTests(unittest.TestCase):
             self.assertIs(gen_exc, e)
         self.assertEqual(sys.exc_info(), (None, None, None))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_generator_leaking4(self):
         # See issue #23353.  When an exception is raised by a generator,
         # the caller's exception state should still be restored.
@@ -790,6 +814,8 @@ class ExceptionTests(unittest.TestCase):
         # We used to find TypeError here.
         self.assertEqual(sys.exc_info(), (None, None, None))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_doesnt_retain_old_exc(self):
         def g():
             self.assertIsInstance(sys.exc_info()[1], RuntimeError)
@@ -802,6 +828,8 @@ class ExceptionTests(unittest.TestCase):
             next(it)
         self.assertRaises(StopIteration, next, it)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_finalizing_and_exc_info(self):
         # See #7173
         def simple_gen():
@@ -853,6 +881,8 @@ class ExceptionTests(unittest.TestCase):
             g.close()
         self._check_generator_cleanup_exc_state(do_close)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_del_cleanup_exc_state(self):
         def do_del(g):
             g = None
@@ -878,20 +908,22 @@ class ExceptionTests(unittest.TestCase):
                 self.fail("should have raised StopIteration")
         self._check_generator_cleanup_exc_state(do_send)
 
-    def test_3114(self):
-        # Bug #3114: in its destructor, MyObject retrieves a pointer to
-        # obsolete and/or deallocated objects.
-        class MyObject:
-            def __del__(self):
-                nonlocal e
-                e = sys.exc_info()
-        e = ()
-        try:
-            raise Exception(MyObject())
-        except:
-            pass
-        self.assertEqual(e, (None, None, None))
+    # def test_3114(self):
+    #     # Bug #3114: in its destructor, MyObject retrieves a pointer to
+    #     # obsolete and/or deallocated objects.
+    #     class MyObject:
+    #         def __del__(self):
+    #             nonlocal e
+    #             e = sys.exc_info()
+    #     e = ()
+    #     try:
+    #         raise Exception(MyObject())
+    #     except:
+    #         pass
+    #     self.assertEqual(e, (None, None, None))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unicode_change_attributes(self):
         # See issue 7309. This was a crasher.
 
@@ -1147,6 +1179,8 @@ class ExceptionTests(unittest.TestCase):
             self.fail("MemoryError not raised")
         self.assertEqual(wr(), None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @no_tracing
     def test_recursion_error_cleanup(self):
         # Same test as above, but with "recursion exceeded" errors
@@ -1167,12 +1201,15 @@ class ExceptionTests(unittest.TestCase):
             self.fail("RecursionError not raised")
         self.assertEqual(wr(), None)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_errno_ENOTDIR(self):
         # Issue #12802: "not a directory" errors are ENOTDIR even on Windows
         with self.assertRaises(OSError) as cm:
             os.listdir(__file__)
         self.assertEqual(cm.exception.errno, errno.ENOTDIR, cm.exception)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unraisable(self):
         # Issue #22836: PyErr_WriteUnraisable() should give sensible reports
         class BrokenDel:
@@ -1205,6 +1242,7 @@ class ExceptionTests(unittest.TestCase):
                     self.assertIn("del is broken", report)
                 self.assertTrue(report.endswith("\n"))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_unhandled(self):
         # Check for sensible reporting of unhandled exceptions
         for exc_type in (ValueError, BrokenStrException):
@@ -1266,6 +1304,8 @@ class ExceptionTests(unittest.TestCase):
         with self.assertRaises(MainError):
             coro.throw(SubError())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_doesnt_retain_old_exc2(self):
         #Issue 28884#msg282532
         def g():
@@ -1302,6 +1342,8 @@ class ExceptionTests(unittest.TestCase):
 
 class ImportErrorTests(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attributes(self):
         # Setting 'name' and 'path' should not be a problem.
         exc = ImportError('test')
@@ -1336,6 +1378,8 @@ class ImportErrorTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, msg):
             ImportError('test', invalid='keyword', another=True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_reset_attributes(self):
         exc = ImportError('test', name='name', path='path')
         self.assertEqual(exc.args, ('test',))
@@ -1357,6 +1401,7 @@ class ImportErrorTests(unittest.TestCase):
             exc = ImportError(arg)
             self.assertEqual(str(arg), str(exc))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_copy_pickle(self):
         for kwargs in (dict(),
                        dict(name='somename'),

@@ -8,7 +8,7 @@ import os
 import os.path
 import subprocess
 import py_compile
-import zipfile
+# import zipfile  XXX RustPython
 
 from importlib.util import source_from_cache
 from test.support import make_legacy_pyc, strip_python_stderr
