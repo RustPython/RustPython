@@ -1420,6 +1420,7 @@ dependencies = [
 name = "rustpython"
 version = "0.1.1"
 dependencies = [
+ "cfg-if",
  "clap",
  "cpython",
  "dirs 2.0.2",
@@ -1539,6 +1540,7 @@ dependencies = [
  "rustpython-compiler",
  "rustpython-derive",
  "rustpython-parser",
+ "rustyline",
  "serde",
  "serde_json",
  "sha-1",

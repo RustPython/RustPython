@@ -1,8 +1,6 @@
 use std::io;
 use std::path::Path;
 
-use rustpython_vm::{scope::Scope, VirtualMachine};
-
 type OtherError = Box<dyn std::error::Error>;
 type OtherResult<T> = Result<T, OtherError>;
 
@@ -19,13 +17,16 @@ pub enum ReadlineResult {
 mod basic_readline {
     use super::*;
 
-    pub struct BasicReadline<'vm> {
-        vm: &'vm VirtualMachine,
+    pub trait Helper {}
+    impl<T> Helper for T {}
+
+    pub struct Readline<H: Helper> {
+        helper: H,
     }
 
-    impl<'vm> BasicReadline<'vm> {
-        pub fn new(vm: &'vm VirtualMachine, _scope: Scope) -> Self {
-            BasicReadline { vm }
+    impl<H: Helper> Readline<H> {
+        pub fn new(helper: H) -> Self {
+            Readline { helper }
         }
 
         pub fn load_history(&mut self, _path: &Path) -> OtherResult<()> {
@@ -60,16 +61,19 @@ mod basic_readline {
     }
 }
 
-#[cfg(not(target_os = "wasi"))]
+#[cfg(not(target_arch = "wasm32"))]
 mod rustyline_readline {
-    use super::{super::rustyline_helper::ShellHelper, *};
+    use super::*;
 
-    pub struct RustylineReadline<'vm> {
-        repl: rustyline::Editor<ShellHelper<'vm>>,
+    pub trait Helper: rustyline::Helper {}
+    impl<T: rustyline::Helper> Helper for T {}
+
+    pub struct Readline<H: Helper> {
+        repl: rustyline::Editor<H>,
     }
 
-    impl<'vm> RustylineReadline<'vm> {
-        pub fn new(vm: &'vm VirtualMachine, scope: Scope) -> Self {
+    impl<H: Helper> Readline<H> {
+        pub fn new(helper: H) -> Self {
             use rustyline::{At, Cmd, CompletionType, Config, Editor, KeyPress, Movement, Word};
             let mut repl = Editor::with_config(
                 Config::builder()
@@ -85,8 +89,8 @@ mod rustyline_readline {
                 KeyPress::ControlRight,
                 Cmd::Move(Movement::ForwardWord(1, At::AfterEnd, Word::Vi)),
             );
-            repl.set_helper(Some(ShellHelper::new(vm, scope)));
-            RustylineReadline { repl }
+            repl.set_helper(Some(helper));
+            Readline { repl }
         }
 
         pub fn load_history(&mut self, path: &Path) -> OtherResult<()> {
@@ -126,17 +130,18 @@ mod rustyline_readline {
     }
 }
 
-#[cfg(target_os = "wasi")]
-type ReadlineInner<'vm> = basic_readline::BasicReadline<'vm>;
+#[cfg(target_arch = "wasm32")]
+use basic_readline as readline_inner;
+#[cfg(not(target_arch = "wasm32"))]
+use rustyline_readline as readline_inner;
 
-#[cfg(not(target_os = "wasi"))]
-type ReadlineInner<'vm> = rustyline_readline::RustylineReadline<'vm>;
+pub use readline_inner::Helper;
 
-pub struct Readline<'vm>(ReadlineInner<'vm>);
+pub struct Readline<H: Helper>(readline_inner::Readline<H>);
 
-impl<'vm> Readline<'vm> {
-    pub fn new(vm: &'vm VirtualMachine, scope: Scope) -> Self {
-        Readline(ReadlineInner::new(vm, scope))
+impl<H: Helper> Readline<H> {
+    pub fn new(helper: H) -> Self {
+        Readline(readline_inner::Readline::new(helper))
     }
     pub fn load_history(&mut self, path: &Path) -> OtherResult<()> {
         self.0.load_history(path)
