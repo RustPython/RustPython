@@ -987,10 +987,7 @@ impl Frame {
             0 => match vm.current_exception() {
                 Some(exc) => exc,
                 None => {
-                    return Err(vm.new_exception_msg(
-                        vm.ctx.exceptions.runtime_error.clone(),
-                        "No active exception to reraise".to_owned(),
-                    ))
+                    return Err(vm.new_runtime_error("No active exception to reraise".to_owned()))
                 }
             },
             1 | 2 => ExceptionCtor::try_from_object(vm, self.pop_value())?.instantiate(vm)?,
