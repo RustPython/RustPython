@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use super::objdict::PyDictRef;
@@ -16,6 +16,7 @@ use crate::pyobject::{
 };
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
+use itertools::Itertools;
 
 /// type(object_or_name, bases, dict)
 /// type(object) -> the object's type
@@ -290,10 +291,14 @@ impl PyClassRef {
             }
         }
 
-        let typ = new(metatype, name.as_str(), base.clone(), bases, attributes)?;
-        typ.slots.borrow_mut().flags = base.slots.borrow().flags;
-        vm.ctx.add_tp_new_wrapper(&typ);
-        Ok(typ.into())
+        match new(metatype, name.as_str(), base.clone(), bases, attributes) {
+            Ok(typ) => {
+                typ.slots.borrow_mut().flags = base.slots.borrow().flags;
+                vm.ctx.add_tp_new_wrapper(&typ);
+                Ok(typ.into())
+            }
+            Err(string) => Err(vm.new_type_error(string)),
+        }
     }
 
     #[pyslot]
@@ -430,43 +435,65 @@ impl PyClassRef {
     }
 }
 
-fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> Option<(PyClassRef, Vec<Vec<PyClassRef>>)> {
-    let mut next = None;
-
+fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> (Option<PyClassRef>, Vec<Vec<PyClassRef>>) {
     bases = bases.into_iter().filter(|x| !x.is_empty()).collect();
 
     for base in &bases {
         let head = base[0].clone();
         if !(&bases).iter().any(|x| x[1..].iter().any(|x| x.is(&head))) {
-            next = Some(head);
-            break;
+            // Remove from other heads.
+            for item in &mut bases {
+                if item[0].is(&head) {
+                    item.remove(0);
+                }
+            }
+
+            return (Some(head), bases);
         }
     }
 
-    if let Some(head) = next {
-        for item in &mut bases {
-            if item[0].is(&head) {
-                item.remove(0);
-            }
-        }
-        return Some((head, bases));
-    }
-    None
+    (None, bases)
 }
 
-fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Option<Vec<PyClassRef>> {
+fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Result<Vec<PyClassRef>, String> {
     vm_trace!("Linearising MRO: {:?}", bases);
+    // Python requires that the class direct bases are kept in the same order.
+    // This is called local precedence ordering.
+    // This means we must verify that for classes A(), B(A) we must reject C(A, B) even though this
+    // algorithm will allow the mro ordering of [C, B, A, object].
+    // To verify this, we make sure non of the direct bases are in the mro of bases after them.
+    for (i, base_mro) in bases.iter().enumerate() {
+        let base = &base_mro[0]; // Mros cannot be empty.
+        for later_mro in bases[i + 1..].iter() {
+            // We start at index 1 to skip direct bases.
+            // This will not catch duplicate bases, but such a thing is already tested for.
+            if later_mro[1..].iter().any(|cls| cls.is(base)) {
+                return Err(
+                    "Unable to find mro order which keeps local precedence ordering".to_owned(),
+                );
+            }
+        }
+    }
+
     let mut result = vec![];
     loop {
         if (&bases).iter().all(Vec::is_empty) {
             break;
         }
-        let (head, new_bases) = take_next_base(bases)?;
+        let (head, new_bases) = take_next_base(bases);
+        if head.is_none() {
+            // Take the head class of each class here. Now that we have reached the problematic bases.
+            // Because this failed, we assume the lists cannot be empty.
+            return Err(format!(
+                "Cannot create a consistent method resolution order (MRO) for bases {}",
+                new_bases.iter().map(|x| x.first().unwrap()).join(", ")
+            ));
+        }
 
-        result.push(head);
+        result.push(head.unwrap());
         bases = new_bases;
     }
-    Some(result)
+    Ok(result)
 }
 
 pub fn new(
@@ -475,12 +502,20 @@ pub fn new(
     _base: PyClassRef,
     bases: Vec<PyClassRef>,
     dict: HashMap<String, PyObjectRef>,
-) -> PyResult<PyClassRef> {
+) -> Result<PyClassRef, String> {
+    // Check for duplicates in bases.
+    let mut unique_bases = HashSet::new();
+    for base in bases.iter() {
+        if !unique_bases.insert(base.get_id()) {
+            return Err(format!("duplicate base class {}", base.name));
+        }
+    }
+
     let mros = bases
         .iter()
         .map(|x| x.iter_mro().cloned().collect())
         .collect();
-    let mro = linearise_mro(mros).unwrap();
+    let mro = linearise_mro(mros)?;
     let new_type = PyObject {
         payload: PyClass {
             name: String::from(name),
@@ -584,11 +619,8 @@ mod tests {
     use super::{linearise_mro, new};
     use super::{HashMap, IdProtocol, PyClassRef, PyContext};
 
-    fn map_ids(obj: Option<Vec<PyClassRef>>) -> Option<Vec<usize>> {
-        match obj {
-            Some(vec) => Some(vec.into_iter().map(|x| x.get_id()).collect()),
-            None => None,
-        }
+    fn map_ids(obj: Result<Vec<PyClassRef>, String>) -> Result<Vec<usize>, String> {
+        Ok(obj?.into_iter().map(|x| x.get_id()).collect())
     }
 
     #[test]
@@ -619,14 +651,14 @@ mod tests {
                 vec![object.clone()],
                 vec![object.clone()]
             ])),
-            map_ids(Some(vec![object.clone()]))
+            map_ids(Ok(vec![object.clone()]))
         );
         assert_eq!(
             map_ids(linearise_mro(vec![
                 vec![a.clone(), object.clone()],
                 vec![b.clone(), object.clone()],
             ])),
-            map_ids(Some(vec![a.clone(), b.clone(), object.clone()]))
+            map_ids(Ok(vec![a.clone(), b.clone(), object.clone()]))
         );
     }
 }

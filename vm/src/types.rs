@@ -245,7 +245,7 @@ pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyC
         vec![base.clone()],
         dict,
     )
-    .unwrap()
+    .expect("Failed to create a new type in internal code.")
 }
 
 /// Paritally initialize a struct, ensuring that all fields are
