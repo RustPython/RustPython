@@ -6,6 +6,7 @@ use num_integer::Integer;
 use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
 
 use super::objbool::IntoPyBool;
+use super::objbytearray::PyByteArray;
 use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
 use super::objfloat;
@@ -666,8 +667,13 @@ impl IntOptions {
     fn get_int_value(self, vm: &VirtualMachine) -> PyResult<BigInt> {
         if let OptionalArg::Present(val) = self.val_options {
             let base = if let OptionalArg::Present(base) = self.base {
-                if !(objtype::isinstance(&val, &vm.ctx.str_type())
-                    || objtype::isinstance(&val, &vm.ctx.bytes_type()))
+                if ![
+                    &vm.ctx.str_type(),
+                    &vm.ctx.bytes_type(),
+                    &vm.ctx.bytearray_type(),
+                ]
+                .iter()
+                .any(|&typ| objtype::isinstance(&val, typ))
                 {
                     return Err(vm.new_type_error(
                         "int() can't convert non-string with explicit base".to_owned(),
@@ -726,6 +732,13 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult
         bytes @ PyBytes => {
             let bytes = bytes.get_value();
             let s = std::str::from_utf8(bytes)
+                .map(|s| s.trim())
+                .map_err(|e| vm.new_value_error(format!("utf8 decode error: {}", e)))?;
+            str_to_int(vm, s, base)
+        }
+        bytearray @ PyByteArray => {
+            let inner = bytearray.borrow_value();
+            let s = std::str::from_utf8(&inner.elements)
                 .map(|s| s.trim())
                 .map_err(|e| vm.new_value_error(format!("utf8 decode error: {}", e)))?;
             str_to_int(vm, s, base)
