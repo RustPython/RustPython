@@ -84,7 +84,7 @@ pub fn hash_iter<'a, I: std::iter::Iterator<Item = &'a PyObjectRef>>(
     Ok(hasher.finish() as PyHash)
 }
 
-pub fn hash_iter_no_order<I: std::iter::Iterator<Item = PyObjectRef>>(
+pub fn hash_iter_unordered<I: std::iter::Iterator<Item = PyObjectRef>>(
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<PyHash> {

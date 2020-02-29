@@ -337,8 +337,7 @@ impl PySetInner {
     }
 
     fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
-        // let items: Vec<PyObjectRef> = self.content.keys().collect();
-        pyhash::hash_iter_no_order(self.content.keys(), vm)
+        pyhash::hash_iter_unordered(self.content.keys(), vm)
     }
 }
 
