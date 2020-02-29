@@ -207,3 +207,49 @@ assert B.__doc__ == "Docstring"
 #         assert a == 3
 #     A.b()
 # nested_scope()
+
+
+
+# Multiple inheritance and mro tests.
+class A():
+    def f(self):
+        return 'a'
+
+class B(A):
+    def f(self):
+        return 'b' + super().f()
+
+class C(A):
+    def f(self):
+        return 'c' + super().f()
+
+class D(B, C):
+    def f(self):
+        return 'd' + super().f()
+
+assert D().f() == 'dbca', "Mro resolution using super failed."
+
+
+
+class A():
+    pass
+try:
+    class B(A, A):
+        pass
+except TypeError:
+    pass
+else:
+    assert False, "Managed to create a class with duplicate base classes."
+
+
+class A():
+    pass
+class B(A):
+    pass
+try:
+    class C(A, B):
+        pass
+except TypeError:
+    pass
+else:
+    assert False, "Managed to create a class without local type precedence."

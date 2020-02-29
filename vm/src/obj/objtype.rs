@@ -291,16 +291,14 @@ impl PyClassRef {
             }
         }
 
-        let typ = match new(metatype, name.as_str(), base.clone(), bases, attributes) {
+        match new(metatype, name.as_str(), base.clone(), bases, attributes) {
             Ok(typ) => {
                 typ.slots.borrow_mut().flags = base.slots.borrow().flags;
+                vm.ctx.add_tp_new_wrapper(&typ);
                 Ok(typ.into())
             }
             Err(string) => Err(vm.new_type_error(string)),
-        }?;
-        typ.slots.borrow_mut().flags = base.slots.borrow().flags;
-        vm.ctx.add_tp_new_wrapper(&typ);
-        Ok(typ.into())
+        }
     }
 
     #[pyslot]
@@ -437,9 +435,7 @@ impl PyClassRef {
     }
 }
 
-fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> Option<(PyClassRef, Vec<Vec<PyClassRef>>)> {
-    let mut next = None;
-
+fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> (Option<PyClassRef>, Vec<Vec<PyClassRef>>) {
     bases = bases.into_iter().filter(|x| !x.is_empty()).collect();
 
     for base in &bases {
