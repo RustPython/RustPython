@@ -10,6 +10,7 @@ use super::objbytearray::PyByteArray;
 use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
 use super::objfloat;
+use super::objmemory::PyMemoryView;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::PyBaseExceptionRef;
@@ -20,6 +21,7 @@ use crate::pyobject::{
     IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
+use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
 
 /// int(x=0) -> integer
@@ -724,6 +726,13 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult
         return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned()));
     }
 
+    let bytes_to_int = |bytes: &[u8]| {
+        let s = std::str::from_utf8(bytes)
+            .map(|s| s.trim())
+            .map_err(|e| vm.new_value_error(format!("utf8 decode error: {}", e)))?;
+        str_to_int(vm, s, base)
+    };
+
     match_class!(match obj.clone() {
         string @ PyString => {
             let s = string.as_str().trim();
@@ -731,17 +740,20 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult
         }
         bytes @ PyBytes => {
             let bytes = bytes.get_value();
-            let s = std::str::from_utf8(bytes)
-                .map(|s| s.trim())
-                .map_err(|e| vm.new_value_error(format!("utf8 decode error: {}", e)))?;
-            str_to_int(vm, s, base)
+            bytes_to_int(bytes)
         }
         bytearray @ PyByteArray => {
             let inner = bytearray.borrow_value();
-            let s = std::str::from_utf8(&inner.elements)
-                .map(|s| s.trim())
-                .map_err(|e| vm.new_value_error(format!("utf8 decode error: {}", e)))?;
-            str_to_int(vm, s, base)
+            bytes_to_int(&inner.elements)
+        }
+        memoryview @ PyMemoryView => {
+            // TODO: proper error handling instead of `unwrap()`
+            let bytes = memoryview.try_value().unwrap();
+            bytes_to_int(&bytes)
+        }
+        array @ PyArray => {
+            let bytes = array.tobytes();
+            bytes_to_int(&bytes)
         }
         obj => {
             let method = vm.get_method_or_type_error(obj.clone(), "__int__", || {
