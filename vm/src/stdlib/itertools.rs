@@ -767,9 +767,9 @@ impl PyItertoolsTee {
         .into_object())
     }
 
-    #[pymethod(name = "__new__")]
+    #[pyslot]
     #[allow(clippy::new_ret_no_self)]
-    fn new(
+    fn tp_new(
         _cls: PyClassRef,
         iterable: PyObjectRef,
         n: OptionalArg<usize>,

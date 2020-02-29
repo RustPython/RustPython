@@ -2,7 +2,7 @@ use super::objbool;
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objstr::PyStringRef;
-use super::objtype::{self, PyClassRef};
+use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
@@ -210,8 +210,7 @@ impl PyBaseObject {
     #[pymethod(magic)]
     fn getattribute(obj: PyObjectRef, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
-        vm.generic_getattribute(obj.clone(), name.clone())?
-            .ok_or_else(|| vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
+        vm.generic_getattribute(obj, name)
     }
 
     #[pymethod(magic)]
@@ -263,10 +262,6 @@ pub(crate) fn setattr(
 
 pub fn init(context: &PyContext) {
     PyBaseObject::extend_class(context, &context.types.object_type);
-    extend_class!(context, &context.types.object_type, {
-        // yeah, it's `type_new`, but we're putting here so it's available on every object
-        "__new__" => context.new_classmethod(objtype::type_new),
-    });
 }
 
 fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {

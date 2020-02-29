@@ -8,9 +8,9 @@ use std::borrow::Borrow;
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
-use std::fmt;
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
+use std::{env, fmt};
 
 use arr_macro::arr;
 use num_bigint::BigInt;
@@ -21,7 +21,7 @@ use rustpython_compiler::{compile, error::CompileError};
 
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
-use crate::exceptions::{PyBaseException, PyBaseExceptionRef};
+use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
 use crate::function::{OptionalArg, PyFuncArgs};
@@ -234,8 +234,10 @@ impl VirtualMachine {
                 #[cfg(not(target_arch = "wasm32"))]
                 import::import_builtin(self, "signal").expect("Couldn't initialize signal module");
 
-                import::init_importlib(self, initialize_parameter)
-                    .expect("Initialize importlib fail");
+                self.expect_pyresult(
+                    import::init_importlib(self, initialize_parameter),
+                    "Initialize importlib fail",
+                );
 
                 self.initialized = true;
             }
@@ -490,6 +492,26 @@ impl VirtualMachine {
         self.new_exception_msg(import_error, msg)
     }
 
+    // TODO: #[track_caller] when stabilized
+    fn _py_panic_failed(&self, exc: &PyBaseExceptionRef, msg: &str) -> ! {
+        let show_backtrace = env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
+        let after = if show_backtrace {
+            exceptions::print_exception(self, exc);
+            "exception backtrace above"
+        } else {
+            "run with RUST_BACKTRACE=1 to see Python backtrace"
+        };
+        panic!("{}; {}", msg, after)
+    }
+    pub fn unwrap_pyresult<T>(&self, result: PyResult<T>) -> T {
+        result.unwrap_or_else(|exc| {
+            self._py_panic_failed(&exc, "called `vm.unwrap_pyresult()` on an `Err` value")
+        })
+    }
+    pub fn expect_pyresult<T>(&self, result: PyResult<T>, msg: &str) -> T {
+        result.unwrap_or_else(|exc| self._py_panic_failed(&exc, msg))
+    }
+
     pub fn new_scope_with_builtins(&self) -> Scope {
         Scope::with_builtins(None, self.ctx.new_dict(), self)
     }
@@ -618,23 +640,32 @@ impl VirtualMachine {
         objbool::boolval(self, ret)
     }
 
-    pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {
+    pub fn call_get_descriptor_specific(
+        &self,
+        descr: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        cls: Option<PyObjectRef>,
+    ) -> Option<PyResult> {
         let descr_class = descr.class();
         let slots = descr_class.slots.borrow();
-        Some(if let Some(descr_get) = slots.borrow().descr_get.as_ref() {
-            let cls = obj.class();
-            descr_get(
-                self,
-                descr,
-                Some(obj.clone()),
-                OptionalArg::Present(cls.into_object()),
-            )
+        if let Some(descr_get) = slots.descr_get.as_ref() {
+            Some(descr_get(self, descr, obj, OptionalArg::from_option(cls)))
         } else if let Some(ref descriptor) = descr_class.get_attr("__get__") {
-            let cls = obj.class();
-            self.invoke(descriptor, vec![descr, obj.clone(), cls.into_object()])
+            Some(self.invoke(
+                descriptor,
+                vec![
+                    descr,
+                    obj.unwrap_or_else(|| self.get_none()),
+                    cls.unwrap_or_else(|| self.get_none()),
+                ],
+            ))
         } else {
-            return None;
-        })
+            None
+        }
+    }
+
+    pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {
+        self.call_get_descriptor_specific(descr, Some(obj.clone()), Some(obj.class().into_object()))
     }
 
     pub fn call_if_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
@@ -853,8 +884,13 @@ impl VirtualMachine {
         })
     }
 
+    pub fn generic_getattribute(&self, obj: PyObjectRef, name: PyStringRef) -> PyResult {
+        self.generic_getattribute_opt(obj.clone(), name.clone())?
+            .ok_or_else(|| self.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
+    }
+
     /// CPython _PyObject_GenericGetAttrWithDict
-    pub fn generic_getattribute(
+    pub fn generic_getattribute_opt(
         &self,
         obj: PyObjectRef,
         name_str: PyStringRef,
