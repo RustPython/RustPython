@@ -728,15 +728,14 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult
 
     let bytes_to_int = |bytes: &[u8]| {
         let s = std::str::from_utf8(bytes)
-            .map(|s| s.trim())
             .map_err(|e| vm.new_value_error(format!("utf8 decode error: {}", e)))?;
         str_to_int(vm, s, base)
     };
 
     match_class!(match obj.clone() {
         string @ PyString => {
-            let s = string.as_str().trim();
-            str_to_int(vm, s, base)
+            let s = string.as_str();
+            str_to_int(vm, &s, base)
         }
         bytes @ PyBytes => {
             let bytes = bytes.get_value();
@@ -823,13 +822,14 @@ fn str_to_int(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<Big
 }
 
 fn validate_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<String> {
-    if literal.starts_with('_') || literal.ends_with('_') {
+    let trimmed = literal.trim();
+    if trimmed.starts_with('_') || trimmed.ends_with('_') {
         return Err(invalid_literal(vm, literal, base));
     }
 
-    let mut buf = String::with_capacity(literal.len());
+    let mut buf = String::with_capacity(trimmed.len());
     let mut last_tok = None;
-    for c in literal.chars() {
+    for c in trimmed.chars() {
         if !(c.is_ascii_alphanumeric() || c == '_' || c == '+' || c == '-') {
             return Err(invalid_literal(vm, literal, base));
         }
