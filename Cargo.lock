@@ -1558,6 +1558,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustpython_freeze"
+version = "0.1.0-pre-alpha.2"
+dependencies = [
+ "rustpython-vm",
+]
+
+[[package]]
 name = "rustpython_wasm"
 version = "0.1.0-pre-alpha.2"
 dependencies = [

@@ -11,6 +11,8 @@ use num_bigint::Sign;
 use num_traits::{Signed, ToPrimitive, Zero};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
+#[cfg(feature = "rustpython-parser")]
+use rustpython_parser::parser;
 
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
@@ -31,6 +33,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::scope::Scope;
+#[cfg(feature = "rustpython-parser")]
 use crate::stdlib::ast;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
@@ -126,6 +129,7 @@ struct CompileArgs {
     optimize: OptionalArg<PyIntRef>,
 }
 
+#[cfg(feature = "rustpython-compiler")]
 fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
     // TODO: compile::compile should probably get bytes
     let source = match &args.source {
@@ -139,9 +143,9 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
         .flags
         .map_or(Ok(0), |v| i32::try_from_object(vm, v.into_object()))?;
 
-    if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
-        #[cfg(feature = "rustpython-compiler")]
-        {
+    #[cfg(feature = "rustpython-parser")]
+    {
+        if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
             let mode = mode_str
                 .parse::<compile::Mode>()
                 .map_err(|err| vm.new_value_error(err.to_string()))?;
@@ -149,17 +153,18 @@ fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
             vm.compile(&source, mode, args.filename.as_str().to_owned())
                 .map(|o| o.into_object())
                 .map_err(|err| vm.new_syntax_error(&err))
+        } else {
+            let mode = mode_str
+                .parse::<parser::Mode>()
+                .map_err(|err| vm.new_value_error(err.to_string()))?;
+            ast::parse(&vm, &source, mode)
         }
-        #[cfg(not(feature = "rustpython-compiler"))]
-        {
-            Err(vm.new_value_error("PyCF_ONLY_AST flag is required without compiler support"))
-        }
-    } else {
-        use rustpython_parser::parser;
-        let mode = mode_str
-            .parse::<parser::Mode>()
-            .map_err(|err| vm.new_value_error(err.to_string()))?;
-        ast::parse(&vm, &source, mode)
+    }
+    #[cfg(not(feature = "rustpython-parser"))]
+    {
+        Err(vm.new_value_error(
+            "PyCF_ONLY_AST flag is not supported without parser support".to_string(),
+        ))
     }
 }
 
@@ -218,6 +223,7 @@ fn builtin_exec(
     run_code(vm, source, scope, compile::Mode::Exec)
 }
 
+#[cfg(feature = "rustpython-compiler")]
 fn run_code(
     vm: &VirtualMachine,
     source: Either<PyStringRef, PyCodeRef>,
@@ -238,6 +244,7 @@ fn run_code(
     vm.run_code_obj(code_obj, scope)
 }
 
+#[cfg(feature = "rustpython-compiler")]
 fn make_scope(vm: &VirtualMachine, scope: ScopeArgs) -> PyResult<Scope> {
     let globals = scope.globals;
     let current_scope = vm.current_scope();
@@ -767,6 +774,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         extend_module!(vm, module, {
             "eval" => ctx.new_function(builtin_eval),
             "exec" => ctx.new_function(builtin_exec),
+            "compile" => ctx.new_function(builtin_compile),
         });
     }
 
@@ -787,7 +795,6 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "callable" => ctx.new_function(builtin_callable),
         "chr" => ctx.new_function(builtin_chr),
         "classmethod" => ctx.classmethod_type(),
-        "compile" => ctx.new_function(builtin_compile),
         "complex" => ctx.complex_type(),
         "delattr" => ctx.new_function(builtin_delattr),
         "dict" => ctx.dict_type(),
