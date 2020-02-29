@@ -30,21 +30,13 @@ impl FrameRef {
     }
 
     #[pyproperty]
-    fn f_globals(self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        if self.code.incognito() {
-            Err(vm.new_type_error("Can't get f_globals on an incognito frame".to_owned()))
-        } else {
-            Ok(self.scope.globals.clone())
-        }
+    fn f_globals(self) -> PyDictRef {
+        self.scope.globals.clone()
     }
 
     #[pyproperty]
-    fn f_locals(self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        if self.code.incognito() {
-            Err(vm.new_type_error("Can't get f_locals on an incognito frame".to_owned()))
-        } else {
-            Ok(self.scope.get_locals())
-        }
+    fn f_locals(self) -> PyDictRef {
+        self.scope.get_locals()
     }
 
     #[pyproperty]

@@ -39,17 +39,10 @@ pub struct CompileOpts {
     /// How optimized the bytecode output should be; any optimize > 0 does
     /// not emit assert statements
     pub optimize: u8,
-    /// Whether introspection on defined functions/other items should be allowed;
-    /// e.g. when true, `func.__globals__` throws an error (where func is a function defined
-    /// in an incognito context)
-    pub incognito: bool,
 }
 impl Default for CompileOpts {
     fn default() -> Self {
-        CompileOpts {
-            optimize: 0,
-            incognito: false,
-        }
+        CompileOpts { optimize: 0 }
     }
 }
 
@@ -188,9 +181,7 @@ impl<O: OutputStream> Compiler<O> {
         }
     }
 
-    fn push_output(&mut self, mut code: CodeObject) {
-        code.flags
-            .set(bytecode::CodeFlags::INCOGNITO, self.opts.incognito);
+    fn push_output(&mut self, code: CodeObject) {
         self.output_stack.push(code.into());
     }
 

@@ -18,7 +18,6 @@ use crate::convert::{self, PyResultExt};
 use crate::js_module;
 use crate::wasm_builtins;
 use rustpython_compiler::mode::Mode;
-use rustpython_vm::obj::objstr::PyStringRef;
 
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
@@ -260,16 +259,10 @@ impl WASMVirtualMachine {
         name: String,
         source: &str,
         imports: Option<Object>,
-        strict_private: Option<bool>,
     ) -> Result<(), JsValue> {
         self.with(|StoredVirtualMachine { ref vm, .. }| {
-            let strict_private = strict_private.unwrap_or(false);
-            let opts = compile::CompileOpts {
-                incognito: strict_private,
-                ..vm.compile_opts()
-            };
             let code = vm
-                .compile_with_opts(source, Mode::Exec, name.clone(), opts)
+                .compile(source, Mode::Exec, name.clone())
                 .map_err(convert::syntax_err)?;
             let attrs = vm.ctx.new_dict();
             attrs
@@ -279,37 +272,17 @@ impl WASMVirtualMachine {
             if let Some(imports) = imports {
                 for entry in convert::object_entries(&imports) {
                     let (key, value) = entry?;
-                    let key:String = Object::from(key).to_string().into();
-                    attrs.set_item(&key, convert::js_to_py(vm, value), vm).to_js(vm)?;
+                    let key: String = Object::from(key).to_string().into();
+                    attrs
+                        .set_item(&key, convert::js_to_py(vm, value), vm)
+                        .to_js(vm)?;
                 }
             }
 
             vm.run_code_obj(code, Scope::new(None, attrs.clone(), vm))
                 .to_js(vm)?;
 
-            let module_attrs = if strict_private {
-                let all = attrs
-                    .get_item_option("__all__", vm)
-                    .to_js(vm)?
-                    .ok_or_else(|| {
-                        TypeError::new(
-                            "you must define __all__ in your module if you pass strict_private: true",
-                        )
-                    })?;
-                let all = vm.extract_elements::<PyStringRef>(&all).to_js(vm)?;
-
-                let actual_attrs = vm.ctx.new_dict();
-                for member in all {
-                    actual_attrs
-                        .set_item(member.as_str(), attrs.get_item(member.as_str(), vm).to_js(vm)?, vm)
-                        .to_js(vm)?;
-                }
-                actual_attrs
-            } else {
-                attrs
-            };
-
-            let module = vm.new_module(&name, module_attrs);
+            let module = vm.new_module(&name, attrs);
 
             let sys_modules = vm
                 .get_attribute(vm.sys_module.clone(), "modules")

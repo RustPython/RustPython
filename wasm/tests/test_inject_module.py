@@ -1,4 +1,4 @@
-def test_inject_private(wdriver):
+def test_inject_module_basic(wdriver):
     wdriver.execute_script(
         """
 const vm = rp.vmStore.init("vm")
@@ -15,12 +15,6 @@ vm.execSingle(
 `
 import mod
 assert mod.get_thing() == 1
-assert "__thing" not in dir(mod)
-try:
-    globs = mod.get_thing.__globals__
-except TypeError: pass
-else:
-    assert False, "incognito function.__globals__ didn't error"
 `
 );
         """

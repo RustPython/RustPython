@@ -1009,7 +1009,6 @@ impl VirtualMachine {
     pub fn compile_opts(&self) -> CompileOpts {
         CompileOpts {
             optimize: self.settings.optimize,
-            ..Default::default()
         }
     }
 
