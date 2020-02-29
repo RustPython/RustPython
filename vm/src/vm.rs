@@ -8,9 +8,9 @@ use std::borrow::Borrow;
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
-use std::fmt;
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
+use std::{env, fmt};
 
 use arr_macro::arr;
 use num_bigint::BigInt;
@@ -493,17 +493,23 @@ impl VirtualMachine {
     }
 
     // TODO: #[track_caller] when stabilized
+    fn _py_panic_failed(&self, exc: &PyBaseExceptionRef, msg: &str) -> ! {
+        let show_backtrace = env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
+        let after = if show_backtrace {
+            exceptions::print_exception(self, exc);
+            "exception backtrace above"
+        } else {
+            "run with RUST_BACKTRACE=1 to see Python backtrace"
+        };
+        panic!("{}; {}", msg, after)
+    }
     pub fn unwrap_pyresult<T>(&self, result: PyResult<T>) -> T {
         result.unwrap_or_else(|exc| {
-            exceptions::print_exception(self, &exc);
-            panic!("called `vm.unwrap_pyresult()` on an `Err` value; exception backtrace above");
+            self._py_panic_failed(&exc, "called `vm.unwrap_pyresult()` on an `Err` value")
         })
     }
     pub fn expect_pyresult<T>(&self, result: PyResult<T>, msg: &str) -> T {
-        result.unwrap_or_else(|exc| {
-            exceptions::print_exception(self, &exc);
-            panic!("{}; exception backtrace above", msg);
-        })
+        result.unwrap_or_else(|exc| self._py_panic_failed(&exc, msg))
     }
 
     pub fn new_scope_with_builtins(&self) -> Scope {
