@@ -9,6 +9,7 @@ use super::objlist::PyListIterator;
 use super::objtype::{self, PyClassRef};
 use crate::dictdatatype;
 use crate::function::{Args, OptionalArg};
+use crate::pyhash;
 use crate::pyobject::{
     PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -206,8 +207,11 @@ impl PySetInner {
     fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let mut new_inner = self.clone();
 
-        for item in other.iter(vm)? {
-            new_inner.content.delete_or_insert(vm, &item?, ())?
+        // We want to remove duplicates in other
+        let other_set = Self::new(other, vm)?;
+
+        for item in other_set.content.keys() {
+            new_inner.content.delete_or_insert(vm, &item, ())?
         }
 
         Ok(new_inner)
@@ -294,7 +298,7 @@ impl PySetInner {
         others: Args<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let temp_inner = self.copy();
+        let mut temp_inner = self.copy();
         self.clear();
         for iterable in others {
             for item in iterable.iter(vm)? {
@@ -303,6 +307,7 @@ impl PySetInner {
                     self.add(&obj, vm)?;
                 }
             }
+            temp_inner = self.copy()
         }
         Ok(())
     }
@@ -322,11 +327,17 @@ impl PySetInner {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
-            for item in iterable.iter(vm)? {
-                self.content.delete_or_insert(vm, &item?, ())?;
+            // We want to remove duplicates in iterable
+            let iterable_set = Self::new(iterable, vm)?;
+            for item in iterable_set.content.keys() {
+                self.content.delete_or_insert(vm, &item, ())?;
             }
         }
         Ok(())
+    }
+
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+        pyhash::hash_iter_unordered(self.content.keys(), vm)
     }
 }
 
@@ -779,6 +790,11 @@ impl PyFrozenSet {
             "frozenset(...)".to_owned()
         };
         Ok(vm.new_str(s))
+    }
+
+    #[pymethod(name = "__hash__")]
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+        self.inner.hash(vm)
     }
 }
 

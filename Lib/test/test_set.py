@@ -172,7 +172,6 @@ class TestJointOps:
         else:
             self.fail("s-t did not screen-out general iterables")
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_symmetric_difference(self):
         i = self.s.symmetric_difference(self.otherword)
         for c in self.letters:
@@ -187,7 +186,6 @@ class TestJointOps:
             self.assertEqual(self.thetype('abcba').symmetric_difference(C('ccb')), set('a'))
             self.assertEqual(self.thetype('abcba').symmetric_difference(C('ef')), set('abcef'))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_xor(self):
         i = self.s.symmetric_difference(self.otherword)
         self.assertEqual(self.s ^ set(self.otherword), i)
@@ -207,7 +205,6 @@ class TestJointOps:
         self.assertNotEqual(self.s, frozenset(self.otherword))
         self.assertEqual(self.s != self.word, True)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_setOfFrozensets(self):
         t = map(frozenset, ['abcdef', 'bcd', 'bdcb', 'fed', 'fedccba'])
         s = self.thetype(t)
@@ -515,7 +512,6 @@ class TestSet(TestJointOps, unittest.TestCase):
         for c in (self.word + self.otherword):
             self.assertIn(c, self.s)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_intersection_update(self):
         retval = self.s.intersection_update(self.otherword)
         self.assertEqual(retval, None)
@@ -582,7 +578,6 @@ class TestSet(TestJointOps, unittest.TestCase):
             else:
                 self.assertNotIn(c, self.s)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_symmetric_difference_update(self):
         retval = self.s.symmetric_difference_update(self.otherword)
         self.assertEqual(retval, None)
@@ -713,7 +708,6 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
         t = self.thetype(s)
         self.assertEqual(id(s), id(t))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_hash(self):
         self.assertEqual(hash(self.thetype('abcdeb')),
                          hash(self.thetype('ebecda')))
@@ -732,7 +726,6 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
         dup = self.s.copy()
         self.assertEqual(id(self.s), id(dup))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_frozen_as_dictkey(self):
         seq = list(range(10)) + list('abcdefg') + ['apple']
         key1 = self.thetype(seq)
