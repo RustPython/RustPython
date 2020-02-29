@@ -3,8 +3,8 @@
 import ast
 import builtins
 import collections
-import decimal
-import fractions
+# import decimal XXX RustPython
+# import fractions XXX RustPython
 import io
 import locale
 import os
@@ -85,7 +85,7 @@ test_conv_no_sign = [
         ('', ValueError),
         (' ', ValueError),
         ('  \t\t  ', ValueError),
-        (str(br'\u0663\u0661\u0664 ','raw-unicode-escape'), 314),
+        # (str(br'\u0663\u0661\u0664 ','raw-unicode-escape'), 314), XXX RustPython
         (chr(0x200), ValueError),
 ]
 
@@ -107,7 +107,7 @@ test_conv_sign = [
         ('', ValueError),
         (' ', ValueError),
         ('  \t\t  ', ValueError),
-        (str(br'\u0663\u0661\u0664 ','raw-unicode-escape'), 314),
+        # (str(br'\u0663\u0661\u0664 ','raw-unicode-escape'), 314), XXX RustPython
         (chr(0x200), ValueError),
 ]
 
@@ -210,6 +210,8 @@ class BuiltinTest(unittest.TestCase):
         S = [10, 20, 30]
         self.assertEqual(any(x > 42 for x in S), False)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ascii(self):
         self.assertEqual(ascii(''), '\'\'')
         self.assertEqual(ascii(0), '0')
@@ -284,6 +286,7 @@ class BuiltinTest(unittest.TestCase):
         c3 = C3()
         self.assertTrue(callable(c3))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_chr(self):
         self.assertEqual(chr(32), ' ')
         self.assertEqual(chr(65), 'A')
@@ -309,6 +312,7 @@ class BuiltinTest(unittest.TestCase):
     def test_cmp(self):
         self.assertTrue(not hasattr(builtins, "cmp"))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_compile(self):
         compile('print(1)\n', '', 'exec')
         bom = b'\xef\xbb\xbf'
@@ -363,6 +367,8 @@ class BuiltinTest(unittest.TestCase):
         delattr(sys, 'spam')
         self.assertRaises(TypeError, delattr)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dir(self):
         # dir(wrong number of arguments)
         self.assertRaises(TypeError, dir, 42, 42)
@@ -440,6 +446,8 @@ class BuiltinTest(unittest.TestCase):
         # test that object has a __dir__()
         self.assertEqual(sorted([].__dir__()), dir([]))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_divmod(self):
         self.assertEqual(divmod(12, 7), (1, 5))
         self.assertEqual(divmod(-12, 7), (-2, 2))
@@ -458,6 +466,7 @@ class BuiltinTest(unittest.TestCase):
 
         self.assertRaises(TypeError, divmod)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_eval(self):
         self.assertEqual(eval('1+1'), 2)
         self.assertEqual(eval(' 1+1\n'), 2)
@@ -481,6 +490,7 @@ class BuiltinTest(unittest.TestCase):
                 raise ValueError
         self.assertRaises(ValueError, eval, "foo", {}, X())
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_general_eval(self):
         # Tests that general mappings can be used for the locals argument
 
@@ -550,6 +560,8 @@ class BuiltinTest(unittest.TestCase):
                 return 1 # used to be 'a' but that's no longer an error
         self.assertRaises(TypeError, eval, 'dir()', globals(), C())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exec(self):
         g = {}
         exec('z = 1', g)
@@ -574,6 +586,8 @@ class BuiltinTest(unittest.TestCase):
             del l['__builtins__']
         self.assertEqual((g, l), ({'a': 1}, {'b': 2}))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exec_globals(self):
         code = compile("print('Hello World!')", "", "exec")
         # no builtin function
@@ -646,6 +660,7 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(list(filter(lambda x: x>=3, (1, 2, 3, 4))), [3, 4])
         self.assertRaises(TypeError, list, filter(42, (1, 2)))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_filter_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             f1 = filter(filter_char, "abcdeabcde")
@@ -678,6 +693,8 @@ class BuiltinTest(unittest.TestCase):
                 raise ValueError
         self.assertRaises(ValueError, hasattr, B(), "b")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hash(self):
         hash(None)
         self.assertEqual(hash(1), hash(1))
@@ -759,6 +776,8 @@ class BuiltinTest(unittest.TestCase):
         self.assertRaises(TypeError, issubclass, E, 'foo')
         self.assertRaises(TypeError, issubclass)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_len(self):
         self.assertEqual(len('123'), 3)
         self.assertEqual(len(()), 0)
@@ -853,12 +872,15 @@ class BuiltinTest(unittest.TestCase):
             raise RuntimeError
         self.assertRaises(RuntimeError, list, map(badfunc, range(5)))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_map_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             m1 = map(map_char, "Is this the real life?")
             m2 = map(map_char, "Is this the real life?")
             self.check_iter_pickle(m1, list(m2), proto)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_max(self):
         self.assertEqual(max('123123'), '3')
         self.assertEqual(max(1, 2, 3), 3)
@@ -913,6 +935,8 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(max(data, key=f),
                          sorted(reversed(data), key=f)[-1])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_min(self):
         self.assertEqual(min('123123'), '1')
         self.assertEqual(min(1, 2, 3), 1)
@@ -1011,6 +1035,7 @@ class BuiltinTest(unittest.TestCase):
             fp.write('XXX'*100)
             fp.write('YYY'*100)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_open(self):
         self.write_testfile()
         fp = open(TESTFN, 'r')
@@ -1026,6 +1051,7 @@ class BuiltinTest(unittest.TestCase):
         self.assertRaises(ValueError, open, 'a\x00b')
         self.assertRaises(ValueError, open, b'a\x00b')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     @unittest.skipIf(sys.flags.utf8_mode, "utf-8 mode is enabled")
     def test_open_default_encoding(self):
         old_environ = dict(os.environ)
@@ -1046,6 +1072,7 @@ class BuiltinTest(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old_environ)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_open_non_inheritable(self):
         fileobj = open(__file__)
         with fileobj:
@@ -1078,6 +1105,7 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(ord("\U0010FFFE"), 0x0010FFFE)
         self.assertEqual(ord("\U0010FFFF"), 0x0010FFFF)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_pow(self):
         self.assertEqual(pow(0,0), 1)
         self.assertEqual(pow(0,1), 0)
@@ -1127,6 +1155,7 @@ class BuiltinTest(unittest.TestCase):
 
         self.assertRaises(TypeError, pow)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_input(self):
         self.write_testfile()
         fp = open(TESTFN, 'r')
@@ -1177,6 +1206,8 @@ class BuiltinTest(unittest.TestCase):
         a[0] = a
         self.assertEqual(repr(a), '{0: {...}}')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_round(self):
         self.assertEqual(round(0.0), 0.0)
         self.assertEqual(type(round(0.0)), int)
@@ -1272,6 +1303,7 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(round(5e15+2), 5e15+2)
         self.assertEqual(round(5e15+3), 5e15+3)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_bug_27936(self):
         # Verify that ndigits=None means the same as passing in no argument
         for x in [1234,
@@ -1289,6 +1321,7 @@ class BuiltinTest(unittest.TestCase):
 
     # test_str(): see test_unicode.py and test_bytes.py for str() tests.
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_sum(self):
         self.assertEqual(sum([]), 0)
         self.assertEqual(sum(list(range(2,8))), 27)
@@ -1342,6 +1375,8 @@ class BuiltinTest(unittest.TestCase):
             return {'a':2}
         __dict__ = property(fget=getDict)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_vars(self):
         self.assertEqual(set(vars()), set(dir()))
         self.assertEqual(set(vars(sys)), set(dir(sys)))
@@ -1395,6 +1430,7 @@ class BuiltinTest(unittest.TestCase):
                     return i
         self.assertRaises(ValueError, list, zip(BadSeq(), BadSeq()))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_zip_pickle(self):
         a = (1, 2, 3)
         b = (4, 5, 6)
@@ -1403,6 +1439,8 @@ class BuiltinTest(unittest.TestCase):
             z1 = zip(a, b)
             self.check_iter_pickle(z1, t, proto)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_format(self):
         # Test the basic machinery of the format() builtin.  Don't test
         #  the specifics of the various formatters
@@ -1513,11 +1551,14 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(bin(-(2**65)), '-0b1' + '0' * 65)
         self.assertEqual(bin(-(2**65-1)), '-0b' + '1' * 65)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_bytearray_translate(self):
         x = bytearray(b"abc")
         self.assertRaises(ValueError, x.translate, b"1", 1)
         self.assertRaises(TypeError, x.translate, b"1"*256, 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_construct_singletons(self):
         for const in None, Ellipsis, NotImplemented:
             tp = type(const)
@@ -1526,6 +1567,7 @@ class BuiltinTest(unittest.TestCase):
             self.assertRaises(TypeError, tp, a=1, b=2)
 
 
+@unittest.skip("TODO: RUSTPYTHON")
 class TestBreakpoint(unittest.TestCase):
     def setUp(self):
         # These tests require a clean slate environment.  For example, if the
@@ -1793,6 +1835,7 @@ class TestSorted(unittest.TestCase):
 
 class ShutdownTest(unittest.TestCase):
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_cleanup(self):
         # Issue #19255: builtins are still available at shutdown
         code = """if 1:
@@ -1826,6 +1869,8 @@ class ShutdownTest(unittest.TestCase):
 
 
 class TestType(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_new_type(self):
         A = type('A', (), {})
         self.assertEqual(A.__name__, 'A')
@@ -1862,6 +1907,8 @@ class TestType(unittest.TestCase):
         with self.assertRaises(TypeError):
             type('a', (), dict={})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_type_name(self):
         for name in 'A', '\xc4', '\U0001f40d', 'B.A', '42', '':
             with self.subTest(name=name):
@@ -1895,6 +1942,8 @@ class TestType(unittest.TestCase):
             A.__name__ = b'A'
         self.assertEqual(A.__name__, 'C')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_type_qualname(self):
         A = type('A', (), {'__qualname__': 'B.C'})
         self.assertEqual(A.__name__, 'A')
@@ -1911,6 +1960,8 @@ class TestType(unittest.TestCase):
             A.__qualname__ = b'B'
         self.assertEqual(A.__qualname__, 'D.E')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_type_doc(self):
         for doc in 'x', '\xc4', '\U0001f40d', 'x\x00y', b'x', 42, None:
             A = type('A', (), {'__doc__': doc})
@@ -1924,6 +1975,8 @@ class TestType(unittest.TestCase):
             A.__doc__ = doc
             self.assertEqual(A.__doc__, doc)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bad_args(self):
         with self.assertRaises(TypeError):
             type()
@@ -1944,6 +1997,8 @@ class TestType(unittest.TestCase):
         with self.assertRaises(TypeError):
             type('A', (int, str), {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bad_slots(self):
         with self.assertRaises(TypeError):
             type('A', (), {'__slots__': b'x'})
@@ -1969,6 +2024,7 @@ class TestType(unittest.TestCase):
         with self.assertRaises(TypeError):
             type('A', (B,), {'__slots__': '__weakref__'})
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_namespace_order(self):
         # bpo-34320: namespace should preserve order
         od = collections.OrderedDict([('a', 1), ('b', 2)])
@@ -1980,8 +2036,9 @@ class TestType(unittest.TestCase):
 
 
 def load_tests(loader, tests, pattern):
-    from doctest import DocTestSuite
-    tests.addTest(DocTestSuite(builtins))
+    # XXX RustPython
+    # from doctest import DocTestSuite
+    # tests.addTest(DocTestSuite(builtins))
     return tests
 
 if __name__ == "__main__":
