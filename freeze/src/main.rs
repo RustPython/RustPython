@@ -7,16 +7,18 @@ fn main() -> vm::pyobject::PyResult<()> {
 
     let scope = vm.new_scope_with_builtins();
 
-    let modules: HashMap<&str, vm::bytecode::FrozenModule> = vm::py_compile_bytecode!(
-        source = "print(\"Hello world1!\")\n",
-        module_name = "__main__"
+    let modules: HashMap<String, vm::bytecode::FrozenModule> =
+        vm::py_compile_bytecode!(file = "freeze.py");
+
+    let res = vm.run_code_obj(
+        vm.ctx
+            .new_code_object(modules.get("frozen").unwrap().code.clone()),
+        scope,
     );
 
-    vm.run_code_obj(
-        vm.ctx
-            .new_code_object(modules.get("__main__").unwrap().code.clone()),
-        scope,
-    )?;
+    if let Err(err) = res {
+        vm::exceptions::print_exception(&vm, &err)
+    }
 
     Ok(())
 }
