@@ -93,6 +93,19 @@ impl PyModuleRef {
         let module_repr = vm.get_attribute(importlib, "_module_repr")?;
         vm.invoke(&module_repr, vec![self.into_object()])
     }
+
+    #[pymethod(magic)]
+    fn dir(self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let dict = self
+            .as_object()
+            .dict
+            .as_ref()
+            .ok_or_else(|| vm.new_value_error("module has no dict".to_owned()))?
+            .borrow()
+            .clone();
+        let attrs = dict.into_iter().map(|(k, _v)| k).collect();
+        Ok(vm.ctx.new_list(attrs))
+    }
 }
 
 pub(crate) fn init(context: &PyContext) {
