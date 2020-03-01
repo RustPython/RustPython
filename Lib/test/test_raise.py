@@ -24,6 +24,7 @@ class Context:
 
 
 class TestRaise(unittest.TestCase):
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_invalid_reraise(self):
         try:
             raise
@@ -365,6 +366,7 @@ class TestContext(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_noraise_finally(self):
         try:
             try:
