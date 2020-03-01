@@ -125,7 +125,9 @@ impl PyHashInfo {
         imag: IMAG,
         algorithm: "siphash13",
         hash_bits: std::mem::size_of::<PyHash>() * 8,
-        // TODO: find out what seed_bits should actually be
+        // internally hash_map::DefaultHasher uses 2 u64s as the seed, but
+        // that's not guaranteed to be consistent across Rust releases
+        // TODO: use something like the siphasher crate as our hash algorithm
         seed_bits: std::mem::size_of::<PyHash>() * 2 * 8,
     };
 }
