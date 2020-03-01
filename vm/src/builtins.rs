@@ -883,6 +883,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "NameError" => ctx.exceptions.name_error.clone(),
         "UnboundLocalError" => ctx.exceptions.unbound_local_error.clone(),
         "OSError" => ctx.exceptions.os_error.clone(),
+        // OSError alias
+        "IOError" => ctx.exceptions.os_error.clone(),
         "BlockingIOError" => ctx.exceptions.blocking_io_error.clone(),
         "ChildProcessError" => ctx.exceptions.child_process_error.clone(),
         "ConnectionError" => ctx.exceptions.connection_error.clone(),
