@@ -11,10 +11,10 @@ from sys import *
 
 # different import patterns to check that __annotations__ does not interfere
 # with import machinery
-import test.ann_module as ann_module
+# import test.ann_module as ann_module
 import typing
 from collections import ChainMap
-from test import ann_module2
+# from test import ann_module2
 import test
 
 # These are shared with test_tokenize and other test modules.
@@ -179,6 +179,8 @@ class TokenTests(unittest.TestCase):
         self.assertEqual(1 if 0else 0, 0)
         self.assertRaises(SyntaxError, eval, "0 if 1Else 0")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_underscore_literals(self):
         for lit in VALID_UNDERSCORE_LITERALS:
             self.assertEqual(eval(lit), eval(lit.replace('_', '')))
@@ -187,6 +189,8 @@ class TokenTests(unittest.TestCase):
         # Sanity check: no literal begins with an underscore
         self.assertRaises(NameError, eval, "_0")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bad_numerical_literals(self):
         check = self.check_syntax_error
         check("0b12", "invalid digit '2' in binary literal")
@@ -254,6 +258,8 @@ the \'lazy\' dog.\n\
         self.assertTrue(x is Ellipsis)
         self.assertRaises(SyntaxError, eval, ".. .")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_eof_error(self):
         samples = ("def foo(", "\ndef foo(", "def foo(\n")
         for s in samples:
@@ -291,6 +297,7 @@ class GrammarTests(unittest.TestCase):
         # testlist ENDMARKER
         x = eval('1, 0 or 1')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_var_annot_basics(self):
         # all these should be allowed
         var1: int = 5
@@ -303,6 +310,8 @@ class GrammarTests(unittest.TestCase):
         my_lst[one()-1]: int = 5
         self.assertEqual(my_lst, [5])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_var_annot_syntax_errors(self):
         # parser pass
         check_syntax_error(self, "def f: int")
@@ -323,6 +332,8 @@ class GrammarTests(unittest.TestCase):
                                  "    global x\n"
                                  "    x: int\n")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_var_annot_basic_semantics(self):
         # execution order
         with self.assertRaises(ZeroDivisionError):
@@ -378,6 +389,7 @@ class GrammarTests(unittest.TestCase):
             XX: 'ANNOT'
         self.assertEqual(CC.__annotations__['xx'], 'ANNOT')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_var_annot_module_semantics(self):
         with self.assertRaises(AttributeError):
             print(test.__annotations__)
@@ -387,6 +399,7 @@ class GrammarTests(unittest.TestCase):
                               {'123': 123, 'o': type})
         self.assertEqual(ann_module2.__annotations__, {})
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_var_annot_in_module(self):
         # check that functions fail the same way when executed
         # outside of module where they were defined
@@ -407,44 +420,48 @@ class GrammarTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             gns['__annotations__']
 
-    def test_var_annot_custom_maps(self):
-        # tests with custom locals() and __annotations__
-        ns = {'__annotations__': CNS()}
-        exec('X: int; Z: str = "Z"; (w): complex = 1j', ns)
-        self.assertEqual(ns['__annotations__']['x'], int)
-        self.assertEqual(ns['__annotations__']['z'], str)
-        with self.assertRaises(KeyError):
-            ns['__annotations__']['w']
-        nonloc_ns = {}
-        class CNS2:
-            def __init__(self):
-                self._dct = {}
-            def __setitem__(self, item, value):
-                nonlocal nonloc_ns
-                self._dct[item] = value
-                nonloc_ns[item] = value
-            def __getitem__(self, item):
-                return self._dct[item]
-        exec('x: int = 1', {}, CNS2())
-        self.assertEqual(nonloc_ns['__annotations__']['x'], int)
+    # TODO: RUSTPYTHON
+    # def test_var_annot_custom_maps(self):
+    #     # tests with custom locals() and __annotations__
+    #     ns = {'__annotations__': CNS()}
+    #     exec('X: int; Z: str = "Z"; (w): complex = 1j', ns)
+    #     self.assertEqual(ns['__annotations__']['x'], int)
+    #     self.assertEqual(ns['__annotations__']['z'], str)
+    #     with self.assertRaises(KeyError):
+    #         ns['__annotations__']['w']
+    #     nonloc_ns = {}
+    #     class CNS2:
+    #         def __init__(self):
+    #             self._dct = {}
+    #         def __setitem__(self, item, value):
+    #             nonlocal nonloc_ns
+    #             self._dct[item] = value
+    #             nonloc_ns[item] = value
+    #         def __getitem__(self, item):
+    #             return self._dct[item]
+    #     exec('x: int = 1', {}, CNS2())
+    #     self.assertEqual(nonloc_ns['__annotations__']['x'], int)
 
-    def test_var_annot_refleak(self):
-        # complex case: custom locals plus custom __annotations__
-        # this was causing refleak
-        cns = CNS()
-        nonloc_ns = {'__annotations__': cns}
-        class CNS2:
-            def __init__(self):
-                self._dct = {'__annotations__': cns}
-            def __setitem__(self, item, value):
-                nonlocal nonloc_ns
-                self._dct[item] = value
-                nonloc_ns[item] = value
-            def __getitem__(self, item):
-                return self._dct[item]
-        exec('X: str', {}, CNS2())
-        self.assertEqual(nonloc_ns['__annotations__']['x'], str)
+    # TODO: RUSTPYTHON
+    # def test_var_annot_refleak(self):
+    #     # complex case: custom locals plus custom __annotations__
+    #     # this was causing refleak
+    #     cns = CNS()
+    #     nonloc_ns = {'__annotations__': cns}
+    #     class CNS2:
+    #         def __init__(self):
+    #             self._dct = {'__annotations__': cns}
+    #         def __setitem__(self, item, value):
+    #             nonlocal nonloc_ns
+    #             self._dct[item] = value
+    #             nonloc_ns[item] = value
+    #         def __getitem__(self, item):
+    #             return self._dct[item]
+    #     exec('X: str', {}, CNS2())
+    #     self.assertEqual(nonloc_ns['__annotations__']['x'], str)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_var_annot_rhs(self):
         ns = {}
         exec('x: tuple = 1, 2', ns)
@@ -458,6 +475,8 @@ class GrammarTests(unittest.TestCase):
         exec('x: Tuple[int, ...] = a,*b,c', ns)
         self.assertEqual(ns['x'], (1, 2, 3, 4, 5))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_funcdef(self):
         ### [decorators] 'def' NAME parameters ['->' test] ':' suite
         ### decorator: '@' dotted_name [ '(' [arglist] ')' ] NEWLINE
@@ -753,6 +772,8 @@ class GrammarTests(unittest.TestCase):
         check_syntax_error(self, "x + 1 = 1")
         check_syntax_error(self, "a + 1 = b + 2")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     # Check the heuristic for print & exec covers significant cases
     # As well as placing some limits on false positives
     def test_former_statements_refer_to_builtins(self):
@@ -1045,6 +1066,8 @@ class GrammarTests(unittest.TestCase):
         self.assertEqual(g2(False), 0)
         self.assertEqual(g2(True), ('end', 1))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_yield(self):
         # Allowed as standalone statement
         def g(): yield 1
@@ -1084,6 +1107,8 @@ class GrammarTests(unittest.TestCase):
         # Check annotation refleak on SyntaxError
         check_syntax_error(self, "def g(a:(yield)): pass")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_yield_in_comprehensions(self):
         # Check yield in comprehensions
         def g(): [x for x in [(yield 1)]]
@@ -1137,13 +1162,14 @@ class GrammarTests(unittest.TestCase):
         global a, b
         global one, two, three, four, five, six, seven, eight, nine, ten
 
-    def test_nonlocal(self):
-        # 'nonlocal' NAME (',' NAME)*
-        x = 0
-        y = 0
-        def f():
-            nonlocal x
-            nonlocal x, y
+    # TODO: RUSTPYTHON
+    # def test_nonlocal(self):
+    #     # 'nonlocal' NAME (',' NAME)*
+    #     x = 0
+    #     y = 0
+    #     def f():
+    #         nonlocal x
+    #         nonlocal x, y
 
     def test_assert(self):
         # assertTruestmt: 'assert' test [',' test]
@@ -1163,6 +1189,7 @@ class GrammarTests(unittest.TestCase):
             self.fail("'assert True, msg' should not have "
                       "raised an AssertionError")
 
+    @unittest.skip("TODO: RUSTPYTHON")
     # these tests fail if python is run with -O, so check __debug__
     @unittest.skipUnless(__debug__, "Won't work if __debug__ is False")
     def testAssert2(self):
@@ -1310,6 +1337,8 @@ class GrammarTests(unittest.TestCase):
         if 1 not in (): pass
         if 1 < 1 > 1 == 1 >= 1 <= 1 != 1 in 1 not in x is x is not x: pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_comparison_is_literal(self):
         def check(test, msg='"is" with a literal'):
             self.check_syntax_warning(test, msg)
@@ -1327,6 +1356,8 @@ class GrammarTests(unittest.TestCase):
             compile('x is True', '<testcase>', 'exec')
             compile('x is ...', '<testcase>', 'exec')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_warn_missed_comma(self):
         def check(test):
             self.check_syntax_warning(test, msg)
@@ -1438,6 +1469,8 @@ class GrammarTests(unittest.TestCase):
         x = ~1 ^ 1 & 1 | 1 & 1 ^ -1
         x = -1*1/1 + 1*1 - ---1*1
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_selectors(self):
         ### trailer: '(' [testlist] ')' | '[' subscript ']' | '.' NAME
         ### subscript: expr | [expr] ':' [expr]
@@ -1592,6 +1625,8 @@ class GrammarTests(unittest.TestCase):
         self.assertEqual(x, [('Boeing', 'Airliner'), ('Boeing', 'Engine'), ('Ford', 'Engine'),
                              ('Macdonalds', 'Cheeseburger')])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_genexps(self):
         # generator expression tests
         g = ([x for x in range(10)] for x in range(1))
