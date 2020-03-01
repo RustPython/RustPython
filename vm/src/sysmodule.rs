@@ -4,6 +4,7 @@ use std::{env, mem};
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
+use crate::pyhash::PyHashInfo;
 use crate::pyobject::{
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
@@ -214,6 +215,11 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         .into_struct_sequence(vm, version_info_type)
         .unwrap();
 
+    let hash_info_type = PyHashInfo::make_class(ctx);
+    let hash_info = PyHashInfo::INFO
+        .into_struct_sequence(vm, hash_info_type)
+        .unwrap();
+
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {
         "name" => ctx.new_str("rustpython".to_owned()),
@@ -357,6 +363,7 @@ settrace() -- set the global debug tracing function
       "getdefaultencoding" => ctx.new_function(sys_getdefaultencoding),
       "getprofile" => ctx.new_function(sys_getprofile),
       "gettrace" => ctx.new_function(sys_gettrace),
+      "hash_info" => hash_info,
       "intern" => ctx.new_function(sys_intern),
       "maxunicode" => ctx.new_int(0x0010_FFFF),
       "maxsize" => ctx.new_int(std::isize::MAX),

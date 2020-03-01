@@ -103,3 +103,29 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
         None => (value % MODULUS).to_i64().unwrap(),
     }
 }
+
+#[pystruct_sequence(name = "sys.hash_info")]
+#[derive(Debug)]
+pub(crate) struct PyHashInfo {
+    width: usize,
+    modulus: PyUHash,
+    inf: PyHash,
+    nan: PyHash,
+    imag: PyHash,
+    algorithm: &'static str,
+    hash_bits: usize,
+    seed_bits: usize,
+}
+impl PyHashInfo {
+    pub const INFO: Self = PyHashInfo {
+        width: BITS,
+        modulus: MODULUS,
+        inf: INF,
+        nan: NAN,
+        imag: IMAG,
+        algorithm: "siphash13",
+        hash_bits: std::mem::size_of::<PyHash>() * 8,
+        // TODO: find out what seed_bits should actually be
+        seed_bits: std::mem::size_of::<PyHash>() * 2 * 8,
+    };
+}
