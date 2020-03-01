@@ -89,10 +89,9 @@ impl PyCoroutine {
         vm.frames.borrow_mut().pop();
         self.closed.set(true);
         match result {
-            Ok(ExecutionResult::Yield(_)) => Err(vm.new_exception_msg(
-                vm.ctx.exceptions.runtime_error.clone(),
-                "generator ignored GeneratorExit".to_owned(),
-            )),
+            Ok(ExecutionResult::Yield(_)) => {
+                Err(vm.new_runtime_error("generator ignored GeneratorExit".to_owned()))
+            }
             Err(e) => {
                 if isinstance(&e, &vm.ctx.exceptions.generator_exit) {
                     Ok(())

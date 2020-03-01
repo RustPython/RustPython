@@ -205,10 +205,7 @@ pub fn convert_nix_error(vm: &VirtualMachine, err: nix::Error) -> PyBaseExceptio
             let exc_type = vm.ctx.exceptions.unicode_error.clone();
             vm.new_exception_msg(exc_type, err.to_string())
         }
-        nix::Error::UnsupportedOperation => {
-            let exc_type = vm.ctx.exceptions.runtime_error.clone();
-            vm.new_exception_msg(exc_type, err.to_string())
-        }
+        nix::Error::UnsupportedOperation => vm.new_runtime_error(err.to_string()),
         nix::Error::Sys(errno) => {
             let exc_type = convert_nix_errno(vm, errno);
             vm.new_exception_msg(exc_type, err.to_string())

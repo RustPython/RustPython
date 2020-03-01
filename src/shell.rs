@@ -1,9 +1,8 @@
-mod readline;
-#[cfg(not(target_os = "wasi"))]
-mod rustyline_helper;
+mod helper;
 
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
+use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
     exceptions::{print_exception, PyBaseExceptionRef},
     obj::objtype,
@@ -11,8 +10,6 @@ use rustpython_vm::{
     scope::Scope,
     VirtualMachine,
 };
-
-use readline::{Readline, ReadlineResult};
 
 enum ShellExecResult {
     Ok,
@@ -49,7 +46,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         crate_version!()
     );
 
-    let mut repl = Readline::new(vm, scope.clone());
+    let mut repl = Readline::new(helper::ShellHelper::new(vm, scope.clone()));
     let mut full_input = String::new();
 
     // Retrieve a `history_path_str` dependent on the OS

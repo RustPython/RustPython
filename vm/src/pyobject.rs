@@ -682,10 +682,10 @@ impl<T: PyValue> PyRef<T> {
         if obj.payload_is::<T>() {
             Ok(Self::new_ref_unchecked(obj))
         } else {
-            Err(vm.new_exception_msg(
-                vm.ctx.exceptions.runtime_error.clone(),
-                format!("Unexpected payload for type {:?}", obj.class().name),
-            ))
+            Err(vm.new_runtime_error(format!(
+                "Unexpected payload for type {:?}",
+                obj.class().name
+            )))
         }
     }
 

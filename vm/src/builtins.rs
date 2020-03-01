@@ -30,6 +30,7 @@ use crate::pyobject::{
     Either, IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
+use crate::readline::{Readline, ReadlineResult};
 use crate::scope::Scope;
 use crate::stdlib::ast;
 use crate::vm::VirtualMachine;
@@ -345,7 +346,22 @@ fn builtin_id(obj: PyObjectRef) -> usize {
     obj.get_id()
 }
 
-// builtin_input
+fn builtin_input(prompt: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult<String> {
+    let prompt = prompt.as_ref().map_or("", |s| s.as_str());
+    let mut readline = Readline::new(());
+    match readline.readline(prompt) {
+        ReadlineResult::Line(s) => Ok(s),
+        ReadlineResult::EOF => Err(vm.new_exception_empty(vm.ctx.exceptions.eof_error.clone())),
+        ReadlineResult::Interrupt => {
+            Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone()))
+        }
+        ReadlineResult::IO(e) => Err(vm.new_os_error(e.to_string())),
+        ReadlineResult::EncodingError => {
+            Err(vm.new_unicode_decode_error("Error decoding readline input".to_owned()))
+        }
+        ReadlineResult::Other(e) => Err(vm.new_runtime_error(e.to_string())),
+    }
+}
 
 fn builtin_isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
     single_or_tuple_any(
@@ -797,6 +813,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "hash" => ctx.new_function(builtin_hash),
         "hex" => ctx.new_function(builtin_hex),
         "id" => ctx.new_function(builtin_id),
+        "input" => ctx.new_function(builtin_input),
         "int" => ctx.int_type(),
         "isinstance" => ctx.new_function(builtin_isinstance),
         "issubclass" => ctx.new_function(builtin_issubclass),
@@ -866,6 +883,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "NameError" => ctx.exceptions.name_error.clone(),
         "UnboundLocalError" => ctx.exceptions.unbound_local_error.clone(),
         "OSError" => ctx.exceptions.os_error.clone(),
+        // OSError alias
+        "IOError" => ctx.exceptions.os_error.clone(),
         "BlockingIOError" => ctx.exceptions.blocking_io_error.clone(),
         "ChildProcessError" => ctx.exceptions.child_process_error.clone(),
         "ConnectionError" => ctx.exceptions.connection_error.clone(),

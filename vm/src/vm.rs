@@ -520,6 +520,11 @@ impl VirtualMachine {
         self.new_exception_msg(import_error, msg)
     }
 
+    pub fn new_runtime_error(&self, msg: String) -> PyBaseExceptionRef {
+        let runtime_error = self.ctx.exceptions.runtime_error.clone();
+        self.new_exception_msg(runtime_error, msg)
+    }
+
     // TODO: #[track_caller] when stabilized
     fn _py_panic_failed(&self, exc: &PyBaseExceptionRef, msg: &str) -> ! {
         let show_backtrace = env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
