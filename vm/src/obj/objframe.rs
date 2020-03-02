@@ -5,7 +5,7 @@
 use super::objcode::PyCodeRef;
 use super::objdict::PyDictRef;
 use crate::frame::FrameRef;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyResult};
+use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyResult};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
@@ -45,13 +45,30 @@ impl FrameRef {
     }
 
     #[pyproperty]
-    fn f_back(self, vm: &VirtualMachine) -> PyObjectRef {
-        // TODO: how to retrieve the upper stack frame??
-        vm.ctx.none()
+    fn f_back(self, vm: &VirtualMachine) -> Option<FrameRef> {
+        // TODO: actually store f_back inside Frame struct
+
+        // get the frame in the frame stack that appears before this one.
+        // won't work if  this frame isn't in the frame stack, hence the todo above
+        vm.frames
+            .borrow()
+            .iter()
+            .rev()
+            .skip_while(|p| !p.is(&self))
+            .nth(1)
+            .cloned()
     }
 
     #[pyproperty]
-    fn f_lasti(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self.lasti.get())
+    fn f_lasti(self) -> usize {
+        self.lasti.get()
+    }
+
+    #[pyproperty]
+    fn f_lineno(self) -> Option<usize> {
+        self.code
+            .locations
+            .get(self.lasti.get())
+            .map(|loc| loc.row())
     }
 }
