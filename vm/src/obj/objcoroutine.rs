@@ -1,20 +1,18 @@
-use super::objiter::new_stop_iteration;
-use super::objtype::{isinstance, PyClassRef};
-use crate::exceptions;
-use crate::frame::{ExecutionResult, FrameRef};
+use super::objcode::PyCodeRef;
+use super::objcoroinner::Coro;
+use super::objstr::PyStringRef;
+use super::objtype::PyClassRef;
+use crate::frame::FrameRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
-
-use std::cell::Cell;
 
 pub type PyCoroutineRef = PyRef<PyCoroutine>;
 
 #[pyclass(name = "coroutine")]
 #[derive(Debug)]
 pub struct PyCoroutine {
-    frame: FrameRef,
-    closed: Cell<bool>,
+    inner: Coro,
 }
 
 impl PyValue for PyCoroutine {
@@ -25,33 +23,20 @@ impl PyValue for PyCoroutine {
 
 #[pyimpl]
 impl PyCoroutine {
+    pub fn as_coro(&self) -> &Coro {
+        &self.inner
+    }
+
     pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyCoroutineRef {
         PyCoroutine {
-            frame,
-            closed: Cell::new(false),
+            inner: Coro::new(frame),
         }
         .into_ref(vm)
     }
 
-    // TODO: deduplicate this code with objgenerator
-    fn maybe_close(&self, res: &PyResult<ExecutionResult>) {
-        match res {
-            Ok(ExecutionResult::Return(_)) | Err(_) => self.closed.set(true),
-            Ok(ExecutionResult::Yield(_)) => {}
-        }
-    }
-
     #[pymethod]
-    pub(crate) fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if self.closed.get() {
-            return Err(new_stop_iteration(vm));
-        }
-
-        self.frame.push_value(value.clone());
-
-        let result = vm.run_frame(self.frame.clone());
-        self.maybe_close(&result);
-        result?.into_result(vm)
+    fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.inner.send(value, vm)
     }
 
     #[pymethod]
@@ -62,50 +47,45 @@ impl PyCoroutine {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let exc_val = exc_val.unwrap_or_else(|| vm.get_none());
-        let exc_tb = exc_tb.unwrap_or_else(|| vm.get_none());
-        if self.closed.get() {
-            return Err(exceptions::normalize(exc_type, exc_val, exc_tb, vm)?);
-        }
-        vm.frames.borrow_mut().push(self.frame.clone());
-        let result = self.frame.gen_throw(vm, exc_type, exc_val, exc_tb);
-        self.maybe_close(&result);
-        vm.frames.borrow_mut().pop();
-        result?.into_result(vm)
+        self.inner.throw(
+            exc_type,
+            exc_val.unwrap_or_else(|| vm.get_none()),
+            exc_tb.unwrap_or_else(|| vm.get_none()),
+            vm,
+        )
     }
 
     #[pymethod]
     fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if self.closed.get() {
-            return Ok(());
-        }
-        vm.frames.borrow_mut().push(self.frame.clone());
-        let result = self.frame.gen_throw(
-            vm,
-            vm.ctx.exceptions.generator_exit.clone().into_object(),
-            vm.get_none(),
-            vm.get_none(),
-        );
-        vm.frames.borrow_mut().pop();
-        self.closed.set(true);
-        match result {
-            Ok(ExecutionResult::Yield(_)) => {
-                Err(vm.new_runtime_error("generator ignored GeneratorExit".to_owned()))
-            }
-            Err(e) => {
-                if isinstance(&e, &vm.ctx.exceptions.generator_exit) {
-                    Ok(())
-                } else {
-                    Err(e)
-                }
-            }
-            _ => Ok(()),
-        }
+        self.inner.close(vm)
     }
 
     #[pymethod(name = "__await__")]
     fn r#await(zelf: PyRef<Self>) -> PyCoroutineWrapper {
         PyCoroutineWrapper { coro: zelf }
+    }
+
+    #[pyproperty]
+    fn cr_await(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+        self.inner.frame().yield_from_target()
+    }
+    #[pyproperty]
+    fn cr_frame(&self, _vm: &VirtualMachine) -> FrameRef {
+        self.inner.frame()
+    }
+    #[pyproperty]
+    fn cr_running(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.running()
+    }
+    #[pyproperty]
+    fn cr_code(&self, _vm: &VirtualMachine) -> PyCodeRef {
+        self.inner.frame().code.clone()
+    }
+    // TODO: coroutine origin tracking:
+    // https://docs.python.org/3/library/sys.html#sys.set_coroutine_origin_tracking_depth
+    #[pyproperty]
+    fn cr_origin(&self, _vm: &VirtualMachine) -> Option<(PyStringRef, usize, PyStringRef)> {
+        None
     }
 }
 

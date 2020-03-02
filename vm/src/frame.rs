@@ -9,6 +9,7 @@ use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::{single_or_tuple_any, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
+use crate::obj::objcoroinner::Coro;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objdict::{PyDict, PyDictRef};
 use crate::obj::objgenerator::PyGenerator;
@@ -205,6 +206,15 @@ impl Frame {
         }
     }
 
+    pub fn yield_from_target(&self) -> Option<PyObjectRef> {
+        if let Some(bytecode::Instruction::YieldFrom) = self.code.instructions.get(self.lasti.get())
+        {
+            Some(self.last_value())
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn gen_throw(
         &self,
         vm: &VirtualMachine,
@@ -212,16 +222,18 @@ impl Frame {
         exc_val: PyObjectRef,
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
-        if let bytecode::Instruction::YieldFrom = self.code.instructions[self.lasti.get()] {
-            let coro = self.last_value();
-            vm.call_method(&coro, "throw", vec![exc_type, exc_val, exc_tb])
-                .or_else(|err| {
-                    self.pop_value();
-                    self.lasti.set(self.lasti.get() + 1);
-                    let val = objiter::stop_iter_value(vm, &err)?;
-                    self._send(coro, val, vm)
-                })
-                .map(ExecutionResult::Yield)
+        if let Some(coro) = self.yield_from_target() {
+            let res = match self.builtin_coro(&coro) {
+                Some(coro) => coro.throw(exc_type, exc_val, exc_tb, vm),
+                None => vm.call_method(&coro, "throw", vec![exc_type, exc_val, exc_tb]),
+            };
+            res.or_else(|err| {
+                self.pop_value();
+                self.lasti.set(self.lasti.get() + 1);
+                let val = objiter::stop_iter_value(vm, &err)?;
+                self._send(coro, val, vm)
+            })
+            .map(ExecutionResult::Yield)
         } else {
             let exception = exceptions::normalize(exc_type, exc_val, exc_tb, vm)?;
             match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
@@ -1009,15 +1021,19 @@ impl Frame {
         Err(exception)
     }
 
+    fn builtin_coro<'a>(&self, coro: &'a PyObjectRef) -> Option<&'a Coro> {
+        match_class!(match coro {
+            ref g @ PyGenerator => Some(g.as_coro()),
+            ref c @ PyCoroutine => Some(c.as_coro()),
+            _ => None,
+        })
+    }
+
     fn _send(&self, coro: PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(gen) = coro.payload::<PyGenerator>() {
-            gen.send(val, vm)
-        } else if let Some(coro) = coro.payload::<PyCoroutine>() {
-            coro.send(val, vm)
-        } else if vm.is_none(&val) {
-            objiter::call_next(vm, &coro)
-        } else {
-            vm.call_method(&coro, "send", vec![val])
+        match self.builtin_coro(&coro) {
+            Some(coro) => coro.send(val, vm),
+            None if vm.is_none(&val) => objiter::call_next(vm, &coro),
+            None => vm.call_method(&coro, "send", vec![val]),
         }
     }
 
