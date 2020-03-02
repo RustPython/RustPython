@@ -18,7 +18,7 @@ use crate::function::Args;
 use crate::obj::{
     objbytes::PyBytesRef, objstr::PyStringRef, objtuple::PyTuple, objtype::PyClassRef,
 };
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use crate::pyobject::{Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
 
 #[derive(Debug)]
@@ -414,9 +414,12 @@ where
     }
 }
 
-fn struct_calcsize(fmt: PyStringRef, vm: &VirtualMachine) -> PyResult<usize> {
-    let fmt_str = fmt.as_str();
-    let format_spec = FormatSpec::parse(fmt_str).map_err(|e| vm.new_value_error(e))?;
+fn struct_calcsize(fmt: Either<PyStringRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<usize> {
+    let parsed = match fmt {
+        Either::A(string) => FormatSpec::parse(string.as_str()),
+        Either::B(bytes) => FormatSpec::parse(std::str::from_utf8(&bytes).unwrap()),
+    };
+    let format_spec = parsed.map_err(|e| vm.new_value_error(e))?;
     Ok(format_spec.size())
 }
 
