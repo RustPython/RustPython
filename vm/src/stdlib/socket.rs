@@ -31,33 +31,7 @@ type RawSocket = std::os::unix::io::RawFd;
 type RawSocket = std::os::windows::raw::SOCKET;
 
 #[cfg(unix)]
-mod c {
-    pub use libc::*;
-    // TODO: open a PR to add these constants to libc; then just use libc
-    #[cfg(target_os = "android")]
-    pub const AI_PASSIVE: c_int = 0x00000001;
-    #[cfg(target_os = "android")]
-    pub const AI_CANONNAME: c_int = 0x00000002;
-    #[cfg(target_os = "android")]
-    pub const AI_NUMERICHOST: c_int = 0x00000004;
-    #[cfg(target_os = "android")]
-    pub const AI_NUMERICSERV: c_int = 0x00000008;
-    #[cfg(target_os = "android")]
-    pub const AI_MASK: c_int =
-        AI_PASSIVE | AI_CANONNAME | AI_NUMERICHOST | AI_NUMERICSERV | AI_ADDRCONFIG;
-    #[cfg(target_os = "android")]
-    pub const AI_ALL: c_int = 0x00000100;
-    #[cfg(target_os = "android")]
-    pub const AI_V4MAPPED_CFG: c_int = 0x00000200;
-    #[cfg(target_os = "android")]
-    pub const AI_ADDRCONFIG: c_int = 0x00000400;
-    #[cfg(target_os = "android")]
-    pub const AI_V4MAPPED: c_int = 0x00000800;
-    #[cfg(target_os = "android")]
-    pub const AI_DEFAULT: c_int = AI_V4MAPPED_CFG | AI_ADDRCONFIG;
-    #[cfg(target_os = "android")]
-    pub const IPPROTO_NONE: c_int = 59;
-}
+use libc as c;
 #[cfg(windows)]
 mod c {
     pub use winapi::shared::ws2def::*;
@@ -646,7 +620,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "MSG_WAITALL" => ctx.new_int(c::MSG_WAITALL),
         "AI_ALL" => ctx.new_int(c::AI_ALL),
         "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
-        "IPPROTO_NONE" => ctx.new_int(c::IPPROTO_NONE),
     });
 
     extend_module_platform_specific(vm, &module);
