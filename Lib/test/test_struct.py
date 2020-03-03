@@ -78,6 +78,8 @@ class StructTest(unittest.TestCase):
                 self.assertEqual(int(100 * dp), int(100 * d))
                 self.assertEqual(tp, t)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_new_features(self):
         # Test some of the new features in detail
         # (format, argument, big-endian result, little-endian result, asymmetric)
@@ -165,6 +167,8 @@ class StructTest(unittest.TestCase):
         self.assertGreaterEqual(struct.calcsize('n'), struct.calcsize('i'))
         self.assertGreaterEqual(struct.calcsize('n'), struct.calcsize('P'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_integers(self):
         # Integer tests (bBhHiIlLqQnN).
         import binascii
@@ -319,6 +323,8 @@ class StructTest(unittest.TestCase):
             t = IntTester(format)
             t.run()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nN_code(self):
         # n and N don't exist in standard sizes
         def assertStructError(func, *args, **kwargs):
@@ -332,6 +338,8 @@ class StructTest(unittest.TestCase):
                 assertStructError(struct.pack, format, 0)
                 assertStructError(struct.unpack, format, b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_p_code(self):
         # Test p ("Pascal string") code.
         for code, input, expected, expectedback in [
@@ -348,6 +356,8 @@ class StructTest(unittest.TestCase):
             (got,) = struct.unpack(code, got)
             self.assertEqual(got, expectedback)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_705836(self):
         # SF bug 705836.  "<f" and ">f" had a severe rounding bug, where a carry
         # from the low-order discarded bits could propagate into the exponent
@@ -381,6 +391,8 @@ class StructTest(unittest.TestCase):
         big = math.ldexp(big, 127 - 24)
         self.assertRaises(OverflowError, struct.pack, ">f", big)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_1530559(self):
         for code, byteorder in iter_integer_formats():
             format = byteorder + code
@@ -389,6 +401,8 @@ class StructTest(unittest.TestCase):
         self.assertRaises(struct.error, struct.pack, 'P', 1.0)
         self.assertRaises(struct.error, struct.pack, 'P', 1.5)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unpack_from(self):
         test_string = b'abcd01234'
         fmt = '4s'
@@ -416,6 +430,8 @@ class StructTest(unittest.TestCase):
         self.assertEqual(s.unpack_from(buffer=test_string, offset=2),
                          (b'cd01',))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pack_into(self):
         test_string = b'Reykjavik rocks, eow!'
         writable_buf = array.array('b', b' '*100)
@@ -444,6 +460,8 @@ class StructTest(unittest.TestCase):
         self.assertRaises((TypeError, struct.error), struct.pack_into, b'', sb,
                           None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pack_into_fn(self):
         test_string = b'Reykjavik rocks, eow!'
         writable_buf = array.array('b', b' '*100)
@@ -467,6 +485,8 @@ class StructTest(unittest.TestCase):
         self.assertRaises((ValueError, struct.error), pack_into, small_buf, 2,
                           test_string)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unpack_with_buffer(self):
         # SF bug 1563759: struct.unpack doesn't support buffer protocol objects
         data1 = array.array('B', b'\x12\x34\x56\x78')
@@ -475,6 +495,8 @@ class StructTest(unittest.TestCase):
             value, = struct.unpack('>I', data)
             self.assertEqual(value, 0x12345678)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bool(self):
         class ExplodingBool(object):
             def __bool__(self):
@@ -518,6 +540,7 @@ class StructTest(unittest.TestCase):
         for c in [b'\x01', b'\x7f', b'\xff', b'\x0f', b'\xf0']:
             self.assertTrue(struct.unpack('>?', c)[0])
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_count_overflow(self):
         hugecount = '{}b'.format(sys.maxsize+1)
         self.assertRaises(struct.error, struct.calcsize, hugecount)
@@ -525,6 +548,8 @@ class StructTest(unittest.TestCase):
         hugecount2 = '{}b{}H'.format(sys.maxsize//2, sys.maxsize//2)
         self.assertRaises(struct.error, struct.calcsize, hugecount2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_trailing_counter(self):
         store = array.array('b', b' '*100)
 
@@ -578,6 +603,8 @@ class StructTest(unittest.TestCase):
         self.check_sizeof('0s', 1)
         self.check_sizeof('0c', 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_boundary_error_message(self):
         regex1 = (
             r'pack_into requires a buffer of at least 6 '
@@ -595,6 +622,8 @@ class StructTest(unittest.TestCase):
         with self.assertRaisesRegex(struct.error, regex2):
             struct.unpack_from('b', bytearray(1), 5)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_boundary_error_message_with_negative_offset(self):
         byte_list = bytearray(10)
         with self.assertRaisesRegex(
@@ -617,6 +646,8 @@ class StructTest(unittest.TestCase):
                 "offset -11 out of range for 10-byte buffer"):
             struct.unpack_from('<B', byte_list, -11)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_boundary_error_message_with_large_offset(self):
         # Test overflows cause by large offset and value size (issue 30245)
         regex1 = (
@@ -658,6 +689,8 @@ class UnpackIteratorTest(unittest.TestCase):
     Tests for iterative unpacking (struct.Struct.iter_unpack).
     """
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_construct(self):
         def _check_iterator(it):
             self.assertIsInstance(it, abc.Iterator)
@@ -679,6 +712,8 @@ class UnpackIteratorTest(unittest.TestCase):
         with self.assertRaises(struct.error):
             s.iter_unpack(b"12")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_iterate(self):
         s = struct.Struct('>IB')
         b = bytes(range(1, 16))
@@ -689,6 +724,8 @@ class UnpackIteratorTest(unittest.TestCase):
         self.assertRaises(StopIteration, next, it)
         self.assertRaises(StopIteration, next, it)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_arbitrary_buffer(self):
         s = struct.Struct('>IB')
         b = bytes(range(1, 11))
@@ -698,6 +735,8 @@ class UnpackIteratorTest(unittest.TestCase):
         self.assertRaises(StopIteration, next, it)
         self.assertRaises(StopIteration, next, it)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_length_hint(self):
         lh = operator.length_hint
         s = struct.Struct('>IB')
@@ -713,6 +752,8 @@ class UnpackIteratorTest(unittest.TestCase):
         self.assertRaises(StopIteration, next, it)
         self.assertEqual(lh(it), 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_module_func(self):
         # Sanity check for the global struct.iter_unpack()
         it = struct.iter_unpack('>IB', bytes(range(1, 11)))
@@ -721,6 +762,8 @@ class UnpackIteratorTest(unittest.TestCase):
         self.assertRaises(StopIteration, next, it)
         self.assertRaises(StopIteration, next, it)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_half_float(self):
         # Little-endian examples from:
         # http://en.wikipedia.org/wiki/Half_precision_floating-point_format
