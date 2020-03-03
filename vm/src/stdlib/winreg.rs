@@ -253,22 +253,59 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "CloseKey" => ctx.new_function(winreg_CloseKey),
     });
 
-    macro_rules! add_hkey_constants {
-        ($($name:ident),*) => {
+    macro_rules! add_constants {
+        (hkey, $($name:ident),*$(,)?) => {
             extend_module!(vm, module, {
                 $((stringify!($name)) => ctx.new_int(winreg::enums::$name as usize)),*
             })
         };
+        (winnt, $($name:ident),*$(,)?) => {
+            extend_module!(vm, module, {
+                $((stringify!($name)) => ctx.new_int(winapi::um::winnt::$name)),*
+            })
+        };
     }
 
-    add_hkey_constants!(
+    add_constants!(
+        hkey,
         HKEY_CLASSES_ROOT,
         HKEY_CURRENT_USER,
         HKEY_LOCAL_MACHINE,
         HKEY_USERS,
         HKEY_PERFORMANCE_DATA,
         HKEY_CURRENT_CONFIG,
-        HKEY_DYN_DATA
+        HKEY_DYN_DATA,
+    );
+    add_constants!(
+        winnt,
+        // access rights
+        KEY_ALL_ACCESS,
+        KEY_WRITE,
+        KEY_READ,
+        KEY_EXECUTE,
+        KEY_QUERY_VALUE,
+        KEY_SET_VALUE,
+        KEY_CREATE_SUB_KEY,
+        KEY_ENUMERATE_SUB_KEYS,
+        KEY_NOTIFY,
+        KEY_CREATE_LINK,
+        KEY_WOW64_64KEY,
+        KEY_WOW64_32KEY,
+        // value types
+        REG_BINARY,
+        REG_DWORD,
+        REG_DWORD_LITTLE_ENDIAN,
+        REG_DWORD_BIG_ENDIAN,
+        REG_EXPAND_SZ,
+        REG_LINK,
+        REG_MULTI_SZ,
+        REG_NONE,
+        REG_QWORD,
+        REG_QWORD_LITTLE_ENDIAN,
+        REG_RESOURCE_LIST,
+        REG_FULL_RESOURCE_DESCRIPTOR,
+        REG_RESOURCE_REQUIREMENTS_LIST,
+        REG_SZ,
     );
 
     module
