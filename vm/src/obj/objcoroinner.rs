@@ -9,7 +9,7 @@ use std::cell::{Cell, RefCell};
 #[derive(Debug)]
 pub struct Coro {
     frame: FrameRef,
-    closed: Cell<bool>,
+    pub closed: Cell<bool>,
     running: Cell<bool>,
     exceptions: RefCell<Vec<PyBaseExceptionRef>>,
     started: Cell<bool>,
@@ -68,6 +68,11 @@ impl Coro {
     pub fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if self.closed.get() {
             return Err(objiter::new_stop_iteration(vm));
+        }
+        if !self.started.get() && !vm.is_none(&value) {
+            return Err(vm.new_type_error(
+                "can't send non-None value to a just-started coroutine".to_string(),
+            ));
         }
         self.frame.push_value(value.clone());
         let result = self.run_with_context(|| vm.run_frame(self.frame.clone()), vm);

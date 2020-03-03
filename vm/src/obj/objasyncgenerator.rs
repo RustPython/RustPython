@@ -1,19 +1,18 @@
 use super::objcode::PyCodeRef;
 use super::objcoroinner::Coro;
-use super::objtype::PyClassRef;
+use super::objtype::{self, PyClassRef};
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-use std::cell::RefCell;
+use std::cell::Cell;
 
 #[pyclass(name = "async_generator")]
 #[derive(Debug)]
 pub struct PyAsyncGen {
     inner: Coro,
+    running_async: Cell<bool>,
 }
 pub type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
@@ -32,6 +31,7 @@ impl PyAsyncGen {
     pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyAsyncGenRef {
         PyAsyncGen {
             inner: Coro::new_async(frame),
+            running_async: Cell::new(false),
         }
         .into_ref(vm)
     }
@@ -50,7 +50,8 @@ impl PyAsyncGen {
     fn asend(zelf: PyRef<Self>, value: PyObjectRef, _vm: &VirtualMachine) -> PyAsyncGenASend {
         PyAsyncGenASend {
             ag: zelf,
-            value: RefCell::new(Some(value)),
+            state: Cell::new(AwaitableState::Init),
+            value,
         }
     }
 
@@ -64,17 +65,28 @@ impl PyAsyncGen {
     ) -> PyAsyncGenAThrow {
         PyAsyncGenAThrow {
             ag: zelf,
-            value: RefCell::new(Some((
+            aclose: false,
+            state: Cell::new(AwaitableState::Init),
+            value: (
                 exc_type,
                 exc_val.unwrap_or_else(|| vm.get_none()),
                 exc_tb.unwrap_or_else(|| vm.get_none()),
-            ))),
+            ),
         }
     }
 
     #[pymethod]
-    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.close(vm)
+    fn aclose(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyAsyncGenAThrow {
+        PyAsyncGenAThrow {
+            ag: zelf,
+            aclose: true,
+            state: Cell::new(AwaitableState::Init),
+            value: (
+                vm.ctx.exceptions.generator_exit.clone().into_object(),
+                vm.get_none(),
+                vm.get_none(),
+            ),
+        }
     }
 
     #[pyproperty]
@@ -105,9 +117,20 @@ impl PyValue for PyAsyncGenWrappedValue {
 }
 
 impl PyAsyncGenWrappedValue {
-    fn unbox(val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn unbox(ag: &PyAsyncGen, val: PyResult, vm: &VirtualMachine) -> PyResult {
+        if let Err(ref e) = val {
+            if objtype::isinstance(&e, &vm.ctx.exceptions.stop_async_iteration)
+                || objtype::isinstance(&e, &vm.ctx.exceptions.generator_exit)
+            {
+                ag.inner.closed.set(true);
+            }
+            ag.running_async.set(false);
+        }
+        let val = val?;
+
         match_class!(match val {
             val @ Self => {
+                ag.running_async.set(false);
                 Err(vm.new_exception(
                     vm.ctx.exceptions.stop_iteration.clone(),
                     vec![val.0.clone()],
@@ -118,11 +141,19 @@ impl PyAsyncGenWrappedValue {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum AwaitableState {
+    Init,
+    Iter,
+    Closed,
+}
+
 #[pyclass(name = "async_generator_asend")]
 #[derive(Debug)]
 struct PyAsyncGenASend {
     ag: PyAsyncGenRef,
-    value: RefCell<Option<PyObjectRef>>,
+    state: Cell<AwaitableState>,
+    value: PyObjectRef,
 }
 
 impl PyValue for PyAsyncGenASend {
@@ -149,19 +180,34 @@ impl PyAsyncGenASend {
 
     #[pymethod]
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let val = if self.ag.inner.started() {
-            val
-        } else if vm.is_none(&val) {
-            self.value.replace(None).unwrap_or_else(|| vm.get_none())
-        } else {
-            return Err(vm.new_type_error(
-                "can't send non-None value to a just-started async generator".to_string(),
-            ));
+        let val = match self.state.get() {
+            AwaitableState::Closed => {
+                return Err(vm.new_runtime_error(
+                    "cannot reuse already awaited __anext__()/asend()".to_owned(),
+                ))
+            }
+            AwaitableState::Iter => val, // already running, all good
+            AwaitableState::Init => {
+                if self.ag.running_async.get() {
+                    return Err(vm.new_runtime_error(
+                        "anext(): asynchronous generator is already running".to_owned(),
+                    ));
+                }
+                self.ag.running_async.set(true);
+                self.state.set(AwaitableState::Iter);
+                if vm.is_none(&val) {
+                    self.value.clone()
+                } else {
+                    val
+                }
+            }
         };
-        self.ag
-            .inner
-            .send(val, vm)
-            .and_then(|val| PyAsyncGenWrappedValue::unbox(val, vm))
+        let res = self.ag.inner.send(val, vm);
+        let res = PyAsyncGenWrappedValue::unbox(&self.ag, res, vm);
+        if res.is_err() {
+            self.state.set(AwaitableState::Closed);
+        }
+        res
     }
 
     #[pymethod]
@@ -172,23 +218,38 @@ impl PyAsyncGenASend {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult {
-        self.ag
-            .inner
-            .throw(
-                exc_type,
-                exc_val.unwrap_or_else(|| vm.get_none()),
-                exc_tb.unwrap_or_else(|| vm.get_none()),
-                vm,
-            )
-            .and_then(|val| PyAsyncGenWrappedValue::unbox(val, vm))
+        if let AwaitableState::Closed = self.state.get() {
+            return Err(
+                vm.new_runtime_error("cannot reuse already awaited __anext__()/asend()".to_owned())
+            );
+        }
+
+        let res = self.ag.inner.throw(
+            exc_type,
+            exc_val.unwrap_or_else(|| vm.get_none()),
+            exc_tb.unwrap_or_else(|| vm.get_none()),
+            vm,
+        );
+        let res = PyAsyncGenWrappedValue::unbox(&self.ag, res, vm);
+        if res.is_err() {
+            self.state.set(AwaitableState::Closed);
+        }
+        res
+    }
+
+    #[pymethod]
+    fn close(&self) {
+        self.state.set(AwaitableState::Closed);
     }
 }
 
-#[pyclass(name = "async_generator_asend")]
+#[pyclass(name = "async_generator_athrow")]
 #[derive(Debug)]
 struct PyAsyncGenAThrow {
     ag: PyAsyncGenRef,
-    value: RefCell<Option<(PyObjectRef, PyObjectRef, PyObjectRef)>>,
+    aclose: bool,
+    state: Cell<AwaitableState>,
+    value: (PyObjectRef, PyObjectRef, PyObjectRef),
 }
 
 impl PyValue for PyAsyncGenAThrow {
@@ -215,21 +276,53 @@ impl PyAsyncGenAThrow {
 
     #[pymethod]
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let val = if self.ag.inner.started() {
-            val
-        } else if vm.is_none(&val) {
-            self.value
-                .replace(None)
-                .map_or_else(|| Ok(vm.get_none()), |val| val.into_pyobject(vm))?
-        } else {
-            return Err(vm.new_type_error(
-                "can't send non-None value to a just-started async generator".to_string(),
-            ));
-        };
-        self.ag
-            .inner
-            .send(val, vm)
-            .and_then(|val| PyAsyncGenWrappedValue::unbox(val, vm))
+        match self.state.get() {
+            AwaitableState::Closed => {
+                Err(vm
+                    .new_runtime_error("cannot reuse already awaited aclose()/athrow()".to_owned()))
+            }
+            AwaitableState::Init => {
+                if self.ag.running_async.get() {
+                    self.state.set(AwaitableState::Closed);
+                    let msg = if self.aclose {
+                        "aclose(): asynchronous generator is already running"
+                    } else {
+                        "athrow(): asynchronous generator is already running"
+                    };
+                    return Err(vm.new_runtime_error(msg.to_owned()));
+                }
+                if self.ag.inner.closed() {
+                    self.state.set(AwaitableState::Closed);
+                    return Err(vm.new_exception_empty(vm.ctx.exceptions.stop_iteration.clone()));
+                }
+                if !vm.is_none(&val) {
+                    return Err(vm.new_runtime_error(
+                        "can't send non-None value to a just-started coroutine".to_owned(),
+                    ));
+                }
+                self.state.set(AwaitableState::Iter);
+                self.ag.running_async.set(true);
+
+                let (ty, val, tb) = self.value.clone();
+                let ret = self.ag.inner.throw(ty, val, tb, vm);
+                let ret = if self.aclose {
+                    self.check_no_ignore(&ret, vm)?;
+                    ret
+                } else {
+                    PyAsyncGenWrappedValue::unbox(&self.ag, ret, vm)
+                };
+                self.check_error(ret, vm)
+            }
+            AwaitableState::Iter => {
+                let ret = self.ag.inner.send(val, vm);
+                if self.aclose {
+                    self.check_no_ignore(&ret, vm)?;
+                    self.check_error(ret, vm)
+                } else {
+                    PyAsyncGenWrappedValue::unbox(&self.ag, ret, vm)
+                }
+            }
+        }
     }
 
     #[pymethod]
@@ -240,15 +333,46 @@ impl PyAsyncGenAThrow {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult {
-        self.ag
-            .inner
-            .throw(
-                exc_type,
-                exc_val.unwrap_or_else(|| vm.get_none()),
-                exc_tb.unwrap_or_else(|| vm.get_none()),
-                vm,
-            )
-            .and_then(|val| PyAsyncGenWrappedValue::unbox(val, vm))
+        let ret = self.ag.inner.throw(
+            exc_type,
+            exc_val.unwrap_or_else(|| vm.get_none()),
+            exc_tb.unwrap_or_else(|| vm.get_none()),
+            vm,
+        );
+        if self.aclose {
+            self.check_no_ignore(&ret, vm)?;
+            self.check_error(ret, vm)
+        } else {
+            PyAsyncGenWrappedValue::unbox(&self.ag, ret, vm)
+        }
+    }
+
+    #[pymethod]
+    fn close(&self) {
+        self.state.set(AwaitableState::Closed);
+    }
+
+    fn check_no_ignore(&self, res: &PyResult, vm: &VirtualMachine) -> PyResult<()> {
+        if let Ok(ref v) = res {
+            if v.payload_is::<PyAsyncGenWrappedValue>() {
+                return Err(
+                    vm.new_runtime_error("async generator ignored GeneratorExit".to_owned())
+                );
+            }
+        }
+        Ok(())
+    }
+    fn check_error(&self, res: PyResult, vm: &VirtualMachine) -> PyResult {
+        if self.aclose {
+            if let Err(ref e) = res {
+                if objtype::isinstance(&e, &vm.ctx.exceptions.stop_async_iteration)
+                    || objtype::isinstance(&e, &vm.ctx.exceptions.generator_exit)
+                {
+                    return Err(vm.new_exception_empty(vm.ctx.exceptions.stop_iteration.clone()));
+                }
+            }
+        }
+        res
     }
 }
 
