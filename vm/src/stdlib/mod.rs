@@ -52,6 +52,8 @@ pub mod signal;
 mod subprocess;
 #[cfg(windows)]
 mod winapi;
+#[cfg(windows)]
+mod winreg;
 #[cfg(not(target_arch = "wasm32"))]
 mod zlib;
 
@@ -135,6 +137,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[cfg(windows)]
     {
         modules.insert("_winapi".to_owned(), Box::new(winapi::make_module));
+        modules.insert("winreg".to_owned(), Box::new(winreg::make_module));
     }
 
     modules
