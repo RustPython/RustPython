@@ -280,7 +280,6 @@ class IntTestCases(unittest.TestCase):
         with self.assertRaises(TypeError):
             int('0', 5.0)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_int_base_indexable(self):
         class MyIndexable(object):
             def __init__(self, value):

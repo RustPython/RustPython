@@ -29,7 +29,7 @@ use crate::import;
 use crate::obj::objbool;
 use crate::obj::objcode::{PyCode, PyCodeRef};
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::PyInt;
+use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objmodule::{self, PyModule};
@@ -599,6 +599,30 @@ impl VirtualMachine {
         let repr: PyStringRef = TryFromObject::try_from_object(self, repr)?;
         let ascii = to_ascii(repr.as_str());
         Ok(self.new_str(ascii))
+    }
+
+    pub fn to_index(&self, obj: &PyObjectRef) -> Option<PyResult<PyIntRef>> {
+        Some(
+            if let Ok(val) = TryFromObject::try_from_object(self, obj.clone()) {
+                Ok(val)
+            } else {
+                let cls = obj.class();
+                if cls.has_attr("__index__") {
+                    self.call_method(obj, "__index__", vec![]).and_then(|r| {
+                        if let Ok(val) = TryFromObject::try_from_object(self, r) {
+                            Ok(val)
+                        } else {
+                            Err(self.new_type_error(format!(
+                                "__index__ returned non-int (type {})",
+                                cls.name
+                            )))
+                        }
+                    })
+                } else {
+                    return None;
+                }
+            },
+        )
     }
 
     pub fn import(&self, module: &str, from_list: &[String], level: usize) -> PyResult {

@@ -659,12 +659,13 @@ struct IntOptions {
     #[pyarg(positional_only, optional = true)]
     val_options: OptionalArg<PyObjectRef>,
     #[pyarg(positional_or_keyword, optional = true)]
-    base: OptionalArg<PyIntRef>,
+    base: OptionalArg<PyObjectRef>,
 }
 
 impl IntOptions {
     fn get_int_value(self, vm: &VirtualMachine) -> PyResult<BigInt> {
         if let OptionalArg::Present(val) = self.val_options {
+            // FIXME: unnessessary bigint clone/creation
             let base = if let OptionalArg::Present(base) = self.base {
                 if !(objtype::isinstance(&val, &vm.ctx.str_type())
                     || objtype::isinstance(&val, &vm.ctx.bytes_type()))
@@ -673,11 +674,17 @@ impl IntOptions {
                         "int() can't convert non-string with explicit base".to_owned(),
                     ));
                 }
-                base
+                let base = vm.to_index(&base).unwrap_or_else(|| {
+                    Err(vm.new_type_error(format!(
+                        "'{}' object cannot be interpreted as an integer missing string argument",
+                        base.class().name
+                    )))
+                })?;
+                base.as_bigint().clone()
             } else {
-                PyInt::new(10).into_ref(vm)
+                BigInt::from(10)
             };
-            to_int(vm, &val, base.as_bigint())
+            to_int(vm, &val, &base)
         } else if let OptionalArg::Present(_) = self.base {
             Err(vm.new_type_error("int() missing string argument".to_owned()))
         } else {
