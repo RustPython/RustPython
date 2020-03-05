@@ -685,6 +685,8 @@ where
                     tabs = 0;
                 }
                 None => {
+                    spaces = 0;
+                    tabs = 0;
                     break;
                 }
                 _ => {

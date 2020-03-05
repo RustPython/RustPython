@@ -562,8 +562,6 @@ impl<O: OutputStream> Compiler<O> {
                 }
                 match value {
                     Some(v) => {
-<<<<<<< Updated upstream
-=======
                         if self.ctx.func == FunctionContext::AsyncFunction
                             && self.current_output().is_generator()
                         {
@@ -572,7 +570,6 @@ impl<O: OutputStream> Compiler<O> {
                                 statement.location.clone(),
                             ));
                         }
->>>>>>> Stashed changes
                         self.compile_expression(v)?;
                     }
                     None => {
@@ -1658,16 +1655,7 @@ impl<O: OutputStream> Compiler<O> {
             }
             Await { value } => {
                 if self.ctx.func != FunctionContext::AsyncFunction {
-<<<<<<< Updated upstream
-                    return Err(CompileError {
-                        statement: None,
-                        error: CompileErrorType::InvalidAwait,
-                        location: self.current_source_location.clone(),
-                        source_path: None,
-                    });
-=======
                     return Err(self.error(CompileErrorType::InvalidAwait));
->>>>>>> Stashed changes
                 }
                 self.compile_expression(value)?;
                 self.emit(Instruction::GetAwaitable);
@@ -1679,27 +1667,10 @@ impl<O: OutputStream> Compiler<O> {
             YieldFrom { value } => {
                 match self.ctx.func {
                     FunctionContext::NoFunction => {
-<<<<<<< Updated upstream
-                        return Err(CompileError {
-                            statement: None,
-                            error: CompileErrorType::InvalidYieldFrom,
-                            location: self.current_source_location.clone(),
-                            source_path: None,
-                        })
-                    }
-                    FunctionContext::AsyncFunction => {
-                        return Err(CompileError {
-                            statement: None,
-                            error: CompileErrorType::AsyncYieldFrom,
-                            location: self.current_source_location.clone(),
-                            source_path: None,
-                        })
-=======
                         return Err(self.error(CompileErrorType::InvalidYieldFrom))
                     }
                     FunctionContext::AsyncFunction => {
                         return Err(self.error(CompileErrorType::AsyncYieldFrom))
->>>>>>> Stashed changes
                     }
                     FunctionContext::Function => {}
                 }

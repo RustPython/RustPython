@@ -112,6 +112,9 @@ where
     fn mark_generator(&mut self) {
         self.inner.mark_generator()
     }
+    fn is_generator(&self) -> bool {
+        self.inner.is_generator()
+    }
 }
 
 impl<O: OutputStream> OptimizationBuffer for PeepholeOptimizer<O> {
