@@ -1211,13 +1211,15 @@ type InvalidParamHandler = extern "C" fn(
 );
 #[cfg(windows)]
 extern "C" {
-    fn _set_thread_local_invalid_parameter_handler(
+    #[doc(hidden)]
+    pub fn _set_thread_local_invalid_parameter_handler(
         pNew: InvalidParamHandler,
     ) -> InvalidParamHandler;
 }
 
 #[cfg(windows)]
-extern "C" fn silent_iph_handler(
+#[doc(hidden)]
+pub extern "C" fn silent_iph_handler(
     _: *const libc::wchar_t,
     _: *const libc::wchar_t,
     _: *const libc::wchar_t,
@@ -1226,13 +1228,16 @@ extern "C" fn silent_iph_handler(
 ) {
 }
 
+#[macro_export]
 macro_rules! suppress_iph {
     ($e:expr) => {{
         #[cfg(windows)]
         {
-            let old = _set_thread_local_invalid_parameter_handler(silent_iph_handler);
+            let old = $crate::stdlib::os::_set_thread_local_invalid_parameter_handler(
+                $crate::stdlib::os::silent_iph_handler,
+            );
             let ret = $e;
-            _set_thread_local_invalid_parameter_handler(old);
+            $crate::stdlib::os::_set_thread_local_invalid_parameter_handler(old);
             ret
         }
         #[cfg(not(windows))]

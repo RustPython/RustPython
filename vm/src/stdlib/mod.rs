@@ -1,3 +1,7 @@
+use crate::pyobject::PyObjectRef;
+use crate::vm::VirtualMachine;
+use std::collections::HashMap;
+
 pub mod array;
 #[cfg(feature = "rustpython-parser")]
 pub(crate) mod ast;
@@ -33,15 +37,17 @@ mod tokenize;
 mod unicodedata;
 mod warnings;
 mod weakref;
-use std::collections::HashMap;
 
-use crate::vm::VirtualMachine;
+#[cfg(not(target_arch = "wasm32"))]
+#[macro_use]
+mod os;
+
 #[cfg(not(target_arch = "wasm32"))]
 mod faulthandler;
+#[cfg(windows)]
+mod msvcrt;
 #[cfg(not(target_arch = "wasm32"))]
 mod multiprocessing;
-#[cfg(not(target_arch = "wasm32"))]
-mod os;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
 #[cfg(not(target_arch = "wasm32"))]
@@ -56,8 +62,6 @@ mod winapi;
 mod winreg;
 #[cfg(not(target_arch = "wasm32"))]
 mod zlib;
-
-use crate::pyobject::PyObjectRef;
 
 pub type StdlibInitFunc = Box<dyn Fn(&VirtualMachine) -> PyObjectRef>;
 
@@ -136,6 +140,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     // Windows-only
     #[cfg(windows)]
     {
+        modules.insert("msvcrt".to_owned(), Box::new(msvcrt::make_module));
         modules.insert("_winapi".to_owned(), Box::new(winapi::make_module));
         modules.insert("winreg".to_owned(), Box::new(winreg::make_module));
     }
