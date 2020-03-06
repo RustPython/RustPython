@@ -1206,8 +1206,7 @@ class BuiltinTest(unittest.TestCase):
         a[0] = a
         self.assertEqual(repr(a), '{0: {...}}')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_round(self):
         self.assertEqual(round(0.0), 0.0)
         self.assertEqual(type(round(0.0)), int)
