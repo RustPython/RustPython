@@ -7,14 +7,13 @@ use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
 
 use num_bigint::BigInt;
-use num_traits::cast::ToPrimitive;
 use num_traits::{One, Zero};
 
 use crate::function::OptionalArg;
 use crate::obj::objfloat::{self, IntoPyFloat, PyFloatRef};
-use crate::obj::objint::PyIntRef;
+use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objtype;
-use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -261,8 +260,16 @@ fn math_frexp(value: IntoPyFloat) -> (f64, i32) {
     }
 }
 
-fn math_ldexp(value: PyFloatRef, i: PyIntRef) -> f64 {
-    value.to_f64() * (2_f64).powf(i.as_bigint().to_f64().unwrap())
+fn math_ldexp(
+    value: Either<PyFloatRef, PyIntRef>,
+    i: PyIntRef,
+    vm: &VirtualMachine,
+) -> PyResult<f64> {
+    let value = match value {
+        Either::A(f) => f.to_f64(),
+        Either::B(z) => objint::try_float(z.as_bigint(), vm)?,
+    };
+    Ok(value * (2_f64).powf(objint::try_float(i.as_bigint(), vm)?))
 }
 
 fn math_gcd(a: PyIntRef, b: PyIntRef) -> BigInt {

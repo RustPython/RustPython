@@ -109,7 +109,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.inner.len()
     }
 
