@@ -248,7 +248,7 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
             .chain(cmd.skip(1).map(ToOwned::to_owned))
             .collect()
     } else {
-        vec![]
+        vec!["".to_owned()]
     };
 
     settings.argv = argv;
