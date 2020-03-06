@@ -13,4 +13,4 @@ path = "src/main.rs"
 
 
 [dependencies]
-rustpython-vm = { path = "../vm", default-features = false }
+rustpython-vm = { path = "../../vm", default-features = false }
