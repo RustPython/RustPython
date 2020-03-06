@@ -3,7 +3,7 @@
 import ast
 import builtins
 import collections
-# import decimal XXX RustPython
+import decimal
 # import fractions XXX RustPython
 import io
 import locale
