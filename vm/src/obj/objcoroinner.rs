@@ -74,7 +74,6 @@ impl Coro {
         vm.frames.borrow_mut().push(self.frame.clone());
         let result =
             self.run_with_context(|| self.frame.gen_throw(vm, exc_type, exc_val, exc_tb), vm);
-        self.running.set(true);
         self.maybe_close(&result);
         vm.frames.borrow_mut().pop();
         result?.into_result(vm)
@@ -85,7 +84,6 @@ impl Coro {
             return Ok(());
         }
         vm.frames.borrow_mut().push(self.frame.clone());
-        self.running.set(true);
         let result = self.run_with_context(
             || {
                 self.frame.gen_throw(
