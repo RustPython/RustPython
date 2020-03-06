@@ -716,8 +716,6 @@ class ExceptionTests(unittest.TestCase):
             print_error()
             # implicit "del e" here
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generator_leaking(self):
         # Test that generator exception state doesn't leak into the calling
         # frame
@@ -748,8 +746,6 @@ class ExceptionTests(unittest.TestCase):
             del g
             self.assertEqual(sys.exc_info()[0], TypeError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generator_leaking2(self):
         # See issue 12475.
         def g():
@@ -765,8 +761,6 @@ class ExceptionTests(unittest.TestCase):
             pass
         self.assertEqual(sys.exc_info(), (None, None, None))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generator_leaking3(self):
         # See issue #23353.  When gen.throw() is called, the caller's
         # exception state should be save and restored.
@@ -786,7 +780,6 @@ class ExceptionTests(unittest.TestCase):
             self.assertIs(gen_exc, e)
         self.assertEqual(sys.exc_info(), (None, None, None))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_generator_leaking4(self):
         # See issue #23353.  When an exception is raised by a generator,
         # the caller's exception state should still be restored.
@@ -814,8 +807,6 @@ class ExceptionTests(unittest.TestCase):
         # We used to find TypeError here.
         self.assertEqual(sys.exc_info(), (None, None, None))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generator_doesnt_retain_old_exc(self):
         def g():
             self.assertIsInstance(sys.exc_info()[1], RuntimeError)
@@ -828,8 +819,6 @@ class ExceptionTests(unittest.TestCase):
             next(it)
         self.assertRaises(StopIteration, next, it)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generator_finalizing_and_exc_info(self):
         # See #7173
         def simple_gen():
@@ -881,8 +870,6 @@ class ExceptionTests(unittest.TestCase):
             g.close()
         self._check_generator_cleanup_exc_state(do_close)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generator_del_cleanup_exc_state(self):
         def do_del(g):
             g = None
@@ -1303,8 +1290,6 @@ class ExceptionTests(unittest.TestCase):
         with self.assertRaises(MainError):
             coro.throw(SubError())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generator_doesnt_retain_old_exc2(self):
         #Issue 28884#msg282532
         def g():
