@@ -59,6 +59,11 @@ impl PyMemoryView {
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm.call_method(&self.obj_ref, "__getitem__", vec![needle])
     }
+
+    #[pymethod(magic)]
+    fn len(&self, vm: &VirtualMachine) -> PyResult {
+        vm.call_method(&self.obj_ref, "__len__", vec![])
+    }
 }
 
 impl PyValue for PyMemoryView {
