@@ -407,8 +407,16 @@ impl PyString {
 
     #[pymethod]
     fn capitalize(&self) -> String {
-        let (first_part, lower_str) = self.value.split_at(1);
-        format!("{}{}", first_part.to_uppercase(), lower_str)
+        let mut chars = self.value.chars();
+        if let Some(first_char) = chars.next() {
+            format!(
+                "{}{}",
+                first_char.to_uppercase(),
+                &chars.as_str().to_lowercase(),
+            )
+        } else {
+            "".to_owned()
+        }
     }
 
     #[pymethod]
@@ -426,11 +434,13 @@ impl PyString {
                 .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
             (None, true) => value
+                .trim_start()
                 .split(|c: char| c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
                 .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
             (None, false) => value
+                .trim_start()
                 .splitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
                 .map(|o| vm.ctx.new_str(o.to_owned()))
@@ -454,11 +464,13 @@ impl PyString {
                 .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
             (None, true) => value
+                .trim_end()
                 .rsplit(|c: char| c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
                 .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
             (None, false) => value
+                .trim_end()
                 .rsplitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
                 .filter(|s| !s.is_empty())
                 .map(|o| vm.ctx.new_str(o.to_owned()))
@@ -471,19 +483,21 @@ impl PyString {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalArg<PyStringRef>) -> String {
+    fn strip(&self, chars: OptionalArg<Option<PyStringRef>>) -> String {
+        let chars = chars.flat_option();
         let chars = match chars {
-            OptionalArg::Present(ref chars) => &chars.value,
-            OptionalArg::Missing => return self.value.trim().to_owned(),
+            Some(ref chars) => &chars.value,
+            None => return self.value.trim().to_owned(),
         };
         self.value.trim_matches(|c| chars.contains(c)).to_owned()
     }
 
     #[pymethod]
-    fn lstrip(&self, chars: OptionalArg<PyStringRef>) -> String {
+    fn lstrip(&self, chars: OptionalArg<Option<PyStringRef>>) -> String {
+        let chars = chars.flat_option();
         let chars = match chars {
-            OptionalArg::Present(ref chars) => &chars.value,
-            OptionalArg::Missing => return self.value.trim_start().to_owned(),
+            Some(ref chars) => &chars.value,
+            None => return self.value.trim_start().to_owned(),
         };
         self.value
             .trim_start_matches(|c| chars.contains(c))
@@ -491,10 +505,11 @@ impl PyString {
     }
 
     #[pymethod]
-    fn rstrip(&self, chars: OptionalArg<PyStringRef>) -> String {
+    fn rstrip(&self, chars: OptionalArg<Option<PyStringRef>>) -> String {
+        let chars = chars.flat_option();
         let chars = match chars {
-            OptionalArg::Present(ref chars) => &chars.value,
-            OptionalArg::Missing => return self.value.trim_end().to_owned(),
+            Some(ref chars) => &chars.value,
+            None => return self.value.trim_end().to_owned(),
         };
         self.value
             .trim_end_matches(|c| chars.contains(c))
@@ -505,8 +520,8 @@ impl PyString {
     fn endswith(
         &self,
         suffix: PyObjectRef,
-        start: OptionalArg<isize>,
-        end: OptionalArg<isize>,
+        start: OptionalArg<Option<isize>>,
+        end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         if let Some((start, end)) = adjust_indices(start, end, self.value.len()) {
@@ -531,8 +546,8 @@ impl PyString {
     fn startswith(
         &self,
         prefix: PyObjectRef,
-        start: OptionalArg<isize>,
-        end: OptionalArg<isize>,
+        start: OptionalArg<Option<isize>>,
+        end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         if let Some((start, end)) = adjust_indices(start, end, self.value.len()) {
@@ -815,7 +830,12 @@ impl PyString {
     }
 
     #[pymethod]
-    fn find(&self, sub: PyStringRef, start: OptionalArg<isize>, end: OptionalArg<isize>) -> isize {
+    fn find(
+        &self,
+        sub: PyStringRef,
+        start: OptionalArg<Option<isize>>,
+        end: OptionalArg<Option<isize>>,
+    ) -> isize {
         let value = &self.value;
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
             match value[start..end].find(&sub.value) {
@@ -828,7 +848,12 @@ impl PyString {
     }
 
     #[pymethod]
-    fn rfind(&self, sub: PyStringRef, start: OptionalArg<isize>, end: OptionalArg<isize>) -> isize {
+    fn rfind(
+        &self,
+        sub: PyStringRef,
+        start: OptionalArg<Option<isize>>,
+        end: OptionalArg<Option<isize>>,
+    ) -> isize {
         let value = &self.value;
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
             match value[start..end].rfind(&sub.value) {
@@ -844,8 +869,8 @@ impl PyString {
     fn index(
         &self,
         sub: PyStringRef,
-        start: OptionalArg<isize>,
-        end: OptionalArg<isize>,
+        start: OptionalArg<Option<isize>>,
+        end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let value = &self.value;
@@ -863,8 +888,8 @@ impl PyString {
     fn rindex(
         &self,
         sub: PyStringRef,
-        start: OptionalArg<isize>,
-        end: OptionalArg<isize>,
+        start: OptionalArg<Option<isize>>,
+        end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let value = &self.value;
@@ -948,7 +973,12 @@ impl PyString {
     }
 
     #[pymethod]
-    fn count(&self, sub: PyStringRef, start: OptionalArg<isize>, end: OptionalArg<isize>) -> usize {
+    fn count(
+        &self,
+        sub: PyStringRef,
+        start: OptionalArg<Option<isize>>,
+        end: OptionalArg<Option<isize>>,
+    ) -> usize {
         let value = &self.value;
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
             self.value[start..end].matches(&sub.value).count()
@@ -1651,12 +1681,12 @@ impl PySliceableSequence for String {
 
 // help get optional string indices
 fn adjust_indices(
-    start: OptionalArg<isize>,
-    end: OptionalArg<isize>,
+    start: OptionalArg<Option<isize>>,
+    end: OptionalArg<Option<isize>>,
     len: usize,
 ) -> Option<(usize, usize)> {
-    let mut start = start.into_option().unwrap_or(0);
-    let mut end = end.into_option().unwrap_or(len as isize);
+    let mut start = start.flat_option().unwrap_or(0);
+    let mut end = end.flat_option().unwrap_or(len as isize);
     if end > len as isize {
         end = len as isize;
     } else if end < 0 {
