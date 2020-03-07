@@ -37,6 +37,12 @@ impl PyGenerator {
         .into_ref(vm)
     }
 
+    // TODO: fix function names situation
+    #[pyproperty(magic)]
+    fn name(&self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.get_none()
+    }
+
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyGeneratorRef) -> PyGeneratorRef {
         zelf

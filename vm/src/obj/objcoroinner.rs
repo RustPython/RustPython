@@ -1,4 +1,4 @@
-use super::{objiter, objtype};
+use super::objtype;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, FrameRef};
 use crate::pyobject::{PyObjectRef, PyResult};
@@ -71,38 +71,47 @@ impl Coro {
         );
         self.running.set(false);
         self.started.set(true);
-        if let Err(ref e) = result {
-            if objtype::isinstance(e, &vm.ctx.exceptions.stop_iteration) {
-                let err =
-                    vm.new_runtime_error(format!("{} raised StopIteration", self.variant.name()));
-                err.set_cause(Some(e.clone()));
-                return Err(err);
-            }
-            if self.variant == Variant::AsyncGen
-                && objtype::isinstance(e, &vm.ctx.exceptions.stop_async_iteration)
-            {
-                let err =
-                    vm.new_runtime_error("async generator raise StopAsyncIteration".to_owned());
-                err.set_cause(Some(e.clone()));
-                return Err(err);
-            }
-        }
         result
     }
 
     pub fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if self.closed.get() {
-            return Err(objiter::new_stop_iteration(vm));
+            let cls = if let Variant::AsyncGen = self.variant {
+                vm.ctx.exceptions.stop_async_iteration.clone()
+            } else {
+                vm.ctx.exceptions.stop_iteration.clone()
+            };
+            return Err(vm.new_exception_empty(cls));
         }
         if !self.started.get() && !vm.is_none(&value) {
-            return Err(vm.new_type_error(
-                "can't send non-None value to a just-started coroutine".to_string(),
-            ));
+            return Err(vm.new_type_error(format!(
+                "can't send non-None value to a just-started {}",
+                self.variant.name()
+            )));
         }
         self.frame.push_value(value.clone());
         let result = self.run_with_context(|| vm.run_frame(self.frame.clone()), vm);
         self.maybe_close(&result);
-        self.variant.exec_result(result?, vm)
+        match result {
+            Ok(exec_res) => self.variant.exec_result(exec_res, vm),
+            Err(e) => {
+                if objtype::isinstance(&e, &vm.ctx.exceptions.stop_iteration) {
+                    let err = vm
+                        .new_runtime_error(format!("{} raised StopIteration", self.variant.name()));
+                    err.set_cause(Some(e));
+                    Err(err)
+                } else if self.variant == Variant::AsyncGen
+                    && objtype::isinstance(&e, &vm.ctx.exceptions.stop_async_iteration)
+                {
+                    let err = vm
+                        .new_runtime_error("async generator raised StopAsyncIteration".to_owned());
+                    err.set_cause(Some(e));
+                    Err(err)
+                } else {
+                    Err(e)
+                }
+            }
+        }
     }
     pub fn throw(
         &self,
@@ -142,7 +151,7 @@ impl Coro {
         self.closed.set(true);
         match result {
             Ok(ExecutionResult::Yield(_)) => {
-                Err(vm.new_runtime_error("generator ignored GeneratorExit".to_owned()))
+                Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", self.variant.name())))
             }
             Err(e) if !is_gen_exit(&e, vm) => Err(e),
             _ => Ok(()),
@@ -160,6 +169,9 @@ impl Coro {
     }
     pub fn frame(&self) -> FrameRef {
         self.frame.clone()
+    }
+    pub fn name(&self) -> String {
+        self.frame.code.obj_name.clone()
     }
 }
 

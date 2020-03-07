@@ -34,6 +34,12 @@ impl PyCoroutine {
         .into_ref(vm)
     }
 
+    // TODO: fix function names situation
+    #[pyproperty(magic)]
+    fn name(&self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.get_none()
+    }
+
     #[pymethod]
     fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.inner.send(value, vm)
