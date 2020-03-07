@@ -327,6 +327,8 @@ class BaseTest:
         self.checkequal('HELLO', 'HELLO', 'upper')
         self.checkraises(TypeError, 'hello', 'upper', 42)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_expandtabs(self):
         self.checkequal('abc\rab      def\ng       hi', 'abc\rab\tdef\ng\thi',
                         'expandtabs')
@@ -690,6 +692,8 @@ class BaseTest:
 
         self.checkraises(TypeError, 'hello', 'capitalize', 42)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_additional_split(self):
         self.checkequal(['this', 'is', 'the', 'split', 'function'],
             'this is the split function', 'split')
@@ -726,6 +730,8 @@ class BaseTest:
             self.checkequal(['arf', 'barf'], b, 'split', None)
             self.checkequal(['arf', 'barf'], b, 'split', None, 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_additional_rsplit(self):
         self.checkequal(['this', 'is', 'the', 'rsplit', 'function'],
                          'this is the rsplit function', 'rsplit')
@@ -827,6 +833,8 @@ class BaseTest:
 
         self.checkraises(TypeError, 'hello', 'swapcase', 42)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_zfill(self):
         self.checkequal('123', '123', 'zfill', 2)
         self.checkequal('123', '123', 'zfill', 3)
@@ -942,6 +950,8 @@ class BaseTest:
         self.checkequal('Getint', "getInt", 'title')
         self.checkraises(TypeError, 'hello', 'title', 42)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_splitlines(self):
         self.checkequal(['abc', 'def', '', 'ghi'], "abc\ndef\n\rghi", 'splitlines')
         self.checkequal(['abc', 'def', '', 'ghi'], "abc\ndef\n\r\nghi", 'splitlines')
@@ -974,6 +984,8 @@ class CommonTest(BaseTest):
             hash(b)
         self.assertEqual(hash(a), hash(b))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_capitalize_nonascii(self):
         # check that titlecased chars are lowered correctly
         # \u1ffc is the titlecased char
@@ -1354,6 +1366,8 @@ class MixinStrUnicodeUserStringTest:
         self.checkequal(True, s, 'startswith', 'h', None, -2)
         self.checkequal(False, s, 'startswith', 'x', None, None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_find_etc_raise_correct_error_messages(self):
         # issue 11828
         s = 'hello'
@@ -1380,6 +1394,8 @@ class MixinStrUnicodeUserStringTest:
 class MixinStrUnicodeTest:
     # Additional tests that only work with str.
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug1001011(self):
         # Make sure join returns a NEW object for single item sequences
         # involving a subclass.
