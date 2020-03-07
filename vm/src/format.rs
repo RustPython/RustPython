@@ -272,6 +272,16 @@ fn parse_format_spec(text: &str) -> Result<FormatSpec, &'static str> {
     })
 }
 
+// Formats floats into Python style exponent notation, by first formatting in Rust style
+// exponent notation (`1.0000e0`), then convert to Python style (`1.0000e+00`).
+fn format_float_as_exponent(precision: usize, magnitude: f64, separator: &str) -> String {
+    let r_exp = format!("{:.*e}", precision, magnitude);
+    let mut parts = r_exp.splitn(2, 'e');
+    let base = parts.next().unwrap();
+    let exponent = parts.next().unwrap().parse::<i64>().unwrap();
+    format!("{}{}+{:02}", base, separator, exponent)
+}
+
 impl FormatSpec {
     pub fn parse(text: &str) -> Result<FormatSpec, &'static str> {
         parse_format_spec(text)
@@ -370,12 +380,16 @@ impl FormatSpec {
             Some(FormatType::GeneralFormatLower) => {
                 Err("Format code 'g' for object of type 'float' not implemented yet")
             }
-            Some(FormatType::ExponentUpper) => {
-                Err("Format code 'E' for object of type 'float' not implemented yet")
-            }
-            Some(FormatType::ExponentLower) => {
-                Err("Format code 'e' for object of type 'float' not implemented yet")
-            }
+            Some(FormatType::ExponentUpper) => match magnitude {
+                magnitude if magnitude.is_nan() => Ok("NAN".to_owned()),
+                magnitude if magnitude.is_infinite() => Ok("INF".to_owned()),
+                _ => Ok(format_float_as_exponent(precision, magnitude, "E")),
+            },
+            Some(FormatType::ExponentLower) => match magnitude {
+                magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
+                magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
+                _ => Ok(format_float_as_exponent(precision, magnitude, "e")),
+            },
             Some(FormatType::Percentage) => match magnitude {
                 magnitude if magnitude.is_nan() => Ok("nan%".to_owned()),
                 magnitude if magnitude.is_infinite() => Ok("inf%".to_owned()),
@@ -443,14 +457,10 @@ impl FormatSpec {
             Some(FormatType::GeneralFormatLower) => {
                 Err("Unknown format code 'g' for object of type 'int'")
             }
-            Some(FormatType::ExponentUpper) => {
-                Err("Unknown format code 'E' for object of type 'int'")
-            }
-            Some(FormatType::ExponentLower) => {
-                Err("Unknown format code 'e' for object of type 'int'")
-            }
             Some(FormatType::FixedPointUpper)
             | Some(FormatType::FixedPointLower)
+            | Some(FormatType::ExponentUpper)
+            | Some(FormatType::ExponentLower)
             | Some(FormatType::Percentage) => match num.to_f64() {
                 Some(float) => return self.format_float(float),
                 _ => Err("Unable to convert int to float"),
