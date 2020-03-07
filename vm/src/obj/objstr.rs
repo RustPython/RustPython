@@ -407,12 +407,12 @@ impl PyString {
 
     #[pymethod]
     fn capitalize(&self) -> String {
-        let mut char_indices = self.value.char_indices();
-        if let Some((_, first_char)) = char_indices.next() {
+        let mut chars = self.value.chars();
+        if let Some(first_char) = chars.next() {
             format!(
                 "{}{}",
                 first_char.to_uppercase(),
-                &self.value[first_char.len_utf8()..].to_lowercase(),
+                &chars.as_str().to_lowercase(),
             )
         } else {
             "".to_owned()
