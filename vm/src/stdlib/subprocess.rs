@@ -49,6 +49,12 @@ struct PopenArgs {
     start_new_session: Option<bool>,
 }
 
+#[derive(FromArgs)]
+struct PopenWaitArgs {
+    #[pyarg(positional_or_keyword, default = "None")]
+    timeout: Option<u64>,
+}
+
 impl IntoPyObject for subprocess::ExitStatus {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         let status: i32 = match self {
@@ -142,8 +148,8 @@ impl PopenRef {
         self.process.borrow().exit_status()
     }
 
-    fn wait(self, timeout: OptionalArg<u64>, vm: &VirtualMachine) -> PyResult<()> {
-        let timeout = match timeout.into_option() {
+    fn wait(self, args: PopenWaitArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let timeout = match args.timeout {
             Some(timeout) => self
                 .process
                 .borrow_mut()
