@@ -3,7 +3,7 @@
  */
 
 use super::objcode::PyCodeRef;
-use super::objcoroinner::Coro;
+use super::objcoroinner::{Coro, Variant};
 use super::objtype::PyClassRef;
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
@@ -32,7 +32,7 @@ impl PyGenerator {
 
     pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyGeneratorRef {
         PyGenerator {
-            inner: Coro::new(frame),
+            inner: Coro::new(frame, Variant::Gen),
         }
         .into_ref(vm)
     }

@@ -6,6 +6,25 @@ use crate::vm::VirtualMachine;
 
 use std::cell::{Cell, RefCell};
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Variant {
+    Gen,
+    Coroutine,
+    AsyncGen,
+}
+impl Variant {
+    fn exec_result(self, res: ExecutionResult, vm: &VirtualMachine) -> PyResult {
+        res.into_result(self == Self::AsyncGen, vm)
+    }
+    fn name(self) -> &'static str {
+        match self {
+            Self::Gen => "generator",
+            Self::Coroutine => "coroutine",
+            Self::AsyncGen => "async generator",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Coro {
     frame: FrameRef,
@@ -13,28 +32,18 @@ pub struct Coro {
     running: Cell<bool>,
     exceptions: RefCell<Vec<PyBaseExceptionRef>>,
     started: Cell<bool>,
-    async_iter: bool,
+    variant: Variant,
 }
 
 impl Coro {
-    pub fn new(frame: FrameRef) -> Self {
+    pub fn new(frame: FrameRef, variant: Variant) -> Self {
         Coro {
             frame,
             closed: Cell::new(false),
             running: Cell::new(false),
             exceptions: RefCell::new(vec![]),
             started: Cell::new(false),
-            async_iter: false,
-        }
-    }
-    pub fn new_async(frame: FrameRef) -> Self {
-        Coro {
-            frame,
-            closed: Cell::new(false),
-            running: Cell::new(false),
-            exceptions: RefCell::new(vec![]),
-            started: Cell::new(false),
-            async_iter: true,
+            variant,
         }
     }
 
@@ -62,6 +71,22 @@ impl Coro {
         );
         self.running.set(false);
         self.started.set(true);
+        if let Err(ref e) = result {
+            if objtype::isinstance(e, &vm.ctx.exceptions.stop_iteration) {
+                let err =
+                    vm.new_runtime_error(format!("{} raised StopIteration", self.variant.name()));
+                err.set_cause(Some(e.clone()));
+                return Err(err);
+            }
+            if self.variant == Variant::AsyncGen
+                && objtype::isinstance(e, &vm.ctx.exceptions.stop_async_iteration)
+            {
+                let err =
+                    vm.new_runtime_error("async generator raise StopAsyncIteration".to_owned());
+                err.set_cause(Some(e.clone()));
+                return Err(err);
+            }
+        }
         result
     }
 
@@ -77,7 +102,7 @@ impl Coro {
         self.frame.push_value(value.clone());
         let result = self.run_with_context(|| vm.run_frame(self.frame.clone()), vm);
         self.maybe_close(&result);
-        result?.into_result(self.async_iter, vm)
+        self.variant.exec_result(result?, vm)
     }
     pub fn throw(
         &self,
@@ -94,7 +119,7 @@ impl Coro {
             self.run_with_context(|| self.frame.gen_throw(vm, exc_type, exc_val, exc_tb), vm);
         self.maybe_close(&result);
         vm.frames.borrow_mut().pop();
-        result?.into_result(self.async_iter, vm)
+        self.variant.exec_result(result?, vm)
     }
 
     pub fn close(&self, vm: &VirtualMachine) -> PyResult<()> {

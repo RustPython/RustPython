@@ -219,7 +219,6 @@ class AsyncGenTest(unittest.TestCase):
                                     'async generator.*StopAsyncIteration'):
             to_list(gen())
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_async_gen_exception_06(self):
         async def gen():
             yield 123

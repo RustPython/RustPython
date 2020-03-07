@@ -1,5 +1,5 @@
 use super::objcode::PyCodeRef;
-use super::objcoroinner::Coro;
+use super::objcoroinner::{Coro, Variant};
 use super::objtype::{self, PyClassRef};
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
@@ -30,7 +30,7 @@ impl PyAsyncGen {
 
     pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyAsyncGenRef {
         PyAsyncGen {
-            inner: Coro::new_async(frame),
+            inner: Coro::new(frame, Variant::AsyncGen),
             running_async: Cell::new(false),
         }
         .into_ref(vm)
