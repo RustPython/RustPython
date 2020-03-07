@@ -413,18 +413,14 @@ fn os_rmdir(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<(
 }
 
 fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match fs::read_dir(path.as_str()) {
-        Ok(iter) => {
-            let res: PyResult<Vec<PyObjectRef>> = iter
-                .map(|entry| match entry {
-                    Ok(path) => Ok(vm.ctx.new_str(path.file_name().into_string().unwrap())),
-                    Err(s) => Err(convert_io_error(vm, s)),
-                })
-                .collect();
-            Ok(vm.ctx.new_list(res?))
-        }
-        Err(s) => Err(vm.new_os_error(s.to_string())),
-    }
+    let res: PyResult<Vec<PyObjectRef>> = fs::read_dir(path.as_str())
+        .map_err(|err| convert_io_error(vm, err))?
+        .map(|entry| match entry {
+            Ok(path) => Ok(vm.ctx.new_str(path.file_name().into_string().unwrap())),
+            Err(s) => Err(convert_io_error(vm, s)),
+        })
+        .collect();
+    Ok(vm.ctx.new_list(res?))
 }
 
 fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsStr> {

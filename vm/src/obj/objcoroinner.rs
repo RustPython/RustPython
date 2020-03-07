@@ -4,13 +4,14 @@ use crate::frame::{ExecutionResult, FrameRef};
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 #[derive(Debug)]
 pub struct Coro {
     frame: FrameRef,
     closed: Cell<bool>,
     running: Cell<bool>,
+    exceptions: RefCell<Vec<PyBaseExceptionRef>>,
 }
 
 impl Coro {
@@ -19,6 +20,7 @@ impl Coro {
             frame,
             closed: Cell::new(false),
             running: Cell::new(false),
+            exceptions: RefCell::new(vec![]),
         }
     }
 
@@ -29,15 +31,32 @@ impl Coro {
         }
     }
 
+    fn run_with_context<F>(&self, func: F, vm: &VirtualMachine) -> PyResult<ExecutionResult>
+    where
+        F: FnOnce() -> PyResult<ExecutionResult>,
+    {
+        self.running.set(true);
+        let curr_exception_stack_len = vm.exceptions.borrow().len();
+        vm.exceptions
+            .borrow_mut()
+            .append(&mut self.exceptions.borrow_mut());
+        let result = func();
+        self.exceptions.replace(
+            vm.exceptions
+                .borrow_mut()
+                .split_off(curr_exception_stack_len),
+        );
+        self.running.set(false);
+        result
+    }
+
     pub fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if self.closed.get() {
             return Err(objiter::new_stop_iteration(vm));
         }
 
         self.frame.push_value(value.clone());
-        self.running.set(true);
-        let result = vm.run_frame(self.frame.clone());
-        self.running.set(false);
+        let result = self.run_with_context(|| vm.run_frame(self.frame.clone()), vm);
         self.maybe_close(&result);
         result?.into_result(vm)
     }
@@ -53,9 +72,8 @@ impl Coro {
             return Err(exceptions::normalize(exc_type, exc_val, exc_tb, vm)?);
         }
         vm.frames.borrow_mut().push(self.frame.clone());
-        self.running.set(true);
-        let result = self.frame.gen_throw(vm, exc_type, exc_val, exc_tb);
-        self.running.set(false);
+        let result =
+            self.run_with_context(|| self.frame.gen_throw(vm, exc_type, exc_val, exc_tb), vm);
         self.maybe_close(&result);
         vm.frames.borrow_mut().pop();
         result?.into_result(vm)
@@ -66,14 +84,17 @@ impl Coro {
             return Ok(());
         }
         vm.frames.borrow_mut().push(self.frame.clone());
-        self.running.set(true);
-        let result = self.frame.gen_throw(
+        let result = self.run_with_context(
+            || {
+                self.frame.gen_throw(
+                    vm,
+                    vm.ctx.exceptions.generator_exit.clone().into_object(),
+                    vm.get_none(),
+                    vm.get_none(),
+                )
+            },
             vm,
-            vm.ctx.exceptions.generator_exit.clone().into_object(),
-            vm.get_none(),
-            vm.get_none(),
         );
-        self.running.set(false);
         vm.frames.borrow_mut().pop();
         self.closed.set(true);
         match result {
