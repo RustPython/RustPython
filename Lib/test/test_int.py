@@ -297,7 +297,6 @@ class IntTestCases(unittest.TestCase):
         self.assertEqual(int('101', base=MyIndexable(10)), 101)
         self.assertEqual(int('101', base=MyIndexable(36)), 1 + 36**2)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_non_numeric_input_types(self):
         # Test possible non-numeric types for the argument x, including
         # subclasses of the explicitly documented accepted types.

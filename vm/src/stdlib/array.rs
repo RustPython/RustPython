@@ -301,7 +301,7 @@ impl PyArray {
     }
 
     #[pymethod]
-    fn tobytes(&self) -> Vec<u8> {
+    pub(crate) fn tobytes(&self) -> Vec<u8> {
         self.array.borrow().tobytes()
     }
 

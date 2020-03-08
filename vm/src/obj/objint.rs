@@ -6,9 +6,11 @@ use num_integer::Integer;
 use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
 
 use super::objbool::IntoPyBool;
+use super::objbytearray::PyByteArray;
 use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
 use super::objfloat;
+use super::objmemory::PyMemoryView;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::PyBaseExceptionRef;
@@ -19,6 +21,7 @@ use crate::pyobject::{
     IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
+use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
 
 /// int(x=0) -> integer
@@ -667,8 +670,13 @@ impl IntOptions {
         if let OptionalArg::Present(val) = self.val_options {
             // FIXME: unnessessary bigint clone/creation
             let base = if let OptionalArg::Present(base) = self.base {
-                if !(objtype::isinstance(&val, &vm.ctx.str_type())
-                    || objtype::isinstance(&val, &vm.ctx.bytes_type()))
+                if ![
+                    &vm.ctx.str_type(),
+                    &vm.ctx.bytes_type(),
+                    &vm.ctx.bytearray_type(),
+                ]
+                .iter()
+                .any(|&typ| objtype::isinstance(&val, typ))
                 {
                     return Err(vm.new_type_error(
                         "int() can't convert non-string with explicit base".to_owned(),
@@ -725,17 +733,33 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult
         return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned()));
     }
 
+    let bytes_to_int = |bytes: &[u8]| {
+        let s = std::str::from_utf8(bytes)
+            .map_err(|e| vm.new_value_error(format!("utf8 decode error: {}", e)))?;
+        str_to_int(vm, s, base)
+    };
+
     match_class!(match obj.clone() {
         string @ PyString => {
-            let s = string.as_str().trim();
-            str_to_int(vm, s, base)
+            let s = string.as_str();
+            str_to_int(vm, &s, base)
         }
         bytes @ PyBytes => {
             let bytes = bytes.get_value();
-            let s = std::str::from_utf8(bytes)
-                .map(|s| s.trim())
-                .map_err(|e| vm.new_value_error(format!("utf8 decode error: {}", e)))?;
-            str_to_int(vm, s, base)
+            bytes_to_int(bytes)
+        }
+        bytearray @ PyByteArray => {
+            let inner = bytearray.borrow_value();
+            bytes_to_int(&inner.elements)
+        }
+        memoryview @ PyMemoryView => {
+            // TODO: proper error handling instead of `unwrap()`
+            let bytes = memoryview.try_value().unwrap();
+            bytes_to_int(&bytes)
+        }
+        array @ PyArray => {
+            let bytes = array.tobytes();
+            bytes_to_int(&bytes)
         }
         obj => {
             let method = vm.get_method_or_type_error(obj.clone(), "__int__", || {
@@ -805,13 +829,14 @@ fn str_to_int(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<Big
 }
 
 fn validate_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<String> {
-    if literal.starts_with('_') || literal.ends_with('_') {
+    let trimmed = literal.trim();
+    if trimmed.starts_with('_') || trimmed.ends_with('_') {
         return Err(invalid_literal(vm, literal, base));
     }
 
-    let mut buf = String::with_capacity(literal.len());
+    let mut buf = String::with_capacity(trimmed.len());
     let mut last_tok = None;
-    for c in literal.chars() {
+    for c in trimmed.chars() {
         if !(c.is_ascii_alphanumeric() || c == '_' || c == '+' || c == '-') {
             return Err(invalid_literal(vm, literal, base));
         }
