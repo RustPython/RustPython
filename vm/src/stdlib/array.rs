@@ -1,10 +1,12 @@
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
+use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    Either, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject,
 };
 use crate::VirtualMachine;
 
@@ -141,16 +143,59 @@ macro_rules! def_array_enum {
                 }
             }
 
-            fn getitem(&self, i: usize, vm: &VirtualMachine) -> Option<PyResult> {
+            fn idx(&self, i: isize, msg: &str, vm: &VirtualMachine) -> PyResult<usize> {
+                let len = self.len();
+                let i = if i.is_negative() {
+                    if i.abs() as usize > len {
+                        return Err(vm.new_index_error(format!("{} index out of range", msg)));
+                    } else {
+                        len - i.abs() as usize
+                    }
+                } else {
+                    i as usize
+                };
+                if i > len - 1 {
+                    return Err(vm.new_index_error(format!("{} index out of range", msg)));
+                }
+                Ok(i)
+            }
+
+            fn getitem_by_idx(&self, i: usize, vm: &VirtualMachine) -> Option<PyResult> {
                 match self {
                     $(ArrayContentType::$n(v) => v.get(i).map(|x| x.into_pyobject(vm)),)*
+                }
+            }
+
+            fn getitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+                match needle {
+                    Either::A(i) => {
+                        let i = match self.idx(i, "array", vm) {
+                            Ok(v) => v,
+                            Err(e) => return Err(e),
+                        };
+                        self.getitem_by_idx(i, vm).unwrap()
+                    }
+                    Either::B(_slice) => Err(vm.new_not_implemented_error("array slice is not implemented".to_owned())),
+                }
+            }
+
+            fn setitem(&mut self, needle: Either<isize, PySliceRef>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+                match needle {
+                    Either::A(i) => {
+                        let i = self.idx(i, "array assignment", vm)?;
+                        match self {
+                            $(ArrayContentType::$n(v) => { v[i] = TryFromObject::try_from_object(vm, value)? },)*
+                        }
+                        Ok(())
+                    }
+                    Either::B(_slice) => Err(vm.new_not_implemented_error("array slice is not implemented".to_owned())),
                 }
             }
 
             fn iter<'a>(&'a self, vm: &'a VirtualMachine) -> impl Iterator<Item = PyResult> + 'a {
                 let mut i = 0;
                 std::iter::from_fn(move || {
-                    let ret = self.getitem(i, vm);
+                    let ret = self.getitem_by_idx(i, vm);
                     i += 1;
                     ret
                 })
@@ -242,22 +287,6 @@ impl PyArray {
         self.array.borrow().count(x, vm)
     }
 
-    fn idx(&self, i: isize, vm: &VirtualMachine) -> PyResult<usize> {
-        let len = self.array.borrow().len();
-        if len == 0 {
-            return Err(vm.new_index_error("pop from empty array".to_owned()));
-        }
-        let i = if i.is_negative() {
-            len - i.abs() as usize
-        } else {
-            i as usize
-        };
-        if i > len - 1 {
-            return Err(vm.new_index_error("pop index out of range".to_owned()));
-        }
-        Ok(i)
-    }
-
     #[pymethod]
     fn extend(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let mut array = self.array.borrow_mut();
@@ -290,14 +319,33 @@ impl PyArray {
 
     #[pymethod]
     fn insert(&self, i: isize, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let i = self.idx(i, vm)?;
+        let len = self.len();
+        let i = if i.is_negative() {
+            let i = i.abs() as usize;
+            if i > len {
+                0
+            } else {
+                len - i
+            }
+        } else {
+            let i = i as usize;
+            if i > len {
+                len
+            } else {
+                i
+            }
+        };
         self.array.borrow_mut().insert(i, x, vm)
     }
 
     #[pymethod]
     fn pop(&self, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
-        let i = self.idx(i.unwrap_or(-1), vm)?;
-        self.array.borrow_mut().pop(i, vm)
+        if self.len() == 0 {
+            Err(vm.new_index_error("pop from empty array".to_owned()))
+        } else {
+            let i = self.array.borrow().idx(i.unwrap_or(-1), "pop", vm)?;
+            self.array.borrow_mut().pop(i, vm)
+        }
     }
 
     #[pymethod]
@@ -320,13 +368,19 @@ impl PyArray {
         self.array.borrow_mut().reverse()
     }
 
-    #[pymethod(name = "__getitem__")]
-    fn getitem(&self, i: isize, vm: &VirtualMachine) -> PyResult {
-        let i = self.idx(i, vm)?;
-        self.array
-            .borrow()
-            .getitem(i, vm)
-            .unwrap_or_else(|| Err(vm.new_index_error("array index out of range".to_owned())))
+    #[pymethod(magic)]
+    fn getitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+        self.array.borrow().getitem(needle, vm)
+    }
+
+    #[pymethod(magic)]
+    fn setitem(
+        &self,
+        needle: Either<isize, PySliceRef>,
+        obj: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.array.borrow_mut().setitem(needle, obj, vm)
     }
 
     #[pymethod(name = "__eq__")]
@@ -384,7 +438,7 @@ impl PyArrayIter {
                 .array
                 .array
                 .borrow()
-                .getitem(self.position.get(), vm)
+                .getitem_by_idx(self.position.get(), vm)
                 .unwrap()?;
             self.position.set(self.position.get() + 1);
             Ok(ret)
