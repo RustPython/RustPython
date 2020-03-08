@@ -993,7 +993,17 @@ impl PyString {
         if len <= value.len() {
             value.to_owned()
         } else {
-            format!("{}{}", "0".repeat(len - value.len()), value)
+            let first = value.bytes().next();
+            let (sign, s) = match first {
+                Some(b'+') | Some(b'-') => (
+                    std::str::from_utf8(&[first.unwrap(); 1])
+                        .unwrap()
+                        .to_owned(),
+                    &value[1..],
+                ),
+                _ => ("".to_owned(), value.as_str()),
+            };
+            format!("{}{}{}", sign, "0".repeat(len - value.len()), s,)
         }
     }
 
