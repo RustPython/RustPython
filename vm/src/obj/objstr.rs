@@ -993,14 +993,9 @@ impl PyString {
         if len <= value.len() {
             value.to_owned()
         } else {
-            let first = value.bytes().next();
-            let (sign, s) = match first {
-                Some(b'+') | Some(b'-') => (
-                    std::str::from_utf8(&[first.unwrap(); 1])
-                        .unwrap()
-                        .to_owned(),
-                    &value[1..],
-                ),
+            let mut bytes = value.bytes();
+            let (sign, s) = match bytes.next() {
+                Some(sign @ b'+') | Some(sign @ b'-') => ((sign as char).to_string(), &value[1..]),
                 _ => ("".to_owned(), value.as_str()),
             };
             format!("{}{}{}", sign, "0".repeat(len - value.len()), s,)
