@@ -184,6 +184,12 @@ struct SplitLineArgs {
     keepends: OptionalArg<bool>,
 }
 
+#[derive(FromArgs)]
+struct ExpandtabsArgs {
+    #[pyarg(positional_or_keyword, optional = true)]
+    tabsize: OptionalArg<usize>,
+}
+
 #[pyimpl(flags(BASETYPE))]
 impl PyString {
     #[pyslot]
@@ -1079,21 +1085,28 @@ impl PyString {
     }
 
     #[pymethod]
-    fn expandtabs(&self, tab_stop: OptionalArg<usize>) -> String {
-        let tab_stop = tab_stop.into_option().unwrap_or(8 as usize);
+    fn expandtabs(&self, args: ExpandtabsArgs) -> String {
+        let tab_stop = args.tabsize.unwrap_or(8);
         let mut expanded_str = String::with_capacity(self.value.len());
         let mut tab_size = tab_stop;
         let mut col_count = 0 as usize;
         for ch in self.value.chars() {
-            // 0x0009 is tab
-            if ch == 0x0009 as char {
-                let num_spaces = tab_size - col_count;
-                col_count += num_spaces;
-                let expand = " ".repeat(num_spaces);
-                expanded_str.push_str(&expand);
-            } else {
-                expanded_str.push(ch);
-                col_count += 1;
+            match ch {
+                '\t' => {
+                    let num_spaces = tab_size - col_count;
+                    col_count += num_spaces;
+                    let expand = " ".repeat(num_spaces);
+                    expanded_str.push_str(&expand);
+                }
+                '\r' | '\n' => {
+                    expanded_str.push(ch);
+                    col_count = 0;
+                    tab_size = 0;
+                }
+                _ => {
+                    expanded_str.push(ch);
+                    col_count += 1;
+                }
             }
             if col_count >= tab_size {
                 tab_size += tab_stop;
