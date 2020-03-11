@@ -195,3 +195,7 @@ These are some useful links to related projects:
 
 This project is licensed under the MIT license. Please see the
 [LICENSE](LICENSE) file for more details.
+
+The [project logo](logo.png) is licensed under the CC-BY-4.0
+license. Please see the [LICENSE-logo](LICENSE-logo) file
+for more details.
