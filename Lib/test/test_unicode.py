@@ -665,8 +665,6 @@ class UnicodeTest(string_tests.CommonTest,
                    '\U0001D7F6', '\U00011066', '\U000104A0', '\U0001F107']:
             self.assertTrue(ch.isalnum(), '{!a} is alnum.'.format(ch))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_isalpha(self):
         super().test_isalpha()
         self.checkequalnofix(True, '\u1FFc', 'isalpha')
