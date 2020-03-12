@@ -571,7 +571,7 @@ impl PyContext {
 
     pub fn new_base_object(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: class,
+            typ: class.into_generic_pyobj(),
             dict: dict.map(RefCell::new),
             payload: objobject::PyBaseObject,
         }
@@ -628,7 +628,7 @@ pub struct PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    pub typ: PyClassRef,
+    pub typ: Rc<PyObject<PyClass>>,
     pub dict: Option<RefCell<PyDictRef>>, // __dict__ member
     pub payload: T,
 }
@@ -648,6 +648,21 @@ impl PyObject<dyn PyObjectPayload> {
             Err(self)
         }
     }
+
+    /// Dowcast this PyObjectRef to an `Rc<PyObject<T>>`. The [`downcast`](#method.downcast) method
+    /// is generally preferred, as the `PyRef<T>` it returns implements `Deref<Target=T>`, and
+    /// therefore can be used similarly to an `&T`.
+    pub fn downcast_generic<T: PyObjectPayload>(
+        self: Rc<Self>,
+    ) -> Result<Rc<PyObject<T>>, PyObjectRef> {
+        if self.payload_is::<T>() {
+            let ptr = Rc::into_raw(self) as *const PyObject<T>;
+            let ret = unsafe { Rc::from_raw(ptr) };
+            Ok(ret)
+        } else {
+            Err(self)
+        }
+    }
 }
 
 /// A reference to a Python object.
@@ -660,6 +675,7 @@ impl PyObject<dyn PyObjectPayload> {
 /// situations (such as when implementing in-place methods such as `__iadd__`)
 /// where a reference to the same object must be returned.
 #[derive(Debug)]
+#[repr(transparent)]
 pub struct PyRef<T> {
     // invariant: this obj must always have payload of type T
     obj: PyObjectRef,
@@ -704,6 +720,10 @@ impl<T: PyValue> PyRef<T> {
 
     pub fn typ(&self) -> PyClassRef {
         self.obj.class()
+    }
+
+    pub fn into_generic_pyobj(self) -> Rc<PyObject<T>> {
+        self.into_object().downcast_generic().unwrap()
     }
 }
 
@@ -838,13 +858,13 @@ where
     T: ?Sized + PyObjectPayload,
 {
     fn class(&self) -> PyClassRef {
-        self.typ.clone()
+        self.typ.clone().into_pyref()
     }
 }
 
 impl<T> TypeProtocol for PyRef<T> {
     fn class(&self) -> PyClassRef {
-        self.obj.typ.clone()
+        self.obj.class()
     }
 }
 
@@ -1103,7 +1123,7 @@ where
     #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ,
+            typ: typ.into_generic_pyobj(),
             dict: dict.map(RefCell::new),
             payload,
         }
@@ -1113,6 +1133,13 @@ where
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
         Rc::new(self)
+    }
+
+    pub fn into_pyref(self: Rc<Self>) -> PyRef<T>
+    where
+        T: PyValue,
+    {
+        PyRef::new_ref_unchecked(self as PyObjectRef)
     }
 }
 

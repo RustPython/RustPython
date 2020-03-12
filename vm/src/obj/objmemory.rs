@@ -1,8 +1,8 @@
-use std::borrow::Borrow;
-
 use super::objbyteinner::try_as_byte;
 use super::objtype::{issubclass, PyClassRef};
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
 
@@ -26,12 +26,12 @@ impl PyMemoryView {
         bytes_object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyMemoryViewRef> {
-        let object_type = bytes_object.typ.borrow();
+        let object_type = bytes_object.class();
 
-        if issubclass(object_type, &vm.ctx.types.memoryview_type)
-            || issubclass(object_type, &vm.ctx.types.bytes_type)
-            || issubclass(object_type, &vm.ctx.types.bytearray_type)
-            || issubclass(object_type, &PyArray::class(vm))
+        if issubclass(&object_type, &vm.ctx.types.memoryview_type)
+            || issubclass(&object_type, &vm.ctx.types.bytes_type)
+            || issubclass(&object_type, &vm.ctx.types.bytearray_type)
+            || issubclass(&object_type, &PyArray::class(vm))
         {
             PyMemoryView {
                 obj_ref: bytes_object.clone(),
