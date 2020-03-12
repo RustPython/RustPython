@@ -81,8 +81,6 @@ class UnicodeTest(string_tests.CommonTest,
         # raw strings should not have unicode escapes
         self.assertNotEqual(r"\u0020", " ")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ascii(self):
         if not sys.platform.startswith('java'):
             # Test basic sanity of repr()
@@ -125,8 +123,6 @@ class UnicodeTest(string_tests.CommonTest,
                     return b'byte-repr'
             self.assertRaises(TypeError, ascii, WrongRepr())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         if not sys.platform.startswith('java'):
             # Test basic sanity of repr()

@@ -354,45 +354,94 @@ impl PyString {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self) -> String {
-        let value = &self.value;
-        let quote_char = if count_char(value, '\'') > count_char(value, '"') {
-            '"'
-        } else {
-            '\''
-        };
-        let mut formatted = String::with_capacity(value.len());
-        formatted.push(quote_char);
-        for c in value.chars() {
-            if c == quote_char || c == '\\' {
-                formatted.push('\\');
-                formatted.push(c);
-            } else if c == '\n' {
-                formatted.push_str("\\n")
-            } else if c == '\t' {
-                formatted.push_str("\\t");
-            } else if c == '\r' {
-                formatted.push_str("\\r");
-            } else if c < ' ' || c as u32 == 0x7F {
-                formatted.push_str(&format!("\\x{:02x}", c as u32));
-            } else if c.is_ascii() {
-                formatted.push(c);
-            } else if !char_is_printable(c) {
-                let code = c as u32;
-                let escaped = if code < 0xff {
-                    format!("\\U{:02x}", code)
-                } else if code < 0xffff {
-                    format!("\\U{:04x}", code)
+    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+        let in_len = self.value.len();
+        let mut out_len = 0usize;
+        // let mut max = 127;
+        let mut squote = 0;
+        let mut dquote = 0;
+
+        for ch in self.value.chars() {
+            let incr = match ch {
+                '\'' => {
+                    squote += 1;
+                    1
+                }
+                '"' => {
+                    dquote += 1;
+                    1
+                }
+                '\\' | '\t' | '\r' | '\n' => 2,
+                ch if ch < ' ' || ch as u32 == 0x7f => 4, // \xHH
+                ch if ch.is_ascii() => 1,
+                ch if char_is_printable(ch) => {
+                    // max = std::cmp::max(ch, max);
+                    1
+                }
+                ch if (ch as u32) < 0x100 => 4,   // \xHH
+                ch if (ch as u32) < 0x10000 => 6, // \uHHHH
+                _ => 10,                          // \uHHHHHHHH
+            };
+            if out_len > (std::isize::MAX as usize) - incr {
+                return Err(vm.new_overflow_error("string is too long to generate repr".to_owned()));
+            }
+            out_len += incr;
+        }
+
+        let (quote, unchanged) = {
+            let mut quote = '\'';
+            let mut unchanged = out_len == in_len;
+            if squote > 0 {
+                unchanged = false;
+                if dquote > 0 {
+                    // Both squote and dquote present. Use squote, and escape them
+                    out_len += squote;
                 } else {
-                    format!("\\U{:08x}", code)
-                };
-                formatted.push_str(&escaped);
-            } else {
-                formatted.push(c)
+                    quote = '"';
+                }
+            }
+            (quote, unchanged)
+        };
+
+        out_len += 2; // quotes
+
+        let mut repr = String::with_capacity(out_len);
+        repr.push(quote);
+        if unchanged {
+            repr.push_str(&self.value);
+        } else {
+            for ch in self.value.chars() {
+                if ch == quote || ch == '\\' {
+                    repr.push('\\');
+                    repr.push(ch);
+                } else if ch == '\n' {
+                    repr.push_str("\\n")
+                } else if ch == '\t' {
+                    repr.push_str("\\t");
+                } else if ch == '\r' {
+                    repr.push_str("\\r");
+                } else if ch < ' ' || ch as u32 == 0x7F {
+                    repr.push_str(&format!("\\x{:02x}", ch as u32));
+                } else if ch.is_ascii() {
+                    repr.push(ch);
+                } else if !char_is_printable(ch) {
+                    let code = ch as u32;
+                    let escaped = if code < 0xff {
+                        format!("\\x{:02x}", code)
+                    } else if code < 0xffff {
+                        format!("\\u{:04x}", code)
+                    } else {
+                        format!("\\U{:08x}", code)
+                    };
+                    repr.push_str(&escaped);
+                } else {
+                    repr.push(ch)
+                }
             }
         }
-        formatted.push(quote_char);
-        formatted
+
+        repr.push(quote);
+        Ok(repr)
     }
 
     #[pymethod]
@@ -1323,10 +1372,6 @@ pub fn clone_value(obj: &PyObjectRef) -> String {
 
 pub fn borrow_value(obj: &PyObjectRef) -> &str {
     &obj.payload::<PyString>().unwrap().value
-}
-
-fn count_char(s: &str, c: char) -> usize {
-    s.chars().filter(|x| *x == c).count()
 }
 
 fn call_getitem(vm: &VirtualMachine, container: &PyObjectRef, key: &PyObjectRef) -> PyResult {

@@ -78,7 +78,9 @@ pub fn to_ascii(value: &str) -> String {
             ascii.push(c)
         } else {
             let c = c as i64;
-            let hex = if c < 0x10000 {
+            let hex = if c < 0x100 {
+                format!("\\x{:02x}", c)
+            } else if c < 0x10000 {
                 format!("\\u{:04x}", c)
             } else {
                 format!("\\U{:08x}", c)
