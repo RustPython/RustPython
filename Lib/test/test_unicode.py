@@ -679,8 +679,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertFalse('\U0001F40D'.isalpha())
         self.assertFalse('\U0001F46F'.isalpha())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_isascii(self):
         super().test_isascii()
         self.assertFalse("\u20ac".isascii())
