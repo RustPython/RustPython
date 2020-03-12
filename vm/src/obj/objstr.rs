@@ -803,10 +803,14 @@ impl PyString {
         let keepends = args.keepends.unwrap_or(false);
         let mut elements = vec![];
         let mut curr = "".to_owned();
-        for ch in self.value.chars() {
-            if ch == '\n' {
+        let mut chars = self.value.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\n' || ch == '\r' {
                 if keepends {
                     curr.push(ch);
+                }
+                if ch == '\r' && chars.peek() == Some(&'\n') {
+                    continue;
                 }
                 elements.push(vm.ctx.new_str(curr.clone()));
                 curr.clear();
