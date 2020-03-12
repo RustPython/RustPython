@@ -327,8 +327,6 @@ class BaseTest:
         self.checkequal('HELLO', 'HELLO', 'upper')
         self.checkraises(TypeError, 'hello', 'upper', 42)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_expandtabs(self):
         self.checkequal('abc\rab      def\ng       hi', 'abc\rab\tdef\ng\thi',
                         'expandtabs')
