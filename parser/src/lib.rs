@@ -32,6 +32,7 @@ pub mod mode;
 pub mod parser;
 lalrpop_mod!(
     #[allow(clippy::all)]
+    #[allow(unused)]
     python
 );
 pub mod token;

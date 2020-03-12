@@ -906,8 +906,8 @@ impl PyItertoolsProduct {
     }
 
     fn is_end(&self) -> bool {
-        (self.idxs.borrow()[self.cur.get()] == &self.pools[self.cur.get()].len() - 1
-            && self.cur.get() == 0)
+        let cur = self.cur.get();
+        self.idxs.borrow()[cur] == self.pools[cur].len() - 1 && cur == 0
     }
 
     fn update_idxs(&self) {

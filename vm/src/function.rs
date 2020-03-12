@@ -67,7 +67,7 @@ impl From<(&Args, &KwArgs)> for PyFuncArgs {
 
 impl FromArgs for PyFuncArgs {
     fn from_args(_vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
-        Ok(mem::replace(args, Default::default()))
+        Ok(mem::take(args))
     }
 }
 
