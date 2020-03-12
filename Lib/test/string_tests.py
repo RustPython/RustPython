@@ -833,8 +833,6 @@ class BaseTest:
 
         self.checkraises(TypeError, 'hello', 'swapcase', 42)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_zfill(self):
         self.checkequal('123', '123', 'zfill', 2)
         self.checkequal('123', '123', 'zfill', 3)

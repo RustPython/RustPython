@@ -993,7 +993,12 @@ impl PyString {
         if len <= value.len() {
             value.to_owned()
         } else {
-            format!("{}{}", "0".repeat(len - value.len()), value)
+            let mut bytes = value.bytes();
+            let (sign, s) = match bytes.next() {
+                Some(sign @ b'+') | Some(sign @ b'-') => ((sign as char).to_string(), &value[1..]),
+                _ => ("".to_owned(), value.as_str()),
+            };
+            format!("{}{}{}", sign, "0".repeat(len - value.len()), s,)
         }
     }
 
