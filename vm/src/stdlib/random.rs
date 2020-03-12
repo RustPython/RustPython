@@ -12,12 +12,10 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::VirtualMachine;
 
-mod mersenne;
-
 #[derive(Debug)]
 enum PyRng {
     Std(rand::rngs::ThreadRng),
-    MT(Box<mersenne::MT19937>),
+    MT(Box<mt19937::MT19937>),
 }
 
 impl Default for PyRng {
@@ -77,7 +75,7 @@ impl PyRandom {
 
     #[pymethod]
     fn random(&self) -> f64 {
-        mersenne::gen_res53(&mut *self.rng.borrow_mut())
+        mt19937::gen_res53(&mut *self.rng.borrow_mut())
     }
 
     #[pymethod]
@@ -89,7 +87,7 @@ impl PyRandom {
                 if cfg!(target_endian = "big") {
                     key.reverse();
                 }
-                PyRng::MT(Box::new(mersenne::MT19937::new_with_slice_seed(&key)))
+                PyRng::MT(Box::new(mt19937::MT19937::new_with_slice_seed(&key)))
             }
         };
 

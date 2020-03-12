@@ -877,6 +877,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mt19937"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c674293daac706360a8fa633c802ca15d27ee4a52394f12ecec2f6d2aa5508bf"
+dependencies = [
+ "rand 0.7.3",
+ "rand_core 0.5.1",
+]
+
+[[package]]
 name = "new_debug_unreachable"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1520,6 +1530,7 @@ dependencies = [
  "log",
  "maplit",
  "md-5",
+ "mt19937",
  "nix 0.16.1",
  "num-bigint",
  "num-complex",
