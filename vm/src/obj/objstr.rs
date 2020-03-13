@@ -725,7 +725,7 @@ impl PyString {
 
     #[pymethod]
     fn isalpha(&self) -> bool {
-        !self.value.is_empty() && self.value.chars().all(char::is_alphanumeric)
+        !self.value.is_empty() && self.value.chars().all(char::is_alphabetic)
     }
 
     #[pymethod]
@@ -795,7 +795,7 @@ impl PyString {
 
     #[pymethod]
     fn isascii(&self) -> bool {
-        !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii())
+        self.value.chars().all(|c| c.is_ascii())
     }
 
     #[pymethod]
