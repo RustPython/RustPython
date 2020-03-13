@@ -248,11 +248,11 @@ pub struct ByteInnerSplitOptions {
     #[pyarg(positional_or_keyword, optional = true)]
     sep: OptionalArg<Option<PyByteInner>>,
     #[pyarg(positional_or_keyword, optional = true)]
-    maxsplit: OptionalArg<i32>,
+    maxsplit: OptionalArg<isize>,
 }
 
 impl ByteInnerSplitOptions {
-    pub fn get_value(self) -> PyResult<(Vec<u8>, i32)> {
+    pub fn get_value(self) -> PyResult<(Vec<u8>, isize)> {
         let sep = match self.sep.into_option() {
             Some(Some(bytes)) => bytes.elements,
             _ => vec![],
@@ -1228,7 +1228,7 @@ pub enum ByteInnerPosition {
     All,
 }
 
-fn split_slice<'a>(slice: &'a [u8], sep: &[u8], maxsplit: i32) -> Vec<&'a [u8]> {
+fn split_slice<'a>(slice: &'a [u8], sep: &[u8], maxsplit: isize) -> Vec<&'a [u8]> {
     let mut splitted: Vec<&[u8]> = vec![];
     let mut prev_index = 0;
     let mut index = 0;
@@ -1319,7 +1319,7 @@ fn split_slice<'a>(slice: &'a [u8], sep: &[u8], maxsplit: i32) -> Vec<&'a [u8]> 
     splitted
 }
 
-fn split_slice_reverse<'a>(slice: &'a [u8], sep: &[u8], maxsplit: i32) -> Vec<&'a [u8]> {
+fn split_slice_reverse<'a>(slice: &'a [u8], sep: &[u8], maxsplit: isize) -> Vec<&'a [u8]> {
     let mut splitted: Vec<&[u8]> = vec![];
     let mut prev_index = slice.len();
     let mut index = slice.len();
