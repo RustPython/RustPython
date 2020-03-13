@@ -138,7 +138,7 @@ mod tests {
 
     fn as_statement(expr: ast::Expression) -> ast::Statement {
         ast::Statement {
-            location: expr.location.clone(),
+            location: expr.location,
             node: ast::StatementType::Expression { expression: expr },
         }
     }

@@ -874,9 +874,9 @@ SubscriptList: ast::Expression = {
 Subscript: ast::Expression = {
     Test,
     <e1:Test?> <location:@L> ":" <e2:Test?> <e3:SliceOp?>  => {
-        let s1 = e1.unwrap_or(ast::Expression { location: location.clone(), node: ast::ExpressionType::None });
-        let s2 = e2.unwrap_or(ast::Expression { location: location.clone(), node: ast::ExpressionType::None });
-        let s3 = e3.unwrap_or(ast::Expression { location: location.clone(), node: ast::ExpressionType::None });
+        let s1 = e1.unwrap_or(ast::Expression { location, node: ast::ExpressionType::None });
+        let s2 = e2.unwrap_or(ast::Expression { location, node: ast::ExpressionType::None });
+        let s3 = e3.unwrap_or(ast::Expression { location, node: ast::ExpressionType::None });
         ast::Expression {
             location,
             node: ast::ExpressionType::Slice { elements: vec![s1, s2, s3] }
@@ -1061,7 +1061,7 @@ FunctionArgument: (Option<Option<String>>, ast::Expression) = {
     <e:Test> <c:CompFor?> => {
         let expr = match c {
             Some(c) => ast::Expression {
-                location: e.location.clone(),
+                location: e.location,
                 node: ast::ExpressionType::Comprehension {
                     kind: Box::new(ast::ComprehensionKind::GeneratorExpression { element: e }),
                     generators: c,
@@ -1071,7 +1071,7 @@ FunctionArgument: (Option<Option<String>>, ast::Expression) = {
         };
         (None, expr)
     },
-    <i:Identifier> "=" <e:Test> => (Some(Some(i.clone())), e),
+    <i:Identifier> "=" <e:Test> => (Some(Some(i)), e),
     <location:@L> "*" <e:Test> => (None, ast::Expression { location, node: ast::ExpressionType::Starred { value: Box::new(e) } }),
     "**" <e:Test> => (Some(None), e),
 };
@@ -1105,7 +1105,7 @@ StringGroup: ast::StringGroup = {
         let mut values = vec![];
         for (value, is_fstring) in s {
             values.push(if is_fstring {
-                parse_located_fstring(&value, loc.clone())?
+                parse_located_fstring(&value, loc)?
             } else {
                 ast::StringGroup::Constant { value }
             })

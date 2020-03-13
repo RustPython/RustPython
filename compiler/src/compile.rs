@@ -262,7 +262,7 @@ impl<O: OutputStream> Compiler<O> {
                 return Err(CompileError {
                     statement: None,
                     error: CompileErrorType::ExpectExpr,
-                    location: statement.location.clone(),
+                    location: statement.location,
                     source_path: None,
                 });
             }
@@ -306,7 +306,7 @@ impl<O: OutputStream> Compiler<O> {
 
     fn compile_statement(&mut self, statement: &ast::Statement) -> Result<(), CompileError> {
         trace!("Compiling {:?}", statement);
-        self.set_source_location(&statement.location);
+        self.set_source_location(statement.location);
         use ast::StatementType::*;
 
         match &statement.node {
@@ -542,7 +542,7 @@ impl<O: OutputStream> Compiler<O> {
                     return Err(CompileError {
                         statement: None,
                         error: CompileErrorType::InvalidBreak,
-                        location: statement.location.clone(),
+                        location: statement.location,
                         source_path: None,
                     });
                 }
@@ -553,7 +553,7 @@ impl<O: OutputStream> Compiler<O> {
                     return Err(CompileError {
                         statement: None,
                         error: CompileErrorType::InvalidContinue,
-                        location: statement.location.clone(),
+                        location: statement.location,
                         source_path: None,
                     });
                 }
@@ -564,7 +564,7 @@ impl<O: OutputStream> Compiler<O> {
                     return Err(CompileError {
                         statement: None,
                         error: CompileErrorType::InvalidReturn,
-                        location: statement.location.clone(),
+                        location: statement.location,
                         source_path: None,
                     });
                 }
@@ -643,7 +643,7 @@ impl<O: OutputStream> Compiler<O> {
                 return Err(CompileError {
                     statement: None,
                     error: CompileErrorType::Delete(expression.name()),
-                    location: self.current_source_location.clone(),
+                    location: self.current_source_location,
                     source_path: None,
                 });
             }
@@ -1348,7 +1348,7 @@ impl<O: OutputStream> Compiler<O> {
                             return Err(CompileError {
                                 statement: None,
                                 error: CompileErrorType::StarArgs,
-                                location: self.current_source_location.clone(),
+                                location: self.current_source_location,
                                 source_path: None,
                             });
                         } else {
@@ -1379,7 +1379,7 @@ impl<O: OutputStream> Compiler<O> {
                 return Err(CompileError {
                     statement: None,
                     error: CompileErrorType::Assign(target.name()),
-                    location: self.current_source_location.clone(),
+                    location: self.current_source_location,
                     source_path: None,
                 });
             }
@@ -1570,7 +1570,7 @@ impl<O: OutputStream> Compiler<O> {
 
     fn compile_expression(&mut self, expression: &ast::Expression) -> Result<(), CompileError> {
         trace!("Compiling {:?}", expression);
-        self.set_source_location(&expression.location);
+        self.set_source_location(expression.location);
 
         use ast::ExpressionType::*;
         match &expression.node {
@@ -1665,7 +1665,7 @@ impl<O: OutputStream> Compiler<O> {
                     return Err(CompileError {
                         statement: Option::None,
                         error: CompileErrorType::InvalidYield,
-                        location: self.current_source_location.clone(),
+                        location: self.current_source_location,
                         source_path: Option::None,
                     });
                 }
@@ -1763,7 +1763,7 @@ impl<O: OutputStream> Compiler<O> {
                     error: CompileErrorType::SyntaxError(std::string::String::from(
                         "Invalid starred expression",
                     )),
-                    location: self.current_source_location.clone(),
+                    location: self.current_source_location,
                     source_path: Option::None,
                 });
             }
@@ -2182,8 +2182,8 @@ impl<O: OutputStream> Compiler<O> {
         self.current_output().set_label(label)
     }
 
-    fn set_source_location(&mut self, location: &ast::Location) {
-        self.current_source_location = location.clone();
+    fn set_source_location(&mut self, location: ast::Location) {
+        self.current_source_location = location;
     }
 
     fn get_source_line_number(&mut self) -> usize {

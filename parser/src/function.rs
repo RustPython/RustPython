@@ -22,7 +22,7 @@ pub fn parse_params(
                 // have defaults
                 return Err(LexicalError {
                     error: LexicalErrorType::DefaultArgumentError,
-                    location: name.location.clone(),
+                    location: name.location,
                 });
             }
         }
