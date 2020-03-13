@@ -7,11 +7,12 @@ use std::ops::Deref;
 
 use super::objtype::PyClassRef;
 use crate::bytecode;
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 pub type PyCodeRef = PyRef<PyCode>;
 
+#[pyclass]
 pub struct PyCode {
     pub code: bytecode::CodeObject,
 }
@@ -41,12 +42,15 @@ impl PyValue for PyCode {
     }
 }
 
+#[pyimpl]
 impl PyCodeRef {
+    #[pyslot]
     #[allow(clippy::new_ret_no_self)]
     fn new(_cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("Cannot directly create code object".to_owned()))
     }
 
+    #[pymethod(magic)]
     fn repr(self) -> String {
         let code = &self.code;
         format!(
@@ -58,22 +62,32 @@ impl PyCodeRef {
         )
     }
 
+    #[pyproperty]
+    fn co_posonlyargcount(self) -> usize {
+        self.code.posonlyarg_count
+    }
+
+    #[pyproperty]
     fn co_argcount(self) -> usize {
         self.code.arg_names.len()
     }
 
+    #[pyproperty]
     fn co_filename(self) -> String {
         self.code.source_path.clone()
     }
 
+    #[pyproperty]
     fn co_firstlineno(self) -> usize {
         self.code.first_line_number
     }
 
+    #[pyproperty]
     fn co_kwonlyargcount(self) -> usize {
         self.code.kwonlyarg_names.len()
     }
 
+    #[pyproperty]
     fn co_consts(self, vm: &VirtualMachine) -> PyObjectRef {
         let consts = self
             .code
@@ -83,26 +97,17 @@ impl PyCodeRef {
         vm.ctx.new_tuple(consts)
     }
 
+    #[pyproperty]
     fn co_name(self) -> String {
         self.code.obj_name.clone()
     }
 
+    #[pyproperty]
     fn co_flags(self) -> u8 {
         self.code.flags.bits()
     }
 }
 
 pub fn init(ctx: &PyContext) {
-    extend_class!(ctx, &ctx.types.code_type, {
-        (slot new) => PyCodeRef::new,
-        "__repr__" => ctx.new_method(PyCodeRef::repr),
-
-        "co_argcount" => ctx.new_readonly_getset("co_argcount", PyCodeRef::co_argcount),
-        "co_consts" => ctx.new_readonly_getset("co_consts", PyCodeRef::co_consts),
-        "co_filename" => ctx.new_readonly_getset("co_filename", PyCodeRef::co_filename),
-        "co_firstlineno" => ctx.new_readonly_getset("co_firstlineno", PyCodeRef::co_firstlineno),
-        "co_kwonlyargcount" => ctx.new_readonly_getset("co_kwonlyargcount", PyCodeRef::co_kwonlyargcount),
-        "co_name" => ctx.new_readonly_getset("co_name", PyCodeRef::co_name),
-        "co_flags" => ctx.new_readonly_getset("co_flags", PyCodeRef::co_flags),
-    });
+    PyCodeRef::extend_class(ctx, &ctx.types.code_type);
 }

@@ -7,11 +7,13 @@ type ParameterDefs = (Vec<ast::Parameter>, Vec<ast::Expression>);
 type ParameterDef = (ast::Parameter, Option<ast::Expression>);
 
 #[allow(clippy::collapsible_if)]
-pub fn parse_params(params: Vec<ParameterDef>) -> Result<ParameterDefs, LexicalError> {
+pub fn parse_params(
+    params: (Vec<ParameterDef>, Vec<ParameterDef>),
+) -> Result<ParameterDefs, LexicalError> {
     let mut names = vec![];
     let mut defaults = vec![];
 
-    for (name, default) in params {
+    let mut try_default = |name: &ast::Parameter, default| {
         if let Some(default) = default {
             defaults.push(default);
         } else {
@@ -20,10 +22,20 @@ pub fn parse_params(params: Vec<ParameterDef>) -> Result<ParameterDefs, LexicalE
                 // have defaults
                 return Err(LexicalError {
                     error: LexicalErrorType::DefaultArgumentError,
-                    location: name.location,
+                    location: name.location.clone(),
                 });
             }
         }
+        Ok(())
+    };
+
+    for (name, default) in params.0 {
+        try_default(&name, default)?;
+        names.push(name);
+    }
+
+    for (name, default) in params.1 {
+        try_default(&name, default)?;
         names.push(name);
     }
 

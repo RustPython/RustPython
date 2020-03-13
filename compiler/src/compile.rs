@@ -165,6 +165,7 @@ impl<O: OutputStream> Compiler<O> {
         let line_number = self.get_source_line_number();
         self.push_output(CodeObject::new(
             Default::default(),
+            0,
             Vec::new(),
             Varargs::None,
             Vec::new(),
@@ -695,6 +696,7 @@ impl<O: OutputStream> Compiler<O> {
         let line_number = self.get_source_line_number();
         self.push_output(CodeObject::new(
             flags,
+            args.posonlyargs_count,
             args.args.iter().map(|a| a.arg.clone()).collect(),
             compile_varargs(&args.vararg),
             args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
@@ -976,6 +978,7 @@ impl<O: OutputStream> Compiler<O> {
         let line_number = self.get_source_line_number();
         self.push_output(CodeObject::new(
             Default::default(),
+            0,
             vec![],
             Varargs::None,
             vec![],
@@ -1933,6 +1936,7 @@ impl<O: OutputStream> Compiler<O> {
         // Create magnificent function <listcomp>:
         self.push_output(CodeObject::new(
             Default::default(),
+            1,
             vec![".0".to_owned()],
             Varargs::None,
             vec![],

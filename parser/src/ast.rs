@@ -374,6 +374,7 @@ impl Expression {
 /// distinguish between function parameters and actual call arguments.
 #[derive(Debug, PartialEq, Default)]
 pub struct Parameters {
+    pub posonlyargs_count: usize,
     pub args: Vec<Parameter>,
     pub kwonlyargs: Vec<Parameter>,
     pub vararg: Varargs, // Optionally we handle optionally named '*args' or '*'
