@@ -1,4 +1,4 @@
-use super::objtype;
+use super::objtype::{self, PyClassRef};
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, FrameRef};
 use crate::pyobject::{PyObjectRef, PyResult};
@@ -21,6 +21,12 @@ impl Variant {
             Self::Gen => "generator",
             Self::Coroutine => "coroutine",
             Self::AsyncGen => "async generator",
+        }
+    }
+    fn stop_iteration(self, vm: &VirtualMachine) -> PyClassRef {
+        match self {
+            Self::AsyncGen => vm.ctx.exceptions.stop_async_iteration.clone(),
+            _ => vm.ctx.exceptions.stop_iteration.clone(),
         }
     }
 }
@@ -76,12 +82,7 @@ impl Coro {
 
     pub fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if self.closed.get() {
-            let cls = if let Variant::AsyncGen = self.variant {
-                vm.ctx.exceptions.stop_async_iteration.clone()
-            } else {
-                vm.ctx.exceptions.stop_iteration.clone()
-            };
-            return Err(vm.new_exception_empty(cls));
+            return Err(vm.new_exception_empty(self.variant.stop_iteration(vm)));
         }
         if !self.started.get() && !vm.is_none(&value) {
             return Err(vm.new_type_error(format!(

@@ -799,8 +799,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.67"
-source = "git+https://github.com/rust-lang/libc#64b919f1d4cf601cf016350673564e4b364b13e5"
+version = "0.2.68"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dea0c0405123bba743ee3f91f49b1c7cfb684eef0da0a50110f758ccf24cdff0"
 
 [[package]]
 name = "libz-sys"
@@ -892,8 +893,22 @@ checksum = "e4a24736216ec316047a1fc4252e27dabb04218aa4a3f37c6e7ddbf1f9782b54"
 
 [[package]]
 name = "nix"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c722bee1037d430d0f8e687bbdbf222f27cc6e4e68d5caf630857bb2b6dbdce"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if",
+ "libc",
+ "void",
+]
+
+[[package]]
+name = "nix"
 version = "0.17.0"
-source = "git+https://github.com/coolreader18/nix?branch=add-redox-support#318603039bf1f7e1e56b4c1ba96fbab42d9a9aca"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50e4785f2c3b7589a0d0c1dd60285e1188adac4006e8abd6dd578e1567027363"
 dependencies = [
  "bitflags",
  "cc",
@@ -1515,7 +1530,7 @@ dependencies = [
  "maplit",
  "md-5",
  "mt19937",
- "nix",
+ "nix 0.17.0",
  "num-bigint",
  "num-complex",
  "num-integer",
@@ -1582,14 +1597,15 @@ dependencies = [
 [[package]]
 name = "rustyline"
 version = "6.0.0"
-source = "git+https://github.com/kkawakam/rustyline#91ea17d8143c0bcf8326b656428a3d959627308a"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de64be8eecbe428b6924f1d8430369a01719fbb182c26fa431ddbb0a95f5315d"
 dependencies = [
  "cfg-if",
  "dirs 2.0.1",
  "libc",
  "log",
  "memchr",
- "nix",
+ "nix 0.14.1",
  "unicode-segmentation",
  "unicode-width",
  "utf8parse",
@@ -1712,7 +1728,8 @@ checksum = "5c2fb2ec9bcd216a5b0d0ccf31ab17b5ed1d627960edff65bbe95d3ce221cefc"
 [[package]]
 name = "socket2"
 version = "0.3.11"
-source = "git+https://github.com/alexcrichton/socket2-rs?rev=75fe3f2fe0e3079ad9d4dfb3a19e60bea3f2f055#75fe3f2fe0e3079ad9d4dfb3a19e60bea3f2f055"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8b74de517221a2cb01a53349cf54182acdc31a074727d3079068448c0676d85"
 dependencies = [
  "cfg-if",
  "libc",
@@ -1889,9 +1906,11 @@ dependencies = [
 [[package]]
 name = "time"
 version = "0.1.42"
-source = "git+https://gitlab.redox-os.org/redox-os/time.git?branch=redox-unix#726efec5f1c47ef89ab740335439ff4fda047f8f"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db8dcfca086c1143c9270ac42a2bbd8a7ee477b78ac8e45b19abfb0cbede4b6f"
 dependencies = [
  "libc",
+ "redox_syscall",
  "winapi",
 ]
 
@@ -2253,9 +2272,9 @@ checksum = "a7a928b876ff873d4a0ac966acce72423879dd86afcf190017aa700207188078"
 
 [[package]]
 name = "utf8parse"
-version = "0.2.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "936e4b492acfd135421d8dca4b1aa80a7bfc26e702ef3af710e0752684df5372"
+checksum = "8772a4ccbb4e89959023bc5b7cb8623a795caa7092d99f3aa9501b9484d4557d"
 
 [[package]]
 name = "vcpkg"

@@ -1551,8 +1551,6 @@ impl<O: OutputStream> Compiler<O> {
         self.set_source_location(expression.location);
 
         use ast::ExpressionType::*;
-        #[allow(unused_imports)] // not unused, overrides ast::ExpressionType::None
-        use Option::None;
         match &expression.node {
             Call {
                 function,
@@ -1647,7 +1645,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.mark_generator();
                 match value {
                     Some(expression) => self.compile_expression(expression)?,
-                    None => self.emit(Instruction::LoadConst {
+                    Option::None => self.emit(Instruction::LoadConst {
                         value: bytecode::Constant::None,
                     }),
                 };

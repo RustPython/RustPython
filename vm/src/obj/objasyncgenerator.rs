@@ -212,7 +212,7 @@ impl PyAsyncGenASend {
         let res = self.ag.inner.send(val, vm);
         let res = PyAsyncGenWrappedValue::unbox(&self.ag, res, vm);
         if res.is_err() {
-            self.state.set(AwaitableState::Closed);
+            self.close();
         }
         res
     }
@@ -239,7 +239,7 @@ impl PyAsyncGenASend {
         );
         let res = PyAsyncGenWrappedValue::unbox(&self.ag, res, vm);
         if res.is_err() {
-            self.state.set(AwaitableState::Closed);
+            self.close();
         }
         res
     }
