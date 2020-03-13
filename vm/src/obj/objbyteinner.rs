@@ -374,6 +374,9 @@ impl PyByteInner {
     ) -> PyResult<bool> {
         match needle {
             Either::A(byte) => {
+                if byte.elements.is_empty() {
+                    return Ok(true);
+                }
                 let other = &byte.elements[..];
                 for (n, i) in self.elements.iter().enumerate() {
                     if n + other.len() <= self.len()
