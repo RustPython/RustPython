@@ -338,8 +338,11 @@ fn pack_string(
     data: &mut dyn Write,
     length: usize,
 ) -> PyResult<()> {
-    let v = PyBytesRef::try_from_object(vm, arg.clone())?;
-    match data.write_all(&v.get_value()[..length]) {
+    let mut v = PyBytesRef::try_from_object(vm, arg.clone())?
+        .get_value()
+        .to_vec();
+    v.resize(length, 0);
+    match data.write_all(&v) {
         Ok(_) => Ok(()),
         Err(e) => Err(new_struct_error(vm, format!("{:?}", e))),
     }

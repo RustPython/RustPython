@@ -56,3 +56,12 @@ class Indexable(object):
 
 data = struct.pack('B', Indexable(65))
 assert data == bytes([65])
+
+data = struct.pack('5s', b"test1")
+assert data == b"test1"
+
+data = struct.pack('3s', b"test2")
+assert data == b"tes"
+
+data = struct.pack('7s', b"test3")
+assert data == b"test3\0\0"
