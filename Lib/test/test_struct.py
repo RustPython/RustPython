@@ -78,8 +78,6 @@ class StructTest(unittest.TestCase):
                 self.assertEqual(int(100 * dp), int(100 * d))
                 self.assertEqual(tp, t)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_features(self):
         # Test some of the new features in detail
         # (format, argument, big-endian result, little-endian result, asymmetric)
@@ -491,8 +489,6 @@ class StructTest(unittest.TestCase):
             value, = struct.unpack('>I', data)
             self.assertEqual(value, 0x12345678)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bool(self):
         class ExplodingBool(object):
             def __bool__(self):
