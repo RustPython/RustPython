@@ -15,7 +15,7 @@ impl From<Vec<InstructionMetadata>> for InstructionMetadata {
     fn from(metas: Vec<Self>) -> Self {
         debug_assert!(!metas.is_empty(), "`metas` must not be empty");
         InstructionMetadata {
-            loc: metas[0].loc.clone(),
+            loc: metas[0].loc,
             labels: metas
                 .into_iter()
                 .flat_map(|meta| meta.labels.into_iter())

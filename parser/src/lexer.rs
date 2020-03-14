@@ -285,7 +285,7 @@ where
         let end_pos = self.get_pos();
         let value = BigInt::from_str_radix(&value_text, radix).map_err(|e| LexicalError {
             error: LexicalErrorType::OtherError(format!("{:?}", e)),
-            location: start_pos.clone(),
+            location: start_pos,
         })?;
         Ok((start_pos, Tok::Int { value }, end_pos))
     }
@@ -711,9 +711,8 @@ where
                 Ordering::Greater => {
                     // New indentation level:
                     self.indentation_stack.push(indentation_level);
-                    let tok_start = self.get_pos();
-                    let tok_end = tok_start.clone();
-                    self.emit((tok_start, Tok::Indent, tok_end));
+                    let tok_pos = self.get_pos();
+                    self.emit((tok_pos, Tok::Indent, tok_pos));
                 }
                 Ordering::Less => {
                     // One or more dedentations
@@ -726,9 +725,8 @@ where
                         match ordering {
                             Ordering::Less => {
                                 self.indentation_stack.pop();
-                                let tok_start = self.get_pos();
-                                let tok_end = tok_start.clone();
-                                self.emit((tok_start, Tok::Dedent, tok_end));
+                                let tok_pos = self.get_pos();
+                                self.emit((tok_pos, Tok::Dedent, tok_pos));
                             }
                             Ordering::Equal => {
                                 // We arrived at proper level of indentation.
@@ -786,16 +784,16 @@ where
             // Next, insert a trailing newline, if required.
             if !self.at_begin_of_line {
                 self.at_begin_of_line = true;
-                self.emit((tok_pos.clone(), Tok::Newline, tok_pos.clone()));
+                self.emit((tok_pos, Tok::Newline, tok_pos));
             }
 
             // Next, flush the indentation stack to zero.
             while self.indentation_stack.len() > 1 {
                 self.indentation_stack.pop();
-                self.emit((tok_pos.clone(), Tok::Dedent, tok_pos.clone()));
+                self.emit((tok_pos, Tok::Dedent, tok_pos));
             }
 
-            self.emit((tok_pos.clone(), Tok::EndOfFile, tok_pos));
+            self.emit((tok_pos, Tok::EndOfFile, tok_pos));
         }
 
         Ok(())
@@ -1194,7 +1192,7 @@ where
 
     /// Helper function to retrieve the current position.
     fn get_pos(&self) -> Location {
-        self.location.clone()
+        self.location
     }
 
     /// Helper function to emit a lexed token to the queue of tokens.

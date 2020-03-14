@@ -193,7 +193,7 @@ impl fmt::Display for ParseErrorType {
             ParseErrorType::UnrecognizedToken(ref tok, ref expected) => {
                 if *tok == Tok::Indent {
                     write!(f, "unexpected indent")
-                } else if expected.clone() == Some("Indent".to_owned()) {
+                } else if expected.as_deref() == Some("Indent") {
                     write!(f, "expected an indented block")
                 } else {
                     write!(f, "Got unexpected token {}", tok)

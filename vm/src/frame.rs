@@ -1348,7 +1348,7 @@ impl Frame {
     }
 
     pub fn get_lineno(&self) -> bytecode::Location {
-        self.code.locations[self.lasti.get()].clone()
+        self.code.locations[self.lasti.get()]
     }
 
     fn push_block(&self, typ: BlockType) {
