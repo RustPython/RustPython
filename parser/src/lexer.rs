@@ -1238,8 +1238,27 @@ fn lex_byte(s: String) -> Result<Vec<u8>, LexicalErrorType> {
     let mut escape = false; //flag if previous was \
     let mut hex_on = false; // hex mode on or off
     let mut hex_value = String::new();
+    let mut octet_on = false;
+    let mut octet_value = String::new();
 
     for c in s.chars() {
+        if octet_on {
+            let mut should_skip = false; // flag to indicate if we should skip the escape sequence.
+            if let '0'..='7' = c {
+                octet_value.push(c);
+                if octet_value.len() < 3 {
+                    continue;
+                }
+                should_skip = true;
+            }
+            res.push(u8::from_str_radix(&octet_value, 8).unwrap());
+            octet_on = false;
+            escape = false;
+            octet_value.clear();
+            if should_skip {
+                continue;
+            }
+        }
         if hex_on {
             if c.is_ascii_hexdigit() {
                 if hex_value.is_empty() {
@@ -1269,6 +1288,11 @@ fn lex_byte(s: String) -> Result<Vec<u8>, LexicalErrorType> {
                 ('n', false) => res.push(b'n'),
                 ('r', true) => res.push(b'\r'),
                 ('r', false) => res.push(b'r'),
+                (val @ '0'..='7', true) => {
+                    octet_on = true;
+                    octet_value.push(val);
+                    continue;
+                }
                 (x, true) => {
                     res.push(b'\\');
                     res.push(x as u8);
@@ -1277,6 +1301,11 @@ fn lex_byte(s: String) -> Result<Vec<u8>, LexicalErrorType> {
             }
             escape = false;
         }
+    }
+    if octet_on {
+        res.push(u8::from_str_radix(&octet_value, 8).unwrap());
+    } else if hex_on {
+        return Err(LexicalErrorType::StringError);
     }
     Ok(res)
 }
@@ -1710,6 +1739,21 @@ mod tests {
             vec![
                 Tok::Bytes {
                     value: b"\\x1z".to_vec()
+                },
+                Tok::Newline
+            ]
+        )
+    }
+
+    #[test]
+    fn test_escape_octet() {
+        let source = r##"b'\43a\4\1234'"##;
+        let tokens = lex_source(source);
+        assert_eq!(
+            tokens,
+            vec![
+                Tok::Bytes {
+                    value: b"#a\x04S4".to_vec()
                 },
                 Tok::Newline
             ]
