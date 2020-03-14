@@ -12,6 +12,7 @@
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
+use std::cmp;
 use std::io::{Cursor, Read, Write};
 use std::iter::Peekable;
 
@@ -348,6 +349,24 @@ fn pack_string(
     }
 }
 
+fn pack_pascal(
+    vm: &VirtualMachine,
+    arg: &PyObjectRef,
+    data: &mut dyn Write,
+    length: usize,
+) -> PyResult<()> {
+    let mut v = PyBytesRef::try_from_object(vm, arg.clone())?
+        .get_value()
+        .to_vec();
+    let string_length = cmp::min(cmp::min(v.len(), 255), length - 1);
+    data.write_u8(string_length as u8).unwrap();
+    v.resize(length - 1, 0);
+    match data.write_all(&v) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(new_struct_error(vm, format!("{:?}", e))),
+    }
+}
+
 fn pack_char(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
     let v = PyBytesRef::try_from_object(vm, arg.clone())?;
     if v.len() == 1 {
@@ -385,8 +404,12 @@ where
         'N' | 'P' => pack_usize::<Endianness>,
         'f' => pack_f32::<Endianness>,
         'd' => pack_f64::<Endianness>,
-        's' | 'p' => {
+        's' => {
             pack_string(vm, &args[0], data, code.repeat as usize)?;
+            return Ok(1);
+        }
+        'p' => {
+            pack_pascal(vm, &args[0], data, code.repeat as usize)?;
             return Ok(1);
         }
         'x' => {
@@ -557,6 +580,16 @@ fn unpack_string(vm: &VirtualMachine, rdr: &mut dyn Read, length: u32) -> PyResu
     Ok(vm.ctx.new_bytes(buf))
 }
 
+fn unpack_pascal(vm: &VirtualMachine, rdr: &mut dyn Read, length: u32) -> PyResult {
+    let mut handle = rdr.take(length as u64);
+    let mut buf: Vec<u8> = Vec::new();
+    handle.read_to_end(&mut buf).map_err(|_| {
+        new_struct_error(vm, format!("unpack requires a buffer of {} bytes", length,))
+    })?;
+    let string_length = buf[0] as usize;
+    Ok(vm.ctx.new_bytes(buf[1..=string_length].to_vec()))
+}
+
 fn struct_unpack(fmt: PyStringRef, buffer: PyBytesRef, vm: &VirtualMachine) -> PyResult<PyTuple> {
     let fmt_str = fmt.as_str();
     let format_spec = FormatSpec::parse(fmt_str).map_err(|e| new_struct_error(vm, e))?;
@@ -592,8 +625,12 @@ where
             unpack_empty(vm, rdr, code.repeat);
             return Ok(());
         }
-        's' | 'p' => {
+        's' => {
             items.push(unpack_string(vm, rdr, code.repeat)?);
+            return Ok(());
+        }
+        'p' => {
+            items.push(unpack_pascal(vm, rdr, code.repeat)?);
             return Ok(());
         }
         c => {

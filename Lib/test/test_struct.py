@@ -334,8 +334,6 @@ class StructTest(unittest.TestCase):
                 assertStructError(struct.pack, format, 0)
                 assertStructError(struct.unpack, format, b"")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_p_code(self):
         # Test p ("Pascal string") code.
         for code, input, expected, expectedback in [
