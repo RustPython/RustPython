@@ -224,12 +224,38 @@ fn is_supported_format_character(c: char) -> bool {
     }
 }
 
+fn get_int_or_index<T>(vm: &VirtualMachine, arg: &PyObjectRef) -> PyResult<T>
+where
+    T: TryFromObject,
+{
+    match vm.to_index(arg) {
+        Some(index) => Ok(T::try_from_object(vm, index?.into_object())?),
+        None => Err(new_struct_error(
+            vm,
+            "required argument is not an integer".to_owned(),
+        )),
+    }
+}
+
 macro_rules! make_pack_no_endianess {
     ($T:ty) => {
         paste::item! {
             fn [<pack_ $T>](vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
-                let v = $T::try_from_object(vm, arg.clone())?;
-                data.[<write_$T>](v).unwrap();
+                data.[<write_$T>](get_int_or_index(vm, arg)?).unwrap();
+                Ok(())
+            }
+        }
+    };
+}
+
+macro_rules! make_pack_with_endianess_int {
+    ($T:ty) => {
+        paste::item! {
+            fn [<pack_ $T>]<Endianness>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()>
+            where
+                Endianness: byteorder::ByteOrder,
+            {
+                data.[<write_$T>]::<Endianness>(get_int_or_index(vm, arg)?).unwrap();
                 Ok(())
             }
         }
@@ -253,12 +279,12 @@ macro_rules! make_pack_with_endianess {
 
 make_pack_no_endianess!(i8);
 make_pack_no_endianess!(u8);
-make_pack_with_endianess!(i16);
-make_pack_with_endianess!(u16);
-make_pack_with_endianess!(i32);
-make_pack_with_endianess!(u32);
-make_pack_with_endianess!(i64);
-make_pack_with_endianess!(u64);
+make_pack_with_endianess_int!(i16);
+make_pack_with_endianess_int!(u16);
+make_pack_with_endianess_int!(i32);
+make_pack_with_endianess_int!(u32);
+make_pack_with_endianess_int!(i64);
+make_pack_with_endianess_int!(u64);
 make_pack_with_endianess!(f32);
 make_pack_with_endianess!(f64);
 
@@ -280,7 +306,7 @@ fn pack_isize<Endianness>(
 where
     Endianness: byteorder::ByteOrder,
 {
-    let v = isize::try_from_object(vm, arg.clone())?;
+    let v: isize = get_int_or_index(vm, arg)?;
     match std::mem::size_of::<isize>() {
         8 => data.write_i64::<Endianness>(v as i64).unwrap(),
         4 => data.write_i32::<Endianness>(v as i32).unwrap(),
@@ -297,7 +323,7 @@ fn pack_usize<Endianness>(
 where
     Endianness: byteorder::ByteOrder,
 {
-    let v = isize::try_from_object(vm, arg.clone())?;
+    let v: usize = get_int_or_index(vm, arg)?;
     match std::mem::size_of::<usize>() {
         8 => data.write_u64::<Endianness>(v as u64).unwrap(),
         4 => data.write_u32::<Endianness>(v as u32).unwrap(),

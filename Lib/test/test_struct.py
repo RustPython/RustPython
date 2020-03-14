@@ -167,8 +167,6 @@ class StructTest(unittest.TestCase):
         self.assertGreaterEqual(struct.calcsize('n'), struct.calcsize('i'))
         self.assertGreaterEqual(struct.calcsize('n'), struct.calcsize('P'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_integers(self):
         # Integer tests (bBhHiIlLqQnN).
         import binascii
@@ -391,8 +389,6 @@ class StructTest(unittest.TestCase):
         big = math.ldexp(big, 127 - 24)
         self.assertRaises(OverflowError, struct.pack, ">f", big)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_1530559(self):
         for code, byteorder in iter_integer_formats():
             format = byteorder + code
