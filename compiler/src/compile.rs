@@ -19,6 +19,8 @@ use rustpython_parser::{ast, parser};
 
 type BasicOutputStream = PeepholeOptimizer<CodeObjectStream>;
 
+type CompileResult<T> = Result<T, CompileError>;
+
 /// Main structure holding the state of compilation.
 struct Compiler<O: OutputStream = BasicOutputStream> {
     output_stack: Vec<O>,
@@ -59,33 +61,29 @@ pub fn compile(
     mode: Mode,
     source_path: String,
     optimize: u8,
-) -> Result<CodeObject, CompileError> {
+) -> CompileResult<CodeObject> {
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source)?;
-            compile_program(ast, source_path.clone(), optimize)
+            compile_program(ast, source_path, optimize)
         }
         Mode::Eval => {
             let statement = parser::parse_statement(source)?;
-            compile_statement_eval(statement, source_path.clone(), optimize)
+            compile_statement_eval(statement, source_path, optimize)
         }
         Mode::Single => {
             let ast = parser::parse_program(source)?;
-            compile_program_single(ast, source_path.clone(), optimize)
+            compile_program_single(ast, source_path, optimize)
         }
     }
-    .map_err(|mut err| {
-        err.update_source_path(&source_path);
-        err
-    })
 }
 
 /// A helper function for the shared code of the different compile functions
 fn with_compiler(
     source_path: String,
     optimize: u8,
-    f: impl FnOnce(&mut Compiler) -> Result<(), CompileError>,
-) -> Result<CodeObject, CompileError> {
+    f: impl FnOnce(&mut Compiler) -> CompileResult<()>,
+) -> CompileResult<CodeObject> {
     let mut compiler = Compiler::new(optimize);
     compiler.source_path = Some(source_path);
     compiler.push_new_code_object("<module>".to_owned());
@@ -100,7 +98,7 @@ pub fn compile_program(
     ast: ast::Program,
     source_path: String,
     optimize: u8,
-) -> Result<CodeObject, CompileError> {
+) -> CompileResult<CodeObject> {
     with_compiler(source_path, optimize, |compiler| {
         let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program(&ast, symbol_table)
@@ -112,7 +110,7 @@ pub fn compile_statement_eval(
     statement: Vec<ast::Statement>,
     source_path: String,
     optimize: u8,
-) -> Result<CodeObject, CompileError> {
+) -> CompileResult<CodeObject> {
     with_compiler(source_path, optimize, |compiler| {
         let symbol_table = statements_to_symbol_table(&statement)?;
         compiler.compile_statement_eval(&statement, symbol_table)
@@ -124,7 +122,7 @@ pub fn compile_program_single(
     ast: ast::Program,
     source_path: String,
     optimize: u8,
-) -> Result<CodeObject, CompileError> {
+) -> CompileResult<CodeObject> {
     with_compiler(source_path, optimize, |compiler| {
         let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program_single(&ast, symbol_table)
@@ -157,6 +155,18 @@ impl<O: OutputStream> Compiler<O> {
         }
     }
 
+    fn error(&self, error: CompileErrorType) -> CompileError {
+        self.error_loc(error, self.current_source_location)
+    }
+    fn error_loc(&self, error: CompileErrorType, location: ast::Location) -> CompileError {
+        CompileError {
+            error,
+            location,
+            source_path: self.source_path.clone(),
+            statement: None,
+        }
+    }
+
     fn push_output(&mut self, code: CodeObject) {
         self.output_stack.push(code.into());
     }
@@ -184,7 +194,7 @@ impl<O: OutputStream> Compiler<O> {
         &mut self,
         program: &ast::Program,
         symbol_table: SymbolTable,
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         let size_before = self.output_stack.len();
         self.symbol_table_stack.push(symbol_table);
 
@@ -214,7 +224,7 @@ impl<O: OutputStream> Compiler<O> {
         &mut self,
         program: &ast::Program,
         symbol_table: SymbolTable,
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
 
         let mut emitted_return = false;
@@ -253,25 +263,20 @@ impl<O: OutputStream> Compiler<O> {
         &mut self,
         statements: &[ast::Statement],
         symbol_table: SymbolTable,
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
         for statement in statements {
             if let ast::StatementType::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
             } else {
-                return Err(CompileError {
-                    statement: None,
-                    error: CompileErrorType::ExpectExpr,
-                    location: statement.location,
-                    source_path: None,
-                });
+                return Err(self.error_loc(CompileErrorType::ExpectExpr, statement.location));
             }
         }
         self.emit(Instruction::ReturnValue);
         Ok(())
     }
 
-    fn compile_statements(&mut self, statements: &[ast::Statement]) -> Result<(), CompileError> {
+    fn compile_statements(&mut self, statements: &[ast::Statement]) -> CompileResult<()> {
         for statement in statements {
             self.compile_statement(statement)?
         }
@@ -304,7 +309,7 @@ impl<O: OutputStream> Compiler<O> {
         });
     }
 
-    fn compile_statement(&mut self, statement: &ast::Statement) -> Result<(), CompileError> {
+    fn compile_statement(&mut self, statement: &ast::Statement) -> CompileResult<()> {
         trace!("Compiling {:?}", statement);
         self.set_source_location(statement.location);
         use ast::StatementType::*;
@@ -443,7 +448,7 @@ impl<O: OutputStream> Compiler<O> {
                         }
                         Ok(end_label)
                     })
-                    .collect::<Result<Vec<_>, CompileError>>()?;
+                    .collect::<CompileResult<Vec<_>>>()?;
 
                 self.compile_statements(body)?;
 
@@ -539,34 +544,21 @@ impl<O: OutputStream> Compiler<O> {
             }
             Break => {
                 if !self.ctx.in_loop {
-                    return Err(CompileError {
-                        statement: None,
-                        error: CompileErrorType::InvalidBreak,
-                        location: statement.location,
-                        source_path: None,
-                    });
+                    return Err(self.error_loc(CompileErrorType::InvalidBreak, statement.location));
                 }
                 self.emit(Instruction::Break);
             }
             Continue => {
                 if !self.ctx.in_loop {
-                    return Err(CompileError {
-                        statement: None,
-                        error: CompileErrorType::InvalidContinue,
-                        location: statement.location,
-                        source_path: None,
-                    });
+                    return Err(
+                        self.error_loc(CompileErrorType::InvalidContinue, statement.location)
+                    );
                 }
                 self.emit(Instruction::Continue);
             }
             Return { value } => {
                 if !self.ctx.in_func() {
-                    return Err(CompileError {
-                        statement: None,
-                        error: CompileErrorType::InvalidReturn,
-                        location: statement.location,
-                        source_path: None,
-                    });
+                    return Err(self.error_loc(CompileErrorType::InvalidReturn, statement.location));
                 }
                 match value {
                     Some(v) => {
@@ -616,7 +608,7 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
-    fn compile_delete(&mut self, expression: &ast::Expression) -> Result<(), CompileError> {
+    fn compile_delete(&mut self, expression: &ast::Expression) -> CompileResult<()> {
         match &expression.node {
             ast::ExpressionType::Identifier { name } => {
                 self.emit(Instruction::DeleteName {
@@ -639,19 +631,12 @@ impl<O: OutputStream> Compiler<O> {
                     self.compile_delete(element)?;
                 }
             }
-            _ => {
-                return Err(CompileError {
-                    statement: None,
-                    error: CompileErrorType::Delete(expression.name()),
-                    location: self.current_source_location,
-                    source_path: None,
-                });
-            }
+            _ => return Err(self.error(CompileErrorType::Delete(expression.name()))),
         }
         Ok(())
     }
 
-    fn enter_function(&mut self, name: &str, args: &ast::Parameters) -> Result<(), CompileError> {
+    fn enter_function(&mut self, name: &str, args: &ast::Parameters) -> CompileResult<()> {
         let have_defaults = !args.defaults.is_empty();
         if have_defaults {
             // Construct a tuple:
@@ -710,10 +695,7 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
-    fn prepare_decorators(
-        &mut self,
-        decorator_list: &[ast::Expression],
-    ) -> Result<(), CompileError> {
+    fn prepare_decorators(&mut self, decorator_list: &[ast::Expression]) -> CompileResult<()> {
         for decorator in decorator_list {
             self.compile_expression(decorator)?;
         }
@@ -735,7 +717,7 @@ impl<O: OutputStream> Compiler<O> {
         handlers: &[ast::ExceptHandler],
         orelse: &Option<ast::Suite>,
         finalbody: &Option<ast::Suite>,
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         let mut handler_label = self.new_label();
         let finally_handler_label = self.new_label();
         let else_label = self.new_label();
@@ -849,7 +831,7 @@ impl<O: OutputStream> Compiler<O> {
         decorator_list: &[ast::Expression],
         returns: &Option<ast::Expression>, // TODO: use type hint somehow..
         is_async: bool,
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         // Create bytecode for this function:
         // remember to restore self.ctx.in_loop to the original after the function is compiled
         let prev_ctx = self.ctx;
@@ -962,7 +944,7 @@ impl<O: OutputStream> Compiler<O> {
         bases: &[ast::Expression],
         keywords: &[ast::Keyword],
         decorator_list: &[ast::Expression],
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         let prev_ctx = self.ctx;
         self.ctx = CompileContext {
             func: FunctionContext::NoFunction,
@@ -1102,7 +1084,7 @@ impl<O: OutputStream> Compiler<O> {
         test: &ast::Expression,
         body: &[ast::Statement],
         orelse: &Option<Vec<ast::Statement>>,
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         let start_label = self.new_label();
         let else_label = self.new_label();
         let end_label = self.new_label();
@@ -1138,7 +1120,7 @@ impl<O: OutputStream> Compiler<O> {
         body: &[ast::Statement],
         orelse: &Option<Vec<ast::Statement>>,
         is_async: bool,
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         // Start loop
         let start_label = self.new_label();
         let else_label = self.new_label();
@@ -1223,7 +1205,7 @@ impl<O: OutputStream> Compiler<O> {
         &mut self,
         vals: &[ast::Expression],
         ops: &[ast::Comparison],
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         assert!(!ops.is_empty());
         assert_eq!(vals.len(), ops.len() + 1);
 
@@ -1294,7 +1276,7 @@ impl<O: OutputStream> Compiler<O> {
         target: &ast::Expression,
         annotation: &ast::Expression,
         value: &Option<ast::Expression>,
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         if let Some(value) = value {
             self.compile_expression(value)?;
             self.compile_store(target)?;
@@ -1322,7 +1304,7 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
-    fn compile_store(&mut self, target: &ast::Expression) -> Result<(), CompileError> {
+    fn compile_store(&mut self, target: &ast::Expression) -> CompileResult<()> {
         match &target.node {
             ast::ExpressionType::Identifier { name } => {
                 self.store_name(name);
@@ -1345,12 +1327,7 @@ impl<O: OutputStream> Compiler<O> {
                 for (i, element) in elements.iter().enumerate() {
                     if let ast::ExpressionType::Starred { .. } = &element.node {
                         if seen_star {
-                            return Err(CompileError {
-                                statement: None,
-                                error: CompileErrorType::StarArgs,
-                                location: self.current_source_location,
-                                source_path: None,
-                            });
+                            return Err(self.error(CompileErrorType::StarArgs));
                         } else {
                             seen_star = true;
                             self.emit(Instruction::UnpackEx {
@@ -1375,14 +1352,7 @@ impl<O: OutputStream> Compiler<O> {
                     }
                 }
             }
-            _ => {
-                return Err(CompileError {
-                    statement: None,
-                    error: CompileErrorType::Assign(target.name()),
-                    location: self.current_source_location,
-                    source_path: None,
-                });
-            }
+            _ => return Err(self.error(CompileErrorType::Assign(target.name()))),
         }
 
         Ok(())
@@ -1420,7 +1390,7 @@ impl<O: OutputStream> Compiler<O> {
         expression: &ast::Expression,
         condition: bool,
         target_label: Label,
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         // Compile expression for test, and jump to label if false
         match &expression.node {
             ast::ExpressionType::BoolOp { op, values } => {
@@ -1498,7 +1468,7 @@ impl<O: OutputStream> Compiler<O> {
         &mut self,
         op: &ast::BooleanOperator,
         values: &[ast::Expression],
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         let end_label = self.new_label();
 
         let (last_value, values) = values.split_last().unwrap();
@@ -1524,7 +1494,7 @@ impl<O: OutputStream> Compiler<O> {
     fn compile_dict(
         &mut self,
         pairs: &[(Option<ast::Expression>, ast::Expression)],
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         let mut size = 0;
         let mut has_unpacking = false;
         for (is_unpacking, subpairs) in &pairs.iter().group_by(|e| e.0.is_none()) {
@@ -1568,7 +1538,7 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
-    fn compile_expression(&mut self, expression: &ast::Expression) -> Result<(), CompileError> {
+    fn compile_expression(&mut self, expression: &ast::Expression) -> CompileResult<()> {
         trace!("Compiling {:?}", expression);
         self.set_source_location(expression.location);
 
@@ -1662,12 +1632,7 @@ impl<O: OutputStream> Compiler<O> {
             }
             Yield { value } => {
                 if !self.ctx.in_func() {
-                    return Err(CompileError {
-                        statement: Option::None,
-                        error: CompileErrorType::InvalidYield,
-                        location: self.current_source_location,
-                        source_path: Option::None,
-                    });
+                    return Err(self.error(CompileErrorType::InvalidYield));
                 }
                 self.mark_generator();
                 match value {
@@ -1758,14 +1723,11 @@ impl<O: OutputStream> Compiler<O> {
                 self.compile_comprehension(kind, generators)?;
             }
             Starred { .. } => {
-                return Err(CompileError {
-                    statement: Option::None,
-                    error: CompileErrorType::SyntaxError(std::string::String::from(
+                return Err(
+                    self.error(CompileErrorType::SyntaxError(std::string::String::from(
                         "Invalid starred expression",
-                    )),
-                    location: self.current_source_location,
-                    source_path: Option::None,
-                });
+                    ))),
+                );
             }
             IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
@@ -1784,7 +1746,7 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
-    fn compile_keywords(&mut self, keywords: &[ast::Keyword]) -> Result<(), CompileError> {
+    fn compile_keywords(&mut self, keywords: &[ast::Keyword]) -> CompileResult<()> {
         let mut size = 0;
         for (is_unpacking, subkeywords) in &keywords.iter().group_by(|e| e.name.is_none()) {
             if is_unpacking {
@@ -1828,7 +1790,7 @@ impl<O: OutputStream> Compiler<O> {
         function: &ast::Expression,
         args: &[ast::Expression],
         keywords: &[ast::Keyword],
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         self.compile_expression(function)?;
         let count = args.len() + keywords.len();
 
@@ -1889,7 +1851,7 @@ impl<O: OutputStream> Compiler<O> {
 
     // Given a vector of expr / star expr generate code which gives either
     // a list of expressions on the stack, or a list of tuples.
-    fn gather_elements(&mut self, elements: &[ast::Expression]) -> Result<bool, CompileError> {
+    fn gather_elements(&mut self, elements: &[ast::Expression]) -> CompileResult<bool> {
         // First determine if we have starred elements:
         let has_stars = elements.iter().any(|e| {
             if let ast::ExpressionType::Starred { .. } = &e.node {
@@ -1920,7 +1882,7 @@ impl<O: OutputStream> Compiler<O> {
         &mut self,
         kind: &ast::ComprehensionKind,
         generators: &[ast::Comprehension],
-    ) -> Result<(), CompileError> {
+    ) -> CompileResult<()> {
         // We must have at least one generator:
         assert!(!generators.is_empty());
 
@@ -2087,7 +2049,7 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
-    fn compile_string(&mut self, string: &ast::StringGroup) -> Result<(), CompileError> {
+    fn compile_string(&mut self, string: &ast::StringGroup) -> CompileResult<()> {
         if let Some(value) = try_get_constant_string(string) {
             self.emit(Instruction::LoadConst {
                 value: bytecode::Constant::String { value },
