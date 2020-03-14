@@ -65,3 +65,9 @@ assert data == b"tes"
 
 data = struct.pack('7s', b"test3")
 assert data == b"test3\0\0"
+
+data = struct.pack('?', True)
+assert data == b'\1'
+
+data = struct.pack('?', [])
+assert data == b'\0'

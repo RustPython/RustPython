@@ -18,8 +18,8 @@ use std::iter::Peekable;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::Args;
 use crate::obj::{
-    objbytes::PyBytesRef, objstr::PyString, objstr::PyStringRef, objtuple::PyTuple,
-    objtype::PyClassRef,
+    objbool::IntoPyBool, objbytes::PyBytesRef, objstr::PyString, objstr::PyStringRef,
+    objtuple::PyTuple, objtype::PyClassRef,
 };
 use crate::pyobject::{Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
@@ -289,7 +289,7 @@ make_pack_with_endianess!(f32);
 make_pack_with_endianess!(f64);
 
 fn pack_bool(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
-    let v = if bool::try_from_object(vm, arg.clone())? {
+    let v = if IntoPyBool::try_from_object(vm, arg.clone())?.to_bool() {
         1
     } else {
         0
