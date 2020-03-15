@@ -197,7 +197,7 @@ impl VirtualMachine {
             use_tracing: RefCell::new(false),
             signal_handlers,
             settings,
-            recursion_limit: Cell::new(512),
+            recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
             codec_registry: RefCell::default(),
             initialized: false,
         };
