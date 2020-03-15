@@ -49,7 +49,8 @@ def run_via_cpython(filename):
     env = os.environ.copy()
     subprocess.check_call([sys.executable, filename], env=env)
 
-RUST_TARGET = "debug" if os.environ.get("CODE_COVERAGE", "false") == "true" else "release"
+RUST_DEBUG = os.environ.get("RUSTPYTHON_DEBUG") == "true"
+RUST_PROFILE = "debug" if RUST_DEBUG else "release"
 
 def run_via_rustpython(filename, test_type):
     env = os.environ.copy()
@@ -57,7 +58,7 @@ def run_via_rustpython(filename, test_type):
     env['RUST_BACKTRACE'] = '1'
     env['PYTHONPATH'] = RUSTPYTHON_LIB_DIR
 
-    binary = os.path.abspath(os.path.join(ROOT_DIR, "target", RUST_TARGET, "rustpython"))
+    binary = os.path.abspath(os.path.join(ROOT_DIR, "target", RUST_PROFILE, "rustpython"))
 
     subprocess.check_call([binary, filename], env=env)
 
@@ -134,7 +135,8 @@ class SampleTestCase(unittest.TestCase):
         generate_slices(cls.slices_resource_path)
 
         # cargo stuff
-        subprocess.check_call(["cargo", "build", "--{}".format(RUST_TARGET)])
+        profile_args = [] if RUST_DEBUG else ["--release"]
+        subprocess.check_call(["cargo", "build", *profile_args])
 
     @classmethod
     def tearDownClass(cls):
