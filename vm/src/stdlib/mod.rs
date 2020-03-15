@@ -60,7 +60,7 @@ mod subprocess;
 mod winapi;
 #[cfg(windows)]
 mod winreg;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "redox")))]
 mod zlib;
 
 pub type StdlibInitFunc = Box<dyn Fn(&VirtualMachine) -> PyObjectRef>;
@@ -124,6 +124,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("signal".to_owned(), Box::new(signal::make_module));
         modules.insert("select".to_owned(), Box::new(select::make_module));
         modules.insert("_subprocess".to_owned(), Box::new(subprocess::make_module));
+        #[cfg(not(target_os = "redox"))]
         modules.insert("zlib".to_owned(), Box::new(zlib::make_module));
         modules.insert(
             "faulthandler".to_owned(),
