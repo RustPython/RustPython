@@ -2,12 +2,25 @@
 Python implementation of the io module.
 """
 
-import os
-import abc
+class _UnsupportedModuleWrapper:
+    def __init__(self, module):
+        self.__module = module
+    def __getattr__(self, attr):
+        raise RuntimeError(f"the {self.__module!r} module isn't available")
+
+import sys
+try:
+    if 'posix' in sys.builtin_module_names:
+        import posix as os
+        linesep = '\n'
+    else:
+        import nt as os
+        linesep = '\r\n'
+except ImportError:
+    os = _UnsupportedModuleWrapper("_os")
 import codecs
 import errno
 import stat
-import sys
 # Import _thread instead of threading to reduce startup cost
 try:
     from _thread import allocate_lock as Lock
@@ -18,8 +31,12 @@ if sys.platform in {'win32', 'cygwin'}:
 else:
     _setmode = None
 
-import io
-from io import (__all__, SEEK_SET, SEEK_CUR, SEEK_END)
+del _UnsupportedModuleWrapper
+
+
+SEEK_SET = 0
+SEEK_CUR = 1
+SEEK_END = 2
 
 valid_seek_flags = {0, 1, 2}  # Hardwired values
 if hasattr(os, 'SEEK_HOLE') :
@@ -28,10 +45,6 @@ if hasattr(os, 'SEEK_HOLE') :
 
 # open() uses st_blksize whenever we can
 DEFAULT_BUFFER_SIZE = 8 * 1024  # bytes
-
-# NOTE: Base classes defined here are registered with the "official" ABCs
-# defined in io.py. We don't use real inheritance though, because we don't want
-# to inherit the C implementations.
 
 # Rebind for compatibility
 BlockingIOError = BlockingIOError
@@ -272,16 +285,11 @@ class OpenWrapper:
         return open(*args, **kwargs)
 
 
-# In normal operation, both `UnsupportedOperation`s should be bound to the
-# same object.
-try:
-    UnsupportedOperation = io.UnsupportedOperation
-except AttributeError:
-    class UnsupportedOperation(OSError, ValueError):
-        pass
+class UnsupportedOperation(OSError, ValueError):
+    pass
 
 
-class IOBase(metaclass=abc.ABCMeta):
+class _IOBase:
 
     """The abstract base class for all I/O classes, acting on streams of
     bytes. There is no public constructor.
@@ -549,10 +557,8 @@ class IOBase(metaclass=abc.ABCMeta):
         for line in lines:
             self.write(line)
 
-io.IOBase.register(IOBase)
 
-
-class RawIOBase(IOBase):
+class _RawIOBase(_IOBase):
 
     """Base class for raw binary I/O."""
 
@@ -613,12 +619,8 @@ class RawIOBase(IOBase):
         """
         self._unsupported("write")
 
-io.RawIOBase.register(RawIOBase)
-from _io import FileIO
-RawIOBase.register(FileIO)
 
-
-class BufferedIOBase(IOBase):
+class _BufferedIOBase(_IOBase):
 
     """Base class for buffered IO objects.
 
@@ -721,10 +723,8 @@ class BufferedIOBase(IOBase):
         """
         self._unsupported("detach")
 
-io.BufferedIOBase.register(BufferedIOBase)
 
-
-class _BufferedIOMixin(BufferedIOBase):
+class _BufferedIOMixin(_BufferedIOBase):
 
     """A mixin implementation of BufferedIOBase with an underlying raw stream.
 
@@ -829,7 +829,7 @@ class _BufferedIOMixin(BufferedIOBase):
         return self.raw.isatty()
 
 
-class BytesIO(BufferedIOBase):
+class BytesIO(_BufferedIOBase):
 
     """Buffered I/O implementation using an in-memory bytes buffer."""
 
@@ -1240,7 +1240,7 @@ class BufferedWriter(_BufferedIOMixin):
             return _BufferedIOMixin.seek(self, pos, whence)
 
 
-class BufferedRWPair(BufferedIOBase):
+class BufferedRWPair(_BufferedIOBase):
 
     """A buffered reader and writer object together.
 
@@ -1387,7 +1387,7 @@ class BufferedRandom(BufferedWriter, BufferedReader):
         return BufferedWriter.write(self, b)
 
 
-class FileIO(RawIOBase):
+class FileIO(_RawIOBase):
     _fd = -1
     _created = False
     _readable = False
@@ -1726,7 +1726,7 @@ class FileIO(RawIOBase):
             return 'wb'
 
 
-class TextIOBase(IOBase):
+class _TextIOBase(_IOBase):
 
     """Base class for text I/O.
 
@@ -1790,8 +1790,6 @@ class TextIOBase(IOBase):
 
         Subclasses should override."""
         return None
-
-io.TextIOBase.register(TextIOBase)
 
 
 class IncrementalNewlineDecoder(codecs.IncrementalDecoder):
@@ -1879,7 +1877,7 @@ class IncrementalNewlineDecoder(codecs.IncrementalDecoder):
                )[self.seennl]
 
 
-class TextIOWrapper(TextIOBase):
+class TextIOWrapper(_TextIOBase):
 
     r"""Character and line based layer over a BufferedIOBase object, buffer.
 
@@ -1950,7 +1948,7 @@ class TextIOWrapper(TextIOBase):
         self._readtranslate = newline is None
         self._readnl = newline
         self._writetranslate = newline != ''
-        self._writenl = newline or os.linesep
+        self._writenl = newline or linesep
         self._encoder = None
         self._decoder = None
         self._decoded_chars = ''  # buffer for text returned from decoder
