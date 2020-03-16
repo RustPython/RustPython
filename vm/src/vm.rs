@@ -237,11 +237,32 @@ impl VirtualMachine {
                     #[cfg(not(target_arch = "wasm32"))]
                     import::import_builtin(self, "signal")?;
 
-                    import::init_importlib(self, initialize_parameter)?;
+                    let io = {
+                        let module_name = "_io";
+                        let attrs = self.ctx.new_dict();
+                        let io_code = self.frozen.borrow().get(module_name).unwrap().code.clone();
+
+                        attrs.set_item("__name__", self.new_str(module_name.to_owned()), self)?;
+
+                        let module = self.new_module(module_name, attrs.clone());
+
+                        // Store module in cache to prevent infinite loop with mutual importing libs:
+                        let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
+                        sys_modules.set_item(module_name, module.clone(), self)?;
+
+                        import::init_importlib(self, initialize_parameter)?;
+
+                        // Execute main code in module:
+                        self.run_code_obj(
+                            PyCode::new(io_code).into_ref(self),
+                            Scope::with_builtins(None, attrs, self),
+                        )?;
+
+                        module
+                    };
 
                     #[cfg(not(target_arch = "wasm32"))]
                     {
-                        let io = self.import("io", &[], 0)?;
                         let io_open = self.get_attribute(io.clone(), "open")?;
                         let set_stdio = |name, fd, mode: &str| {
                             let stdio = self.invoke(
@@ -1080,6 +1101,12 @@ impl VirtualMachine {
         errors: Option<PyStringRef>,
     ) -> PyResult {
         self.call_codec_func("encode", obj, encoding, errors)
+    }
+
+    pub fn io_open(&self, args: PyFuncArgs) -> PyResult {
+        let io = self.import("io", &[], 0)?;
+        let io_open = self.get_attribute(io, "open")?;
+        self.invoke(&io_open, args)
     }
 
     pub fn _sub(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {

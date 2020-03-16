@@ -12,7 +12,6 @@ use crate::obj::objlist::PyListRef;
 use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue};
-use crate::stdlib::io::io_open;
 use crate::stdlib::os::{convert_io_error, raw_file_number, rust_file};
 use crate::vm::VirtualMachine;
 
@@ -94,8 +93,7 @@ fn convert_redirection(arg: Option<i64>, vm: &VirtualMachine) -> PyResult<subpro
 
 fn convert_to_file_io(file: &Option<File>, mode: String, vm: &VirtualMachine) -> PyResult {
     match file {
-        Some(ref stdin) => io_open(
-            vm,
+        Some(ref stdin) => vm.io_open(
             vec![
                 vm.new_int(raw_file_number(stdin.try_clone().unwrap())),
                 vm.new_str(mode),
