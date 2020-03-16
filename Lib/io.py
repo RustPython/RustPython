@@ -51,12 +51,15 @@ __all__ = ["BlockingIOError", "open", "IOBase", "RawIOBase", "FileIO",
 import _io
 import abc
 
-from _io import *
+from _io import (DEFAULT_BUFFER_SIZE, BlockingIOError, UnsupportedOperation,
+                 open, FileIO, BytesIO, StringIO, BufferedReader,
+                 BufferedWriter, BufferedRWPair, BufferedRandom,
+                 IncrementalNewlineDecoder, TextIOWrapper)
 
 OpenWrapper = _io.open # for compatibility with _pyio
 
 # Pretend this exception was created here.
-#UnsupportedOperation.__module__ = "io"
+UnsupportedOperation.__module__ = "io"
 
 # for seek()
 SEEK_SET = 0
@@ -78,13 +81,10 @@ class BufferedIOBase(_io._BufferedIOBase, IOBase):
 class TextIOBase(_io._TextIOBase, IOBase):
     __doc__ = _io._TextIOBase.__doc__
 
-try:
-    RawIOBase.register(FileIO)
-except NameError:
-    pass
+RawIOBase.register(FileIO)
 
-for klass in (BytesIO, BufferedReader, BufferedWriter):#, BufferedRandom,
-              #BufferedRWPair):
+for klass in (BytesIO, BufferedReader, BufferedWriter, BufferedRandom,
+              BufferedRWPair):
     BufferedIOBase.register(klass)
 
 for klass in (StringIO, TextIOWrapper):
@@ -92,7 +92,7 @@ for klass in (StringIO, TextIOWrapper):
 del klass
 
 try:
-    from _io import _WindowsConsoleIO
+    from _pyio import _WindowsConsoleIO
 except ImportError:
     pass
 else:
