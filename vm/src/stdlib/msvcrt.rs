@@ -1,3 +1,4 @@
+use super::os::errno_err;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{PyObjectRef, PyResult};
@@ -45,6 +46,19 @@ fn msvcrt_putwch(s: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
+extern "C" {
+    fn _setmode(fd: i32, flags: i32) -> i32;
+}
+
+fn msvcrt_setmode(fd: i32, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
+    let flags = unsafe { suppress_iph!(_setmode(fd, flags)) };
+    if flags == -1 {
+        Err(errno_err(vm))
+    } else {
+        Ok(flags)
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     py_module!(vm, "_msvcrt", {
@@ -54,5 +68,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getwche" => ctx.new_function(msvcrt_getwche),
         "putch" => ctx.new_function(msvcrt_putch),
         "putwch" => ctx.new_function(msvcrt_putwch),
+        "setmode" => ctx.new_function(msvcrt_setmode),
     })
 }
