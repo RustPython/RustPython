@@ -558,14 +558,30 @@ impl VirtualMachine {
 
     // TODO: #[track_caller] when stabilized
     fn _py_panic_failed(&self, exc: &PyBaseExceptionRef, msg: &str) -> ! {
-        let show_backtrace = env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
-        let after = if show_backtrace {
-            exceptions::print_exception(self, exc);
-            "exception backtrace above"
-        } else {
-            "run with RUST_BACKTRACE=1 to see Python backtrace"
-        };
-        panic!("{}; {}", msg, after)
+        #[cfg(not(all(target_arch = "wasm32", not(target_os = "wasi"))))]
+        {
+            let show_backtrace = env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
+            let after = if show_backtrace {
+                exceptions::print_exception(self, exc);
+                "exception backtrace above"
+            } else {
+                "run with RUST_BACKTRACE=1 to see Python backtrace"
+            };
+            panic!("{}; {}", msg, after)
+        }
+        #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+        {
+            use wasm_bindgen::prelude::*;
+            #[wasm_bindgen]
+            extern "C" {
+                #[wasm_bindgen(js_namespace = console)]
+                fn error(s: &str);
+            }
+            let mut s = Vec::<u8>::new();
+            exceptions::write_exception(&mut s, self, exc).unwrap();
+            error(std::str::from_utf8(&s).unwrap());
+            panic!("{}; exception backtrace above", msg)
+        }
     }
     pub fn unwrap_pyresult<T>(&self, result: PyResult<T>) -> T {
         result.unwrap_or_else(|exc| {
