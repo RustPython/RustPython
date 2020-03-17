@@ -691,9 +691,10 @@ class _BufferedIOBase(_IOBase):
         return self._readinto(b, read1=True)
 
     def _readinto(self, b, read1):
-        if not isinstance(b, memoryview):
-            b = memoryview(b)
-        b = b.cast('B')
+        # XXX RustPython TODO: proper memoryview implementation
+        # if not isinstance(b, memoryview):
+        #     b = memoryview(b)
+        # b = b.cast('B')
 
         if read1:
             data = self.read1(len(b))
@@ -889,8 +890,10 @@ class BytesIO(_BufferedIOBase):
             raise ValueError("write to closed file")
         if isinstance(b, str):
             raise TypeError("can't write str to binary stream")
-        with memoryview(b) as view:
-            n = view.nbytes  # Size of any bytes-like object
+        # XXX RustPython TODO: proper memoryview implementation
+        # with memoryview(b) as view:
+        #     n = view.nbytes  # Size of any bytes-like object
+        n = len(b)
         if n == 0:
             return 0
         pos = self._pos
@@ -1099,11 +1102,14 @@ class BufferedReader(_BufferedIOMixin):
         # Need to create a memoryview object of type 'b', otherwise
         # we may not be able to assign bytes to it, and slicing it
         # would create a new object.
-        if not isinstance(buf, memoryview):
-            buf = memoryview(buf)
-        if buf.nbytes == 0:
+        # XXX RustPython TODO: proper memoryview implementation
+        # if not isinstance(buf, memoryview):
+        #     buf = memoryview(buf)
+        # if buf.nbytes == 0:
+        #     return 0
+        # buf = buf.cast('B')
+        if len(buf) == 0:
             return 0
-        buf = buf.cast('B')
 
         written = 0
         with self._read_lock:
@@ -1600,7 +1606,9 @@ class FileIO(_RawIOBase):
 
     def readinto(self, b):
         """Same as RawIOBase.readinto()."""
-        m = memoryview(b).cast('B')
+        # XXX RustPython TODO: proper memoryview implementation
+        # m = memoryview(b).cast('B')
+        m = b
         data = self.read(len(m))
         n = len(data)
         m[:n] = data
