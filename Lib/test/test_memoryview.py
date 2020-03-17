@@ -317,8 +317,6 @@ class AbstractMemoryTests:
             m.release()
             self._check_released(m, tp)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_writable_readonly(self):
         # Issue #10451: memoryview incorrectly exposes a readonly
         # buffer as writable causing a segfault if using mmap
