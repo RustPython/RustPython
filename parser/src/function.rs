@@ -6,7 +6,6 @@ use crate::error::{LexicalError, LexicalErrorType};
 type ParameterDefs = (Vec<ast::Parameter>, Vec<ast::Expression>);
 type ParameterDef = (ast::Parameter, Option<ast::Expression>);
 
-#[allow(clippy::collapsible_if)]
 pub fn parse_params(
     params: (Vec<ParameterDef>, Vec<ParameterDef>),
 ) -> Result<ParameterDefs, LexicalError> {
@@ -16,15 +15,13 @@ pub fn parse_params(
     let mut try_default = |name: &ast::Parameter, default| {
         if let Some(default) = default {
             defaults.push(default);
-        } else {
-            if !defaults.is_empty() {
-                // Once we have started with defaults, all remaining arguments must
-                // have defaults
-                return Err(LexicalError {
-                    error: LexicalErrorType::DefaultArgumentError,
-                    location: name.location,
-                });
-            }
+        } else if !defaults.is_empty() {
+            // Once we have started with defaults, all remaining arguments must
+            // have defaults
+            return Err(LexicalError {
+                error: LexicalErrorType::DefaultArgumentError,
+                location: name.location,
+            });
         }
         Ok(())
     };

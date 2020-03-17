@@ -118,7 +118,6 @@ impl_try_from_object_int!(
     (u64, to_u64),
 );
 
-#[allow(clippy::collapsible_if)]
 fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
         let v1 = try_float(int1, vm)?;

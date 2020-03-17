@@ -86,7 +86,7 @@ fn imp_fix_co_filename(_code: PyObjectRef, _path: PyStringRef) {
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
-    let module = py_module!(vm, "_imp", {
+    py_module!(vm, "_imp", {
         "extension_suffixes" => ctx.new_function(imp_extension_suffixes),
         "acquire_lock" => ctx.new_function(imp_acquire_lock),
         "release_lock" => ctx.new_function(imp_release_lock),
@@ -99,7 +99,5 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "init_frozen" => ctx.new_function(imp_init_frozen),
         "is_frozen_package" => ctx.new_function(imp_is_frozen_package),
         "_fix_co_filename" => ctx.new_function(imp_fix_co_filename),
-    });
-
-    module
+    })
 }

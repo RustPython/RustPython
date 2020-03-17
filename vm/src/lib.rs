@@ -6,11 +6,7 @@
 //! - Base objects
 
 // for methods like vm.to_str(), not the typical use of 'to' as a method prefix
-#![allow(
-    clippy::wrong_self_convention,
-    clippy::let_and_return,
-    clippy::implicit_hasher
-)]
+#![allow(clippy::wrong_self_convention, clippy::implicit_hasher)]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
 
