@@ -7,6 +7,8 @@ class _UnsupportedModuleWrapper:
         self.__module = module
     def __getattr__(self, attr):
         raise RuntimeError(f"the {self.__module!r} module isn't available")
+    def __bool__(self):
+        return False
 
 import sys
 try:
@@ -39,7 +41,7 @@ SEEK_CUR = 1
 SEEK_END = 2
 
 valid_seek_flags = {0, 1, 2}  # Hardwired values
-if hasattr(os, 'SEEK_HOLE') :
+if os and hasattr(os, 'SEEK_HOLE') :
     valid_seek_flags.add(os.SEEK_HOLE)
     valid_seek_flags.add(os.SEEK_DATA)
 
