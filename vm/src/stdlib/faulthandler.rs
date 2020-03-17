@@ -20,16 +20,33 @@ fn dump_traceback(_file: OptionalArg<i64>, _all_threads: OptionalArg<bool>, vm: 
     }
 }
 
-fn enable(_file: OptionalArg<i64>, _all_threads: OptionalArg<bool>) {
+#[derive(FromArgs)]
+#[allow(unused)]
+struct EnableArgs {
+    #[pyarg(positional_or_keyword, default = "None")]
+    file: Option<i64>,
+    #[pyarg(positional_or_keyword, default = "true")]
+    all_threads: bool,
+}
+
+fn enable(_args: EnableArgs) {
     // TODO
 }
 
-fn register(
-    _signum: i64,
-    _file: OptionalArg<i64>,
-    _all_threads: OptionalArg<bool>,
-    _chain: OptionalArg<bool>,
-) {
+#[derive(FromArgs)]
+#[allow(unused)]
+struct RegisterArgs {
+    #[pyarg(positional_only)]
+    signum: i64,
+    #[pyarg(positional_or_keyword, default = "None")]
+    file: Option<i64>,
+    #[pyarg(positional_or_keyword, default = "true")]
+    all_threads: bool,
+    #[pyarg(positional_or_keyword, default = "false")]
+    chain: bool,
+}
+
+fn register(_args: RegisterArgs) {
     // TODO
 }
 
