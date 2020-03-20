@@ -29,16 +29,16 @@ use super::errno::errors;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbyteinner::PyBytesLike;
-use crate::obj::objbytes::PyBytesRef;
+use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
-use crate::obj::objstr::{self, PyStringRef};
+use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
-    TypeProtocol,
+    Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -91,6 +91,51 @@ pub fn rust_file(raw_fileno: i64) -> File {
 #[cfg(all(not(unix), not(windows)))]
 pub fn raw_file_number(handle: File) -> i64 {
     unimplemented!();
+}
+
+#[derive(Debug, Copy, Clone)]
+enum OutputMode {
+    STRING,
+    BYTES,
+}
+
+fn output_by_mode(val: String, mode: OutputMode, vm: &VirtualMachine) -> PyObjectRef {
+    match mode {
+        OutputMode::STRING => vm.ctx.new_str(val),
+        OutputMode::BYTES => vm.ctx.new_bytes(val.as_bytes().to_vec()),
+    }
+}
+
+struct PyPathLike {
+    path: String,
+    mode: OutputMode,
+}
+
+impl TryFromObject for PyPathLike {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        // TODO: Support Path object
+        match_class!(match obj.clone() {
+            l @ PyString => {
+                Ok(PyPathLike {
+                    path: l.as_str().to_owned(),
+                    mode: OutputMode::STRING,
+                })
+            }
+            i @ PyBytes => {
+                let path = objstr::clone_value(&vm.call_method(i.as_object(), "decode", vec![])?);
+                Ok(PyPathLike {
+                    path,
+                    mode: OutputMode::BYTES,
+                })
+            }
+            _ => {
+                Err(vm.new_type_error(format!(
+                    "path object need to be string or bytes not {}",
+                    obj.class()
+                )))
+            }
+        })
+    }
 }
 
 fn make_path(_vm: &VirtualMachine, path: PyStringRef, dir_fd: &DirFd) -> PyStringRef {
@@ -653,36 +698,20 @@ impl ScandirIterator {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-enum OutputMode {
-    STRING,
-    BYTES,
-}
-
-fn output_by_mode(val: String, mode: OutputMode, vm: &VirtualMachine) -> PyObjectRef {
-    match mode {
-        OutputMode::STRING => vm.ctx.new_str(val),
-        OutputMode::BYTES => vm.ctx.new_bytes(val.as_bytes().to_vec()),
-    }
-}
-
-fn os_scandir(path: OptionalArg<Either<PyStringRef, PyBytesRef>>, vm: &VirtualMachine) -> PyResult {
-    let (path, mode) = match path {
-        OptionalArg::Present(ref path) => match path {
-            Either::A(ref string) => (string.as_str().to_owned(), OutputMode::STRING),
-            Either::B(ref bytes) => (
-                objstr::clone_value(&vm.call_method(bytes.as_object(), "decode", vec![])?),
-                OutputMode::BYTES,
-            ),
+fn os_scandir(path: OptionalArg<PyPathLike>, vm: &VirtualMachine) -> PyResult {
+    let path = match path {
+        OptionalArg::Present(path) => path,
+        OptionalArg::Missing => PyPathLike {
+            path: ".".to_owned(),
+            mode: OutputMode::STRING,
         },
-        OptionalArg::Missing => (".".to_owned(), OutputMode::STRING),
     };
 
-    match fs::read_dir(path) {
+    match fs::read_dir(path.path) {
         Ok(iter) => Ok(ScandirIterator {
             entries: RefCell::new(iter),
             exhausted: Cell::new(false),
-            mode,
+            mode: path.mode,
         }
         .into_ref(vm)
         .into_object()),
