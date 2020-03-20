@@ -34,7 +34,7 @@ use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
@@ -503,6 +503,7 @@ fn os_readlink(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResul
 #[derive(Debug)]
 struct DirEntry {
     entry: fs::DirEntry,
+    mode: OutputMode,
 }
 
 type DirEntryRef = PyRef<DirEntry>;
@@ -526,12 +527,14 @@ struct FollowSymlinks {
 }
 
 impl DirEntryRef {
-    fn name(self) -> String {
-        self.entry.file_name().into_string().unwrap()
+    fn name(self, vm: &VirtualMachine) -> PyObjectRef {
+        let file_name = self.entry.file_name().into_string().unwrap();
+        output_by_mode(file_name, self.mode, vm)
     }
 
-    fn path(self) -> String {
-        self.entry.path().to_str().unwrap().to_owned()
+    fn path(self, vm: &VirtualMachine) -> PyObjectRef {
+        let path = self.entry.path().to_str().unwrap().to_owned();
+        output_by_mode(path, self.mode, vm)
     }
 
     #[allow(clippy::match_bool)]
@@ -575,7 +578,14 @@ impl DirEntryRef {
 
     fn stat(self, dir_fd: DirFd, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
         os_stat(
-            Either::A(self.path().try_into_ref(vm)?),
+            Either::A(
+                self.entry
+                    .path()
+                    .to_str()
+                    .unwrap()
+                    .to_owned()
+                    .try_into_ref(vm)?,
+            ),
             dir_fd,
             follow_symlinks,
             vm,
@@ -588,6 +598,7 @@ impl DirEntryRef {
 struct ScandirIterator {
     entries: RefCell<fs::ReadDir>,
     exhausted: Cell<bool>,
+    mode: OutputMode,
 }
 
 impl PyValue for ScandirIterator {
@@ -606,7 +617,12 @@ impl ScandirIterator {
 
         match self.entries.borrow_mut().next() {
             Some(entry) => match entry {
-                Ok(entry) => Ok(DirEntry { entry }.into_ref(vm).into_object()),
+                Ok(entry) => Ok(DirEntry {
+                    entry,
+                    mode: self.mode,
+                }
+                .into_ref(vm)
+                .into_object()),
                 Err(s) => Err(convert_io_error(vm, s)),
             },
             None => {
@@ -637,16 +653,36 @@ impl ScandirIterator {
     }
 }
 
-fn os_scandir(path: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
-    let path = match path {
-        OptionalArg::Present(ref path) => path.as_str(),
-        OptionalArg::Missing => ".",
+#[derive(Debug, Copy, Clone)]
+enum OutputMode {
+    STRING,
+    BYTES,
+}
+
+fn output_by_mode(val: String, mode: OutputMode, vm: &VirtualMachine) -> PyObjectRef {
+    match mode {
+        OutputMode::STRING => vm.ctx.new_str(val),
+        OutputMode::BYTES => vm.ctx.new_bytes(val.as_bytes().to_vec()),
+    }
+}
+
+fn os_scandir(path: OptionalArg<Either<PyStringRef, PyBytesRef>>, vm: &VirtualMachine) -> PyResult {
+    let (path, mode) = match path {
+        OptionalArg::Present(ref path) => match path {
+            Either::A(ref string) => (string.as_str().to_owned(), OutputMode::STRING),
+            Either::B(ref bytes) => (
+                objstr::clone_value(&vm.call_method(bytes.as_object(), "decode", vec![])?),
+                OutputMode::BYTES,
+            ),
+        },
+        OptionalArg::Missing => (".".to_owned(), OutputMode::STRING),
     };
 
     match fs::read_dir(path) {
         Ok(iter) => Ok(ScandirIterator {
             entries: RefCell::new(iter),
             exhausted: Cell::new(false),
+            mode,
         }
         .into_ref(vm)
         .into_object()),
