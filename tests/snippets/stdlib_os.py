@@ -393,6 +393,12 @@ with TestWithTempDir() as tmpdir:
 
     dir_iter_bytes.close()
 
+    collected_files = os.listdir(tmpdir)
+    assert set(collected_files) == set(expected_files)
+
+    collected_files = os.listdir(tmpdir.encode())
+    assert set(collected_files) == set([file.encode() for file in expected_files ])
+
     with TestWithTempCurrentDir():
         os.chdir(tmpdir)
         with os.scandir() as dir_iter:

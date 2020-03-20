@@ -466,11 +466,15 @@ fn os_rmdir(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<(
     fs::remove_dir(path).map_err(|err| convert_io_error(vm, err))
 }
 
-fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    let res: PyResult<Vec<PyObjectRef>> = fs::read_dir(path.as_str())
+fn os_listdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
+    let res: PyResult<Vec<PyObjectRef>> = fs::read_dir(&path.path)
         .map_err(|err| convert_io_error(vm, err))?
         .map(|entry| match entry {
-            Ok(path) => Ok(vm.ctx.new_str(path.file_name().into_string().unwrap())),
+            Ok(entry_path) => Ok(output_by_mode(
+                entry_path.file_name().into_string().unwrap(),
+                path.mode,
+                vm,
+            )),
             Err(s) => Err(convert_io_error(vm, s)),
         })
         .collect();
