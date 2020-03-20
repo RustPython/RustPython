@@ -890,7 +890,7 @@ fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     env::set_current_dir(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "redox")))]
 fn os_chroot(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     nix::unistd::chroot(path.as_str()).map_err(|err| convert_nix_error(vm, err))
 }
@@ -1340,6 +1340,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     #[cfg(unix)]
     support_funcs.extend(vec![
         SupportFunc::new(vm, "chmod", os_chmod, Some(false), Some(false), Some(false)),
+        #[cfg(not(target_os = "redox"))]
         SupportFunc::new(vm, "chroot", os_chroot, Some(false), None, None),
     ]);
     let supports_fd = PySet::default().into_ref(vm);
@@ -1427,7 +1428,6 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
     extend_module!(vm, module, {
         "access" => ctx.new_function(os_access),
         "chmod" => ctx.new_function(os_chmod),
-        "chroot" => ctx.new_function(os_chroot),
         "get_inheritable" => ctx.new_function(os_get_inheritable), // TODO: windows
         "get_blocking" => ctx.new_function(os_get_blocking),
         "getppid" => ctx.new_function(os_getppid),
@@ -1468,6 +1468,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
 
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
+        "chroot" => ctx.new_function(os_chroot),
         "getsid" => ctx.new_function(os_getsid),
         "setsid" => ctx.new_function(os_setsid),
         "setegid" => ctx.new_function(os_setegid),

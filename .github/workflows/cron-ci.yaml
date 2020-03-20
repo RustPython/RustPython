@@ -1,0 +1,58 @@
+on:
+  schedule:
+    - cron: '0 0 * * 6'
+
+jobs:
+  redox:
+    name: Check compilation on Redox
+    runs-on: ubuntu-latest
+    container:
+      image: redoxos/redoxer:latest
+    steps:
+      - uses: actions/checkout@master
+      - name: prepare repository for redoxer compilation
+        run: bash scripts/redox/uncomment-cargo.sh
+      - name: compile for redox
+        run: redoxer build --verbose
+
+  codecov:
+    name: Collect code coverage data
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --verbose
+        env:
+          CARGO_INCREMENTAL: '0'
+          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads'
+      - uses: actions/setup-python@v1
+        with:
+          python-version: 3.8
+      - name: Install pipenv
+        run: |
+          python -V
+          python -m pip install --upgrade pip
+          python -m pip install pipenv
+      - run: pipenv install
+        working-directory: ./tests
+      - name: run snippets
+        run: pipenv run pytest -v
+        working-directory: ./tests
+        env:
+          RUSTPYTHON_DEBUG: 'true'
+      - name: run cpython tests
+        run: cargo run -- -m test -v
+        env:
+          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
+      - uses: actions-rs/grcov@v0.1
+        id: coverage
+      - name: upload to Codecov
+        uses: codecov/codecov-action@v1
+        with:
+          file: ${{ steps.coverage.outputs.report }}

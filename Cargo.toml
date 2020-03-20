@@ -25,7 +25,7 @@ clap = "2.33"
 rustpython-compiler = {path = "compiler", version = "0.1.1"}
 rustpython-parser = {path = "parser", version = "0.1.1"}
 rustpython-vm = {path = "vm", version = "0.1.1"}
-dirs = "2.0"
+dirs = "=2.0.1"
 num-traits = "0.2.8"
 cfg-if = "0.1"
 
@@ -46,9 +46,9 @@ path = "src/main.rs"
 [patch.crates-io]
 # REDOX START, Uncommment when you want to compile/check with redoxer
 # time = { git = "https://gitlab.redox-os.org/redox-os/time.git", branch = "redox-unix" }
-# nix = { git = "https://github.com/AdminXVII/nix", branch = "add-redox-support" }
+# nix = { git = "https://github.com/coolreader18/nix", branch = "add-redox-support" }
 # # following patches are just waiting on a new version to be released to crates.io
-# socket2 = { git = "https://github.com/alexcrichton/socket2-rs" }
+# socket2 = { git = "https://github.com/alexcrichton/socket2-rs", rev = "75fe3f2fe0e3079ad9d4dfb3a19e60bea3f2f055" }
 # rustyline = { git = "https://github.com/kkawakam/rustyline" }
 # libc = { git = "https://github.com/rust-lang/libc" }
 # REDOX END
