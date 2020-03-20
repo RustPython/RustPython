@@ -206,6 +206,8 @@ with TestWithTempDir() as tmpdir:
 	assert stat_res.st_ctime > 1557500000
 	assert stat_res.st_mtime > 1557500000
 
+	bytes_stats_res = os.stat(fname.encode())
+
 	stat_file2 = os.stat(fname2)
 	print(stat_file2.st_ctime)
 	assert stat_file2.st_ctime > stat_res.st_ctime
