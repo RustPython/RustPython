@@ -47,3 +47,27 @@ assert struct.calcsize("<L4B") == 8
 
 assert struct.Struct('3B').pack(65, 66, 67) == bytes([65, 66, 67])
 
+class Indexable(object):
+    def __init__(self, value):
+        self._value = value
+
+    def __index__(self):
+        return self._value
+
+data = struct.pack('B', Indexable(65))
+assert data == bytes([65])
+
+data = struct.pack('5s', b"test1")
+assert data == b"test1"
+
+data = struct.pack('3s', b"test2")
+assert data == b"tes"
+
+data = struct.pack('7s', b"test3")
+assert data == b"test3\0\0"
+
+data = struct.pack('?', True)
+assert data == b'\1'
+
+data = struct.pack('?', [])
+assert data == b'\0'

@@ -78,8 +78,6 @@ class StructTest(unittest.TestCase):
                 self.assertEqual(int(100 * dp), int(100 * d))
                 self.assertEqual(tp, t)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_features(self):
         # Test some of the new features in detail
         # (format, argument, big-endian result, little-endian result, asymmetric)
@@ -167,8 +165,6 @@ class StructTest(unittest.TestCase):
         self.assertGreaterEqual(struct.calcsize('n'), struct.calcsize('i'))
         self.assertGreaterEqual(struct.calcsize('n'), struct.calcsize('P'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_integers(self):
         # Integer tests (bBhHiIlLqQnN).
         import binascii
@@ -338,8 +334,6 @@ class StructTest(unittest.TestCase):
                 assertStructError(struct.pack, format, 0)
                 assertStructError(struct.unpack, format, b"")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_p_code(self):
         # Test p ("Pascal string") code.
         for code, input, expected, expectedback in [
@@ -391,8 +385,6 @@ class StructTest(unittest.TestCase):
         big = math.ldexp(big, 127 - 24)
         self.assertRaises(OverflowError, struct.pack, ">f", big)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_1530559(self):
         for code, byteorder in iter_integer_formats():
             format = byteorder + code
@@ -495,8 +487,6 @@ class StructTest(unittest.TestCase):
             value, = struct.unpack('>I', data)
             self.assertEqual(value, 0x12345678)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bool(self):
         class ExplodingBool(object):
             def __bool__(self):

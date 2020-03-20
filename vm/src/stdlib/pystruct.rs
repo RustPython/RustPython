@@ -12,14 +12,15 @@
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
+use std::cmp;
 use std::io::{Cursor, Read, Write};
 use std::iter::Peekable;
 
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::Args;
 use crate::obj::{
-    objbytes::PyBytesRef, objstr::PyString, objstr::PyStringRef, objtuple::PyTuple,
-    objtype::PyClassRef,
+    objbool::IntoPyBool, objbytes::PyBytesRef, objstr::PyString, objstr::PyStringRef,
+    objtuple::PyTuple, objtype::PyClassRef,
 };
 use crate::pyobject::{Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
@@ -224,12 +225,38 @@ fn is_supported_format_character(c: char) -> bool {
     }
 }
 
+fn get_int_or_index<T>(vm: &VirtualMachine, arg: &PyObjectRef) -> PyResult<T>
+where
+    T: TryFromObject,
+{
+    match vm.to_index(arg) {
+        Some(index) => Ok(T::try_from_object(vm, index?.into_object())?),
+        None => Err(new_struct_error(
+            vm,
+            "required argument is not an integer".to_owned(),
+        )),
+    }
+}
+
 macro_rules! make_pack_no_endianess {
     ($T:ty) => {
         paste::item! {
             fn [<pack_ $T>](vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
-                let v = $T::try_from_object(vm, arg.clone())?;
-                data.[<write_$T>](v).unwrap();
+                data.[<write_$T>](get_int_or_index(vm, arg)?).unwrap();
+                Ok(())
+            }
+        }
+    };
+}
+
+macro_rules! make_pack_with_endianess_int {
+    ($T:ty) => {
+        paste::item! {
+            fn [<pack_ $T>]<Endianness>(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()>
+            where
+                Endianness: byteorder::ByteOrder,
+            {
+                data.[<write_$T>]::<Endianness>(get_int_or_index(vm, arg)?).unwrap();
                 Ok(())
             }
         }
@@ -253,17 +280,17 @@ macro_rules! make_pack_with_endianess {
 
 make_pack_no_endianess!(i8);
 make_pack_no_endianess!(u8);
-make_pack_with_endianess!(i16);
-make_pack_with_endianess!(u16);
-make_pack_with_endianess!(i32);
-make_pack_with_endianess!(u32);
-make_pack_with_endianess!(i64);
-make_pack_with_endianess!(u64);
+make_pack_with_endianess_int!(i16);
+make_pack_with_endianess_int!(u16);
+make_pack_with_endianess_int!(i32);
+make_pack_with_endianess_int!(u32);
+make_pack_with_endianess_int!(i64);
+make_pack_with_endianess_int!(u64);
 make_pack_with_endianess!(f32);
 make_pack_with_endianess!(f64);
 
 fn pack_bool(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
-    let v = if bool::try_from_object(vm, arg.clone())? {
+    let v = if IntoPyBool::try_from_object(vm, arg.clone())?.to_bool() {
         1
     } else {
         0
@@ -280,7 +307,7 @@ fn pack_isize<Endianness>(
 where
     Endianness: byteorder::ByteOrder,
 {
-    let v = isize::try_from_object(vm, arg.clone())?;
+    let v: isize = get_int_or_index(vm, arg)?;
     match std::mem::size_of::<isize>() {
         8 => data.write_i64::<Endianness>(v as i64).unwrap(),
         4 => data.write_i32::<Endianness>(v as i32).unwrap(),
@@ -297,7 +324,7 @@ fn pack_usize<Endianness>(
 where
     Endianness: byteorder::ByteOrder,
 {
-    let v = isize::try_from_object(vm, arg.clone())?;
+    let v: usize = get_int_or_index(vm, arg)?;
     match std::mem::size_of::<usize>() {
         8 => data.write_u64::<Endianness>(v as u64).unwrap(),
         4 => data.write_u32::<Endianness>(v as u32).unwrap(),
@@ -312,8 +339,29 @@ fn pack_string(
     data: &mut dyn Write,
     length: usize,
 ) -> PyResult<()> {
-    let v = PyBytesRef::try_from_object(vm, arg.clone())?;
-    match data.write_all(&v.get_value()[..length]) {
+    let mut v = PyBytesRef::try_from_object(vm, arg.clone())?
+        .get_value()
+        .to_vec();
+    v.resize(length, 0);
+    match data.write_all(&v) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(new_struct_error(vm, format!("{:?}", e))),
+    }
+}
+
+fn pack_pascal(
+    vm: &VirtualMachine,
+    arg: &PyObjectRef,
+    data: &mut dyn Write,
+    length: usize,
+) -> PyResult<()> {
+    let mut v = PyBytesRef::try_from_object(vm, arg.clone())?
+        .get_value()
+        .to_vec();
+    let string_length = cmp::min(cmp::min(v.len(), 255), length - 1);
+    data.write_u8(string_length as u8).unwrap();
+    v.resize(length - 1, 0);
+    match data.write_all(&v) {
         Ok(_) => Ok(()),
         Err(e) => Err(new_struct_error(vm, format!("{:?}", e))),
     }
@@ -356,8 +404,12 @@ where
         'N' | 'P' => pack_usize::<Endianness>,
         'f' => pack_f32::<Endianness>,
         'd' => pack_f64::<Endianness>,
-        's' | 'p' => {
+        's' => {
             pack_string(vm, &args[0], data, code.repeat as usize)?;
+            return Ok(1);
+        }
+        'p' => {
+            pack_pascal(vm, &args[0], data, code.repeat as usize)?;
             return Ok(1);
         }
         'x' => {
@@ -528,6 +580,16 @@ fn unpack_string(vm: &VirtualMachine, rdr: &mut dyn Read, length: u32) -> PyResu
     Ok(vm.ctx.new_bytes(buf))
 }
 
+fn unpack_pascal(vm: &VirtualMachine, rdr: &mut dyn Read, length: u32) -> PyResult {
+    let mut handle = rdr.take(length as u64);
+    let mut buf: Vec<u8> = Vec::new();
+    handle.read_to_end(&mut buf).map_err(|_| {
+        new_struct_error(vm, format!("unpack requires a buffer of {} bytes", length,))
+    })?;
+    let string_length = buf[0] as usize;
+    Ok(vm.ctx.new_bytes(buf[1..=string_length].to_vec()))
+}
+
 fn struct_unpack(fmt: PyStringRef, buffer: PyBytesRef, vm: &VirtualMachine) -> PyResult<PyTuple> {
     let fmt_str = fmt.as_str();
     let format_spec = FormatSpec::parse(fmt_str).map_err(|e| new_struct_error(vm, e))?;
@@ -563,8 +625,12 @@ where
             unpack_empty(vm, rdr, code.repeat);
             return Ok(());
         }
-        's' | 'p' => {
+        's' => {
             items.push(unpack_string(vm, rdr, code.repeat)?);
+            return Ok(());
+        }
+        'p' => {
+            items.push(unpack_pascal(vm, rdr, code.repeat)?);
             return Ok(());
         }
         c => {

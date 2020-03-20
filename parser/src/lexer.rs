@@ -1231,50 +1231,86 @@ where
     }
 }
 
+#[derive(Debug)]
+enum EscapeMode {
+    NORMAL,
+    HEX,
+    OCTET,
+}
+
 fn lex_byte(s: String) -> Result<Vec<u8>, LexicalErrorType> {
     let mut res = vec![];
-    let mut escape = false; //flag if previous was \
-    let mut hex_on = false; // hex mode on or off
-    let mut hex_value = String::new();
+    let mut escape: Option<EscapeMode> = None;
+    let mut escape_buffer = String::new();
 
-    for c in s.chars() {
-        if hex_on {
-            if c.is_ascii_hexdigit() {
-                if hex_value.is_empty() {
-                    hex_value.push(c);
-                    continue;
+    let mut chars_iter = s.chars();
+    let mut next_char = chars_iter.next();
+
+    while let Some(c) = next_char {
+        match escape {
+            Some(EscapeMode::OCTET) => {
+                if let '0'..='7' = c {
+                    escape_buffer.push(c);
+                    next_char = chars_iter.next();
+                    if escape_buffer.len() < 3 {
+                        continue;
+                    }
+                }
+                res.push(u8::from_str_radix(&escape_buffer, 8).unwrap());
+                escape = None;
+                escape_buffer.clear();
+            }
+            Some(EscapeMode::HEX) => {
+                if c.is_ascii_hexdigit() {
+                    if escape_buffer.is_empty() {
+                        escape_buffer.push(c);
+                    } else {
+                        escape_buffer.push(c);
+                        res.push(u8::from_str_radix(&escape_buffer, 16).unwrap());
+                        escape = None;
+                        escape_buffer.clear();
+                    }
+                    next_char = chars_iter.next();
                 } else {
-                    hex_value.push(c);
-                    res.push(u8::from_str_radix(&hex_value, 16).unwrap());
-                    hex_on = false;
-                    hex_value.clear();
+                    return Err(LexicalErrorType::StringError);
                 }
-            } else {
-                return Err(LexicalErrorType::StringError);
             }
-        } else {
-            match (c, escape) {
-                ('\\', true) => res.push(b'\\'),
-                ('\\', false) => {
-                    escape = true;
-                    continue;
+            Some(EscapeMode::NORMAL) => {
+                match c {
+                    '\\' => res.push(b'\\'),
+                    'x' => {
+                        escape = Some(EscapeMode::HEX);
+                        next_char = chars_iter.next();
+                        continue;
+                    }
+                    't' => res.push(b'\t'),
+                    'n' => res.push(b'\n'),
+                    'r' => res.push(b'\r'),
+                    '0'..='7' => {
+                        escape = Some(EscapeMode::OCTET);
+                        continue;
+                    }
+                    x => {
+                        res.push(b'\\');
+                        res.push(x as u8);
+                    }
                 }
-                ('x', true) => hex_on = true,
-                ('x', false) => res.push(b'x'),
-                ('t', true) => res.push(b'\t'),
-                ('t', false) => res.push(b't'),
-                ('n', true) => res.push(b'\n'),
-                ('n', false) => res.push(b'n'),
-                ('r', true) => res.push(b'\r'),
-                ('r', false) => res.push(b'r'),
-                (x, true) => {
-                    res.push(b'\\');
-                    res.push(x as u8);
-                }
-                (x, false) => res.push(x as u8),
+                escape = None;
+                next_char = chars_iter.next();
             }
-            escape = false;
+            None => {
+                match c {
+                    '\\' => escape = Some(EscapeMode::NORMAL),
+                    x => res.push(x as u8),
+                }
+                next_char = chars_iter.next();
+            }
         }
+    }
+    match escape {
+        Some(EscapeMode::OCTET) => res.push(u8::from_str_radix(&escape_buffer, 8).unwrap()),
+        Some(EscapeMode::HEX) => return Err(LexicalErrorType::StringError),
+        _ => (),
     }
     Ok(res)
 }
@@ -1708,6 +1744,21 @@ mod tests {
             vec![
                 Tok::Bytes {
                     value: b"\\x1z".to_vec()
+                },
+                Tok::Newline
+            ]
+        )
+    }
+
+    #[test]
+    fn test_escape_octet() {
+        let source = r##"b'\43a\4\1234'"##;
+        let tokens = lex_source(source);
+        assert_eq!(
+            tokens,
+            vec![
+                Tok::Bytes {
+                    value: b"#a\x04S4".to_vec()
                 },
                 Tok::Newline
             ]
