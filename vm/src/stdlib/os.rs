@@ -95,14 +95,14 @@ pub fn raw_file_number(handle: File) -> i64 {
 
 #[derive(Debug, Copy, Clone)]
 enum OutputMode {
-    STRING,
-    BYTES,
+    String,
+    Bytes,
 }
 
 fn output_by_mode(val: String, mode: OutputMode, vm: &VirtualMachine) -> PyObjectRef {
     match mode {
-        OutputMode::STRING => vm.ctx.new_str(val),
-        OutputMode::BYTES => vm.ctx.new_bytes(val.as_bytes().to_vec()),
+        OutputMode::String => vm.ctx.new_str(val),
+        OutputMode::Bytes => vm.ctx.new_bytes(val.as_bytes().to_vec()),
     }
 }
 
@@ -115,7 +115,7 @@ impl PyPathLike {
     fn new_str(path: String) -> Self {
         PyPathLike {
             path,
-            mode: OutputMode::STRING,
+            mode: OutputMode::String,
         }
     }
 }
@@ -127,14 +127,14 @@ impl TryFromObject for PyPathLike {
             l @ PyString => {
                 Ok(PyPathLike {
                     path: l.as_str().to_owned(),
-                    mode: OutputMode::STRING,
+                    mode: OutputMode::String,
                 })
             }
             i @ PyBytes => {
                 let path = objstr::clone_value(&vm.call_method(i.as_object(), "decode", vec![])?);
                 Ok(PyPathLike {
                     path,
-                    mode: OutputMode::BYTES,
+                    mode: OutputMode::Bytes,
                 })
             }
             _ => {
