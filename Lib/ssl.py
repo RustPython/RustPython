@@ -100,14 +100,15 @@ from enum import Enum as _Enum, IntEnum as _IntEnum, IntFlag as _IntFlag
 
 import _ssl             # if we can't import it, let the error propagate
 
-from _ssl import OPENSSL_VERSION_NUMBER, OPENSSL_VERSION_INFO, OPENSSL_VERSION
-from _ssl import _SSLContext, MemoryBIO, SSLSession
+# XXX RustPython TODO: provide more of these imports
+# from _ssl import OPENSSL_VERSION_NUMBER, OPENSSL_VERSION_INFO, OPENSSL_VERSION
+from _ssl import _SSLContext #, MemoryBIO, SSLSession
 from _ssl import (
-    SSLError, SSLZeroReturnError, SSLWantReadError, SSLWantWriteError,
-    SSLSyscallError, SSLEOFError,
+    SSLError, #SSLZeroReturnError, SSLWantReadError, SSLWantWriteError,
+#     SSLSyscallError, SSLEOFError,
     )
 from _ssl import txt2obj as _txt2obj, nid2obj as _nid2obj
-from _ssl import RAND_status, RAND_add, RAND_bytes, RAND_pseudo_bytes
+# from _ssl import RAND_status, RAND_add, RAND_bytes, RAND_pseudo_bytes
 try:
     from _ssl import RAND_egd
 except ImportError:
@@ -115,8 +116,8 @@ except ImportError:
     pass
 
 
-from _ssl import HAS_SNI, HAS_ECDH, HAS_NPN, HAS_ALPN, HAS_TLSv1_3
-from _ssl import _OPENSSL_API_VERSION
+# from _ssl import HAS_SNI, HAS_ECDH, HAS_NPN, HAS_ALPN, HAS_TLSv1_3
+# from _ssl import _OPENSSL_API_VERSION
 
 
 _IntEnum._convert(
@@ -969,11 +970,13 @@ class SSLSocket(socket):
                     "non-zero flags not allowed in calls to sendall() on %s" %
                     self.__class__)
             count = 0
-            with memoryview(data) as view, view.cast("B") as byte_view:
-                amount = len(byte_view)
-                while count < amount:
-                    v = self.send(byte_view[count:])
-                    count += v
+            # with memoryview(data) as view, view.cast("B") as byte_view:
+            # XXX RustPython TODO: proper memoryview implementation
+            byte_view = data
+            amount = len(byte_view)
+            while count < amount:
+                v = self.send(byte_view[count:])
+                count += v
         else:
             return socket.sendall(self, data, flags)
 
