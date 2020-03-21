@@ -38,7 +38,7 @@ mod sys {
     }
 }
 
-#[derive(num_enum::IntoPrimitive, num_enum::TryFromPrimitive)]
+#[derive(num_enum::IntoPrimitive, num_enum::TryFromPrimitive, PartialEq)]
 #[repr(i32)]
 enum SslVersion {
     Ssl2,
@@ -58,7 +58,7 @@ enum CertRequirements {
     Required,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum SslServerOrClient {
     Client,
     Server,
@@ -192,7 +192,7 @@ impl PySslContext {
         };
         let mut builder =
             SslContextBuilder::new(method).map_err(|e| convert_openssl_error(vm, e))?;
-        let check_hostname = matches!(proto, SslVersion::TlsClient);
+        let check_hostname = proto == SslVersion::TlsClient;
         builder.set_verify(if check_hostname {
             SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT
         } else {
@@ -420,7 +420,7 @@ impl PySslSocket {
     }
     #[pyproperty]
     fn server_side(&self) -> bool {
-        matches!(self.socket_type, SslServerOrClient::Server)
+        self.socket_type == SslServerOrClient::Server
     }
     #[pyproperty]
     fn context(&self) -> PyRef<PySslContext> {
