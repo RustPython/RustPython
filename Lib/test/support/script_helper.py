@@ -8,7 +8,7 @@ import os
 import os.path
 import subprocess
 import py_compile
-# import zipfile  XXX RustPython
+import zipfile
 
 from importlib.util import source_from_cache
 from test.support import make_legacy_pyc, strip_python_stderr
@@ -137,7 +137,7 @@ def run_python_until_end(*args, **env_vars):
     err = strip_python_stderr(err)
     return _PythonRunResult(rc, out, err), cmd_line
 
-def _assert_python(expected_success, *args, **env_vars):
+def _assert_python(expected_success, /, *args, **env_vars):
     res, cmd_line = run_python_until_end(*args, **env_vars)
     if (res.rc and expected_success) or (not res.rc and not expected_success):
         res.fail(cmd_line)
