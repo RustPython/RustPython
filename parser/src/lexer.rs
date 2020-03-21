@@ -534,11 +534,9 @@ where
                             }
                             Some('u') => string_content.push(self.unicode_literal(4)?),
                             Some('U') => string_content.push(self.unicode_literal(8)?),
-                            Some('x') if !is_bytes => string_content.push(self.unicode_literal(2)?),
+                            Some('x') => string_content.push(self.unicode_literal(2)?),
                             Some('v') => string_content.push('\x0b'),
-                            Some(o @ '0'..='7') if !is_bytes => {
-                                string_content.push(self.parse_octet(o))
-                            }
+                            Some(o @ '0'..='7') => string_content.push(self.parse_octet(o)),
                             Some(c) => {
                                 string_content.push('\\');
                                 string_content.push(c);
@@ -573,6 +571,11 @@ where
                                 error: LexicalErrorType::StringError,
                                 location: self.get_pos(),
                             });
+                        } else if is_bytes && !c.is_ascii() {
+                            return Err(LexicalError {
+                                error: LexicalErrorType::StringError,
+                                location: self.get_pos(),
+                            });
                         }
                         string_content.push(c);
                     }
@@ -588,21 +591,8 @@ where
         let end_pos = self.get_pos();
 
         let tok = if is_bytes {
-            if string_content.is_ascii() {
-                let value = if is_raw {
-                    string_content.into_bytes()
-                } else {
-                    lex_byte(string_content).map_err(|error| LexicalError {
-                        error,
-                        location: self.get_pos(),
-                    })?
-                };
-                Tok::Bytes { value }
-            } else {
-                return Err(LexicalError {
-                    error: LexicalErrorType::StringError,
-                    location: self.get_pos(),
-                });
+            Tok::Bytes {
+                value: string_content.chars().map(|c| c as u8).collect(),
             }
         } else {
             Tok::String {
@@ -1245,90 +1235,6 @@ where
             r => Some(r),
         }
     }
-}
-
-#[derive(Debug)]
-enum EscapeMode {
-    NORMAL,
-    HEX,
-    OCTET,
-}
-
-fn lex_byte(s: String) -> Result<Vec<u8>, LexicalErrorType> {
-    let mut res = vec![];
-    let mut escape: Option<EscapeMode> = None;
-    let mut escape_buffer = String::new();
-
-    let mut chars_iter = s.chars();
-    let mut next_char = chars_iter.next();
-
-    while let Some(c) = next_char {
-        match escape {
-            Some(EscapeMode::OCTET) => {
-                if let '0'..='7' = c {
-                    escape_buffer.push(c);
-                    next_char = chars_iter.next();
-                    if escape_buffer.len() < 3 {
-                        continue;
-                    }
-                }
-                res.push(u8::from_str_radix(&escape_buffer, 8).unwrap());
-                escape = None;
-                escape_buffer.clear();
-            }
-            Some(EscapeMode::HEX) => {
-                if c.is_ascii_hexdigit() {
-                    if escape_buffer.is_empty() {
-                        escape_buffer.push(c);
-                    } else {
-                        escape_buffer.push(c);
-                        res.push(u8::from_str_radix(&escape_buffer, 16).unwrap());
-                        escape = None;
-                        escape_buffer.clear();
-                    }
-                    next_char = chars_iter.next();
-                } else {
-                    return Err(LexicalErrorType::StringError);
-                }
-            }
-            Some(EscapeMode::NORMAL) => {
-                match c {
-                    '\\' => res.push(b'\\'),
-                    'x' => {
-                        escape = Some(EscapeMode::HEX);
-                        next_char = chars_iter.next();
-                        continue;
-                    }
-                    't' => res.push(b'\t'),
-                    'n' => res.push(b'\n'),
-                    'r' => res.push(b'\r'),
-                    '0'..='7' => {
-                        escape = Some(EscapeMode::OCTET);
-                        continue;
-                    }
-                    x => {
-                        res.push(b'\\');
-                        res.push(x as u8);
-                    }
-                }
-                escape = None;
-                next_char = chars_iter.next();
-            }
-            None => {
-                match c {
-                    '\\' => escape = Some(EscapeMode::NORMAL),
-                    x => res.push(x as u8),
-                }
-                next_char = chars_iter.next();
-            }
-        }
-    }
-    match escape {
-        Some(EscapeMode::OCTET) => res.push(u8::from_str_radix(&escape_buffer, 8).unwrap()),
-        Some(EscapeMode::HEX) => return Err(LexicalErrorType::StringError),
-        _ => (),
-    }
-    Ok(res)
 }
 
 #[cfg(test)]
