@@ -462,6 +462,19 @@ where
         }
     }
 
+    fn parse_octet(&mut self, first: char) -> char {
+        let mut octet_content = String::new();
+        octet_content.push(first);
+        while octet_content.len() < 3 {
+            if let Some('0'..='7') = self.chr0 {
+                octet_content.push(self.next_char().unwrap())
+            } else {
+                break;
+            }
+        }
+        u8::from_str_radix(&octet_content, 8).unwrap() as char
+    }
+
     fn lex_string(
         &mut self,
         is_bytes: bool,
@@ -523,6 +536,9 @@ where
                             Some('U') => string_content.push(self.unicode_literal(8)?),
                             Some('x') if !is_bytes => string_content.push(self.unicode_literal(2)?),
                             Some('v') => string_content.push('\x0b'),
+                            Some(o @ '0'..='7') if !is_bytes => {
+                                string_content.push(self.parse_octet(o))
+                            }
                             Some(c) => {
                                 string_content.push('\\');
                                 string_content.push(c);
@@ -1642,7 +1658,7 @@ mod tests {
 
     #[test]
     fn test_string() {
-        let source = r#""double" 'single' 'can\'t' "\\\"" '\t\r\n' '\g' r'raw\''"#;
+        let source = r#""double" 'single' 'can\'t' "\\\"" '\t\r\n' '\g' r'raw\'' '\200\0a'"#;
         let tokens = lex_source(source);
         assert_eq!(
             tokens,
@@ -1673,6 +1689,10 @@ mod tests {
                 },
                 Tok::String {
                     value: String::from("raw\'"),
+                    is_fstring: false,
+                },
+                Tok::String {
+                    value: String::from("\u{80}\u{0}a"),
                     is_fstring: false,
                 },
                 Tok::Newline,
