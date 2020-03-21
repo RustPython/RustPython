@@ -37,7 +37,7 @@ mod c {
     pub use winapi::shared::ws2def::*;
     pub use winapi::um::winsock2::{
         SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SOCK_DGRAM, SOCK_RAW,
-        SOCK_RDM, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_REUSEADDR, *,
+        SOCK_RDM, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_REUSEADDR, SO_TYPE, *,
     };
 }
 
@@ -208,6 +208,10 @@ impl PySocket {
     fn close(&self) {
         self.sock.replace(invalid_sock());
     }
+    #[pymethod]
+    fn detach(&self) -> RawSocket {
+        into_sock_fileno(self.sock.replace(invalid_sock()))
+    }
 
     #[pymethod]
     fn fileno(&self) -> RawSocket {
@@ -279,6 +283,50 @@ impl PySocket {
     }
 
     #[pymethod]
+    fn getsockopt(
+        &self,
+        level: i32,
+        name: i32,
+        buflen: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let fd = sock_fileno(&self.sock()) as _;
+        let buflen = buflen.unwrap_or(0);
+        if buflen == 0 {
+            let mut flag: libc::c_int = 0;
+            let mut flagsize = std::mem::size_of::<libc::c_int>() as _;
+            let ret = unsafe {
+                c::getsockopt(
+                    fd,
+                    level,
+                    name,
+                    &mut flag as *mut libc::c_int as *mut _,
+                    &mut flagsize,
+                )
+            };
+            if ret < 0 {
+                Err(convert_sock_error(vm, io::Error::last_os_error()))
+            } else {
+                Ok(vm.new_int(flag))
+            }
+        } else {
+            if buflen <= 0 || buflen > 1024 {
+                return Err(vm.new_os_error("getsockopt buflen out of range".to_owned()));
+            }
+            let mut buf = vec![0u8; buflen as usize];
+            let mut buflen = buflen as _;
+            let ret =
+                unsafe { c::getsockopt(fd, level, name, buf.as_mut_ptr() as *mut _, &mut buflen) };
+            buf.truncate(buflen as usize);
+            if ret < 0 {
+                Err(convert_sock_error(vm, io::Error::last_os_error()))
+            } else {
+                Ok(vm.ctx.new_bytes(buf))
+            }
+        }
+    }
+
+    #[pymethod]
     fn setsockopt(
         &self,
         level: i32,
@@ -345,6 +393,20 @@ impl PySocket {
     #[pyproperty]
     fn proto(&self) -> i32 {
         self.proto.get()
+    }
+}
+
+impl io::Read for PySocketRef {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        <Socket as io::Read>::read(&mut self.sock.borrow_mut(), buf)
+    }
+}
+impl io::Write for PySocketRef {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        <Socket as io::Write>::write(&mut self.sock.borrow_mut(), buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        <Socket as io::Write>::flush(&mut self.sock.borrow_mut())
     }
 }
 
@@ -609,6 +671,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SO_REUSEADDR" => ctx.new_int(c::SO_REUSEADDR),
         "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
         "SO_BROADCAST" => ctx.new_int(c::SO_BROADCAST),
+        "SO_TYPE" => ctx.new_int(c::SO_TYPE),
     });
 
     #[cfg(not(target_os = "redox"))]
