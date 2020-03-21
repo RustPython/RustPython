@@ -834,8 +834,6 @@ class BaseBytesTest:
         self.assertRaises(TypeError, self.type2test(b'abc').ljust, 7, 32)
         self.assertRaises(TypeError, self.type2test(b'abc').rjust, 7, 32)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ord(self):
         b = self.type2test(b'\0A\x7f\x80\xff')
         self.assertEqual([ord(b[i:i+1]) for i in range(len(b))],
