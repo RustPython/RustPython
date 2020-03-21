@@ -39,7 +39,7 @@ struct CompileContext {
     func: FunctionContext,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum FunctionContext {
     NoFunction,
     Function,
@@ -562,6 +562,14 @@ impl<O: OutputStream> Compiler<O> {
                 }
                 match value {
                     Some(v) => {
+                        if self.ctx.func == FunctionContext::AsyncFunction
+                            && self.current_output().is_generator()
+                        {
+                            return Err(self.error_loc(
+                                CompileErrorType::AsyncReturnValue,
+                                statement.location.clone(),
+                            ));
+                        }
                         self.compile_expression(v)?;
                     }
                     None => {
@@ -1644,6 +1652,9 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::YieldValue);
             }
             Await { value } => {
+                if self.ctx.func != FunctionContext::AsyncFunction {
+                    return Err(self.error(CompileErrorType::InvalidAwait));
+                }
                 self.compile_expression(value)?;
                 self.emit(Instruction::GetAwaitable);
                 self.emit(Instruction::LoadConst {
@@ -1652,6 +1663,15 @@ impl<O: OutputStream> Compiler<O> {
                 self.emit(Instruction::YieldFrom);
             }
             YieldFrom { value } => {
+                match self.ctx.func {
+                    FunctionContext::NoFunction => {
+                        return Err(self.error(CompileErrorType::InvalidYieldFrom))
+                    }
+                    FunctionContext::AsyncFunction => {
+                        return Err(self.error(CompileErrorType::AsyncYieldFrom))
+                    }
+                    FunctionContext::Function => {}
+                }
                 self.mark_generator();
                 self.compile_expression(value)?;
                 self.emit(Instruction::GetIter);
@@ -1670,7 +1690,7 @@ impl<O: OutputStream> Compiler<O> {
                     value: bytecode::Constant::Boolean { value: false },
                 });
             }
-            None => {
+            ast::ExpressionType::None => {
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::None,
                 });

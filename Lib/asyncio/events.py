@@ -6,7 +6,8 @@ __all__ = ['AbstractEventLoopPolicy',
            'get_event_loop_policy', 'set_event_loop_policy',
            'get_event_loop', 'set_event_loop', 'new_event_loop',
            'get_child_watcher', 'set_child_watcher',
-           '_set_running_loop', '_get_running_loop',
+           '_set_running_loop', 'get_running_loop',
+           '_get_running_loop',
            ]
 
 import functools
@@ -612,6 +613,18 @@ _lock = threading.Lock()
 class _RunningLoop(threading.local):
     _loop = None
 _running_loop = _RunningLoop()
+
+
+def get_running_loop():
+    """Return the running event loop.  Raise a RuntimeError if there is none.
+
+    This function is thread-specific.
+    """
+    # NOTE: this function is implemented in C (see _asynciomodule.c)
+    loop = _get_running_loop()
+    if loop is None:
+        raise RuntimeError('no running event loop')
+    return loop
 
 
 def _get_running_loop():

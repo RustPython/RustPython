@@ -7,6 +7,8 @@ pub trait OutputStream: From<CodeObject> + Into<CodeObject> {
     fn set_label(&mut self, label: Label);
     /// Mark the inner CodeObject as a generator
     fn mark_generator(&mut self);
+    /// Check to see if the inner CodeObject is a generator
+    fn is_generator(&self) -> bool;
 }
 
 pub struct CodeObjectStream {
@@ -35,5 +37,8 @@ impl OutputStream for CodeObjectStream {
     }
     fn mark_generator(&mut self) {
         self.code.flags |= CodeFlags::IS_GENERATOR;
+    }
+    fn is_generator(&self) -> bool {
+        self.code.flags.contains(CodeFlags::IS_GENERATOR)
     }
 }

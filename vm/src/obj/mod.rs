@@ -1,5 +1,6 @@
 //! This package contains the python basic/builtin types
 
+pub mod objasyncgenerator;
 pub mod objbool;
 pub mod objbuiltinfunc;
 pub mod objbytearray;

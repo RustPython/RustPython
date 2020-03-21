@@ -1,3 +1,4 @@
+use crate::obj::objasyncgenerator;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc;
 use crate::obj::objbytearray;
@@ -47,6 +48,10 @@ use std::rc::Rc;
 /// Holder of references to builtin types.
 #[derive(Debug)]
 pub struct TypeZoo {
+    pub async_generator: PyClassRef,
+    pub async_generator_asend: PyClassRef,
+    pub async_generator_athrow: PyClassRef,
+    pub async_generator_wrapped_value: PyClassRef,
     pub bytes_type: PyClassRef,
     pub bytesiterator_type: PyClassRef,
     pub bytearray_type: PyClassRef,
@@ -134,6 +139,12 @@ impl TypeZoo {
         let generator_type = create_type("generator", &type_type, &object_type);
         let coroutine_type = create_type("coroutine", &type_type, &object_type);
         let coroutine_wrapper_type = create_type("coroutine_wrapper", &type_type, &object_type);
+        let async_generator = create_type("async_generator", &type_type, &object_type);
+        let async_generator_asend = create_type("async_generator_asend", &type_type, &object_type);
+        let async_generator_athrow =
+            create_type("async_generator_athrow", &type_type, &object_type);
+        let async_generator_wrapped_value =
+            create_type("async_generator_wrapped_value", &type_type, &object_type);
         let bound_method_type = create_type("method", &type_type, &object_type);
         let str_type = create_type("str", &type_type, &object_type);
         let list_type = create_type("list", &type_type, &object_type);
@@ -175,6 +186,10 @@ impl TypeZoo {
         let traceback_type = create_type("traceback", &type_type, &object_type);
 
         Self {
+            async_generator,
+            async_generator_asend,
+            async_generator_athrow,
+            async_generator_wrapped_value,
             bool_type,
             memoryview_type,
             bytearray_type,
@@ -379,6 +394,7 @@ pub fn initialize_types(context: &PyContext) {
     objclassmethod::init(&context);
     objgenerator::init(&context);
     objcoroutine::init(&context);
+    objasyncgenerator::init(&context);
     objint::init(&context);
     objfloat::init(&context);
     objcomplex::init(&context);

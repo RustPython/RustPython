@@ -1,5 +1,5 @@
 use super::objcode::PyCodeRef;
-use super::objcoroinner::Coro;
+use super::objcoroinner::{Coro, Variant};
 use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::frame::FrameRef;
@@ -29,9 +29,15 @@ impl PyCoroutine {
 
     pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyCoroutineRef {
         PyCoroutine {
-            inner: Coro::new(frame),
+            inner: Coro::new(frame, Variant::Coroutine),
         }
         .into_ref(vm)
+    }
+
+    // TODO: fix function names situation
+    #[pyproperty(magic)]
+    fn name(&self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.get_none()
     }
 
     #[pymethod]

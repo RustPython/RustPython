@@ -1,6 +1,6 @@
 """Support for tasks, coroutines and the scheduler."""
 
-__all__ = ['Task',
+__all__ = ['Task', 'create_task',
            'FIRST_COMPLETED', 'FIRST_EXCEPTION', 'ALL_COMPLETED',
            'wait', 'wait_for', 'as_completed', 'sleep', 'async',
            'gather', 'shield', 'ensure_future', 'run_coroutine_threadsafe',
@@ -42,6 +42,16 @@ def _all_tasks_compat(loop=None):
     if loop is None:
         loop = events.get_event_loop()
     return {t for t in _all_tasks if futures._get_loop(t) is loop}
+
+
+def _set_task_name(task, name):
+    if name is not None:
+        try:
+            set_name = task.set_name
+        except AttributeError:
+            pass
+        else:
+            set_name(name)
 
 
 class Task(futures.Future):
@@ -290,6 +300,17 @@ except ImportError:
 else:
     # _CTask is needed for tests.
     Task = _CTask = _asyncio.Task
+
+
+def create_task(coro, *, name=None):
+    """Schedule the execution of a coroutine object in a spawn task.
+
+    Return a Task object.
+    """
+    loop = events.get_running_loop()
+    task = loop.create_task(coro)
+    _set_task_name(task, name)
+    return task
 
 
 # wait() and as_completed() similar to those in PEP 3148.

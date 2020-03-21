@@ -54,6 +54,10 @@ pub enum CompileErrorType {
     InvalidContinue,
     InvalidReturn,
     InvalidYield,
+    InvalidYieldFrom,
+    InvalidAwait,
+    AsyncYieldFrom,
+    AsyncReturnValue,
 }
 
 impl CompileError {
@@ -96,6 +100,12 @@ impl fmt::Display for CompileError {
             CompileErrorType::InvalidContinue => "'continue' outside loop".to_owned(),
             CompileErrorType::InvalidReturn => "'return' outside function".to_owned(),
             CompileErrorType::InvalidYield => "'yield' outside function".to_owned(),
+            CompileErrorType::InvalidYieldFrom => "'yield from' outside function".to_owned(),
+            CompileErrorType::InvalidAwait => "'await' outside async function".to_owned(),
+            CompileErrorType::AsyncYieldFrom => "'yield from' inside async function".to_owned(),
+            CompileErrorType::AsyncReturnValue => {
+                "'return' with value inside async generator".to_owned()
+            }
         };
 
         if let Some(statement) = &self.statement {

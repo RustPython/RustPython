@@ -6,6 +6,7 @@ use super::objtype::PyClassRef;
 use crate::bytecode;
 use crate::frame::Frame;
 use crate::function::{OptionalArg, PyFuncArgs};
+use crate::obj::objasyncgenerator::PyAsyncGen;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objgenerator::PyGenerator;
 use crate::pyobject::{
@@ -221,12 +222,13 @@ impl PyFunction {
         let frame = Frame::new(code.clone(), scope).into_ref(vm);
 
         // If we have a generator, create a new generator
-        if code.flags.contains(bytecode::CodeFlags::IS_GENERATOR) {
-            Ok(PyGenerator::new(frame, vm).into_object())
-        } else if code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
-            Ok(PyCoroutine::new(frame, vm).into_object())
-        } else {
-            vm.run_frame_full(frame)
+        let is_gen = code.flags.contains(bytecode::CodeFlags::IS_GENERATOR);
+        let is_coro = code.flags.contains(bytecode::CodeFlags::IS_COROUTINE);
+        match (is_gen, is_coro) {
+            (true, false) => Ok(PyGenerator::new(frame, vm).into_object()),
+            (false, true) => Ok(PyCoroutine::new(frame, vm).into_object()),
+            (true, true) => Ok(PyAsyncGen::new(frame, vm).into_object()),
+            (false, false) => vm.run_frame_full(frame),
         }
     }
 
