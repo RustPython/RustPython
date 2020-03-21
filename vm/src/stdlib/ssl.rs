@@ -106,6 +106,46 @@ fn obj2py(obj: &Asn1ObjectRef) -> PyNid {
     )
 }
 
+#[cfg(windows)]
+fn ssl_enum_certificates(store_name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    use crate::obj::objset::PyFrozenSet;
+    use schannel::{cert_context::ValidUses, cert_store::CertStore, RawPointer};
+    use winapi::um::wincrypt;
+    // TODO: check every store for it, not just 2 of them:
+    // https://github.com/python/cpython/blob/3.8/Modules/_ssl.c#L5603-L5610
+    let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
+    let stores = open_fns
+        .iter()
+        .filter_map(|open| open(store_name.as_str()).ok())
+        .collect::<Vec<_>>();
+    let certs = stores.iter().map(|s| s.certs()).flatten().map(|c| {
+        let cert = vm.ctx.new_bytes(c.to_der().to_owned());
+        let enc_type = unsafe {
+            let ptr = c.as_ptr() as wincrypt::PCCERT_CONTEXT;
+            (*ptr).dwCertEncodingType
+        };
+        let enc_type = match enc_type {
+            wincrypt::X509_ASN_ENCODING => vm.new_str("x509_asn".to_owned()),
+            wincrypt::PKCS_7_ASN_ENCODING => vm.new_str("pkcs_7_asn".to_owned()),
+            other => vm.new_int(other),
+        };
+        let usage = match c.valid_uses()? {
+            ValidUses::All => vm.new_bool(true),
+            ValidUses::Oids(oids) => {
+                PyFrozenSet::from_iter(vm, oids.into_iter().map(|oid| vm.new_str(oid)))
+                    .unwrap()
+                    .into_ref(vm)
+                    .into_object()
+            }
+        };
+        Ok(vm.ctx.new_tuple(vec![cert, enc_type, usage]))
+    });
+    let certs = certs
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| super::os::convert_io_error(vm, e))?;
+    Ok(vm.ctx.new_list(certs))
+}
+
 #[derive(FromArgs)]
 struct Txt2ObjArgs {
     #[pyarg(positional_or_keyword)]
@@ -518,7 +558,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         &vm.ctx.types.type_type,
         &vm.ctx.exceptions.os_error,
     );
-    py_module!(vm, "_ssl", {
+    let module = py_module!(vm, "_ssl", {
         "_SSLContext" => PySslContext::make_class(ctx),
         "_SSLSocket" => PySslSocket::make_class(ctx),
         "SSLError" => ssl_error,
@@ -570,5 +610,20 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "ALERT_DESCRIPTION_DECODE_ERROR" => ctx.new_int(sys::SSL_AD_DECODE_ERROR),
         "ALERT_DESCRIPTION_ILLEGAL_PARAMETER" => ctx.new_int(sys::SSL_AD_ILLEGAL_PARAMETER),
         "ALERT_DESCRIPTION_UNRECOGNIZED_NAME" => ctx.new_int(sys::SSL_AD_UNRECOGNIZED_NAME),
+    });
+
+    extend_module_platform_specific(&module, vm);
+
+    module
+}
+
+#[cfg(windows)]
+fn extend_module_platform_specific(module: &PyObjectRef, vm: &VirtualMachine) {
+    let ctx = &vm.ctx;
+    extend_module!(vm, module, {
+        "enum_certificates" => ctx.new_function(ssl_enum_certificates),
     })
 }
+
+#[cfg(not(windows))]
+fn extend_module_platform_specific(_module: &PyObjectRef, _vm: &VirtualMachine) {}

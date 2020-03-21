@@ -158,7 +158,7 @@ _SSLv2_IF_EXISTS = getattr(_SSLMethod, 'PROTOCOL_SSLv2', None)
 
 
 if sys.platform == "win32":
-    from _ssl import enum_certificates, enum_crls
+    from _ssl import enum_certificates #, enum_crls
 
 from socket import socket, AF_INET, SOCK_STREAM, create_connection
 from socket import SOL_SOCKET, SO_TYPE

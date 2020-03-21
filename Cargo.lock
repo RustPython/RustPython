@@ -1639,6 +1639,7 @@ dependencies = [
  "rustpython-derive",
  "rustpython-parser",
  "rustyline",
+ "schannel",
  "serde",
  "serde_json",
  "sha-1",
@@ -1705,6 +1706,16 @@ name = "ryu"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa8506c1de11c9c4e4c38863ccbe02a305c8188e85a05a784c9e11e1c3910c8"
+
+[[package]]
+name = "schannel"
+version = "0.1.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "039c25b130bd8c1321ee2d7de7fde2659fa9c2744e4bb29711cfc852ea53cd19"
+dependencies = [
+ "lazy_static 1.4.0",
+ "winapi",
+]
 
 [[package]]
 name = "semver"
