@@ -55,6 +55,8 @@ mod select;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod signal;
 #[cfg(not(target_arch = "wasm32"))]
+mod ssl;
+#[cfg(not(target_arch = "wasm32"))]
 mod subprocess;
 #[cfg(windows)]
 mod winapi;
@@ -123,6 +125,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         );
         modules.insert("signal".to_owned(), Box::new(signal::make_module));
         modules.insert("select".to_owned(), Box::new(select::make_module));
+        modules.insert("_ssl".to_owned(), Box::new(ssl::make_module));
         modules.insert("_subprocess".to_owned(), Box::new(subprocess::make_module));
         #[cfg(not(target_os = "redox"))]
         modules.insert("zlib".to_owned(), Box::new(zlib::make_module));

@@ -70,6 +70,8 @@ paste = "0.1"
 base64 = "0.11"
 is-macro = "0.1"
 result-like = "^0.2.1"
+foreign-types-shared = "0.1"
+num_enum = "0.4"
 
 flame = { version = "0.2", optional = true }
 flamer = { version = "0.3", optional = true }
@@ -89,6 +91,8 @@ subprocess = "0.2.2"
 num_cpus = "1"
 socket2 = { version = "0.3", features = ["unix"] }
 rustyline = "6.0"
+openssl = "0.10"
+openssl-sys = "0.9"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "redox")))'.dependencies]
 dns-lookup = "1.0"
