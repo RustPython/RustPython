@@ -29,15 +29,15 @@ use super::errno::errors;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbyteinner::PyBytesLike;
-use crate::obj::objbytes::PyBytesRef;
+use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
+    Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
@@ -93,7 +93,61 @@ pub fn raw_file_number(handle: File) -> i64 {
     unimplemented!();
 }
 
-fn make_path(_vm: &VirtualMachine, path: PyStringRef, dir_fd: &DirFd) -> PyStringRef {
+#[derive(Debug, Copy, Clone)]
+enum OutputMode {
+    String,
+    Bytes,
+}
+
+fn output_by_mode(val: String, mode: OutputMode, vm: &VirtualMachine) -> PyObjectRef {
+    match mode {
+        OutputMode::String => vm.ctx.new_str(val),
+        OutputMode::Bytes => vm.ctx.new_bytes(val.as_bytes().to_vec()),
+    }
+}
+
+struct PyPathLike {
+    path: String,
+    mode: OutputMode,
+}
+
+impl PyPathLike {
+    fn new_str(path: String) -> Self {
+        PyPathLike {
+            path,
+            mode: OutputMode::String,
+        }
+    }
+}
+
+impl TryFromObject for PyPathLike {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        // TODO: Support Path object
+        match_class!(match obj.clone() {
+            l @ PyString => {
+                Ok(PyPathLike {
+                    path: l.as_str().to_owned(),
+                    mode: OutputMode::String,
+                })
+            }
+            i @ PyBytes => {
+                let path = objstr::clone_value(&vm.call_method(i.as_object(), "decode", vec![])?);
+                Ok(PyPathLike {
+                    path,
+                    mode: OutputMode::Bytes,
+                })
+            }
+            _ => {
+                Err(vm.new_type_error(format!(
+                    "path object need to be string or bytes not {}",
+                    obj.class()
+                )))
+            }
+        })
+    }
+}
+
+fn make_path<'a>(_vm: &VirtualMachine, path: &'a str, dir_fd: &DirFd) -> &'a str {
     if dir_fd.dir_fd.is_some() {
         unimplemented!();
     } else {
@@ -124,7 +178,7 @@ pub fn os_open(
     let dir_fd = DirFd {
         dir_fd: dir_fd.into_option(),
     };
-    let fname = make_path(vm, name, &dir_fd);
+    let fname = make_path(vm, name.as_str(), &dir_fd);
 
     let mut options = OpenOptions::new();
 
@@ -159,7 +213,7 @@ pub fn os_open(
 
     options.custom_flags(flags);
     let handle = options
-        .open(fname.as_str())
+        .open(fname)
         .map_err(|err| convert_io_error(vm, err))?;
 
     Ok(raw_file_number(handle))
@@ -389,8 +443,8 @@ fn os_write(fd: i64, data: PyBytesLike, vm: &VirtualMachine) -> PyResult {
 }
 
 fn os_remove(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
-    let path = make_path(vm, path, &dir_fd);
-    fs::remove_file(path.as_str()).map_err(|err| convert_io_error(vm, err))
+    let path = make_path(vm, path.as_str(), &dir_fd);
+    fs::remove_file(path).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_mkdir(
@@ -399,8 +453,8 @@ fn os_mkdir(
     dir_fd: DirFd,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let path = make_path(vm, path, &dir_fd);
-    fs::create_dir(path.as_str()).map_err(|err| convert_io_error(vm, err))
+    let path = make_path(vm, path.as_str(), &dir_fd);
+    fs::create_dir(path).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_mkdirs(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -408,15 +462,19 @@ fn os_mkdirs(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 fn os_rmdir(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
-    let path = make_path(vm, path, &dir_fd);
-    fs::remove_dir(path.as_str()).map_err(|err| convert_io_error(vm, err))
+    let path = make_path(vm, path.as_str(), &dir_fd);
+    fs::remove_dir(path).map_err(|err| convert_io_error(vm, err))
 }
 
-fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    let res: PyResult<Vec<PyObjectRef>> = fs::read_dir(path.as_str())
+fn os_listdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
+    let res: PyResult<Vec<PyObjectRef>> = fs::read_dir(&path.path)
         .map_err(|err| convert_io_error(vm, err))?
         .map(|entry| match entry {
-            Ok(path) => Ok(vm.ctx.new_str(path.file_name().into_string().unwrap())),
+            Ok(entry_path) => Ok(output_by_mode(
+                entry_path.file_name().into_string().unwrap(),
+                path.mode,
+                vm,
+            )),
             Err(s) => Err(convert_io_error(vm, s)),
         })
         .collect();
@@ -492,8 +550,8 @@ fn _os_environ(vm: &VirtualMachine) -> PyDictRef {
 }
 
 fn os_readlink(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
-    let path = make_path(vm, path, &dir_fd);
-    let path = fs::read_link(path.as_str()).map_err(|err| convert_io_error(vm, err))?;
+    let path = make_path(vm, path.as_str(), &dir_fd);
+    let path = fs::read_link(path).map_err(|err| convert_io_error(vm, err))?;
     let path = path.into_os_string().into_string().map_err(|_osstr| {
         vm.new_unicode_decode_error("Can't convert OS path to valid UTF-8 string".into())
     })?;
@@ -503,6 +561,7 @@ fn os_readlink(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResul
 #[derive(Debug)]
 struct DirEntry {
     entry: fs::DirEntry,
+    mode: OutputMode,
 }
 
 type DirEntryRef = PyRef<DirEntry>;
@@ -526,12 +585,14 @@ struct FollowSymlinks {
 }
 
 impl DirEntryRef {
-    fn name(self) -> String {
-        self.entry.file_name().into_string().unwrap()
+    fn name(self, vm: &VirtualMachine) -> PyObjectRef {
+        let file_name = self.entry.file_name().into_string().unwrap();
+        output_by_mode(file_name, self.mode, vm)
     }
 
-    fn path(self) -> String {
-        self.entry.path().to_str().unwrap().to_owned()
+    fn path(self, vm: &VirtualMachine) -> PyObjectRef {
+        let path = self.entry.path().to_str().unwrap().to_owned();
+        output_by_mode(path, self.mode, vm)
     }
 
     #[allow(clippy::match_bool)]
@@ -575,7 +636,9 @@ impl DirEntryRef {
 
     fn stat(self, dir_fd: DirFd, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
         os_stat(
-            Either::A(self.path().try_into_ref(vm)?),
+            Either::A(PyPathLike::new_str(
+                self.entry.path().to_str().unwrap().to_owned(),
+            )),
             dir_fd,
             follow_symlinks,
             vm,
@@ -588,6 +651,7 @@ impl DirEntryRef {
 struct ScandirIterator {
     entries: RefCell<fs::ReadDir>,
     exhausted: Cell<bool>,
+    mode: OutputMode,
 }
 
 impl PyValue for ScandirIterator {
@@ -606,7 +670,12 @@ impl ScandirIterator {
 
         match self.entries.borrow_mut().next() {
             Some(entry) => match entry {
-                Ok(entry) => Ok(DirEntry { entry }.into_ref(vm).into_object()),
+                Ok(entry) => Ok(DirEntry {
+                    entry,
+                    mode: self.mode,
+                }
+                .into_ref(vm)
+                .into_object()),
                 Err(s) => Err(convert_io_error(vm, s)),
             },
             None => {
@@ -637,16 +706,17 @@ impl ScandirIterator {
     }
 }
 
-fn os_scandir(path: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
+fn os_scandir(path: OptionalArg<PyPathLike>, vm: &VirtualMachine) -> PyResult {
     let path = match path {
-        OptionalArg::Present(ref path) => path.as_str(),
-        OptionalArg::Missing => ".",
+        OptionalArg::Present(path) => path,
+        OptionalArg::Missing => PyPathLike::new_str(".".to_owned()),
     };
 
-    match fs::read_dir(path) {
+    match fs::read_dir(path.path) {
         Ok(iter) => Ok(ScandirIterator {
             entries: RefCell::new(iter),
             exhausted: Cell::new(false),
+            mode: path.mode,
         }
         .into_ref(vm)
         .into_object()),
@@ -697,7 +767,7 @@ fn to_seconds_from_nanos(secs: i64, nanos: i64) -> f64 {
 
 #[cfg(unix)]
 fn os_stat(
-    file: Either<PyStringRef, i64>,
+    file: Either<PyPathLike, i64>,
     dir_fd: DirFd,
     follow_symlinks: FollowSymlinks,
     vm: &VirtualMachine,
@@ -714,8 +784,7 @@ fn os_stat(
     let get_stats = move || -> io::Result<PyObjectRef> {
         let meta = match file {
             Either::A(path) => {
-                let path = make_path(vm, path, &dir_fd);
-                let path = path.as_str();
+                let path = make_path(vm, &path.path, &dir_fd);
                 if follow_symlinks.follow_symlinks {
                     fs::metadata(path)?
                 } else {
@@ -771,7 +840,7 @@ fn attributes_to_mode(attr: u32) -> u32 {
 
 #[cfg(windows)]
 fn os_stat(
-    file: Either<PyStringRef, i64>,
+    file: Either<PyPathLike, i64>,
     _dir_fd: DirFd, // TODO: error
     follow_symlinks: FollowSymlinks,
     vm: &VirtualMachine,
@@ -781,8 +850,8 @@ fn os_stat(
     let get_stats = move || -> io::Result<PyObjectRef> {
         let meta = match file {
             Either::A(path) => match follow_symlinks.follow_symlinks {
-                true => fs::metadata(path.as_str())?,
-                false => fs::symlink_metadata(path.as_str())?,
+                true => fs::metadata(path.path)?,
+                false => fs::symlink_metadata(path.path)?,
             },
             Either::B(fno) => {
                 let f = rust_file(fno);
@@ -825,7 +894,7 @@ fn os_stat(
     unimplemented!();
 }
 
-fn os_lstat(file: Either<PyStringRef, i64>, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
+fn os_lstat(file: Either<PyPathLike, i64>, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
     os_stat(
         file,
         dir_fd,
@@ -844,8 +913,8 @@ fn os_symlink(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     use std::os::unix::fs as unix_fs;
-    let dst = make_path(vm, dst, &dir_fd);
-    unix_fs::symlink(src.as_str(), dst.as_str()).map_err(|err| convert_io_error(vm, err))
+    let dst = make_path(vm, dst.as_str(), &dir_fd);
+    unix_fs::symlink(src.as_str(), dst).map_err(|err| convert_io_error(vm, err))
 }
 
 #[cfg(windows)]
@@ -1005,16 +1074,16 @@ fn os_chmod(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     use std::os::unix::fs::PermissionsExt;
-    let path = make_path(vm, path, &dir_fd);
+    let path = make_path(vm, path.as_str(), &dir_fd);
     let metadata = if follow_symlinks.follow_symlinks {
-        fs::metadata(path.as_str())
+        fs::metadata(path)
     } else {
-        fs::symlink_metadata(path.as_str())
+        fs::symlink_metadata(path)
     };
     let meta = metadata.map_err(|err| convert_io_error(vm, err))?;
     let mut permissions = meta.permissions();
     permissions.set_mode(mode);
-    fs::set_permissions(path.as_str(), permissions).map_err(|err| convert_io_error(vm, err))?;
+    fs::set_permissions(path, permissions).map_err(|err| convert_io_error(vm, err))?;
     Ok(())
 }
 

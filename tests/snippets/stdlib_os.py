@@ -206,6 +206,8 @@ with TestWithTempDir() as tmpdir:
 	assert stat_res.st_ctime > 1557500000
 	assert stat_res.st_mtime > 1557500000
 
+	bytes_stats_res = os.stat(fname.encode())
+
 	stat_file2 = os.stat(fname2)
 	print(stat_file2.st_ctime)
 	assert stat_file2.st_ctime > stat_res.st_ctime
@@ -381,6 +383,21 @@ with TestWithTempDir() as tmpdir:
         next(dir_iter)
 
     dir_iter.close()
+
+    expected_files_bytes = [(file.encode(), os.path.join(tmpdir, file).encode()) for file in expected_files]
+
+    dir_iter_bytes = os.scandir(tmpdir.encode())
+    collected_files_bytes = [(dir_entry.name, dir_entry.path) for dir_entry in dir_iter_bytes]
+
+    assert set(collected_files_bytes) == set(expected_files_bytes)
+
+    dir_iter_bytes.close()
+
+    collected_files = os.listdir(tmpdir)
+    assert set(collected_files) == set(expected_files)
+
+    collected_files = os.listdir(tmpdir.encode())
+    assert set(collected_files) == set([file.encode() for file in expected_files ])
 
     with TestWithTempCurrentDir():
         os.chdir(tmpdir)
