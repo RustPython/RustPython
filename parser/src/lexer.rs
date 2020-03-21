@@ -566,12 +566,7 @@ where
                             break;
                         }
                     } else {
-                        if c == '\n' && !triple_quoted {
-                            return Err(LexicalError {
-                                error: LexicalErrorType::StringError,
-                                location: self.get_pos(),
-                            });
-                        } else if is_bytes && !c.is_ascii() {
+                        if (c == '\n' && !triple_quoted) || (is_bytes && !c.is_ascii()) {
                             return Err(LexicalError {
                                 error: LexicalErrorType::StringError,
                                 location: self.get_pos(),
