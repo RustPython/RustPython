@@ -7,7 +7,7 @@ use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::{objtype::PyClassRef, objweakref::PyWeak};
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::types::create_type;
 use crate::VirtualMachine;
@@ -25,7 +25,7 @@ use openssl::{
 };
 
 mod sys {
-    use libc::{c_char, c_int};
+    use libc::{c_char, c_double, c_int, c_void};
     pub use openssl_sys::*;
     extern "C" {
         pub fn OBJ_txt2obj(s: *const c_char, no_name: c_int) -> *mut ASN1_OBJECT;
@@ -38,6 +38,8 @@ mod sys {
         pub fn X509_get_default_cert_dir_env() -> *const c_char;
         pub fn X509_get_default_cert_dir() -> *const c_char;
         pub fn SSL_CTX_set_post_handshake_auth(ctx: *mut SSL_CTX, val: c_int);
+        pub fn RAND_add(buf: *const c_void, num: c_int, randomness: c_double);
+        pub fn RAND_pseudo_bytes(buf: *const u8, num: c_int) -> c_int;
     }
 }
 
@@ -185,6 +187,44 @@ fn ssl_get_default_verify_paths() -> (String, String, String, String) {
             convert!(X509_get_default_cert_dir_env),
             convert!(X509_get_default_cert_dir),
         )
+    }
+}
+
+fn ssl_rand_status() -> i32 {
+    unsafe { sys::RAND_status() }
+}
+
+fn ssl_rand_add(string: Either<PyStringRef, PyBytesLike>, entropy: f64) {
+    let f = |b: &[u8]| {
+        for buf in b.chunks(libc::c_int::max_value() as usize) {
+            unsafe { sys::RAND_add(buf.as_ptr() as *const _, buf.len() as _, entropy) }
+        }
+    };
+    match string {
+        Either::A(s) => f(s.as_str().as_bytes()),
+        Either::B(b) => b.with_ref(f),
+    }
+}
+
+fn ssl_rand_bytes(n: i32, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    if n < 0 {
+        return Err(vm.new_value_error("num must be positive".to_owned()));
+    }
+    let mut buf = vec![0; n as usize];
+    openssl::rand::rand_bytes(&mut buf)
+        .map(|()| buf)
+        .map_err(|e| convert_openssl_error(vm, e))
+}
+
+fn ssl_rand_pseudo_bytes(n: i32, vm: &VirtualMachine) -> PyResult<(Vec<u8>, bool)> {
+    if n < 0 {
+        return Err(vm.new_value_error("num must be positive".to_owned()));
+    }
+    let mut buf = vec![0; n as usize];
+    let ret = unsafe { sys::RAND_pseudo_bytes(buf.as_mut_ptr(), n) };
+    match ret {
+        0 | 1 => Ok((buf, ret == 1)),
+        _ => Err(convert_openssl_error(vm, openssl::error::ErrorStack::get())),
     }
 }
 
@@ -500,7 +540,6 @@ impl PySslSocket {
 
     #[pymethod]
     fn do_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
-        use crate::pyobject::Either;
         // Either a stream builder or a mid-handshake stream from WANT_READ or WANT_WRITE
         let mut handshaker: Either<_, ssl::MidHandshakeSslStream<_>> =
             Either::A(self.stream_builder());
@@ -605,6 +644,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "txt2obj" => ctx.new_function(ssl_txt2obj),
         "nid2obj" => ctx.new_function(ssl_nid2obj),
         "get_default_verify_paths" => ctx.new_function(ssl_get_default_verify_paths),
+        "RAND_status" => ctx.new_function(ssl_rand_status),
+        "RAND_add" => ctx.new_function(ssl_rand_add),
+        "RAND_bytes" => ctx.new_function(ssl_rand_bytes),
+        "RAND_pseudo_bytes" => ctx.new_function(ssl_rand_pseudo_bytes),
 
         // Constants
         "OPENSSL_VERSION" => ctx.new_str(openssl::version::version().to_owned()),
