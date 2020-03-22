@@ -19,7 +19,7 @@ use foreign_types_shared::{ForeignType, ForeignTypeRef};
 use openssl::{
     asn1::{Asn1Object, Asn1ObjectRef},
     nid::Nid,
-    ssl::{self, SslContextBuilder, SslVerifyMode},
+    ssl::{self, SslContextBuilder, SslOptions, SslVerifyMode},
 };
 
 mod sys {
@@ -35,6 +35,7 @@ mod sys {
         pub fn X509_get_default_cert_file() -> *const c_char;
         pub fn X509_get_default_cert_dir_env() -> *const c_char;
         pub fn X509_get_default_cert_dir() -> *const c_char;
+        pub fn SSL_CTX_set_post_handshake_auth(ctx: *mut SSL_CTX, val: c_int);
     }
 }
 
@@ -232,12 +233,36 @@ impl PySslContext {
         };
         let mut builder =
             SslContextBuilder::new(method).map_err(|e| convert_openssl_error(vm, e))?;
+
         let check_hostname = proto == SslVersion::TlsClient;
         builder.set_verify(if check_hostname {
             SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT
         } else {
             SslVerifyMode::NONE
         });
+
+        let mut options = SslOptions::ALL & !SslOptions::DONT_INSERT_EMPTY_FRAGMENTS;
+        if proto != SslVersion::Ssl2 {
+            options |= SslOptions::NO_SSLV2;
+        }
+        if proto != SslVersion::Ssl3 {
+            options |= SslOptions::NO_SSLV3;
+        }
+        options |= SslOptions::NO_COMPRESSION;
+        options |= SslOptions::CIPHER_SERVER_PREFERENCE;
+        options |= SslOptions::SINGLE_DH_USE;
+        options |= SslOptions::SINGLE_ECDH_USE;
+        builder.set_options(options);
+
+        let mode = ssl::SslMode::ACCEPT_MOVING_WRITE_BUFFER | ssl::SslMode::AUTO_RETRY;
+        builder.set_mode(mode);
+
+        unsafe { sys::SSL_CTX_set_post_handshake_auth(builder.as_ptr(), 0) };
+
+        builder
+            .set_session_id_context(b"Python")
+            .map_err(|e| convert_openssl_error(vm, e))?;
+
         PySslContext {
             ctx: RefCell::new(builder),
             check_hostname,
