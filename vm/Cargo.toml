@@ -70,7 +70,7 @@ paste = "0.1"
 base64 = "0.11"
 is-macro = "0.1"
 result-like = "^0.2.1"
-foreign-types-shared = "0.1"
+foreign-types = "0.3"
 num_enum = "0.4"
 
 flame = { version = "0.2", optional = true }

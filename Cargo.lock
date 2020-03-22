@@ -1600,7 +1600,7 @@ dependencies = [
  "flame",
  "flamer",
  "flate2",
- "foreign-types-shared",
+ "foreign-types",
  "gethostname",
  "getrandom",
  "hex",
