@@ -41,11 +41,6 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResul
 }
 
 pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
-    println!(
-        "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
-        crate_version!()
-    );
-
     let mut repl = Readline::new(helper::ShellHelper::new(vm, scope.clone()));
     let mut full_input = String::new();
 
