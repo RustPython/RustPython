@@ -6,7 +6,9 @@ use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::{objtype::PyClassRef, objweakref::PyWeak};
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use crate::pyobject::{
+    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 use crate::types::create_type;
 use crate::VirtualMachine;
 
@@ -575,6 +577,19 @@ fn convert_ssl_error(vm: &VirtualMachine, e: ssl::Error) -> PyBaseExceptionRef {
     }
 }
 
+fn parse_version_info(mut n: i64) -> (u8, u8, u8, u8, u8) {
+    let status = (n & 0xF) as u8;
+    n >>= 4;
+    let patch = (n & 0xFF) as u8;
+    n >>= 8;
+    let fix = (n & 0xFF) as u8;
+    n >>= 8;
+    let minor = (n & 0xFF) as u8;
+    n >>= 8;
+    let major = (n & 0xFF) as u8;
+    (major, minor, fix, patch, status)
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     openssl::init();
     let ctx = &vm.ctx;
@@ -592,6 +607,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "get_default_verify_paths" => ctx.new_function(ssl_get_default_verify_paths),
 
         // Constants
+        "OPENSSL_VERSION" => ctx.new_str(openssl::version::version().to_owned()),
+        "OPENSSL_VERSION_NUMBER" => ctx.new_int(openssl::version::number()),
+        "OPENSSL_VERSION_INFO" => parse_version_info(openssl::version::number()).into_pyobject(vm).unwrap(),
         "PROTOCOL_SSLv2" => ctx.new_int(SslVersion::Ssl2 as u32),
         "PROTOCOL_SSLv3" => ctx.new_int(SslVersion::Ssl3 as u32),
         "PROTOCOL_SSLv23" => ctx.new_int(SslVersion::Tls as u32),
