@@ -3,11 +3,10 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::function::OptionalArg;
 use crate::obj::objbytearray::PyByteArrayRef;
 use crate::obj::objbyteinner::PyBytesLike;
-use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objstr::{PyString, PyStringRef};
+use crate::obj::objstr::PyStringRef;
 use crate::obj::{objtype::PyClassRef, objweakref::PyWeak};
 use crate::pyobject::{
-    Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::types::create_type;
 use crate::VirtualMachine;
@@ -23,12 +22,12 @@ use openssl::{
     error::ErrorStack,
     nid::Nid,
     ssl::{self, SslContextBuilder, SslOptions, SslVerifyMode},
-    x509::{X509Ref, X509},
+    x509::{self, X509Ref, X509},
 };
 
 mod sys {
     #![allow(non_camel_case_types, unused)]
-    use libc::{c_char, c_double, c_int, c_void};
+    use libc::{c_char, c_double, c_int, c_long, c_void};
     pub use openssl_sys::*;
     extern "C" {
         pub fn OBJ_txt2obj(s: *const c_char, no_name: c_int) -> *mut ASN1_OBJECT;
@@ -45,6 +44,8 @@ mod sys {
         pub fn RAND_pseudo_bytes(buf: *const u8, num: c_int) -> c_int;
         pub fn X509_STORE_get0_objects(ctx: *mut X509_STORE) -> *mut stack_st_X509_OBJECT;
         pub fn X509_OBJECT_free(a: *mut X509_OBJECT);
+        pub fn SSL_is_init_finished(ssl: *const SSL) -> c_int;
+        pub fn X509_get_version(x: *const X509) -> c_long;
     }
 
     pub enum stack_st_X509_OBJECT {}
@@ -317,7 +318,7 @@ impl PySslContext {
         let method = match proto {
             SslVersion::Ssl2 => todo!(),
             SslVersion::Ssl3 => todo!(),
-            SslVersion::Tls => unsafe { ssl::SslMethod::from_ptr(sys::TLS_method()) },
+            SslVersion::Tls => ssl::SslMethod::tls(),
             SslVersion::Tls1 => todo!(),
             // TODO: Tls1_1, Tls1_2 ?
             SslVersion::TlsClient => unsafe { ssl::SslMethod::from_ptr(sys::TLS_client_method()) },
@@ -482,14 +483,7 @@ impl PySslContext {
             .iter()
             .filter_map(|cert| {
                 let cert = cert.x509()?;
-                let obj = if binary_form {
-                    cert.to_der()
-                        .map(|b| vm.ctx.new_bytes(b))
-                        .map_err(|e| convert_openssl_error(vm, e))
-                } else {
-                    todo!()
-                };
-                Some(obj)
+                Some(cert_to_py(vm, cert, binary_form))
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(vm.ctx.new_list(certs))
@@ -501,18 +495,6 @@ impl PySslContext {
         args: WrapSocketArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PySslSocket> {
-        let server_hostname = args
-            .server_hostname
-            .map(|s| {
-                vm.encode(
-                    s.into_object(),
-                    Some(PyString::from("ascii").into_ref(vm)),
-                    None,
-                )
-                .and_then(|res| PyBytesRef::try_from_object(vm, res))
-            })
-            .transpose()?;
-
         let ssl = {
             let ptr = zelf.ptr();
             let ctx = unsafe { ssl::SslContext::from_ptr(ptr) };
@@ -538,7 +520,7 @@ impl PySslContext {
             ctx: zelf,
             stream: RefCell::new(Some(stream)),
             socket_type,
-            server_hostname,
+            server_hostname: args.server_hostname,
             owner: RefCell::new(args.owner.as_ref().map(PyWeak::downgrade)),
         })
     }
@@ -574,7 +556,7 @@ struct PySslSocket {
     ctx: PyRef<PySslContext>,
     stream: RefCell<Option<ssl::SslStreamBuilder<PySocketRef>>>,
     socket_type: SslServerOrClient,
-    server_hostname: Option<PyBytesRef>,
+    server_hostname: Option<PyStringRef>,
     owner: RefCell<Option<PyWeak>>,
 }
 
@@ -625,8 +607,26 @@ impl PySslSocket {
         self.ctx.clone()
     }
     #[pyproperty]
-    fn server_hostname(&self) -> Option<PyBytesRef> {
+    fn server_hostname(&self) -> Option<PyStringRef> {
         self.server_hostname.clone()
+    }
+
+    #[pymethod]
+    fn peer_certificate(
+        &self,
+        binary: OptionalArg<bool>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let binary = binary.unwrap_or(false);
+        let init_finished = unsafe { sys::SSL_is_init_finished(self.stream().ssl().as_ptr()) } != 0;
+        if !init_finished {
+            return Err(vm.new_value_error("handshake not done yet".to_owned()));
+        }
+        self.stream()
+            .ssl()
+            .peer_certificate()
+            .map(|cert| cert_to_py(vm, &cert, binary))
+            .transpose()
     }
 
     #[pymethod]
@@ -703,6 +703,78 @@ fn convert_ssl_error(vm: &VirtualMachine, e: ssl::Error) -> PyBaseExceptionRef {
     match e.into_io_error() {
         Ok(io_err) => super::os::convert_io_error(vm, io_err),
         Err(e) => convert_openssl_error(vm, e.ssl_error().unwrap().clone()),
+    }
+}
+
+fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
+    if binary {
+        cert.to_der()
+            .map(|b| vm.ctx.new_bytes(b))
+            .map_err(|e| convert_openssl_error(vm, e))
+    } else {
+        let dict = vm.ctx.new_dict();
+
+        let name_to_py = |name: &x509::X509NameRef| {
+            name.entries()
+                .map(|entry| {
+                    let txt = match obj2txt(entry.object(), false) {
+                        Some(s) => vm.new_str(s),
+                        None => vm.get_none(),
+                    };
+                    let data = vm.new_str(entry.data().as_utf8()?.to_owned());
+                    Ok(vm.ctx.new_tuple(vec![vm.ctx.new_tuple(vec![txt, data])]))
+                })
+                .collect::<Result<_, _>>()
+                .map(|list| vm.ctx.new_tuple(list))
+                .map_err(|e| convert_openssl_error(vm, e))
+        };
+
+        dict.set_item("subject", name_to_py(cert.subject_name())?, vm)?;
+        dict.set_item("issuer", name_to_py(cert.issuer_name())?, vm)?;
+
+        let version = unsafe { sys::X509_get_version(cert.as_ptr()) };
+        dict.set_item("version", vm.new_int(version), vm)?;
+
+        let serial_num = cert
+            .serial_number()
+            .to_bn()
+            .and_then(|bn| bn.to_hex_str())
+            .map_err(|e| convert_openssl_error(vm, e))?;
+        dict.set_item("serialNumber", vm.new_str(serial_num.to_owned()), vm)?;
+
+        dict.set_item("notBefore", vm.new_str(cert.not_before().to_string()), vm)?;
+        dict.set_item("notAfter", vm.new_str(cert.not_after().to_string()), vm)?;
+
+        if let Some(names) = cert.subject_alt_names() {
+            let san = names
+                .iter()
+                .filter_map(|gen_name| {
+                    if let Some(email) = gen_name.email() {
+                        Some(vm.ctx.new_tuple(vec![
+                            vm.new_str("email".to_owned()),
+                            vm.new_str(email.to_owned()),
+                        ]))
+                    } else if let Some(dnsname) = gen_name.dnsname() {
+                        Some(vm.ctx.new_tuple(vec![
+                            vm.new_str("DNS".to_owned()),
+                            vm.new_str(dnsname.to_owned()),
+                        ]))
+                    } else if let Some(ip) = gen_name.ipaddress() {
+                        Some(vm.ctx.new_tuple(vec![
+                            vm.new_str("IP Address".to_owned()),
+                            vm.new_str(String::from_utf8_lossy(ip).into_owned()),
+                        ]))
+                    } else {
+                        // TODO: convert every type of general name:
+                        // https://github.com/python/cpython/blob/3.6/Modules/_ssl.c#L1092-L1231
+                        None
+                    }
+                })
+                .collect();
+            dict.set_item("subjectAltName", vm.ctx.new_tuple(san), vm)?;
+        };
+
+        Ok(dict.into_object())
     }
 }
 
