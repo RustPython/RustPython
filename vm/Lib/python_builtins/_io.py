@@ -1949,7 +1949,9 @@ class TextIOWrapper(_TextIOBase):
                     # Importing locale may fail if Python is being built
                     encoding = "ascii"
                 else:
-                    encoding = locale.getpreferredencoding(False)
+                    # XXX RustPython TODO: _locale module
+                    # encoding = locale.getpreferredencoding(False)
+                    encoding = "cp1252" if sys.platform.startswith("win") else locale.getpreferredencoding(False)
 
         if not isinstance(encoding, str):
             raise ValueError("invalid encoding: %r" % encoding)
