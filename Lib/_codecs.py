@@ -239,6 +239,9 @@ def charmap_encode(obj, errors='strict', mapping='latin-1'):
     res = bytes(res)
     return res, len(res)
 
+def charmap_build(s):
+    return {ord(c): i for i, c in enumerate(s)}
+
 if sys.maxunicode == 65535:
     unicode_bytes = 2
 else:
@@ -1525,11 +1528,11 @@ def charmapencode_output(c, mapping):
     rep = mapping[c]
     if isinstance(rep, int) or isinstance(rep, int):
         if rep < 256:
-            return chr(rep)
+            return rep
         else:
             raise TypeError("character mapping must be in range(256)")
     elif isinstance(rep, str):
-        return rep
+        return ord(rep)
     elif rep == None:
         raise KeyError("character maps to <undefined>")
     else:
@@ -1579,7 +1582,7 @@ def PyUnicode_DecodeCharmap(s, size, mapping, errors):
         #/* Get mapping (char ordinal -> integer, Unicode char or None) */
         ch = s[inpos]
         try:
-            x = mapping[ord(ch)]
+            x = mapping[ch]
             if isinstance(x, int):
                 if x < 65536:
                     p += chr(x)
