@@ -264,6 +264,21 @@ def open(file, mode="r", buffering=-1, encoding=None, errors=None,
         raise
 
 
+def open_code(path):
+    """Opens the provided file with mode ``'rb'``. This function
+    should be used when the intent is to treat the contents as
+    executable code.
+
+    ``path`` should be an absolute path.
+
+    When supported by the runtime, this function can be hooked
+    in order to allow embedders more control over code files.
+    This functionality is not supported on the current runtime.
+    """
+    # XXX RustPython TODO: hooks?
+    return open(path, "rb")
+
+
 class DocDescriptor:
     """Helper for builtins.open.__doc__
     """
