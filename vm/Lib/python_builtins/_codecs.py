@@ -239,6 +239,9 @@ def charmap_encode(obj, errors='strict', mapping='latin-1'):
     res = bytes(res)
     return res, len(res)
 
+def charmap_build(s):
+    return {ord(c): i for i, c in enumerate(s)}
+
 if sys.maxunicode == 65535:
     unicode_bytes = 2
 else:
