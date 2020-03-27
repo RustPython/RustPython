@@ -1,10 +1,21 @@
-use super::os::errno_err;
+use super::os::convert_io_error;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::VirtualMachine;
 
 use itertools::Itertools;
+use std::io;
+
+extern "C" {
+    fn _get_errno(pValue: *mut i32) -> i32;
+}
+
+fn get_errno() -> i32 {
+    let mut v = 0;
+    unsafe { _get_errno(&mut v) };
+    v
+}
 
 extern "C" {
     fn _getch() -> i32;
@@ -53,7 +64,10 @@ extern "C" {
 fn msvcrt_setmode(fd: i32, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
     let flags = unsafe { suppress_iph!(_setmode(fd, flags)) };
     if flags == -1 {
-        Err(errno_err(vm))
+        Err(convert_io_error(
+            vm,
+            io::Error::from_raw_os_error(get_errno()),
+        ))
     } else {
         Ok(flags)
     }

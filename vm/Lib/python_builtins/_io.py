@@ -1520,7 +1520,7 @@ class FileIO(_RawIOBase):
             if self._blksize <= 1:
                 self._blksize = DEFAULT_BUFFER_SIZE
 
-            if _setmode:
+            if _setmode and False:
                 # don't translate newlines (\r\n <=> \n)
                 _setmode(fd, os.O_BINARY)
 
