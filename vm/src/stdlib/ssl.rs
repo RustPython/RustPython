@@ -364,12 +364,14 @@ impl PySslContext {
     }
 
     #[pymethod]
-    fn set_ciphers(&self, cipherlist: CString, vm: &VirtualMachine) -> PyResult<()> {
-        self.builder()
-            .set_cipher_list(cipherlist.to_str().unwrap())
-            .map_err(|_| {
-                vm.new_exception_msg(ssl_error(vm), "No cipher can be selected.".to_owned())
-            })
+    fn set_ciphers(&self, cipherlist: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+        let ciphers = cipherlist.as_str();
+        if ciphers.contains('\0') {
+            return Err(vm.new_value_error("embedded null character".to_owned()));
+        }
+        self.builder().set_cipher_list(ciphers).map_err(|_| {
+            vm.new_exception_msg(ssl_error(vm), "No cipher can be selected.".to_owned())
+        })
     }
 
     #[pyproperty]
