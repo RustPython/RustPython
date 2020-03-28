@@ -1507,19 +1507,24 @@ class FileIO(_RawIOBase):
                     os.set_inheritable(fd, False)
 
             self._closefd = closefd
-            fdfstat = os.fstat(fd)
             try:
-                if stat.S_ISDIR(fdfstat.st_mode):
-                    raise IsADirectoryError(errno.EISDIR,
-                                            os.strerror(errno.EISDIR), file)
-            except AttributeError:
-                # Ignore the AttribueError if stat.S_ISDIR or errno.EISDIR
-                # don't exist.
-                pass
-            self._blksize = getattr(fdfstat, 'st_blksize', 0)
-            if self._blksize <= 1:
-                self._blksize = DEFAULT_BUFFER_SIZE
+                fdfstat = os.fstat(fd)
+            except OSError:
+                fdfstat = None
+            else:
+                try:
+                    if stat.S_ISDIR(fdfstat.st_mode):
+                        raise IsADirectoryError(errno.EISDIR,
+                                                os.strerror(errno.EISDIR), file)
+                except AttributeError:
+                    # Ignore the AttribueError if stat.S_ISDIR or errno.EISDIR
+                    # don't exist.
+                    pass
+                self._blksize = getattr(fdfstat, 'st_blksize', 0)
+                if self._blksize <= 1:
+                    self._blksize = DEFAULT_BUFFER_SIZE
 
+            # XXX RustPython TODO: fix _setmode here
             if _setmode and False:
                 # don't translate newlines (\r\n <=> \n)
                 _setmode(fd, os.O_BINARY)
