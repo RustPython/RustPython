@@ -1344,10 +1344,25 @@ fn os_isatty(fd: i32) -> bool {
 
 fn os_lseek(fd: i32, position: Offset, how: i32, vm: &VirtualMachine) -> PyResult<Offset> {
     #[cfg(not(windows))]
-    use libc::lseek;
+    let res = unsafe { suppress_iph!(libc::lseek(fd, position, how)) };
     #[cfg(windows)]
-    use libc::lseek64 as lseek;
-    let res = unsafe { suppress_iph!(lseek(fd, position, how)) };
+    let res = unsafe {
+        use winapi::um::{fileapi, winnt};
+        let mut li = winnt::LARGE_INTEGER::default();
+        *li.QuadPart_mut() = position;
+        let ret = fileapi::SetFilePointer(
+            fd as RawHandle,
+            li.u().LowPart as _,
+            &mut li.u_mut().HighPart,
+            how as _,
+        );
+        if ret == fileapi::INVALID_SET_FILE_POINTER {
+            -1
+        } else {
+            li.u_mut().LowPart = ret;
+            *li.QuadPart()
+        }
+    };
     if res < 0 {
         Err(errno_err(vm))
     } else {
