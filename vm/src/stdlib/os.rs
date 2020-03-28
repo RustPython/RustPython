@@ -37,6 +37,7 @@ use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
 use crate::obj::objstr::{self, PyString, PyStringRef};
+use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -1374,6 +1375,14 @@ fn os_link(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<
     fs::hard_link(src.as_str(), dst.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
+fn os_utime(
+    _path: PyStringRef,
+    _time: OptionalArg<PyTupleRef>,
+    _vm: &VirtualMachine,
+) -> PyResult<()> {
+    unimplemented!("utime")
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1445,7 +1454,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "symlink", os_symlink, None, Some(false), None),
         // truncate Some None None
         SupportFunc::new(vm, "unlink", os_remove, Some(false), Some(false), None),
-        // utime Some Some Some
+        SupportFunc::new(vm, "utime", os_utime, Some(false), Some(false), Some(false)),
     ];
     #[cfg(unix)]
     support_funcs.extend(vec![
