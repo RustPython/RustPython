@@ -1370,6 +1370,10 @@ fn os_lseek(fd: i32, position: Offset, how: i32, vm: &VirtualMachine) -> PyResul
     }
 }
 
+fn os_link(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fs::hard_link(src.as_str(), dst.as_str()).map_err(|err| convert_io_error(vm, err))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1477,6 +1481,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "isatty" => ctx.new_function(os_isatty),
         "lseek" => ctx.new_function(os_lseek),
         "set_inheritable" => ctx.new_function(os_set_inheritable),
+        "link" => ctx.new_function(os_link),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
