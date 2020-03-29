@@ -12,6 +12,7 @@ mod error;
 mod compile_bytecode;
 mod from_args;
 mod pyclass;
+mod pymodule;
 mod util;
 
 use error::{extract_spans, Diagnostic};
@@ -42,6 +43,13 @@ pub fn pyimpl(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr as AttributeArgs);
     let item = parse_macro_input!(item as Item);
     result_to_tokens(pyclass::impl_pyimpl(attr, item))
+}
+
+#[proc_macro_attribute]
+pub fn pymodule(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr = parse_macro_input!(attr as AttributeArgs);
+    let item = parse_macro_input!(item as Item);
+    result_to_tokens(pymodule::impl_pymodule(attr, item))
 }
 
 #[proc_macro_attribute]
