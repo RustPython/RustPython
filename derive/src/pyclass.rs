@@ -1,11 +1,11 @@
 use super::Diagnostic;
-use crate::util::{def_to_name, path_eq, strip_prefix, ItemMeta};
+use crate::util::{def_to_name, path_eq, strip_prefix, ItemIdent, ItemMeta};
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::{HashMap, HashSet};
 use syn::{
     parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Index, Item, Lit, Meta,
-    NestedMeta, Signature,
+    NestedMeta,
 };
 
 fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
@@ -54,7 +54,7 @@ impl Class {
         }
     }
 
-    fn extract_method(sig: &Signature, meta: Meta) -> Result<ClassItem, Diagnostic> {
+    fn extract_method(ident: &Ident, meta: Meta) -> Result<ClassItem, Diagnostic> {
         let nesteds = meta_to_vec(meta).map_err(|meta| {
             err_span!(
                 meta,
@@ -64,14 +64,14 @@ impl Class {
         })?;
 
         let item_meta =
-            ItemMeta::from_nested_meta("pymethod", sig, &nesteds, ItemMeta::ATTRIBUTE_NAMES)?;
+            ItemMeta::from_nested_meta("pymethod", &ident, &nesteds, ItemMeta::ATTRIBUTE_NAMES)?;
         Ok(ClassItem::Method {
-            item_ident: sig.ident.clone(),
+            item_ident: ident.clone(),
             py_name: item_meta.method_name()?,
         })
     }
 
-    fn extract_classmethod(sig: &Signature, meta: Meta) -> Result<ClassItem, Diagnostic> {
+    fn extract_classmethod(ident: &Ident, meta: Meta) -> Result<ClassItem, Diagnostic> {
         let nesteds = meta_to_vec(meta).map_err(|meta| {
             err_span!(
                 meta,
@@ -79,15 +79,19 @@ impl Class {
                  #[pyclassmethod(name = \"...\")]",
             )
         })?;
-        let item_meta =
-            ItemMeta::from_nested_meta("pyclassmethod", sig, &nesteds, ItemMeta::ATTRIBUTE_NAMES)?;
+        let item_meta = ItemMeta::from_nested_meta(
+            "pyclassmethod",
+            &ident,
+            &nesteds,
+            ItemMeta::ATTRIBUTE_NAMES,
+        )?;
         Ok(ClassItem::ClassMethod {
-            item_ident: sig.ident.clone(),
+            item_ident: ident.clone(),
             py_name: item_meta.method_name()?,
         })
     }
 
-    fn extract_property(sig: &Signature, meta: Meta) -> Result<ClassItem, Diagnostic> {
+    fn extract_property(ident: &Ident, meta: Meta) -> Result<ClassItem, Diagnostic> {
         let nesteds = meta_to_vec(meta).map_err(|meta| {
             err_span!(
                 meta,
@@ -96,26 +100,26 @@ impl Class {
             )
         })?;
         let item_meta =
-            ItemMeta::from_nested_meta("pyproperty", sig, &nesteds, ItemMeta::PROPERTY_NAMES)?;
+            ItemMeta::from_nested_meta("pyproperty", &ident, &nesteds, ItemMeta::PROPERTY_NAMES)?;
         Ok(ClassItem::Property {
             py_name: item_meta.property_name()?,
-            item_ident: sig.ident.clone(),
+            item_ident: ident.clone(),
             setter: item_meta.setter()?,
         })
     }
 
-    fn extract_slot(sig: &Signature, meta: Meta) -> Result<ClassItem, Diagnostic> {
+    fn extract_slot(ident: &Ident, meta: Meta) -> Result<ClassItem, Diagnostic> {
         let pyslot_err = "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]";
         let nesteds = meta_to_vec(meta).map_err(|meta| err_span!(meta, "{}", pyslot_err))?;
         if nesteds.len() > 1 {
             return Err(Diagnostic::spanned_error(&quote!(#(#nesteds)*), pyslot_err));
         }
         let slot_ident = if nesteds.is_empty() {
-            let ident_str = sig.ident.to_string();
+            let ident_str = ident.to_string();
             if let Some(stripped) = strip_prefix(&ident_str, "tp_") {
-                proc_macro2::Ident::new(stripped, sig.ident.span())
+                proc_macro2::Ident::new(stripped, ident.span())
             } else {
-                sig.ident.clone()
+                ident.clone()
             }
         } else {
             match nesteds.into_iter().next().unwrap() {
@@ -128,14 +132,14 @@ impl Class {
         };
         Ok(ClassItem::Slot {
             slot_ident,
-            item_ident: sig.ident.clone(),
+            item_ident: ident.clone(),
         })
     }
 
     fn extract_item_from_syn(
         &mut self,
         attrs: &mut Vec<Attribute>,
-        sig: &Signature,
+        ident: &Ident,
     ) -> Result<(), Diagnostic> {
         let mut attr_idxs = Vec::new();
         for (i, meta) in attrs
@@ -149,10 +153,10 @@ impl Class {
                 None => continue,
             };
             let item = match name.to_string().as_str() {
-                "pymethod" => Self::extract_method(sig, meta)?,
-                "pyclassmethod" => Self::extract_classmethod(sig, meta)?,
-                "pyproperty" => Self::extract_property(sig, meta)?,
-                "pyslot" => Self::extract_slot(sig, meta)?,
+                "pymethod" => Self::extract_method(ident, meta)?,
+                "pyclassmethod" => Self::extract_classmethod(ident, meta)?,
+                "pyproperty" => Self::extract_property(ident, meta)?,
+                "pyslot" => Self::extract_slot(ident, meta)?,
                 _ => {
                     continue;
                 }
@@ -177,12 +181,7 @@ impl Class {
     }
 }
 
-struct ItemSig<'a> {
-    attrs: &'a mut Vec<Attribute>,
-    sig: &'a Signature,
-}
-
-fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnostic> {
+fn extract_impl_items(mut items: Vec<ItemIdent>) -> Result<TokenStream2, Diagnostic> {
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
     let mut class = Class::default();
@@ -190,7 +189,7 @@ fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnosti
     for item in items.iter_mut() {
         push_diag_result!(
             diagnostics,
-            class.extract_item_from_syn(&mut item.attrs, item.sig),
+            class.extract_item_from_syn(&mut item.attrs, &item.ident),
         );
     }
 
@@ -356,7 +355,10 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diag
                 .iter_mut()
                 .filter_map(|item| match item {
                     syn::ImplItem::Method(syn::ImplItemMethod { attrs, sig, .. }) => {
-                        Some(ItemSig { attrs, sig })
+                        Some(ItemIdent {
+                            attrs,
+                            ident: &sig.ident,
+                        })
                     }
                     _ => None,
                 })
@@ -386,7 +388,10 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diag
                 .iter_mut()
                 .filter_map(|item| match item {
                     syn::TraitItem::Method(syn::TraitItemMethod { attrs, sig, .. }) => {
-                        Some(ItemSig { attrs, sig })
+                        Some(ItemIdent {
+                            attrs,
+                            ident: &sig.ident,
+                        })
                     }
                     _ => None,
                 })

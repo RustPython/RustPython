@@ -1,12 +1,9 @@
 use super::Diagnostic;
-use crate::util::{def_to_name, ItemMeta};
+use crate::util::{def_to_name, ItemIdent, ItemMeta};
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned};
 use std::collections::HashSet;
-use syn::{
-    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Meta, NestedMeta,
-    Signature,
-};
+use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Meta, NestedMeta};
 
 fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
     match meta {
@@ -24,6 +21,7 @@ struct Module {
 #[derive(PartialEq, Eq, Hash)]
 enum ModuleItem {
     Function { item_ident: Ident, py_name: String },
+    Class { item_ident: Ident, py_name: String },
 }
 
 impl Module {
@@ -38,7 +36,7 @@ impl Module {
         }
     }
 
-    fn extract_function(sig: &Signature, meta: Meta) -> Result<ModuleItem, Diagnostic> {
+    fn extract_function(ident: &Ident, meta: Meta) -> Result<ModuleItem, Diagnostic> {
         let nesteds = meta_to_vec(meta).map_err(|meta| {
             err_span!(
                 meta,
@@ -48,9 +46,26 @@ impl Module {
         })?;
 
         let item_meta =
-            ItemMeta::from_nested_meta("pyfunction", sig, &nesteds, ItemMeta::SIMPLE_NAMES)?;
+            ItemMeta::from_nested_meta("pyfunction", &ident, &nesteds, ItemMeta::SIMPLE_NAMES)?;
         Ok(ModuleItem::Function {
-            item_ident: sig.ident.clone(),
+            item_ident: ident.clone(),
+            py_name: item_meta.simple_name()?,
+        })
+    }
+
+    fn extract_class(ident: &Ident, meta: Meta) -> Result<ModuleItem, Diagnostic> {
+        let nesteds = meta_to_vec(meta).map_err(|meta| {
+            err_span!(
+                meta,
+                "#[pyclass = \"...\"] cannot be a name/value, you probably meant \
+                 #[pyclass(name = \"...\")]",
+            )
+        })?;
+
+        let item_meta =
+            ItemMeta::from_nested_meta("pyclass", &ident, &nesteds, ItemMeta::SIMPLE_NAMES)?;
+        Ok(ModuleItem::Class {
+            item_ident: ident.clone(),
             py_name: item_meta.simple_name()?,
         })
     }
@@ -58,7 +73,7 @@ impl Module {
     fn extract_item_from_syn(
         &mut self,
         attrs: &mut Vec<Attribute>,
-        sig: &Signature,
+        ident: &Ident,
     ) -> Result<(), Diagnostic> {
         let mut attr_idxs = Vec::new();
         for (i, meta) in attrs
@@ -71,12 +86,17 @@ impl Module {
                 Some(name) => name,
                 None => continue,
             };
-            if name == "pyfunction" {
-                self.add_item(Self::extract_function(sig, meta)?, meta_span)?;
-            } else {
-                continue;
-            }
-            attr_idxs.push(i);
+            let item = match name.to_string().as_str() {
+                "pyfunction" => {
+                    attr_idxs.push(i);
+                    Self::extract_function(ident, meta)?
+                }
+                "pyclass" => Self::extract_class(ident, meta)?,
+                _ => {
+                    continue;
+                }
+            };
+            self.add_item(item, meta_span)?;
         }
         let mut i = 0;
         let mut attr_idxs = &*attr_idxs;
@@ -95,31 +115,35 @@ impl Module {
     }
 }
 
-struct ItemSig<'a> {
-    attrs: &'a mut Vec<Attribute>,
-    sig: &'a Signature,
-}
-
-fn extract_module_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnostic> {
+fn extract_module_items(mut items: Vec<ItemIdent>) -> Result<TokenStream2, Diagnostic> {
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
-    let mut class = Module::default();
+    let mut module = Module::default();
 
     for item in items.iter_mut() {
         push_diag_result!(
             diagnostics,
-            class.extract_item_from_syn(&mut item.attrs, item.sig),
+            module.extract_item_from_syn(&mut item.attrs, item.ident),
         );
     }
 
-    let functions = class.items.into_iter().map(|item| match item {
+    let functions = module.items.into_iter().map(|item| match item {
         ModuleItem::Function {
             item_ident,
             py_name,
         } => {
-            let new_func = quote_spanned!(item_ident.span()=> .new_function(#item_ident));
+            let new_func = quote_spanned!(item_ident.span() => .new_function(#item_ident));
             quote! {
                 vm.__module_set_attr(&module, #py_name, vm.ctx#new_func).unwrap();
+            }
+        }
+        ModuleItem::Class {
+            item_ident,
+            py_name,
+        } => {
+            let new_class = quote_spanned!(item_ident.span() => #item_ident::make_class(&vm.ctx));
+            quote! {
+                vm.__module_set_attr(&module, #py_name, #new_class).unwrap();
             }
         }
     });
@@ -140,12 +164,16 @@ pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Di
             let items = content
                 .iter_mut()
                 .filter_map(|item| match item {
-                    syn::Item::Fn(syn::ItemFn {
+                    Item::Fn(syn::ItemFn { attrs, sig, .. }) => Some(ItemIdent {
                         attrs,
-                        vis: _vis,
-                        sig,
-                        ..
-                    }) => Some(ItemSig { attrs, sig }),
+                        ident: &sig.ident,
+                    }),
+                    Item::Struct(syn::ItemStruct { attrs, ident, .. }) => {
+                        Some(ItemIdent { attrs, ident })
+                    }
+                    Item::Enum(syn::ItemEnum { attrs, ident, .. }) => {
+                        Some(ItemIdent { attrs, ident })
+                    }
                     _ => None,
                 })
                 .collect();

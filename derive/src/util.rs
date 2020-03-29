@@ -1,6 +1,6 @@
 use super::Diagnostic;
 use std::collections::HashMap;
-use syn::{AttributeArgs, Ident, Lit, Meta, NestedMeta, Path, Signature};
+use syn::{Attribute, AttributeArgs, Ident, Lit, Meta, NestedMeta, Path};
 
 pub fn path_eq(path: &Path, s: &str) -> bool {
     path.get_ident().map_or(false, |id| id == s)
@@ -40,8 +40,13 @@ pub fn strip_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     }
 }
 
+pub struct ItemIdent<'a> {
+    pub attrs: &'a mut Vec<Attribute>,
+    pub ident: &'a Ident,
+}
+
 pub struct ItemMeta<'a> {
-    sig: &'a Signature,
+    ident: &'a Ident,
     parent_type: &'static str,
     meta: HashMap<String, Option<Lit>>,
 }
@@ -53,12 +58,12 @@ impl<'a> ItemMeta<'a> {
 
     pub fn from_nested_meta(
         parent_type: &'static str,
-        sig: &'a Signature,
+        ident: &'a Ident,
         nested_meta: &[NestedMeta],
         names: &[&'static str],
     ) -> Result<Self, Diagnostic> {
         let mut extracted = Self {
-            sig,
+            ident,
             parent_type,
             meta: HashMap::new(),
         };
@@ -66,18 +71,13 @@ impl<'a> ItemMeta<'a> {
         let validate_name = |name: &str, extracted: &Self| -> Result<(), Diagnostic> {
             if names.contains(&name) {
                 if extracted.meta.contains_key(name) {
-                    bail_span!(
-                        &sig.ident,
-                        "#[{}] must have only one '{}'",
-                        parent_type,
-                        name
-                    );
+                    bail_span!(ident, "#[{}] must have only one '{}'", parent_type, name);
                 } else {
                     Ok(())
                 }
             } else {
                 bail_span!(
-                    &sig.ident,
+                    ident,
                     "#[{}({})] is not one of allowed attributes {}",
                     parent_type,
                     name,
@@ -123,7 +123,7 @@ impl<'a> ItemMeta<'a> {
                     Some(s.value())
                 } else {
                     bail_span!(
-                        &self.sig.ident,
+                        &self.ident,
                         "#[{}({} = ...)] must be a string",
                         self.parent_type,
                         key
@@ -132,7 +132,7 @@ impl<'a> ItemMeta<'a> {
             }
             Some(None) => {
                 bail_span!(
-                    &self.sig.ident,
+                    &self.ident,
                     "#[{}({} = ...)] is expected",
                     self.parent_type,
                     key,
@@ -145,12 +145,7 @@ impl<'a> ItemMeta<'a> {
     fn _bool(&self, key: &str) -> Result<bool, Diagnostic> {
         Ok(match self.meta.get(key) {
             Some(Some(_)) => {
-                bail_span!(
-                    &self.sig.ident,
-                    "#[{}({})] is expected",
-                    self.parent_type,
-                    key,
-                );
+                bail_span!(&self.ident, "#[{}({})] is expected", self.parent_type, key,);
             }
             Some(None) => true,
             None => false,
@@ -158,9 +153,7 @@ impl<'a> ItemMeta<'a> {
     }
 
     pub fn simple_name(&self) -> Result<String, Diagnostic> {
-        Ok(self
-            ._str("name")?
-            .unwrap_or_else(|| self.sig.ident.to_string()))
+        Ok(self._str("name")?.unwrap_or_else(|| self.ident.to_string()))
     }
 
     pub fn method_name(&self) -> Result<String, Diagnostic> {
@@ -169,7 +162,7 @@ impl<'a> ItemMeta<'a> {
         Ok(if let Some(name) = name {
             name
         } else {
-            let name = self.sig.ident.to_string();
+            let name = self.ident.to_string();
             if magic {
                 format!("__{}__", name)
             } else {
@@ -186,12 +179,12 @@ impl<'a> ItemMeta<'a> {
         Ok(if let Some(name) = name {
             name
         } else {
-            let sig_name = self.sig.ident.to_string();
+            let sig_name = self.ident.to_string();
             let name = if setter {
                 if let Some(name) = strip_prefix(&sig_name, "set_") {
                     if name.is_empty() {
                         bail_span!(
-                            &self.sig.ident,
+                            &self.ident,
                             "A #[{}(setter)] fn with a set_* name must \
                              have something after \"set_\"",
                             self.parent_type
@@ -200,7 +193,7 @@ impl<'a> ItemMeta<'a> {
                     name.to_string()
                 } else {
                     bail_span!(
-                        &self.sig.ident,
+                        &self.ident,
                         "A #[{}(setter)] fn must either have a `name` \
                          parameter or a fn name along the lines of \"set_*\"",
                         self.parent_type

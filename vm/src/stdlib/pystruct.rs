@@ -9,7 +9,7 @@
  * https://docs.rs/byteorder/1.2.6/byteorder/
  */
 
-use crate::pyobject::{PyClassImpl, PyObjectRef};
+use crate::pyobject::PyObjectRef;
 use crate::VirtualMachine;
 
 #[pymodule]
@@ -26,7 +26,9 @@ mod _struct {
         objbool::IntoPyBool, objbytes::PyBytesRef, objstr::PyString, objstr::PyStringRef,
         objtuple::PyTuple, objtype::PyClassRef,
     };
-    use crate::pyobject::{Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+    use crate::pyobject::{
+        Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    };
     use crate::VirtualMachine;
 
     #[derive(Debug)]
@@ -663,7 +665,7 @@ mod _struct {
 
     #[pyclass(name = "Struct")]
     #[derive(Debug)]
-    pub(crate) struct PyStruct {
+    struct PyStruct {
         spec: FormatSpec,
         fmt_str: PyStringRef,
     }
@@ -695,6 +697,7 @@ mod _struct {
         fn format(&self) -> PyStringRef {
             self.fmt_str.clone()
         }
+
         #[pyproperty]
         fn size(&self) -> usize {
             self.spec.size()
@@ -730,7 +733,6 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = _struct::make_module(vm);
     extend_module!(vm, module, {
         "error" => struct_error,
-        "Struct" => _struct::PyStruct::make_class(ctx),
     });
     module
 }
