@@ -271,7 +271,7 @@ impl PyFunction {
 #[derive(Debug)]
 pub struct PyBoundMethod {
     // TODO: these shouldn't be public
-    pub object: PyObjectRef,
+    object: PyObjectRef,
     pub function: PyObjectRef,
 }
 
@@ -290,6 +290,14 @@ impl PyBoundMethod {
 
 #[pyimpl(with(SlotCall))]
 impl PyBoundMethod {
+    #[pymethod(magic)]
+    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
+            "<bound method of {}>",
+            vm.to_repr(&self.object)?.as_str()
+        ))
+    }
+
     #[pymethod(magic)]
     fn getattribute(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         vm.get_attribute(self.function.clone(), name)
