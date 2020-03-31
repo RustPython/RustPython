@@ -160,47 +160,54 @@ pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Di
         Item::Mod(mut module) => {
             let module_name = def_to_name(&module.ident, "pymodule", attr)?;
 
-            let content = &mut module.content.as_mut().unwrap().1;
-            let items = content
-                .iter_mut()
-                .filter_map(|item| match item {
-                    Item::Fn(syn::ItemFn { attrs, sig, .. }) => Some(ItemIdent {
-                        attrs,
-                        ident: &sig.ident,
-                    }),
-                    Item::Struct(syn::ItemStruct { attrs, ident, .. }) => {
-                        Some(ItemIdent { attrs, ident })
+            if let Some(content) = module.content.as_mut() {
+                let items = content
+                    .1
+                    .iter_mut()
+                    .filter_map(|item| match item {
+                        Item::Fn(syn::ItemFn { attrs, sig, .. }) => Some(ItemIdent {
+                            attrs,
+                            ident: &sig.ident,
+                        }),
+                        Item::Struct(syn::ItemStruct { attrs, ident, .. }) => {
+                            Some(ItemIdent { attrs, ident })
+                        }
+                        Item::Enum(syn::ItemEnum { attrs, ident, .. }) => {
+                            Some(ItemIdent { attrs, ident })
+                        }
+                        _ => None,
+                    })
+                    .collect();
+
+                let extend_mod = extract_module_items(items)?;
+                content.1.push(parse_quote! {
+                    pub(crate) fn extend_module(
+                        vm: &::rustpython_vm::vm::VirtualMachine,
+                        module: &::rustpython_vm::pyobject::PyObjectRef,
+                    ) {
+                        #extend_mod
                     }
-                    Item::Enum(syn::ItemEnum { attrs, ident, .. }) => {
-                        Some(ItemIdent { attrs, ident })
+                });
+                content.1.push(parse_quote! {
+                    #[allow(dead_code)]
+                    pub(crate) fn make_module(
+                        vm: &::rustpython_vm::vm::VirtualMachine
+                    ) -> ::rustpython_vm::pyobject::PyObjectRef {
+                        let module = vm.new_module(#module_name, vm.ctx.new_dict());
+                        extend_module(vm, &module);
+                        module
                     }
-                    _ => None,
+                });
+
+                Ok(quote! {
+                    #module
                 })
-                .collect();
-
-            let extend_mod = extract_module_items(items)?;
-            content.push(parse_quote! {
-                pub(crate) fn extend_module(
-                    vm: &::rustpython_vm::vm::VirtualMachine,
-                    module: &::rustpython_vm::pyobject::PyObjectRef,
-                ) {
-                    #extend_mod
-                }
-            });
-            content.push(parse_quote! {
-                #[allow(dead_code)]
-                pub(crate) fn make_module(
-                    vm: &::rustpython_vm::vm::VirtualMachine
-                ) -> ::rustpython_vm::pyobject::PyObjectRef {
-                    let module = vm.new_module(#module_name, vm.ctx.new_dict());
-                    extend_module(vm, &module);
-                    module
-                }
-            });
-
-            Ok(quote! {
-                #module
-            })
+            } else {
+                bail_span!(
+                    module,
+                    "#[pymodule] can only be on a module declaration with body"
+                )
+            }
         }
         other => bail_span!(other, "#[pymodule] can only be on a module declaration"),
     }
