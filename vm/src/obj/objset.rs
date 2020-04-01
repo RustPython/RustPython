@@ -631,6 +631,17 @@ macro_rules! multi_args_frozenset {
 
 #[pyimpl(flags(BASETYPE))]
 impl PyFrozenSet {
+    pub fn from_iter(
+        vm: &VirtualMachine,
+        it: impl IntoIterator<Item = PyObjectRef>,
+    ) -> PyResult<Self> {
+        let mut inner = PySetInner::default();
+        for elem in it {
+            inner.add(&elem, vm)?;
+        }
+        Ok(Self { inner })
+    }
+
     #[pyslot]
     fn tp_new(
         cls: PyClassRef,

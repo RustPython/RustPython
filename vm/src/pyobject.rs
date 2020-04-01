@@ -919,6 +919,13 @@ pub struct PyIterable<T = PyObjectRef> {
 }
 
 impl<T> PyIterable<T> {
+    pub fn from_method(method: PyObjectRef) -> Self {
+        PyIterable {
+            method,
+            _item: std::marker::PhantomData,
+        }
+    }
+
     /// Returns an iterator over this sequence of objects.
     ///
     /// This operation may fail if an exception is raised while invoking the
