@@ -298,9 +298,22 @@ impl PyBoundMethod {
         ))
     }
 
+    #[pyproperty(magic)]
+    fn doc(&self, vm: &VirtualMachine) -> PyResult {
+        vm.get_attribute(self.function.clone(), "__doc__")
+    }
+
     #[pymethod(magic)]
-    fn getattribute(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        vm.get_attribute(self.function.clone(), name)
+    fn getattribute(zelf: PyRef<Self>, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(obj) = zelf.class().get_attr(name.as_str()) {
+            return vm.call_if_get_descriptor(obj, zelf.into_object());
+        }
+        vm.get_attribute(zelf.function.clone(), name)
+    }
+
+    #[pyproperty(magic)]
+    fn func(&self) -> PyObjectRef {
+        self.function.clone()
     }
 }
 
