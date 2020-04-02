@@ -6,7 +6,7 @@ use super::objstr;
 use super::objtype::{self, PyClassRef};
 use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
-use crate::function::{KwArgs, OptionalArg};
+use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue,
@@ -41,20 +41,21 @@ impl PyValue for PyDict {
 #[pyimpl(flags(BASETYPE))]
 impl PyDictRef {
     #[pyslot]
-    fn tp_new(
-        class: PyClassRef,
+    fn tp_new(class: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        PyDict {
+            entries: RefCell::new(DictContentType::default()),
+        }
+        .into_ref_with_type(vm, class)
+    }
+
+    #[pymethod(magic)]
+    fn init(
+        self,
         dict_obj: OptionalArg<PyObjectRef>,
         kwargs: KwArgs,
         vm: &VirtualMachine,
-    ) -> PyResult<PyDictRef> {
-        let dict = DictContentType::default();
-
-        let entries = RefCell::new(dict);
-        // it's unfortunate that we can't abstract over RefCall, as we should be able to use dict
-        // directly here, but that would require generic associated types
-        PyDictRef::merge(&entries, dict_obj, kwargs, vm)?;
-
-        PyDict { entries }.into_ref_with_type(vm, class)
+    ) -> PyResult<()> {
+        PyDictRef::merge(&self.entries, dict_obj, kwargs, vm)
     }
 
     fn merge(
