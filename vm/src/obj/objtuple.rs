@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 
 use super::objiter;
@@ -160,7 +160,7 @@ impl PyTuple {
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>) -> PyTupleIterator {
         PyTupleIterator {
-            position: Cell::new(0),
+            position: AtomicCell::new(0),
             tuple: zelf,
         }
     }
@@ -243,7 +243,7 @@ impl PyTuple {
 #[pyclass]
 #[derive(Debug)]
 pub struct PyTupleIterator {
-    position: Cell<usize>,
+    position: AtomicCell<usize>,
     tuple: PyTupleRef,
 }
 
@@ -257,10 +257,10 @@ impl PyValue for PyTupleIterator {
 impl PyTupleIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.position.get() < self.tuple.as_slice().len() {
-            let ret = self.tuple.as_slice()[self.position.get()].clone();
-            self.position.set(self.position.get() + 1);
-            Ok(ret)
+        let pos = self.position.load();
+        if let Some(obj) = self.tuple.as_slice().get(pos) {
+            self.position.store(pos + 1);
+            Ok(obj.clone())
         } else {
             Err(objiter::new_stop_iteration(vm))
         }
