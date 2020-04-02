@@ -701,8 +701,8 @@ impl Frame {
         let module = self.pop_value();
 
         // Grab all the names from the module and put them in the context
-        if let Some(dict) = &module.dict {
-            for (k, v) in &*dict.borrow() {
+        if let Some(dict) = module.dict() {
+            for (k, v) in &dict {
                 let k = vm.to_str(&k)?;
                 let k = k.as_str();
                 if !k.starts_with('_') {

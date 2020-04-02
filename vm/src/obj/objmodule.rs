@@ -55,7 +55,7 @@ impl PyModuleRef {
         let zelf = PyModule {}.into_ref_with_type(vm, cls)?;
         init_module_dict(
             vm,
-            &zelf.as_object().dict.as_ref().unwrap().borrow(),
+            &zelf.as_object().dict().unwrap(),
             name.into_object(),
             doc.flat_option()
                 .map_or_else(|| vm.get_none(), PyRef::into_object),
@@ -98,11 +98,8 @@ impl PyModuleRef {
     fn dir(self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let dict = self
             .as_object()
-            .dict
-            .as_ref()
-            .ok_or_else(|| vm.new_value_error("module has no dict".to_owned()))?
-            .borrow()
-            .clone();
+            .dict()
+            .ok_or_else(|| vm.new_value_error("module has no dict".to_owned()))?;
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();
         Ok(vm.ctx.new_list(attrs))
     }

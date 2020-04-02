@@ -459,6 +459,7 @@ pub type FunctionBox<T> = SmallBox<T, S1>;
 
 /// A built-in Python function.
 pub type PyNativeFunc = FunctionBox<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
+// TODO: + Send + Sync
 
 /// Implemented by types that are or can generate built-in functions.
 ///

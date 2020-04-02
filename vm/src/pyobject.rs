@@ -1,10 +1,11 @@
 use std::any::Any;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::rc::Rc;
+use std::sync::Mutex;
 
 use indexmap::IndexMap;
 use num_bigint::BigInt;
@@ -572,7 +573,7 @@ impl PyContext {
     pub fn new_base_object(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
             typ: class.into_typed_pyobj(),
-            dict: dict.map(RefCell::new),
+            dict: dict.map(Mutex::new),
             payload: objobject::PyBaseObject,
         }
         .into_ref()
@@ -629,7 +630,8 @@ where
     T: ?Sized + PyObjectPayload,
 {
     pub typ: Rc<PyObject<PyClass>>,
-    pub dict: Option<RefCell<PyDictRef>>, // __dict__ member
+    // TODO: make this RwLock once PyObjectRef is Send + Sync
+    pub(crate) dict: Option<Mutex<PyDictRef>>, // __dict__ member
     pub payload: T,
 }
 
@@ -1131,7 +1133,7 @@ where
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
             typ: typ.into_typed_pyobj(),
-            dict: dict.map(RefCell::new),
+            dict: dict.map(Mutex::new),
             payload,
         }
         .into_ref()
@@ -1147,6 +1149,26 @@ where
         T: PyValue,
     {
         PyRef::new_ref_unchecked(self as PyObjectRef)
+    }
+}
+
+impl<T> PyObject<T>
+where
+    T: ?Sized + PyObjectPayload,
+{
+    pub fn dict(&self) -> Option<PyDictRef> {
+        self.dict.as_ref().map(|mu| mu.lock().unwrap().clone())
+    }
+    /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
+    /// in the first place.
+    pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
+        match self.dict {
+            Some(ref mu) => {
+                *mu.lock().unwrap() = dict;
+                Ok(())
+            }
+            None => Err(dict),
+        }
     }
 }
 
