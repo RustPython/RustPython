@@ -6,7 +6,7 @@ use crate::pyobject::{
 use crate::slots::SlotCall;
 use crate::vm::VirtualMachine;
 
-use std::rc::{Rc, Weak};
+use std::sync::{Arc, Weak};
 
 #[pyclass]
 #[derive(Debug)]
@@ -17,7 +17,7 @@ pub struct PyWeak {
 impl PyWeak {
     pub fn downgrade(obj: &PyObjectRef) -> PyWeak {
         PyWeak {
-            referent: Rc::downgrade(obj),
+            referent: Arc::downgrade(obj),
         }
     }
 

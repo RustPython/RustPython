@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 use std::{env, mem};
 
 use crate::frame::FrameRef;
@@ -99,7 +99,7 @@ impl SysFlags {
 }
 
 fn sys_getrefcount(obj: PyObjectRef) -> usize {
-    Rc::strong_count(&obj)
+    Arc::strong_count(&obj)
 }
 
 fn sys_getsizeof(obj: PyObjectRef) -> usize {

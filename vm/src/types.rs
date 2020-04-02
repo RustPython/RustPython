@@ -43,7 +43,7 @@ use crate::pyobject::{PyAttributes, PyContext, PyObject};
 use std::cell::RefCell;
 use std::mem::MaybeUninit;
 use std::ptr;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Holder of references to builtin types.
 #[derive(Debug)]
@@ -294,9 +294,9 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
     // (and yes, this will never get dropped. TODO?)
     let (type_type, object_type) = unsafe {
         type PyClassObj = PyObject<PyClass>;
-        type UninitRef<T> = Rc<MaybeUninit<T>>;
+        type UninitRef<T> = Arc<MaybeUninit<T>>;
 
-        let type_type: UninitRef<PyClassObj> = Rc::new(partially_init!(
+        let type_type: UninitRef<PyClassObj> = Arc::new(partially_init!(
             PyObject::<PyClass> {
                 dict: None,
                 payload: PyClass {
@@ -310,7 +310,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             },
             Uninit { typ }
         ));
-        let object_type: UninitRef<PyClassObj> = Rc::new(partially_init!(
+        let object_type: UninitRef<PyClassObj> = Arc::new(partially_init!(
             PyObject::<PyClass> {
                 dict: None,
                 payload: PyClass {
@@ -326,21 +326,21 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
         ));
 
         let object_type_ptr =
-            Rc::into_raw(object_type) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
+            Arc::into_raw(object_type) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
         let type_type_ptr =
-            Rc::into_raw(type_type.clone()) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
+            Arc::into_raw(type_type.clone()) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
 
         ptr::write(
-            &mut (*object_type_ptr).typ as *mut Rc<PyClassObj> as *mut UninitRef<PyClassObj>,
+            &mut (*object_type_ptr).typ as *mut Arc<PyClassObj> as *mut UninitRef<PyClassObj>,
             type_type.clone(),
         );
         ptr::write(
-            &mut (*type_type_ptr).typ as *mut Rc<PyClassObj> as *mut UninitRef<PyClassObj>,
+            &mut (*type_type_ptr).typ as *mut Arc<PyClassObj> as *mut UninitRef<PyClassObj>,
             type_type,
         );
 
-        let type_type = PyClassRef::new_ref_unchecked(Rc::from_raw(type_type_ptr));
-        let object_type = PyClassRef::new_ref_unchecked(Rc::from_raw(object_type_ptr));
+        let type_type = PyClassRef::new_ref_unchecked(Arc::from_raw(type_type_ptr));
+        let object_type = PyClassRef::new_ref_unchecked(Arc::from_raw(object_type_ptr));
 
         (*type_type_ptr).payload.mro = vec![object_type.clone()];
         (*type_type_ptr).payload.bases = vec![object_type.clone()];

@@ -8,8 +8,7 @@ use std::borrow::Borrow;
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
-use std::rc::Rc;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::{env, fmt};
 
 use arr_macro::arr;
@@ -681,7 +680,7 @@ impl VirtualMachine {
     pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyClassRef) -> PyResult<bool> {
         // cpython first does an exact check on the type, although documentation doesn't state that
         // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
-        if Rc::ptr_eq(&obj.class().into_object(), cls.as_object()) {
+        if Arc::ptr_eq(&obj.class().into_object(), cls.as_object()) {
             Ok(true)
         } else {
             let ret = self.call_method(cls.as_object(), "__instancecheck__", vec![obj.clone()])?;

@@ -4,8 +4,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
 use num_bigint::BigInt;
@@ -62,7 +61,7 @@ Basically reference counting, but then done by rust.
 /// this reference counting is accounted for by this type. Use the `.clone()`
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
-pub type PyObjectRef = Rc<PyObject<dyn PyObjectPayload>>;
+pub type PyObjectRef = Arc<PyObject<dyn PyObjectPayload>>;
 
 /// Use this type for functions which return a python object or an exception.
 /// Both the python object and the python exception are `PyObjectRef` types
@@ -629,7 +628,7 @@ pub struct PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    pub typ: Rc<PyObject<PyClass>>,
+    pub typ: Arc<PyObject<PyClass>>,
     // TODO: make this RwLock once PyObjectRef is Send + Sync
     pub(crate) dict: Option<Mutex<PyDictRef>>, // __dict__ member
     pub payload: T,
@@ -640,7 +639,7 @@ impl PyObject<dyn PyObjectPayload> {
     ///
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
-    pub fn downcast<T: PyObjectPayload>(self: Rc<Self>) -> Result<PyRef<T>, PyObjectRef> {
+    pub fn downcast<T: PyObjectPayload>(self: Arc<Self>) -> Result<PyRef<T>, PyObjectRef> {
         if self.payload_is::<T>() {
             Ok(PyRef {
                 obj: self,
@@ -651,15 +650,15 @@ impl PyObject<dyn PyObjectPayload> {
         }
     }
 
-    /// Downcast this PyObjectRef to an `Rc<PyObject<T>>`. The [`downcast`](#method.downcast) method
+    /// Downcast this PyObjectRef to an `Arc<PyObject<T>>`. The [`downcast`](#method.downcast) method
     /// is generally preferred, as the `PyRef<T>` it returns implements `Deref<Target=T>`, and
     /// therefore can be used similarly to an `&T`.
     pub fn downcast_generic<T: PyObjectPayload>(
-        self: Rc<Self>,
-    ) -> Result<Rc<PyObject<T>>, PyObjectRef> {
+        self: Arc<Self>,
+    ) -> Result<Arc<PyObject<T>>, PyObjectRef> {
         if self.payload_is::<T>() {
-            let ptr = Rc::into_raw(self) as *const PyObject<T>;
-            let ret = unsafe { Rc::from_raw(ptr) };
+            let ptr = Arc::into_raw(self) as *const PyObject<T>;
+            let ret = unsafe { Arc::from_raw(ptr) };
             Ok(ret)
         } else {
             Err(self)
@@ -724,7 +723,7 @@ impl<T: PyValue> PyRef<T> {
         self.obj.class()
     }
 
-    pub fn into_typed_pyobj(self) -> Rc<PyObject<T>> {
+    pub fn into_typed_pyobj(self) -> Arc<PyObject<T>> {
         self.into_object().downcast_generic().unwrap()
     }
 }
@@ -833,7 +832,7 @@ impl<T: ?Sized + PyObjectPayload> IdProtocol for PyObject<T> {
     }
 }
 
-impl<T: ?Sized + IdProtocol> IdProtocol for Rc<T> {
+impl<T: ?Sized + IdProtocol> IdProtocol for Arc<T> {
     fn get_id(&self) -> usize {
         (**self).get_id()
     }
@@ -1141,10 +1140,10 @@ where
 
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
-        Rc::new(self)
+        Arc::new(self)
     }
 
-    pub fn into_pyref(self: Rc<Self>) -> PyRef<T>
+    pub fn into_pyref(self: Arc<Self>) -> PyRef<T>
     where
         T: PyValue,
     {
