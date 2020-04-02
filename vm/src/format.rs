@@ -422,7 +422,7 @@ impl FormatSpec {
             }
         };
 
-        self.format_sign_and_align(magnitude_string, sign_str)
+        self.format_sign_and_align(&magnitude_string, sign_str)
     }
 
     pub fn format_int(&self, num: &BigInt) -> Result<String, &'static str> {
@@ -486,12 +486,19 @@ impl FormatSpec {
             },
         };
 
-        self.format_sign_and_align(magnitude_string, sign_str)
+        self.format_sign_and_align(&magnitude_string, sign_str)
+    }
+
+    pub fn format_string(&self, s: &str) -> Result<String, &'static str> {
+        match self.format_type {
+            Some(FormatType::String) | None => self.format_sign_and_align(s, ""),
+            _ => Err("Unknown format code for object of type 'str'"),
+        }
     }
 
     fn format_sign_and_align(
         &self,
-        magnitude_string: String,
+        magnitude_string: &str,
         sign_str: &str,
     ) -> Result<String, &'static str> {
         let align = self.align.unwrap_or(FormatAlign::Right);

@@ -26,7 +26,7 @@ use crate::cformat::{
     CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
     CNumberType,
 };
-use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatString};
+use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatSpec, FormatString};
 use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
@@ -724,6 +724,16 @@ impl PyString {
                 }
                 _ => Err(vm.new_value_error("Unexpected error parsing format string".to_owned())),
             },
+        }
+    }
+
+    #[pymethod(name = "__format__")]
+    fn format_str(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+        match FormatSpec::parse(spec.as_str())
+            .and_then(|format_spec| format_spec.format_string(&self.value))
+        {
+            Ok(string) => Ok(string),
+            Err(err) => Err(vm.new_value_error(err.to_string())),
         }
     }
 
