@@ -179,9 +179,9 @@ impl WASMVirtualMachine {
     pub(crate) fn push_held_rc(
         &self,
         obj: PyObjectRef,
-    ) -> Result<Weak<PyObject<dyn PyObjectPayload>>, JsValue> {
+    ) -> Result<std::sync::Weak<PyObject<dyn PyObjectPayload>>, JsValue> {
         self.with(|stored_vm| {
-            let weak = Rc::downgrade(&obj);
+            let weak = std::sync::Arc::downgrade(&obj);
             stored_vm.held_objects.borrow_mut().push(obj);
             weak
         })
