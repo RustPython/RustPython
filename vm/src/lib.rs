@@ -88,4 +88,5 @@ pub use rustpython_bytecode::*;
 #[doc(hidden)]
 pub mod __exports {
     pub use maplit::hashmap;
+    pub use smallbox::smallbox;
 }
