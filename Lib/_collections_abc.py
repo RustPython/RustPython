@@ -836,7 +836,11 @@ class MutableMapping(Mapping):
                             len(args))
         if args:
             other = args[0]
-            if isinstance(other, Mapping):
+            try:
+                mapping_inst = isinstance(other, Mapping)
+            except TypeError:
+                mapping_inst = False
+            if mapping_inst:
                 for key in other:
                     self[key] = other[key]
             elif hasattr(other, "keys"):
