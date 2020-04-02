@@ -181,6 +181,9 @@ pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Di
 
                 let extend_mod = extract_module_items(items)?;
                 content.1.push(parse_quote! {
+                    const MODULE_NAME: &str = #module_name;
+                });
+                content.1.push(parse_quote! {
                     pub(crate) fn extend_module(
                         vm: &::rustpython_vm::vm::VirtualMachine,
                         module: &::rustpython_vm::pyobject::PyObjectRef,
@@ -193,7 +196,7 @@ pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Di
                     pub(crate) fn make_module(
                         vm: &::rustpython_vm::vm::VirtualMachine
                     ) -> ::rustpython_vm::pyobject::PyObjectRef {
-                        let module = vm.new_module(#module_name, vm.ctx.new_dict());
+                        let module = vm.new_module(MODULE_NAME, vm.ctx.new_dict());
                         extend_module(vm, &module);
                         module
                     }
