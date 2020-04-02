@@ -93,37 +93,37 @@ impl PyFunction {
         }
 
         // Pack other positional arguments in to *args:
-        match code_object.varargs {
-            bytecode::Varargs::Named(ref vararg_name) => {
-                let mut last_args = vec![];
-                for i in n..nargs {
-                    let arg = &func_args.args[i];
-                    last_args.push(arg.clone());
-                }
-                let vararg_value = vm.ctx.new_tuple(last_args);
-
-                locals.set_item(vararg_name, vararg_value, vm)?;
+        if let Some(ref vararg_name) = code_object.varargs_name {
+            let mut last_args = vec![];
+            for i in n..nargs {
+                let arg = &func_args.args[i];
+                last_args.push(arg.clone());
             }
-            bytecode::Varargs::Unnamed | bytecode::Varargs::None => {
-                // Check the number of positional arguments
-                if nargs > nexpected_args {
-                    return Err(vm.new_type_error(format!(
-                        "Expected {} arguments (got: {})",
-                        nexpected_args, nargs
-                    )));
-                }
+            let vararg_value = vm.ctx.new_tuple(last_args);
+
+            locals.set_item(vararg_name, vararg_value, vm)?;
+        } else {
+            // Check the number of positional arguments
+            if nargs > nexpected_args {
+                return Err(vm.new_type_error(format!(
+                    "Expected {} arguments (got: {})",
+                    nexpected_args, nargs
+                )));
             }
         }
 
         // Do we support `**kwargs` ?
-        let kwargs = match code_object.varkeywords {
-            bytecode::Varargs::Named(ref kwargs_name) => {
-                let d = vm.ctx.new_dict();
+        let kwargs = if code_object
+            .flags
+            .contains(bytecode::CodeFlags::HAS_VARKEYWORDS)
+        {
+            let d = vm.ctx.new_dict();
+            if let Some(ref kwargs_name) = code_object.varkeywords_name {
                 locals.set_item(kwargs_name, d.as_object().clone(), vm)?;
-                Some(d)
             }
-            bytecode::Varargs::Unnamed => Some(vm.ctx.new_dict()),
-            bytecode::Varargs::None => None,
+            Some(d)
+        } else {
+            None
         };
 
         // Handle keyword arguments

@@ -14,7 +14,7 @@ use crate::symboltable::{
 };
 use itertools::Itertools;
 use num_complex::Complex64;
-use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Label, Varargs};
+use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Label};
 use rustpython_parser::{ast, parser};
 
 type BasicOutputStream = PeepholeOptimizer<CodeObjectStream>;
@@ -177,9 +177,9 @@ impl<O: OutputStream> Compiler<O> {
             Default::default(),
             0,
             Vec::new(),
-            Varargs::None,
+            None,
             Vec::new(),
-            Varargs::None,
+            None,
             self.source_path.clone().unwrap(),
             line_number,
             obj_name,
@@ -686,14 +686,29 @@ impl<O: OutputStream> Compiler<O> {
             flags |= bytecode::CodeFlags::HAS_KW_ONLY_DEFAULTS;
         }
 
+        let mut compile_varargs = |va: &ast::Varargs, flag| match va {
+            ast::Varargs::None => None,
+            ast::Varargs::Unnamed => {
+                flags |= flag;
+                None
+            }
+            ast::Varargs::Named(name) => {
+                flags |= flag;
+                Some(name.arg.clone())
+            }
+        };
+
+        let varargs_name = compile_varargs(&args.vararg, bytecode::CodeFlags::HAS_VARARGS);
+        let varkeywords_name = compile_varargs(&args.kwarg, bytecode::CodeFlags::HAS_VARKEYWORDS);
+
         let line_number = self.get_source_line_number();
         self.push_output(CodeObject::new(
             flags,
             args.posonlyargs_count,
             args.args.iter().map(|a| a.arg.clone()).collect(),
-            compile_varargs(&args.vararg),
+            varargs_name,
             args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
-            compile_varargs(&args.kwarg),
+            varkeywords_name,
             self.source_path.clone().unwrap(),
             line_number,
             name.to_owned(),
@@ -970,9 +985,9 @@ impl<O: OutputStream> Compiler<O> {
             Default::default(),
             0,
             vec![],
-            Varargs::None,
+            None,
             vec![],
-            Varargs::None,
+            None,
             self.source_path.clone().unwrap(),
             line_number,
             name.to_owned(),
@@ -1920,9 +1935,9 @@ impl<O: OutputStream> Compiler<O> {
             Default::default(),
             1,
             vec![".0".to_owned()],
-            Varargs::None,
+            None,
             vec![],
-            Varargs::None,
+            None,
             self.source_path.clone().unwrap(),
             line_number,
             name.clone(),
@@ -2221,14 +2236,6 @@ fn try_get_constant_string(string: &ast::StringGroup) -> Option<String> {
 
 fn compile_location(location: &ast::Location) -> bytecode::Location {
     bytecode::Location::new(location.row(), location.column())
-}
-
-fn compile_varargs(varargs: &ast::Varargs) -> bytecode::Varargs {
-    match varargs {
-        ast::Varargs::None => bytecode::Varargs::None,
-        ast::Varargs::Unnamed => bytecode::Varargs::Unnamed,
-        ast::Varargs::Named(param) => bytecode::Varargs::Named(param.arg.clone()),
-    }
 }
 
 fn compile_conversion_flag(conversion_flag: ast::ConversionFlag) -> bytecode::ConversionFlag {

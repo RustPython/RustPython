@@ -1534,6 +1534,7 @@ version = "0.1.1"
 dependencies = [
  "bincode",
  "bitflags",
+ "itertools",
  "lz4-compress",
  "num-bigint",
  "num-complex",

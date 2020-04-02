@@ -106,6 +106,16 @@ impl PyCodeRef {
     fn co_flags(self) -> u8 {
         self.code.flags.bits()
     }
+
+    #[pyproperty]
+    fn co_varnames(self, vm: &VirtualMachine) -> PyObjectRef {
+        let varnames = self
+            .code
+            .varnames()
+            .map(|s| vm.new_str(s.to_owned()))
+            .collect();
+        vm.ctx.new_tuple(varnames)
+    }
 }
 
 pub fn init(ctx: &PyContext) {
