@@ -286,12 +286,20 @@ impl VirtualMachine {
         }
     }
 
-    pub fn run_frame(&self, frame: FrameRef) -> PyResult<ExecutionResult> {
+    pub fn with_frame<R, F: FnOnce(FrameRef) -> PyResult<R>>(
+        &self,
+        frame: FrameRef,
+        f: F,
+    ) -> PyResult<R> {
         self.check_recursive_call("")?;
         self.frames.borrow_mut().push(frame.clone());
-        let result = frame.run(self);
+        let result = f(frame);
         self.frames.borrow_mut().pop();
         result
+    }
+
+    pub fn run_frame(&self, frame: FrameRef) -> PyResult<ExecutionResult> {
+        self.with_frame(frame, |f| Frame::run(f, self))
     }
 
     fn check_recursive_call(&self, _where: &str) -> PyResult<()> {

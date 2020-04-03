@@ -61,14 +61,11 @@ impl FrameRef {
 
     #[pyproperty]
     fn f_lasti(self) -> usize {
-        self.lasti.get()
+        self.lasti()
     }
 
     #[pyproperty]
-    fn f_lineno(self) -> Option<usize> {
-        self.code
-            .locations
-            .get(self.lasti.get())
-            .map(|loc| loc.row())
+    fn f_lineno(self) -> usize {
+        self.current_location().row()
     }
 }

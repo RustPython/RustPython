@@ -7,7 +7,7 @@ fn dump_frame(frame: &FrameRef) {
     eprintln!(
         "  File \"{}\", line {} in {}",
         frame.code.source_path,
-        frame.get_lineno().row(),
+        frame.current_location().row(),
         frame.code.obj_name
     )
 }
