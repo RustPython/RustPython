@@ -291,14 +291,33 @@ impl PyClassRef {
             }
         }
 
-        match new(metatype, name.as_str(), base.clone(), bases, attributes) {
-            Ok(typ) => {
-                typ.slots.borrow_mut().flags = base.slots.borrow().flags;
-                vm.ctx.add_tp_new_wrapper(&typ);
-                Ok(typ.into())
+        let typ = new(metatype, name.as_str(), base.clone(), bases, attributes)
+            .map_err(|e| vm.new_type_error(e))?;
+
+        typ.slots.borrow_mut().flags = base.slots.borrow().flags;
+        vm.ctx.add_tp_new_wrapper(&typ);
+
+        for (name, obj) in typ.attributes.borrow().iter() {
+            if let Some(meth) = vm.get_method(obj.clone(), "__set_name__") {
+                let set_name = meth?;
+                vm.invoke(
+                    &set_name,
+                    vec![typ.clone().into_object(), vm.new_str(name.clone())],
+                )
+                .map_err(|e| {
+                    let err = vm.new_runtime_error(format!(
+                        "Error calling __set_name__ on '{}' instance {} in '{}'",
+                        obj.class().name,
+                        name,
+                        typ.name
+                    ));
+                    err.set_cause(Some(e));
+                    err
+                })?;
             }
-            Err(string) => Err(vm.new_type_error(string)),
         }
+
+        Ok(typ.into_object())
     }
 
     #[pyslot]
