@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
@@ -1012,13 +1011,9 @@ where
             })?;
             Self::try_from_object(
                 vm,
-                objiter::PySequenceIterator {
-                    position: Cell::new(0),
-                    obj: obj.clone(),
-                    reversed: false,
-                }
-                .into_ref(vm)
-                .into_object(),
+                objiter::PySequenceIterator::new_forward(obj)
+                    .into_ref(vm)
+                    .into_object(),
             )
         }
     }
