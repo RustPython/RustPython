@@ -50,7 +50,7 @@ pub struct CodeObject {
 
 bitflags! {
     #[derive(Serialize, Deserialize)]
-    pub struct CodeFlags: u8 {
+    pub struct CodeFlags: u16 {
         const HAS_DEFAULTS = 0x01;
         const HAS_KW_ONLY_DEFAULTS = 0x02;
         const HAS_ANNOTATIONS = 0x04;

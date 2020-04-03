@@ -74,13 +74,8 @@ pub fn import_file(
     file_path: String,
     content: String,
 ) -> PyResult {
-    let code_obj = compile::compile(
-        &content,
-        compile::Mode::Exec,
-        file_path,
-        vm.settings.optimize,
-    )
-    .map_err(|err| vm.new_syntax_error(&err))?;
+    let code_obj = compile::compile(&content, compile::Mode::Exec, file_path, vm.compile_opts())
+        .map_err(|err| vm.new_syntax_error(&err))?;
     import_codeobj(vm, module_name, code_obj, true)
 }
 

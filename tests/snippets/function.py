@@ -13,6 +13,7 @@ assert foo.__doc__ == "test"
 assert foo.__name__ == "foo"
 assert foo.__qualname__ == "foo"
 assert foo.__module__ == "function"
+assert foo.__globals__ is globals()
 
 def my_func(a,):
     return a+2

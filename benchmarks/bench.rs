@@ -94,15 +94,14 @@ fn bench_rustpy_nbody(b: &mut test::Bencher) {
 
     let vm = VirtualMachine::default();
 
-    let code = match vm.compile(source, compile::Mode::Single, "<stdin>".to_owned()) {
-        Ok(code) => code,
-        Err(e) => panic!("{:?}", e),
-    };
+    let code = vm
+        .compile(source, compile::Mode::Exec, "<stdin>".to_owned())
+        .unwrap();
 
     b.iter(|| {
         let scope = vm.new_scope_with_builtins();
         let res: PyResult = vm.run_code_obj(code.clone(), scope);
-        assert!(res.is_ok());
+        vm.unwrap_pyresult(res);
     })
 }
 
@@ -113,14 +112,13 @@ fn bench_rustpy_mandelbrot(b: &mut test::Bencher) {
 
     let vm = VirtualMachine::default();
 
-    let code = match vm.compile(source, compile::Mode::Single, "<stdin>".to_owned()) {
-        Ok(code) => code,
-        Err(e) => panic!("{:?}", e),
-    };
+    let code = vm
+        .compile(source, compile::Mode::Exec, "<stdin>".to_owned())
+        .unwrap();
 
     b.iter(|| {
         let scope = vm.new_scope_with_builtins();
         let res: PyResult = vm.run_code_obj(code.clone(), scope);
-        assert!(res.is_ok());
+        vm.unwrap_pyresult(res);
     })
 }

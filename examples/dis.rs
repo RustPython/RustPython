@@ -62,9 +62,14 @@ fn main() {
     let optimize = matches.occurrences_of("optimize") as u8;
     let scripts = matches.values_of_os("scripts").unwrap();
 
+    let opts = compile::CompileOpts {
+        optimize,
+        ..Default::default()
+    };
+
     for script in scripts.map(Path::new) {
         if script.exists() && script.is_file() {
-            let res = display_script(script, mode, optimize, expand_codeobjects);
+            let res = display_script(script, mode, opts.clone(), expand_codeobjects);
             if let Err(e) = res {
                 error!("Error while compiling {:?}: {}", script, e);
             }
@@ -77,11 +82,11 @@ fn main() {
 fn display_script(
     path: &Path,
     mode: compile::Mode,
-    optimize: u8,
+    opts: compile::CompileOpts,
     expand_codeobjects: bool,
 ) -> Result<(), Box<dyn Error>> {
     let source = fs::read_to_string(path)?;
-    let code = compile::compile(&source, mode, path.to_string_lossy().into_owned(), optimize)?;
+    let code = compile::compile(&source, mode, path.to_string_lossy().into_owned(), opts)?;
     println!("{}:", path.display());
     if expand_codeobjects {
         println!("{}", code.display_expand_codeobjects());

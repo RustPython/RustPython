@@ -29,8 +29,21 @@ struct Compiler<O: OutputStream = BasicOutputStream> {
     source_path: Option<String>,
     current_source_location: ast::Location,
     current_qualified_path: Option<String>,
+    done_with_future_stmts: bool,
     ctx: CompileContext,
-    optimize: u8,
+    opts: CompileOpts,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompileOpts {
+    /// How optimized the bytecode output should be; any optimize > 0 does
+    /// not emit assert statements
+    pub optimize: u8,
+}
+impl Default for CompileOpts {
+    fn default() -> Self {
+        CompileOpts { optimize: 0 }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -60,20 +73,20 @@ pub fn compile(
     source: &str,
     mode: Mode,
     source_path: String,
-    optimize: u8,
+    opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source)?;
-            compile_program(ast, source_path, optimize)
+            compile_program(ast, source_path, opts)
         }
         Mode::Eval => {
             let statement = parser::parse_statement(source)?;
-            compile_statement_eval(statement, source_path, optimize)
+            compile_statement_eval(statement, source_path, opts)
         }
         Mode::Single => {
             let ast = parser::parse_program(source)?;
-            compile_program_single(ast, source_path, optimize)
+            compile_program_single(ast, source_path, opts)
         }
     }
 }
@@ -81,10 +94,10 @@ pub fn compile(
 /// A helper function for the shared code of the different compile functions
 fn with_compiler(
     source_path: String,
-    optimize: u8,
+    opts: CompileOpts,
     f: impl FnOnce(&mut Compiler) -> CompileResult<()>,
 ) -> CompileResult<CodeObject> {
-    let mut compiler = Compiler::new(optimize);
+    let mut compiler = Compiler::new(opts);
     compiler.source_path = Some(source_path);
     compiler.push_new_code_object("<module>".to_owned());
     f(&mut compiler)?;
@@ -97,9 +110,9 @@ fn with_compiler(
 pub fn compile_program(
     ast: ast::Program,
     source_path: String,
-    optimize: u8,
+    opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    with_compiler(source_path, optimize, |compiler| {
+    with_compiler(source_path, opts, |compiler| {
         let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program(&ast, symbol_table)
     })
@@ -109,9 +122,9 @@ pub fn compile_program(
 pub fn compile_statement_eval(
     statement: Vec<ast::Statement>,
     source_path: String,
-    optimize: u8,
+    opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    with_compiler(source_path, optimize, |compiler| {
+    with_compiler(source_path, opts, |compiler| {
         let symbol_table = statements_to_symbol_table(&statement)?;
         compiler.compile_statement_eval(&statement, symbol_table)
     })
@@ -121,9 +134,9 @@ pub fn compile_statement_eval(
 pub fn compile_program_single(
     ast: ast::Program,
     source_path: String,
-    optimize: u8,
+    opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    with_compiler(source_path, optimize, |compiler| {
+    with_compiler(source_path, opts, |compiler| {
         let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program_single(&ast, symbol_table)
     })
@@ -134,12 +147,12 @@ where
     O: OutputStream,
 {
     fn default() -> Self {
-        Compiler::new(0)
+        Compiler::new(CompileOpts::default())
     }
 }
 
 impl<O: OutputStream> Compiler<O> {
-    fn new(optimize: u8) -> Self {
+    fn new(opts: CompileOpts) -> Self {
         Compiler {
             output_stack: Vec::new(),
             symbol_table_stack: Vec::new(),
@@ -147,11 +160,12 @@ impl<O: OutputStream> Compiler<O> {
             source_path: None,
             current_source_location: ast::Location::default(),
             current_qualified_path: None,
+            done_with_future_stmts: false,
             ctx: CompileContext {
                 in_loop: false,
                 func: FunctionContext::NoFunction,
             },
-            optimize,
+            opts,
         }
     }
 
@@ -313,6 +327,16 @@ impl<O: OutputStream> Compiler<O> {
         trace!("Compiling {:?}", statement);
         self.set_source_location(statement.location);
         use ast::StatementType::*;
+
+        match &statement.node {
+            // we do this here because `from __future__` still executes that `from` statement at runtime,
+            // we still need to compile the ImportFrom down below
+            ImportFrom { module, names, .. } if module.as_deref() == Some("__future__") => {
+                self.compile_future_features(&names)?
+            }
+            // if we find any other statement, stop accepting future statements
+            _ => self.done_with_future_stmts = true,
+        }
 
         match &statement.node {
             Import { names } => {
@@ -518,7 +542,7 @@ impl<O: OutputStream> Compiler<O> {
             } => self.compile_class_def(name, body, bases, keywords, decorator_list)?,
             Assert { test, msg } => {
                 // if some flag, ignore all assert statements!
-                if self.optimize == 0 {
+                if self.opts.optimize == 0 {
                     let end_label = self.new_label();
                     self.compile_jump_if(test, true, end_label)?;
                     self.emit(Instruction::LoadName {
@@ -2106,6 +2130,28 @@ impl<O: OutputStream> Compiler<O> {
                     self.emit(Instruction::FormatValue {
                         conversion: conversion.map(compile_conversion_flag),
                     });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_future_features(
+        &mut self,
+        features: &[ast::ImportSymbol],
+    ) -> Result<(), CompileError> {
+        if self.done_with_future_stmts {
+            return Err(self.error(CompileErrorType::InvalidFuturePlacement));
+        }
+        for feature in features {
+            match &*feature.symbol {
+                // Python 3 features; we've already implemented them by default
+                "nested_scopes" | "generators" | "division" | "absolute_import"
+                | "with_statement" | "print_function" | "unicode_literals" => {}
+                // "generator_stop" => {}
+                // "annotations" => {}
+                other => {
+                    return Err(self.error(CompileErrorType::InvalidFutureFeature(other.to_owned())))
                 }
             }
         }

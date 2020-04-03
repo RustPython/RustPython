@@ -2,19 +2,22 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
-use js_sys::{Object, Reflect, SyntaxError, TypeError};
+use js_sys::{Object, TypeError};
 use wasm_bindgen::prelude::*;
 
 use rustpython_compiler::compile;
 use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue};
+use rustpython_vm::pyobject::{
+    ItemProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue,
+};
 use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::{InitParameter, PySettings, VirtualMachine};
 
 use crate::browser_module::setup_browser_module;
-use crate::convert;
+use crate::convert::{self, PyResultExt};
 use crate::js_module;
 use crate::wasm_builtins;
+use rustpython_compiler::mode::Mode;
 
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
@@ -251,7 +254,47 @@ impl WASMVirtualMachine {
     }
 
     #[wasm_bindgen(js_name = injectModule)]
-    pub fn inject_module(&self, name: String, module: Object) -> Result<(), JsValue> {
+    pub fn inject_module(
+        &self,
+        name: String,
+        source: &str,
+        imports: Option<Object>,
+    ) -> Result<(), JsValue> {
+        self.with(|StoredVirtualMachine { ref vm, .. }| {
+            let code = vm
+                .compile(source, Mode::Exec, name.clone())
+                .map_err(convert::syntax_err)?;
+            let attrs = vm.ctx.new_dict();
+            attrs
+                .set_item("__name__", vm.new_str(name.clone()), vm)
+                .to_js(vm)?;
+
+            if let Some(imports) = imports {
+                for entry in convert::object_entries(&imports) {
+                    let (key, value) = entry?;
+                    let key: String = Object::from(key).to_string().into();
+                    attrs
+                        .set_item(&key, convert::js_to_py(vm, value), vm)
+                        .to_js(vm)?;
+                }
+            }
+
+            vm.run_code_obj(code, Scope::new(None, attrs.clone(), vm))
+                .to_js(vm)?;
+
+            let module = vm.new_module(&name, attrs);
+
+            let sys_modules = vm
+                .get_attribute(vm.sys_module.clone(), "modules")
+                .to_js(vm)?;
+            sys_modules.set_item(&name, module, vm).to_js(vm)?;
+
+            Ok(())
+        })?
+    }
+
+    #[wasm_bindgen(js_name = injectJSModule)]
+    pub fn inject_js_module(&self, name: String, module: Object) -> Result<(), JsValue> {
         self.with(|StoredVirtualMachine { ref vm, .. }| {
             let mut module_items: HashMap<String, PyObjectRef> = HashMap::new();
             for entry in convert::object_entries(&module) {
@@ -284,28 +327,17 @@ impl WASMVirtualMachine {
         mode: compile::Mode,
         source_path: Option<String>,
     ) -> Result<JsValue, JsValue> {
-        self.assert_valid()?;
-        self.with_unchecked(
+        self.with(
             |StoredVirtualMachine {
                  ref vm, ref scope, ..
              }| {
                 let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
                 let code = vm.compile(source, mode, source_path);
-                let code = code.map_err(|err| {
-                    let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
-                    let _ =
-                        Reflect::set(&js_err, &"row".into(), &(err.location.row() as u32).into());
-                    let _ = Reflect::set(
-                        &js_err,
-                        &"col".into(),
-                        &(err.location.column() as u32).into(),
-                    );
-                    js_err
-                })?;
+                let code = code.map_err(convert::syntax_err)?;
                 let result = vm.run_code_obj(code, scope.borrow().clone());
                 convert::pyresult_to_jsresult(vm, result)
             },
-        )
+        )?
     }
 
     pub fn exec(&self, source: &str, source_path: Option<String>) -> Result<JsValue, JsValue> {

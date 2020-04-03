@@ -278,6 +278,11 @@ impl PyFunction {
     fn kwdefaults(&self) -> Option<PyDictRef> {
         self.kw_only_defaults.clone()
     }
+
+    #[pyproperty(magic)]
+    fn globals(&self) -> PyDictRef {
+        self.scope.globals.clone()
+    }
 }
 
 #[pyclass]
