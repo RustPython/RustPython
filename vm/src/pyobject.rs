@@ -649,7 +649,7 @@ impl PyObject<dyn PyObjectPayload> {
         }
     }
 
-    /// Dowcast this PyObjectRef to an `Rc<PyObject<T>>`. The [`downcast`](#method.downcast) method
+    /// Downcast this PyObjectRef to an `Rc<PyObject<T>>`. The [`downcast`](#method.downcast) method
     /// is generally preferred, as the `PyRef<T>` it returns implements `Deref<Target=T>`, and
     /// therefore can be used similarly to an `&T`.
     pub fn downcast_generic<T: PyObjectPayload>(
