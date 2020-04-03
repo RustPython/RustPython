@@ -78,15 +78,15 @@ pub fn compile(
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source)?;
-            compile_program(ast, source_path.clone(), opts)
+            compile_program(ast, source_path, opts)
         }
         Mode::Eval => {
             let statement = parser::parse_statement(source)?;
-            compile_statement_eval(statement, source_path.clone(), opts)
+            compile_statement_eval(statement, source_path, opts)
         }
         Mode::Single => {
             let ast = parser::parse_program(source)?;
-            compile_program_single(ast, source_path.clone(), opts)
+            compile_program_single(ast, source_path, opts)
         }
     }
 }
@@ -2141,12 +2141,7 @@ impl<O: OutputStream> Compiler<O> {
         features: &[ast::ImportSymbol],
     ) -> Result<(), CompileError> {
         if self.done_with_future_stmts {
-            return Err(CompileError {
-                error: CompileErrorType::InvalidFuturePlacement,
-                location: self.current_source_location.clone(),
-                source_path: self.source_path.clone(),
-                statement: None,
-            });
+            return Err(self.error(CompileErrorType::InvalidFuturePlacement));
         }
         for feature in features {
             match &*feature.symbol {
@@ -2156,12 +2151,7 @@ impl<O: OutputStream> Compiler<O> {
                 // "generator_stop" => {}
                 // "annotations" => {}
                 other => {
-                    return Err(CompileError {
-                        error: CompileErrorType::InvalidFutureFeature(other.to_owned()),
-                        location: self.current_source_location.clone(),
-                        source_path: self.source_path.clone(),
-                        statement: None,
-                    })
+                    return Err(self.error(CompileErrorType::InvalidFutureFeature(other.to_owned())))
                 }
             }
         }
