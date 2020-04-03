@@ -526,7 +526,7 @@ pub fn new(
             slots: RefCell::default(),
         },
         dict: None,
-        typ: typ.into_generic_pyobj(),
+        typ: typ.into_typed_pyobj(),
     }
     .into_ref();
 

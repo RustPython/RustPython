@@ -571,7 +571,7 @@ impl PyContext {
 
     pub fn new_base_object(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: class.into_generic_pyobj(),
+            typ: class.into_typed_pyobj(),
             dict: dict.map(RefCell::new),
             payload: objobject::PyBaseObject,
         }
@@ -722,7 +722,7 @@ impl<T: PyValue> PyRef<T> {
         self.obj.class()
     }
 
-    pub fn into_generic_pyobj(self) -> Rc<PyObject<T>> {
+    pub fn into_typed_pyobj(self) -> Rc<PyObject<T>> {
         self.into_object().downcast_generic().unwrap()
     }
 }
@@ -1123,7 +1123,7 @@ where
     #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: typ.into_generic_pyobj(),
+            typ: typ.into_typed_pyobj(),
             dict: dict.map(RefCell::new),
             payload,
         }
