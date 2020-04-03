@@ -41,7 +41,6 @@ def va2(*args, **kwargs):
     assert args == (5, 4)
     assert len(kwargs) == 0
 
-
 va2(5, 4)
 x = (5, 4)
 va2(*x)
@@ -114,3 +113,19 @@ x = {'a': 1}
 y = {'a': 2}
 with assert_raises(TypeError):
     f(**x, **y)
+
+
+def f(a, b, /, c, d, *, e, f):
+    return a + b + c + d + e + f
+
+assert f(1,2,3,4,e=5,f=6) == 21
+assert f(1,2,3,d=4,e=5,f=6) == 21
+assert f(1,2,c=3,d=4,e=5,f=6) == 21
+with assert_raises(TypeError):
+    f(1,b=2,c=3,d=4,e=5,f=6)
+with assert_raises(TypeError):
+    f(a=1,b=2,c=3,d=4,e=5,f=6)
+with assert_raises(TypeError):
+    f(1,2,3,4,5,f=6)
+with assert_raises(TypeError):
+    f(1,2,3,4,5,6)

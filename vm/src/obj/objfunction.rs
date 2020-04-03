@@ -15,7 +15,8 @@ use crate::pyobject::{
 };
 use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
-use crate::vm::VirtualMachine;
+use crate::VirtualMachine;
+use itertools::Itertools;
 
 pub type PyFunctionRef = PyRef<PyFunction>;
 
@@ -72,6 +73,7 @@ impl PyFunction {
     ) -> PyResult<()> {
         let nargs = func_args.args.len();
         let nexpected_args = code_object.arg_names.len();
+        let posonly_args = &code_object.arg_names[..code_object.posonlyarg_count];
 
         // This parses the arguments from args and kwargs into
         // the proper variables keeping into account default values
@@ -126,12 +128,16 @@ impl PyFunction {
             bytecode::Varargs::None => None,
         };
 
+        let mut posonly_passed_as_kwarg = Vec::new();
         // Handle keyword arguments
         for (name, value) in func_args.kwargs {
             // Check if we have a parameter with this name:
             if code_object.arg_names.contains(&name) || code_object.kwonlyarg_names.contains(&name)
             {
-                if locals.contains_key(&name, vm) {
+                if posonly_args.contains(&name) {
+                    posonly_passed_as_kwarg.push(name);
+                    continue;
+                } else if locals.contains_key(&name, vm) {
                     return Err(
                         vm.new_type_error(format!("Got multiple values for argument '{}'", name))
                     );
@@ -145,6 +151,13 @@ impl PyFunction {
                     vm.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
                 );
             }
+        }
+        if !posonly_passed_as_kwarg.is_empty() {
+            return Err(vm.new_type_error(format!(
+                "{}() got some positional-only arguments passed as keyword arguments: '{}'",
+                &code_object.obj_name,
+                posonly_passed_as_kwarg.into_iter().format(", "),
+            )));
         }
 
         // Add missing positional arguments, if we have fewer positional arguments than the
