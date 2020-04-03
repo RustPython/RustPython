@@ -1,8 +1,9 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::fmt;
 use std::mem::size_of;
 use std::ops::Range;
 
+use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
@@ -28,6 +29,7 @@ use crate::vm::{ReprGuard, VirtualMachine};
 #[pyclass]
 #[derive(Default)]
 pub struct PyList {
+    // TODO: make this a RwLock at the same time as PyObjectRef is Send + Sync
     elements: RefCell<Vec<PyObjectRef>>,
 }
 
@@ -234,7 +236,7 @@ impl PyList {
     fn reversed(zelf: PyRef<Self>) -> PyListReverseIterator {
         let final_position = zelf.elements.borrow().len();
         PyListReverseIterator {
-            position: Cell::new(final_position),
+            position: AtomicCell::new(final_position),
             list: zelf,
         }
     }
@@ -252,7 +254,7 @@ impl PyList {
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>) -> PyListIterator {
         PyListIterator {
-            position: Cell::new(0),
+            position: AtomicCell::new(0),
             list: zelf,
         }
     }
@@ -844,7 +846,7 @@ fn do_sort(
 #[pyclass]
 #[derive(Debug)]
 pub struct PyListIterator {
-    pub position: Cell<usize>,
+    pub position: AtomicCell<usize>,
     pub list: PyListRef,
 }
 
@@ -858,10 +860,11 @@ impl PyValue for PyListIterator {
 impl PyListIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.position.get() < self.list.elements.borrow().len() {
-            let ret = self.list.elements.borrow()[self.position.get()].clone();
-            self.position.set(self.position.get() + 1);
-            Ok(ret)
+        let list = self.list.elements.borrow();
+        let pos = self.position.load();
+        if let Some(obj) = list.get(pos) {
+            self.position.store(pos + 1);
+            Ok(obj.clone())
         } else {
             Err(objiter::new_stop_iteration(vm))
         }
@@ -874,14 +877,16 @@ impl PyListIterator {
 
     #[pymethod(name = "__length_hint__")]
     fn length_hint(&self) -> usize {
-        self.list.elements.borrow().len() - self.position.get()
+        let list = self.list.elements.borrow();
+        let pos = self.position.load();
+        list.len() - pos
     }
 }
 
 #[pyclass]
 #[derive(Debug)]
 pub struct PyListReverseIterator {
-    pub position: Cell<usize>,
+    pub position: AtomicCell<usize>,
     pub list: PyListRef,
 }
 
@@ -895,10 +900,12 @@ impl PyValue for PyListReverseIterator {
 impl PyListReverseIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.position.get() > 0 {
-            let position: usize = self.position.get() - 1;
-            let ret = self.list.elements.borrow()[position].clone();
-            self.position.set(position);
+        let pos = self.position.load();
+        if pos > 0 {
+            let pos = pos - 1;
+            let list = self.list.elements.borrow();
+            let ret = list[pos].clone();
+            self.position.store(pos);
             Ok(ret)
         } else {
             Err(objiter::new_stop_iteration(vm))
@@ -912,7 +919,7 @@ impl PyListReverseIterator {
 
     #[pymethod(name = "__length_hint__")]
     fn length_hint(&self) -> usize {
-        self.position.get()
+        self.position.load()
     }
 }
 

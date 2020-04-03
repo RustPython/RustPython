@@ -2,7 +2,7 @@
  * Builtin set type with a sequence of unique items.
  */
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::fmt;
 
 use super::objlist::PyListIterator;
@@ -244,7 +244,7 @@ impl PySetInner {
         let items = self.content.keys().collect();
         let set_list = vm.ctx.new_list(items);
         PyListIterator {
-            position: Cell::new(0),
+            position: crossbeam_utils::atomic::AtomicCell::new(0),
             list: set_list.downcast().unwrap(),
         }
     }
