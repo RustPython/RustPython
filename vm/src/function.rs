@@ -4,6 +4,7 @@ use std::ops::RangeInclusive;
 
 use indexmap::IndexMap;
 use result_like::impl_option_like;
+use smallbox::{smallbox, space::S1, SmallBox};
 
 use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtuple::PyTuple;
@@ -453,8 +454,11 @@ tuple_from_py_func_args!(A, B, C, D);
 tuple_from_py_func_args!(A, B, C, D, E);
 tuple_from_py_func_args!(A, B, C, D, E, F);
 
+/// A container that can hold a `dyn Fn*` trait object, but doesn't allocate if it's only a fn() pointer
+pub type FunctionBox<T> = SmallBox<T, S1>;
+
 /// A built-in Python function.
-pub type PyNativeFunc = Box<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
+pub type PyNativeFunc = FunctionBox<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
 
 /// Implemented by types that are or can generate built-in functions.
 ///
@@ -479,7 +483,7 @@ where
     F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static,
 {
     fn into_func(self) -> PyNativeFunc {
-        Box::new(self)
+        smallbox!(self)
     }
 }
 
@@ -499,7 +503,7 @@ macro_rules! into_py_native_func_tuple {
             R: IntoPyObject,
         {
             fn into_func(self) -> PyNativeFunc {
-                Box::new(move |vm, args| {
+                smallbox!(move |vm: &VirtualMachine, args: PyFuncArgs| {
                     let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
                     (self)($($n,)* vm).into_pyobject(vm)
@@ -515,7 +519,7 @@ macro_rules! into_py_native_func_tuple {
             R: IntoPyObject,
         {
             fn into_func(self) -> PyNativeFunc {
-                Box::new(move |vm, args| {
+                smallbox!(move |vm: &VirtualMachine, args: PyFuncArgs| {
                     let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
 
                     (self)(&zelf, $($n,)* vm).into_pyobject(vm)
@@ -596,4 +600,16 @@ pub fn single_or_tuple_any<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>>(
         t: PhantomData,
     };
     checker.check(obj)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_functionbox_noalloc() {
+        fn py_func(_b: bool, _vm: &crate::VirtualMachine) -> i32 {
+            1
+        }
+        let f = super::IntoPyNativeFunc::into_func(py_func);
+        assert!(!f.is_heap());
+    }
 }

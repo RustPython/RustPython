@@ -458,7 +458,7 @@ fn extract_impl_items(mut items: Vec<ItemSig>) -> Result<TokenStream2, Diagnosti
             let transform = if vec!["new", "call"].contains(&slot_ident.to_string().as_str()) {
                 quote! { ::rustpython_vm::function::IntoPyNativeFunc::into_func }
             } else {
-                quote! { Box::new }
+                quote! { ::rustpython_vm::__exports::smallbox! }
             };
             let into_func = quote_spanned! {item_ident.span()=>
                 #transform(Self::#item_ident)

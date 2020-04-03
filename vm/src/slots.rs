@@ -1,4 +1,4 @@
-use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
+use crate::function::{FunctionBox, OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::pyobject::{IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
 
@@ -44,7 +44,7 @@ pub trait SlotCall: PyValue {
     fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult;
 }
 
-pub type PyDescrGetFunc = Box<
+pub type PyDescrGetFunc = FunctionBox<
     dyn Fn(&VirtualMachine, PyObjectRef, Option<PyObjectRef>, OptionalArg<PyObjectRef>) -> PyResult,
 >;
 
