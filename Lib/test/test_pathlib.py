@@ -2257,6 +2257,7 @@ class PosixPathTest(_BasePathTest, unittest.TestCase):
 
     @unittest.skipIf(sys.platform != "darwin",
                      "Bad file descriptor in /dev/fd affects only macOS")
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_handling_bad_descriptor(self):
         try:
             file_descriptors = list(pathlib.Path('/dev/fd').rglob("*"))[3:]
