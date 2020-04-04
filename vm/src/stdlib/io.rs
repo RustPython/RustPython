@@ -550,7 +550,7 @@ mod fileio {
                 (
                     name.clone().into_object(),
                     os::os_open(
-                        name,
+                        os::PyPathLike::new_str(name.as_str().to_owned()),
                         mode as _,
                         OptionalArg::Missing,
                         OptionalArg::Missing,
