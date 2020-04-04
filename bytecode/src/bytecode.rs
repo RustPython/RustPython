@@ -2,6 +2,7 @@
 //! implements bytecode structure.
 
 use bitflags::bitflags;
+use itertools::Itertools;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use serde::{Deserialize, Serialize};
@@ -40,9 +41,9 @@ pub struct CodeObject {
     pub flags: CodeFlags,
     pub posonlyarg_count: usize, // Number of positional-only arguments
     pub arg_names: Vec<String>,  // Names of positional arguments
-    pub varargs: Varargs,        // *args or *
+    pub varargs_name: Option<String>, // *args or *
     pub kwonlyarg_names: Vec<String>,
-    pub varkeywords: Varargs, // **kwargs or **
+    pub varkeywords_name: Option<String>, // **kwargs or **
     pub source_path: String,
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
@@ -57,6 +58,8 @@ bitflags! {
         const NEW_LOCALS = 0x08;
         const IS_GENERATOR = 0x10;
         const IS_COROUTINE = 0x20;
+        const HAS_VARARGS = 0x40;
+        const HAS_VARKEYWORDS = 0x80;
     }
 }
 
@@ -70,6 +73,8 @@ impl CodeFlags {
     pub const NAME_MAPPING: &'static [(&'static str, CodeFlags)] = &[
         ("GENERATOR", CodeFlags::IS_GENERATOR),
         ("COROUTINE", CodeFlags::IS_COROUTINE),
+        ("VARARGS", CodeFlags::HAS_VARARGS),
+        ("VARKEYWORDS", CodeFlags::HAS_VARKEYWORDS),
     ];
 }
 
@@ -352,13 +357,6 @@ pub enum UnaryOperator {
     Plus,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Varargs {
-    None,
-    Unnamed,
-    Named(String),
-}
-
 /*
 Maintain a stack of blocks on the VM.
 pub enum BlockType {
@@ -373,9 +371,9 @@ impl CodeObject {
         flags: CodeFlags,
         posonlyarg_count: usize,
         arg_names: Vec<String>,
-        varargs: Varargs,
+        varargs_name: Option<String>,
         kwonlyarg_names: Vec<String>,
-        varkeywords: Varargs,
+        varkeywords_name: Option<String>,
         source_path: String,
         first_line_number: usize,
         obj_name: String,
@@ -387,9 +385,9 @@ impl CodeObject {
             flags,
             posonlyarg_count,
             arg_names,
-            varargs,
+            varargs_name,
             kwonlyarg_names,
-            varkeywords,
+            varkeywords_name,
             source_path,
             first_line_number,
             obj_name,
@@ -416,6 +414,29 @@ impl CodeObject {
                 None
             }
         })
+    }
+
+    pub fn varnames(&self) -> impl Iterator<Item = &str> + '_ {
+        self.arg_names
+            .iter()
+            .map(String::as_str)
+            .chain(self.kwonlyarg_names.iter().map(String::as_str))
+            .chain(
+                self.instructions
+                    .iter()
+                    .filter_map(|i| match i {
+                        Instruction::LoadName {
+                            name,
+                            scope: NameScope::Local,
+                        }
+                        | Instruction::StoreName {
+                            name,
+                            scope: NameScope::Local,
+                        } => Some(name.as_str()),
+                        _ => None,
+                    })
+                    .unique(),
+            )
     }
 
     fn display_inner(
