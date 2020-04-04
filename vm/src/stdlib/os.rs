@@ -125,7 +125,6 @@ impl PyPathLike {
 
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // TODO: Support Path object
         match_class!(match obj.clone() {
             l @ PyString => {
                 Ok(PyPathLike {
@@ -140,11 +139,38 @@ impl TryFromObject for PyPathLike {
                     mode: OutputMode::Bytes,
                 })
             }
-            _ => {
-                Err(vm.new_type_error(format!(
-                    "path object need to be string or bytes not {}",
-                    obj.class()
-                )))
+            obj => {
+                let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
+                    format!(
+                        "expected str, bytes or os.PathLike object, not '{}'",
+                        obj.class().name
+                    )
+                })?;
+                let result = vm.invoke(&method, PyFuncArgs::default())?;
+                match_class!(match result.clone() {
+                    l @ PyString => {
+                        Ok(PyPathLike {
+                            path: l.as_str().to_owned(),
+                            mode: OutputMode::String,
+                        })
+                    }
+                    i @ PyBytes => {
+                        let path = objstr::clone_value(&vm.call_method(
+                            i.as_object(),
+                            "decode",
+                            vec![],
+                        )?);
+                        Ok(PyPathLike {
+                            path,
+                            mode: OutputMode::Bytes,
+                        })
+                    }
+                    _ => Err(vm.new_type_error(format!(
+                        "expected {}.__fspath__() to return str or bytes, not '{}'",
+                        obj.class().name,
+                        result.class().name
+                    ))),
+                })
             }
         })
     }
