@@ -949,7 +949,7 @@ fn os_symlink(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     use std::os::windows::fs as win_fs;
-    let meta = fs::metadata(src.path).map_err(|err| convert_io_error(vm, err))?;
+    let meta = fs::metadata(src.path.clone()).map_err(|err| convert_io_error(vm, err))?;
     let ret = if meta.is_file() {
         win_fs::symlink_file(src.path, dst.path)
     } else if meta.is_dir() {
