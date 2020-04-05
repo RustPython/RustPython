@@ -1,6 +1,6 @@
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::{self, PyBaseExceptionRef};
-use crate::frame::{ExecutionResult, Frame, FrameRef};
+use crate::frame::{ExecutionResult, FrameRef};
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
@@ -90,7 +90,7 @@ impl Coro {
                 self.variant.name()
             )));
         }
-        let result = self.run_with_context(vm, |f| Frame::resume(f, value, vm));
+        let result = self.run_with_context(vm, |f| f.resume(value, vm));
         self.maybe_close(&result);
         match result {
             Ok(exec_res) => self.variant.exec_result(exec_res, vm),
@@ -123,11 +123,8 @@ impl Coro {
         if self.closed.get() {
             return Err(exceptions::normalize(exc_type, exc_val, exc_tb, vm)?);
         }
-        vm.frames.borrow_mut().push(self.frame.clone());
-        let result =
-            self.run_with_context(vm, |f| Frame::gen_throw(f, vm, exc_type, exc_val, exc_tb));
+        let result = self.run_with_context(vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
         self.maybe_close(&result);
-        vm.frames.borrow_mut().pop();
         self.variant.exec_result(result?, vm)
     }
 
@@ -135,17 +132,14 @@ impl Coro {
         if self.closed.get() {
             return Ok(());
         }
-        vm.frames.borrow_mut().push(self.frame.clone());
         let result = self.run_with_context(vm, |f| {
-            Frame::gen_throw(
-                f,
+            f.gen_throw(
                 vm,
                 vm.ctx.exceptions.generator_exit.clone().into_object(),
                 vm.get_none(),
                 vm.get_none(),
             )
         });
-        vm.frames.borrow_mut().pop();
         self.closed.set(true);
         match result {
             Ok(ExecutionResult::Yield(_)) => {

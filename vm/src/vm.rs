@@ -299,7 +299,7 @@ impl VirtualMachine {
     }
 
     pub fn run_frame(&self, frame: FrameRef) -> PyResult<ExecutionResult> {
-        self.with_frame(frame, |f| Frame::run(f, self))
+        self.with_frame(frame, |f| f.run(self))
     }
 
     fn check_recursive_call(&self, _where: &str) -> PyResult<()> {

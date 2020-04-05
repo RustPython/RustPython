@@ -77,9 +77,6 @@ enum UnwindReason {
 }
 
 struct FrameState {
-    code: PyCodeRef,
-    /// Variables
-    scope: Scope,
     // We need 1 stack per frame
     /// The main data frame of the stack machine
     stack: Vec<PyObjectRef>,
@@ -161,56 +158,61 @@ impl Frame {
         // locals.extend(callargs);
 
         Frame {
-            // we have 2 references to the same code object (and scope) so that we don't have to
-            // a) lock the state to get the code, which is immutable anyway
-            // b) pass around a bunch of reference to code inside of the FrameState methods
-            code: code.clone(),
-            scope: scope.clone(),
+            code,
+            scope,
             state: Mutex::new(FrameState {
-                code,
-                scope,
                 stack: Vec::new(),
                 blocks: Vec::new(),
                 lasti: 0,
             }),
         }
     }
+}
+
+impl FrameRef {
+    fn with_exec<R>(&self, f: impl FnOnce(ExecutingFrame) -> R) -> R {
+        let mut state = self.state.lock().unwrap();
+        let exec = ExecutingFrame {
+            code: &self.code,
+            scope: &self.scope,
+            object: &self,
+            state: &mut state,
+        };
+        f(exec)
+    }
 
     // #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    pub fn run(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
-        zelf.state.lock().unwrap().run(&zelf, vm)
+    pub fn run(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
+        self.with_exec(|mut exec| exec.run(vm))
     }
 
     pub(crate) fn resume(
-        zelf: PyRef<Self>,
+        &self,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<ExecutionResult> {
-        let mut state = zelf.state.lock().unwrap();
-        state.push_value(value);
-        state.run(&zelf, vm)
+        self.with_exec(|mut exec| {
+            exec.push_value(value);
+            exec.run(vm)
+        })
     }
 
     pub(crate) fn gen_throw(
-        zelf: PyRef<Self>,
+        &self,
         vm: &VirtualMachine,
         exc_type: PyObjectRef,
         exc_val: PyObjectRef,
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
-        zelf.state
-            .lock()
-            .unwrap()
-            .gen_throw(&zelf, vm, exc_type, exc_val, exc_tb)
+        self.with_exec(|mut exec| exec.gen_throw(vm, exc_type, exc_val, exc_tb))
     }
 
     pub fn current_location(&self) -> bytecode::Location {
-        let state = self.state.lock().unwrap();
-        state.current_location()
+        self.with_exec(|exec| exec.current_location())
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
-        self.state.lock().unwrap().yield_from_target()
+        self.with_exec(|exec| exec.yield_from_target())
     }
 
     pub fn lasti(&self) -> usize {
@@ -218,8 +220,17 @@ impl Frame {
     }
 }
 
-impl FrameState {
-    fn run(&mut self, frameref: &FrameRef, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
+/// An executing frame; essentially just a struct to combine the immutable data outside the mutex
+/// with the mutable data inside
+struct ExecutingFrame<'a> {
+    code: &'a PyCodeRef,
+    scope: &'a Scope,
+    object: &'a FrameRef,
+    state: &'a mut FrameState,
+}
+
+impl ExecutingFrame<'_> {
+    fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
         // Execute until return or exception:
         loop {
@@ -239,7 +250,7 @@ impl FrameState {
                     let next = exception.traceback();
 
                     let new_traceback =
-                        PyTraceback::new(next, frameref.clone(), self.lasti, loc.row());
+                        PyTraceback::new(next, self.object.clone(), self.state.lasti, loc.row());
                     exception.set_traceback(Some(new_traceback.into_ref(vm)));
                     vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, lineno);
 
@@ -260,7 +271,8 @@ impl FrameState {
     }
 
     fn yield_from_target(&self) -> Option<PyObjectRef> {
-        if let Some(bytecode::Instruction::YieldFrom) = self.code.instructions.get(self.lasti) {
+        if let Some(bytecode::Instruction::YieldFrom) = self.code.instructions.get(self.state.lasti)
+        {
             Some(self.last_value())
         } else {
             None
@@ -269,7 +281,6 @@ impl FrameState {
 
     fn gen_throw(
         &mut self,
-        frameref: &FrameRef,
         vm: &VirtualMachine,
         exc_type: PyObjectRef,
         exc_val: PyObjectRef,
@@ -282,7 +293,7 @@ impl FrameState {
             };
             res.or_else(|err| {
                 self.pop_value();
-                self.lasti += 1;
+                self.state.lasti += 1;
                 let val = objiter::stop_iter_value(vm, &err)?;
                 self._send(coro, val, vm)
             })
@@ -290,7 +301,7 @@ impl FrameState {
         } else {
             let exception = exceptions::normalize(exc_type, exc_val, exc_tb, vm)?;
             match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
-                Ok(None) => self.run(frameref, vm),
+                Ok(None) => self.run(vm),
                 Ok(Some(result)) => Ok(result),
                 Err(exception) => Err(exception),
             }
@@ -301,11 +312,8 @@ impl FrameState {
     fn execute_instruction(&mut self, vm: &VirtualMachine) -> FrameResult {
         vm.check_signals()?;
 
-        // we get a separate code reference because we know that code isn't mutable, but borrowck will still
-        // complain that we borrow immutable here and mutably later
-        let co = self.code.clone();
-        let instruction = &co.instructions[self.lasti];
-        self.lasti += 1;
+        let instruction = &self.code.instructions[self.state.lasti];
+        self.state.lasti += 1;
 
         flame_guard!(format!("Frame::execute_instruction({:?})", instruction));
 
@@ -689,8 +697,8 @@ impl FrameState {
                 }
             }
             bytecode::Instruction::Reverse { amount } => {
-                let stack_len = self.stack.len();
-                self.stack[stack_len - amount..stack_len].reverse();
+                let stack_len = self.state.stack.len();
+                self.state.stack[stack_len - amount..stack_len].reverse();
                 Ok(None)
             }
         }
@@ -1108,7 +1116,7 @@ impl FrameState {
         match result {
             ExecutionResult::Yield(value) => {
                 // Set back program counter:
-                self.lasti -= 1;
+                self.state.lasti -= 1;
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             ExecutionResult::Return(value) => {
@@ -1158,8 +1166,8 @@ impl FrameState {
     fn jump(&mut self, label: bytecode::Label) {
         let target_pc = self.code.label_map[&label];
         #[cfg(feature = "vm-tracing-logging")]
-        trace!("jump from {:?} to {:?}", self.lasti, target_pc);
-        self.lasti = target_pc;
+        trace!("jump from {:?} to {:?}", self.state.lasti, target_pc);
+        self.state.lasti = target_pc;
     }
 
     /// The top of stack contains the iterator, lets push it forward
@@ -1411,47 +1419,51 @@ impl FrameState {
     }
 
     fn current_location(&self) -> bytecode::Location {
-        self.code.locations[self.lasti]
+        self.code.locations[self.state.lasti]
     }
 
     fn push_block(&mut self, typ: BlockType) {
-        self.blocks.push(Block {
+        self.state.blocks.push(Block {
             typ,
-            level: self.stack.len(),
+            level: self.state.stack.len(),
         });
     }
 
     fn pop_block(&mut self) -> Block {
-        let block = self.blocks.pop().expect("No more blocks to pop!");
-        self.stack.truncate(block.level);
+        let block = self.state.blocks.pop().expect("No more blocks to pop!");
+        self.state.stack.truncate(block.level);
         block
     }
 
     fn current_block(&self) -> Option<Block> {
-        self.blocks.last().cloned()
+        self.state.blocks.last().cloned()
     }
 
     fn push_value(&mut self, obj: PyObjectRef) {
-        self.stack.push(obj);
+        self.state.stack.push(obj);
     }
 
     fn pop_value(&mut self) -> PyObjectRef {
-        self.stack
+        self.state
+            .stack
             .pop()
             .expect("Tried to pop value but there was nothing on the stack")
     }
 
     fn pop_multiple(&mut self, count: usize) -> Vec<PyObjectRef> {
-        let stack_len = self.stack.len();
-        self.stack.drain(stack_len - count..stack_len).collect()
+        let stack_len = self.state.stack.len();
+        self.state
+            .stack
+            .drain(stack_len - count..stack_len)
+            .collect()
     }
 
     fn last_value(&self) -> PyObjectRef {
-        self.stack.last().unwrap().clone()
+        self.state.stack.last().unwrap().clone()
     }
 
     fn nth_value(&self, depth: usize) -> PyObjectRef {
-        self.stack[self.stack.len() - depth - 1].clone()
+        self.state.stack[self.state.stack.len() - depth - 1].clone()
     }
 }
 
@@ -1477,7 +1489,7 @@ impl fmt::Debug for Frame {
             .iter()
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<String>();
-        let dict = state.scope.get_locals();
+        let dict = self.scope.get_locals();
         let local_str = dict
             .into_iter()
             .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
