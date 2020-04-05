@@ -30,3 +30,7 @@ test_container(C())
 class C: pass
 assert_raises(TypeError, lambda: 5 in C())
 assert_raises(TypeError, iter, C)
+
+it = iter([1,2,3,4,5])
+call_it = iter(lambda: next(it), 4)
+assert list(call_it) == [1,2,3]
