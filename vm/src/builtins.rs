@@ -29,8 +29,8 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
 use crate::pyobject::{
-    Either, IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::readline::{Readline, ReadlineResult};
 use crate::scope::Scope;
@@ -404,8 +404,19 @@ fn builtin_issubclass(
     )
 }
 
-fn builtin_iter(iter_target: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    objiter::get_iter(vm, &iter_target)
+fn builtin_iter(
+    iter_target: PyObjectRef,
+    sentinel: OptionalArg<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    if let OptionalArg::Present(sentinel) = sentinel {
+        let callable = PyCallable::try_from_object(vm, iter_target)?;
+        Ok(objiter::PyCallableIterator::new(callable, sentinel)
+            .into_ref(vm)
+            .into_object())
+    } else {
+        objiter::get_iter(vm, &iter_target)
+    }
 }
 
 fn builtin_len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
