@@ -4,7 +4,6 @@
 
 use std::cell::Cell;
 use std::char;
-use std::io::{self, Write};
 use std::str;
 
 use num_bigint::Sign;
@@ -607,6 +606,11 @@ fn builtin_pow(
     }
 }
 
+pub fn builtin_exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    let code = exit_code_arg.unwrap_or_else(|| vm.new_int(0));
+    Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
+}
+
 #[derive(Debug, FromArgs)]
 pub struct PrintOptions {
     #[pyarg(keyword_only, default = "None")]
@@ -619,48 +623,12 @@ pub struct PrintOptions {
     file: Option<PyObjectRef>,
 }
 
-trait Printer {
-    fn write(&mut self, vm: &VirtualMachine, obj: PyStringRef) -> PyResult<()>;
-    fn flush(&mut self, vm: &VirtualMachine) -> PyResult<()>;
-}
-
-impl Printer for &'_ PyObjectRef {
-    fn write(&mut self, vm: &VirtualMachine, obj: PyStringRef) -> PyResult<()> {
-        vm.call_method(self, "write", vec![obj.into_object()])?;
-        Ok(())
-    }
-
-    fn flush(&mut self, vm: &VirtualMachine) -> PyResult<()> {
-        vm.call_method(self, "flush", vec![])?;
-        Ok(())
-    }
-}
-
-impl Printer for std::io::StdoutLock<'_> {
-    fn write(&mut self, _vm: &VirtualMachine, s: PyStringRef) -> PyResult<()> {
-        write!(self, "{}", s).unwrap();
-        Ok(())
-    }
-
-    fn flush(&mut self, _vm: &VirtualMachine) -> PyResult<()> {
-        <Self as io::Write>::flush(self).unwrap();
-        Ok(())
-    }
-}
-
-pub fn builtin_exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-    let code = exit_code_arg.unwrap_or_else(|| vm.new_int(0));
-    Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
-}
-
 pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
-    let stdout = io::stdout();
-
-    let mut printer: Box<dyn Printer> = if let Some(file) = &options.file {
-        Box::new(file)
-    } else {
-        Box::new(stdout.lock())
+    let file = match options.file {
+        Some(f) => f,
+        None => vm.get_attribute(vm.sys_module.clone(), "stdout")?,
     };
+    let write = |obj: PyStringRef| vm.call_method(&file, "write", vec![obj.into_object()]);
 
     let sep = options
         .sep
@@ -671,19 +639,19 @@ pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) 
         if first {
             first = false;
         } else {
-            printer.write(vm, sep.clone())?;
+            write(sep.clone())?;
         }
 
-        printer.write(vm, vm.to_str(&object)?)?;
+        write(vm.to_str(&object)?)?;
     }
 
     let end = options
         .end
         .unwrap_or_else(|| PyString::from("\n").into_ref(vm));
-    printer.write(vm, end)?;
+    write(end)?;
 
     if options.flush.to_bool() {
-        printer.flush(vm)?;
+        vm.call_method(&file, "flush", vec![])?;
     }
 
     Ok(())
