@@ -579,8 +579,9 @@ impl PyString {
         end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        if let Some((start, end)) = adjust_indices(start, end, self.value.len()) {
-            let value = &self.value[start..end];
+        let range = adjust_indices(start, end, self.value.len());
+        if range.is_normal() {
+            let value = &self.value[range];
             single_or_tuple_any(
                 suffix,
                 |s: PyStringRef| Ok(value.ends_with(&s.value)),
@@ -605,8 +606,9 @@ impl PyString {
         end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        if let Some((start, end)) = adjust_indices(start, end, self.value.len()) {
-            let value = &self.value[start..end];
+        let range = adjust_indices(start, end, self.value.len());
+        if range.is_normal() {
+            let value = &self.value[range];
             single_or_tuple_any(
                 prefix,
                 |s: PyStringRef| Ok(value.starts_with(&s.value)),
@@ -898,6 +900,25 @@ impl PyString {
         Ok(joined)
     }
 
+    fn _find<F>(
+        &self,
+        sub: PyStringRef,
+        start: OptionalArg<Option<isize>>,
+        end: OptionalArg<Option<isize>>,
+        find: F,
+    ) -> Option<usize>
+    where
+        F: Fn(&str, &str) -> Option<usize>,
+    {
+        let range = adjust_indices(start, end, self.value.len());
+        if range.is_normal() {
+            if let Some(index) = find(&self.value[range.clone()], &sub.value) {
+                return Some(range.start + index);
+            }
+        }
+        None
+    }
+
     #[pymethod]
     fn find(
         &self,
@@ -905,15 +926,8 @@ impl PyString {
         start: OptionalArg<Option<isize>>,
         end: OptionalArg<Option<isize>>,
     ) -> isize {
-        let value = &self.value;
-        if let Some((start, end)) = adjust_indices(start, end, value.len()) {
-            match value[start..end].find(&sub.value) {
-                Some(num) => (start + num) as isize,
-                None => -1 as isize,
-            }
-        } else {
-            -1 as isize
-        }
+        self._find(sub, start, end, |r, s| r.find(s))
+            .map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
@@ -923,15 +937,8 @@ impl PyString {
         start: OptionalArg<Option<isize>>,
         end: OptionalArg<Option<isize>>,
     ) -> isize {
-        let value = &self.value;
-        if let Some((start, end)) = adjust_indices(start, end, value.len()) {
-            match value[start..end].rfind(&sub.value) {
-                Some(num) => (start + num) as isize,
-                None => -1 as isize,
-            }
-        } else {
-            -1 as isize
-        }
+        self._find(sub, start, end, |r, s| r.rfind(s))
+            .map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
@@ -942,15 +949,8 @@ impl PyString {
         end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let value = &self.value;
-        if let Some((start, end)) = adjust_indices(start, end, value.len()) {
-            match value[start..end].find(&sub.value) {
-                Some(num) => Ok(start + num),
-                None => Err(vm.new_value_error("substring not found".to_owned())),
-            }
-        } else {
-            Err(vm.new_value_error("substring not found".to_owned()))
-        }
+        self._find(sub, start, end, |r, s| r.find(s))
+            .ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
     #[pymethod]
@@ -961,15 +961,8 @@ impl PyString {
         end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let value = &self.value;
-        if let Some((start, end)) = adjust_indices(start, end, value.len()) {
-            match value[start..end].rfind(&sub.value) {
-                Some(num) => Ok(start + num),
-                None => Err(vm.new_value_error("substring not found".to_owned())),
-            }
-        } else {
-            Err(vm.new_value_error("substring not found".to_owned()))
-        }
+        self._find(sub, start, end, |r, s| r.rfind(s))
+            .ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
     #[pymethod]
@@ -1048,9 +1041,9 @@ impl PyString {
         start: OptionalArg<Option<isize>>,
         end: OptionalArg<Option<isize>>,
     ) -> usize {
-        let value = &self.value;
-        if let Some((start, end)) = adjust_indices(start, end, value.len()) {
-            self.value[start..end].matches(&sub.value).count()
+        let range = adjust_indices(start, end, self.value.len());
+        if range.is_normal() {
+            self.value[range].matches(&sub.value).count()
         } else {
             0
         }
@@ -1764,12 +1757,22 @@ impl PySliceableSequence for String {
     }
 }
 
+pub trait StringRange {
+    fn is_normal(&self) -> bool;
+}
+
+impl StringRange for std::ops::Range<usize> {
+    fn is_normal(&self) -> bool {
+        self.start <= self.end
+    }
+}
+
 // help get optional string indices
-fn adjust_indices(
+pub fn adjust_indices(
     start: OptionalArg<Option<isize>>,
     end: OptionalArg<Option<isize>>,
     len: usize,
-) -> Option<(usize, usize)> {
+) -> std::ops::Range<usize> {
     let mut start = start.flat_option().unwrap_or(0);
     let mut end = end.flat_option().unwrap_or(len as isize);
     if end > len as isize {
@@ -1786,11 +1789,7 @@ fn adjust_indices(
             start = 0;
         }
     }
-    if start > end {
-        None
-    } else {
-        Some((start as usize, end as usize))
-    }
+    start as usize..end as usize
 }
 
 // According to python following categories aren't printable:

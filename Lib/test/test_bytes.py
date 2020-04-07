@@ -606,8 +606,6 @@ class BaseBytesTest:
                 ValueError, r'byte must be in range\(0, 256\)',
                 b.find, index)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_rfind(self):
         b = self.type2test(b'mississippi')
         i = 105
@@ -647,8 +645,6 @@ class BaseBytesTest:
         self.assertEqual(b.index(i, 1, 3), 1)
         self.assertRaises(ValueError, b.index, w, 1, 3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_rindex(self):
         b = self.type2test(b'mississippi')
         i = 105
