@@ -235,8 +235,6 @@ class TestCase(unittest.TestCase):
         self.assertRaises(TypeError, iter, IterClass())
 
     # Test two-argument iter() with callable instance
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_callable(self):
         class C:
             def __init__(self):
@@ -250,8 +248,6 @@ class TestCase(unittest.TestCase):
         self.check_iterator(iter(C(), 10), list(range(10)), pickle=False)
 
     # Test two-argument iter() with function
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_function(self):
         def spam(state=[0]):
             i = state[0]
@@ -260,8 +256,6 @@ class TestCase(unittest.TestCase):
         self.check_iterator(iter(spam, 10), list(range(10)), pickle=False)
 
     # Test two-argument iter() with function that raises StopIteration
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_function_stop(self):
         def spam(state=[0]):
             i = state[0]
@@ -272,8 +266,6 @@ class TestCase(unittest.TestCase):
         self.check_iterator(iter(spam, 20), list(range(10)), pickle=False)
 
     # Test exception propagation through function iterator
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_function(self):
         def spam(state=[0]):
             i = state[0]
@@ -962,8 +954,6 @@ class TestCase(unittest.TestCase):
         a.n = 10
         self.assertEqual(list(b), [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sinkstate_callable(self):
         # This used to fail
         def spam(state=[0]):
