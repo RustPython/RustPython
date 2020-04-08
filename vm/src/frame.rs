@@ -1,4 +1,5 @@
 use std::fmt;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use indexmap::IndexMap;
@@ -82,14 +83,14 @@ struct FrameState {
     stack: Vec<PyObjectRef>,
     /// Block frames, for controlling loops and exceptions
     blocks: Vec<Block>,
-    /// index of last instruction ran
-    lasti: usize,
 }
 
 #[pyclass]
 pub struct Frame {
     pub code: PyCodeRef,
     pub scope: Scope,
+    /// index of last instruction ran
+    pub lasti: AtomicUsize,
     state: Mutex<FrameState>,
 }
 
@@ -160,10 +161,10 @@ impl Frame {
         Frame {
             code,
             scope,
+            lasti: AtomicUsize::new(0),
             state: Mutex::new(FrameState {
                 stack: Vec::new(),
                 blocks: Vec::new(),
-                lasti: 0,
             }),
         }
     }
@@ -175,6 +176,7 @@ impl FrameRef {
         let exec = ExecutingFrame {
             code: &self.code,
             scope: &self.scope,
+            lasti: &self.lasti,
             object: &self,
             state: &mut state,
         };
@@ -208,7 +210,7 @@ impl FrameRef {
     }
 
     pub fn current_location(&self) -> bytecode::Location {
-        self.with_exec(|exec| exec.current_location())
+        self.code.locations[self.lasti.load(Ordering::Relaxed)]
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
@@ -216,7 +218,7 @@ impl FrameRef {
     }
 
     pub fn lasti(&self) -> usize {
-        self.state.lock().unwrap().lasti
+        self.lasti.load(Ordering::Relaxed)
     }
 }
 
@@ -226,6 +228,7 @@ struct ExecutingFrame<'a> {
     code: &'a PyCodeRef,
     scope: &'a Scope,
     object: &'a FrameRef,
+    lasti: &'a AtomicUsize,
     state: &'a mut FrameState,
 }
 
@@ -250,7 +253,7 @@ impl ExecutingFrame<'_> {
                     let next = exception.traceback();
 
                     let new_traceback =
-                        PyTraceback::new(next, self.object.clone(), self.state.lasti, loc.row());
+                        PyTraceback::new(next, self.object.clone(), self.lasti(), loc.row());
                     exception.set_traceback(Some(new_traceback.into_ref(vm)));
                     vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, lineno);
 
@@ -271,8 +274,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn yield_from_target(&self) -> Option<PyObjectRef> {
-        if let Some(bytecode::Instruction::YieldFrom) = self.code.instructions.get(self.state.lasti)
-        {
+        if let Some(bytecode::Instruction::YieldFrom) = self.code.instructions.get(self.lasti()) {
             Some(self.last_value())
         } else {
             None
@@ -293,7 +295,7 @@ impl ExecutingFrame<'_> {
             };
             res.or_else(|err| {
                 self.pop_value();
-                self.state.lasti += 1;
+                self.lasti.fetch_add(1, Ordering::Relaxed);
                 let val = objiter::stop_iter_value(vm, &err)?;
                 self._send(coro, val, vm)
             })
@@ -312,8 +314,7 @@ impl ExecutingFrame<'_> {
     fn execute_instruction(&mut self, vm: &VirtualMachine) -> FrameResult {
         vm.check_signals()?;
 
-        let instruction = &self.code.instructions[self.state.lasti];
-        self.state.lasti += 1;
+        let instruction = &self.code.instructions[self.lasti.fetch_add(1, Ordering::Relaxed)];
 
         flame_guard!(format!("Frame::execute_instruction({:?})", instruction));
 
@@ -1116,7 +1117,7 @@ impl ExecutingFrame<'_> {
         match result {
             ExecutionResult::Yield(value) => {
                 // Set back program counter:
-                self.state.lasti -= 1;
+                self.lasti.fetch_sub(1, Ordering::Relaxed);
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             ExecutionResult::Return(value) => {
@@ -1166,8 +1167,8 @@ impl ExecutingFrame<'_> {
     fn jump(&mut self, label: bytecode::Label) {
         let target_pc = self.code.label_map[&label];
         #[cfg(feature = "vm-tracing-logging")]
-        trace!("jump from {:?} to {:?}", self.state.lasti, target_pc);
-        self.state.lasti = target_pc;
+        trace!("jump from {:?} to {:?}", self.lasti(), target_pc);
+        self.lasti.store(target_pc, Ordering::Relaxed);
     }
 
     /// The top of stack contains the iterator, lets push it forward
@@ -1418,8 +1419,15 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
+    fn lasti(&self) -> usize {
+        // it's okay to make this Relaxed, because we know that we only
+        // mutate lasti if the mutex is held, and any other thread that
+        // wants to guarantee the value of this will use a Lock anyway
+        self.lasti.load(Ordering::Relaxed)
+    }
+
     fn current_location(&self) -> bytecode::Location {
-        self.code.locations[self.state.lasti]
+        self.code.locations[self.lasti()]
     }
 
     fn push_block(&mut self, typ: BlockType) {
