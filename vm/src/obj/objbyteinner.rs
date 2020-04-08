@@ -13,7 +13,7 @@ use super::objmemory::PyMemoryView;
 use super::objnone::PyNoneRef;
 use super::objsequence::{is_valid_slice_arg, PySliceableSequence};
 use super::objslice::PySliceRef;
-use super::objstr::{self, PyString, PyStringRef};
+use super::objstr::{self, adjust_indices, PyString, PyStringRef, StringRange};
 use super::objtuple::PyTupleRef;
 use crate::function::OptionalArg;
 use crate::pyhash;
@@ -137,34 +137,22 @@ pub struct ByteInnerFindOptions {
     #[pyarg(positional_only, optional = false)]
     sub: Either<PyByteInner, PyIntRef>,
     #[pyarg(positional_only, optional = true)]
-    start: OptionalArg<Option<PyIntRef>>,
+    start: OptionalArg<Option<isize>>,
     #[pyarg(positional_only, optional = true)]
-    end: OptionalArg<Option<PyIntRef>>,
+    end: OptionalArg<Option<isize>>,
 }
 
 impl ByteInnerFindOptions {
     pub fn get_value(
         self,
-        elements: &[u8],
+        len: usize,
         vm: &VirtualMachine,
-    ) -> PyResult<(Vec<u8>, Range<usize>)> {
+    ) -> PyResult<(Vec<u8>, std::ops::Range<usize>)> {
         let sub = match self.sub {
             Either::A(v) => v.elements.to_vec(),
             Either::B(int) => vec![int.as_bigint().byte_or(vm)?],
         };
-
-        let start = match self.start {
-            OptionalArg::Present(Some(int)) => Some(int.as_bigint().clone()),
-            _ => None,
-        };
-
-        let end = match self.end {
-            OptionalArg::Present(Some(int)) => Some(int.as_bigint().clone()),
-            _ => None,
-        };
-
-        let range = elements.to_vec().get_slice_range(&start, &end);
-
+        let range = adjust_indices(self.start, self.end, len);
         Ok((sub, range))
     }
 }
@@ -808,25 +796,18 @@ impl PyByteInner {
     }
 
     pub fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
-        let (sub, range) = options.get_value(&self.elements, vm)?;
-
-        if sub.is_empty() {
-            return Ok(self.len() + 1);
+        let (needle, range) = options.get_value(self.elements.len(), vm)?;
+        if !range.is_normal() {
+            return Ok(0);
         }
-
-        let mut total: usize = 0;
-        let mut i_start = range.start;
-        let i_end = range.end;
-
-        for i in self.elements.do_slice(range) {
-            if i_start + sub.len() <= i_end
-                && i == sub[0]
-                && &self.elements[i_start..(i_start + sub.len())] == sub.as_slice()
-            {
-                total += 1;
-            }
-            i_start += 1;
+        if needle.is_empty() {
+            return Ok(range.len() + 1);
         }
+        let haystack = &self.elements[range];
+        let total = haystack
+            .windows(needle.len())
+            .filter(|w| *w == needle.as_slice())
+            .count();
         Ok(total)
     }
 
@@ -884,37 +865,36 @@ impl PyByteInner {
         Ok(suff.as_slice() == &self.elements.do_slice(range)[offset])
     }
 
+    #[inline]
     pub fn find(
         &self,
         options: ByteInnerFindOptions,
         reverse: bool,
         vm: &VirtualMachine,
-    ) -> PyResult<isize> {
-        let (sub, range) = options.get_value(&self.elements, vm)?;
-        // not allowed for this method
-        if range.end < range.start {
-            return Ok(-1isize);
+    ) -> PyResult<Option<usize>> {
+        let (needle, range) = options.get_value(self.elements.len(), vm)?;
+        if !range.is_normal() {
+            return Ok(None);
         }
-
-        let start = range.start;
-        let end = range.end;
-
+        if needle.is_empty() {
+            return Ok(Some(if reverse { range.end } else { range.start }));
+        }
+        let haystack = &self.elements[range.clone()];
+        let windows = haystack.windows(needle.len());
         if reverse {
-            let slice = self.elements.do_slice_reverse(range);
-            for (n, _) in slice.iter().enumerate() {
-                if n + sub.len() <= slice.len() && &slice[n..n + sub.len()] == sub.as_slice() {
-                    return Ok((end - n - 1) as isize);
+            for (i, w) in windows.rev().enumerate() {
+                if w == needle.as_slice() {
+                    return Ok(Some(range.end - i - needle.len()));
                 }
             }
         } else {
-            let slice = self.elements.do_slice(range);
-            for (n, _) in slice.iter().enumerate() {
-                if n + sub.len() <= slice.len() && &slice[n..n + sub.len()] == sub.as_slice() {
-                    return Ok((start + n) as isize);
+            for (i, w) in windows.enumerate() {
+                if w == needle.as_slice() {
+                    return Ok(Some(range.start + i));
                 }
             }
-        };
-        Ok(-1isize)
+        }
+        Ok(None)
     }
 
     pub fn maketrans(from: PyByteInner, to: PyByteInner, vm: &VirtualMachine) -> PyResult {

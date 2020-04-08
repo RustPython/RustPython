@@ -324,30 +324,26 @@ impl PyByteArray {
 
     #[pymethod(name = "find")]
     fn find(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        self.inner.borrow().find(options, false, vm)
+        let index = self.inner.borrow().find(options, false, vm)?;
+        Ok(index.map_or(-1, |v| v as isize))
     }
 
     #[pymethod(name = "index")]
-    fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        let res = self.inner.borrow().find(options, false, vm)?;
-        if res == -1 {
-            return Err(vm.new_value_error("substring not found".to_owned()));
-        }
-        Ok(res)
+    fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
+        let index = self.inner.borrow().find(options, false, vm)?;
+        index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
     #[pymethod(name = "rfind")]
     fn rfind(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        self.inner.borrow().find(options, true, vm)
+        let index = self.inner.borrow().find(options, true, vm)?;
+        Ok(index.map_or(-1, |v| v as isize))
     }
 
     #[pymethod(name = "rindex")]
-    fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        let res = self.inner.borrow().find(options, true, vm)?;
-        if res == -1 {
-            return Err(vm.new_value_error("substring not found".to_owned()));
-        }
-        Ok(res)
+    fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
+        let index = self.inner.borrow().find(options, true, vm)?;
+        index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
     #[pymethod(name = "remove")]
