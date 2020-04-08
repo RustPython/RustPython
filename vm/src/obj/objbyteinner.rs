@@ -1143,6 +1143,31 @@ impl PyByteInner {
         result
     }
 
+    fn replace_delete(&self, from: PyByteInner, maxcount: Option<usize>) -> Vec<u8> {
+        let count = count_substring(self.elements.as_slice(), from.elements.as_slice(), maxcount);
+        if count == 0 {
+            // no matches
+            return self.elements.clone();
+        }
+
+        let result_len = self.len() - (count * from.len());
+        debug_assert!(self.len() >= count * from.len());
+
+        let mut result = Vec::with_capacity(result_len);
+        let mut last_end = 0;
+        let mut count = count;
+        for offset in self.elements.find_iter(&from.elements) {
+            result.extend_from_slice(&self.elements[last_end..offset]);
+            last_end = offset + from.len();
+            count -= 1;
+            if count == 0 {
+                break;
+            }
+        }
+        result.extend_from_slice(&self.elements[last_end..]);
+        result
+    }
+
     fn replace_general(
         &self,
         from: PyByteInner,
@@ -1220,7 +1245,13 @@ impl PyByteInner {
             return Ok(self.elements.clone());
         }
 
-        self.replace_general(from, to, maxcount, vm)
+        if to.elements.is_empty() {
+            // delete all occurrences of 'from' bytes
+            Ok(self.replace_delete(from, maxcount))
+        } else {
+            // Otherwise use the more generic algorithms
+            self.replace_general(from, to, maxcount, vm)
+        }
     }
 
     pub fn title(&self) -> Vec<u8> {
