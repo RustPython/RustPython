@@ -10,7 +10,8 @@ use super::objsequence;
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -201,6 +202,53 @@ pub fn seq_iter_method(obj: PyObjectRef) -> PySequenceIterator {
     }
 }
 
+#[pyclass(name = "callable_iterator")]
+#[derive(Debug)]
+pub struct PyCallableIterator {
+    callable: PyCallable,
+    sentinel: PyObjectRef,
+    done: Cell<bool>,
+}
+
+impl PyValue for PyCallableIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.types.callable_iterator.clone()
+    }
+}
+
+#[pyimpl]
+impl PyCallableIterator {
+    pub fn new(callable: PyCallable, sentinel: PyObjectRef) -> Self {
+        Self {
+            callable,
+            sentinel,
+            done: Cell::new(false),
+        }
+    }
+
+    #[pymethod(magic)]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        if self.done.get() {
+            return Err(new_stop_iteration(vm));
+        }
+
+        let ret = self.callable.invoke(vec![], vm)?;
+
+        if vm.bool_eq(ret.clone(), self.sentinel.clone())? {
+            self.done.set(true);
+            Err(new_stop_iteration(vm))
+        } else {
+            Ok(ret)
+        }
+    }
+
+    #[pymethod(magic)]
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
+        zelf
+    }
+}
+
 pub fn init(context: &PyContext) {
     PySequenceIterator::extend_class(context, &context.types.iter_type);
+    PyCallableIterator::extend_class(context, &context.types.callable_iterator);
 }

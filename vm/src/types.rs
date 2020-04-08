@@ -57,6 +57,7 @@ pub struct TypeZoo {
     pub bytearray_type: PyClassRef,
     pub bytearrayiterator_type: PyClassRef,
     pub bool_type: PyClassRef,
+    pub callable_iterator: PyClassRef,
     pub classmethod_type: PyClassRef,
     pub code_type: PyClassRef,
     pub coroutine_type: PyClassRef,
@@ -184,6 +185,7 @@ impl TypeZoo {
         let slice_type = create_type("slice", &type_type, &object_type);
         let mappingproxy_type = create_type("mappingproxy", &type_type, &object_type);
         let traceback_type = create_type("traceback", &type_type, &object_type);
+        let callable_iterator = create_type("callable_iterator", &type_type, &object_type);
 
         Self {
             async_generator,
@@ -196,6 +198,7 @@ impl TypeZoo {
             bytearrayiterator_type,
             bytes_type,
             bytesiterator_type,
+            callable_iterator,
             code_type,
             coroutine_type,
             coroutine_wrapper_type,
