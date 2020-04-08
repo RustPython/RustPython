@@ -7,6 +7,7 @@ from test import support
 from test.support.script_helper import assert_python_ok
 
 
+@unittest.skip("TODO: RUSTPYTHON") # Need to fix subprocess to take env
 class TestTool(unittest.TestCase):
     data = """
 

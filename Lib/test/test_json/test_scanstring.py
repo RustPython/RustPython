@@ -1,3 +1,4 @@
+import unittest
 import sys
 from test.test_json import PyTest, CTest
 
@@ -85,6 +86,7 @@ class TestScanstring:
             scanstring('["Bad value", truth]', 2, True),
             ('Bad value', 12))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_surrogates(self):
         scanstring = self.json.decoder.scanstring
         def assertScan(given, expect):
@@ -101,6 +103,7 @@ class TestScanstring:
         assertScan('"z\ud834\\udd20x"', 'z\ud834\udd20x')
         assertScan('"z\ud834x"', 'z\ud834x')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_bad_escapes(self):
         scanstring = self.json.decoder.scanstring
         bad_escapes = [
@@ -132,6 +135,7 @@ class TestScanstring:
             with self.assertRaises(self.JSONDecodeError, msg=s):
                 scanstring(s, 1, True)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_overflow(self):
         with self.assertRaises(OverflowError):
             self.json.decoder.scanstring(b"xxx", sys.maxsize+1)
