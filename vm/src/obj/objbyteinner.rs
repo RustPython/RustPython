@@ -1168,6 +1168,38 @@ impl PyByteInner {
         result
     }
 
+    pub fn replace_in_place(
+        &self,
+        from: PyByteInner,
+        to: PyByteInner,
+        maxcount: Option<usize>,
+    ) -> Vec<u8> {
+        let len = from.len();
+        let mut iter = self.elements.find_iter(&from.elements);
+
+        let mut new = if let Some(offset) = iter.next() {
+            let mut new = self.elements.clone();
+            new[offset..offset + len].clone_from_slice(to.elements.as_slice());
+            if maxcount == Some(1) {
+                return new;
+            } else {
+                new
+            }
+        } else {
+            return self.elements.clone();
+        };
+
+        let mut count = maxcount.unwrap_or(std::usize::MAX) - 1;
+        for offset in iter {
+            new[offset..offset + len].clone_from_slice(to.elements.as_slice());
+            count -= 1;
+            if count == 0 {
+                break;
+            }
+        }
+        new
+    }
+
     fn replace_general(
         &self,
         from: PyByteInner,
@@ -1248,6 +1280,9 @@ impl PyByteInner {
         if to.elements.is_empty() {
             // delete all occurrences of 'from' bytes
             Ok(self.replace_delete(from, maxcount))
+        } else if from.len() == to.len() {
+            // Handle special case where both bytes have the same length
+            Ok(self.replace_in_place(from, to, maxcount))
         } else {
             // Otherwise use the more generic algorithms
             self.replace_general(from, to, maxcount, vm)
