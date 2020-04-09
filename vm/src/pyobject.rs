@@ -1204,6 +1204,9 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
     }
 }
 
+// Temporary trait to follow the progress of threading conversion
+pub trait ThreadSafe: Send + Sync {}
+
 pub trait PyObjectPayload: Any + fmt::Debug + 'static {
     fn as_any(&self) -> &dyn Any;
 }
