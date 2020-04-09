@@ -21,7 +21,7 @@ use crate::pyobject::{
     Either, IntoPyObject,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    ThreadSafe, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::str::FromStr;
@@ -40,6 +40,9 @@ use std::str::FromStr;
 pub struct PyBytes {
     inner: PyByteInner,
 }
+
+impl ThreadSafe for PyBytes {}
+
 pub type PyBytesRef = PyRef<PyBytes>;
 
 impl PyBytes {

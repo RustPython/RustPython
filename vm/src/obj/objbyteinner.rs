@@ -18,7 +18,8 @@ use super::objtuple::PyTupleRef;
 use crate::function::OptionalArg;
 use crate::pyhash;
 use crate::pyobject::{
-    Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, ThreadSafe, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -26,6 +27,8 @@ use crate::vm::VirtualMachine;
 pub struct PyByteInner {
     pub elements: Vec<u8>,
 }
+
+impl ThreadSafe for PyByteInner {}
 
 impl TryFromObject for PyByteInner {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
