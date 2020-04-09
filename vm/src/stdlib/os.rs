@@ -1131,12 +1131,8 @@ fn os_chmod(
     Ok(())
 }
 
-fn os_fspath(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
-    Ok(output_by_mode(
-        path.path.to_str().unwrap().to_owned(),
-        path.mode,
-        vm,
-    ))
+fn os_fspath(path: PyPathLike, vm: &VirtualMachine) -> PyObjectRef {
+    output_by_mode(path.path.to_str().unwrap().to_owned(), path.mode, vm)
 }
 
 fn os_rename(src: PyPathLike, dst: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
