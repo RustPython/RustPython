@@ -18,16 +18,9 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@master
-      - name: Cache Windows
-        uses: actions/cache@v1
-        with:
-          key: vcpkg
-          path: 'C:/vcpkg'
-        if: runner.os == 'Windows'
       - name: Set up the Windows environment
         run: |
           powershell.exe scripts/symlinks-to-hardlinks.ps1
-          powershell.exe scripts/install-openssl.ps1
         if: runner.os == 'Windows'
       - name: Cache cargo dependencies
         uses: actions/cache@v1
@@ -51,16 +44,9 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@master
-      - name: Cache Windows
-        uses: actions/cache@v1
-        with:
-          key: vcpkg
-          path: 'C:/vcpkg'
-        if: runner.os == 'Windows'
       - name: Set up the Windows environment
         run: |
           powershell.exe scripts/symlinks-to-hardlinks.ps1
-          powershell.exe scripts/install-openssl.ps1
         if: runner.os == 'Windows'
       - name: Cache cargo dependencies
         uses: actions/cache@v1
