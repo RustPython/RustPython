@@ -97,7 +97,7 @@ impl TryIntoRef<PyString> for &str {
 #[derive(Debug)]
 pub struct PyStringIterator {
     pub string: PyStringRef,
-    byte_position: AtomicCell<usize>,
+    position: AtomicCell<usize>,
 }
 
 impl PyValue for PyStringIterator {
@@ -109,16 +109,12 @@ impl PyValue for PyStringIterator {
 #[pyimpl]
 impl PyStringIterator {
     #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.byte_position.load();
+    fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
+        // TODO: use something more performant than chars().nth() that's still atomic
+        let pos = self.position.fetch_add(1);
 
-        if pos < self.string.value.len() {
-            // We can be sure that chars() has a value, because of the pos check above.
-            let char_ = self.string.value[pos..].chars().next().unwrap();
-
-            self.byte_position.store(pos + char_.len_utf8());
-
-            char_.to_string().into_pyobject(vm)
+        if let Some(c) = self.string.value.chars().nth(pos) {
+            Ok(c.to_string())
         } else {
             Err(objiter::new_stop_iteration(vm))
         }
@@ -133,7 +129,7 @@ impl PyStringIterator {
 #[pyclass]
 #[derive(Debug)]
 pub struct PyStringReverseIterator {
-    pub position: AtomicCell<usize>,
+    pub position: AtomicCell<isize>,
     pub string: PyStringRef,
 }
 
@@ -146,14 +142,10 @@ impl PyValue for PyStringReverseIterator {
 #[pyimpl]
 impl PyStringReverseIterator {
     #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.position.load();
-
-        if pos > 0 {
-            let value = self.string.value.do_slice(pos - 1..pos);
-
-            self.position.store(pos - 1);
-            value.into_pyobject(vm)
+    fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
+        let pos = self.position.fetch_sub(1) as usize - 1;
+        if let Some(c) = self.string.value.chars().nth(pos) {
+            Ok(c.to_string())
         } else {
             Err(objiter::new_stop_iteration(vm))
         }
@@ -1288,7 +1280,7 @@ impl PyString {
     #[pymethod(magic)]
     fn iter(zelf: PyRef<Self>) -> PyStringIterator {
         PyStringIterator {
-            byte_position: AtomicCell::new(0),
+            position: AtomicCell::new(0),
             string: zelf,
         }
     }
@@ -1298,7 +1290,7 @@ impl PyString {
         let begin = zelf.value.chars().count();
 
         PyStringReverseIterator {
-            position: AtomicCell::new(begin),
+            position: AtomicCell::new(begin as isize),
             string: zelf,
         }
     }

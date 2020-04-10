@@ -236,7 +236,7 @@ impl PyList {
     fn reversed(zelf: PyRef<Self>) -> PyListReverseIterator {
         let final_position = zelf.elements.borrow().len();
         PyListReverseIterator {
-            position: AtomicCell::new(final_position),
+            position: AtomicCell::new(final_position as isize),
             list: zelf,
         }
     }
@@ -861,9 +861,8 @@ impl PyListIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         let list = self.list.elements.borrow();
-        let pos = self.position.load();
+        let pos = self.position.fetch_add(1);
         if let Some(obj) = list.get(pos) {
-            self.position.store(pos + 1);
             Ok(obj.clone())
         } else {
             Err(objiter::new_stop_iteration(vm))
@@ -879,14 +878,14 @@ impl PyListIterator {
     fn length_hint(&self) -> usize {
         let list = self.list.elements.borrow();
         let pos = self.position.load();
-        list.len() - pos
+        list.len().saturating_sub(pos)
     }
 }
 
 #[pyclass]
 #[derive(Debug)]
 pub struct PyListReverseIterator {
-    pub position: AtomicCell<usize>,
+    pub position: AtomicCell<isize>,
     pub list: PyListRef,
 }
 
@@ -900,16 +899,14 @@ impl PyValue for PyListReverseIterator {
 impl PyListReverseIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.position.load();
+        let list = self.list.elements.borrow();
+        let pos = self.position.fetch_sub(1);
         if pos > 0 {
-            let pos = pos - 1;
-            let list = self.list.elements.borrow();
-            let ret = list[pos].clone();
-            self.position.store(pos);
-            Ok(ret)
-        } else {
-            Err(objiter::new_stop_iteration(vm))
+            if let Some(ret) = list.get(pos as usize - 1) {
+                return Ok(ret.clone());
+            }
         }
+        Err(objiter::new_stop_iteration(vm))
     }
 
     #[pymethod(name = "__iter__")]
@@ -919,7 +916,7 @@ impl PyListReverseIterator {
 
     #[pymethod(name = "__length_hint__")]
     fn length_hint(&self) -> usize {
-        self.position.load()
+        std::cmp::max(self.position.load(), 0) as usize
     }
 }
 

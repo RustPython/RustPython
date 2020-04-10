@@ -168,20 +168,15 @@ impl PySequenceIterator {
 
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.position.load();
+        let step: isize = if self.reversed { -1 } else { 1 };
+        let pos = self.position.fetch_add(step);
         if pos >= 0 {
-            let step: isize = if self.reversed { -1 } else { 1 };
-            let number = vm.ctx.new_int(pos);
-            match vm.call_method(&self.obj, "__getitem__", vec![number]) {
-                Ok(val) => {
-                    self.position.store(pos + step);
-                    Ok(val)
-                }
+            match vm.call_method(&self.obj, "__getitem__", vec![vm.new_int(pos)]) {
                 Err(ref e) if objtype::isinstance(&e, &vm.ctx.exceptions.index_error) => {
                     Err(new_stop_iteration(vm))
                 }
                 // also catches stop_iteration => stop_iteration
-                Err(e) => Err(e),
+                ret => ret,
             }
         } else {
             Err(new_stop_iteration(vm))
@@ -217,7 +212,7 @@ pub fn seq_iter_method(obj: PyObjectRef) -> PySequenceIterator {
 pub struct PyCallableIterator {
     callable: PyCallable,
     sentinel: PyObjectRef,
-    done: Cell<bool>,
+    done: AtomicCell<bool>,
 }
 
 impl PyValue for PyCallableIterator {
@@ -232,20 +227,20 @@ impl PyCallableIterator {
         Self {
             callable,
             sentinel,
-            done: Cell::new(false),
+            done: AtomicCell::new(false),
         }
     }
 
     #[pymethod(magic)]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.done.get() {
+        if self.done.load() {
             return Err(new_stop_iteration(vm));
         }
 
         let ret = self.callable.invoke(vec![], vm)?;
 
         if vm.bool_eq(ret.clone(), self.sentinel.clone())? {
-            self.done.set(true);
+            self.done.store(true);
             Err(new_stop_iteration(vm))
         } else {
             Ok(ret)

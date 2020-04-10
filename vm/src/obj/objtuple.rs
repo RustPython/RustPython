@@ -257,9 +257,8 @@ impl PyValue for PyTupleIterator {
 impl PyTupleIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.position.load();
+        let pos = self.position.fetch_add(1);
         if let Some(obj) = self.tuple.as_slice().get(pos) {
-            self.position.store(pos + 1);
             Ok(obj.clone())
         } else {
             Err(objiter::new_stop_iteration(vm))
