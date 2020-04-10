@@ -10,7 +10,7 @@ use super::objbyteinner::{
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objslice::PySliceRef;
-use super::objstr::PyStringRef;
+use super::objstr::{PyString, PyStringRef};
 use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
 use crate::cformat::CFormatString;
@@ -18,7 +18,7 @@ use crate::function::OptionalArg;
 use crate::obj::objstr::do_cformat_string;
 use crate::pyobject::{
     Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::mem::size_of;
@@ -589,6 +589,26 @@ impl PyByteArray {
     fn reverse(&self) -> PyResult<()> {
         self.inner.borrow_mut().elements.reverse();
         Ok(())
+    }
+
+    #[pymethod]
+    fn decode(
+        zelf: PyRef<Self>,
+        encoding: OptionalArg<PyStringRef>,
+        errors: OptionalArg<PyStringRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStringRef> {
+        let encoding = encoding.into_option();
+        vm.decode(zelf.into_object(), encoding.clone(), errors.into_option())?
+            .downcast::<PyString>()
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
+                     encode arbitrary types",
+                    encoding.as_ref().map_or("utf-8", |s| s.as_str()),
+                    obj.class().name,
+                ))
+            })
     }
 }
 

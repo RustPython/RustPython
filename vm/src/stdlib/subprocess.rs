@@ -148,7 +148,7 @@ impl PopenRef {
         self.process.borrow().exit_status()
     }
 
-    fn wait(self, args: PopenWaitArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn wait(self, args: PopenWaitArgs, vm: &VirtualMachine) -> PyResult<i64> {
         let timeout = match args.timeout {
             Some(timeout) => self
                 .process
@@ -157,11 +157,16 @@ impl PopenRef {
             None => self.process.borrow_mut().wait().map(Some),
         }
         .map_err(|s| vm.new_os_error(format!("Could not start program: {}", s)))?;
-        if timeout.is_none() {
+        if let Some(exit) = timeout {
+            use subprocess::ExitStatus::*;
+            Ok(match exit {
+                Exited(i) => i.into(),
+                Signaled(s) => -i64::from(s),
+                _ => unreachable!("should not occur in normal operation"),
+            })
+        } else {
             let timeout_expired = vm.try_class("_subprocess", "TimeoutExpired")?;
             Err(vm.new_exception_msg(timeout_expired, "Timeout".to_owned()))
-        } else {
-            Ok(())
         }
     }
 

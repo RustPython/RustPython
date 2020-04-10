@@ -182,9 +182,5 @@ assert json_dump((1, "string", 1.0, True)) == json_dump(Tuple((1, "string", 1.0,
 assert json.dumps({'a': 'b'}) == json.dumps(Dict({'a': 'b'}))
 assert json_dump({'a': 'b'}) == json_dump(Dict({'a': 'b'}))
 
-# big ints should not crash VM
-# TODO: test for correct output when actual serialization implemented and doesn’t throw
-try:
-  json.dumps(7**500)
-except:
-  pass
+i = 7**500
+assert json.dumps(i) == str(i)
