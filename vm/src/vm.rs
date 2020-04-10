@@ -76,6 +76,7 @@ pub struct VirtualMachine {
 }
 
 pub const NSIG: usize = 64;
+pub const MAX_MEMORY_SIZE: usize = (std::usize::MAX >> 3) + 1;
 
 #[derive(Copy, Clone)]
 pub enum InitParameter {
@@ -414,6 +415,11 @@ impl VirtualMachine {
     pub fn new_type_error(&self, msg: String) -> PyBaseExceptionRef {
         let type_error = self.ctx.exceptions.type_error.clone();
         self.new_exception_msg(type_error, msg)
+    }
+
+    pub fn new_memory_error(&self, msg: String) -> PyBaseExceptionRef {
+        let memory_error = self.ctx.exceptions.memory_error.clone();
+        self.new_exception_msg(memory_error, msg)
     }
 
     pub fn new_name_error(&self, msg: String) -> PyBaseExceptionRef {
