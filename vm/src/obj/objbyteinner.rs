@@ -624,7 +624,7 @@ impl PyByteInner {
     }
 
     pub fn isascii(&self) -> bool {
-        !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_ascii())
+        self.elements.iter().all(|x| char::from(*x).is_ascii())
     }
 
     pub fn isdigit(&self) -> bool {
@@ -632,25 +632,39 @@ impl PyByteInner {
     }
 
     pub fn islower(&self) -> bool {
-        !self.elements.is_empty()
-            && self
-                .elements
-                .iter()
-                .filter(|x| !char::from(**x).is_whitespace())
-                .all(|x| char::from(*x).is_lowercase())
-    }
-
-    pub fn isspace(&self) -> bool {
-        !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_whitespace())
+        // CPython _Py_bytes_islower
+        let mut cased = false;
+        for b in self.elements.iter() {
+            let c = *b as char;
+            if c.is_uppercase() {
+                return false;
+            } else if !cased && c.is_lowercase() {
+                cased = true
+            }
+        }
+        cased
     }
 
     pub fn isupper(&self) -> bool {
+        // CPython _Py_bytes_isupper
+        let mut cased = false;
+        for b in self.elements.iter() {
+            let c = *b as char;
+            if c.is_lowercase() {
+                return false;
+            } else if !cased && c.is_uppercase() {
+                cased = true
+            }
+        }
+        cased
+    }
+
+    pub fn isspace(&self) -> bool {
         !self.elements.is_empty()
             && self
                 .elements
                 .iter()
-                .filter(|x| !char::from(**x).is_whitespace())
-                .all(|x| char::from(*x).is_uppercase())
+                .all(|x| char::from(*x).is_ascii_whitespace())
     }
 
     pub fn istitle(&self) -> bool {
