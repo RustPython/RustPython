@@ -421,13 +421,12 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__mul__")]
-    fn repeat(&self, n: isize) -> PyBytes {
-        self.inner.repeat(n).into()
-    }
-
     #[pymethod(name = "__rmul__")]
-    fn rmul(&self, n: isize) -> PyBytes {
-        self.repeat(n)
+    fn repeat(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        if value > 0 && self.inner.len() as isize > std::isize::MAX / value {
+            return Err(vm.new_overflow_error("repeated bytes are too long".to_owned()));
+        }
+        Ok(self.inner.repeat(value).into())
     }
 
     fn do_cformat(
