@@ -790,10 +790,17 @@ impl PyString {
     }
 
     #[pymethod]
-    fn replace(&self, old: PyStringRef, new: PyStringRef, num: OptionalArg<usize>) -> String {
-        match num.into_option() {
-            Some(num) => self.value.replacen(&old.value, &new.value, num),
-            None => self.value.replace(&old.value, &new.value),
+    fn replace(&self, old: PyStringRef, new: PyStringRef, count: OptionalArg<isize>) -> String {
+        match count {
+            OptionalArg::Present(maxcount) if maxcount >= 0 => {
+                if maxcount == 0 || self.value.is_empty() {
+                    // nothing to do; return the original bytes
+                    return self.value.clone();
+                }
+                self.value
+                    .replacen(&old.value, &new.value, maxcount as usize)
+            }
+            _ => self.value.replace(&old.value, &new.value),
         }
     }
 
