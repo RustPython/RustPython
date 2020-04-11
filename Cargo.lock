@@ -215,9 +215,9 @@ dependencies = [
 
 [[package]]
 name = "bstr"
-version = "0.2.10"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe8a65814ca90dfc9705af76bb6ba3c6e2534489a72270e797e603783bb4990b"
+checksum = "2889e6d50f394968c8bf4240dc3f2a7eb4680844d27308f798229ac9d4725f41"
 dependencies = [
  "lazy_static 1.4.0",
  "memchr",
@@ -1598,6 +1598,7 @@ dependencies = [
  "base64",
  "bitflags",
  "blake2",
+ "bstr",
  "byteorder 1.3.2",
  "caseless",
  "chrono",

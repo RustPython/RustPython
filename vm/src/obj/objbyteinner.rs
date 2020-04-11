@@ -1,9 +1,9 @@
-use std::convert::TryFrom;
-use std::ops::Range;
-
+use bstr::ByteSlice;
 use num_bigint::{BigInt, ToBigInt};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use std::convert::TryFrom;
+use std::ops::Range;
 
 use super::objbytearray::{PyByteArray, PyByteArrayRef};
 use super::objbytes::{PyBytes, PyBytesRef};
