@@ -92,7 +92,6 @@ class BaseTest:
         args = self.fixtype(args)
         getattr(obj, methodname)(*args)
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
     def test_count(self):
         self.checkequal(3, 'aaa', 'count', 'a')
         self.checkequal(0, 'aaa', 'count', 'b')

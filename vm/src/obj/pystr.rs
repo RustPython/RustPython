@@ -218,4 +218,16 @@ pub trait PyCommonString<E> {
         }
         None
     }
+
+    #[inline]
+    fn py_count<F>(&self, needle: &Self, range: std::ops::Range<usize>, count: F) -> usize
+    where
+        F: Fn(&Self, &Self) -> usize,
+    {
+        if range.is_normal() {
+            count(self.get_slice(range), &needle)
+        } else {
+            0
+        }
+    }
 }

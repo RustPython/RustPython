@@ -14,7 +14,7 @@ use super::objnone::PyNoneRef;
 use super::objsequence::PySliceableSequence;
 use super::objslice::PySliceRef;
 use super::objstr::{self, PyString, PyStringRef};
-use super::pystr::{self, PyCommonString, PyCommonStringWrapper, StringRange};
+use super::pystr::{self, PyCommonString, PyCommonStringWrapper};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
@@ -795,18 +795,9 @@ impl PyByteInner {
 
     pub fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         let (needle, range) = options.get_value(self.elements.len(), vm)?;
-        if !range.is_normal() {
-            return Ok(0);
-        }
-        if needle.is_empty() {
-            return Ok(range.len() + 1);
-        }
-        let haystack = &self.elements[range];
-        let total = haystack
-            .windows(needle.len())
-            .filter(|w| *w == needle.as_slice())
-            .count();
-        Ok(total)
+        Ok(self
+            .elements
+            .py_count(needle.as_slice(), range, |h, n| h.find_iter(n).count()))
     }
 
     pub fn join(&self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {

@@ -21,7 +21,7 @@ use super::objsequence::PySliceableSequence;
 use super::objslice::PySliceRef;
 use super::objtuple;
 use super::objtype::{self, PyClassRef};
-use super::pystr::{self, adjust_indices, PyCommonString, PyCommonStringWrapper, StringRange};
+use super::pystr::{self, adjust_indices, PyCommonString, PyCommonStringWrapper};
 use crate::cformat::{
     CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
     CNumberType,
@@ -950,11 +950,8 @@ impl PyString {
         end: OptionalArg<Option<isize>>,
     ) -> usize {
         let range = adjust_indices(start, end, self.value.len());
-        if range.is_normal() {
-            self.value[range].matches(&sub.value).count()
-        } else {
-            0
-        }
+        self.value
+            .py_count(&sub.value, range, |h, n| h.matches(n).count())
     }
 
     #[pymethod]
