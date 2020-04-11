@@ -1455,7 +1455,7 @@ pub fn bytes_zfill(bytes: &[u8], width: usize) -> Vec<u8> {
         };
         let mut filled = Vec::new();
         filled.extend_from_slice(sign);
-        filled.extend_from_slice(&b"0".repeat(width - bytes.len()));
+        filled.extend(std::iter::repeat(b'0').take(width - bytes.len()));
         filled.extend_from_slice(s);
         filled
     }
