@@ -44,3 +44,4 @@ pub mod objtype;
 pub mod objweakproxy;
 pub mod objweakref;
 pub mod objzip;
+mod pystr;

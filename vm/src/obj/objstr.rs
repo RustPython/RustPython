@@ -21,6 +21,7 @@ use super::objsequence::PySliceableSequence;
 use super::objslice::PySliceRef;
 use super::objtuple;
 use super::objtype::{self, PyClassRef};
+use super::pystr::PyCommonString;
 use crate::cformat::{
     CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
     CNumberType,
@@ -455,61 +456,27 @@ impl PyString {
 
     #[pymethod]
     fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
-        let value = &self.value;
-        let pattern = args.non_empty_sep(vm)?;
-        let num_splits = args.maxsplit;
-        let elements: Vec<_> = match (pattern, num_splits.is_negative()) {
-            (Some(pattern), true) => value
-                .split(pattern)
-                .map(|o| vm.ctx.new_str(o.to_owned()))
-                .collect(),
-            (Some(pattern), false) => value
-                .splitn(num_splits as usize + 1, pattern)
-                .map(|o| vm.ctx.new_str(o.to_owned()))
-                .collect(),
-            (None, true) => value
-                .trim_start()
-                .split(|c: char| c.is_ascii_whitespace())
-                .filter(|s| !s.is_empty())
-                .map(|o| vm.ctx.new_str(o.to_owned()))
-                .collect(),
-            (None, false) => value
-                .trim_start()
-                .splitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
-                .filter(|s| !s.is_empty())
-                .map(|o| vm.ctx.new_str(o.to_owned()))
-                .collect(),
-        };
+        let elements = self.value.py_split(
+            args.non_empty_sep(vm)?,
+            args.maxsplit,
+            vm,
+            |v, s, vm| v.split(s).map(|s| vm.ctx.new_str(s)).collect(),
+            |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_str(s)).collect(),
+            |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_str(s)),
+        );
         Ok(vm.ctx.new_list(elements))
     }
 
     #[pymethod]
     fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
-        let value = &self.value;
-        let pattern = args.non_empty_sep(vm)?;
-        let num_splits = args.maxsplit;
-        let mut elements: Vec<_> = match (pattern, num_splits.is_negative()) {
-            (Some(pattern), true) => value
-                .rsplit(pattern)
-                .map(|o| vm.ctx.new_str(o.to_owned()))
-                .collect(),
-            (Some(pattern), false) => value
-                .rsplitn(num_splits as usize + 1, pattern)
-                .map(|o| vm.ctx.new_str(o.to_owned()))
-                .collect(),
-            (None, true) => value
-                .trim_end()
-                .rsplit(|c: char| c.is_ascii_whitespace())
-                .filter(|s| !s.is_empty())
-                .map(|o| vm.ctx.new_str(o.to_owned()))
-                .collect(),
-            (None, false) => value
-                .trim_end()
-                .rsplitn(num_splits as usize + 1, |c: char| c.is_ascii_whitespace())
-                .filter(|s| !s.is_empty())
-                .map(|o| vm.ctx.new_str(o.to_owned()))
-                .collect(),
-        };
+        let mut elements = self.value.py_split(
+            args.non_empty_sep(vm)?,
+            args.maxsplit,
+            vm,
+            |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_str(s)).collect(),
+            |v, s, n, vm| v.rsplitn(n, s).map(|s| vm.ctx.new_str(s)).collect(),
+            |v, n, vm| v.py_rsplit_whitespace(n, |s| vm.ctx.new_str(s)),
+        );
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.
         elements.reverse();
@@ -1880,5 +1847,59 @@ mod tests {
         assert_eq!(translated, "🎅xda".to_owned());
         let translated = text.translate(vm.new_int(3), &vm);
         assert_eq!(translated.unwrap_err().class().name, "TypeError".to_owned());
+    }
+}
+
+impl PyCommonString<'_, char> for str {
+    fn py_split_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
+    where
+        F: Fn(&Self) -> PyObjectRef,
+    {
+        // CPython split_whitespace
+        let mut splited = Vec::new();
+        let mut last_offset = 0;
+        let mut count = maxsplit;
+        for (offset, _) in self.match_indices(|c: char| c.is_ascii_whitespace() || c == '\x0b') {
+            if last_offset == offset {
+                last_offset += 1;
+                continue;
+            }
+            if count == 0 {
+                break;
+            }
+            splited.push(convert(&self[last_offset..offset]));
+            last_offset = offset + 1;
+            count -= 1;
+        }
+        if last_offset != self.len() {
+            splited.push(convert(&self[last_offset..]));
+        }
+        splited
+    }
+
+    fn py_rsplit_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
+    where
+        F: Fn(&Self) -> PyObjectRef,
+    {
+        // CPython rsplit_whitespace
+        let mut splited = Vec::new();
+        let mut last_offset = self.len();
+        let mut count = maxsplit;
+        for (offset, _) in self.rmatch_indices(|c: char| c.is_ascii_whitespace() || c == '\x0b') {
+            if last_offset == offset + 1 {
+                last_offset -= 1;
+                continue;
+            }
+            if count == 0 {
+                break;
+            }
+            splited.push(convert(&self[offset + 1..last_offset]));
+            last_offset = offset;
+            count -= 1;
+        }
+        if last_offset != 0 {
+            splited.push(convert(&self[..last_offset]));
+        }
+        splited
     }
 }
