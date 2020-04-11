@@ -474,9 +474,9 @@ impl PyString {
     }
 
     #[pymethod]
-    fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyObjectRef {
+    fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
         let value = &self.value;
-        let pattern = args.sep.as_ref().map(|s| s.as_str());
+        let pattern = args.non_empty_sep(vm)?;
         let num_splits = args.maxsplit;
         let elements: Vec<_> = match (pattern, num_splits.is_negative()) {
             (Some(pattern), true) => value
@@ -500,13 +500,13 @@ impl PyString {
                 .map(|o| vm.ctx.new_str(o.to_owned()))
                 .collect(),
         };
-        vm.ctx.new_list(elements)
+        Ok(vm.ctx.new_list(elements))
     }
 
     #[pymethod]
-    fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyObjectRef {
+    fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
         let value = &self.value;
-        let pattern = args.sep.as_ref().map(|s| s.as_str());
+        let pattern = args.non_empty_sep(vm)?;
         let num_splits = args.maxsplit;
         let mut elements: Vec<_> = match (pattern, num_splits.is_negative()) {
             (Some(pattern), true) => value
@@ -533,7 +533,7 @@ impl PyString {
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.
         elements.reverse();
-        vm.ctx.new_list(elements)
+        Ok(vm.ctx.new_list(elements))
     }
 
     #[pymethod]
@@ -1376,6 +1376,21 @@ struct SplitArgs {
     sep: Option<PyStringRef>,
     #[pyarg(positional_or_keyword, default = "-1")]
     maxsplit: isize,
+}
+
+impl SplitArgs {
+    fn non_empty_sep<'a>(&'a self, vm: &VirtualMachine) -> PyResult<Option<&'a str>> {
+        let sep = if let Some(s) = self.sep.as_ref() {
+            let sep = s.as_str();
+            if sep.is_empty() {
+                return Err(vm.new_value_error("empty separator".to_owned()));
+            }
+            Some(sep)
+        } else {
+            None
+        };
+        Ok(sep)
+    }
 }
 
 pub fn init(ctx: &PyContext) {
