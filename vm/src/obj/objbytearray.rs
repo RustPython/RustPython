@@ -413,21 +413,25 @@ impl PyByteArray {
     fn partition(&self, sep: PyByteInner, vm: &VirtualMachine) -> PyResult {
         // sep ALWAYS converted to  bytearray even it's bytes or memoryview
         // so its ok to accept PyByteInner
-        let (left, right) = self.borrow_value().partition(&sep, false)?;
+        let value = self.borrow_value();
+        let (front, has_mid, back) = value.partition(&sep, vm)?;
         Ok(vm.ctx.new_tuple(vec![
-            vm.ctx.new_bytearray(left),
-            vm.ctx.new_bytearray(sep.elements),
-            vm.ctx.new_bytearray(right),
+            vm.ctx.new_bytearray(front.to_vec()),
+            vm.ctx
+                .new_bytearray(if has_mid { sep.elements } else { Vec::new() }),
+            vm.ctx.new_bytearray(back.to_vec()),
         ]))
     }
 
     #[pymethod(name = "rpartition")]
     fn rpartition(&self, sep: PyByteInner, vm: &VirtualMachine) -> PyResult {
-        let (left, right) = self.borrow_value().partition(&sep, true)?;
+        let value = self.borrow_value();
+        let (front, has_mid, back) = value.rpartition(&sep, vm)?;
         Ok(vm.ctx.new_tuple(vec![
-            vm.ctx.new_bytearray(left),
-            vm.ctx.new_bytearray(sep.elements),
-            vm.ctx.new_bytearray(right),
+            vm.ctx.new_bytearray(front.to_vec()),
+            vm.ctx
+                .new_bytearray(if has_mid { sep.elements } else { Vec::new() }),
+            vm.ctx.new_bytearray(back.to_vec()),
         ]))
     }
 

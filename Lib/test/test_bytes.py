@@ -737,13 +737,11 @@ class BaseBytesTest:
         b = self.type2test(b"\x09\x0A\x0B\x0C\x0D\x1C\x1D\x1E\x1F")
         self.assertEqual(b.rsplit(), [b'\x1c\x1d\x1e\x1f'])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_partition(self):
         b = self.type2test(b'mississippi')
         self.assertEqual(b.partition(b'ss'), (b'mi', b'ss', b'issippi'))
         self.assertEqual(b.partition(b'w'), (b'mississippi', b'', b''))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_rpartition(self):
         b = self.type2test(b'mississippi')
         self.assertEqual(b.rpartition(b'ss'), (b'missi', b'ss', b'ippi'))
@@ -1578,7 +1576,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         x = bytearray(b'')
         self.assertIsNot(x, x.translate(t))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_partition_bytearray_doesnt_share_nullstring(self):
         a, b, c = bytearray(b"x").partition(b"y")
         self.assertEqual(b, b"")

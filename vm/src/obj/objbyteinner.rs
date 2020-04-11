@@ -1012,13 +1012,42 @@ impl PyByteInner {
         }
     }
 
-    pub fn partition(&self, sep: &PyByteInner, reverse: bool) -> PyResult<(Vec<u8>, Vec<u8>)> {
-        let splitted = if reverse {
-            split_slice_reverse(&self.elements, &sep.elements, 1)
+    pub fn partition(
+        &self,
+        sub: &PyByteInner,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Vec<u8>, bool, Vec<u8>)> {
+        if sub.elements.is_empty() {
+            return Err(vm.new_value_error("empty separator".to_owned()));
+        }
+
+        let mut sp = self.elements.splitn_str(2, &sub.elements);
+        let front = sp.next().unwrap().to_vec();
+        let (has_mid, back) = if let Some(back) = sp.next() {
+            (true, back.to_vec())
         } else {
-            split_slice(&self.elements, &sep.elements, 1)
+            (false, Vec::new())
         };
-        Ok((splitted[0].to_vec(), splitted[1].to_vec()))
+        Ok((front, has_mid, back))
+    }
+
+    pub fn rpartition(
+        &self,
+        sub: &PyByteInner,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Vec<u8>, bool, Vec<u8>)> {
+        if sub.elements.is_empty() {
+            return Err(vm.new_value_error("empty separator".to_owned()));
+        }
+
+        let mut sp = self.elements.rsplitn_str(2, &sub.elements);
+        let back = sp.next().unwrap().to_vec();
+        let (has_mid, front) = if let Some(front) = sp.next() {
+            (true, front.to_vec())
+        } else {
+            (false, Vec::new())
+        };
+        Ok((front, has_mid, back))
     }
 
     pub fn expandtabs(&self, options: ByteInnerExpandtabsOptions) -> Vec<u8> {
