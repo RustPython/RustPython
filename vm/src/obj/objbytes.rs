@@ -401,7 +401,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "zfill")]
-    fn zfill(&self, width: PyIntRef) -> PyBytes {
+    fn zfill(&self, width: isize) -> PyBytes {
         self.inner.zfill(width).into()
     }
 

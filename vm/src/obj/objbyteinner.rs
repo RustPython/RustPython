@@ -1100,24 +1100,8 @@ impl PyByteInner {
         res
     }
 
-    pub fn zfill(&self, width: PyIntRef) -> Vec<u8> {
-        if let Some(value) = width.as_bigint().to_usize() {
-            if value < self.elements.len() {
-                return self.elements.to_vec();
-            }
-            let mut res = vec![];
-            if self.elements.starts_with(&[b'-']) {
-                res.push(b'-');
-                res.extend_from_slice(&vec![b'0'; value - self.elements.len()]);
-                res.extend_from_slice(&self.elements[1..]);
-            } else {
-                res.extend_from_slice(&vec![b'0'; value - self.elements.len()]);
-                res.extend_from_slice(&self.elements[0..]);
-            }
-            res
-        } else {
-            self.elements.to_vec()
-        }
+    pub fn zfill(&self, width: isize) -> Vec<u8> {
+        bytes_zfill(&self.elements, width.to_usize().unwrap_or(0))
     }
 
     pub fn replace(
@@ -1456,5 +1440,23 @@ impl PyBytesLike {
             PyBytesLike::Bytes(b) => f(b.get_value()),
             PyBytesLike::Bytearray(b) => f(&b.borrow_value().elements),
         }
+    }
+}
+
+pub fn bytes_zfill(bytes: &[u8], width: usize) -> Vec<u8> {
+    if width <= bytes.len() {
+        bytes.to_vec()
+    } else {
+        let (sign, s) = match bytes.first() {
+            Some(_sign @ b'+') | Some(_sign @ b'-') => {
+                (unsafe { bytes.get_unchecked(..1) }, &bytes[1..])
+            }
+            _ => (&b""[..], bytes),
+        };
+        let mut filled = Vec::new();
+        filled.extend_from_slice(sign);
+        filled.extend_from_slice(&b"0".repeat(width - bytes.len()));
+        filled.extend_from_slice(s);
+        filled
     }
 }

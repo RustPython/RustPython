@@ -1058,17 +1058,13 @@ impl PyString {
     }
 
     #[pymethod]
-    fn zfill(&self, len: usize) -> String {
-        let value = &self.value;
-        if len <= value.len() {
-            value.to_owned()
-        } else {
-            let mut bytes = value.bytes();
-            let (sign, s) = match bytes.next() {
-                Some(sign @ b'+') | Some(sign @ b'-') => ((sign as char).to_string(), &value[1..]),
-                _ => ("".to_owned(), value.as_str()),
-            };
-            format!("{}{}{}", sign, "0".repeat(len - value.len()), s,)
+    fn zfill(&self, width: isize) -> String {
+        use super::objbyteinner::bytes_zfill;
+        unsafe {
+            String::from_utf8_unchecked(bytes_zfill(
+                self.value.as_bytes(),
+                width.to_usize().unwrap_or(0),
+            ))
         }
     }
 

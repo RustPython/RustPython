@@ -840,7 +840,6 @@ class BaseTest:
 
         self.checkraises(TypeError, 'hello', 'swapcase', 42)
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
     def test_zfill(self):
         self.checkequal('123', '123', 'zfill', 2)
         self.checkequal('123', '123', 'zfill', 3)
