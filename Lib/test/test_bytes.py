@@ -157,7 +157,6 @@ class BaseBytesTest:
 
         self.assertEqual(self.type2test(B(b"foobar")), b"foobar")
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_from_ssize(self):
         self.assertEqual(self.type2test(0), b'')
         self.assertEqual(self.type2test(1), b'\x00')
