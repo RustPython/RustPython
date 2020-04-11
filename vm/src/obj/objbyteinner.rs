@@ -15,7 +15,7 @@ use super::objsequence::{is_valid_slice_arg, PySliceableSequence};
 use super::objslice::PySliceRef;
 use super::objstr::{self, adjust_indices, PyString, PyStringRef, StringRange};
 use super::objtuple::PyTupleRef;
-use crate::function::OptionalArg;
+use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
     Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, ThreadSafe, TryFromObject,
@@ -938,40 +938,37 @@ impl PyByteInner {
         Ok(res)
     }
 
-    pub fn strip(
-        &self,
-        chars: OptionalArg<PyByteInner>,
-        position: ByteInnerPosition,
-    ) -> PyResult<Vec<u8>> {
-        let is_valid_char = |c| {
-            if let OptionalArg::Present(ref bytes) = chars {
-                bytes.elements.contains(c)
-            } else {
-                c.is_ascii_whitespace()
-            }
+    pub fn strip(&self, chars: OptionalOption<PyByteInner>) -> Vec<u8> {
+        let chars = chars.flat_option();
+        let chars = match chars {
+            Some(ref chars) => &chars.elements,
+            None => return self.elements.trim().to_owned(),
         };
+        self.elements
+            .trim_with(|c| chars.contains(&(c as u8)))
+            .to_owned()
+    }
 
-        let mut start = 0;
-        let mut end = self.len();
+    pub fn lstrip(&self, chars: OptionalOption<PyByteInner>) -> Vec<u8> {
+        let chars = chars.flat_option();
+        let chars = match chars {
+            Some(ref chars) => &chars.elements,
+            None => return self.elements.trim_start().to_owned(),
+        };
+        self.elements
+            .trim_start_with(|c| chars.contains(&(c as u8)))
+            .to_owned()
+    }
 
-        if let ByteInnerPosition::Left | ByteInnerPosition::All = position {
-            for (i, c) in self.elements.iter().enumerate() {
-                if !is_valid_char(c) {
-                    start = i;
-                    break;
-                }
-            }
-        }
-
-        if let ByteInnerPosition::Right | ByteInnerPosition::All = position {
-            for (i, c) in self.elements.iter().rev().enumerate() {
-                if !is_valid_char(c) {
-                    end = self.len() - i;
-                    break;
-                }
-            }
-        }
-        Ok(self.elements[start..end].to_vec())
+    pub fn rstrip(&self, chars: OptionalOption<PyByteInner>) -> Vec<u8> {
+        let chars = chars.flat_option();
+        let chars = match chars {
+            Some(ref chars) => &chars.elements,
+            None => return self.elements.trim_end().to_owned(),
+        };
+        self.elements
+            .trim_end_with(|c| chars.contains(&(c as u8)))
+            .to_owned()
     }
 
     pub fn split(&self, options: ByteInnerSplitOptions, reverse: bool) -> PyResult<Vec<&[u8]>> {
@@ -1212,12 +1209,6 @@ pub trait ByteOr: ToPrimitive {
 }
 
 impl ByteOr for BigInt {}
-
-pub enum ByteInnerPosition {
-    Left,
-    Right,
-    All,
-}
 
 fn split_slice<'a>(slice: &'a [u8], sep: &[u8], maxsplit: isize) -> Vec<&'a [u8]> {
     let mut splitted: Vec<&[u8]> = vec![];

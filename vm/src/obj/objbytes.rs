@@ -4,8 +4,7 @@ use std::ops::Deref;
 
 use super::objbyteinner::{
     ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-    ByteInnerPosition, ByteInnerSplitOptions, ByteInnerSplitlinesOptions,
-    ByteInnerTranslateOptions, PyByteInner,
+    ByteInnerSplitOptions, ByteInnerSplitlinesOptions, ByteInnerTranslateOptions, PyByteInner,
 };
 use super::objint::PyIntRef;
 use super::objiter;
@@ -14,7 +13,7 @@ use super::objstr::{PyString, PyStringRef};
 use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
 use crate::cformat::CFormatString;
-use crate::function::OptionalArg;
+use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objstr::do_cformat_string;
 use crate::pyhash;
 use crate::pyobject::{
@@ -329,18 +328,18 @@ impl PyBytes {
     }
 
     #[pymethod(name = "strip")]
-    fn strip(&self, chars: OptionalArg<PyByteInner>) -> PyResult<PyBytes> {
-        Ok(self.inner.strip(chars, ByteInnerPosition::All)?.into())
+    fn strip(&self, chars: OptionalOption<PyByteInner>) -> PyBytes {
+        self.inner.strip(chars).into()
     }
 
     #[pymethod(name = "lstrip")]
-    fn lstrip(&self, chars: OptionalArg<PyByteInner>) -> PyResult<PyBytes> {
-        Ok(self.inner.strip(chars, ByteInnerPosition::Left)?.into())
+    fn lstrip(&self, chars: OptionalOption<PyByteInner>) -> PyBytes {
+        self.inner.lstrip(chars).into()
     }
 
     #[pymethod(name = "rstrip")]
-    fn rstrip(&self, chars: OptionalArg<PyByteInner>) -> PyResult<PyBytes> {
-        Ok(self.inner.strip(chars, ByteInnerPosition::Right)?.into())
+    fn rstrip(&self, chars: OptionalOption<PyByteInner>) -> PyBytes {
+        self.inner.rstrip(chars).into()
     }
 
     #[pymethod(name = "split")]

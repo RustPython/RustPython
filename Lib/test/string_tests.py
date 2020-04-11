@@ -777,7 +777,6 @@ class BaseTest:
             self.checkequal(['arf', 'barf'], b, 'rsplit', None)
             self.checkequal(['arf', 'barf'], b, 'rsplit', None, 2)
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
     def test_strip_whitespace(self):
         self.checkequal('hello', '   hello   ', 'strip')
         self.checkequal('hello   ', '   hello   ', 'lstrip')
@@ -795,7 +794,6 @@ class BaseTest:
         self.checkequal('   hello', '   hello   ', 'rstrip', None)
         self.checkequal('hello', 'hello', 'strip', None)
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
     def test_strip(self):
         # strip/lstrip/rstrip with str arg
         self.checkequal('hello', 'xyzzyhelloxyzzy', 'strip', 'xyz')

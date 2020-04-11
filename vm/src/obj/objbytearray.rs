@@ -5,8 +5,8 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::objbyteinner::{
     ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-    ByteInnerPosition, ByteInnerSplitOptions, ByteInnerSplitlinesOptions,
-    ByteInnerTranslateOptions, ByteOr, PyByteInner,
+    ByteInnerSplitOptions, ByteInnerSplitlinesOptions, ByteInnerTranslateOptions, ByteOr,
+    PyByteInner,
 };
 use super::objint::PyIntRef;
 use super::objiter;
@@ -15,7 +15,7 @@ use super::objstr::{PyString, PyStringRef};
 use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
 use crate::cformat::CFormatString;
-use crate::function::OptionalArg;
+use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objstr::do_cformat_string;
 use crate::pyobject::{
     Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
@@ -373,27 +373,18 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "strip")]
-    fn strip(&self, chars: OptionalArg<PyByteInner>) -> PyResult<PyByteArray> {
-        Ok(self
-            .borrow_value()
-            .strip(chars, ByteInnerPosition::All)?
-            .into())
+    fn strip(&self, chars: OptionalOption<PyByteInner>) -> PyByteArray {
+        self.borrow_value().strip(chars).into()
     }
 
     #[pymethod(name = "lstrip")]
-    fn lstrip(&self, chars: OptionalArg<PyByteInner>) -> PyResult<PyByteArray> {
-        Ok(self
-            .borrow_value()
-            .strip(chars, ByteInnerPosition::Left)?
-            .into())
+    fn lstrip(&self, chars: OptionalOption<PyByteInner>) -> PyByteArray {
+        self.borrow_value().lstrip(chars).into()
     }
 
     #[pymethod(name = "rstrip")]
-    fn rstrip(&self, chars: OptionalArg<PyByteInner>) -> PyResult<PyByteArray> {
-        Ok(self
-            .borrow_value()
-            .strip(chars, ByteInnerPosition::Right)?
-            .into())
+    fn rstrip(&self, chars: OptionalOption<PyByteInner>) -> PyByteArray {
+        self.borrow_value().rstrip(chars).into()
     }
 
     #[pymethod(name = "split")]
