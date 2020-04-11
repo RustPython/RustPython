@@ -488,8 +488,6 @@ class UnicodeTest(string_tests.CommonTest,
         seq = ('A' * size,) * size
         self.assertRaises(OverflowError, ''.join, seq)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_replace(self):
         string_tests.CommonTest.test_replace(self)
 
