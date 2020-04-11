@@ -157,7 +157,8 @@ class BaseTest:
                     self.assertEqual(rem, 0, '%s != 0 for %s' % (rem, i))
                     self.assertEqual(r1, r2, '%s != %s for %s' % (r1, r2, i))
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_find(self):
         self.checkequal(0, 'abcdefghiabc', 'find', 'abc')
         self.checkequal(9, 'abcdefghiabc', 'find', 'abc', 1)
@@ -215,7 +216,8 @@ class BaseTest:
                 if loc != -1:
                     self.assertEqual(i[loc:loc+len(j)], j)
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_rfind(self):
         self.checkequal(9,  'abcdefghiabc', 'rfind', 'abc')
         self.checkequal(12, 'abcdefghiabc', 'rfind', '')
@@ -294,7 +296,6 @@ class BaseTest:
         else:
             self.checkraises(TypeError, 'hello', 'index', 42)
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
     def test_rindex(self):
         self.checkequal(12, 'abcdefghiabc', 'rindex', '')
         self.checkequal(3,  'abcdefghiabc', 'rindex', 'def')

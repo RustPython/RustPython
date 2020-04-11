@@ -1,6 +1,9 @@
 //! Implementation of the python bytearray object.
+use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
 use std::convert::TryFrom;
+use std::mem::size_of;
+use std::str::FromStr;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::objbyteinner::{
@@ -21,8 +24,6 @@ use crate::pyobject::{
     PyValue, ThreadSafe, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use std::mem::size_of;
-use std::str::FromStr;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\
 ///  bytearray(string, encoding[, errors]) -> bytearray\n\
@@ -327,25 +328,25 @@ impl PyByteArray {
 
     #[pymethod(name = "find")]
     fn find(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        let index = self.borrow_value().find(options, false, vm)?;
+        let index = self.borrow_value().find(options, |h, n| h.find(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
     #[pymethod(name = "index")]
     fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
-        let index = self.borrow_value().find(options, false, vm)?;
+        let index = self.borrow_value().find(options, |h, n| h.find(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
     #[pymethod(name = "rfind")]
     fn rfind(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        let index = self.borrow_value().find(options, true, vm)?;
+        let index = self.borrow_value().find(options, |h, n| h.rfind(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
     #[pymethod(name = "rindex")]
     fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
-        let index = self.borrow_value().find(options, true, vm)?;
+        let index = self.borrow_value().find(options, |h, n| h.rfind(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 

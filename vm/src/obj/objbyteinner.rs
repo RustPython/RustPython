@@ -823,35 +823,17 @@ impl PyByteInner {
     }
 
     #[inline]
-    pub fn find(
+    pub fn find<F>(
         &self,
         options: ByteInnerFindOptions,
-        reverse: bool,
+        find: F,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<usize>> {
+    ) -> PyResult<Option<usize>>
+    where
+        F: Fn(&[u8], &[u8]) -> Option<usize>,
+    {
         let (needle, range) = options.get_value(self.elements.len(), vm)?;
-        if !range.is_normal() {
-            return Ok(None);
-        }
-        if needle.is_empty() {
-            return Ok(Some(if reverse { range.end } else { range.start }));
-        }
-        let haystack = &self.elements[range.clone()];
-        let windows = haystack.windows(needle.len());
-        if reverse {
-            for (i, w) in windows.rev().enumerate() {
-                if w == needle.as_slice() {
-                    return Ok(Some(range.end - i - needle.len()));
-                }
-            }
-        } else {
-            for (i, w) in windows.enumerate() {
-                if w == needle.as_slice() {
-                    return Ok(Some(range.start + i));
-                }
-            }
-        }
-        Ok(None)
+        Ok(self.elements.py_find(&needle, range, find))
     }
 
     pub fn maketrans(from: PyByteInner, to: PyByteInner, vm: &VirtualMachine) -> PyResult {

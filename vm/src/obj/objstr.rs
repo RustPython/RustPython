@@ -811,6 +811,7 @@ impl PyString {
         Ok(joined)
     }
 
+    #[inline]
     fn _find<F>(
         &self,
         sub: PyStringRef,
@@ -822,12 +823,7 @@ impl PyString {
         F: Fn(&str, &str) -> Option<usize>,
     {
         let range = adjust_indices(start, end, self.value.len());
-        if range.is_normal() {
-            if let Some(index) = find(&self.value[range.clone()], &sub.value) {
-                return Some(range.start + index);
-            }
-        }
-        None
+        self.value.py_find(&sub.value, range, find)
     }
 
     #[pymethod]
