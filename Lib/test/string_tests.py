@@ -360,7 +360,6 @@ class BaseTest:
             self.checkraises(OverflowError,
                              '\ta\n\tb', 'expandtabs', sys.maxsize)
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
     def test_split(self):
         # by a char
         self.checkequal(['a', 'b', 'c', 'd'], 'a|b|c|d', 'split', '|')
@@ -431,7 +430,6 @@ class BaseTest:
         self.checkraises(ValueError, 'hello', 'split', '')
         self.checkraises(ValueError, 'hello', 'split', '', 0)
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
     def test_rsplit(self):
         # by a char
         self.checkequal(['a', 'b', 'c', 'd'], 'a|b|c|d', 'rsplit', '|')
@@ -697,8 +695,6 @@ class BaseTest:
 
         self.checkraises(TypeError, 'hello', 'capitalize', 42)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_additional_split(self):
         self.checkequal(['this', 'is', 'the', 'split', 'function'],
             'this is the split function', 'split')
@@ -735,8 +731,6 @@ class BaseTest:
             self.checkequal(['arf', 'barf'], b, 'split', None)
             self.checkequal(['arf', 'barf'], b, 'split', None, 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_additional_rsplit(self):
         self.checkequal(['this', 'is', 'the', 'rsplit', 'function'],
                          'this is the rsplit function', 'rsplit')

@@ -722,8 +722,6 @@ class BaseBytesTest:
         self.assertRaises(TypeError, self.type2test(b'a b').split, 32)
         self.assertRaises(TypeError, self.type2test(b'a b').rsplit, 32)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_split_unicodewhitespace(self):
         for b in (b'a\x1Cb', b'a\x1Db', b'a\x1Eb', b'a\x1Fb'):
             b = self.type2test(b)
@@ -731,8 +729,6 @@ class BaseBytesTest:
         b = self.type2test(b"\x09\x0A\x0B\x0C\x0D\x1C\x1D\x1E\x1F")
         self.assertEqual(b.split(), [b'\x1c\x1d\x1e\x1f'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_rsplit_unicodewhitespace(self):
         b = self.type2test(b"\x09\x0A\x0B\x0C\x0D\x1C\x1D\x1E\x1F")
         self.assertEqual(b.rsplit(), [b'\x1c\x1d\x1e\x1f'])

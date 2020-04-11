@@ -57,8 +57,8 @@ impl PyBytes {
 }
 
 impl From<Vec<u8>> for PyBytes {
-    fn from(elements: Vec<u8>) -> PyBytes {
-        PyBytes::new(elements)
+    fn from(elements: Vec<u8>) -> Self {
+        Self::new(elements)
     }
 }
 
@@ -344,24 +344,14 @@ impl PyBytes {
 
     #[pymethod(name = "split")]
     fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
-        let as_bytes = self
-            .inner
-            .split(options, false)?
-            .iter()
-            .map(|x| vm.ctx.new_bytes(x.to_vec()))
-            .collect::<Vec<PyObjectRef>>();
-        Ok(vm.ctx.new_list(as_bytes))
+        self.inner
+            .split(options, |s, vm| vm.ctx.new_bytes(s.to_vec()), vm)
     }
 
     #[pymethod(name = "rsplit")]
     fn rsplit(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
-        let as_bytes = self
-            .inner
-            .split(options, true)?
-            .iter()
-            .map(|x| vm.ctx.new_bytes(x.to_vec()))
-            .collect::<Vec<PyObjectRef>>();
-        Ok(vm.ctx.new_list(as_bytes))
+        self.inner
+            .rsplit(options, |s, vm| vm.ctx.new_bytes(s.to_vec()), vm)
     }
 
     #[pymethod(name = "partition")]

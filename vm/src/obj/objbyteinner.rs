@@ -15,6 +15,7 @@ use super::objsequence::{is_valid_slice_arg, PySliceableSequence};
 use super::objslice::PySliceRef;
 use super::objstr::{self, adjust_indices, PyString, PyStringRef, StringRange};
 use super::objtuple::PyTupleRef;
+use super::pystr::PyCommonString;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
@@ -26,6 +27,12 @@ use crate::vm::VirtualMachine;
 #[derive(Debug, Default, Clone)]
 pub struct PyByteInner {
     pub elements: Vec<u8>,
+}
+
+impl From<Vec<u8>> for PyByteInner {
+    fn from(elements: Vec<u8>) -> PyByteInner {
+        Self { elements }
+    }
 }
 
 impl ThreadSafe for PyByteInner {}
@@ -251,26 +258,24 @@ impl ByteInnerTranslateOptions {
 
 #[derive(FromArgs)]
 pub struct ByteInnerSplitOptions {
-    #[pyarg(positional_or_keyword, optional = true)]
-    sep: OptionalArg<Option<PyByteInner>>,
-    #[pyarg(positional_or_keyword, optional = true)]
-    maxsplit: OptionalArg<isize>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    sep: Option<PyByteInner>,
+    #[pyarg(positional_or_keyword, default = "-1")]
+    maxsplit: isize,
 }
 
 impl ByteInnerSplitOptions {
-    pub fn get_value(self) -> PyResult<(Vec<u8>, isize)> {
-        let sep = match self.sep.into_option() {
-            Some(Some(bytes)) => bytes.elements,
-            _ => vec![],
-        };
-
-        let maxsplit = if let OptionalArg::Present(value) = self.maxsplit {
-            value
+    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Option<Vec<u8>>, isize)> {
+        let sep = if let Some(s) = self.sep {
+            let sep = s.elements;
+            if sep.is_empty() {
+                return Err(vm.new_value_error("empty separator".to_owned()));
+            }
+            Some(sep)
         } else {
-            -1
+            None
         };
-
-        Ok((sep, maxsplit))
+        Ok((sep, self.maxsplit))
     }
 }
 
@@ -995,21 +1000,55 @@ impl PyByteInner {
             .to_owned()
     }
 
-    pub fn split(&self, options: ByteInnerSplitOptions, reverse: bool) -> PyResult<Vec<&[u8]>> {
-        let (sep, maxsplit) = options.get_value()?;
+    pub fn split<F>(
+        &self,
+        options: ByteInnerSplitOptions,
+        convert: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef>
+    where
+        F: Fn(&[u8], &VirtualMachine) -> PyObjectRef,
+    {
+        let (sep, maxsplit) = options.get_value(vm)?;
+        let sep_ref = match sep {
+            Some(ref v) => Some(&v[..]),
+            None => None,
+        };
+        let elements = self.elements.py_split(
+            sep_ref,
+            maxsplit,
+            vm,
+            |v, s, vm| v.split_str(s).map(|v| convert(v, vm)).collect(),
+            |v, s, n, vm| v.splitn_str(n, s).map(|v| convert(v, vm)).collect(),
+            |v, n, vm| v.py_split_whitespace(n, |v| convert(v, vm)),
+        );
+        Ok(vm.ctx.new_list(elements))
+    }
 
-        if self.elements.is_empty() {
-            if !sep.is_empty() {
-                return Ok(vec![&[]]);
-            }
-            return Ok(vec![]);
-        }
-
-        if reverse {
-            Ok(split_slice_reverse(&self.elements, &sep, maxsplit))
-        } else {
-            Ok(split_slice(&self.elements, &sep, maxsplit))
-        }
+    pub fn rsplit<F>(
+        &self,
+        options: ByteInnerSplitOptions,
+        convert: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef>
+    where
+        F: Fn(&[u8], &VirtualMachine) -> PyObjectRef,
+    {
+        let (sep, maxsplit) = options.get_value(vm)?;
+        let sep_ref = match sep {
+            Some(ref v) => Some(&v[..]),
+            None => None,
+        };
+        let mut elements = self.elements.py_split(
+            sep_ref,
+            maxsplit,
+            vm,
+            |v, s, vm| v.rsplit_str(s).map(|v| convert(v, vm)).collect(),
+            |v, s, n, vm| v.rsplitn_str(n, s).map(|v| convert(v, vm)).collect(),
+            |v, n, vm| v.py_rsplit_whitespace(n, |v| convert(v, vm)),
+        );
+        elements.reverse();
+        Ok(vm.ctx.new_list(elements))
     }
 
     pub fn partition(
@@ -1247,187 +1286,6 @@ pub trait ByteOr: ToPrimitive {
 
 impl ByteOr for BigInt {}
 
-fn split_slice<'a>(slice: &'a [u8], sep: &[u8], maxsplit: isize) -> Vec<&'a [u8]> {
-    let mut splitted: Vec<&[u8]> = vec![];
-    let mut prev_index = 0;
-    let mut index = 0;
-    let mut count = 0;
-    let mut in_string = false;
-
-    // No sep given, will split for any \t \n \r and space  = [9, 10, 13, 32]
-    if sep.is_empty() {
-        // split wihtout sep always trim left spaces for any maxsplit
-        // so we have to ignore left spaces.
-        loop {
-            if [9, 10, 13, 32].contains(&slice[index]) {
-                index += 1
-            } else {
-                prev_index = index;
-                break;
-            }
-        }
-
-        // most simple case
-        if maxsplit == 0 {
-            splitted.push(&slice[index..slice.len()]);
-            return splitted;
-        }
-
-        // main loop. in_string means previous char is ascii char(true) or space(false)
-        // loop from left to right
-        loop {
-            if [9, 10, 13, 32].contains(&slice[index]) {
-                if in_string {
-                    splitted.push(&slice[prev_index..index]);
-                    in_string = false;
-                    count += 1;
-                    if count == maxsplit {
-                        // while index < slice.len()
-                        splitted.push(&slice[index + 1..slice.len()]);
-                        break;
-                    }
-                }
-            } else if !in_string {
-                prev_index = index;
-                in_string = true;
-            }
-
-            index += 1;
-
-            // handle last item in slice
-            if index == slice.len() {
-                if in_string {
-                    if [9, 10, 13, 32].contains(&slice[index - 1]) {
-                        splitted.push(&slice[prev_index..index - 1]);
-                    } else {
-                        splitted.push(&slice[prev_index..index]);
-                    }
-                }
-                break;
-            }
-        }
-    } else {
-        // sep is given, we match exact slice
-        while index != slice.len() {
-            if index + sep.len() >= slice.len() {
-                if &slice[index..slice.len()] == sep {
-                    splitted.push(&slice[prev_index..index]);
-                    splitted.push(&[]);
-                    break;
-                }
-                splitted.push(&slice[prev_index..slice.len()]);
-                break;
-            }
-
-            if &slice[index..index + sep.len()] == sep {
-                splitted.push(&slice[prev_index..index]);
-                index += sep.len();
-                prev_index = index;
-                count += 1;
-                if count == maxsplit {
-                    // maxsplit reached, append, the remaing
-                    splitted.push(&slice[prev_index..slice.len()]);
-                    break;
-                }
-                continue;
-            }
-
-            index += 1;
-        }
-    }
-    splitted
-}
-
-fn split_slice_reverse<'a>(slice: &'a [u8], sep: &[u8], maxsplit: isize) -> Vec<&'a [u8]> {
-    let mut splitted: Vec<&[u8]> = vec![];
-    let mut prev_index = slice.len();
-    let mut index = slice.len();
-    let mut count = 0;
-
-    // No sep given, will split for any \t \n \r and space  = [9, 10, 13, 32]
-    if sep.is_empty() {
-        //adjust index
-        index -= 1;
-
-        // rsplit without sep always trim right spaces for any maxsplit
-        // so we have to ignore right spaces.
-        loop {
-            if [9, 10, 13, 32].contains(&slice[index]) {
-                index -= 1
-            } else {
-                break;
-            }
-        }
-        prev_index = index + 1;
-
-        // most simple case
-        if maxsplit == 0 {
-            splitted.push(&slice[0..=index]);
-            return splitted;
-        }
-
-        // main loop. in_string means previous char is ascii char(true) or space(false)
-        // loop from right to left and reverse result the end
-        let mut in_string = true;
-        loop {
-            if [9, 10, 13, 32].contains(&slice[index]) {
-                if in_string {
-                    splitted.push(&slice[index + 1..prev_index]);
-                    count += 1;
-                    if count == maxsplit {
-                        // maxsplit reached, append, the remaing
-                        splitted.push(&slice[0..index]);
-                        break;
-                    }
-                    in_string = false;
-                    index -= 1;
-                    continue;
-                }
-            } else if !in_string {
-                in_string = true;
-                if index == 0 {
-                    splitted.push(&slice[0..1]);
-                    break;
-                }
-                prev_index = index + 1;
-            }
-            if index == 0 {
-                break;
-            }
-            index -= 1;
-        }
-    } else {
-        // sep is give, we match exact slice going backwards
-        while index != 0 {
-            if index <= sep.len() {
-                if &slice[0..index] == sep {
-                    splitted.push(&slice[index..prev_index]);
-                    splitted.push(&[]);
-                    break;
-                }
-                splitted.push(&slice[0..prev_index]);
-                break;
-            }
-            if &slice[(index - sep.len())..index] == sep {
-                splitted.push(&slice[index..prev_index]);
-                index -= sep.len();
-                prev_index = index;
-                count += 1;
-                if count == maxsplit {
-                    // maxsplit reached, append, the remaing
-                    splitted.push(&slice[0..prev_index]);
-                    break;
-                }
-                continue;
-            }
-
-            index -= 1;
-        }
-    }
-    splitted.reverse();
-    splitted
-}
-
 pub enum PyBytesLike {
     Bytes(PyBytesRef),
     Bytearray(PyByteArrayRef),
@@ -1478,5 +1336,55 @@ pub fn bytes_zfill(bytes: &[u8], width: usize) -> Vec<u8> {
         filled.extend(std::iter::repeat(b'0').take(width - bytes.len()));
         filled.extend_from_slice(s);
         filled
+    }
+}
+
+const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
+
+impl PyCommonString<'_, u8> for [u8] {
+    fn py_split_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
+    where
+        F: Fn(&Self) -> PyObjectRef,
+    {
+        let mut splited = Vec::new();
+        let mut count = maxsplit;
+        let mut haystack = &self[..];
+        while let Some(offset) = haystack.find_byteset(ASCII_WHITESPACES) {
+            if offset != 0 {
+                if count == 0 {
+                    break;
+                }
+                splited.push(convert(&haystack[..offset]));
+                count -= 1;
+            }
+            haystack = &haystack[offset + 1..];
+        }
+        if !haystack.is_empty() {
+            splited.push(convert(haystack));
+        }
+        splited
+    }
+
+    fn py_rsplit_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
+    where
+        F: Fn(&Self) -> PyObjectRef,
+    {
+        let mut splited = Vec::new();
+        let mut count = maxsplit;
+        let mut haystack = &self[..];
+        while let Some(offset) = haystack.rfind_byteset(ASCII_WHITESPACES) {
+            if offset + 1 != haystack.len() {
+                if count == 0 {
+                    break;
+                }
+                splited.push(convert(&haystack[offset + 1..]));
+                count -= 1;
+            }
+            haystack = &haystack[..offset];
+        }
+        if !haystack.is_empty() {
+            splited.push(convert(haystack));
+        }
+        splited
     }
 }
