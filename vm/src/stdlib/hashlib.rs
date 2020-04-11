@@ -2,10 +2,10 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue, ThreadSafe};
 use crate::vm::VirtualMachine;
-use std::cell::RefCell;
 use std::fmt;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use blake2::{Blake2b, Blake2s};
 use digest::DynDigest;
@@ -17,8 +17,10 @@ use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512}; // TODO: , Shake128, Shake25
 #[pyclass(name = "hasher")]
 struct PyHasher {
     name: String,
-    buffer: RefCell<HashWrapper>,
+    buffer: RwLock<HashWrapper>,
 }
+
+impl ThreadSafe for PyHasher {}
 
 impl fmt::Debug for PyHasher {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -37,8 +39,16 @@ impl PyHasher {
     fn new(name: &str, d: HashWrapper) -> Self {
         PyHasher {
             name: name.to_owned(),
-            buffer: RefCell::new(d),
+            buffer: RwLock::new(d),
         }
+    }
+
+    fn borrow_value(&self) -> RwLockReadGuard<'_, HashWrapper> {
+        self.buffer.read().unwrap()
+    }
+
+    fn borrow_value_mut(&self) -> RwLockWriteGuard<'_, HashWrapper> {
+        self.buffer.write().unwrap()
     }
 
     #[pyslot]
@@ -55,12 +65,12 @@ impl PyHasher {
 
     #[pyproperty(name = "digest_size")]
     fn digest_size(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_int(self.buffer.borrow().digest_size()))
+        Ok(vm.ctx.new_int(self.borrow_value().digest_size()))
     }
 
     #[pymethod(name = "update")]
     fn update(&self, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
-        self.buffer.borrow_mut().input(data.get_value());
+        self.borrow_value_mut().input(data.get_value());
         Ok(vm.get_none())
     }
 
@@ -77,7 +87,7 @@ impl PyHasher {
     }
 
     fn get_digest(&self) -> Vec<u8> {
-        self.buffer.borrow().get_digest()
+        self.borrow_value().get_digest()
     }
 }
 
@@ -200,15 +210,18 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     })
 }
 
+trait ThreadSafeDynDigest: DynDigest + Sync + Send {}
+impl<T> ThreadSafeDynDigest for T where T: DynDigest + Sync + Send {}
+
 /// Generic wrapper patching around the hashing libraries.
 struct HashWrapper {
-    inner: Box<dyn DynDigest>,
+    inner: Box<dyn ThreadSafeDynDigest>,
 }
 
 impl HashWrapper {
     fn new<D: 'static>(d: D) -> Self
     where
-        D: DynDigest + Sized,
+        D: ThreadSafeDynDigest,
     {
         HashWrapper { inner: Box::new(d) }
     }
@@ -279,7 +292,7 @@ impl HashWrapper {
     }
 
     fn get_digest(&self) -> Vec<u8> {
-        let cloned = self.inner.clone();
+        let cloned = self.inner.box_clone();
         cloned.result().to_vec()
     }
 }
