@@ -82,9 +82,19 @@ impl ByteInnerNewOptions {
             let value = if let OptionalArg::Present(ival) = self.val_option {
                 match_class!(match ival.clone() {
                     i @ PyInt => {
-                        let size = objint::get_value(&i.into_object())
-                            .to_usize()
-                            .ok_or_else(|| vm.new_value_error("negative count".to_owned()))?;
+                        let size =
+                            objint::get_value(&i.into_object())
+                                .to_isize()
+                                .ok_or_else(|| {
+                                    vm.new_overflow_error(
+                                        "cannot fit 'int' into an index-sized integer".to_owned(),
+                                    )
+                                })?;
+                        let size = if size < 0 {
+                            return Err(vm.new_value_error("negative count".to_owned()));
+                        } else {
+                            size as usize
+                        };
                         Ok(vec![0; size])
                     }
                     _l @ PyString => {
