@@ -7,7 +7,7 @@ use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyhash;
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
 };
 use crate::vm::VirtualMachine;
 
@@ -19,6 +19,9 @@ use crate::vm::VirtualMachine;
 pub struct PyComplex {
     value: Complex64,
 }
+
+impl ThreadSafe for PyComplex {}
+
 type PyComplexRef = PyRef<PyComplex>;
 
 impl PyValue for PyComplex {
