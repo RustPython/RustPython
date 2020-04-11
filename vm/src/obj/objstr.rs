@@ -333,19 +333,9 @@ impl PyString {
     }
 
     #[pymethod(name = "__mul__")]
-    fn mul(&self, multiplier: isize, vm: &VirtualMachine) -> PyResult<String> {
-        multiplier
-            .max(0)
-            .to_usize()
-            .map(|multiplier| self.value.repeat(multiplier))
-            .ok_or_else(|| {
-                vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
-            })
-    }
-
     #[pymethod(name = "__rmul__")]
-    fn rmul(&self, val: isize, vm: &VirtualMachine) -> PyResult<String> {
-        self.mul(val, vm)
+    fn mul(&self, value: isize) -> String {
+        self.value.repeat(value.max(0) as usize)
     }
 
     #[pymethod(name = "__str__")]
