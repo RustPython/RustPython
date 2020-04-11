@@ -1837,8 +1837,6 @@ class BytearrayPEP3137Test(unittest.TestCase):
     def marshal(self, x):
         return bytearray(x)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_returns_new_copy(self):
         val = self.marshal(b'1234')
         # On immutable types these MAY return a reference to themselves
