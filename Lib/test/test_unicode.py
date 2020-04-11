@@ -386,8 +386,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertRaises(TypeError, 'hello'.translate)
         self.assertRaises(TypeError, 'abababc'.translate, 'abc', 'xyz')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_split(self):
         string_tests.CommonTest.test_split(self)
 
@@ -405,8 +403,6 @@ class UnicodeTest(string_tests.CommonTest,
                 self.checkequal([left, right],
                                 left + delim * 2 + right, 'split', delim *2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_rsplit(self):
         string_tests.CommonTest.test_rsplit(self)
         # test mixed kinds
