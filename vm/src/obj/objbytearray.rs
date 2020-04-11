@@ -1,5 +1,5 @@
 //! Implementation of the python bytearray object.
-use std::cell::Cell;
+use crossbeam_utils::atomic::AtomicCell;
 use std::convert::TryFrom;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -150,7 +150,7 @@ impl PyByteArray {
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>) -> PyByteArrayIterator {
         PyByteArrayIterator {
-            position: Cell::new(0),
+            position: AtomicCell::new(0),
             bytearray: zelf,
         }
     }
@@ -605,7 +605,7 @@ impl PyByteArray {
 #[pyclass]
 #[derive(Debug)]
 pub struct PyByteArrayIterator {
-    position: Cell<usize>,
+    position: AtomicCell<usize>,
     bytearray: PyByteArrayRef,
 }
 
@@ -619,9 +619,9 @@ impl PyValue for PyByteArrayIterator {
 impl PyByteArrayIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<u8> {
-        if self.position.get() < self.bytearray.borrow_value().len() {
-            let ret = self.bytearray.borrow_value().elements[self.position.get()];
-            self.position.set(self.position.get() + 1);
+        let bytearr = self.bytearray.borrow_value();
+        let pos = self.position.fetch_add(1);
+        if let Some(&ret) = bytearr.elements.get(pos) {
             Ok(ret)
         } else {
             Err(objiter::new_stop_iteration(vm))
