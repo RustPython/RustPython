@@ -457,7 +457,7 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "zfill")]
-    fn zfill(&self, width: PyIntRef) -> PyByteArray {
+    fn zfill(&self, width: isize) -> PyByteArray {
         self.borrow_value().zfill(width).into()
     }
 
