@@ -565,8 +565,6 @@ class CommonTest(seq_tests.CommonTest):
                 raise KeyboardInterrupt
         self.assertRaises(KeyboardInterrupt, list, F())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exhausted_iterator(self):
         a = self.type2test([1, 2, 3])
         exhit = iter(a)

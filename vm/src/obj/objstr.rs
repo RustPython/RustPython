@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use std::char;
 use std::fmt;
 use std::mem::size_of;
@@ -6,6 +5,7 @@ use std::ops::Range;
 use std::str::FromStr;
 use std::string::ToString;
 
+use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 use unic::ucd::category::GeneralCategory;
 use unic::ucd::ident::{is_xid_continue, is_xid_start};
@@ -45,10 +45,10 @@ use crate::vm::VirtualMachine;
 /// encoding defaults to sys.getdefaultencoding().
 /// errors defaults to 'strict'."
 #[pyclass(name = "str")]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PyString {
     value: String,
-    hash: Cell<Option<pyhash::PyHash>>,
+    hash: AtomicCell<Option<pyhash::PyHash>>,
 }
 
 impl PyString {
@@ -68,7 +68,7 @@ impl From<String> for PyString {
     fn from(s: String) -> PyString {
         PyString {
             value: s,
-            hash: Cell::default(),
+            hash: AtomicCell::default(),
         }
     }
 }
@@ -97,7 +97,7 @@ impl TryIntoRef<PyString> for &str {
 #[derive(Debug)]
 pub struct PyStringIterator {
     pub string: PyStringRef,
-    byte_position: Cell<usize>,
+    position: AtomicCell<usize>,
 }
 
 impl PyValue for PyStringIterator {
@@ -109,17 +109,12 @@ impl PyValue for PyStringIterator {
 #[pyimpl]
 impl PyStringIterator {
     #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.byte_position.get();
+    fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
+        // TODO: use something more performant than chars().nth() that's still atomic
+        let pos = self.position.fetch_add(1);
 
-        if pos < self.string.value.len() {
-            // We can be sure that chars() has a value, because of the pos check above.
-            let char_ = self.string.value[pos..].chars().next().unwrap();
-
-            self.byte_position
-                .set(self.byte_position.get() + char_.len_utf8());
-
-            char_.to_string().into_pyobject(vm)
+        if let Some(c) = self.string.value.chars().nth(pos) {
+            Ok(c.to_string())
         } else {
             Err(objiter::new_stop_iteration(vm))
         }
@@ -134,7 +129,7 @@ impl PyStringIterator {
 #[pyclass]
 #[derive(Debug)]
 pub struct PyStringReverseIterator {
-    pub position: Cell<usize>,
+    pub position: AtomicCell<isize>,
     pub string: PyStringRef,
 }
 
@@ -147,15 +142,10 @@ impl PyValue for PyStringReverseIterator {
 #[pyimpl]
 impl PyStringReverseIterator {
     #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.position.get() > 0 {
-            let position: usize = self.position.get() - 1;
-
-            #[allow(clippy::range_plus_one)]
-            let value = self.string.value.do_slice(position..position + 1);
-
-            self.position.set(position);
-            value.into_pyobject(vm)
+    fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
+        let pos = self.position.fetch_sub(1) as usize - 1;
+        if let Some(c) = self.string.value.chars().nth(pos) {
+            Ok(c.to_string())
         } else {
             Err(objiter::new_stop_iteration(vm))
         }
@@ -311,11 +301,11 @@ impl PyString {
 
     #[pymethod(name = "__hash__")]
     fn hash(&self) -> pyhash::PyHash {
-        match self.hash.get() {
+        match self.hash.load() {
             Some(hash) => hash,
             None => {
                 let hash = pyhash::hash_value(&self.value);
-                self.hash.set(Some(hash));
+                self.hash.store(Some(hash));
                 hash
             }
         }
@@ -1287,20 +1277,20 @@ impl PyString {
         encode_string(zelf, encoding.into_option(), errors.into_option(), vm)
     }
 
-    #[pymethod(name = "__iter__")]
+    #[pymethod(magic)]
     fn iter(zelf: PyRef<Self>) -> PyStringIterator {
         PyStringIterator {
-            byte_position: Cell::new(0),
+            position: AtomicCell::new(0),
             string: zelf,
         }
     }
 
-    #[pymethod(name = "__reversed__")]
+    #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyStringReverseIterator {
         let begin = zelf.value.chars().count();
 
         PyStringReverseIterator {
-            position: Cell::new(begin),
+            position: AtomicCell::new(begin as isize),
             string: zelf,
         }
     }

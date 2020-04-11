@@ -2,7 +2,6 @@
 //!
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html
 
-use std::cell::Cell;
 use std::char;
 use std::str;
 
@@ -261,14 +260,7 @@ fn make_scope(vm: &VirtualMachine, scope: ScopeArgs) -> PyResult<Scope> {
     let globals = match globals {
         Some(dict) => {
             if !dict.contains_key("__builtins__", vm) {
-                let builtins_dict = vm
-                    .builtins
-                    .dict
-                    .as_ref()
-                    .unwrap()
-                    .borrow()
-                    .as_object()
-                    .clone();
+                let builtins_dict = vm.builtins.dict().unwrap().as_object().clone();
                 dict.set_item("__builtins__", builtins_dict, vm).unwrap();
             }
             dict
@@ -679,12 +671,9 @@ fn builtin_reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
             "argument to reversed() must be a sequence".to_owned()
         })?;
-        let len = vm.call_method(&obj.clone(), "__len__", PyFuncArgs::default())?;
-        let obj_iterator = objiter::PySequenceIterator {
-            position: Cell::new(objint::get_value(&len).to_isize().unwrap() - 1),
-            obj: obj.clone(),
-            reversed: true,
-        };
+        let len = vm.call_method(&obj, "__len__", PyFuncArgs::default())?;
+        let len = objint::get_value(&len).to_isize().unwrap();
+        let obj_iterator = objiter::PySequenceIterator::new_reversed(obj, len);
         Ok(obj_iterator.into_ref(vm).into_object())
     }
 }

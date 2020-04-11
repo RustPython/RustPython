@@ -60,16 +60,16 @@ impl Coro {
         }
     }
 
-    fn run_with_context<F>(&self, func: F, vm: &VirtualMachine) -> PyResult<ExecutionResult>
+    fn run_with_context<F>(&self, vm: &VirtualMachine, func: F) -> PyResult<ExecutionResult>
     where
-        F: FnOnce() -> PyResult<ExecutionResult>,
+        F: FnOnce(FrameRef) -> PyResult<ExecutionResult>,
     {
         self.running.set(true);
         let curr_exception_stack_len = vm.exceptions.borrow().len();
         vm.exceptions
             .borrow_mut()
             .append(&mut self.exceptions.borrow_mut());
-        let result = func();
+        let result = vm.with_frame(self.frame.clone(), func);
         self.exceptions.replace(
             vm.exceptions
                 .borrow_mut()
@@ -90,8 +90,7 @@ impl Coro {
                 self.variant.name()
             )));
         }
-        self.frame.push_value(value.clone());
-        let result = self.run_with_context(|| vm.run_frame(self.frame.clone()), vm);
+        let result = self.run_with_context(vm, |f| f.resume(value, vm));
         self.maybe_close(&result);
         match result {
             Ok(exec_res) => self.variant.exec_result(exec_res, vm),
@@ -124,11 +123,8 @@ impl Coro {
         if self.closed.get() {
             return Err(exceptions::normalize(exc_type, exc_val, exc_tb, vm)?);
         }
-        vm.frames.borrow_mut().push(self.frame.clone());
-        let result =
-            self.run_with_context(|| self.frame.gen_throw(vm, exc_type, exc_val, exc_tb), vm);
+        let result = self.run_with_context(vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
         self.maybe_close(&result);
-        vm.frames.borrow_mut().pop();
         self.variant.exec_result(result?, vm)
     }
 
@@ -136,19 +132,14 @@ impl Coro {
         if self.closed.get() {
             return Ok(());
         }
-        vm.frames.borrow_mut().push(self.frame.clone());
-        let result = self.run_with_context(
-            || {
-                self.frame.gen_throw(
-                    vm,
-                    vm.ctx.exceptions.generator_exit.clone().into_object(),
-                    vm.get_none(),
-                    vm.get_none(),
-                )
-            },
-            vm,
-        );
-        vm.frames.borrow_mut().pop();
+        let result = self.run_with_context(vm, |f| {
+            f.gen_throw(
+                vm,
+                vm.ctx.exceptions.generator_exit.clone().into_object(),
+                vm.get_none(),
+                vm.get_none(),
+            )
+        });
         self.closed.set(true);
         match result {
             Ok(ExecutionResult::Yield(_)) => {

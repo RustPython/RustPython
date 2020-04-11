@@ -73,6 +73,7 @@ foreign-types = "0.3"
 num_enum = "0.4"
 smallbox = "0.8"
 bstr = "0.2.12"
+crossbeam-utils = "0.7"
 
 flame = { version = "0.2", optional = true }
 flamer = { version = "0.3", optional = true }

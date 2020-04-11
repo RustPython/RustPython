@@ -1604,6 +1604,7 @@ dependencies = [
  "chrono",
  "crc",
  "crc32fast",
+ "crossbeam-utils",
  "csv",
  "digest",
  "dns-lookup",

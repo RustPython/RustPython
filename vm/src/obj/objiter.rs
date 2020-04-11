@@ -2,8 +2,8 @@
  * Various types to support iteration.
  */
 
+use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
-use std::cell::Cell;
 
 use super::objint::PyInt;
 use super::objsequence;
@@ -28,12 +28,9 @@ pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
         vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
             format!("Cannot iterate over {}", iter_target.class().name)
         })?;
-        let obj_iterator = PySequenceIterator {
-            position: Cell::new(0),
-            obj: iter_target.clone(),
-            reversed: false,
-        };
-        Ok(obj_iterator.into_ref(vm).into_object())
+        Ok(PySequenceIterator::new_forward(iter_target.clone())
+            .into_ref(vm)
+            .into_object())
     }
 }
 
@@ -140,7 +137,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
 #[pyclass]
 #[derive(Debug)]
 pub struct PySequenceIterator {
-    pub position: Cell<isize>,
+    pub position: AtomicCell<isize>,
     pub obj: PyObjectRef,
     pub reversed: bool,
 }
@@ -153,21 +150,33 @@ impl PyValue for PySequenceIterator {
 
 #[pyimpl]
 impl PySequenceIterator {
+    pub fn new_forward(obj: PyObjectRef) -> Self {
+        Self {
+            position: AtomicCell::new(0),
+            obj,
+            reversed: false,
+        }
+    }
+
+    pub fn new_reversed(obj: PyObjectRef, len: isize) -> Self {
+        Self {
+            position: AtomicCell::new(len - 1),
+            obj,
+            reversed: true,
+        }
+    }
+
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.position.get() >= 0 {
-            let step: isize = if self.reversed { -1 } else { 1 };
-            let number = vm.ctx.new_int(self.position.get());
-            match vm.call_method(&self.obj, "__getitem__", vec![number]) {
-                Ok(val) => {
-                    self.position.set(self.position.get() + step);
-                    Ok(val)
-                }
+        let step: isize = if self.reversed { -1 } else { 1 };
+        let pos = self.position.fetch_add(step);
+        if pos >= 0 {
+            match vm.call_method(&self.obj, "__getitem__", vec![vm.new_int(pos)]) {
                 Err(ref e) if objtype::isinstance(&e, &vm.ctx.exceptions.index_error) => {
                     Err(new_stop_iteration(vm))
                 }
                 // also catches stop_iteration => stop_iteration
-                Err(e) => Err(e),
+                ret => ret,
             }
         } else {
             Err(new_stop_iteration(vm))
@@ -181,7 +190,7 @@ impl PySequenceIterator {
 
     #[pymethod(name = "__length_hint__")]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<isize> {
-        let pos = self.position.get();
+        let pos = self.position.load();
         let hint = if self.reversed {
             pos + 1
         } else {
@@ -195,11 +204,7 @@ impl PySequenceIterator {
 }
 
 pub fn seq_iter_method(obj: PyObjectRef) -> PySequenceIterator {
-    PySequenceIterator {
-        position: Cell::new(0),
-        obj,
-        reversed: false,
-    }
+    PySequenceIterator::new_forward(obj)
 }
 
 #[pyclass(name = "callable_iterator")]
@@ -207,7 +212,7 @@ pub fn seq_iter_method(obj: PyObjectRef) -> PySequenceIterator {
 pub struct PyCallableIterator {
     callable: PyCallable,
     sentinel: PyObjectRef,
-    done: Cell<bool>,
+    done: AtomicCell<bool>,
 }
 
 impl PyValue for PyCallableIterator {
@@ -222,20 +227,20 @@ impl PyCallableIterator {
         Self {
             callable,
             sentinel,
-            done: Cell::new(false),
+            done: AtomicCell::new(false),
         }
     }
 
     #[pymethod(magic)]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.done.get() {
+        if self.done.load() {
             return Err(new_stop_iteration(vm));
         }
 
         let ret = self.callable.invoke(vec![], vm)?;
 
         if vm.bool_eq(ret.clone(), self.sentinel.clone())? {
-            self.done.set(true);
+            self.done.store(true);
             Err(new_stop_iteration(vm))
         } else {
             Ok(ret)

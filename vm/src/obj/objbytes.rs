@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use crossbeam_utils::atomic::AtomicCell;
 use std::mem::size_of;
 use std::ops::Deref;
 
@@ -144,7 +144,7 @@ impl PyBytes {
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>) -> PyBytesIterator {
         PyBytesIterator {
-            position: Cell::new(0),
+            position: AtomicCell::new(0),
             bytes: zelf,
         }
     }
@@ -484,7 +484,7 @@ impl PyBytes {
 #[pyclass]
 #[derive(Debug)]
 pub struct PyBytesIterator {
-    position: Cell<usize>,
+    position: AtomicCell<usize>,
     bytes: PyBytesRef,
 }
 
@@ -498,9 +498,8 @@ impl PyValue for PyBytesIterator {
 impl PyBytesIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<u8> {
-        if self.position.get() < self.bytes.inner.len() {
-            let ret = self.bytes[self.position.get()];
-            self.position.set(self.position.get() + 1);
+        let pos = self.position.fetch_add(1);
+        if let Some(&ret) = self.bytes.get_value().get(pos) {
             Ok(ret)
         } else {
             Err(objiter::new_stop_iteration(vm))

@@ -108,8 +108,8 @@ impl PyBaseObject {
             }
         }
 
-        if let Some(ref dict) = obj.dict {
-            dict.borrow().del_item(attr_name.as_str(), vm)?;
+        if let Some(dict) = obj.dict() {
+            dict.del_item(attr_name.as_str(), vm)?;
             Ok(())
         } else {
             Err(vm.new_attribute_error(format!(
@@ -142,10 +142,10 @@ impl PyBaseObject {
         let dict = PyDictRef::from_attributes(attributes, vm)?;
 
         // Get instance attributes:
-        if let Some(object_dict) = &obj.dict {
+        if let Some(object_dict) = obj.dict() {
             vm.invoke(
                 &vm.get_attribute(dict.clone().into_object(), "update")?,
-                object_dict.borrow().clone().into_object(),
+                object_dict.into_object(),
             )?;
         }
 
@@ -187,24 +187,19 @@ impl PyBaseObject {
 
     #[pyproperty(magic)]
     fn dict(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        if let Some(ref dict) = object.dict {
-            Ok(dict.borrow().clone())
-        } else {
-            Err(vm.new_attribute_error("no dictionary.".to_string()))
-        }
+        object
+            .dict()
+            .ok_or_else(|| vm.new_attribute_error("no dictionary.".to_owned()))
     }
 
     #[pyproperty(magic, setter)]
     fn set_dict(instance: PyObjectRef, value: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(dict) = &instance.dict {
-            *dict.borrow_mut() = value;
-            Ok(())
-        } else {
-            Err(vm.new_attribute_error(format!(
+        instance.set_dict(value).map_err(|_| {
+            vm.new_attribute_error(format!(
                 "'{}' object has no attribute '__dict__'",
                 instance.class().name
-            )))
-        }
+            ))
+        })
     }
 
     #[pymethod(magic)]
@@ -248,8 +243,8 @@ pub(crate) fn setattr(
         }
     }
 
-    if let Some(ref dict) = obj.clone().dict {
-        dict.borrow().set_item(attr_name.as_str(), value, vm)?;
+    if let Some(dict) = obj.dict() {
+        dict.set_item(attr_name.as_str(), value, vm)?;
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(

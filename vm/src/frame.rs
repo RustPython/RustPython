@@ -1,5 +1,6 @@
-use std::cell::{Cell, RefCell};
 use std::fmt;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -76,19 +77,21 @@ enum UnwindReason {
     Continue,
 }
 
-#[pyclass]
-#[derive(Clone)]
-pub struct Frame {
-    pub code: PyCodeRef,
+struct FrameState {
     // We need 1 stack per frame
     /// The main data frame of the stack machine
-    stack: RefCell<Vec<PyObjectRef>>,
+    stack: Vec<PyObjectRef>,
     /// Block frames, for controlling loops and exceptions
-    blocks: RefCell<Vec<Block>>,
-    /// Variables
+    blocks: Vec<Block>,
+}
+
+#[pyclass]
+pub struct Frame {
+    pub code: PyCodeRef,
     pub scope: Scope,
     /// index of last instruction ran
-    pub lasti: Cell<usize>,
+    pub lasti: AtomicUsize,
+    state: Mutex<FrameState>,
 }
 
 impl PyValue for Frame {
@@ -157,21 +160,84 @@ impl Frame {
 
         Frame {
             code,
-            stack: RefCell::new(vec![]),
-            blocks: RefCell::new(vec![]),
-            // save the callargs as locals
-            // globals: locals.clone(),
             scope,
-            lasti: Cell::new(0),
+            lasti: AtomicUsize::new(0),
+            state: Mutex::new(FrameState {
+                stack: Vec::new(),
+                blocks: Vec::new(),
+            }),
         }
+    }
+}
+
+impl FrameRef {
+    fn with_exec<R>(&self, f: impl FnOnce(ExecutingFrame) -> R) -> R {
+        let mut state = self.state.lock().unwrap();
+        let exec = ExecutingFrame {
+            code: &self.code,
+            scope: &self.scope,
+            lasti: &self.lasti,
+            object: &self,
+            state: &mut state,
+        };
+        f(exec)
     }
 
     // #[cfg_attr(feature = "flame-it", flame("Frame"))]
     pub fn run(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
+        self.with_exec(|mut exec| exec.run(vm))
+    }
+
+    pub(crate) fn resume(
+        &self,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<ExecutionResult> {
+        self.with_exec(|mut exec| {
+            exec.push_value(value);
+            exec.run(vm)
+        })
+    }
+
+    pub(crate) fn gen_throw(
+        &self,
+        vm: &VirtualMachine,
+        exc_type: PyObjectRef,
+        exc_val: PyObjectRef,
+        exc_tb: PyObjectRef,
+    ) -> PyResult<ExecutionResult> {
+        self.with_exec(|mut exec| exec.gen_throw(vm, exc_type, exc_val, exc_tb))
+    }
+
+    pub fn current_location(&self) -> bytecode::Location {
+        self.code.locations[self.lasti.load(Ordering::Relaxed)]
+    }
+
+    pub fn yield_from_target(&self) -> Option<PyObjectRef> {
+        self.with_exec(|exec| exec.yield_from_target())
+    }
+
+    pub fn lasti(&self) -> usize {
+        self.lasti.load(Ordering::Relaxed)
+    }
+}
+
+/// An executing frame; essentially just a struct to combine the immutable data outside the mutex
+/// with the mutable data inside
+struct ExecutingFrame<'a> {
+    code: &'a PyCodeRef,
+    scope: &'a Scope,
+    object: &'a FrameRef,
+    lasti: &'a AtomicUsize,
+    state: &'a mut FrameState,
+}
+
+impl ExecutingFrame<'_> {
+    fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
         // Execute until return or exception:
         loop {
-            let lineno = self.get_lineno();
+            let loc = self.current_location();
             let result = self.execute_instruction(vm);
             match result {
                 Ok(None) => {}
@@ -186,12 +252,8 @@ impl Frame {
 
                     let next = exception.traceback();
 
-                    let new_traceback = PyTraceback::new(
-                        next,
-                        self.clone().into_ref(vm),
-                        self.lasti.get(),
-                        lineno.row(),
-                    );
+                    let new_traceback =
+                        PyTraceback::new(next, self.object.clone(), self.lasti(), loc.row());
                     exception.set_traceback(Some(new_traceback.into_ref(vm)));
                     vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, lineno);
 
@@ -211,17 +273,16 @@ impl Frame {
         }
     }
 
-    pub fn yield_from_target(&self) -> Option<PyObjectRef> {
-        if let Some(bytecode::Instruction::YieldFrom) = self.code.instructions.get(self.lasti.get())
-        {
+    fn yield_from_target(&self) -> Option<PyObjectRef> {
+        if let Some(bytecode::Instruction::YieldFrom) = self.code.instructions.get(self.lasti()) {
             Some(self.last_value())
         } else {
             None
         }
     }
 
-    pub(crate) fn gen_throw(
-        &self,
+    fn gen_throw(
+        &mut self,
         vm: &VirtualMachine,
         exc_type: PyObjectRef,
         exc_val: PyObjectRef,
@@ -234,7 +295,7 @@ impl Frame {
             };
             res.or_else(|err| {
                 self.pop_value();
-                self.lasti.set(self.lasti.get() + 1);
+                self.lasti.fetch_add(1, Ordering::Relaxed);
                 let val = objiter::stop_iter_value(vm, &err)?;
                 self._send(coro, val, vm)
             })
@@ -249,17 +310,11 @@ impl Frame {
         }
     }
 
-    pub fn fetch_instruction(&self) -> &bytecode::Instruction {
-        let ins2 = &self.code.instructions[self.lasti.get()];
-        self.lasti.set(self.lasti.get() + 1);
-        ins2
-    }
-
     /// Execute a single instruction.
-    fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
+    fn execute_instruction(&mut self, vm: &VirtualMachine) -> FrameResult {
         vm.check_signals()?;
 
-        let instruction = self.fetch_instruction();
+        let instruction = &self.code.instructions[self.lasti.fetch_add(1, Ordering::Relaxed)];
 
         flame_guard!(format!("Frame::execute_instruction({:?})", instruction));
 
@@ -643,9 +698,8 @@ impl Frame {
                 }
             }
             bytecode::Instruction::Reverse { amount } => {
-                let mut stack = self.stack.borrow_mut();
-                let stack_len = stack.len();
-                stack[stack_len - amount..stack_len].reverse();
+                let stack_len = self.state.stack.len();
+                self.state.stack[stack_len - amount..stack_len].reverse();
                 Ok(None)
             }
         }
@@ -653,7 +707,7 @@ impl Frame {
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn get_elements(
-        &self,
+        &mut self,
         vm: &VirtualMachine,
         size: usize,
         unpack: bool,
@@ -672,7 +726,7 @@ impl Frame {
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn import(
-        &self,
+        &mut self,
         vm: &VirtualMachine,
         module: &Option<String>,
         symbols: &[String],
@@ -686,7 +740,7 @@ impl Frame {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn import_from(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
+    fn import_from(&mut self, vm: &VirtualMachine, name: &str) -> FrameResult {
         let module = self.last_value();
         // Load attribute, and transform any error into import error.
         let obj = vm
@@ -697,12 +751,12 @@ impl Frame {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn import_star(&self, vm: &VirtualMachine) -> FrameResult {
+    fn import_star(&mut self, vm: &VirtualMachine) -> FrameResult {
         let module = self.pop_value();
 
         // Grab all the names from the module and put them in the context
-        if let Some(dict) = &module.dict {
-            for (k, v) in &*dict.borrow() {
+        if let Some(dict) = module.dict() {
+            for (k, v) in &dict {
                 let k = vm.to_str(&k)?;
                 let k = k.as_str();
                 if !k.starts_with('_') {
@@ -718,7 +772,7 @@ impl Frame {
     /// unwinding a block.
     /// Optionally returns an exception.
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn unwind_blocks(&self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
+    fn unwind_blocks(&mut self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             match block.typ {
@@ -775,7 +829,7 @@ impl Frame {
     }
 
     fn store_name(
-        &self,
+        &mut self,
         vm: &VirtualMachine,
         name: &str,
         name_scope: &bytecode::NameScope,
@@ -807,7 +861,7 @@ impl Frame {
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn load_name(
-        &self,
+        &mut self,
         vm: &VirtualMachine,
         name: &str,
         name_scope: &bytecode::NameScope,
@@ -830,7 +884,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_rotate(&self, amount: usize) -> FrameResult {
+    fn execute_rotate(&mut self, amount: usize) -> FrameResult {
         // Shuffles top of stack amount down
         if amount < 2 {
             panic!("Can only rotate two or more values");
@@ -847,14 +901,13 @@ impl Frame {
         self.push_value(values.remove(0));
 
         // Push other value back in order:
-        values.reverse();
-        for value in values {
+        for value in values.into_iter().rev() {
             self.push_value(value);
         }
         Ok(None)
     }
 
-    fn execute_subscript(&self, vm: &VirtualMachine) -> FrameResult {
+    fn execute_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
         let value = a_ref.get_item(&b_ref, vm)?;
@@ -862,7 +915,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_store_subscript(&self, vm: &VirtualMachine) -> FrameResult {
+    fn execute_store_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
@@ -870,7 +923,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_delete_subscript(&self, vm: &VirtualMachine) -> FrameResult {
+    fn execute_delete_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         obj.del_item(&idx, vm)?;
@@ -879,7 +932,7 @@ impl Frame {
 
     #[allow(clippy::collapsible_if)]
     fn execute_build_map(
-        &self,
+        &mut self,
         vm: &VirtualMachine,
         size: usize,
         unpack: bool,
@@ -914,7 +967,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_build_slice(&self, vm: &VirtualMachine, size: usize) -> FrameResult {
+    fn execute_build_slice(&mut self, vm: &VirtualMachine, size: usize) -> FrameResult {
         assert!(size == 2 || size == 3);
 
         let step = if size == 3 {
@@ -935,7 +988,11 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_call_function(&self, vm: &VirtualMachine, typ: &bytecode::CallType) -> FrameResult {
+    fn execute_call_function(
+        &mut self,
+        vm: &VirtualMachine,
+        typ: &bytecode::CallType,
+    ) -> FrameResult {
         let args = match typ {
             bytecode::CallType::Positional(count) => {
                 let args: Vec<PyObjectRef> = self.pop_multiple(*count);
@@ -988,7 +1045,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_raise(&self, vm: &VirtualMachine, argc: usize) -> FrameResult {
+    fn execute_raise(&mut self, vm: &VirtualMachine, argc: usize) -> FrameResult {
         let cause = match argc {
             2 => {
                 let val = self.pop_value();
@@ -1047,7 +1104,7 @@ impl Frame {
         }
     }
 
-    fn execute_yield_from(&self, vm: &VirtualMachine) -> FrameResult {
+    fn execute_yield_from(&mut self, vm: &VirtualMachine) -> FrameResult {
         // Value send into iterator:
         let val = self.pop_value();
 
@@ -1060,7 +1117,7 @@ impl Frame {
         match result {
             ExecutionResult::Yield(value) => {
                 // Set back program counter:
-                self.lasti.set(self.lasti.get() - 1);
+                self.lasti.fetch_sub(1, Ordering::Relaxed);
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             ExecutionResult::Return(value) => {
@@ -1071,7 +1128,12 @@ impl Frame {
         }
     }
 
-    fn execute_unpack_ex(&self, vm: &VirtualMachine, before: usize, after: usize) -> FrameResult {
+    fn execute_unpack_ex(
+        &mut self,
+        vm: &VirtualMachine,
+        before: usize,
+        after: usize,
+    ) -> FrameResult {
         let value = self.pop_value();
         let elements = vm.extract_elements::<PyObjectRef>(&value)?;
         let min_expected = before + after;
@@ -1102,15 +1164,15 @@ impl Frame {
         }
     }
 
-    fn jump(&self, label: bytecode::Label) {
+    fn jump(&mut self, label: bytecode::Label) {
         let target_pc = self.code.label_map[&label];
         #[cfg(feature = "vm-tracing-logging")]
-        trace!("jump from {:?} to {:?}", self.lasti, target_pc);
-        self.lasti.set(target_pc);
+        trace!("jump from {:?} to {:?}", self.lasti(), target_pc);
+        self.lasti.store(target_pc, Ordering::Relaxed);
     }
 
     /// The top of stack contains the iterator, lets push it forward
-    fn execute_for_iter(&self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
+    fn execute_for_iter(&mut self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
         let top_of_stack = self.last_value();
         let next_obj = objiter::get_next_object(vm, &top_of_stack);
 
@@ -1135,7 +1197,7 @@ impl Frame {
             }
         }
     }
-    fn execute_make_function(&self, vm: &VirtualMachine) -> FrameResult {
+    fn execute_make_function(&mut self, vm: &VirtualMachine) -> FrameResult {
         let qualified_name = self
             .pop_value()
             .downcast::<PyString>()
@@ -1197,7 +1259,7 @@ impl Frame {
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_binop(
-        &self,
+        &mut self,
         vm: &VirtualMachine,
         op: &bytecode::BinaryOperator,
         inplace: bool,
@@ -1243,7 +1305,7 @@ impl Frame {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn execute_unop(&self, vm: &VirtualMachine, op: &bytecode::UnaryOperator) -> FrameResult {
+    fn execute_unop(&mut self, vm: &VirtualMachine, op: &bytecode::UnaryOperator) -> FrameResult {
         let a = self.pop_value();
         let value = match *op {
             bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
@@ -1312,7 +1374,7 @@ impl Frame {
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_compare(
-        &self,
+        &mut self,
         vm: &VirtualMachine,
         op: &bytecode::ComparisonOperator,
     ) -> FrameResult {
@@ -1336,84 +1398,91 @@ impl Frame {
         Ok(None)
     }
 
-    fn load_attr(&self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
+    fn load_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let obj = vm.get_attribute(parent, attr_name)?;
         self.push_value(obj);
         Ok(None)
     }
 
-    fn store_attr(&self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
+    fn store_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let value = self.pop_value();
         vm.set_attr(&parent, vm.new_str(attr_name.to_owned()), value)?;
         Ok(None)
     }
 
-    fn delete_attr(&self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
+    fn delete_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let name = vm.ctx.new_str(attr_name.to_owned());
         vm.del_attr(&parent, name)?;
         Ok(None)
     }
 
-    pub fn get_lineno(&self) -> bytecode::Location {
-        self.code.locations[self.lasti.get()]
+    fn lasti(&self) -> usize {
+        // it's okay to make this Relaxed, because we know that we only
+        // mutate lasti if the mutex is held, and any other thread that
+        // wants to guarantee the value of this will use a Lock anyway
+        self.lasti.load(Ordering::Relaxed)
     }
 
-    fn push_block(&self, typ: BlockType) {
-        self.blocks.borrow_mut().push(Block {
+    fn current_location(&self) -> bytecode::Location {
+        self.code.locations[self.lasti()]
+    }
+
+    fn push_block(&mut self, typ: BlockType) {
+        self.state.blocks.push(Block {
             typ,
-            level: self.stack.borrow().len(),
+            level: self.state.stack.len(),
         });
     }
 
-    fn pop_block(&self) -> Block {
-        let block = self
-            .blocks
-            .borrow_mut()
-            .pop()
-            .expect("No more blocks to pop!");
-        self.stack.borrow_mut().truncate(block.level);
+    fn pop_block(&mut self) -> Block {
+        let block = self.state.blocks.pop().expect("No more blocks to pop!");
+        self.state.stack.truncate(block.level);
         block
     }
 
     fn current_block(&self) -> Option<Block> {
-        self.blocks.borrow().last().cloned()
+        self.state.blocks.last().cloned()
     }
 
-    pub fn push_value(&self, obj: PyObjectRef) {
-        self.stack.borrow_mut().push(obj);
+    fn push_value(&mut self, obj: PyObjectRef) {
+        self.state.stack.push(obj);
     }
 
-    fn pop_value(&self) -> PyObjectRef {
-        self.stack
-            .borrow_mut()
+    fn pop_value(&mut self) -> PyObjectRef {
+        self.state
+            .stack
             .pop()
             .expect("Tried to pop value but there was nothing on the stack")
     }
 
-    fn pop_multiple(&self, count: usize) -> Vec<PyObjectRef> {
-        let mut stack = self.stack.borrow_mut();
-        let stack_len = stack.len();
-        stack.drain(stack_len - count..stack_len).collect()
+    fn pop_multiple(&mut self, count: usize) -> Vec<PyObjectRef> {
+        let stack_len = self.state.stack.len();
+        self.state
+            .stack
+            .drain(stack_len - count..stack_len)
+            .collect()
     }
 
     fn last_value(&self) -> PyObjectRef {
-        self.stack.borrow().last().unwrap().clone()
+        self.state.stack.last().unwrap().clone()
     }
 
     fn nth_value(&self, depth: usize) -> PyObjectRef {
-        let stack = self.stack.borrow();
-        stack[stack.len() - depth - 1].clone()
+        self.state.stack[self.state.stack.len() - depth - 1].clone()
     }
 }
 
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let stack_str = self
+        let state = match self.state.lock() {
+            Ok(state) => state,
+            Err(_posion) => return f.pad("Frame Object {{ poisoned }}"),
+        };
+        let stack_str = state
             .stack
-            .borrow()
             .iter()
             .map(|elem| {
                 if elem.payload.as_any().is::<Frame>() {
@@ -1423,9 +1492,8 @@ impl fmt::Debug for Frame {
                 }
             })
             .collect::<String>();
-        let block_str = self
+        let block_str = state
             .blocks
-            .borrow()
             .iter()
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<String>();
