@@ -857,7 +857,6 @@ class BaseTest:
 
         self.checkraises(TypeError, '123', 'zfill')
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
     def test_islower(self):
         self.checkequal(False, '', 'islower')
         self.checkequal(True, 'a', 'islower')
@@ -868,7 +867,6 @@ class BaseTest:
         self.checkequal(True, 'abc\n', 'islower')
         self.checkraises(TypeError, 'abc', 'islower', 42)
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
     def test_isupper(self):
         self.checkequal(False, '', 'isupper')
         self.checkequal(False, 'a', 'isupper')
@@ -925,7 +923,6 @@ class BaseTest:
         self.checkequal(False, 'abc\n', 'isalnum')
         self.checkraises(TypeError, 'abc', 'isalnum', 42)
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
     def test_isascii(self):
         self.checkequal(True, '', 'isascii')
         self.checkequal(True, '\x00', 'isascii')
