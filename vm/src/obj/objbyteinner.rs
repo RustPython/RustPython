@@ -346,24 +346,10 @@ impl PyByteInner {
         needle: Either<PyByteInner, PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        match needle {
-            Either::A(byte) => {
-                if byte.elements.is_empty() {
-                    return Ok(true);
-                }
-                let other = &byte.elements[..];
-                for (n, i) in self.elements.iter().enumerate() {
-                    if n + other.len() <= self.len()
-                        && *i == other[0]
-                        && &self.elements[n..n + other.len()] == other
-                    {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            }
-            Either::B(int) => Ok(self.elements.contains(&int.as_bigint().byte_or(vm)?)),
-        }
+        Ok(match needle {
+            Either::A(byte) => self.elements.contains_str(byte.elements.as_slice()),
+            Either::B(int) => self.elements.contains(&int.as_bigint().byte_or(vm)?),
+        })
     }
 
     pub fn getitem(&self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult {
