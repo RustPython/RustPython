@@ -954,42 +954,43 @@ impl PyString {
     }
 
     #[pymethod]
-    fn partition(&self, sub: PyStringRef, vm: &VirtualMachine) -> PyObjectRef {
-        let value = &self.value;
-        let sub = &sub.value;
-        let mut new_tup = Vec::new();
-        if value.contains(sub) {
-            new_tup = value
-                .splitn(2, sub)
-                .map(|s| vm.ctx.new_str(s.to_owned()))
-                .collect();
-            new_tup.insert(1, vm.ctx.new_str(sub.clone()));
-        } else {
-            new_tup.push(vm.ctx.new_str(value.clone()));
-            new_tup.push(vm.ctx.new_str("".to_owned()));
-            new_tup.push(vm.ctx.new_str("".to_owned()));
+    fn partition(&self, sub: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        if sub.value.is_empty() {
+            return Err(vm.new_value_error("empty separator".to_owned()));
         }
-        vm.ctx.new_tuple(new_tup)
+        let mut sp = self.value.splitn(2, &sub.value);
+        let front = sp.next().unwrap();
+        let elems = if let Some(back) = sp.next() {
+            [front, &sub.value, back]
+        } else {
+            [front, "", ""]
+        };
+        Ok(vm.ctx.new_tuple(
+            elems
+                .iter()
+                .map(|&s| vm.ctx.new_str(s.to_owned()))
+                .collect(),
+        ))
     }
 
     #[pymethod]
-    fn rpartition(&self, sub: PyStringRef, vm: &VirtualMachine) -> PyObjectRef {
-        let value = &self.value;
-        let sub = &sub.value;
-        let mut new_tup = Vec::new();
-        if value.contains(sub) {
-            new_tup = value
-                .rsplitn(2, sub)
-                .map(|s| vm.ctx.new_str(s.to_owned()))
-                .collect();
-            new_tup.swap(0, 1); // so it's in the right order
-            new_tup.insert(1, vm.ctx.new_str(sub.clone()));
-        } else {
-            new_tup.push(vm.ctx.new_str("".to_owned()));
-            new_tup.push(vm.ctx.new_str("".to_owned()));
-            new_tup.push(vm.ctx.new_str(value.clone()));
+    fn rpartition(&self, sub: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        if sub.value.is_empty() {
+            return Err(vm.new_value_error("empty separator".to_owned()));
         }
-        vm.ctx.new_tuple(new_tup)
+        let mut sp = self.value.rsplitn(2, &sub.value);
+        let back = sp.next().unwrap();
+        let elems = if let Some(front) = sp.next() {
+            [front, &sub.value, back]
+        } else {
+            ["", "", back]
+        };
+        Ok(vm.ctx.new_tuple(
+            elems
+                .iter()
+                .map(|&s| vm.ctx.new_str(s.to_owned()))
+                .collect(),
+        ))
     }
 
     /// Return `true` if the sequence is ASCII titlecase and the sequence is not

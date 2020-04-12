@@ -419,8 +419,6 @@ class UnicodeTest(string_tests.CommonTest,
                 self.checkequal([left, right],
                                 left + delim * 2 + right, 'rsplit', delim *2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_partition(self):
         string_tests.MixinStrUnicodeUserStringTest.test_partition(self)
         # test mixed kinds
@@ -438,8 +436,6 @@ class UnicodeTest(string_tests.CommonTest,
                 self.checkequal((left, delim * 2, right),
                                 left + delim * 2 + right, 'partition', delim * 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_rpartition(self):
         string_tests.MixinStrUnicodeUserStringTest.test_rpartition(self)
         # test mixed kinds

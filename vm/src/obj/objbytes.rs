@@ -366,21 +366,32 @@ impl PyBytes {
 
     #[pymethod(name = "partition")]
     fn partition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let sepa = PyByteInner::try_from_object(vm, sep.clone())?;
-
-        let (left, right) = self.inner.partition(&sepa, false)?;
-        Ok(vm
-            .ctx
-            .new_tuple(vec![vm.ctx.new_bytes(left), sep, vm.ctx.new_bytes(right)]))
+        let sub = PyByteInner::try_from_object(vm, sep.clone())?;
+        let (front, has_mid, back) = self.inner.partition(&sub, vm)?;
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_bytes(front),
+            if has_mid {
+                sep
+            } else {
+                vm.ctx.new_bytes(Vec::new())
+            },
+            vm.ctx.new_bytes(back),
+        ]))
     }
+
     #[pymethod(name = "rpartition")]
     fn rpartition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let sepa = PyByteInner::try_from_object(vm, sep.clone())?;
-
-        let (left, right) = self.inner.partition(&sepa, true)?;
-        Ok(vm
-            .ctx
-            .new_tuple(vec![vm.ctx.new_bytes(left), sep, vm.ctx.new_bytes(right)]))
+        let sub = PyByteInner::try_from_object(vm, sep.clone())?;
+        let (front, has_mid, back) = self.inner.rpartition(&sub, vm)?;
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_bytes(front),
+            if has_mid {
+                sep
+            } else {
+                vm.ctx.new_bytes(Vec::new())
+            },
+            vm.ctx.new_bytes(back),
+        ]))
     }
 
     #[pymethod(name = "expandtabs")]
