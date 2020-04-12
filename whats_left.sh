@@ -3,14 +3,10 @@ set -e
 
 ALL_SECTIONS=(methods modules)
 
-GREEN='[32m'
-BOLD='[1m'
-NC='(B[m'
-
 h() {
   # uppercase input
-  header_name=$(echo "$@" | tr "[:lower:]" "[:upper:]")
-  echo "$GREEN$BOLD===== $header_name =====$NC"
+  header_name=$(echo "$@")
+  echo "$header_name: "
 }
 
 cd "$(dirname "$0")"
@@ -40,6 +36,16 @@ for section in "${sections[@]}"; do
     echo "Invalid section $section" >&2
     continue
   fi
-  h "$section" >&2
-  cargo run --release -q -- "$snippet"
+  h "$section"
+  results=$(cargo run --release -q -- "$snippet" ) 
+
+  # (inherited) was showing up in the list as a separate line.
+  # I manually excluded it from results.
+  # is there a better way to do this or make sure inherited is not on a separate line?
+  for result in $results; do
+    if [[  "$result" != "(inherited)"  ]]; then
+      printf " - $result \n"
+    fi
+  done
+
 done
