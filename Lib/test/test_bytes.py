@@ -1299,7 +1299,8 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         del b[4]
         self.assertEqual(b, bytearray([1, 2, 3, 4, 6, 7, 8]))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setslice(self):
         b = bytearray(range(10))
         self.assertEqual(list(b), list(range(10)))
