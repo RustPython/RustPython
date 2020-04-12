@@ -530,7 +530,7 @@ impl PyString {
             let value = &self.value[range];
             single_or_tuple_any(
                 suffix,
-                |s: PyStringRef| Ok(value.ends_with(&s.value)),
+                |s: &PyStringRef| Ok(value.ends_with(&s.value)),
                 |o| {
                     format!(
                         "endswith first arg must be str or a tuple of str, not {}",
@@ -557,7 +557,7 @@ impl PyString {
             let value = &self.value[range];
             single_or_tuple_any(
                 prefix,
-                |s: PyStringRef| Ok(value.starts_with(&s.value)),
+                |s: &PyStringRef| Ok(value.starts_with(&s.value)),
                 |o| {
                     format!(
                         "startswith first arg must be str or a tuple of str, not {}",
