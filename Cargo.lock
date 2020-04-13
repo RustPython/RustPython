@@ -1033,6 +1033,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "openssl-probe"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77af24da69f9d9341038eba93a073b1fdaaa1b788221b00a69bce9e762cb32de"
+
+[[package]]
 name = "openssl-src"
 version = "111.8.1+1.1.1f"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1584,6 +1590,7 @@ dependencies = [
  "num_enum",
  "once_cell",
  "openssl",
+ "openssl-probe",
  "openssl-sys",
  "paste",
  "pwd",
