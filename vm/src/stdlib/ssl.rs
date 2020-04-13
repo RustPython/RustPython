@@ -740,6 +740,11 @@ fn parse_version_info(mut n: i64) -> (u8, u8, u8, u8, u8) {
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    // if openssl is vendored, it doesn't know the locations of system certificates
+    match option_env!("OPENSSL_NO_VENDOR") {
+        None | Some("0") => {}
+        _ => openssl_probe::init_ssl_cert_env_vars(),
+    }
     openssl::init();
     let ctx = &vm.ctx;
     let ssl_error = create_type(
