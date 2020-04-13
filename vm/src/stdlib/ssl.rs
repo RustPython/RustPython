@@ -16,13 +16,13 @@ use std::convert::TryFrom;
 use std::ffi::{CStr, CString};
 use std::fmt;
 
-use foreign_types::{ForeignType, ForeignTypeRef};
+use foreign_types_shared::{ForeignType, ForeignTypeRef};
 use openssl::{
     asn1::{Asn1Object, Asn1ObjectRef},
     error::ErrorStack,
     nid::Nid,
     ssl::{self, SslContextBuilder, SslOptions, SslVerifyMode},
-    x509::{self, X509Ref, X509},
+    x509::{self, X509Object, X509Ref, X509},
 };
 
 mod sys {
@@ -32,9 +32,6 @@ mod sys {
     extern "C" {
         pub fn OBJ_txt2obj(s: *const c_char, no_name: c_int) -> *mut ASN1_OBJECT;
         pub fn OBJ_nid2obj(n: c_int) -> *mut ASN1_OBJECT;
-        pub fn TLS_server_method() -> *const SSL_METHOD;
-        pub fn TLS_client_method() -> *const SSL_METHOD;
-        pub fn SSL_CTX_get_verify_mode(ctx: *const SSL_CTX) -> c_int;
         pub fn X509_get_default_cert_file_env() -> *const c_char;
         pub fn X509_get_default_cert_file() -> *const c_char;
         pub fn X509_get_default_cert_dir_env() -> *const c_char;
@@ -42,56 +39,8 @@ mod sys {
         pub fn SSL_CTX_set_post_handshake_auth(ctx: *mut SSL_CTX, val: c_int);
         pub fn RAND_add(buf: *const c_void, num: c_int, randomness: c_double);
         pub fn RAND_pseudo_bytes(buf: *const u8, num: c_int) -> c_int;
-        pub fn X509_STORE_get0_objects(ctx: *mut X509_STORE) -> *mut stack_st_X509_OBJECT;
-        pub fn X509_OBJECT_free(a: *mut X509_OBJECT);
-        pub fn SSL_is_init_finished(ssl: *const SSL) -> c_int;
         pub fn X509_get_version(x: *const X509) -> c_long;
     }
-
-    pub enum stack_st_X509_OBJECT {}
-
-    pub type X509_LOOKUP_TYPE = c_int;
-    pub const X509_LU_NONE: X509_LOOKUP_TYPE = 0;
-    pub const X509_LU_X509: X509_LOOKUP_TYPE = 1;
-    pub const X509_LU_CRL: X509_LOOKUP_TYPE = 2;
-
-    #[repr(C)]
-    pub struct X509_OBJECT {
-        pub r#type: X509_LOOKUP_TYPE,
-        pub data: X509_OBJECT_data,
-    }
-    #[repr(C)]
-    pub union X509_OBJECT_data {
-        pub ptr: *mut c_char,
-        pub x509: *mut X509,
-        pub crl: *mut X509_CRL,
-        pub pkey: *mut EVP_PKEY,
-    }
-}
-
-// TODO: upstream this into rust-openssl
-foreign_types::foreign_type! {
-    type CType = sys::X509_OBJECT;
-    fn drop = sys::X509_OBJECT_free;
-
-    pub struct X509Object;
-    pub struct X509ObjectRef;
-}
-
-impl X509ObjectRef {
-    fn x509(&self) -> Option<&X509Ref> {
-        let ptr = self.as_ptr();
-        let ty = unsafe { (*ptr).r#type };
-        if ty == sys::X509_LU_X509 {
-            Some(unsafe { X509Ref::from_ptr((*ptr).data.x509) })
-        } else {
-            None
-        }
-    }
-}
-
-impl openssl::stack::Stackable for X509Object {
-    type StackType = sys::stack_st_X509_OBJECT;
 }
 
 #[derive(num_enum::IntoPrimitive, num_enum::TryFromPrimitive, PartialEq)]
@@ -321,8 +270,8 @@ impl PySslContext {
             SslVersion::Tls => ssl::SslMethod::tls(),
             SslVersion::Tls1 => todo!(),
             // TODO: Tls1_1, Tls1_2 ?
-            SslVersion::TlsClient => unsafe { ssl::SslMethod::from_ptr(sys::TLS_client_method()) },
-            SslVersion::TlsServer => unsafe { ssl::SslMethod::from_ptr(sys::TLS_server_method()) },
+            SslVersion::TlsClient => ssl::SslMethod::tls_client(),
+            SslVersion::TlsServer => ssl::SslMethod::tls_server(),
         };
         let mut builder =
             SslContextBuilder::new(method).map_err(|e| convert_openssl_error(vm, e))?;
@@ -376,9 +325,7 @@ impl PySslContext {
 
     #[pyproperty]
     fn verify_mode(&self) -> i32 {
-        let mode = unsafe { sys::SSL_CTX_get_verify_mode(self.ptr()) };
-        let mode =
-            SslVerifyMode::from_bits(mode).expect("bad SSL_CTX_get_verify_mode return value");
+        let mode = self.ctx().verify_mode();
         if mode == SslVerifyMode::NONE {
             CertRequirements::None.into()
         } else if mode == SslVerifyMode::PEER {
@@ -620,8 +567,7 @@ impl PySslSocket {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         let binary = binary.unwrap_or(false);
-        let init_finished = unsafe { sys::SSL_is_init_finished(self.stream().ssl().as_ptr()) } != 0;
-        if !init_finished {
+        if !self.stream().ssl().is_init_finished() {
             return Err(vm.new_value_error("handshake not done yet".to_owned()));
         }
         self.stream()
