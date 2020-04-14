@@ -2127,8 +2127,6 @@ class UnicodeTest(string_tests.CommonTest,
         # Test whether trailing dot is preserved
         self.assertEqual("www.python.org.".encode("idna"), b"www.python.org.")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_codecs_errors(self):
         # Error handling (encoding)
         self.assertRaises(UnicodeError, 'Andr\202 x'.encode, 'ascii')
