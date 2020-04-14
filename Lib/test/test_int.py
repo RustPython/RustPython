@@ -31,7 +31,6 @@ class IntSubclass(int):
 
 class IntTestCases(unittest.TestCase):
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basic(self):
         self.assertEqual(int(314), 314)
         self.assertEqual(int(3.14), 3)
