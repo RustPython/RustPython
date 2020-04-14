@@ -53,12 +53,6 @@ hex = "0.4.0"
 hexf-parse = "0.1.0"
 indexmap = "1.0.2"
 crc = "^1.0.0"
-unicode_names2 = "0.3"
-# TODO: use unic for this; needed for title case:
-# https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
-unicode-casing = "0.1"
-unic = "0.9"
-unic-common = "0.9"
 maplit = "1.0"
 bitflags = "1.2.1"
 libc = "0.2"
@@ -74,6 +68,19 @@ num_enum = "0.4"
 smallbox = "0.8"
 bstr = "0.2.12"
 crossbeam-utils = "0.7"
+
+## unicode stuff
+unicode_names2 = "0.4"
+# TODO: use unic for this; needed for title case:
+# https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
+unicode-casing = "0.1"
+# update version all at the same time
+unic-bidi          = "0.9"
+unic-char-property = "0.9"
+unic-normal        = "0.9"
+unic-ucd-category  = "0.9"
+unic-ucd-age       = "0.9"
+unic-ucd-ident     = "0.9"
 
 flame = { version = "0.2", optional = true }
 flamer = { version = "0.3", optional = true }

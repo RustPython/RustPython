@@ -7,8 +7,8 @@ use std::string::ToString;
 
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
-use unic::ucd::category::GeneralCategory;
-use unic::ucd::ident::{is_xid_continue, is_xid_start};
+use unic_ucd_category::GeneralCategory;
+use unic_ucd_ident::{is_xid_continue, is_xid_start};
 use unicode_casing::CharExt;
 
 use super::objbytes::{PyBytes, PyBytesRef};
