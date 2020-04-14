@@ -2,8 +2,8 @@ import sys
 
 import unittest
 from test import support
-# from test.test_grammar import (VALID_UNDERSCORE_LITERALS,
-#                                INVALID_UNDERSCORE_LITERALS)
+from test.test_grammar import (VALID_UNDERSCORE_LITERALS,
+                               INVALID_UNDERSCORE_LITERALS)
 
 L = [
         ('0', 0),
@@ -214,7 +214,6 @@ class IntTestCases(unittest.TestCase):
         self.assertEqual(int('2br45qc', 35), 4294967297)
         self.assertEqual(int('1z141z5', 36), 4294967297)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_underscores(self):
         for lit in VALID_UNDERSCORE_LITERALS:
             if any(ch in lit for ch in '.eEjJ'):
