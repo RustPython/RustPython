@@ -1539,6 +1539,7 @@ dependencies = [
  "num-traits",
  "unic-emoji-char",
  "unic-ucd-ident",
+ "unicode_names2",
 ]
 
 [[package]]
