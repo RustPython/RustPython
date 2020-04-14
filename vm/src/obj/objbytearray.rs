@@ -486,13 +486,11 @@ impl PyByteArray {
 
     #[pymethod(name = "extend")]
     fn extend(&self, iterable_of_ints: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
-        let mut inner = self.borrow_value_mut();
-
         for x in iterable_of_ints.iter(vm)? {
             let x = x?;
             let x = PyIntRef::try_from_object(vm, x)?;
             let x = x.as_bigint().byte_or(vm)?;
-            inner.elements.push(x);
+            self.borrow_value_mut().elements.push(x);
         }
 
         Ok(())
@@ -526,8 +524,8 @@ impl PyByteArray {
 
     #[pymethod(name = "pop")]
     fn pop(&self, vm: &VirtualMachine) -> PyResult<u8> {
-        let bytes = &mut self.borrow_value_mut().elements;
-        bytes
+        self.borrow_value_mut()
+            .elements
             .pop()
             .ok_or_else(|| vm.new_index_error("pop from empty bytearray".to_owned()))
     }
@@ -623,9 +621,8 @@ impl PyValue for PyByteArrayIterator {
 impl PyByteArrayIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<u8> {
-        let bytearr = self.bytearray.borrow_value();
         let pos = self.position.fetch_add(1);
-        if let Some(&ret) = bytearr.elements.get(pos) {
+        if let Some(&ret) = self.bytearray.borrow_value().elements.get(pos) {
             Ok(ret)
         } else {
             Err(objiter::new_stop_iteration(vm))
