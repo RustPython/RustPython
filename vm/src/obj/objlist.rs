@@ -1,7 +1,7 @@
-use std::cell::RefCell;
 use std::fmt;
 use std::mem::size_of;
 use std::ops::Range;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, ToBigInt};
@@ -17,7 +17,7 @@ use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
     IdProtocol, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
 use crate::vm::{ReprGuard, VirtualMachine};
@@ -29,9 +29,10 @@ use crate::vm::{ReprGuard, VirtualMachine};
 #[pyclass]
 #[derive(Default)]
 pub struct PyList {
-    // TODO: make this a RwLock at the same time as PyObjectRef is Send + Sync
-    elements: RefCell<Vec<PyObjectRef>>,
+    elements: RwLock<Vec<PyObjectRef>>,
 }
+
+impl ThreadSafe for PyList {}
 
 impl fmt::Debug for PyList {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -43,7 +44,7 @@ impl fmt::Debug for PyList {
 impl From<Vec<PyObjectRef>> for PyList {
     fn from(elements: Vec<PyObjectRef>) -> Self {
         PyList {
-            elements: RefCell::new(elements),
+            elements: RwLock::new(elements),
         }
     }
 }
@@ -55,38 +56,32 @@ impl PyValue for PyList {
 }
 
 impl PyList {
-    pub fn borrow_sequence<'a>(&'a self) -> impl SimpleSeq + 'a {
-        self.elements.borrow()
+    pub fn borrow_elements(&self) -> RwLockReadGuard<'_, Vec<PyObjectRef>> {
+        self.elements.read().unwrap()
     }
 
-    pub fn borrow_elements<'a>(&'a self) -> impl std::ops::Deref<Target = Vec<PyObjectRef>> + 'a {
-        self.elements.borrow()
-    }
-}
-
-impl PyList {
-    fn get_len(&self) -> usize {
-        self.elements.borrow().len()
+    pub fn borrow_elements_mut(&self) -> RwLockWriteGuard<'_, Vec<PyObjectRef>> {
+        self.elements.write().unwrap()
     }
 
-    fn get_pos(&self, p: i32) -> Option<usize> {
+    fn get_pos(p: i32, len: usize) -> Option<usize> {
         // convert a (potentially negative) positon into a real index
         if p < 0 {
-            if -p as usize > self.get_len() {
+            if -p as usize > len {
                 None
             } else {
-                Some(self.get_len() - ((-p) as usize))
+                Some(len - ((-p) as usize))
             }
-        } else if p as usize >= self.get_len() {
+        } else if p as usize >= len {
             None
         } else {
             Some(p as usize)
         }
     }
 
-    fn get_slice_pos(&self, slice_pos: &BigInt) -> usize {
+    fn get_slice_pos(slice_pos: &BigInt, len: usize) -> usize {
         if let Some(pos) = slice_pos.to_i32() {
-            if let Some(index) = self.get_pos(pos) {
+            if let Some(index) = PyList::get_pos(pos, len) {
                 // within bounds
                 return index;
             }
@@ -97,16 +92,19 @@ impl PyList {
             0
         } else {
             // slice past end bound, round to end
-            self.get_len()
+            len
         }
     }
 
-    fn get_slice_range(&self, start: &Option<BigInt>, stop: &Option<BigInt>) -> Range<usize> {
-        let start = start.as_ref().map(|x| self.get_slice_pos(x)).unwrap_or(0);
+    fn get_slice_range(start: &Option<BigInt>, stop: &Option<BigInt>, len: usize) -> Range<usize> {
+        let start = start
+            .as_ref()
+            .map(|x| PyList::get_slice_pos(x, len))
+            .unwrap_or(0);
         let stop = stop
             .as_ref()
-            .map(|x| self.get_slice_pos(x))
-            .unwrap_or_else(|| self.get_len());
+            .map(|x| PyList::get_slice_pos(x, len))
+            .unwrap_or_else(|| len);
 
         start..stop
     }
@@ -115,8 +113,8 @@ impl PyList {
         &self,
         vm: &VirtualMachine,
     ) -> PyResult<objbyteinner::PyByteInner> {
-        let mut elements = Vec::<u8>::with_capacity(self.get_len());
-        for elem in self.elements.borrow().iter() {
+        let mut elements = Vec::<u8>::with_capacity(self.borrow_elements().len());
+        for elem in self.borrow_elements().clone().iter() {
             match PyIntRef::try_from_object(vm, elem.clone()) {
                 Ok(result) => match result.as_bigint().to_u8() {
                     Some(result) => elements.push(result),
@@ -150,20 +148,20 @@ pub type PyListRef = PyRef<PyList>;
 impl PyList {
     #[pymethod]
     pub(crate) fn append(&self, x: PyObjectRef) {
-        self.elements.borrow_mut().push(x);
+        self.borrow_elements_mut().push(x);
     }
 
     #[pymethod]
     fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut new_elements = vm.extract_elements(&x)?;
-        self.elements.borrow_mut().append(&mut new_elements);
+        self.borrow_elements_mut().append(&mut new_elements);
         Ok(())
     }
 
     #[pymethod]
     fn insert(&self, position: isize, element: PyObjectRef) {
-        let mut vec = self.elements.borrow_mut();
-        let vec_len = vec.len().to_isize().unwrap();
+        let mut elements = self.borrow_elements_mut();
+        let vec_len = elements.len().to_isize().unwrap();
         // This unbounded position can be < 0 or > vec.len()
         let unbounded_position = if position < 0 {
             vec_len + position
@@ -172,14 +170,14 @@ impl PyList {
         };
         // Bound it by [0, vec.len()]
         let position = unbounded_position.max(0).min(vec_len).to_usize().unwrap();
-        vec.insert(position, element.clone());
+        elements.insert(position, element.clone());
     }
 
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let e1 = self.borrow_sequence();
-            let e2 = other.borrow_sequence();
+            let e1 = self.borrow_elements().clone();
+            let e2 = other.borrow_elements().clone();
             let elements = e1.iter().chain(e2.iter()).cloned().collect();
             Ok(vm.ctx.new_list(elements))
         } else {
@@ -195,7 +193,7 @@ impl PyList {
     fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Ok(new_elements) = vm.extract_elements(&other) {
             let mut e = new_elements;
-            zelf.elements.borrow_mut().append(&mut e);
+            zelf.borrow_elements_mut().append(&mut e);
             Ok(zelf.into_object())
         } else {
             Ok(vm.ctx.not_implemented())
@@ -204,37 +202,37 @@ impl PyList {
 
     #[pymethod(name = "__bool__")]
     fn bool(&self) -> bool {
-        !self.elements.borrow().is_empty()
+        !self.borrow_elements().is_empty()
     }
 
     #[pymethod]
     fn clear(&self) {
-        self.elements.borrow_mut().clear();
+        self.borrow_elements_mut().clear();
     }
 
     #[pymethod]
     fn copy(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(self.elements.borrow().clone())
+        vm.ctx.new_list(self.borrow_elements().clone())
     }
 
     #[pymethod(name = "__len__")]
     fn len(&self) -> usize {
-        self.elements.borrow().len()
+        self.borrow_elements().len()
     }
 
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self) -> usize {
-        size_of::<Self>() + self.elements.borrow().capacity() * size_of::<PyObjectRef>()
+        size_of::<Self>() + self.borrow_elements().capacity() * size_of::<PyObjectRef>()
     }
 
     #[pymethod]
     fn reverse(&self) {
-        self.elements.borrow_mut().reverse();
+        self.borrow_elements_mut().reverse();
     }
 
     #[pymethod(name = "__reversed__")]
     fn reversed(zelf: PyRef<Self>) -> PyListReverseIterator {
-        let final_position = zelf.elements.borrow().len();
+        let final_position = zelf.borrow_elements().len();
         PyListReverseIterator {
             position: AtomicCell::new(final_position as isize),
             list: zelf,
@@ -246,7 +244,7 @@ impl PyList {
         get_item(
             vm,
             zelf.as_object(),
-            &zelf.elements.borrow(),
+            &zelf.borrow_elements(),
             needle.clone(),
         )
     }
@@ -278,8 +276,9 @@ impl PyList {
     }
 
     fn setindex(&self, index: i32, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(pos_index) = self.get_pos(index) {
-            self.elements.borrow_mut()[pos_index] = value;
+        let mut elements = self.borrow_elements_mut();
+        if let Some(pos_index) = PyList::get_pos(index, elements.len()) {
+            elements[pos_index] = value;
             Ok(vm.get_none())
         } else {
             Err(vm.new_index_error("list assignment index out of range".to_owned()))
@@ -288,75 +287,97 @@ impl PyList {
 
     fn setslice(&self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult {
         let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
+        let start = slice.start_index(vm)?;
+        let stop = slice.stop_index(vm)?;
+        // consume the iter, we  need it's size
+        // and if it's going to fail we want that to happen *before* we start modifing
+        // In addition we want to iterate before taking the list lock.
+        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
+        let items = items?;
 
+        let elements = self.borrow_elements_mut();
         if step.is_zero() {
             Err(vm.new_value_error("slice step cannot be zero".to_owned()))
         } else if step.is_positive() {
-            let range = self.get_slice_range(&slice.start_index(vm)?, &slice.stop_index(vm)?);
+            let range = PyList::get_slice_range(&start, &stop, elements.len());
             if range.start < range.end {
                 match step.to_i32() {
-                    Some(1) => self._set_slice(range, sec, vm),
+                    Some(1) => PyList::_set_slice(elements, range, items, vm),
                     Some(num) => {
                         // assign to extended slice
-                        self._set_stepped_slice(range, num as usize, sec, vm)
+                        PyList::_set_stepped_slice(elements, range, num as usize, items, vm)
                     }
                     None => {
                         // not sure how this is reached, step too big for i32?
                         // then step is bigger than the than len of the list, no question
                         #[allow(clippy::range_plus_one)]
-                        self._set_stepped_slice(range.start..(range.start + 1), 1, sec, vm)
+                        PyList::_set_stepped_slice(
+                            elements,
+                            range.start..(range.start + 1),
+                            1,
+                            items,
+                            vm,
+                        )
                     }
                 }
             } else {
                 // this functions as an insert of sec before range.start
-                self._set_slice(range.start..range.start, sec, vm)
+                PyList::_set_slice(elements, range.start..range.start, items, vm)
             }
         } else {
             // calculate the range for the reverse slice, first the bounds needs to be made
             // exclusive around stop, the lower number
-            let start = &slice.start_index(vm)?.as_ref().map(|x| {
+            let start = &start.as_ref().map(|x| {
                 if *x == (-1).to_bigint().unwrap() {
-                    self.get_len() + BigInt::one() //.to_bigint().unwrap()
+                    elements.len() + BigInt::one() //.to_bigint().unwrap()
                 } else {
                     x + 1
                 }
             });
-            let stop = &slice.stop_index(vm)?.as_ref().map(|x| {
+            let stop = &stop.as_ref().map(|x| {
                 if *x == (-1).to_bigint().unwrap() {
-                    self.get_len().to_bigint().unwrap()
+                    elements.len().to_bigint().unwrap()
                 } else {
                     x + 1
                 }
             });
-            let range = self.get_slice_range(&stop, &start);
+            let range = PyList::get_slice_range(&stop, &start, elements.len());
             match (-step).to_i32() {
-                Some(num) => self._set_stepped_slice_reverse(range, num as usize, sec, vm),
+                Some(num) => {
+                    PyList::_set_stepped_slice_reverse(elements, range, num as usize, items, vm)
+                }
                 None => {
                     // not sure how this is reached, step too big for i32?
                     // then step is bigger than the than len of the list no question
-                    self._set_stepped_slice_reverse(range.end - 1..range.end, 1, sec, vm)
+                    PyList::_set_stepped_slice_reverse(
+                        elements,
+                        range.end - 1..range.end,
+                        1,
+                        items,
+                        vm,
+                    )
                 }
             }
         }
     }
 
-    fn _set_slice(&self, range: Range<usize>, sec: PyIterable, vm: &VirtualMachine) -> PyResult {
-        // consume the iter, we  need it's size
-        // and if it's going to fail we want that to happen *before* we start modifing
-        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
-        let items = items?;
-
+    fn _set_slice(
+        mut elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
+        range: Range<usize>,
+        items: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         // replace the range of elements with the full sequence
-        self.elements.borrow_mut().splice(range, items);
+        elements.splice(range, items);
 
         Ok(vm.get_none())
     }
 
     fn _set_stepped_slice(
-        &self,
+        elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
         range: Range<usize>,
         step: usize,
-        sec: PyIterable,
+        items: Vec<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let slicelen = if range.end > range.start {
@@ -364,17 +385,13 @@ impl PyList {
         } else {
             0
         };
-        // consume the iter, we  need it's size
-        // and if it's going to fail we want that to happen *before* we start modifing
-        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
-        let items = items?;
 
         let n = items.len();
 
         if range.start < range.end {
             if n == slicelen {
                 let indexes = range.step_by(step);
-                self._replace_indexes(indexes, &items);
+                PyList::_replace_indexes(elements, indexes, &items);
                 Ok(vm.get_none())
             } else {
                 Err(vm.new_value_error(format!(
@@ -395,10 +412,10 @@ impl PyList {
     }
 
     fn _set_stepped_slice_reverse(
-        &self,
+        elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
         range: Range<usize>,
         step: usize,
-        sec: PyIterable,
+        items: Vec<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let slicelen = if range.end > range.start {
@@ -407,17 +424,12 @@ impl PyList {
             0
         };
 
-        // consume the iter, we  need it's size
-        // and if it's going to fail we want that to happen *before* we start modifing
-        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
-        let items = items?;
-
         let n = items.len();
 
         if range.start < range.end {
             if n == slicelen {
                 let indexes = range.rev().step_by(step);
-                self._replace_indexes(indexes, &items);
+                PyList::_replace_indexes(elements, indexes, &items);
                 Ok(vm.get_none())
             } else {
                 Err(vm.new_value_error(format!(
@@ -437,12 +449,13 @@ impl PyList {
         }
     }
 
-    fn _replace_indexes<I>(&self, indexes: I, items: &[PyObjectRef])
-    where
+    fn _replace_indexes<I>(
+        mut elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
+        indexes: I,
+        items: &[PyObjectRef],
+    ) where
         I: Iterator<Item = usize>,
     {
-        let mut elements = self.elements.borrow_mut();
-
         for (i, value) in indexes.zip(items) {
             // clone for refrence count
             elements[i] = value.clone();
@@ -452,8 +465,9 @@ impl PyList {
     #[pymethod(name = "__repr__")]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
-            let mut str_parts = Vec::with_capacity(zelf.elements.borrow().len());
-            for elem in zelf.elements.borrow().iter() {
+            let elements = zelf.borrow_elements().clone();
+            let mut str_parts = Vec::with_capacity(elements.len());
+            for elem in elements.iter() {
                 let s = vm.to_repr(elem)?;
                 str_parts.push(s.as_str().to_owned());
             }
@@ -471,7 +485,7 @@ impl PyList {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = sequence::seq_mul(&self.borrow_sequence(), counter)
+        let new_elements = sequence::seq_mul(&self.borrow_elements(), counter)
             .cloned()
             .collect();
         vm.ctx.new_list(new_elements)
@@ -484,17 +498,17 @@ impl PyList {
 
     #[pymethod(name = "__imul__")]
     fn imul(zelf: PyRef<Self>, counter: isize) -> PyRef<Self> {
-        let new_elements = sequence::seq_mul(&zelf.borrow_sequence(), counter)
-            .cloned()
-            .collect();
-        zelf.elements.replace(new_elements);
-        zelf
+        let elements = zelf.borrow_elements_mut();
+        let new_elements: Vec<PyObjectRef> =
+            sequence::seq_mul(&elements, counter).cloned().collect();
+        PyList::_replace(elements, new_elements);
+        zelf.clone()
     }
 
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
-        for element in self.elements.borrow().iter() {
+        for element in self.borrow_elements().clone().iter() {
             if vm.identical_or_equal(element, &needle)? {
                 count += 1;
             }
@@ -504,7 +518,7 @@ impl PyList {
 
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        for element in self.elements.borrow().iter() {
+        for element in self.borrow_elements().clone().iter() {
             if vm.identical_or_equal(element, &needle)? {
                 return Ok(true);
             }
@@ -515,7 +529,7 @@ impl PyList {
 
     #[pymethod]
     fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        for (index, element) in self.elements.borrow().iter().enumerate() {
+        for (index, element) in self.borrow_elements().clone().iter().enumerate() {
             if vm.identical_or_equal(element, &needle)? {
                 return Ok(index);
             }
@@ -527,7 +541,7 @@ impl PyList {
     #[pymethod]
     fn pop(&self, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
         let mut i = i.into_option().unwrap_or(-1);
-        let mut elements = self.elements.borrow_mut();
+        let mut elements = self.borrow_elements_mut();
         if i < 0 {
             i += elements.len() as isize;
         }
@@ -543,7 +557,7 @@ impl PyList {
     #[pymethod]
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut ri: Option<usize> = None;
-        for (index, element) in self.elements.borrow().iter().enumerate() {
+        for (index, element) in self.borrow_elements().clone().iter().enumerate() {
             if vm.identical_or_equal(element, &needle)? {
                 ri = Some(index);
                 break;
@@ -551,7 +565,8 @@ impl PyList {
         }
 
         if let Some(index) = ri {
-            self.elements.borrow_mut().remove(index);
+            // TODO: Check if value was removed after lock released
+            self.borrow_elements_mut().remove(index);
             Ok(())
         } else {
             let needle_str = vm.to_str(&needle)?;
@@ -565,7 +580,10 @@ impl PyList {
         F: Fn(&Vec<PyObjectRef>, &Vec<PyObjectRef>) -> PyResult<bool>,
     {
         let r = if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            Implemented(op(&*self.borrow_elements(), &*other.borrow_elements())?)
+            Implemented(op(
+                &self.borrow_elements().clone(),
+                &other.borrow_elements().clone(),
+            )?)
         } else {
             NotImplemented
         };
@@ -623,8 +641,9 @@ impl PyList {
     }
 
     fn delindex(&self, index: i32, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(pos_index) = self.get_pos(index) {
-            self.elements.borrow_mut().remove(pos_index);
+        let mut elements = self.borrow_elements_mut();
+        if let Some(pos_index) = PyList::get_pos(index, elements.len()) {
+            elements.remove(pos_index);
             Ok(())
         } else {
             Err(vm.new_index_error("Index out of bounds!".to_owned()))
@@ -636,23 +655,24 @@ impl PyList {
         let stop = slice.stop_index(vm)?;
         let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
 
+        let elements = self.borrow_elements_mut();
         if step.is_zero() {
             Err(vm.new_value_error("slice step cannot be zero".to_owned()))
         } else if step.is_positive() {
-            let range = self.get_slice_range(&start, &stop);
+            let range = PyList::get_slice_range(&start, &stop, elements.len());
             if range.start < range.end {
                 #[allow(clippy::range_plus_one)]
                 match step.to_i32() {
                     Some(1) => {
-                        self._del_slice(range);
+                        PyList::_del_slice(elements, range);
                         Ok(())
                     }
                     Some(num) => {
-                        self._del_stepped_slice(range, num as usize);
+                        PyList::_del_stepped_slice(elements, range, num as usize);
                         Ok(())
                     }
                     None => {
-                        self._del_slice(range.start..range.start + 1);
+                        PyList::_del_slice(elements, range.start..range.start + 1);
                         Ok(())
                     }
                 }
@@ -665,31 +685,31 @@ impl PyList {
             // exclusive around stop, the lower number
             let start = start.as_ref().map(|x| {
                 if *x == (-1).to_bigint().unwrap() {
-                    self.get_len() + BigInt::one() //.to_bigint().unwrap()
+                    elements.len() + BigInt::one() //.to_bigint().unwrap()
                 } else {
                     x + 1
                 }
             });
             let stop = stop.as_ref().map(|x| {
                 if *x == (-1).to_bigint().unwrap() {
-                    self.get_len().to_bigint().unwrap()
+                    elements.len().to_bigint().unwrap()
                 } else {
                     x + 1
                 }
             });
-            let range = self.get_slice_range(&stop, &start);
+            let range = PyList::get_slice_range(&stop, &start, elements.len());
             if range.start < range.end {
                 match (-step).to_i32() {
                     Some(1) => {
-                        self._del_slice(range);
+                        PyList::_del_slice(elements, range);
                         Ok(())
                     }
                     Some(num) => {
-                        self._del_stepped_slice_reverse(range, num as usize);
+                        PyList::_del_stepped_slice_reverse(elements, range, num as usize);
                         Ok(())
                     }
                     None => {
-                        self._del_slice(range.end - 1..range.end);
+                        PyList::_del_slice(elements, range.end - 1..range.end);
                         Ok(())
                     }
                 }
@@ -700,14 +720,17 @@ impl PyList {
         }
     }
 
-    fn _del_slice(&self, range: Range<usize>) {
-        self.elements.borrow_mut().drain(range);
+    fn _del_slice(mut elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>, range: Range<usize>) {
+        elements.drain(range);
     }
 
-    fn _del_stepped_slice(&self, range: Range<usize>, step: usize) {
+    fn _del_stepped_slice(
+        mut elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
+        range: Range<usize>,
+        step: usize,
+    ) {
         // no easy way to delete stepped indexes so here is what we'll do
         let mut deleted = 0;
-        let mut elements = self.elements.borrow_mut();
         let mut indexes = range.clone().step_by(step).peekable();
 
         for i in range.clone() {
@@ -725,10 +748,13 @@ impl PyList {
         elements.drain((range.end - deleted)..range.end);
     }
 
-    fn _del_stepped_slice_reverse(&self, range: Range<usize>, step: usize) {
+    fn _del_stepped_slice_reverse(
+        mut elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
+        range: Range<usize>,
+        step: usize,
+    ) {
         // no easy way to delete stepped indexes so here is what we'll do
         let mut deleted = 0;
-        let mut elements = self.elements.borrow_mut();
         let mut indexes = range.clone().rev().step_by(step).peekable();
 
         for i in range.clone().rev() {
@@ -751,15 +777,24 @@ impl PyList {
         // replace list contents with [] for duration of sort.
         // this prevents keyfunc from messing with the list and makes it easy to
         // check if it tries to append elements to it.
-        let mut elements = self.elements.replace(vec![]);
+        let mut elements = PyList::_replace(self.borrow_elements_mut(), vec![]);
         do_sort(vm, &mut elements, options.key, options.reverse)?;
-        let temp_elements = self.elements.replace(elements);
+        let temp_elements = PyList::_replace(self.borrow_elements_mut(), elements);
 
         if !temp_elements.is_empty() {
             return Err(vm.new_value_error("list modified during sort".to_owned()));
         }
 
         Ok(())
+    }
+
+    fn _replace(
+        mut elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
+        mut new: Vec<PyObjectRef>,
+    ) -> Vec<PyObjectRef> {
+        let old = elements.drain(..).collect();
+        elements.append(&mut new);
+        old
     }
 
     #[pyslot]
@@ -850,6 +885,8 @@ pub struct PyListIterator {
     pub list: PyListRef,
 }
 
+impl ThreadSafe for PyListIterator {}
+
 impl PyValue for PyListIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.listiterator_type()
@@ -860,7 +897,7 @@ impl PyValue for PyListIterator {
 impl PyListIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let list = self.list.elements.borrow();
+        let list = self.list.borrow_elements();
         let pos = self.position.fetch_add(1);
         if let Some(obj) = list.get(pos) {
             Ok(obj.clone())
@@ -876,7 +913,7 @@ impl PyListIterator {
 
     #[pymethod(name = "__length_hint__")]
     fn length_hint(&self) -> usize {
-        let list = self.list.elements.borrow();
+        let list = self.list.borrow_elements();
         let pos = self.position.load();
         list.len().saturating_sub(pos)
     }
@@ -889,6 +926,8 @@ pub struct PyListReverseIterator {
     pub list: PyListRef,
 }
 
+impl ThreadSafe for PyListReverseIterator {}
+
 impl PyValue for PyListReverseIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.listreverseiterator_type()
@@ -899,7 +938,7 @@ impl PyValue for PyListReverseIterator {
 impl PyListReverseIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let list = self.list.elements.borrow();
+        let list = self.list.borrow_elements();
         let pos = self.position.fetch_sub(1);
         if pos > 0 {
             if let Some(ret) = list.get(pos as usize - 1) {
