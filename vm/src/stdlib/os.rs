@@ -22,6 +22,8 @@ use nix::pty::openpty;
 use nix::unistd::{self, Gid, Pid, Uid};
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
+#[cfg(windows)]
+use std::os::windows::io::RawHandle;
 #[cfg(unix)]
 use uname;
 
@@ -70,7 +72,7 @@ pub fn raw_file_number(handle: File) -> i64 {
 
 #[cfg(windows)]
 pub fn rust_file(raw_fileno: i64) -> File {
-    use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
+    use std::os::windows::io::{AsRawHandle, FromRawHandle};
 
     let raw_fileno = match raw_fileno {
         0 => io::stdin().as_raw_handle(),
@@ -975,22 +977,42 @@ fn os_get_inheritable(fd: RawFd, vm: &VirtualMachine) -> PyResult<bool> {
     }
 }
 
-#[cfg(unix)]
-fn os_set_inheritable(fd: RawFd, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
-    let _set_flag = || {
-        use nix::fcntl::fcntl;
-        use nix::fcntl::FcntlArg;
-        use nix::fcntl::FdFlag;
+fn os_set_inheritable(fd: i64, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
+    #[cfg(unix)]
+    {
+        let fd = fd as RawFd;
+        let _set_flag = || {
+            use nix::fcntl::fcntl;
+            use nix::fcntl::FcntlArg;
+            use nix::fcntl::FdFlag;
 
-        let flags = FdFlag::from_bits_truncate(fcntl(fd, FcntlArg::F_GETFD)?);
-        let mut new_flags = flags;
-        new_flags.set(FdFlag::from_bits_truncate(libc::FD_CLOEXEC), !inheritable);
-        if flags != new_flags {
-            fcntl(fd, FcntlArg::F_SETFD(new_flags))?;
+            let flags = FdFlag::from_bits_truncate(fcntl(fd, FcntlArg::F_GETFD)?);
+            let mut new_flags = flags;
+            new_flags.set(FdFlag::from_bits_truncate(libc::FD_CLOEXEC), !inheritable);
+            if flags != new_flags {
+                fcntl(fd, FcntlArg::F_SETFD(new_flags))?;
+            }
+            Ok(())
+        };
+        _set_flag().or_else(|err| Err(convert_nix_error(vm, err)))
+    }
+    #[cfg(windows)]
+    {
+        use winapi::um::{handleapi, winbase};
+        let fd = fd as RawHandle;
+        let flags = if inheritable {
+            winbase::HANDLE_FLAG_INHERIT
+        } else {
+            0
+        };
+        let ret =
+            unsafe { handleapi::SetHandleInformation(fd, winbase::HANDLE_FLAG_INHERIT, flags) };
+        if ret == 0 {
+            Err(errno_err(vm))
+        } else {
+            Ok(())
         }
-        Ok(())
-    };
-    _set_flag().or_else(|err| Err(convert_nix_error(vm, err)))
+    }
 }
 
 #[cfg(unix)]
@@ -1027,8 +1049,8 @@ fn os_pipe(vm: &VirtualMachine) -> PyResult<(RawFd, RawFd)> {
     use nix::unistd::close;
     use nix::unistd::pipe;
     let (rfd, wfd) = pipe().map_err(|err| convert_nix_error(vm, err))?;
-    os_set_inheritable(rfd, false, vm)
-        .and_then(|_| os_set_inheritable(wfd, false, vm))
+    os_set_inheritable(rfd.into(), false, vm)
+        .and_then(|_| os_set_inheritable(wfd.into(), false, vm))
         .or_else(|err| {
             let _ = close(rfd);
             let _ = close(wfd);
@@ -1322,10 +1344,25 @@ fn os_isatty(fd: i32) -> bool {
 
 fn os_lseek(fd: i32, position: Offset, how: i32, vm: &VirtualMachine) -> PyResult<Offset> {
     #[cfg(not(windows))]
-    use libc::lseek;
+    let res = unsafe { suppress_iph!(libc::lseek(fd, position, how)) };
     #[cfg(windows)]
-    use libc::lseek64 as lseek;
-    let res = unsafe { suppress_iph!(lseek(fd, position, how)) };
+    let res = unsafe {
+        use winapi::um::{fileapi, winnt};
+        let mut li = winnt::LARGE_INTEGER::default();
+        *li.QuadPart_mut() = position;
+        let ret = fileapi::SetFilePointer(
+            fd as RawHandle,
+            li.u().LowPart as _,
+            &mut li.u_mut().HighPart,
+            how as _,
+        );
+        if ret == fileapi::INVALID_SET_FILE_POINTER {
+            -1
+        } else {
+            li.u_mut().LowPart = ret;
+            *li.QuadPart()
+        }
+    };
     if res < 0 {
         Err(errno_err(vm))
     } else {
@@ -1439,6 +1476,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "urandom" => ctx.new_function(os_urandom),
         "isatty" => ctx.new_function(os_isatty),
         "lseek" => ctx.new_function(os_lseek),
+        "set_inheritable" => ctx.new_function(os_set_inheritable),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
@@ -1506,7 +1544,6 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
         "getuid" => ctx.new_function(os_getuid),
         "geteuid" => ctx.new_function(os_geteuid),
         "pipe" => ctx.new_function(os_pipe), //TODO: windows
-        "set_inheritable" => ctx.new_function(os_set_inheritable), // TODO: windows
         "set_blocking" => ctx.new_function(os_set_blocking),
         "setgid" => ctx.new_function(os_setgid),
         "setpgid" => ctx.new_function(os_setpgid),
@@ -1578,7 +1615,12 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
     module
 }
 
-#[cfg(not(unix))]
-fn extend_module_platform_specific(_vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+#[cfg(windows)]
+fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+    let ctx = &vm.ctx;
+    extend_module!(vm, module, {
+        "O_BINARY" => ctx.new_int(libc::O_BINARY),
+    });
+
     module
 }
