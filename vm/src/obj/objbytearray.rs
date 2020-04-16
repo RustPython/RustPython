@@ -69,8 +69,8 @@ impl PyByteArray {
 }
 
 impl From<Vec<u8>> for PyByteArray {
-    fn from(elements: Vec<u8>) -> PyByteArray {
-        PyByteArray::new(elements)
+    fn from(elements: Vec<u8>) -> Self {
+        Self::new(elements)
     }
 }
 
@@ -389,24 +389,14 @@ impl PyByteArray {
 
     #[pymethod(name = "split")]
     fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
-        let as_bytes = self
-            .borrow_value()
-            .split(options, false)?
-            .iter()
-            .map(|x| vm.ctx.new_bytearray(x.to_vec()))
-            .collect::<Vec<PyObjectRef>>();
-        Ok(vm.ctx.new_list(as_bytes))
+        self.borrow_value()
+            .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()), vm)
     }
 
     #[pymethod(name = "rsplit")]
     fn rsplit(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
-        let as_bytes = self
-            .borrow_value()
-            .split(options, true)?
-            .iter()
-            .map(|x| vm.ctx.new_bytearray(x.to_vec()))
-            .collect::<Vec<PyObjectRef>>();
-        Ok(vm.ctx.new_list(as_bytes))
+        self.borrow_value()
+            .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()), vm)
     }
 
     #[pymethod(name = "partition")]

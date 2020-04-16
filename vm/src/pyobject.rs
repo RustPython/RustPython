@@ -420,7 +420,10 @@ impl PyContext {
         PyObject::new(PyComplex::from(value), self.complex_type(), None)
     }
 
-    pub fn new_str(&self, s: String) -> PyObjectRef {
+    pub fn new_str<S>(&self, s: S) -> PyObjectRef
+    where
+        objstr::PyString: std::convert::From<S>,
+    {
         PyObject::new(objstr::PyString::from(s), self.str_type(), None)
     }
 
@@ -1305,7 +1308,7 @@ pub trait PyClassImpl: PyClassDef {
         class.slots.borrow_mut().flags = Self::TP_FLAGS;
         ctx.add_tp_new_wrapper(&class);
         if let Some(doc) = Self::DOC {
-            class.set_str_attr("__doc__", ctx.new_str(doc.into()));
+            class.set_str_attr("__doc__", ctx.new_str(doc));
         }
     }
 
