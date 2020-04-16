@@ -9,12 +9,11 @@ use crate::pyobject::{PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use itertools::Itertools;
-use unic::bidi::BidiClass;
-use unic::char::property::EnumeratedCharProperty;
-use unic::normal::StrNormalForm;
-use unic::ucd::category::GeneralCategory;
-use unic::ucd::{Age, Name};
-use unic_common::version::UnicodeVersion;
+use unic_bidi::BidiClass;
+use unic_char_property::EnumeratedCharProperty;
+use unic_normal::StrNormalForm;
+use unic_ucd_age::{Age, UnicodeVersion, UNICODE_VERSION};
+use unic_ucd_category::GeneralCategory;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
@@ -71,7 +70,7 @@ impl Default for PyUCD {
     #[inline(always)]
     fn default() -> Self {
         PyUCD {
-            unic_version: unic::UNICODE_VERSION,
+            unic_version: UNICODE_VERSION,
         }
     }
 }
@@ -105,7 +104,6 @@ impl PyUCD {
 
     #[pymethod]
     fn lookup(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
-        // TODO: we might want to use unic_ucd instead of unicode_names2 for this too, if possible:
         if let Some(character) = unicode_names2::character(name.as_str()) {
             if self.check_age(character) {
                 return Ok(character.to_string());
@@ -125,7 +123,7 @@ impl PyUCD {
 
         if let Some(c) = c {
             if self.check_age(c) {
-                if let Some(name) = Name::of(c) {
+                if let Some(name) = unicode_names2::name(c) {
                     return Ok(vm.new_str(name.to_string()));
                 }
             }

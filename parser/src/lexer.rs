@@ -475,6 +475,37 @@ where
         u8::from_str_radix(&octet_content, 8).unwrap() as char
     }
 
+    fn parse_unicode_name(&mut self) -> Result<char, LexicalError> {
+        let start_pos = self.get_pos();
+        match self.next_char() {
+            Some('{') => {}
+            _ => {
+                return Err(LexicalError {
+                    error: LexicalErrorType::StringError,
+                    location: start_pos,
+                })
+            }
+        }
+        let start_pos = self.get_pos();
+        let mut name = String::new();
+        loop {
+            match self.next_char() {
+                Some('}') => break,
+                Some(c) => name.push(c),
+                None => {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::StringError,
+                        location: self.get_pos(),
+                    })
+                }
+            }
+        }
+        unicode_names2::character(&name).ok_or(LexicalError {
+            error: LexicalErrorType::UnicodeError,
+            location: start_pos,
+        })
+    }
+
     fn lex_string(
         &mut self,
         is_bytes: bool,
@@ -532,11 +563,14 @@ where
                             Some('t') => {
                                 string_content.push('\t');
                             }
-                            Some('u') => string_content.push(self.unicode_literal(4)?),
-                            Some('U') => string_content.push(self.unicode_literal(8)?),
-                            Some('x') => string_content.push(self.unicode_literal(2)?),
                             Some('v') => string_content.push('\x0b'),
                             Some(o @ '0'..='7') => string_content.push(self.parse_octet(o)),
+                            Some('x') => string_content.push(self.unicode_literal(2)?),
+                            Some('u') if !is_bytes => string_content.push(self.unicode_literal(4)?),
+                            Some('U') if !is_bytes => string_content.push(self.unicode_literal(8)?),
+                            Some('N') if !is_bytes => {
+                                string_content.push(self.parse_unicode_name()?)
+                            }
                             Some(c) => {
                                 string_content.push('\\');
                                 string_content.push(c);
@@ -1682,6 +1716,22 @@ mod tests {
             vec![
                 Tok::Bytes {
                     value: b"#a\x04S4".to_vec()
+                },
+                Tok::Newline
+            ]
+        )
+    }
+
+    #[test]
+    fn test_escape_unicode_name() {
+        let source = r#""\N{EN SPACE}""#;
+        let tokens = lex_source(source);
+        assert_eq!(
+            tokens,
+            vec![
+                Tok::String {
+                    value: "\u{2002}".to_owned(),
+                    is_fstring: false,
                 },
                 Tok::Newline
             ]
