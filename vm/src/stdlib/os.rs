@@ -85,12 +85,24 @@ pub fn rust_file(raw_fileno: i64) -> File {
     unsafe { File::from_raw_handle(raw_fileno) }
 }
 
-#[cfg(all(not(unix), not(windows)))]
+#[cfg(target_os = "wasi")]
+pub fn raw_file_number(handle: File) -> i64 {
+    // This should be safe, since the wasi api is pretty well defined, but once
+    // `wasi_ext` get's stabilized, we should use that instead.
+    unsafe { std::mem::transmute::<_, u32>(handle).into() }
+}
+
+#[cfg(target_os = "wasi")]
+pub fn rust_file(raw_fileno: i64) -> File {
+    unsafe { std::mem::transmute(raw_fileno as u32) }
+}
+
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
 pub fn rust_file(raw_fileno: i64) -> File {
     unimplemented!();
 }
 
-#[cfg(all(not(unix), not(windows)))]
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
 pub fn raw_file_number(handle: File) -> i64 {
     unimplemented!();
 }
@@ -168,8 +180,10 @@ fn os_close(fileno: i64) {
 type OpenFlags = i32;
 #[cfg(windows)]
 type OpenFlags = u32;
+#[cfg(target_os = "wasi")]
+type OpenFlags = u16;
 
-#[cfg(any(unix, windows))]
+#[cfg(any(unix, windows, target_os = "wasi"))]
 pub fn os_open(
     name: PyStringRef,
     flags: OpenFlags,
@@ -213,6 +227,7 @@ pub fn os_open(
     #[cfg(windows)]
     let flags = flags & !(libc::O_WRONLY as u32);
 
+    #[cfg(not(target_os = "wasi"))]
     options.custom_flags(flags);
     let handle = options
         .open(fname)
@@ -221,7 +236,7 @@ pub fn os_open(
     Ok(raw_file_number(handle))
 }
 
-#[cfg(all(not(unix), not(windows)))]
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
 pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     unimplemented!()
 }
@@ -490,7 +505,7 @@ fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsS
             use std::os::unix::ffi::OsStrExt;
             Some(ffi::OsStr::from_bytes(b))
         }
-        #[cfg(windows)]
+        #[cfg(not(unix))]
         {
             std::str::from_utf8(b).ok().map(|s| s.as_ref())
         }
@@ -889,9 +904,10 @@ fn os_stat(
     windows
 )))]
 fn os_stat(
-    _file: Either<PyStringRef, i64>,
+    file: Either<PyPathLike, i64>,
     _dir_fd: DirFd,
-    _follow_symlinks: FollowSymlinks,
+    follow_symlinks: FollowSymlinks,
+    vm: &VirtualMachine,
 ) -> PyResult {
     unimplemented!();
 }
@@ -978,6 +994,10 @@ fn os_get_inheritable(fd: RawFd, vm: &VirtualMachine) -> PyResult<bool> {
 }
 
 fn os_set_inheritable(fd: i64, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
+    #[cfg(not(any(unix, windows)))]
+    {
+        unimplemented!()
+    }
     #[cfg(unix)]
     {
         let fd = fd as RawFd;
@@ -1523,11 +1543,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "supports_follow_symlinks" => supports_follow_symlinks.into_object(),
     });
 
-    extend_module_platform_specific(&vm, module)
+    extend_module_platform_specific(&vm, &module);
+
+    module
 }
 
 #[cfg(unix)]
-fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     let ctx = &vm.ctx;
 
     let uname_result = UnameResult::make_class(ctx);
@@ -1611,16 +1633,15 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> 
     extend_module!(vm, module, {
         "pipe2" => ctx.new_function(os_pipe2),
     });
-
-    module
 }
 
 #[cfg(windows)]
-fn extend_module_platform_specific(vm: &VirtualMachine, module: PyObjectRef) -> PyObjectRef {
+fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     let ctx = &vm.ctx;
     extend_module!(vm, module, {
         "O_BINARY" => ctx.new_int(libc::O_BINARY),
     });
-
-    module
 }
+
+#[cfg(not(any(unix, windows)))]
+fn extend_module_platform_specific(_vm: &VirtualMachine, _module: &PyObjectRef) {}

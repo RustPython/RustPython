@@ -516,7 +516,7 @@ fn buffered_reader_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult
 }
 
 // disable FileIO on WASM
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 mod fileio {
     use super::super::os;
     use super::*;
@@ -658,23 +658,9 @@ mod fileio {
         Ok(len)
     }
 
-    #[cfg(windows)]
     fn file_io_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let raw_handle = i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
-        unsafe {
-            winapi::um::handleapi::CloseHandle(raw_handle as _);
-        }
-        vm.set_attr(&instance, "closefd", vm.new_bool(true))?;
-        vm.set_attr(&instance, "__closed", vm.new_bool(true))?;
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    fn file_io_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let raw_fd = i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
-        unsafe {
-            libc::close(raw_fd as _);
-        }
+        drop(os::rust_file(raw_handle));
         vm.set_attr(&instance, "closefd", vm.new_bool(true))?;
         vm.set_attr(&instance, "__closed", vm.new_bool(true))?;
         Ok(())
@@ -1051,7 +1037,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "DEFAULT_BUFFER_SIZE" => ctx.new_int(8 * 1024),
     });
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
     extend_module!(vm, module, {
         "FileIO" => fileio::make_fileio(ctx, raw_io_base),
     });

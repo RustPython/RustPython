@@ -239,7 +239,7 @@ impl VirtualMachine {
 
                     import::init_importlib(self, initialize_parameter)?;
 
-                    #[cfg(not(target_arch = "wasm32"))]
+                    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
                     {
                         let io = self.import("io", &[], 0)?;
                         let io_open = self.get_attribute(io.clone(), "open")?;
