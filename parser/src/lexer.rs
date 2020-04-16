@@ -1721,4 +1721,20 @@ mod tests {
             ]
         )
     }
+
+    #[test]
+    fn test_escape_unicode_name() {
+        let source = r#""\N{EN SPACE}""#;
+        let tokens = lex_source(source);
+        assert_eq!(
+            tokens,
+            vec![
+                Tok::String {
+                    value: "\u{2002}".to_owned(),
+                    is_fstring: false,
+                },
+                Tok::Newline
+            ]
+        )
+    }
 }
