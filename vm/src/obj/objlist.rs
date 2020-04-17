@@ -1,6 +1,6 @@
 use std::fmt;
 use std::mem::size_of;
-use std::ops::Range;
+use std::ops::{DerefMut, Range};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -114,7 +114,7 @@ impl PyList {
         vm: &VirtualMachine,
     ) -> PyResult<objbyteinner::PyByteInner> {
         let mut elements = Vec::<u8>::with_capacity(self.borrow_elements().len());
-        for elem in self.borrow_elements().clone().iter() {
+        for elem in self.borrow_elements().iter() {
             match PyIntRef::try_from_object(vm, elem.clone()) {
                 Ok(result) => match result.as_bigint().to_u8() {
                     Some(result) => elements.push(result),
@@ -498,10 +498,10 @@ impl PyList {
 
     #[pymethod(name = "__imul__")]
     fn imul(zelf: PyRef<Self>, counter: isize) -> PyRef<Self> {
-        let elements = zelf.borrow_elements_mut();
-        let new_elements: Vec<PyObjectRef> =
+        let mut elements = zelf.borrow_elements_mut();
+        let mut new_elements: Vec<PyObjectRef> =
             sequence::seq_mul(&elements, counter).cloned().collect();
-        PyList::_replace(elements, new_elements);
+        std::mem::swap(elements.deref_mut(), &mut new_elements);
         zelf.clone()
     }
 
@@ -777,24 +777,15 @@ impl PyList {
         // replace list contents with [] for duration of sort.
         // this prevents keyfunc from messing with the list and makes it easy to
         // check if it tries to append elements to it.
-        let mut elements = PyList::_replace(self.borrow_elements_mut(), vec![]);
+        let mut elements = std::mem::take(self.borrow_elements_mut().deref_mut());
         do_sort(vm, &mut elements, options.key, options.reverse)?;
-        let temp_elements = PyList::_replace(self.borrow_elements_mut(), elements);
+        std::mem::swap(self.borrow_elements_mut().deref_mut(), &mut elements);
 
-        if !temp_elements.is_empty() {
+        if !elements.is_empty() {
             return Err(vm.new_value_error("list modified during sort".to_owned()));
         }
 
         Ok(())
-    }
-
-    fn _replace(
-        mut elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
-        mut new: Vec<PyObjectRef>,
-    ) -> Vec<PyObjectRef> {
-        let old = elements.drain(..).collect();
-        elements.append(&mut new);
-        old
     }
 
     #[pyslot]

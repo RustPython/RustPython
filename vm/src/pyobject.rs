@@ -1222,8 +1222,8 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
 
 // Temporary trait to follow the progress of threading conversion
 pub trait ThreadSafe: Send + Sync {}
-// Temporary definitions to help with converting object that contain PyObjectRef to ThreadSafe.
-// Should be removed before threading is allowed.
+// Temporary hack to help with converting object that contain PyObjectRef to ThreadSafe.
+// Should be removed before threading is allowed. Do not try this at home!!!
 unsafe impl<T: ?Sized + PyObjectPayload> Send for PyObject<T> {}
 unsafe impl<T: ?Sized + PyObjectPayload> Sync for PyObject<T> {}
 
