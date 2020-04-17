@@ -37,7 +37,7 @@ mod unicodedata;
 mod warnings;
 mod weakref;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 #[macro_use]
 mod os;
 
@@ -112,10 +112,12 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("symtable".to_owned(), Box::new(symtable::make_module));
     }
 
+    #[cfg(any(unix, windows, target_os = "wasi"))]
+    modules.insert(os::MODULE_NAME.to_owned(), Box::new(os::make_module));
+
     // disable some modules on WASM
     #[cfg(not(target_arch = "wasm32"))]
     {
-        modules.insert(os::MODULE_NAME.to_owned(), Box::new(os::make_module));
         modules.insert("_socket".to_owned(), Box::new(socket::make_module));
         modules.insert(
             "_multiprocessing".to_owned(),

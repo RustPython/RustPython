@@ -97,12 +97,14 @@ crc32fast = "1.2.0"
 adler32 = "1.0.3"
 gethostname = "0.2.0"
 subprocess = "0.2.2"
-num_cpus = "1"
 socket2 = { version = "0.3", features = ["unix"] }
 rustyline = "6.0"
 openssl = { version = "0.10", features = ["vendored"] }
 openssl-sys = "0.9"
 openssl-probe = "0.1"
+
+[target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
+num_cpus = "1"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "redox")))'.dependencies]
 dns-lookup = "1.0"
