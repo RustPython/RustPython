@@ -1,6 +1,7 @@
 use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use std::ops::Deref;
+use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef> + 'a>;
 
@@ -38,6 +39,30 @@ impl SimpleSeq for std::collections::VecDeque<PyObjectRef> {
 }
 
 impl<T> SimpleSeq for std::cell::Ref<'_, T>
+where
+    T: SimpleSeq,
+{
+    fn len(&self) -> usize {
+        self.deref().len()
+    }
+    fn iter(&self) -> DynPyIter {
+        self.deref().iter()
+    }
+}
+
+impl<T> SimpleSeq for RwLockReadGuard<'_, T>
+where
+    T: SimpleSeq,
+{
+    fn len(&self) -> usize {
+        self.deref().len()
+    }
+    fn iter(&self) -> DynPyIter {
+        self.deref().iter()
+    }
+}
+
+impl<T> SimpleSeq for RwLockWriteGuard<'_, T>
 where
     T: SimpleSeq,
 {
