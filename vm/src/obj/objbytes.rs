@@ -1,6 +1,7 @@
 use crossbeam_utils::atomic::AtomicCell;
 use std::mem::size_of;
 use std::ops::Deref;
+use std::str::FromStr;
 
 use super::objbyteinner::{
     ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -10,8 +11,8 @@ use super::objint::PyIntRef;
 use super::objiter;
 use super::objslice::PySliceRef;
 use super::objstr::{PyString, PyStringRef};
-use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
+use super::pystr::PyCommonString;
 use crate::cformat::CFormatString;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objstr::do_cformat_string;
@@ -23,7 +24,6 @@ use crate::pyobject::{
     ThreadSafe, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use std::str::FromStr;
 
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
@@ -275,23 +275,39 @@ impl PyBytes {
     #[pymethod(name = "endswith")]
     fn endswith(
         &self,
-        suffix: Either<PyByteInner, PyTupleRef>,
-        start: OptionalArg<PyObjectRef>,
-        end: OptionalArg<PyObjectRef>,
+        suffix: PyObjectRef,
+        start: OptionalArg<Option<isize>>,
+        end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        self.inner.startsendswith(suffix, start, end, true, vm)
+        self.inner.elements[..].py_startsendswith(
+            suffix,
+            start,
+            end,
+            "endswith",
+            "bytes",
+            |s, x: &PyByteInner| s.ends_with(&x.elements[..]),
+            vm,
+        )
     }
 
     #[pymethod(name = "startswith")]
     fn startswith(
         &self,
-        prefix: Either<PyByteInner, PyTupleRef>,
-        start: OptionalArg<PyObjectRef>,
-        end: OptionalArg<PyObjectRef>,
+        prefix: PyObjectRef,
+        start: OptionalArg<Option<isize>>,
+        end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        self.inner.startsendswith(prefix, start, end, false, vm)
+        self.inner.elements[..].py_startsendswith(
+            prefix,
+            start,
+            end,
+            "startswith",
+            "bytes",
+            |s, x: &PyByteInner| s.starts_with(&x.elements[..]),
+            vm,
+        )
     }
 
     #[pymethod(name = "find")]

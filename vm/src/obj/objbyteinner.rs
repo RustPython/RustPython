@@ -11,11 +11,10 @@ use super::objint::{self, PyInt, PyIntRef};
 use super::objlist::PyList;
 use super::objmemory::PyMemoryView;
 use super::objnone::PyNoneRef;
-use super::objsequence::{is_valid_slice_arg, PySliceableSequence};
+use super::objsequence::PySliceableSequence;
 use super::objslice::PySliceRef;
-use super::objstr::{self, adjust_indices, PyString, PyStringRef, StringRange};
-use super::objtuple::PyTupleRef;
-use super::pystr::PyCommonString;
+use super::objstr::{self, PyString, PyStringRef};
+use super::pystr::{self, PyCommonString, StringRange};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
@@ -172,7 +171,7 @@ impl ByteInnerFindOptions {
             Either::A(v) => v.elements.to_vec(),
             Either::B(int) => vec![int.as_bigint().byte_or(vm)?],
         };
-        let range = adjust_indices(self.start, self.end, len);
+        let range = pystr::adjust_indices(self.start, self.end, len);
         Ok((sub, range))
     }
 }
@@ -857,47 +856,6 @@ impl PyByteInner {
     }
 
     #[inline]
-    pub fn startsendswith(
-        &self,
-        arg: Either<PyByteInner, PyTupleRef>,
-        start: OptionalArg<PyObjectRef>,
-        end: OptionalArg<PyObjectRef>,
-        endswith: bool, // true for endswith, false for startswith
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
-        let suff = match arg {
-            Either::A(byte) => byte.elements,
-            Either::B(tuple) => {
-                let mut flatten = vec![];
-                for v in tuple.as_slice() {
-                    flatten.extend(PyByteInner::try_from_object(vm, v.clone())?.elements)
-                }
-                flatten
-            }
-        };
-
-        if suff.is_empty() {
-            return Ok(true);
-        }
-        let range = self.elements.get_slice_range(
-            &is_valid_slice_arg(start, vm)?,
-            &is_valid_slice_arg(end, vm)?,
-        );
-
-        if range.end - range.start < suff.len() {
-            return Ok(false);
-        }
-
-        let offset = if endswith {
-            (range.end - suff.len())..range.end
-        } else {
-            0..suff.len()
-        };
-
-        Ok(suff.as_slice() == &self.elements.do_slice(range)[offset])
-    }
-
-    #[inline]
     pub fn find(
         &self,
         options: ByteInnerFindOptions,
@@ -1342,6 +1300,14 @@ pub fn bytes_zfill(bytes: &[u8], width: usize) -> Vec<u8> {
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
 impl PyCommonString<'_, u8> for [u8] {
+    fn get_slice(&self, range: std::ops::Range<usize>) -> &Self {
+        &self[range]
+    }
+
+    fn len(&self) -> usize {
+        Self::len(self)
+    }
+
     fn py_split_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
     where
         F: Fn(&Self) -> PyObjectRef,

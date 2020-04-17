@@ -5,9 +5,10 @@ use std::sync::Mutex;
 use indexmap::IndexMap;
 use itertools::Itertools;
 
+use crate::builtins::builtin_isinstance;
 use crate::bytecode;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
-use crate::function::{single_or_tuple_any, PyFuncArgs};
+use crate::function::PyFuncArgs;
 use crate::obj::objasyncgenerator::PyAsyncGenWrappedValue;
 use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
@@ -1353,25 +1354,6 @@ impl ExecutingFrame<'_> {
         !a.is(&b)
     }
 
-    fn exc_match(
-        &self,
-        vm: &VirtualMachine,
-        exc: PyObjectRef,
-        exc_type: PyObjectRef,
-    ) -> PyResult<bool> {
-        single_or_tuple_any(
-            exc_type,
-            |cls: PyClassRef| vm.isinstance(&exc, &cls),
-            |o| {
-                format!(
-                    "isinstance() arg 2 must be a type or tuple of types, not {}",
-                    o.class()
-                )
-            },
-            vm,
-        )
-    }
-
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_compare(
         &mut self,
@@ -1391,7 +1373,9 @@ impl ExecutingFrame<'_> {
             bytecode::ComparisonOperator::IsNot => vm.new_bool(self._is_not(a, b)),
             bytecode::ComparisonOperator::In => vm.new_bool(self._in(vm, a, b)?),
             bytecode::ComparisonOperator::NotIn => vm.new_bool(self._not_in(vm, a, b)?),
-            bytecode::ComparisonOperator::ExceptionMatch => vm.new_bool(self.exc_match(vm, a, b)?),
+            bytecode::ComparisonOperator::ExceptionMatch => {
+                vm.new_bool(builtin_isinstance(a, b, vm)?)
+            }
         };
 
         self.push_value(value);

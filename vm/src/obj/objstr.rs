@@ -21,13 +21,13 @@ use super::objsequence::PySliceableSequence;
 use super::objslice::PySliceRef;
 use super::objtuple;
 use super::objtype::{self, PyClassRef};
-use super::pystr::PyCommonString;
+use super::pystr::{adjust_indices, PyCommonString, StringRange};
 use crate::cformat::{
     CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
     CNumberType,
 };
 use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatSpec, FormatString};
-use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
@@ -525,23 +525,15 @@ impl PyString {
         end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        let range = adjust_indices(start, end, self.value.len());
-        if range.is_normal() {
-            let value = &self.value[range];
-            single_or_tuple_any(
-                suffix,
-                |s: PyStringRef| Ok(value.ends_with(&s.value)),
-                |o| {
-                    format!(
-                        "endswith first arg must be str or a tuple of str, not {}",
-                        o.class(),
-                    )
-                },
-                vm,
-            )
-        } else {
-            Ok(false)
-        }
+        self.value.as_str().py_startsendswith(
+            suffix,
+            start,
+            end,
+            "endswith",
+            "str",
+            |s, x: &PyStringRef| s.ends_with(x.as_str()),
+            vm,
+        )
     }
 
     #[pymethod]
@@ -552,23 +544,15 @@ impl PyString {
         end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        let range = adjust_indices(start, end, self.value.len());
-        if range.is_normal() {
-            let value = &self.value[range];
-            single_or_tuple_any(
-                prefix,
-                |s: PyStringRef| Ok(value.starts_with(&s.value)),
-                |o| {
-                    format!(
-                        "startswith first arg must be str or a tuple of str, not {}",
-                        o.class(),
-                    )
-                },
-                vm,
-            )
-        } else {
-            Ok(false)
-        }
+        self.value.as_str().py_startsendswith(
+            prefix,
+            start,
+            end,
+            "startswith",
+            "str",
+            |s, x: &PyStringRef| s.starts_with(x.as_str()),
+            vm,
+        )
     }
 
     #[pymethod]
@@ -1724,41 +1708,6 @@ impl PySliceableSequence for String {
     }
 }
 
-pub trait StringRange {
-    fn is_normal(&self) -> bool;
-}
-
-impl StringRange for std::ops::Range<usize> {
-    fn is_normal(&self) -> bool {
-        self.start <= self.end
-    }
-}
-
-// help get optional string indices
-pub fn adjust_indices(
-    start: OptionalArg<Option<isize>>,
-    end: OptionalArg<Option<isize>>,
-    len: usize,
-) -> std::ops::Range<usize> {
-    let mut start = start.flat_option().unwrap_or(0);
-    let mut end = end.flat_option().unwrap_or(len as isize);
-    if end > len as isize {
-        end = len as isize;
-    } else if end < 0 {
-        end += len as isize;
-        if end < 0 {
-            end = 0;
-        }
-    }
-    if start < 0 {
-        start += len as isize;
-        if start < 0 {
-            start = 0;
-        }
-    }
-    start as usize..end as usize
-}
-
 // According to python following categories aren't printable:
 // * Cc (Other, Control)
 // * Cf (Other, Format)
@@ -1851,6 +1800,14 @@ mod tests {
 }
 
 impl PyCommonString<'_, char> for str {
+    fn get_slice(&self, range: std::ops::Range<usize>) -> &Self {
+        &self[range]
+    }
+
+    fn len(&self) -> usize {
+        Self::len(self)
+    }
+
     fn py_split_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
     where
         F: Fn(&Self) -> PyObjectRef,

@@ -363,10 +363,14 @@ fn builtin_input(prompt: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyRes
     }
 }
 
-fn builtin_isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+pub fn builtin_isinstance(
+    obj: PyObjectRef,
+    typ: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
     single_or_tuple_any(
         typ,
-        |cls: PyClassRef| vm.isinstance(&obj, &cls),
+        |cls: &PyClassRef| vm.isinstance(&obj, cls),
         |o| {
             format!(
                 "isinstance() arg 2 must be a type or tuple of types, not {}",
@@ -384,7 +388,7 @@ fn builtin_issubclass(
 ) -> PyResult<bool> {
     single_or_tuple_any(
         typ,
-        |cls: PyClassRef| vm.issubclass(&subclass, &cls),
+        |cls: &PyClassRef| vm.issubclass(&subclass, cls),
         |o| {
             format!(
                 "issubclass() arg 2 must be a class or tuple of classes, not {}",

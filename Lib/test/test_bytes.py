@@ -548,8 +548,6 @@ class BaseBytesTest:
         self.assertEqual(b.count(i, 1, 3), 1)
         self.assertEqual(b.count(p, 7, 9), 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_startswith(self):
         b = self.type2test(b'hello')
         self.assertFalse(self.type2test().startswith(b"anything"))
@@ -564,8 +562,6 @@ class BaseBytesTest:
         self.assertIn('bytes', exc)
         self.assertIn('tuple', exc)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_endswith(self):
         b = self.type2test(b'hello')
         self.assertFalse(bytearray().endswith(b"anything"))

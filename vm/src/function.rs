@@ -7,7 +7,7 @@ use result_like::impl_option_like;
 use smallbox::{smallbox, space::S1, SmallBox};
 
 use crate::exceptions::PyBaseExceptionRef;
-use crate::obj::objtuple::PyTuple;
+use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{
     IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -564,43 +564,55 @@ into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 /// test that any of the values contained within the tuples satisfies the predicate. Type parameter
 /// T specifies the type that is expected, if the input value is not of that type or a tuple of
 /// values of that type, then a TypeError is raised.
-pub fn single_or_tuple_any<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>>(
+pub fn single_or_tuple_any<T, F, M>(
     obj: PyObjectRef,
     predicate: F,
-    message: fn(&PyObjectRef) -> String,
+    message: M,
     vm: &VirtualMachine,
-) -> PyResult<bool> {
+) -> PyResult<bool>
+where
+    T: TryFromObject,
+    F: Fn(&T) -> PyResult<bool>,
+    M: Fn(&PyObjectRef) -> String,
+{
     // TODO: figure out some way to have recursive calls without... this
-    use std::marker::PhantomData;
-    struct Checker<'vm, T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>> {
+    struct Checker<T, F, M>
+    where
+        F: Fn(&T) -> PyResult<bool>,
+        M: Fn(&PyObjectRef) -> String,
+    {
         predicate: F,
-        message: fn(&PyObjectRef) -> String,
-        vm: &'vm VirtualMachine,
-        t: PhantomData<T>,
+        message: M,
+        t: std::marker::PhantomData<T>,
     }
-    impl<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>> Checker<'_, T, F> {
-        fn check(&self, obj: PyObjectRef) -> PyResult<bool> {
-            match_class!(match obj {
-                obj @ T => (self.predicate)(obj),
-                tuple @ PyTuple => {
+    impl<T, F, M> Checker<T, F, M>
+    where
+        T: TryFromObject,
+        F: Fn(&T) -> PyResult<bool>,
+        M: Fn(&PyObjectRef) -> String,
+    {
+        fn check(&self, obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+            match T::try_from_object(vm, obj.clone()) {
+                Ok(single) => (self.predicate)(&single),
+                Err(_) => {
+                    let tuple = PyTupleRef::try_from_object(vm, obj.clone())
+                        .map_err(|_| vm.new_type_error((self.message)(&obj)))?;
                     for obj in tuple.as_slice().iter() {
-                        if self.check(obj.clone())? {
+                        if self.check(&obj, vm)? {
                             return Ok(true);
                         }
                     }
                     Ok(false)
                 }
-                obj => Err(self.vm.new_type_error((self.message)(&obj))),
-            })
+            }
         }
     }
     let checker = Checker {
         predicate,
         message,
-        vm,
-        t: PhantomData,
+        t: std::marker::PhantomData,
     };
-    checker.check(obj)
+    checker.check(&obj, vm)
 }
 
 #[cfg(test)]

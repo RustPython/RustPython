@@ -12,8 +12,8 @@ use super::objint::PyIntRef;
 use super::objiter;
 use super::objslice::PySliceRef;
 use super::objstr::{PyString, PyStringRef};
-use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
+use super::pystr::PyCommonString;
 use crate::cformat::CFormatString;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objstr::do_cformat_string;
@@ -303,25 +303,39 @@ impl PyByteArray {
     #[pymethod(name = "endswith")]
     fn endswith(
         &self,
-        suffix: Either<PyByteInner, PyTupleRef>,
-        start: OptionalArg<PyObjectRef>,
-        end: OptionalArg<PyObjectRef>,
+        suffix: PyObjectRef,
+        start: OptionalArg<Option<isize>>,
+        end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        self.borrow_value()
-            .startsendswith(suffix, start, end, true, vm)
+        self.borrow_value().elements[..].py_startsendswith(
+            suffix,
+            start,
+            end,
+            "endswith",
+            "bytes",
+            |s, x: &PyByteInner| s.ends_with(&x.elements[..]),
+            vm,
+        )
     }
 
     #[pymethod(name = "startswith")]
     fn startswith(
         &self,
-        prefix: Either<PyByteInner, PyTupleRef>,
-        start: OptionalArg<PyObjectRef>,
-        end: OptionalArg<PyObjectRef>,
+        prefix: PyObjectRef,
+        start: OptionalArg<Option<isize>>,
+        end: OptionalArg<Option<isize>>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        self.borrow_value()
-            .startsendswith(prefix, start, end, false, vm)
+        self.borrow_value().elements[..].py_startsendswith(
+            prefix,
+            start,
+            end,
+            "startswith",
+            "bytes",
+            |s, x: &PyByteInner| s.starts_with(&x.elements[..]),
+            vm,
+        )
     }
 
     #[pymethod(name = "find")]
