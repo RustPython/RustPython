@@ -37,10 +37,7 @@ impl StringRange for std::ops::Range<usize> {
     }
 }
 
-pub trait PyCommonString<'a, E>
-where
-    Self: 'a,
-{
+pub trait PyCommonString<E> {
     fn get_slice(&self, range: std::ops::Range<usize>) -> &Self;
     fn len(&self) -> usize;
 

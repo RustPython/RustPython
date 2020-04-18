@@ -1799,7 +1799,7 @@ mod tests {
     }
 }
 
-impl PyCommonString<'_, char> for str {
+impl PyCommonString<char> for str {
     fn get_slice(&self, range: std::ops::Range<usize>) -> &Self {
         &self[range]
     }

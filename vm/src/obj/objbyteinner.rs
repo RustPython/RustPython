@@ -1299,7 +1299,7 @@ pub fn bytes_zfill(bytes: &[u8], width: usize) -> Vec<u8> {
 
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
-impl PyCommonString<'_, u8> for [u8] {
+impl PyCommonString<u8> for [u8] {
     fn get_slice(&self, range: std::ops::Range<usize>) -> &Self {
         &self[range]
     }
