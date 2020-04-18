@@ -36,8 +36,9 @@ use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
-use crate::obj::objstr::{self, PyString, PyStringRef};
-use crate::obj::objtype::{self, PyClassRef};
+use crate::obj::objstr::{PyString, PyStringRef};
+use crate::obj::objtuple::PyTupleRef;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -120,15 +121,15 @@ fn output_by_mode(val: String, mode: OutputMode, vm: &VirtualMachine) -> PyObjec
     }
 }
 
-struct PyPathLike {
-    path: String,
+pub struct PyPathLike {
+    path: ffi::OsString,
     mode: OutputMode,
 }
 
 impl PyPathLike {
-    fn new_str(path: String) -> Self {
+    pub fn new_str(path: String) -> Self {
         PyPathLike {
-            path,
+            path: ffi::OsString::from(path),
             mode: OutputMode::String,
         }
     }
@@ -136,36 +137,56 @@ impl PyPathLike {
 
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // TODO: Support Path object
         match_class!(match obj.clone() {
             l @ PyString => {
                 Ok(PyPathLike {
-                    path: l.as_str().to_owned(),
+                    path: ffi::OsString::from(l.as_str()),
                     mode: OutputMode::String,
                 })
             }
             i @ PyBytes => {
-                let path = objstr::clone_value(&vm.call_method(i.as_object(), "decode", vec![])?);
                 Ok(PyPathLike {
-                    path,
+                    path: bytes_as_osstr(&i, vm)?.to_os_string(),
                     mode: OutputMode::Bytes,
                 })
             }
-            _ => {
-                Err(vm.new_type_error(format!(
-                    "path object need to be string or bytes not {}",
-                    obj.class()
-                )))
+            obj => {
+                let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
+                    format!(
+                        "expected str, bytes or os.PathLike object, not '{}'",
+                        obj.class().name
+                    )
+                })?;
+                let result = vm.invoke(&method, PyFuncArgs::default())?;
+                match_class!(match result.clone() {
+                    l @ PyString => {
+                        Ok(PyPathLike {
+                            path: ffi::OsString::from(l.as_str()),
+                            mode: OutputMode::String,
+                        })
+                    }
+                    i @ PyBytes => {
+                        Ok(PyPathLike {
+                            path: bytes_as_osstr(&i, vm)?.to_os_string(),
+                            mode: OutputMode::Bytes,
+                        })
+                    }
+                    _ => Err(vm.new_type_error(format!(
+                        "expected {}.__fspath__() to return str or bytes, not '{}'",
+                        obj.class().name,
+                        result.class().name
+                    ))),
+                })
             }
         })
     }
 }
 
-fn make_path<'a>(_vm: &VirtualMachine, path: &'a str, dir_fd: &DirFd) -> &'a str {
+fn make_path<'a>(_vm: &VirtualMachine, path: &'a PyPathLike, dir_fd: &DirFd) -> &'a ffi::OsStr {
     if dir_fd.dir_fd.is_some() {
         unimplemented!();
     } else {
-        path
+        path.path.as_os_str()
     }
 }
 
@@ -185,7 +206,7 @@ type OpenFlags = u16;
 
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub fn os_open(
-    name: PyStringRef,
+    name: PyPathLike,
     flags: OpenFlags,
     _mode: OptionalArg<PyIntRef>,
     dir_fd: OptionalArg<PyIntRef>,
@@ -194,7 +215,7 @@ pub fn os_open(
     let dir_fd = DirFd {
         dir_fd: dir_fd.into_option(),
     };
-    let fname = make_path(vm, name.as_str(), &dir_fd);
+    let fname = make_path(vm, &name, &dir_fd);
 
     let mut options = OpenOptions::new();
 
@@ -459,18 +480,18 @@ fn os_write(fd: i64, data: PyBytesLike, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_int(written))
 }
 
-fn os_remove(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
-    let path = make_path(vm, path.as_str(), &dir_fd);
+fn os_remove(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
+    let path = make_path(vm, &path, &dir_fd);
     fs::remove_file(path).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_mkdir(
-    path: PyStringRef,
+    path: PyPathLike,
     _mode: OptionalArg<PyIntRef>,
     dir_fd: DirFd,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let path = make_path(vm, path.as_str(), &dir_fd);
+    let path = make_path(vm, &path, &dir_fd);
     fs::create_dir(path).map_err(|err| convert_io_error(vm, err))
 }
 
@@ -478,8 +499,8 @@ fn os_mkdirs(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     fs::create_dir_all(path.as_str()).map_err(|err| convert_io_error(vm, err))
 }
 
-fn os_rmdir(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
-    let path = make_path(vm, path.as_str(), &dir_fd);
+fn os_rmdir(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
+    let path = make_path(vm, &path, &dir_fd);
     fs::remove_dir(path).map_err(|err| convert_io_error(vm, err))
 }
 
@@ -566,8 +587,8 @@ fn _os_environ(vm: &VirtualMachine) -> PyDictRef {
     environ
 }
 
-fn os_readlink(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
-    let path = make_path(vm, path.as_str(), &dir_fd);
+fn os_readlink(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
+    let path = make_path(vm, &path, &dir_fd);
     let path = fs::read_link(path).map_err(|err| convert_io_error(vm, err))?;
     let path = path.into_os_string().into_string().map_err(|_osstr| {
         vm.new_unicode_decode_error("Can't convert OS path to valid UTF-8 string".into())
@@ -653,9 +674,10 @@ impl DirEntryRef {
 
     fn stat(self, dir_fd: DirFd, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
         os_stat(
-            Either::A(PyPathLike::new_str(
-                self.entry.path().to_str().unwrap().to_owned(),
-            )),
+            Either::A(PyPathLike {
+                path: self.entry.path().into_os_string(),
+                mode: OutputMode::String,
+            }),
             dir_fd,
             follow_symlinks,
             vm,
@@ -801,7 +823,7 @@ fn os_stat(
     let get_stats = move || -> io::Result<PyObjectRef> {
         let meta = match file {
             Either::A(path) => {
-                let path = make_path(vm, &path.path, &dir_fd);
+                let path = make_path(vm, &path, &dir_fd);
                 if follow_symlinks.follow_symlinks {
                     fs::metadata(path)?
                 } else {
@@ -925,29 +947,29 @@ fn os_lstat(file: Either<PyPathLike, i64>, dir_fd: DirFd, vm: &VirtualMachine) -
 
 #[cfg(unix)]
 fn os_symlink(
-    src: PyStringRef,
-    dst: PyStringRef,
+    src: PyPathLike,
+    dst: PyPathLike,
     dir_fd: DirFd,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     use std::os::unix::fs as unix_fs;
-    let dst = make_path(vm, dst.as_str(), &dir_fd);
-    unix_fs::symlink(src.as_str(), dst).map_err(|err| convert_io_error(vm, err))
+    let dst = make_path(vm, &dst, &dir_fd);
+    unix_fs::symlink(src.path, dst).map_err(|err| convert_io_error(vm, err))
 }
 
 #[cfg(windows)]
 fn os_symlink(
-    src: PyStringRef,
-    dst: PyStringRef,
+    src: PyPathLike,
+    dst: PyPathLike,
     _dir_fd: DirFd,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     use std::os::windows::fs as win_fs;
-    let meta = fs::metadata(src.as_str()).map_err(|err| convert_io_error(vm, err))?;
+    let meta = fs::metadata(src.path.clone()).map_err(|err| convert_io_error(vm, err))?;
     let ret = if meta.is_file() {
-        win_fs::symlink_file(src.as_str(), dst.as_str())
+        win_fs::symlink_file(src.path, dst.path)
     } else if meta.is_dir() {
-        win_fs::symlink_dir(src.as_str(), dst.as_str())
+        win_fs::symlink_dir(src.path, dst.path)
     } else {
         panic!("Uknown file type");
     };
@@ -956,8 +978,8 @@ fn os_symlink(
 
 #[cfg(all(not(unix), not(windows)))]
 fn os_symlink(
-    src: PyStringRef,
-    dst: PyStringRef,
+    src: PyPathLike,
+    dst: PyPathLike,
     dir_fd: DirFd,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
@@ -1109,14 +1131,14 @@ fn os_system(command: PyStringRef) -> PyResult<i32> {
 
 #[cfg(unix)]
 fn os_chmod(
-    path: PyStringRef,
+    path: PyPathLike,
     dir_fd: DirFd,
     mode: u32,
     follow_symlinks: FollowSymlinks,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     use std::os::unix::fs::PermissionsExt;
-    let path = make_path(vm, path.as_str(), &dir_fd);
+    let path = make_path(vm, &path, &dir_fd);
     let metadata = if follow_symlinks.follow_symlinks {
         fs::metadata(path)
     } else {
@@ -1129,21 +1151,12 @@ fn os_chmod(
     Ok(())
 }
 
-fn os_fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if objtype::issubclass(&path.class(), &vm.ctx.str_type())
-        || objtype::issubclass(&path.class(), &vm.ctx.bytes_type())
-    {
-        Ok(path)
-    } else {
-        Err(vm.new_type_error(format!(
-            "expected str or bytes object, not {}",
-            path.class()
-        )))
-    }
+fn os_fspath(path: PyPathLike, vm: &VirtualMachine) -> PyObjectRef {
+    output_by_mode(path.path.to_str().unwrap().to_owned(), path.mode, vm)
 }
 
-fn os_rename(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    fs::rename(src.as_str(), dst.as_str()).map_err(|err| convert_io_error(vm, err))
+fn os_rename(src: PyPathLike, dst: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
+    fs::rename(src.path, dst.path).map_err(|err| convert_io_error(vm, err))
 }
 
 fn os_getpid(vm: &VirtualMachine) -> PyObjectRef {
@@ -1390,6 +1403,18 @@ fn os_lseek(fd: i32, position: Offset, how: i32, vm: &VirtualMachine) -> PyResul
     }
 }
 
+fn os_link(src: PyPathLike, dst: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
+    fs::hard_link(src.path, dst.path).map_err(|err| convert_io_error(vm, err))
+}
+
+fn os_utime(
+    _path: PyPathLike,
+    _time: OptionalArg<PyTupleRef>,
+    _vm: &VirtualMachine,
+) -> PyResult<()> {
+    unimplemented!("utime")
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1461,7 +1486,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "symlink", os_symlink, None, Some(false), None),
         // truncate Some None None
         SupportFunc::new(vm, "unlink", os_remove, Some(false), Some(false), None),
-        // utime Some Some Some
+        SupportFunc::new(vm, "utime", os_utime, Some(false), Some(false), Some(false)),
     ];
     #[cfg(unix)]
     support_funcs.extend(vec![
@@ -1497,6 +1522,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "isatty" => ctx.new_function(os_isatty),
         "lseek" => ctx.new_function(os_lseek),
         "set_inheritable" => ctx.new_function(os_set_inheritable),
+        "link" => ctx.new_function(os_link),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
