@@ -113,7 +113,7 @@ impl<T: Clone> Dict<T> {
     }
 
     fn unchecked_push(
-        &mut self,
+        &self,
         hash_index: HashIndex,
         hash_value: HashValue,
         key: PyObjectRef,
@@ -133,7 +133,7 @@ impl<T: Clone> Dict<T> {
 
     /// Store a key
     pub fn insert<K: DictKey + IntoPyObject + Copy>(
-        &mut self,
+        &self,
         vm: &VirtualMachine,
         key: K,
         value: T,
@@ -193,7 +193,7 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub fn clear(&mut self) {
+    pub fn clear(&self) {
         let mut inner = self.borrow_value_mut();
         inner.entries.clear();
         inner.indices.clear();
@@ -201,7 +201,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Delete a key
-    pub fn delete(&mut self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<()> {
+    pub fn delete(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<()> {
         if self.delete_if_exists(vm, key)? {
             Ok(())
         } else {
@@ -209,7 +209,7 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub fn delete_if_exists(&mut self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<bool> {
+    pub fn delete_if_exists(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<bool> {
         loop {
             if let LookupResult::Existing(entry_index) = self.lookup(vm, key)? {
                 let mut inner = self.borrow_value_mut();
@@ -228,7 +228,7 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn delete_or_insert(
-        &mut self,
+        &self,
         vm: &VirtualMachine,
         key: &PyObjectRef,
         value: T,
@@ -361,7 +361,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Retrieve and delete a key
-    pub fn pop<K: DictKey + Copy>(&mut self, vm: &VirtualMachine, key: K) -> PyResult<Option<T>> {
+    pub fn pop<K: DictKey + Copy>(&self, vm: &VirtualMachine, key: K) -> PyResult<Option<T>> {
         loop {
             if let LookupResult::Existing(index) = self.lookup(vm, key)? {
                 let mut inner = self.borrow_value_mut();
@@ -380,7 +380,7 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub fn pop_front(&mut self) -> Option<(PyObjectRef, T)> {
+    pub fn pop_front(&self) -> Option<(PyObjectRef, T)> {
         let mut position = 0;
         let mut inner = self.borrow_value_mut();
         let first_item = inner.entries.iter().find_map(|entry| {

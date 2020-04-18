@@ -1,8 +1,6 @@
 /*
  * Builtin set type with a sequence of unique items.
  */
-
-use std::cell::RefCell;
 use std::fmt;
 
 use super::objlist::PyListIterator;
@@ -11,8 +9,8 @@ use crate::dictdatatype;
 use crate::function::{Args, OptionalArg};
 use crate::pyhash;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -25,9 +23,10 @@ pub type SetContentType = dictdatatype::Dict<()>;
 #[pyclass]
 #[derive(Default)]
 pub struct PySet {
-    inner: RefCell<PySetInner>,
+    inner: PySetInner,
 }
 pub type PySetRef = PyRef<PySet>;
+impl ThreadSafe for PySet {}
 
 /// frozenset() -> empty frozenset object
 /// frozenset(iterable) -> frozenset object
@@ -39,6 +38,7 @@ pub struct PyFrozenSet {
     inner: PySetInner,
 }
 pub type PyFrozenSetRef = PyRef<PyFrozenSet>;
+impl ThreadSafe for PyFrozenSet {}
 
 impl fmt::Debug for PySet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -73,7 +73,7 @@ struct PySetInner {
 
 impl PySetInner {
     fn new(iterable: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let mut set = PySetInner::default();
+        let set = PySetInner::default();
         for item in iterable.iter(vm)? {
             set.add(&item?, vm)?;
         }
@@ -177,7 +177,7 @@ impl PySetInner {
     }
 
     fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let mut set = self.clone();
+        let set = self.clone();
         for item in other.iter(vm)? {
             set.add(&item?, vm)?;
         }
@@ -186,7 +186,7 @@ impl PySetInner {
     }
 
     fn intersection(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let mut set = PySetInner::default();
+        let set = PySetInner::default();
         for item in other.iter(vm)? {
             let obj = item?;
             if self.contains(&obj, vm)? {
@@ -197,7 +197,7 @@ impl PySetInner {
     }
 
     fn difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let mut set = self.copy();
+        let set = self.copy();
         for item in other.iter(vm)? {
             set.content.delete_if_exists(vm, &item?)?;
         }
@@ -205,7 +205,7 @@ impl PySetInner {
     }
 
     fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let mut new_inner = self.clone();
+        let new_inner = self.clone();
 
         // We want to remove duplicates in other
         let other_set = Self::new(other, vm)?;
@@ -258,23 +258,23 @@ impl PySetInner {
         Ok(format!("{{{}}}", str_parts.join(", ")))
     }
 
-    fn add(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn add(&self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.content.insert(vm, item, ())
     }
 
-    fn remove(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn remove(&self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.content.delete(vm, item)
     }
 
-    fn discard(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn discard(&self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.content.delete_if_exists(vm, item)
     }
 
-    fn clear(&mut self) {
+    fn clear(&self) {
         self.content.clear()
     }
 
-    fn pop(&mut self, vm: &VirtualMachine) -> PyResult {
+    fn pop(&self, vm: &VirtualMachine) -> PyResult {
         if let Some((key, _)) = self.content.pop_front() {
             Ok(key)
         } else {
@@ -283,7 +283,7 @@ impl PySetInner {
         }
     }
 
-    fn update(&mut self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<()> {
+    fn update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<()> {
         for iterable in others {
             for item in iterable.iter(vm)? {
                 self.add(&item?, vm)?;
@@ -292,11 +292,7 @@ impl PySetInner {
         Ok(())
     }
 
-    fn intersection_update(
-        &mut self,
-        others: Args<PyIterable>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn intersection_update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<()> {
         let mut temp_inner = self.copy();
         self.clear();
         for iterable in others {
@@ -311,7 +307,7 @@ impl PySetInner {
         Ok(())
     }
 
-    fn difference_update(&mut self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<()> {
+    fn difference_update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<()> {
         for iterable in others {
             for item in iterable.iter(vm)? {
                 self.content.delete_if_exists(vm, &item?)?;
@@ -321,7 +317,7 @@ impl PySetInner {
     }
 
     fn symmetric_difference_update(
-        &mut self,
+        &self,
         others: Args<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -343,7 +339,7 @@ impl PySetInner {
 macro_rules! try_set_cmp {
     ($vm:expr, $other:expr, $op:expr) => {
         Ok(match_class!(match ($other) {
-            set @ PySet => ($vm.new_bool($op(&*set.inner.borrow())?)),
+            set @ PySet => ($vm.new_bool($op(&set.inner)?)),
             frozen @ PyFrozenSet => ($vm.new_bool($op(&frozen.inner)?)),
             _ => $vm.ctx.not_implemented(),
         }));
@@ -352,13 +348,11 @@ macro_rules! try_set_cmp {
 
 macro_rules! multi_args_set {
     ($vm:expr, $others:expr, $zelf:expr, $op:tt) => {{
-        let mut res = $zelf.inner.borrow().copy();
+        let mut res = $zelf.inner.copy();
         for other in $others {
             res = res.$op(other, $vm)?
         }
-        Ok(Self {
-            inner: RefCell::new(res),
-        })
+        Ok(Self { inner: res })
     }};
 }
 
@@ -371,61 +365,61 @@ impl PySet {
         vm: &VirtualMachine,
     ) -> PyResult<PySetRef> {
         Self {
-            inner: RefCell::new(PySetInner::from_arg(iterable, vm)?),
+            inner: PySetInner::from_arg(iterable, vm)?,
         }
         .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__len__")]
     fn len(&self) -> usize {
-        self.inner.borrow().len()
+        self.inner.len()
     }
 
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self) -> usize {
-        std::mem::size_of::<Self>() + self.inner.borrow().sizeof()
+        std::mem::size_of::<Self>() + self.inner.sizeof()
     }
 
     #[pymethod]
     fn copy(&self) -> Self {
         Self {
-            inner: RefCell::new(self.inner.borrow().copy()),
+            inner: self.inner.copy(),
         }
     }
 
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.borrow().contains(&needle, vm)
+        self.inner.contains(&needle, vm)
     }
 
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.borrow().eq(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.eq(other, vm))
     }
 
     #[pymethod(name = "__ne__")]
     fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.borrow().ne(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.ne(other, vm))
     }
 
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.borrow().ge(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.ge(other, vm))
     }
 
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.borrow().gt(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.gt(other, vm))
     }
 
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.borrow().le(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.le(other, vm))
     }
 
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_set_cmp!(vm, other, |other| self.inner.borrow().lt(other, vm))
+        try_set_cmp!(vm, other, |other| self.inner.lt(other, vm))
     }
 
     #[pymethod]
@@ -454,17 +448,17 @@ impl PySet {
 
     #[pymethod]
     fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.borrow().issubset(other, vm)
+        self.inner.issubset(other, vm)
     }
 
     #[pymethod]
     fn issuperset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.borrow().issuperset(other, vm)
+        self.inner.issuperset(other, vm)
     }
 
     #[pymethod]
     fn isdisjoint(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.borrow().isdisjoint(other, vm)
+        self.inner.isdisjoint(other, vm)
     }
 
     #[pymethod(name = "__or__")]
@@ -509,16 +503,15 @@ impl PySet {
 
     #[pymethod(name = "__iter__")]
     fn iter(&self, vm: &VirtualMachine) -> PyListIterator {
-        self.inner.borrow().iter(vm)
+        self.inner.iter(vm)
     }
 
     #[pymethod(name = "__repr__")]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let inner = zelf.inner.borrow();
-        let s = if inner.len() == 0 {
+        let s = if zelf.inner.len() == 0 {
             "set()".to_owned()
         } else if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
-            inner.repr(vm)?
+            zelf.inner.repr(vm)?
         } else {
             "set(...)".to_owned()
         };
@@ -527,68 +520,64 @@ impl PySet {
 
     #[pymethod]
     pub fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.borrow_mut().add(&item, vm)?;
+        self.inner.add(&item, vm)?;
         Ok(())
     }
 
     #[pymethod]
     fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.borrow_mut().remove(&item, vm)
+        self.inner.remove(&item, vm)
     }
 
     #[pymethod]
     fn discard(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.borrow_mut().discard(&item, vm)?;
+        self.inner.discard(&item, vm)?;
         Ok(())
     }
 
     #[pymethod]
     fn clear(&self) {
-        self.inner.borrow_mut().clear()
+        self.inner.clear()
     }
 
     #[pymethod]
     fn pop(&self, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().pop(vm)
+        self.inner.pop(vm)
     }
 
     #[pymethod(name = "__ior__")]
     fn ior(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
-        zelf.inner.borrow_mut().update(iterable.iterable, vm)?;
+        zelf.inner.update(iterable.iterable, vm)?;
         Ok(zelf.as_object().clone())
     }
 
     #[pymethod]
     fn update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().update(others, vm)?;
+        self.inner.update(others, vm)?;
         Ok(vm.get_none())
     }
 
     #[pymethod]
     fn intersection_update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().intersection_update(others, vm)?;
+        self.inner.intersection_update(others, vm)?;
         Ok(vm.get_none())
     }
 
     #[pymethod(name = "__iand__")]
     fn iand(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
-        zelf.inner
-            .borrow_mut()
-            .intersection_update(iterable.iterable, vm)?;
+        zelf.inner.intersection_update(iterable.iterable, vm)?;
         Ok(zelf.as_object().clone())
     }
 
     #[pymethod]
     fn difference_update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().difference_update(others, vm)?;
+        self.inner.difference_update(others, vm)?;
         Ok(vm.get_none())
     }
 
     #[pymethod(name = "__isub__")]
     fn isub(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
-        zelf.inner
-            .borrow_mut()
-            .difference_update(iterable.iterable, vm)?;
+        zelf.inner.difference_update(iterable.iterable, vm)?;
         Ok(zelf.as_object().clone())
     }
 
@@ -598,16 +587,13 @@ impl PySet {
         others: Args<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        self.inner
-            .borrow_mut()
-            .symmetric_difference_update(others, vm)?;
+        self.inner.symmetric_difference_update(others, vm)?;
         Ok(vm.get_none())
     }
 
     #[pymethod(name = "__ixor__")]
     fn ixor(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner
-            .borrow_mut()
             .symmetric_difference_update(iterable.iterable, vm)?;
         Ok(zelf.as_object().clone())
     }
@@ -634,7 +620,7 @@ impl PyFrozenSet {
         vm: &VirtualMachine,
         it: impl IntoIterator<Item = PyObjectRef>,
     ) -> PyResult<Self> {
-        let mut inner = PySetInner::default();
+        let inner = PySetInner::default();
         for elem in it {
             inner.add(&elem, vm)?;
         }
