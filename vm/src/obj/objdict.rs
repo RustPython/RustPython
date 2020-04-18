@@ -488,7 +488,7 @@ impl Iterator for DictIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.dict.entries.borrow().next_entry(&mut self.position) {
-            Some((key, value)) => Some((key.clone(), value.clone())),
+            Some((key, value)) => Some((key, value)),
             None => None,
         }
     }
@@ -524,7 +524,7 @@ macro_rules! dict_iterator {
                 let s = if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
                     let mut str_parts = vec![];
                     for (key, value) in zelf.dict.clone() {
-                        let s = vm.to_repr(&$result_fn(vm, &key, &value))?;
+                        let s = vm.to_repr(&$result_fn(vm, key, value))?;
                         str_parts.push(s.as_str().to_owned());
                     }
                     format!("{}([{}])", $class_name, str_parts.join(", "))
@@ -607,7 +607,7 @@ dict_iterator! {
     dictkeyiterator_type,
     "dict_keys",
     "dictkeyiterator",
-    |_vm: &VirtualMachine, key: &PyObjectRef, _value: &PyObjectRef| key.clone()
+    |_vm: &VirtualMachine, key: PyObjectRef, _value: PyObjectRef| key
 }
 
 dict_iterator! {
@@ -617,7 +617,7 @@ dict_iterator! {
     dictvalueiterator_type,
     "dict_values",
     "dictvalueiterator",
-    |_vm: &VirtualMachine, _key: &PyObjectRef, value: &PyObjectRef| value.clone()
+    |_vm: &VirtualMachine, _key: PyObjectRef, value: PyObjectRef| value
 }
 
 dict_iterator! {
@@ -627,8 +627,8 @@ dict_iterator! {
     dictitemiterator_type,
     "dict_items",
     "dictitemiterator",
-    |vm: &VirtualMachine, key: &PyObjectRef, value: &PyObjectRef|
-        vm.ctx.new_tuple(vec![key.clone(), value.clone()])
+    |vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef|
+        vm.ctx.new_tuple(vec![key, value])
 }
 
 pub(crate) fn init(context: &PyContext) {

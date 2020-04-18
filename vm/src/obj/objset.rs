@@ -241,8 +241,7 @@ impl PySetInner {
     }
 
     fn iter(&self, vm: &VirtualMachine) -> PyListIterator {
-        let items = self.content.keys().collect();
-        let set_list = vm.ctx.new_list(items);
+        let set_list = vm.ctx.new_list(self.content.keys());
         PyListIterator {
             position: crossbeam_utils::atomic::AtomicCell::new(0),
             list: set_list.downcast().unwrap(),
@@ -337,7 +336,7 @@ impl PySetInner {
     }
 
     fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
-        pyhash::hash_iter_unordered(self.content.keys(), vm)
+        pyhash::hash_iter_unordered(self.content.keys().iter(), vm)
     }
 }
 
