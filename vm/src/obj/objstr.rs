@@ -27,7 +27,7 @@ use crate::cformat::{
     CNumberType,
 };
 use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatSpec, FormatString};
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
@@ -470,36 +470,35 @@ impl PyString {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalArg<Option<PyStringRef>>) -> String {
-        let chars = chars.flat_option();
-        let chars = match chars {
-            Some(ref chars) => &chars.value,
-            None => return self.value.trim().to_owned(),
-        };
-        self.value.trim_matches(|c| chars.contains(c)).to_owned()
-    }
-
-    #[pymethod]
-    fn lstrip(&self, chars: OptionalArg<Option<PyStringRef>>) -> String {
-        let chars = chars.flat_option();
-        let chars = match chars {
-            Some(ref chars) => &chars.value,
-            None => return self.value.trim_start().to_owned(),
-        };
+    fn strip(&self, chars: OptionalOption<PyStringRef>) -> String {
         self.value
-            .trim_start_matches(|c| chars.contains(c))
+            .py_strip(
+                chars,
+                |s, chars| s.trim_matches(|c| chars.contains(c)),
+                |s| s.trim(),
+            )
             .to_owned()
     }
 
     #[pymethod]
-    fn rstrip(&self, chars: OptionalArg<Option<PyStringRef>>) -> String {
-        let chars = chars.flat_option();
-        let chars = match chars {
-            Some(ref chars) => &chars.value,
-            None => return self.value.trim_end().to_owned(),
-        };
+    fn lstrip(&self, chars: OptionalOption<PyStringRef>) -> String {
         self.value
-            .trim_end_matches(|c| chars.contains(c))
+            .py_strip(
+                chars,
+                |s, chars| s.trim_start_matches(|c| chars.contains(c)),
+                |s| s.trim_start(),
+            )
+            .to_owned()
+    }
+
+    #[pymethod]
+    fn rstrip(&self, chars: OptionalOption<PyStringRef>) -> String {
+        self.value
+            .py_strip(
+                chars,
+                |s, chars| s.trim_end_matches(|c| chars.contains(c)),
+                |s| s.trim_end(),
+            )
             .to_owned()
     }
 

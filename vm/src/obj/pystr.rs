@@ -171,4 +171,22 @@ pub trait PyCommonString<E> {
             Ok(false)
         }
     }
+
+    fn py_strip<'a, S, FC, FD>(
+        &'a self,
+        chars: OptionalOption<S>,
+        func_chars: FC,
+        func_default: FD,
+    ) -> &'a Self
+    where
+        S: PyCommonStringWrapper<Self>,
+        FC: Fn(&'a Self, &Self) -> &'a Self,
+        FD: Fn(&'a Self) -> &'a Self,
+    {
+        let chars = chars.flat_option();
+        match chars {
+            Some(chars) => func_chars(self, chars.as_ref()),
+            None => func_default(self),
+        }
+    }
 }
