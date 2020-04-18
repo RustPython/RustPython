@@ -213,7 +213,7 @@ impl<T: Clone> Dict<T> {
         loop {
             if let LookupResult::Existing(entry_index) = self.lookup(vm, key)? {
                 let mut inner = self.borrow_value_mut();
-                if let Some(_) = &inner.entries[entry_index] {
+                if inner.entries[entry_index].is_some() {
                     inner.entries[entry_index] = None;
                     inner.size -= 1;
                     break Ok(true);
@@ -237,7 +237,7 @@ impl<T: Clone> Dict<T> {
             match self.lookup(vm, key)? {
                 LookupResult::Existing(entry_index) => {
                     let mut inner = self.borrow_value_mut();
-                    if let Some(_) = &inner.entries[entry_index] {
+                    if inner.entries[entry_index].is_some() {
                         inner.entries[entry_index] = None;
                         inner.size -= 1;
                         break Ok(());
