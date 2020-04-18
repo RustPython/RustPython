@@ -258,21 +258,6 @@ impl ByteInnerTranslateOptions {
 pub type ByteInnerSplitOptions = pystr::SplitArgs<PyByteInner, [u8], u8>;
 
 #[derive(FromArgs)]
-pub struct ByteInnerExpandtabsOptions {
-    #[pyarg(positional_or_keyword, optional = true)]
-    tabsize: OptionalArg<PyIntRef>,
-}
-
-impl ByteInnerExpandtabsOptions {
-    pub fn get_value(self) -> usize {
-        match self.tabsize.into_option() {
-            Some(int) => int.as_bigint().to_usize().unwrap_or(0),
-            None => 8,
-        }
-    }
-}
-
-#[derive(FromArgs)]
 pub struct ByteInnerSplitlinesOptions {
     #[pyarg(positional_or_keyword, optional = true)]
     keepends: OptionalArg<bool>,
@@ -1014,8 +999,8 @@ impl PyByteInner {
         Ok((front, has_mid, back))
     }
 
-    pub fn expandtabs(&self, options: ByteInnerExpandtabsOptions) -> Vec<u8> {
-        let tabsize = options.get_value();
+    pub fn expandtabs(&self, options: pystr::ExpandTabsArgs) -> Vec<u8> {
+        let tabsize = options.tabsize();
         let mut counter: usize = 0;
         let mut res = vec![];
 
@@ -1046,9 +1031,7 @@ impl PyByteInner {
         res
     }
 
-    pub fn splitlines(&self, options: ByteInnerSplitlinesOptions) -> Vec<&[u8]> {
-        let keepends = options.get_value();
-
+    pub fn splitlines(&self, options: pystr::SplitLinesArgs) -> Vec<&[u8]> {
         let mut res = vec![];
 
         if self.elements.is_empty() {
@@ -1057,7 +1040,7 @@ impl PyByteInner {
 
         let mut prev_index = 0;
         let mut index = 0;
-        let keep = if keepends { 1 } else { 0 };
+        let keep = if options.keepends { 1 } else { 0 };
         let slice = &self.elements;
 
         while index < slice.len() {

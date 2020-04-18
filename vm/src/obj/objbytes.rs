@@ -4,15 +4,15 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 use super::objbyteinner::{
-    ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-    ByteInnerSplitOptions, ByteInnerSplitlinesOptions, ByteInnerTranslateOptions, PyByteInner,
+    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
+    ByteInnerTranslateOptions, PyByteInner,
 };
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objslice::PySliceRef;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
-use super::pystr::PyCommonString;
+use super::pystr::{self, PyCommonString};
 use crate::cformat::CFormatString;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objstr::do_cformat_string;
@@ -401,12 +401,12 @@ impl PyBytes {
     }
 
     #[pymethod(name = "expandtabs")]
-    fn expandtabs(&self, options: ByteInnerExpandtabsOptions) -> PyBytes {
+    fn expandtabs(&self, options: pystr::ExpandTabsArgs) -> PyBytes {
         self.inner.expandtabs(options).into()
     }
 
     #[pymethod(name = "splitlines")]
-    fn splitlines(&self, options: ByteInnerSplitlinesOptions, vm: &VirtualMachine) -> PyResult {
+    fn splitlines(&self, options: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyResult {
         let as_bytes = self
             .inner
             .splitlines(options)

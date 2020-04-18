@@ -1,6 +1,7 @@
 use crate::function::{single_or_tuple_any, OptionalOption};
 use crate::pyobject::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
+use num_traits::cast::ToPrimitive;
 
 #[derive(FromArgs)]
 pub struct SplitArgs<T, S, E>
@@ -32,6 +33,24 @@ where
             None
         };
         Ok((sep, self.maxsplit))
+    }
+}
+
+#[derive(FromArgs)]
+pub struct SplitLinesArgs {
+    #[pyarg(positional_or_keyword, default = "false")]
+    pub keepends: bool,
+}
+
+#[derive(FromArgs)]
+pub struct ExpandTabsArgs {
+    #[pyarg(positional_or_keyword, default = "8")]
+    tabsize: isize,
+}
+
+impl ExpandTabsArgs {
+    pub fn tabsize(&self) -> usize {
+        self.tabsize.to_usize().unwrap_or(0)
     }
 }
 

@@ -168,18 +168,6 @@ struct StrArgs {
     errors: OptionalArg<PyStringRef>,
 }
 
-#[derive(FromArgs)]
-struct SplitLineArgs {
-    #[pyarg(positional_or_keyword, optional = true)]
-    keepends: OptionalArg<bool>,
-}
-
-#[derive(FromArgs)]
-struct ExpandtabsArgs {
-    #[pyarg(positional_or_keyword, optional = true)]
-    tabsize: OptionalArg<usize>,
-}
-
 #[pyimpl(flags(BASETYPE))]
 impl PyString {
     #[pyslot]
@@ -797,14 +785,13 @@ impl PyString {
     }
 
     #[pymethod]
-    fn splitlines(&self, args: SplitLineArgs, vm: &VirtualMachine) -> PyObjectRef {
-        let keepends = args.keepends.unwrap_or(false);
+    fn splitlines(&self, args: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         let mut elements = vec![];
         let mut curr = "".to_owned();
         let mut chars = self.value.chars().peekable();
         while let Some(ch) = chars.next() {
             if ch == '\n' || ch == '\r' {
-                if keepends {
+                if args.keepends {
                     curr.push(ch);
                 }
                 if ch == '\r' && chars.peek() == Some(&'\n') {
@@ -1080,8 +1067,8 @@ impl PyString {
     }
 
     #[pymethod]
-    fn expandtabs(&self, args: ExpandtabsArgs) -> String {
-        let tab_stop = args.tabsize.unwrap_or(8);
+    fn expandtabs(&self, args: pystr::ExpandTabsArgs) -> String {
+        let tab_stop = args.tabsize();
         let mut expanded_str = String::with_capacity(self.value.len());
         let mut tab_size = tab_stop;
         let mut col_count = 0 as usize;
