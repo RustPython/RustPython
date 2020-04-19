@@ -962,45 +962,35 @@ impl PyByteInner {
     }
 
     pub fn splitlines(&self, options: pystr::SplitLinesArgs) -> Vec<&[u8]> {
-        let mut res = vec![];
-
-        if self.elements.is_empty() {
-            return vec![];
-        }
-
-        let mut prev_index = 0;
-        let mut index = 0;
         let keep = if options.keepends { 1 } else { 0 };
-        let slice = &self.elements;
-
-        while index < slice.len() {
-            match slice[index] {
-                b'\n' => {
-                    res.push(&slice[prev_index..index + keep]);
-                    index += 1;
-                    prev_index = index;
-                }
+        let value = &self.elements;
+        let mut elements = Vec::new();
+        let mut last_i = 0;
+        let mut chars = value.iter().enumerate().peekable();
+        while let Some((i, ch)) = chars.next() {
+            let (end_len, i_diff) = match ch {
+                b'\n' => (keep, 1),
                 b'\r' => {
-                    if index + 2 <= slice.len() && slice[index + 1] == b'\n' {
-                        res.push(&slice[prev_index..index + keep + keep]);
-                        index += 2;
+                    let is_rn = chars.peek().map_or(false, |(_, ch)| *ch == &b'\n');
+                    if is_rn {
+                        let _ = chars.next();
+                        (keep + keep, 2)
                     } else {
-                        res.push(&slice[prev_index..index + keep]);
-                        index += 1;
+                        (keep, 1)
                     }
-                    prev_index = index;
                 }
-                _x => {
-                    if index == slice.len() - 1 {
-                        res.push(&slice[prev_index..=index]);
-                        break;
-                    }
-                    index += 1
+                _ => {
+                    continue;
                 }
-            }
+            };
+            let range = last_i..i + end_len;
+            last_i = i + i_diff;
+            elements.push(&value[range]);
         }
-
-        res
+        if last_i != value.len() {
+            elements.push(&value[last_i..]);
+        }
+        elements
     }
 
     pub fn zfill(&self, width: isize) -> Vec<u8> {

@@ -803,25 +803,33 @@ impl PyString {
 
     #[pymethod]
     fn splitlines(&self, args: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
-        let mut elements = vec![];
-        let mut curr = "".to_owned();
-        let mut chars = self.value.chars().peekable();
-        while let Some(ch) = chars.next() {
-            if ch == '\n' || ch == '\r' {
-                if args.keepends {
-                    curr.push(ch);
+        let keep = if args.keepends { 1 } else { 0 };
+        let value = &self.value;
+        let mut elements = Vec::new();
+        let mut last_i = 0;
+        let mut chars = value.chars().enumerate().peekable();
+        while let Some((i, ch)) = chars.next() {
+            let (end_len, i_diff) = match ch {
+                '\n' => (keep, 1),
+                '\r' => {
+                    let is_rn = chars.peek().map_or(false, |(_, ch)| *ch == '\n');
+                    if is_rn {
+                        let _ = chars.next();
+                        (keep + keep, 2)
+                    } else {
+                        (keep, 1)
+                    }
                 }
-                if ch == '\r' && chars.peek() == Some(&'\n') {
+                _ => {
                     continue;
                 }
-                elements.push(vm.ctx.new_str(curr.clone()));
-                curr.clear();
-            } else {
-                curr.push(ch);
-            }
+            };
+            let range = last_i..i + end_len;
+            last_i = i + i_diff;
+            elements.push(vm.ctx.new_str(&value[range]));
         }
-        if !curr.is_empty() {
-            elements.push(vm.ctx.new_str(curr));
+        if last_i != value.len() {
+            elements.push(vm.ctx.new_str(&value[last_i..]));
         }
         vm.ctx.new_list(elements)
     }
