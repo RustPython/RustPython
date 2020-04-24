@@ -426,9 +426,10 @@ impl PyBytes {
         &self,
         old: PyByteInner,
         new: PyByteInner,
-        count: OptionalArg<PyIntRef>,
+        count: OptionalArg<isize>,
+        vm: &VirtualMachine,
     ) -> PyResult<PyBytes> {
-        Ok(self.inner.replace(old, new, count)?.into())
+        Ok(self.inner.replace(old, new, count, vm)?.into())
     }
 
     #[pymethod(name = "title")]

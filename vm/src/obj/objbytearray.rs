@@ -465,9 +465,10 @@ impl PyByteArray {
         &self,
         old: PyByteInner,
         new: PyByteInner,
-        count: OptionalArg<PyIntRef>,
+        count: OptionalArg<isize>,
+        vm: &VirtualMachine,
     ) -> PyResult<PyByteArray> {
-        Ok(self.borrow_value().replace(old, new, count)?.into())
+        Ok(self.borrow_value().replace(old, new, count, vm)?.into())
     }
 
     #[pymethod(name = "clear")]
