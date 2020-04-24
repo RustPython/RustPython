@@ -1,7 +1,9 @@
 use super::objbool;
 use super::objiter;
 use super::objtype::PyClassRef;
-use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+};
 use crate::vm::VirtualMachine;
 
 pub type PyFilterRef = PyRef<PyFilter>;
@@ -16,6 +18,7 @@ pub struct PyFilter {
     predicate: PyObjectRef,
     iterator: PyObjectRef,
 }
+impl ThreadSafe for PyFilter {}
 
 impl PyValue for PyFilter {
     fn class(vm: &VirtualMachine) -> PyClassRef {
