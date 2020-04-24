@@ -1,4 +1,3 @@
-use hexf_parse;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
 use num_traits::{float::Float, pow, sign::Signed, ToPrimitive, Zero};

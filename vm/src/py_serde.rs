@@ -1,6 +1,5 @@
-use std::fmt;
-
-use serde;
+use num_traits::cast::ToPrimitive;
+use num_traits::sign::Signed;
 use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
@@ -10,8 +9,6 @@ use crate::obj::{
 };
 use crate::pyobject::{IdProtocol, ItemProtocol, PyObjectRef, TypeProtocol};
 use crate::VirtualMachine;
-use num_traits::cast::ToPrimitive;
-use num_traits::sign::Signed;
 
 #[inline]
 pub fn serialize<S>(
@@ -137,7 +134,7 @@ impl<'de> DeserializeSeed<'de> for PyObjectDeserializer<'de> {
 impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     type Value = PyObjectRef;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         formatter.write_str("a type that can deserialise in Python")
     }
 

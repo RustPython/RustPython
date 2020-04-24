@@ -1,5 +1,4 @@
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
-use serde_wasm_bindgen;
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use rustpython_compiler::error::{CompileError, CompileErrorType};

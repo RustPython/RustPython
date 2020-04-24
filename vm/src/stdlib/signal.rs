@@ -8,7 +8,6 @@ use arr_macro::arr;
 #[cfg(unix)]
 use nix::unistd::alarm as sig_alarm;
 
-use libc;
 #[cfg(not(windows))]
 use libc::{SIG_DFL, SIG_ERR, SIG_IGN};
 

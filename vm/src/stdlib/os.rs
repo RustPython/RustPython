@@ -1,4 +1,3 @@
-use num_cpus;
 use std::cell::{Cell, RefCell};
 use std::ffi;
 use std::fs::File;
@@ -13,8 +12,6 @@ use std::{env, fs};
 
 use bitflags::bitflags;
 #[cfg(unix)]
-use exitcode;
-#[cfg(unix)]
 use nix::errno::Errno;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::pty::openpty;
@@ -24,8 +21,6 @@ use nix::unistd::{self, Gid, Pid, Uid};
 use std::os::unix::io::RawFd;
 #[cfg(windows)]
 use std::os::windows::io::RawHandle;
-#[cfg(unix)]
-use uname;
 
 use super::errno::errors;
 use crate::exceptions::PyBaseExceptionRef;
