@@ -460,9 +460,12 @@ impl PyByteInner {
             }),
         };
         let items = sec?;
-        let range = self
+        let mut range = self
             .elements
             .get_slice_range(&slice.start_index(vm)?, &slice.stop_index(vm)?);
+        if range.end < range.start {
+            range.end = range.start;
+        }
         self.elements.splice(range, items);
         Ok(vm
             .ctx
