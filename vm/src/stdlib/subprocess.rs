@@ -4,8 +4,6 @@ use std::fs::File;
 use std::io::ErrorKind;
 use std::time::Duration;
 
-use subprocess;
-
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objlist::PyListRef;
