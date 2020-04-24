@@ -21,7 +21,7 @@ use super::objsequence::PySliceableSequence;
 use super::objslice::PySliceRef;
 use super::objtuple;
 use super::objtype::{self, PyClassRef};
-use super::pystr::{adjust_indices, PyCommonString, StringRange};
+use super::pystr::{self, adjust_indices, PyCommonString, PyCommonStringWrapper, StringRange};
 use crate::cformat::{
     CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
     CNumberType,
@@ -166,18 +166,6 @@ struct StrArgs {
     encoding: OptionalArg<PyStringRef>,
     #[pyarg(positional_or_keyword, optional = true)]
     errors: OptionalArg<PyStringRef>,
-}
-
-#[derive(FromArgs)]
-struct SplitLineArgs {
-    #[pyarg(positional_or_keyword, optional = true)]
-    keepends: OptionalArg<bool>,
-}
-
-#[derive(FromArgs)]
-struct ExpandtabsArgs {
-    #[pyarg(positional_or_keyword, optional = true)]
-    tabsize: OptionalArg<usize>,
 }
 
 #[pyimpl(flags(BASETYPE))]
@@ -457,26 +445,24 @@ impl PyString {
     #[pymethod]
     fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
         let elements = self.value.py_split(
-            args.non_empty_sep(vm)?,
-            args.maxsplit,
+            args,
             vm,
             |v, s, vm| v.split(s).map(|s| vm.ctx.new_str(s)).collect(),
             |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_str(s)).collect(),
             |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_str(s)),
-        );
+        )?;
         Ok(vm.ctx.new_list(elements))
     }
 
     #[pymethod]
     fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
         let mut elements = self.value.py_split(
-            args.non_empty_sep(vm)?,
-            args.maxsplit,
+            args,
             vm,
             |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_str(s)).collect(),
             |v, s, n, vm| v.rsplitn(n, s).map(|s| vm.ctx.new_str(s)).collect(),
             |v, n, vm| v.py_rsplit_whitespace(n, |s| vm.ctx.new_str(s)),
-        );
+        )?;
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.
         elements.reverse();
@@ -799,14 +785,13 @@ impl PyString {
     }
 
     #[pymethod]
-    fn splitlines(&self, args: SplitLineArgs, vm: &VirtualMachine) -> PyObjectRef {
-        let keepends = args.keepends.unwrap_or(false);
+    fn splitlines(&self, args: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         let mut elements = vec![];
         let mut curr = "".to_owned();
         let mut chars = self.value.chars().peekable();
         while let Some(ch) = chars.next() {
             if ch == '\n' || ch == '\r' {
-                if keepends {
+                if args.keepends {
                     curr.push(ch);
                 }
                 if ch == '\r' && chars.peek() == Some(&'\n') {
@@ -1082,8 +1067,8 @@ impl PyString {
     }
 
     #[pymethod]
-    fn expandtabs(&self, args: ExpandtabsArgs) -> String {
-        let tab_stop = args.tabsize.unwrap_or(8);
+    fn expandtabs(&self, args: pystr::ExpandTabsArgs) -> String {
+        let tab_stop = args.tabsize();
         let mut expanded_str = String::with_capacity(self.value.len());
         let mut tab_size = tab_stop;
         let mut col_count = 0 as usize;
@@ -1298,28 +1283,7 @@ impl TryFromObject for std::ffi::CString {
     }
 }
 
-#[derive(FromArgs)]
-struct SplitArgs {
-    #[pyarg(positional_or_keyword, default = "None")]
-    sep: Option<PyStringRef>,
-    #[pyarg(positional_or_keyword, default = "-1")]
-    maxsplit: isize,
-}
-
-impl SplitArgs {
-    fn non_empty_sep<'a>(&'a self, vm: &VirtualMachine) -> PyResult<Option<&'a str>> {
-        let sep = if let Some(s) = self.sep.as_ref() {
-            let sep = s.as_str();
-            if sep.is_empty() {
-                return Err(vm.new_value_error("empty separator".to_owned()));
-            }
-            Some(sep)
-        } else {
-            None
-        };
-        Ok(sep)
-    }
-}
+type SplitArgs = pystr::SplitArgs<PyStringRef, str, char>;
 
 pub fn init(ctx: &PyContext) {
     PyString::extend_class(ctx, &ctx.types.str_type);
@@ -1799,9 +1763,19 @@ mod tests {
     }
 }
 
-impl PyCommonString<'_, char> for str {
+impl PyCommonStringWrapper<str> for PyStringRef {
+    fn as_ref(&self) -> &str {
+        self.value.as_str()
+    }
+}
+
+impl PyCommonString<char> for str {
     fn get_slice(&self, range: std::ops::Range<usize>) -> &Self {
         &self[range]
+    }
+
+    fn is_empty(&self) -> bool {
+        Self::is_empty(self)
     }
 
     fn len(&self) -> usize {

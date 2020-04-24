@@ -14,7 +14,7 @@ use super::objnone::PyNoneRef;
 use super::objsequence::PySliceableSequence;
 use super::objslice::PySliceRef;
 use super::objstr::{self, PyString, PyStringRef};
-use super::pystr::{self, PyCommonString, StringRange};
+use super::pystr::{self, PyCommonString, PyCommonStringWrapper, StringRange};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
@@ -255,43 +255,7 @@ impl ByteInnerTranslateOptions {
     }
 }
 
-#[derive(FromArgs)]
-pub struct ByteInnerSplitOptions {
-    #[pyarg(positional_or_keyword, default = "None")]
-    sep: Option<PyByteInner>,
-    #[pyarg(positional_or_keyword, default = "-1")]
-    maxsplit: isize,
-}
-
-impl ByteInnerSplitOptions {
-    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Option<Vec<u8>>, isize)> {
-        let sep = if let Some(s) = self.sep {
-            let sep = s.elements;
-            if sep.is_empty() {
-                return Err(vm.new_value_error("empty separator".to_owned()));
-            }
-            Some(sep)
-        } else {
-            None
-        };
-        Ok((sep, self.maxsplit))
-    }
-}
-
-#[derive(FromArgs)]
-pub struct ByteInnerExpandtabsOptions {
-    #[pyarg(positional_or_keyword, optional = true)]
-    tabsize: OptionalArg<PyIntRef>,
-}
-
-impl ByteInnerExpandtabsOptions {
-    pub fn get_value(self) -> usize {
-        match self.tabsize.into_option() {
-            Some(int) => int.as_bigint().to_usize().unwrap_or(0),
-            None => 8,
-        }
-    }
-}
+pub type ByteInnerSplitOptions = pystr::SplitArgs<PyByteInner, [u8], u8>;
 
 #[derive(FromArgs)]
 pub struct ByteInnerSplitlinesOptions {
@@ -970,19 +934,13 @@ impl PyByteInner {
     where
         F: Fn(&[u8], &VirtualMachine) -> PyObjectRef,
     {
-        let (sep, maxsplit) = options.get_value(vm)?;
-        let sep_ref = match sep {
-            Some(ref v) => Some(&v[..]),
-            None => None,
-        };
         let elements = self.elements.py_split(
-            sep_ref,
-            maxsplit,
+            options,
             vm,
             |v, s, vm| v.split_str(s).map(|v| convert(v, vm)).collect(),
             |v, s, n, vm| v.splitn_str(n, s).map(|v| convert(v, vm)).collect(),
             |v, n, vm| v.py_split_whitespace(n, |v| convert(v, vm)),
-        );
+        )?;
         Ok(vm.ctx.new_list(elements))
     }
 
@@ -995,19 +953,13 @@ impl PyByteInner {
     where
         F: Fn(&[u8], &VirtualMachine) -> PyObjectRef,
     {
-        let (sep, maxsplit) = options.get_value(vm)?;
-        let sep_ref = match sep {
-            Some(ref v) => Some(&v[..]),
-            None => None,
-        };
         let mut elements = self.elements.py_split(
-            sep_ref,
-            maxsplit,
+            options,
             vm,
             |v, s, vm| v.rsplit_str(s).map(|v| convert(v, vm)).collect(),
             |v, s, n, vm| v.rsplitn_str(n, s).map(|v| convert(v, vm)).collect(),
             |v, n, vm| v.py_rsplit_whitespace(n, |v| convert(v, vm)),
-        );
+        )?;
         elements.reverse();
         Ok(vm.ctx.new_list(elements))
     }
@@ -1050,8 +1002,8 @@ impl PyByteInner {
         Ok((front, has_mid, back))
     }
 
-    pub fn expandtabs(&self, options: ByteInnerExpandtabsOptions) -> Vec<u8> {
-        let tabsize = options.get_value();
+    pub fn expandtabs(&self, options: pystr::ExpandTabsArgs) -> Vec<u8> {
+        let tabsize = options.tabsize();
         let mut counter: usize = 0;
         let mut res = vec![];
 
@@ -1082,9 +1034,7 @@ impl PyByteInner {
         res
     }
 
-    pub fn splitlines(&self, options: ByteInnerSplitlinesOptions) -> Vec<&[u8]> {
-        let keepends = options.get_value();
-
+    pub fn splitlines(&self, options: pystr::SplitLinesArgs) -> Vec<&[u8]> {
         let mut res = vec![];
 
         if self.elements.is_empty() {
@@ -1093,7 +1043,7 @@ impl PyByteInner {
 
         let mut prev_index = 0;
         let mut index = 0;
-        let keep = if keepends { 1 } else { 0 };
+        let keep = if options.keepends { 1 } else { 0 };
         let slice = &self.elements;
 
         while index < slice.len() {
@@ -1435,11 +1385,21 @@ pub fn bytes_zfill(bytes: &[u8], width: usize) -> Vec<u8> {
     }
 }
 
+impl PyCommonStringWrapper<[u8]> for PyByteInner {
+    fn as_ref(&self) -> &[u8] {
+        &self.elements
+    }
+}
+
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
-impl PyCommonString<'_, u8> for [u8] {
+impl PyCommonString<u8> for [u8] {
     fn get_slice(&self, range: std::ops::Range<usize>) -> &Self {
         &self[range]
+    }
+
+    fn is_empty(&self) -> bool {
+        Self::is_empty(self)
     }
 
     fn len(&self) -> usize {

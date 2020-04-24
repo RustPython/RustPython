@@ -4,16 +4,15 @@ use std::convert::TryFrom;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::objbyteinner::{
-    ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-    ByteInnerSplitOptions, ByteInnerSplitlinesOptions, ByteInnerTranslateOptions, ByteOr,
-    PyByteInner,
+    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
+    ByteInnerTranslateOptions, ByteOr, PyByteInner,
 };
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objslice::PySliceRef;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
-use super::pystr::PyCommonString;
+use super::pystr::{self, PyCommonString};
 use crate::cformat::CFormatString;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objstr::do_cformat_string;
@@ -440,12 +439,12 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "expandtabs")]
-    fn expandtabs(&self, options: ByteInnerExpandtabsOptions) -> PyByteArray {
+    fn expandtabs(&self, options: pystr::ExpandTabsArgs) -> PyByteArray {
         self.borrow_value().expandtabs(options).into()
     }
 
     #[pymethod(name = "splitlines")]
-    fn splitlines(&self, options: ByteInnerSplitlinesOptions, vm: &VirtualMachine) -> PyResult {
+    fn splitlines(&self, options: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyResult {
         let as_bytes = self
             .borrow_value()
             .splitlines(options)

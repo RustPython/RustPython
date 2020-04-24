@@ -16,14 +16,11 @@ enum ParameterKind {
 
 impl ParameterKind {
     fn from_ident(ident: &Ident) -> Option<ParameterKind> {
-        if ident == "positional_only" {
-            Some(ParameterKind::PositionalOnly)
-        } else if ident == "positional_or_keyword" {
-            Some(ParameterKind::PositionalOrKeyword)
-        } else if ident == "keyword_only" {
-            Some(ParameterKind::KeywordOnly)
-        } else {
-            None
+        match ident.to_string().as_str() {
+            "positional_only" => Some(ParameterKind::PositionalOnly),
+            "positional_or_keyword" => Some(ParameterKind::PositionalOrKeyword),
+            "keyword_only" => Some(ParameterKind::KeywordOnly),
+            _ => None,
         }
     }
 }
@@ -150,6 +147,13 @@ fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
     };
 
     let name = &field.ident;
+    if let Some(name) = name {
+        if name.to_string().starts_with("_phantom") {
+            return Ok(quote! {
+                #name: std::marker::PhantomData,
+            });
+        }
+    }
     let middle = quote! {
         .map(|x| ::rustpython_vm::pyobject::TryFromObject::try_from_object(vm, x)).transpose()?
     };
@@ -210,8 +214,9 @@ pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream2, Diagnostic> {
     };
 
     let name = input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let output = quote! {
-        impl ::rustpython_vm::function::FromArgs for #name {
+        impl #impl_generics ::rustpython_vm::function::FromArgs for #name #ty_generics #where_clause {
             fn from_args(
                 vm: &::rustpython_vm::VirtualMachine,
                 args: &mut ::rustpython_vm::function::PyFuncArgs
