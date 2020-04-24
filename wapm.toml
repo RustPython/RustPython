@@ -1,6 +1,6 @@
 [package]
 name = "rustpython"
-version = "0.1.1"
+version = "0.1.2"
 description = "A Python-3 (CPython >= 3.5.0) Interpreter written in Rust 🐍 😱 🤘"
 license-file = "LICENSE"
 readme = "README.md"
@@ -10,7 +10,7 @@ repository = "https://github.com/RustPython/RustPython"
 name = "rustpython"
 source = "target/wasm32-wasi/release/rustpython.wasm"
 abi = "wasi"
-interfaces = { wasi = "0.0.0-unstable" }
+# interfaces = { wasi = "0.0.1-snapshot" }
 
 [[command]]
 name = "rustpython"
