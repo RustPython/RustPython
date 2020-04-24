@@ -86,7 +86,7 @@ macro_rules! impl_into_pyobject_int {
     )*};
 }
 
-impl_into_pyobject_int!(isize i8 i16 i32 i64 usize u8 u16 u32 u64) ;
+impl_into_pyobject_int!(isize i8 i16 i32 i64 usize u8 u16 u32 u64);
 
 macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
