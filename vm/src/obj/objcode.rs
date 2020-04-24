@@ -7,7 +7,9 @@ use std::ops::Deref;
 
 use super::objtype::PyClassRef;
 use crate::bytecode;
-use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+};
 use crate::vm::VirtualMachine;
 
 pub type PyCodeRef = PyRef<PyCode>;
@@ -16,6 +18,8 @@ pub type PyCodeRef = PyRef<PyCode>;
 pub struct PyCode {
     pub code: bytecode::CodeObject,
 }
+
+impl ThreadSafe for PyCode {}
 
 impl Deref for PyCode {
     type Target = bytecode::CodeObject;
