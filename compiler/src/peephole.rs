@@ -92,7 +92,7 @@ impl<O: OutputStream> PeepholeOptimizer<O> {
     }
 
     fn optimize(&mut self) {
-        apply_optimizations!(self, operator, unpack);
+        apply_optimizations!(self, operator /* , unpack */);
     }
 }
 
