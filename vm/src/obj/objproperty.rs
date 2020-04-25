@@ -1,12 +1,13 @@
 /*! Python `property` descriptor class.
 
 */
-use std::cell::RefCell;
+use std::sync::RwLock;
 
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+    TypeProtocol,
 };
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
@@ -49,8 +50,9 @@ pub struct PyProperty {
     getter: Option<PyObjectRef>,
     setter: Option<PyObjectRef>,
     deleter: Option<PyObjectRef>,
-    doc: RefCell<Option<PyObjectRef>>,
+    doc: RwLock<Option<PyObjectRef>>,
 }
+impl ThreadSafe for PyProperty {}
 
 impl PyValue for PyProperty {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -101,7 +103,7 @@ impl PyProperty {
             getter: args.fget,
             setter: args.fset,
             deleter: args.fdel,
-            doc: RefCell::new(args.doc),
+            doc: RwLock::new(args.doc),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -144,11 +146,11 @@ impl PyProperty {
     }
 
     fn doc_getter(&self) -> Option<PyObjectRef> {
-        self.doc.borrow().clone()
+        self.doc.read().unwrap().clone()
     }
 
     fn doc_setter(&self, value: PyObjectRef, vm: &VirtualMachine) {
-        self.doc.replace(py_none_to_option(vm, &value));
+        *self.doc.write().unwrap() = py_none_to_option(vm, &value);
     }
 
     // Python builder functions
@@ -163,7 +165,7 @@ impl PyProperty {
             getter: getter.or_else(|| zelf.getter.clone()),
             setter: zelf.setter.clone(),
             deleter: zelf.deleter.clone(),
-            doc: RefCell::new(None),
+            doc: RwLock::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }
@@ -178,7 +180,7 @@ impl PyProperty {
             getter: zelf.getter.clone(),
             setter: setter.or_else(|| zelf.setter.clone()),
             deleter: zelf.deleter.clone(),
-            doc: RefCell::new(None),
+            doc: RwLock::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }
@@ -193,7 +195,7 @@ impl PyProperty {
             getter: zelf.getter.clone(),
             setter: zelf.setter.clone(),
             deleter: deleter.or_else(|| zelf.deleter.clone()),
-            doc: RefCell::new(None),
+            doc: RwLock::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }

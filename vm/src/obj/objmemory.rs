@@ -1,7 +1,7 @@
 use super::objbyteinner::try_as_byte;
 use super::objtype::{issubclass, PyClassRef};
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TypeProtocol,
 };
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
@@ -11,6 +11,7 @@ use crate::vm::VirtualMachine;
 pub struct PyMemoryView {
     obj_ref: PyObjectRef,
 }
+impl ThreadSafe for PyMemoryView {}
 
 pub type PyMemoryViewRef = PyRef<PyMemoryView>;
 

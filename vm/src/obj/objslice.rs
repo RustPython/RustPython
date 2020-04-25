@@ -2,7 +2,8 @@ use super::objint::PyInt;
 use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+    TryIntoRef,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
@@ -15,6 +16,7 @@ pub struct PySlice {
     pub stop: PyObjectRef,
     pub step: Option<PyObjectRef>,
 }
+impl ThreadSafe for PySlice {}
 
 impl PyValue for PySlice {
     fn class(vm: &VirtualMachine) -> PyClassRef {
