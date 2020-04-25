@@ -427,7 +427,7 @@ impl ExceptionZoo {
     pub fn new(type_type: &PyClassRef, object_type: &PyClassRef) -> Self {
         let create_exception_type = |name: &str, base: &PyClassRef| {
             let typ = create_type(name, type_type, base);
-            typ.slots.borrow_mut().flags |= PyTpFlags::BASETYPE;
+            typ.slots.write().unwrap().flags |= PyTpFlags::BASETYPE;
             typ
         };
         // Sorted By Hierarchy then alphabetized.

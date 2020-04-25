@@ -256,7 +256,7 @@ impl ExecutingFrame<'_> {
                     let new_traceback =
                         PyTraceback::new(next, self.object.clone(), self.lasti(), loc.row());
                     exception.set_traceback(Some(new_traceback.into_ref(vm)));
-                    vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, lineno);
+                    vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row);
 
                     match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
                         Ok(None) => {}

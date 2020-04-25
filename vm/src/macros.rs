@@ -140,7 +140,7 @@ macro_rules! py_class {
         {
             let py_class = $ctx.new_class($class_name, $class_base);
             // FIXME: setting flag here probably wrong
-            py_class.slots.borrow_mut().flags |= $crate::slots::PyTpFlags::BASETYPE;
+            py_class.slots.write().unwrap().flags |= $crate::slots::PyTpFlags::BASETYPE;
             $crate::extend_class!($ctx, &py_class, { $($name => $value),* });
             py_class
         }
@@ -157,7 +157,7 @@ macro_rules! extend_class {
     };
 
     (@set_attr($ctx:expr, $class:expr, (slot $slot_name:ident), $value:expr)) => {
-        $class.slots.borrow_mut().$slot_name = Some(
+        $class.slots.write().unwrap().$slot_name = Some(
             $crate::function::IntoPyNativeFunc::into_func($value)
         );
     };

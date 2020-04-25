@@ -604,7 +604,7 @@ impl PyContext {
     }
 
     pub fn add_tp_new_wrapper(&self, ty: &PyClassRef) {
-        if !ty.attributes.borrow().contains_key("__new__") {
+        if !ty.attributes.read().unwrap().contains_key("__new__") {
             let new_wrapper =
                 self.new_bound_method(self.tp_new_wrapper.clone(), ty.clone().into_object());
             ty.set_str_attr("__new__", new_wrapper);
@@ -1309,7 +1309,7 @@ pub trait PyClassImpl: PyClassDef {
 
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
         Self::impl_extend_class(ctx, class);
-        class.slots.borrow_mut().flags = Self::TP_FLAGS;
+        class.slots.write().unwrap().flags = Self::TP_FLAGS;
         ctx.add_tp_new_wrapper(&class);
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc));

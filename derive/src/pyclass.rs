@@ -275,7 +275,7 @@ fn extract_impl_items(mut items: Vec<ItemIdent>) -> Result<TokenStream2, Diagnos
                 #transform(Self::#item_ident)
             };
             Some(quote! {
-                (*class.slots.borrow_mut()).#slot_ident = Some(#into_func);
+                (*class.slots.write().unwrap()).#slot_ident = Some(#into_func);
             })
         }
         _ => None,
