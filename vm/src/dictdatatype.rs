@@ -490,7 +490,7 @@ mod tests {
     #[test]
     fn test_insert() {
         let vm: VirtualMachine = Default::default();
-        let mut dict = Dict::default();
+        let dict = Dict::default();
         assert_eq!(0, dict.len());
 
         let key1 = vm.new_bool(true);
