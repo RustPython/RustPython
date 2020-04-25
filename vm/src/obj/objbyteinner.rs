@@ -893,36 +893,33 @@ impl PyByteInner {
     }
 
     pub fn strip(&self, chars: OptionalOption<PyByteInner>) -> Vec<u8> {
-        let chars = chars.flat_option();
-        let chars = match chars {
-            Some(ref chars) => &chars.elements,
-            None => return self.elements.trim().to_owned(),
-        };
         self.elements
-            .trim_with(|c| chars.contains(&(c as u8)))
-            .to_owned()
+            .py_strip(
+                chars,
+                |s, chars| s.trim_with(|c| chars.contains(&(c as u8))),
+                |s| s.trim(),
+            )
+            .to_vec()
     }
 
     pub fn lstrip(&self, chars: OptionalOption<PyByteInner>) -> Vec<u8> {
-        let chars = chars.flat_option();
-        let chars = match chars {
-            Some(ref chars) => &chars.elements,
-            None => return self.elements.trim_start().to_owned(),
-        };
         self.elements
-            .trim_start_with(|c| chars.contains(&(c as u8)))
-            .to_owned()
+            .py_strip(
+                chars,
+                |s, chars| s.trim_start_with(|c| chars.contains(&(c as u8))),
+                |s| s.trim_start(),
+            )
+            .to_vec()
     }
 
     pub fn rstrip(&self, chars: OptionalOption<PyByteInner>) -> Vec<u8> {
-        let chars = chars.flat_option();
-        let chars = match chars {
-            Some(ref chars) => &chars.elements,
-            None => return self.elements.trim_end().to_owned(),
-        };
         self.elements
-            .trim_end_with(|c| chars.contains(&(c as u8)))
-            .to_owned()
+            .py_strip(
+                chars,
+                |s, chars| s.trim_end_with(|c| chars.contains(&(c as u8))),
+                |s| s.trim_end(),
+            )
+            .to_vec()
     }
 
     pub fn split<F>(
