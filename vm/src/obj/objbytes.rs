@@ -273,17 +273,9 @@ impl PyBytes {
     }
 
     #[pymethod(name = "endswith")]
-    fn endswith(
-        &self,
-        suffix: PyObjectRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    fn endswith(&self, options: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.elements[..].py_startsendswith(
-            suffix,
-            start,
-            end,
+            options,
             "endswith",
             "bytes",
             |s, x: &PyByteInner| s.ends_with(&x.elements[..]),
@@ -294,15 +286,11 @@ impl PyBytes {
     #[pymethod(name = "startswith")]
     fn startswith(
         &self,
-        prefix: PyObjectRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
+        options: pystr::StartsEndsWithArgs,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         self.inner.elements[..].py_startsendswith(
-            prefix,
-            start,
-            end,
+            options,
             "startswith",
             "bytes",
             |s, x: &PyByteInner| s.starts_with(&x.elements[..]),
