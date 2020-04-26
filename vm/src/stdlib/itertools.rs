@@ -139,7 +139,7 @@ impl PyItertoolsCompress {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "count")]
 #[derive(Debug)]
 struct PyItertoolsCount {
     cur: RefCell<BigInt>,
@@ -190,7 +190,7 @@ impl PyItertoolsCount {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "cycle")]
 #[derive(Debug)]
 struct PyItertoolsCycle {
     iter: RefCell<PyObjectRef>,
@@ -257,7 +257,7 @@ impl PyItertoolsCycle {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "repeat")]
 #[derive(Debug)]
 struct PyItertoolsRepeat {
     object: PyObjectRef,
@@ -358,7 +358,7 @@ impl PyItertoolsStarmap {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "takewhile")]
 #[derive(Debug)]
 struct PyItertoolsTakewhile {
     predicate: PyObjectRef,
@@ -417,7 +417,7 @@ impl PyItertoolsTakewhile {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "dropwhile")]
 #[derive(Debug)]
 struct PyItertoolsDropwhile {
     predicate: PyCallable,
@@ -601,7 +601,7 @@ impl PyItertoolsIslice {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "filterfalse")]
 #[derive(Debug)]
 struct PyItertoolsFilterFalse {
     predicate: PyObjectRef,
@@ -657,7 +657,7 @@ impl PyItertoolsFilterFalse {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "accumulate")]
 #[derive(Debug)]
 struct PyItertoolsAccumulate {
     iterable: PyObjectRef,
@@ -739,7 +739,7 @@ impl PyItertoolsTeeData {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "tee")]
 #[derive(Debug)]
 struct PyItertoolsTee {
     tee_data: Rc<PyItertoolsTeeData>,
@@ -817,7 +817,7 @@ impl PyItertoolsTee {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "product")]
 #[derive(Debug)]
 struct PyItertoolsProduct {
     pools: Vec<Vec<PyObjectRef>>,
@@ -934,7 +934,7 @@ impl PyItertoolsProduct {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "combinations")]
 #[derive(Debug)]
 struct PyItertoolsCombinations {
     pool: Vec<PyObjectRef>,
@@ -1033,7 +1033,7 @@ impl PyItertoolsCombinations {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "combinations_with_replacement")]
 #[derive(Debug)]
 struct PyItertoolsCombinationsWithReplacement {
     pool: Vec<PyObjectRef>,
@@ -1127,7 +1127,7 @@ impl PyItertoolsCombinationsWithReplacement {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "permutations")]
 #[derive(Debug)]
 struct PyItertoolsPermutations {
     pool: Vec<PyObjectRef>,              // Collected input iterable
@@ -1257,15 +1257,15 @@ impl PyItertoolsPermutations {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "zip_longest")]
 #[derive(Debug)]
-struct PyItertoolsZiplongest {
+struct PyItertoolsZipLongest {
     iterators: Vec<PyObjectRef>,
     fillvalue: PyObjectRef,
     numactive: Cell<usize>,
 }
 
-impl PyValue for PyItertoolsZiplongest {
+impl PyValue for PyItertoolsZipLongest {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("itertools", "zip_longest")
     }
@@ -1278,7 +1278,7 @@ struct ZiplongestArgs {
 }
 
 #[pyimpl]
-impl PyItertoolsZiplongest {
+impl PyItertoolsZipLongest {
     #[pyslot]
     fn tp_new(
         cls: PyClassRef,
@@ -1298,7 +1298,7 @@ impl PyItertoolsZiplongest {
 
         let numactive = Cell::new(iterators.len());
 
-        PyItertoolsZiplongest {
+        PyItertoolsZipLongest {
             iterators,
             fillvalue,
             numactive,
@@ -1389,7 +1389,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     PyItertoolsTee::extend_class(ctx, &tee);
 
     let zip_longest = ctx.new_class("zip_longest", ctx.object());
-    PyItertoolsZiplongest::extend_class(ctx, &zip_longest);
+    PyItertoolsZipLongest::extend_class(ctx, &zip_longest);
 
     py_module!(vm, "itertools", {
         "accumulate" => accumulate,
