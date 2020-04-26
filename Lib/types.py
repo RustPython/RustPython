@@ -24,11 +24,10 @@ _c = _c()
 CoroutineType = type(_c)
 _c.close()  # Prevent ResourceWarning
 
-# XXX RUSTPYTHON TODO: async generators
-# async def _ag():
-#     yield
-# _ag = _ag()
-# AsyncGeneratorType = type(_ag)
+async def _ag():
+    yield
+_ag = _ag()
+AsyncGeneratorType = type(_ag)
 
 class _C:
     def _m(self): pass

@@ -767,6 +767,8 @@ impl PyItertoolsTee {
         .into_object())
     }
 
+    // TODO: make tee() a function, rename this class to itertools._tee and make
+    // teedata a python class
     #[pyslot]
     #[allow(clippy::new_ret_no_self)]
     fn tp_new(
