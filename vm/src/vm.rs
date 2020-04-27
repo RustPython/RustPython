@@ -583,6 +583,13 @@ impl VirtualMachine {
     pub fn is_none(&self, obj: &PyObjectRef) -> bool {
         obj.is(&self.get_none())
     }
+    pub fn option_if_none(&self, obj: PyObjectRef) -> Option<PyObjectRef> {
+        if self.is_none(&obj) {
+            None
+        } else {
+            Some(obj)
+        }
+    }
 
     pub fn get_type(&self) -> PyClassRef {
         self.ctx.type_type()
