@@ -479,8 +479,6 @@ class IntTestCases(unittest.TestCase):
         self.assertEqual(n, 1)
         self.assertIs(type(n), IntSubclass)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_error_message(self):
         def check(s, base=None):
             with self.assertRaises(ValueError,
