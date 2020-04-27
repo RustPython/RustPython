@@ -28,6 +28,7 @@ To test RustPython, do the following:
 
     $ git clone https://github.com/RustPython/RustPython
     $ cd RustPython
+    $ export RUSTPYTHONPATH=Lib
     $ cargo run demo.py
     Hello, RustPython!
 

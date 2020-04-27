@@ -1,5 +1,12 @@
 
 
+def dir_of_mod_or_default(module, default=None):
+    try:
+        mod=set(dir(__import__(module)))
+        return mod
+    except:
+        return default
+
 rustpymods = list(
     map(
         lambda mod: mod[0],
@@ -11,22 +18,28 @@ rustpymods = list(
 )
 rustpymods += list(sys.builtin_module_names)
 
+
+not_imported=set('not imported')
 rustpymods = dict(map(
     lambda mod: (
         mod,
-        set(dir(__import__(mod)))
-        if mod not in ("this", "antigravity")
-        else None,
+        dir_of_mod_or_default(mod, not_imported)
+        if mod not in ("this", "antigravity") else None
     ),
     rustpymods
 ))
+
 
 for modname, cpymod in cpymods.items():
     if modname in rustpymods:
         rustpymod = rustpymods[modname]
         if rustpymod:
+            if rustpymod==not_imported:
+                print(f"{modname} (existing but not importable)")
+                continue
             for item in cpymod - rustpymod:
                 print(f"{modname}.{item}")
     else:
         print(f"{modname} (entire module)")
+
 
