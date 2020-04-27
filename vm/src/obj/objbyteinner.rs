@@ -1092,7 +1092,9 @@ impl PyByteInner {
         {
             return Err(vm.new_overflow_error("replace bytes is too long".to_owned()));
         }
-        let result_len = self.elements.len() + count * (to.len() - from.len());
+        let result_len = (self.elements.len() as isize
+            + count as isize * (to.len() as isize - from.len() as isize))
+            as usize;
 
         let mut result = Vec::with_capacity(result_len);
         let mut last_end = 0;
