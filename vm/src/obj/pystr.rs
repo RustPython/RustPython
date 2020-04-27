@@ -54,6 +54,23 @@ impl ExpandTabsArgs {
     }
 }
 
+#[derive(FromArgs)]
+pub struct StartsEndsWithArgs {
+    #[pyarg(positional_only, optional = false)]
+    affix: PyObjectRef,
+    #[pyarg(positional_only, optional = true)]
+    start: OptionalOption<isize>,
+    #[pyarg(positional_only, optional = true)]
+    end: OptionalOption<isize>,
+}
+
+impl StartsEndsWithArgs {
+    fn get_value(self, len: usize) -> (PyObjectRef, std::ops::Range<usize>) {
+        let range = adjust_indices(self.start, self.end, len);
+        (self.affix, range)
+    }
+}
+
 // help get optional string indices
 pub fn adjust_indices(
     start: OptionalOption<isize>,
@@ -134,13 +151,10 @@ pub trait PyCommonString<E> {
     where
         F: Fn(&Self) -> PyObjectRef;
 
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     fn py_startsendswith<T, F>(
         &self,
-        affix: PyObjectRef,
-        start: OptionalOption<isize>,
-        end: OptionalOption<isize>,
+        args: StartsEndsWithArgs,
         func_name: &str,
         py_type_name: &str,
         func: F,
@@ -150,7 +164,7 @@ pub trait PyCommonString<E> {
         T: TryFromObject,
         F: Fn(&Self, &T) -> bool,
     {
-        let range = adjust_indices(start, end, self.len());
+        let (affix, range) = args.get_value(self.len());
         if range.is_normal() {
             let value = self.get_slice(range);
             single_or_tuple_any(

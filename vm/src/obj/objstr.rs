@@ -507,17 +507,9 @@ impl PyString {
     }
 
     #[pymethod]
-    fn endswith(
-        &self,
-        suffix: PyObjectRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    fn endswith(&self, args: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.value.as_str().py_startsendswith(
-            suffix,
-            start,
-            end,
+            args,
             "endswith",
             "str",
             |s, x: &PyStringRef| s.ends_with(x.as_str()),
@@ -526,17 +518,9 @@ impl PyString {
     }
 
     #[pymethod]
-    fn startswith(
-        &self,
-        prefix: PyObjectRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    fn startswith(&self, args: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.value.as_str().py_startsendswith(
-            prefix,
-            start,
-            end,
+            args,
             "startswith",
             "str",
             |s, x: &PyStringRef| s.starts_with(x.as_str()),
