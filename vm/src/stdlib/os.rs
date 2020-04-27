@@ -1255,14 +1255,18 @@ fn os_setreuid(ruid: u32, euid: u32, vm: &VirtualMachine) -> PyResult<()> {
 
 // cfg from nix
 #[cfg(any(
-    target_os = "android", 
-    target_os = "freebsd", 
-    target_os = "linux", 
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
     target_os = "openbsd"
 ))]
 fn os_setresuid(ruid: u32, euid: u32, suid: u32, vm: &VirtualMachine) -> PyResult<()> {
-    unistd::setresuid(Uid::from_raw(ruid), Uid::from_raw(euid), Uid::from_raw(suid))
-        .map_err(|err| convert_nix_error(vm, err))
+    unistd::setresuid(
+        Uid::from_raw(ruid),
+        Uid::from_raw(euid),
+        Uid::from_raw(suid),
+    )
+    .map_err(|err| convert_nix_error(vm, err))
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -1649,9 +1653,9 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
 
     // cfg taken from nix
     #[cfg(any(
-        target_os = "android", 
-        target_os = "freebsd", 
-        target_os = "linux", 
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
         target_os = "openbsd"
     ))]
     extend_module!(vm, module, {
