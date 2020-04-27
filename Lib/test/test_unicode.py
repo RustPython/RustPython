@@ -896,8 +896,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual('ß'.swapcase(), 'SS')
         self.assertEqual('\u1fd2'.swapcase(), '\u0399\u0308\u0300')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_center(self):
         string_tests.CommonTest.test_center(self)
         self.assertEqual('x'.center(2, '\U0010FFFF'),
@@ -960,8 +958,6 @@ class UnicodeTest(string_tests.CommonTest,
                 self.assertNotIn(delim * 2, fill)
                 self.assertIn(delim * 2, fill + delim * 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue18183(self):
         '\U00010000\U00100000'.lower()
         '\U00010000\U00100000'.casefold()
