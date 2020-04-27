@@ -1,5 +1,6 @@
 from test.test_json import CTest
 
+import unittest
 
 class BadBool:
     def __bool__(self):
@@ -7,10 +8,14 @@ class BadBool:
 
 
 class TestSpeedups(CTest):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_scanstring(self):
         self.assertEqual(self.json.decoder.scanstring.__module__, "_json")
         self.assertIs(self.json.decoder.scanstring, self.json.decoder.c_scanstring)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encode_basestring_ascii(self):
         self.assertEqual(self.json.encoder.encode_basestring_ascii.__module__,
                          "_json")
@@ -38,6 +43,7 @@ class TestEncode(CTest):
             b"\xCD\x7D\x3D\x4E\x12\x4C\xF9\x79\xD7\x52\xBA\x82\xF2\x27\x4A\x7D\xA0\xCA\x75",
             None)
 
+    @unittest.skip("TODO: RUSTPYTHON, translate the encoder to Rust")
     def test_bad_str_encoder(self):
         # Issue #31505: There shouldn't be an assertion failure in case
         # c_make_encoder() receives a bad encoder() argument.
@@ -59,6 +65,8 @@ class TestEncode(CTest):
         with self.assertRaises(ZeroDivisionError):
             enc('spam', 4)
 
+    # TODO: RUSTPYTHON, translate the encoder to Rust
+    @unittest.expectedFailure
     def test_bad_bool_args(self):
         def test(name):
             self.json.encoder.JSONEncoder(**{name: BadBool()}).encode({'a': 1})
