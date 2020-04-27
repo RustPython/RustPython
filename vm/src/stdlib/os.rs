@@ -1253,7 +1253,13 @@ fn os_setreuid(ruid: u32, euid: u32, vm: &VirtualMachine) -> PyResult<()> {
     unistd::seteuid(Uid::from_raw(euid)).map_err(|err| convert_nix_error(vm, err))
 }
 
-#[cfg(all(unix, not(target_os = "redox")))]
+// cfg from nix
+#[cfg(any(
+    target_os = "android", 
+    target_os = "freebsd", 
+    target_os = "linux", 
+    target_os = "openbsd"
+))]
 fn os_setresuid(ruid: u32, euid: u32, suid: u32, vm: &VirtualMachine) -> PyResult<()> {
     unistd::setresuid(Uid::from_raw(ruid), Uid::from_raw(euid), Uid::from_raw(suid))
         .map_err(|err| convert_nix_error(vm, err))
@@ -1635,11 +1641,21 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "setegid" => ctx.new_function(os_setegid),
         "seteuid" => ctx.new_function(os_seteuid),
         "setreuid" => ctx.new_function(os_setreuid),
-        "setresuid" => ctx.new_function(os_setresuid),
         "openpty" => ctx.new_function(os_openpty),
         "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
         "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
         "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
+    });
+
+    // cfg taken from nix
+    #[cfg(any(
+        target_os = "android", 
+        target_os = "freebsd", 
+        target_os = "linux", 
+        target_os = "openbsd"
+    ))]
+    extend_module!(vm, module, {
+        "setresuid" => ctx.new_function(os_setresuid),
     });
 
     // cfg taken from nix
