@@ -911,7 +911,7 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         _ => unimplemented!("'a' mode is not yet implemented"),
     };
 
-    let io_obj = match typ.chars().next().unwrap() {
+    match typ.chars().next().unwrap() {
         // If the mode is text this buffer type is consumed on construction of
         // a TextIOWrapper which is subsequently returned.
         't' => {
@@ -923,8 +923,7 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         // For Buffered class construct "raw" IO class e.g. FileIO and pass this into corresponding field
         'b' => buffered,
         _ => unreachable!(),
-    };
-    io_obj
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

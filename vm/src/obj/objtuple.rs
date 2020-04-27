@@ -11,7 +11,7 @@ use crate::pyobject::{
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
 };
-use crate::sequence::{self, SimpleSeq};
+use crate::sequence;
 use crate::vm::{ReprGuard, VirtualMachine};
 
 /// tuple() -> empty tuple

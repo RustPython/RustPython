@@ -1,5 +1,4 @@
-use std::cell::Cell;
-
+use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
@@ -13,7 +12,8 @@ use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -32,6 +32,7 @@ pub struct PyRange {
     pub stop: PyIntRef,
     pub step: PyIntRef,
 }
+impl ThreadSafe for PyRange {}
 
 impl PyValue for PyRange {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -171,7 +172,7 @@ impl PyRange {
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>) -> PyRangeIterator {
         PyRangeIterator {
-            position: Cell::new(0),
+            position: AtomicCell::new(0),
             range: zelf,
         }
     }
@@ -204,7 +205,7 @@ impl PyRange {
         };
 
         PyRangeIterator {
-            position: Cell::new(0),
+            position: AtomicCell::new(0),
             range: reversed.into_ref(vm),
         }
     }
@@ -401,9 +402,10 @@ impl PyRange {
 #[pyclass]
 #[derive(Debug)]
 pub struct PyRangeIterator {
-    position: Cell<usize>,
+    position: AtomicCell<usize>,
     range: PyRangeRef,
 }
+impl ThreadSafe for PyRangeIterator {}
 
 impl PyValue for PyRangeIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -417,9 +419,8 @@ type PyRangeIteratorRef = PyRef<PyRangeIterator>;
 impl PyRangeIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
-        let position = BigInt::from(self.position.get());
+        let position = BigInt::from(self.position.fetch_add(1));
         if let Some(int) = self.range.get(&position) {
-            self.position.set(self.position.get() + 1);
             Ok(int)
         } else {
             Err(objiter::new_stop_iteration(vm))

@@ -4,15 +4,15 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 use super::objbyteinner::{
-    ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-    ByteInnerSplitOptions, ByteInnerSplitlinesOptions, ByteInnerTranslateOptions, PyByteInner,
+    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
+    ByteInnerTranslateOptions, PyByteInner,
 };
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objslice::PySliceRef;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
-use super::pystr::PyCommonString;
+use super::pystr::{self, PyCommonString};
 use crate::cformat::CFormatString;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objstr::do_cformat_string;
@@ -273,17 +273,9 @@ impl PyBytes {
     }
 
     #[pymethod(name = "endswith")]
-    fn endswith(
-        &self,
-        suffix: PyObjectRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    fn endswith(&self, options: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.elements[..].py_startsendswith(
-            suffix,
-            start,
-            end,
+            options,
             "endswith",
             "bytes",
             |s, x: &PyByteInner| s.ends_with(&x.elements[..]),
@@ -294,15 +286,11 @@ impl PyBytes {
     #[pymethod(name = "startswith")]
     fn startswith(
         &self,
-        prefix: PyObjectRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
+        options: pystr::StartsEndsWithArgs,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         self.inner.elements[..].py_startsendswith(
-            prefix,
-            start,
-            end,
+            options,
             "startswith",
             "bytes",
             |s, x: &PyByteInner| s.starts_with(&x.elements[..]),
@@ -401,12 +389,12 @@ impl PyBytes {
     }
 
     #[pymethod(name = "expandtabs")]
-    fn expandtabs(&self, options: ByteInnerExpandtabsOptions) -> PyBytes {
+    fn expandtabs(&self, options: pystr::ExpandTabsArgs) -> PyBytes {
         self.inner.expandtabs(options).into()
     }
 
     #[pymethod(name = "splitlines")]
-    fn splitlines(&self, options: ByteInnerSplitlinesOptions, vm: &VirtualMachine) -> PyResult {
+    fn splitlines(&self, options: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyResult {
         let as_bytes = self
             .inner
             .splitlines(options)
@@ -426,9 +414,10 @@ impl PyBytes {
         &self,
         old: PyByteInner,
         new: PyByteInner,
-        count: OptionalArg<PyIntRef>,
+        count: OptionalArg<isize>,
+        vm: &VirtualMachine,
     ) -> PyResult<PyBytes> {
-        Ok(self.inner.replace(old, new, count)?.into())
+        Ok(self.inner.replace(old, new, count, vm)?.into())
     }
 
     #[pymethod(name = "title")]

@@ -84,13 +84,13 @@ pub fn hash_iter<'a, I: std::iter::Iterator<Item = &'a PyObjectRef>>(
     Ok(hasher.finish() as PyHash)
 }
 
-pub fn hash_iter_unordered<I: std::iter::Iterator<Item = PyObjectRef>>(
+pub fn hash_iter_unordered<'a, I: std::iter::Iterator<Item = &'a PyObjectRef>>(
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<PyHash> {
     let mut hash: PyHash = 0;
     for element in iter {
-        let item_hash = vm._hash(&element)?;
+        let item_hash = vm._hash(element)?;
         // xor is commutative and hash should be independent of order
         hash ^= item_hash;
     }

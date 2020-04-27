@@ -791,8 +791,7 @@ impl VirtualMachine {
             self.trace_event(TraceEvent::Return)?;
             result
         } else if class.has_attr("__call__") {
-            let result = self.call_method(&callable, "__call__", args);
-            result
+            self.call_method(&callable, "__call__", args)
         } else {
             Err(self.new_type_error(format!(
                 "'{}' object is not callable",
@@ -806,8 +805,7 @@ impl VirtualMachine {
     where
         T: Into<PyFuncArgs>,
     {
-        let res = self._invoke(func_ref, args.into());
-        res
+        self._invoke(func_ref, args.into())
     }
 
     /// Call registered trace function.

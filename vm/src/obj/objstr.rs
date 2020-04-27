@@ -21,17 +21,17 @@ use super::objsequence::PySliceableSequence;
 use super::objslice::PySliceRef;
 use super::objtuple;
 use super::objtype::{self, PyClassRef};
-use super::pystr::{adjust_indices, PyCommonString, StringRange};
+use super::pystr::{self, adjust_indices, PyCommonString, PyCommonStringWrapper, StringRange};
 use crate::cformat::{
     CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
     CNumberType,
 };
 use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatSpec, FormatString};
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -51,6 +51,7 @@ pub struct PyString {
     value: String,
     hash: AtomicCell<Option<pyhash::PyHash>>,
 }
+impl ThreadSafe for PyString {}
 
 impl PyString {
     #[inline]
@@ -100,6 +101,7 @@ pub struct PyStringIterator {
     pub string: PyStringRef,
     position: AtomicCell<usize>,
 }
+impl ThreadSafe for PyStringIterator {}
 
 impl PyValue for PyStringIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -133,6 +135,7 @@ pub struct PyStringReverseIterator {
     pub position: AtomicCell<isize>,
     pub string: PyStringRef,
 }
+impl ThreadSafe for PyStringReverseIterator {}
 
 impl PyValue for PyStringReverseIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -144,12 +147,13 @@ impl PyValue for PyStringReverseIterator {
 impl PyStringReverseIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let pos = self.position.fetch_sub(1) as usize - 1;
-        if let Some(c) = self.string.value.chars().nth(pos) {
-            Ok(c.to_string())
-        } else {
-            Err(objiter::new_stop_iteration(vm))
+        let pos = self.position.fetch_sub(1);
+        if pos > 0 {
+            if let Some(c) = self.string.value.chars().nth(pos as usize - 1) {
+                return Ok(c.to_string());
+            }
         }
+        Err(objiter::new_stop_iteration(vm))
     }
 
     #[pymethod(name = "__iter__")]
@@ -166,18 +170,6 @@ struct StrArgs {
     encoding: OptionalArg<PyStringRef>,
     #[pyarg(positional_or_keyword, optional = true)]
     errors: OptionalArg<PyStringRef>,
-}
-
-#[derive(FromArgs)]
-struct SplitLineArgs {
-    #[pyarg(positional_or_keyword, optional = true)]
-    keepends: OptionalArg<bool>,
-}
-
-#[derive(FromArgs)]
-struct ExpandtabsArgs {
-    #[pyarg(positional_or_keyword, optional = true)]
-    tabsize: OptionalArg<usize>,
 }
 
 #[pyimpl(flags(BASETYPE))]
@@ -457,26 +449,24 @@ impl PyString {
     #[pymethod]
     fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
         let elements = self.value.py_split(
-            args.non_empty_sep(vm)?,
-            args.maxsplit,
+            args,
             vm,
             |v, s, vm| v.split(s).map(|s| vm.ctx.new_str(s)).collect(),
             |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_str(s)).collect(),
             |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_str(s)),
-        );
+        )?;
         Ok(vm.ctx.new_list(elements))
     }
 
     #[pymethod]
     fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
         let mut elements = self.value.py_split(
-            args.non_empty_sep(vm)?,
-            args.maxsplit,
+            args,
             vm,
             |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_str(s)).collect(),
             |v, s, n, vm| v.rsplitn(n, s).map(|s| vm.ctx.new_str(s)).collect(),
             |v, n, vm| v.py_rsplit_whitespace(n, |s| vm.ctx.new_str(s)),
-        );
+        )?;
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.
         elements.reverse();
@@ -484,51 +474,42 @@ impl PyString {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalArg<Option<PyStringRef>>) -> String {
-        let chars = chars.flat_option();
-        let chars = match chars {
-            Some(ref chars) => &chars.value,
-            None => return self.value.trim().to_owned(),
-        };
-        self.value.trim_matches(|c| chars.contains(c)).to_owned()
-    }
-
-    #[pymethod]
-    fn lstrip(&self, chars: OptionalArg<Option<PyStringRef>>) -> String {
-        let chars = chars.flat_option();
-        let chars = match chars {
-            Some(ref chars) => &chars.value,
-            None => return self.value.trim_start().to_owned(),
-        };
+    fn strip(&self, chars: OptionalOption<PyStringRef>) -> String {
         self.value
-            .trim_start_matches(|c| chars.contains(c))
+            .py_strip(
+                chars,
+                |s, chars| s.trim_matches(|c| chars.contains(c)),
+                |s| s.trim(),
+            )
             .to_owned()
     }
 
     #[pymethod]
-    fn rstrip(&self, chars: OptionalArg<Option<PyStringRef>>) -> String {
-        let chars = chars.flat_option();
-        let chars = match chars {
-            Some(ref chars) => &chars.value,
-            None => return self.value.trim_end().to_owned(),
-        };
+    fn lstrip(&self, chars: OptionalOption<PyStringRef>) -> String {
         self.value
-            .trim_end_matches(|c| chars.contains(c))
+            .py_strip(
+                chars,
+                |s, chars| s.trim_start_matches(|c| chars.contains(c)),
+                |s| s.trim_start(),
+            )
             .to_owned()
     }
 
     #[pymethod]
-    fn endswith(
-        &self,
-        suffix: PyObjectRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    fn rstrip(&self, chars: OptionalOption<PyStringRef>) -> String {
+        self.value
+            .py_strip(
+                chars,
+                |s, chars| s.trim_end_matches(|c| chars.contains(c)),
+                |s| s.trim_end(),
+            )
+            .to_owned()
+    }
+
+    #[pymethod]
+    fn endswith(&self, args: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.value.as_str().py_startsendswith(
-            suffix,
-            start,
-            end,
+            args,
             "endswith",
             "str",
             |s, x: &PyStringRef| s.ends_with(x.as_str()),
@@ -537,17 +518,9 @@ impl PyString {
     }
 
     #[pymethod]
-    fn startswith(
-        &self,
-        prefix: PyObjectRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    fn startswith(&self, args: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         self.value.as_str().py_startsendswith(
-            prefix,
-            start,
-            end,
+            args,
             "startswith",
             "str",
             |s, x: &PyStringRef| s.starts_with(x.as_str()),
@@ -799,14 +772,13 @@ impl PyString {
     }
 
     #[pymethod]
-    fn splitlines(&self, args: SplitLineArgs, vm: &VirtualMachine) -> PyObjectRef {
-        let keepends = args.keepends.unwrap_or(false);
+    fn splitlines(&self, args: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         let mut elements = vec![];
         let mut curr = "".to_owned();
         let mut chars = self.value.chars().peekable();
         while let Some(ch) = chars.next() {
             if ch == '\n' || ch == '\r' {
-                if keepends {
+                if args.keepends {
                     curr.push(ch);
                 }
                 if ch == '\r' && chars.peek() == Some(&'\n') {
@@ -1082,8 +1054,8 @@ impl PyString {
     }
 
     #[pymethod]
-    fn expandtabs(&self, args: ExpandtabsArgs) -> String {
-        let tab_stop = args.tabsize.unwrap_or(8);
+    fn expandtabs(&self, args: pystr::ExpandTabsArgs) -> String {
+        let tab_stop = args.tabsize();
         let mut expanded_str = String::with_capacity(self.value.len());
         let mut tab_size = tab_stop;
         let mut col_count = 0 as usize;
@@ -1298,28 +1270,7 @@ impl TryFromObject for std::ffi::CString {
     }
 }
 
-#[derive(FromArgs)]
-struct SplitArgs {
-    #[pyarg(positional_or_keyword, default = "None")]
-    sep: Option<PyStringRef>,
-    #[pyarg(positional_or_keyword, default = "-1")]
-    maxsplit: isize,
-}
-
-impl SplitArgs {
-    fn non_empty_sep<'a>(&'a self, vm: &VirtualMachine) -> PyResult<Option<&'a str>> {
-        let sep = if let Some(s) = self.sep.as_ref() {
-            let sep = s.as_str();
-            if sep.is_empty() {
-                return Err(vm.new_value_error("empty separator".to_owned()));
-            }
-            Some(sep)
-        } else {
-            None
-        };
-        Ok(sep)
-    }
-}
+type SplitArgs = pystr::SplitArgs<PyStringRef, str, char>;
 
 pub fn init(ctx: &PyContext) {
     PyString::extend_class(ctx, &ctx.types.str_type);
@@ -1799,9 +1750,19 @@ mod tests {
     }
 }
 
-impl PyCommonString<'_, char> for str {
+impl PyCommonStringWrapper<str> for PyStringRef {
+    fn as_ref(&self) -> &str {
+        self.value.as_str()
+    }
+}
+
+impl PyCommonString<char> for str {
     fn get_slice(&self, range: std::ops::Range<usize>) -> &Self {
         &self[range]
+    }
+
+    fn is_empty(&self) -> bool {
+        Self::is_empty(self)
     }
 
     fn len(&self) -> usize {

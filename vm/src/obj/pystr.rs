@@ -1,6 +1,75 @@
 use crate::function::{single_or_tuple_any, OptionalOption};
 use crate::pyobject::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
+use num_traits::cast::ToPrimitive;
+
+#[derive(FromArgs)]
+pub struct SplitArgs<T, S, E>
+where
+    T: TryFromObject + PyCommonStringWrapper<S>,
+    S: ?Sized + PyCommonString<E>,
+{
+    #[pyarg(positional_or_keyword, default = "None")]
+    sep: Option<T>,
+    #[pyarg(positional_or_keyword, default = "-1")]
+    maxsplit: isize,
+    _phantom1: std::marker::PhantomData<S>,
+    _phantom2: std::marker::PhantomData<E>,
+}
+
+impl<T, S, E> SplitArgs<T, S, E>
+where
+    T: TryFromObject + PyCommonStringWrapper<S>,
+    S: ?Sized + PyCommonString<E>,
+{
+    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Option<T>, isize)> {
+        let sep = if let Some(s) = self.sep {
+            let sep = s.as_ref();
+            if sep.is_empty() {
+                return Err(vm.new_value_error("empty separator".to_owned()));
+            }
+            Some(s)
+        } else {
+            None
+        };
+        Ok((sep, self.maxsplit))
+    }
+}
+
+#[derive(FromArgs)]
+pub struct SplitLinesArgs {
+    #[pyarg(positional_or_keyword, default = "false")]
+    pub keepends: bool,
+}
+
+#[derive(FromArgs)]
+pub struct ExpandTabsArgs {
+    #[pyarg(positional_or_keyword, default = "8")]
+    tabsize: isize,
+}
+
+impl ExpandTabsArgs {
+    pub fn tabsize(&self) -> usize {
+        self.tabsize.to_usize().unwrap_or(0)
+    }
+}
+
+#[derive(FromArgs)]
+pub struct StartsEndsWithArgs {
+    #[pyarg(positional_only, optional = false)]
+    affix: PyObjectRef,
+    #[pyarg(positional_only, optional = true)]
+    start: OptionalOption<isize>,
+    #[pyarg(positional_only, optional = true)]
+    end: OptionalOption<isize>,
+}
+
+impl StartsEndsWithArgs {
+    fn get_value(self, len: usize) -> (PyObjectRef, std::ops::Range<usize>) {
+        let range = adjust_indices(self.start, self.end, len);
+        (self.affix, range)
+    }
+}
 
 // help get optional string indices
 pub fn adjust_indices(
@@ -37,36 +106,43 @@ impl StringRange for std::ops::Range<usize> {
     }
 }
 
-pub trait PyCommonString<'a, E>
+pub trait PyCommonStringWrapper<S>
 where
-    Self: 'a,
+    S: ?Sized,
 {
+    fn as_ref(&self) -> &S;
+}
+
+pub trait PyCommonString<E> {
     fn get_slice(&self, range: std::ops::Range<usize>) -> &Self;
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
 
-    fn py_split<SP, SN, SW, R>(
+    fn py_split<T, SP, SN, SW, R>(
         &self,
-        sep: Option<&Self>,
-        maxsplit: isize,
+        args: SplitArgs<T, Self, E>,
         vm: &VirtualMachine,
         split: SP,
         splitn: SN,
         splitw: SW,
-    ) -> Vec<R>
+    ) -> PyResult<Vec<R>>
     where
+        T: TryFromObject + PyCommonStringWrapper<Self>,
         SP: Fn(&Self, &Self, &VirtualMachine) -> Vec<R>,
         SN: Fn(&Self, &Self, usize, &VirtualMachine) -> Vec<R>,
         SW: Fn(&Self, isize, &VirtualMachine) -> Vec<R>,
     {
-        if let Some(pattern) = sep {
+        let (sep, maxsplit) = args.get_value(vm)?;
+        let splited = if let Some(pattern) = sep {
             if maxsplit < 0 {
-                split(self, pattern, vm)
+                split(self, pattern.as_ref(), vm)
             } else {
-                splitn(self, pattern, (maxsplit + 1) as usize, vm)
+                splitn(self, pattern.as_ref(), (maxsplit + 1) as usize, vm)
             }
         } else {
             splitw(self, maxsplit, vm)
-        }
+        };
+        Ok(splited)
     }
     fn py_split_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
     where
@@ -75,13 +151,10 @@ where
     where
         F: Fn(&Self) -> PyObjectRef;
 
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     fn py_startsendswith<T, F>(
         &self,
-        affix: PyObjectRef,
-        start: OptionalOption<isize>,
-        end: OptionalOption<isize>,
+        args: StartsEndsWithArgs,
         func_name: &str,
         py_type_name: &str,
         func: F,
@@ -91,7 +164,7 @@ where
         T: TryFromObject,
         F: Fn(&Self, &T) -> bool,
     {
-        let range = adjust_indices(start, end, self.len());
+        let (affix, range) = args.get_value(self.len());
         if range.is_normal() {
             let value = self.get_slice(range);
             single_or_tuple_any(
@@ -110,6 +183,24 @@ where
             )
         } else {
             Ok(false)
+        }
+    }
+
+    fn py_strip<'a, S, FC, FD>(
+        &'a self,
+        chars: OptionalOption<S>,
+        func_chars: FC,
+        func_default: FD,
+    ) -> &'a Self
+    where
+        S: PyCommonStringWrapper<Self>,
+        FC: Fn(&'a Self, &Self) -> &'a Self,
+        FD: Fn(&'a Self) -> &'a Self,
+    {
+        let chars = chars.flat_option();
+        match chars {
+            Some(chars) => func_chars(self, chars.as_ref()),
+            None => func_default(self),
         }
     }
 }

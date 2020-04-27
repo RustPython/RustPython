@@ -34,9 +34,7 @@ fn warnings_warn(args: WarnArgs, vm: &VirtualMachine) -> PyResult<()> {
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
-    let module = py_module!(vm, "_warnings", {
+    py_module!(vm, "_warnings", {
          "warn" => ctx.new_function(warnings_warn),
-    });
-
-    module
+    })
 }

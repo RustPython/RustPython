@@ -500,7 +500,6 @@ class BaseTest:
         self.checkraises(ValueError, 'hello', 'rsplit', '')
         self.checkraises(ValueError, 'hello', 'rsplit', '', 0)
 
-    @unittest.skip("TODO: RUSTPYTHON test_bytes")
     def test_replace(self):
         EQ = self.checkequal
 

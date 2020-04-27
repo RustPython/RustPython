@@ -1,6 +1,6 @@
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
 
@@ -10,6 +10,7 @@ pub struct PyStaticMethod {
     pub callable: PyObjectRef,
 }
 pub type PyStaticMethodRef = PyRef<PyStaticMethod>;
+impl ThreadSafe for PyStaticMethod {}
 
 impl PyValue for PyStaticMethod {
     fn class(vm: &VirtualMachine) -> PyClassRef {

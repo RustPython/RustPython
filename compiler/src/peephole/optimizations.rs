@@ -73,26 +73,27 @@ pub fn operator(buf: &mut impl OptimizationBuffer) {
     }
 }
 
-pub fn unpack(buf: &mut impl OptimizationBuffer) {
-    let (instruction, meta) = buf.pop();
-    if let Instruction::UnpackSequence { size } = instruction {
-        let (arg, arg_meta) = buf.pop();
-        match arg {
-            Instruction::BuildTuple {
-                size: tup_size,
-                unpack,
-            } if !unpack && tup_size == size => {
-                buf.emit(
-                    Instruction::Reverse { amount: size },
-                    vec![arg_meta, meta].into(),
-                );
-            }
-            arg => {
-                buf.emit(arg, arg_meta);
-                buf.emit(instruction, meta);
-            }
-        }
-    } else {
-        buf.emit(instruction, meta)
-    }
-}
+// TODO: make a version of this that doesn't miscompile `a, b = (1, 2) if True else (3, 4)`
+// pub fn unpack(buf: &mut impl OptimizationBuffer) {
+//     let (instruction, meta) = buf.pop();
+//     if let Instruction::UnpackSequence { size } = instruction {
+//         let (arg, arg_meta) = buf.pop();
+//         match arg {
+//             Instruction::BuildTuple {
+//                 size: tup_size,
+//                 unpack,
+//             } if !unpack && tup_size == size => {
+//                 buf.emit(
+//                     Instruction::Reverse { amount: size },
+//                     vec![arg_meta, meta].into(),
+//                 );
+//             }
+//             arg => {
+//                 buf.emit(arg, arg_meta);
+//                 buf.emit(instruction, meta);
+//             }
+//         }
+//     } else {
+//         buf.emit(instruction, meta)
+//     }
+// }

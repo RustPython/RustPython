@@ -102,9 +102,8 @@ fn get_git_timestamp_datetime() -> DateTime<Local> {
     let timestamp = timestamp.parse::<u64>().unwrap_or(0);
 
     let datetime = UNIX_EPOCH + Duration::from_secs(timestamp);
-    let datetime = DateTime::<Local>::from(datetime);
 
-    datetime
+    datetime.into()
 }
 
 pub fn get_git_date() -> String {

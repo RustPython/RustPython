@@ -10,8 +10,8 @@ use super::objsequence;
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{
-    PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -141,6 +141,7 @@ pub struct PySequenceIterator {
     pub obj: PyObjectRef,
     pub reversed: bool,
 }
+impl ThreadSafe for PySequenceIterator {}
 
 impl PyValue for PySequenceIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -214,6 +215,7 @@ pub struct PyCallableIterator {
     sentinel: PyObjectRef,
     done: AtomicCell<bool>,
 }
+impl ThreadSafe for PyCallableIterator {}
 
 impl PyValue for PyCallableIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {

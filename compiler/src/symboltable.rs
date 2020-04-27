@@ -95,7 +95,6 @@ pub struct Symbol {
     pub name: String,
     // pub table: SymbolTableRef,
     pub scope: SymbolScope,
-    pub is_param: bool,
     pub is_referenced: bool,
     pub is_assigned: bool,
     pub is_parameter: bool,
@@ -108,7 +107,6 @@ impl Symbol {
             name: name.to_owned(),
             // table,
             scope: SymbolScope::Unknown,
-            is_param: false,
             is_referenced: false,
             is_assigned: false,
             is_parameter: false,
@@ -741,7 +739,6 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
-    #[allow(clippy::single_match)]
     fn register_name(&mut self, name: &str, role: SymbolUsage) -> SymbolTableResult {
         let scope_depth = self.tables.len();
         let table = self.tables.last_mut().unwrap();
@@ -777,13 +774,11 @@ impl SymbolTableBuilder {
 
         // Some more checks:
         match role {
-            SymbolUsage::Nonlocal => {
-                if scope_depth < 2 {
-                    return Err(SymbolTableError {
-                        error: format!("cannot define nonlocal '{}' at top level.", name),
-                        location,
-                    });
-                }
+            SymbolUsage::Nonlocal if scope_depth < 2 => {
+                return Err(SymbolTableError {
+                    error: format!("cannot define nonlocal '{}' at top level.", name),
+                    location,
+                })
             }
             _ => {
                 // Ok!
