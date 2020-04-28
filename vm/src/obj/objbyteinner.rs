@@ -14,7 +14,7 @@ use super::objnone::PyNoneRef;
 use super::objsequence::PySliceableSequence;
 use super::objslice::PySliceRef;
 use super::objstr::{self, PyString, PyStringRef};
-use super::pystr::{self, PyCommonString, PyCommonStringWrapper, StringRange};
+use super::pystr::{self, PyCommonString, PyCommonStringWrapper};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
@@ -346,24 +346,10 @@ impl PyByteInner {
         needle: Either<PyByteInner, PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        match needle {
-            Either::A(byte) => {
-                if byte.elements.is_empty() {
-                    return Ok(true);
-                }
-                let other = &byte.elements[..];
-                for (n, i) in self.elements.iter().enumerate() {
-                    if n + other.len() <= self.len()
-                        && *i == other[0]
-                        && &self.elements[n..n + other.len()] == other
-                    {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            }
-            Either::B(int) => Ok(self.elements.contains(&int.as_bigint().byte_or(vm)?)),
-        }
+        Ok(match needle {
+            Either::A(byte) => self.elements.contains_str(byte.elements.as_slice()),
+            Either::B(int) => self.elements.contains(&int.as_bigint().byte_or(vm)?),
+        })
     }
 
     pub fn getitem(&self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult {
@@ -795,18 +781,9 @@ impl PyByteInner {
 
     pub fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         let (needle, range) = options.get_value(self.elements.len(), vm)?;
-        if !range.is_normal() {
-            return Ok(0);
-        }
-        if needle.is_empty() {
-            return Ok(range.len() + 1);
-        }
-        let haystack = &self.elements[range];
-        let total = haystack
-            .windows(needle.len())
-            .filter(|w| *w == needle.as_slice())
-            .count();
-        Ok(total)
+        Ok(self
+            .elements
+            .py_count(needle.as_slice(), range, |h, n| h.find_iter(n).count()))
     }
 
     pub fn join(&self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -823,35 +800,17 @@ impl PyByteInner {
     }
 
     #[inline]
-    pub fn find(
+    pub fn find<F>(
         &self,
         options: ByteInnerFindOptions,
-        reverse: bool,
+        find: F,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<usize>> {
+    ) -> PyResult<Option<usize>>
+    where
+        F: Fn(&[u8], &[u8]) -> Option<usize>,
+    {
         let (needle, range) = options.get_value(self.elements.len(), vm)?;
-        if !range.is_normal() {
-            return Ok(None);
-        }
-        if needle.is_empty() {
-            return Ok(Some(if reverse { range.end } else { range.start }));
-        }
-        let haystack = &self.elements[range.clone()];
-        let windows = haystack.windows(needle.len());
-        if reverse {
-            for (i, w) in windows.rev().enumerate() {
-                if w == needle.as_slice() {
-                    return Ok(Some(range.end - i - needle.len()));
-                }
-            }
-        } else {
-            for (i, w) in windows.enumerate() {
-                if w == needle.as_slice() {
-                    return Ok(Some(range.start + i));
-                }
-            }
-        }
-        Ok(None)
+        Ok(self.elements.py_find(&needle, range, find))
     }
 
     pub fn maketrans(from: PyByteInner, to: PyByteInner, vm: &VirtualMachine) -> PyResult {
