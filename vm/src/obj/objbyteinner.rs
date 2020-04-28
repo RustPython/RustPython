@@ -1324,6 +1324,10 @@ impl PyCommonString<u8> for [u8] {
         &self[range]
     }
 
+    fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
+        &self[range]
+    }
+
     fn is_empty(&self) -> bool {
         Self::is_empty(self)
     }

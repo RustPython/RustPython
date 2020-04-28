@@ -118,6 +118,8 @@ pub trait PyCommonString<E> {
 
     fn with_capacity(capacity: usize) -> Self::Container;
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
+    // FIXME: get_chars is expensive for str
+    fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
     fn bytes_len(&self) -> usize;
     fn chars_len(&self) -> usize;
     fn is_empty(&self) -> bool;
@@ -216,7 +218,7 @@ pub trait PyCommonString<E> {
     {
         if range.is_normal() {
             let start = range.start;
-            if let Some(index) = find(self.get_bytes(range), &needle) {
+            if let Some(index) = find(self.get_chars(range), &needle) {
                 return Some(start + index);
             }
         }
@@ -229,7 +231,7 @@ pub trait PyCommonString<E> {
         F: Fn(&Self, &Self) -> usize,
     {
         if range.is_normal() {
-            count(self.get_bytes(range), &needle)
+            count(self.get_chars(range), &needle)
         } else {
             0
         }
