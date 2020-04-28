@@ -21,7 +21,7 @@ use super::objsequence::PySliceableSequence;
 use super::objslice::PySliceRef;
 use super::objtuple;
 use super::objtype::{self, PyClassRef};
-use super::pystr::{self, adjust_indices, PyCommonString, PyCommonStringWrapper, StringRange};
+use super::pystr::{self, adjust_indices, PyCommonString, PyCommonStringWrapper};
 use crate::cformat::{
     CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
     CNumberType,
@@ -811,6 +811,7 @@ impl PyString {
         Ok(joined)
     }
 
+    #[inline]
     fn _find<F>(
         &self,
         sub: PyStringRef,
@@ -822,12 +823,7 @@ impl PyString {
         F: Fn(&str, &str) -> Option<usize>,
     {
         let range = adjust_indices(start, end, self.value.len());
-        if range.is_normal() {
-            if let Some(index) = find(&self.value[range.clone()], &sub.value) {
-                return Some(range.start + index);
-            }
-        }
-        None
+        self.value.py_find(&sub.value, range, find)
     }
 
     #[pymethod]
@@ -954,11 +950,8 @@ impl PyString {
         end: OptionalArg<Option<isize>>,
     ) -> usize {
         let range = adjust_indices(start, end, self.value.len());
-        if range.is_normal() {
-            self.value[range].matches(&sub.value).count()
-        } else {
-            0
-        }
+        self.value
+            .py_count(&sub.value, range, |h, n| h.matches(n).count())
     }
 
     #[pymethod]

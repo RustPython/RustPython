@@ -186,6 +186,7 @@ pub trait PyCommonString<E> {
         }
     }
 
+    #[inline]
     fn py_strip<'a, S, FC, FD>(
         &'a self,
         chars: OptionalOption<S>,
@@ -201,6 +202,32 @@ pub trait PyCommonString<E> {
         match chars {
             Some(chars) => func_chars(self, chars.as_ref()),
             None => func_default(self),
+        }
+    }
+
+    #[inline]
+    fn py_find<F>(&self, needle: &Self, range: std::ops::Range<usize>, find: F) -> Option<usize>
+    where
+        F: Fn(&Self, &Self) -> Option<usize>,
+    {
+        if range.is_normal() {
+            let start = range.start;
+            if let Some(index) = find(self.get_slice(range), &needle) {
+                return Some(start + index);
+            }
+        }
+        None
+    }
+
+    #[inline]
+    fn py_count<F>(&self, needle: &Self, range: std::ops::Range<usize>, count: F) -> usize
+    where
+        F: Fn(&Self, &Self) -> usize,
+    {
+        if range.is_normal() {
+            count(self.get_slice(range), &needle)
+        } else {
+            0
         }
     }
 }

@@ -1,3 +1,4 @@
+use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
 use std::mem::size_of;
 use std::ops::Deref;
@@ -300,25 +301,25 @@ impl PyBytes {
 
     #[pymethod(name = "find")]
     fn find(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        let index = self.inner.find(options, false, vm)?;
+        let index = self.inner.find(options, |h, n| h.find(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
     #[pymethod(name = "index")]
     fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
-        let index = self.inner.find(options, false, vm)?;
+        let index = self.inner.find(options, |h, n| h.find(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
     #[pymethod(name = "rfind")]
     fn rfind(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        let index = self.inner.find(options, true, vm)?;
+        let index = self.inner.find(options, |h, n| h.rfind(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
     #[pymethod(name = "rindex")]
     fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
-        let index = self.inner.find(options, true, vm)?;
+        let index = self.inner.find(options, |h, n| h.rfind(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
