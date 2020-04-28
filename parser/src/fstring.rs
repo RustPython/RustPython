@@ -26,6 +26,7 @@ impl<'a> FStringParser<'a> {
         let mut spec = None;
         let mut delims = Vec::new();
         let mut conversion = None;
+        let mut pred_expression_text = String::new();
 
         while let Some(ch) = self.chars.next() {
             match ch {
@@ -50,6 +51,13 @@ impl<'a> FStringParser<'a> {
                         return Err(ExpectedRbrace);
                     }
                 }
+
+                // match a python 3.8 self documenting expression
+                // format '{' PYTHON_EXPRESSION '=' FORMAT_SPECIFIER? '}'
+                '=' if self.chars.peek() != Some(&'=') => { 
+                    pred_expression_text = expression.trim().to_string(); // use expression and remove whitespace
+                }
+
                 ':' if delims.is_empty() => {
                     let mut nested = false;
                     let mut in_nested = false;
@@ -121,14 +129,34 @@ impl<'a> FStringParser<'a> {
                     if expression.is_empty() {
                         return Err(EmptyExpression);
                     }
-                    return Ok(FormattedValue {
-                        value: Box::new(
-                            parse_expression(expression.trim())
-                                .map_err(|e| InvalidExpression(Box::new(e.error)))?,
-                        ),
-                        conversion,
-                        spec,
-                    });
+                    if pred_expression_text.is_empty() {
+                        return Ok(FormattedValue {
+                            value: Box::new(
+                                parse_expression(expression.trim())
+                                    .map_err(|e| InvalidExpression(Box::new(e.error)))?,
+                            ),
+                            conversion,
+                            spec,
+                        });
+                    }
+                    else {
+                        return Ok(Joined{
+                                values:vec![
+                                    Constant{
+                                        value:pred_expression_text.to_owned()
+                                    },
+
+                                    FormattedValue {
+                                    value: Box::new(
+                                        parse_expression(expression.trim())
+                                            .map_err(|e| InvalidExpression(Box::new(e.error)))?,
+                                    ),
+                                    conversion,
+                                    spec,},
+                                ]
+                            }
+                        );
+                    }
                 }
                 '"' | '\'' => {
                     expression.push(ch);
@@ -299,6 +327,30 @@ mod tests {
     }
 
     #[test]
+    fn test_fstring_parse_selfdocumenting_base() {
+        let src=String::from("{user=}");
+        let parse_ast=parse_fstring(&src);
+
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
+    fn test_fstring_parse_selfdocumenting_base_more() {
+        let src=String::from("mix {user=} with text and {second=}");
+        let parse_ast=parse_fstring(&src);
+
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
+    fn test_fstring_parse_selfdocumenting_format() {
+        let src=String::from("{user=:>10}");
+        let parse_ast=parse_fstring(&src);
+
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
     fn test_parse_invalid_fstring() {
         assert_eq!(parse_fstring("{5!a"), Err(ExpectedRbrace));
         assert_eq!(parse_fstring("{5!a1}"), Err(ExpectedRbrace));
@@ -317,6 +369,10 @@ mod tests {
         assert_eq!(parse_fstring("}"), Err(UnopenedRbrace));
         assert_eq!(parse_fstring("{a:{b}"), Err(UnclosedLbrace));
         assert_eq!(parse_fstring("{"), Err(UnclosedLbrace));
+
+        // TODO: which err?
+        //assert_eq!(parse_fstring("{}"), Err()); // which one?
+        assert!(parse_fstring("{}").is_err()); // take this for the moment
 
         // TODO: check for InvalidExpression enum?
         assert!(parse_fstring("{class}").is_err());
