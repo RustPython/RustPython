@@ -3,12 +3,11 @@
  */
 use std::cell::{RefCell, RefMut};
 use std::fs;
-use std::io::prelude::*;
-use std::io::Cursor;
-use std::io::SeekFrom;
+use std::io::{self, prelude::*, Cursor, SeekFrom};
 
 use num_traits::ToPrimitive;
 
+use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objbytearray::PyByteArray;
@@ -26,8 +25,30 @@ use crate::vm::VirtualMachine;
 fn byte_count(bytes: OptionalOption<i64>) -> i64 {
     bytes.flat_option().unwrap_or(-1 as i64)
 }
+fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
+    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+    {
+        super::os::convert_io_error(vm, err)
+    }
+    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+    {
+        vm.new_os_error(err.to_string())
+    }
+}
 
 const DEFAULT_BUFFER_SIZE: usize = 8 * 1024;
+
+fn seekfrom(vm: &VirtualMachine, offset: PyObjectRef, how: OptionalArg<i32>) -> PyResult<SeekFrom> {
+    let seek = match how {
+        OptionalArg::Present(0) | OptionalArg::Missing => {
+            SeekFrom::Start(u64::try_from_object(vm, offset)?)
+        }
+        OptionalArg::Present(1) => SeekFrom::Current(i64::try_from_object(vm, offset)?),
+        OptionalArg::Present(2) => SeekFrom::End(i64::try_from_object(vm, offset)?),
+        _ => return Err(vm.new_value_error("invalid value for how".to_owned())),
+    };
+    Ok(seek)
+}
 
 #[derive(Debug)]
 struct BufferedIO {
@@ -54,11 +75,8 @@ impl BufferedIO {
     }
 
     //skip to the jth position
-    fn seek(&mut self, offset: u64) -> Option<u64> {
-        match self.cursor.seek(SeekFrom::Start(offset)) {
-            Ok(_) => Some(offset),
-            Err(_) => None,
-        }
+    fn seek(&mut self, seek: SeekFrom) -> io::Result<u64> {
+        self.cursor.seek(seek)
     }
 
     //Read k bytes from the object and return.
@@ -142,11 +160,15 @@ impl PyStringIORef {
     }
 
     //skip to the jth position
-    fn seek(self, offset: u64, vm: &VirtualMachine) -> PyResult {
-        match self.buffer(vm)?.seek(offset) {
-            Some(value) => Ok(vm.ctx.new_int(value)),
-            None => Err(vm.new_value_error("Error Performing Operation".to_owned())),
-        }
+    fn seek(
+        self,
+        offset: PyObjectRef,
+        how: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<u64> {
+        self.buffer(vm)?
+            .seek(seekfrom(vm, offset, how)?)
+            .map_err(|err| os_err(vm, err))
     }
 
     fn seekable(self) -> bool {
@@ -264,11 +286,15 @@ impl PyBytesIORef {
     }
 
     //skip to the jth position
-    fn seek(self, offset: u64, vm: &VirtualMachine) -> PyResult {
-        match self.buffer(vm)?.seek(offset) {
-            Some(value) => Ok(vm.ctx.new_int(value)),
-            None => Err(vm.new_value_error("Error Performing Operation".to_owned())),
-        }
+    fn seek(
+        self,
+        offset: PyObjectRef,
+        how: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<u64> {
+        self.buffer(vm)?
+            .seek(seekfrom(vm, offset, how)?)
+            .map_err(|err| os_err(vm, err))
     }
 
     fn seekable(self) -> bool {
@@ -509,6 +535,22 @@ fn buffered_reader_seekable(_self: PyObjectRef) -> bool {
     true
 }
 
+fn buffered_reader_seek(
+    instance: PyObjectRef,
+    offset: PyObjectRef,
+    how: OptionalArg,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let raw = vm.get_attribute(instance, "raw")?;
+    let args: Vec<_> = std::iter::once(offset).chain(how.into_option()).collect();
+    vm.invoke(&vm.get_attribute(raw, "seek")?, args)
+}
+
+fn buffered_reader_tell(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let raw = vm.get_attribute(instance, "raw")?;
+    vm.invoke(&vm.get_attribute(raw, "tell")?, vec![])
+}
+
 fn buffered_reader_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     let raw = vm.get_attribute(instance, "raw")?;
     vm.invoke(&vm.get_attribute(raw, "close")?, vec![])?;
@@ -670,6 +712,35 @@ mod fileio {
         true
     }
 
+    fn file_io_seek(
+        instance: PyObjectRef,
+        offset: PyObjectRef,
+        how: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<u64> {
+        let mut handle = fio_get_fileno(&instance, vm)?;
+
+        let new_pos = handle
+            .seek(seekfrom(vm, offset, how)?)
+            .map_err(|e| os::convert_io_error(vm, e))?;
+
+        fio_set_fileno(&instance, handle, vm)?;
+
+        Ok(new_pos)
+    }
+
+    fn file_io_tell(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<u64> {
+        let mut handle = fio_get_fileno(&instance, vm)?;
+
+        let pos = handle
+            .seek(SeekFrom::Current(0))
+            .map_err(|e| os::convert_io_error(vm, e))?;
+
+        fio_set_fileno(&instance, handle, vm)?;
+
+        Ok(pos)
+    }
+
     fn file_io_fileno(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm.get_attribute(instance, "__fileno")
     }
@@ -683,6 +754,8 @@ mod fileio {
             "write" => ctx.new_method(file_io_write),
             "close" => ctx.new_method(file_io_close),
             "seekable" => ctx.new_method(file_io_seekable),
+            "seek" => ctx.new_method(file_io_seek),
+            "tell" => ctx.new_method(file_io_tell),
             "fileno" => ctx.new_method(file_io_fileno),
         })
     }
@@ -968,6 +1041,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "__init__" => ctx.new_method(buffered_io_base_init),
         "read" => ctx.new_method(buffered_reader_read),
         "seekable" => ctx.new_method(buffered_reader_seekable),
+        "seek" => ctx.new_method(buffered_reader_seek),
+        "tell" => ctx.new_method(buffered_reader_tell),
         "close" => ctx.new_method(buffered_reader_close),
         "fileno" => ctx.new_method(buffered_io_base_fileno),
     });
@@ -1146,10 +1221,10 @@ mod tests {
         let data = vec![1, 2, 3, 4];
         let count: u64 = 2;
         let mut buffered = BufferedIO {
-            cursor: Cursor::new(data.clone()),
+            cursor: Cursor::new(data),
         };
 
-        assert_eq!(buffered.seek(count.clone()).unwrap(), count);
+        assert_eq!(buffered.seek(SeekFrom::Start(count)).unwrap(), count);
         assert_eq!(buffered.read(count.clone() as i64).unwrap(), vec![3, 4]);
     }
 
