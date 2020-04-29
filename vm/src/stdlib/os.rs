@@ -1280,6 +1280,18 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     }
 }
 
+#[cfg(target_os = "linux")]
+type MODE_t = u32;
+
+#[cfg(target_os = "macos")]
+type MODE_t = u16;
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn os_umask(mask: MODE_t, _vm: &VirtualMachine) -> PyResult<MODE_t> {
+    let ret_mask = unsafe { libc::umask(mask) };
+    Ok(ret_mask)
+}
+
 #[pystruct_sequence(name = "os.uname_result")]
 #[derive(Debug)]
 #[cfg(unix)]
@@ -1488,6 +1500,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "chmod", os_chmod, Some(false), Some(false), Some(false)),
         #[cfg(not(target_os = "redox"))]
         SupportFunc::new(vm, "chroot", os_chroot, Some(false), None, None),
+        SupportFunc::new(vm, "umask", os_umask, Some(false), Some(false), Some(false)),
     ]);
     let supports_fd = PySet::default().into_ref(vm);
     let supports_dir_fd = PySet::default().into_ref(vm);
