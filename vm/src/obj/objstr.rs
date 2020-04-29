@@ -50,6 +50,7 @@ use crate::vm::VirtualMachine;
 pub struct PyString {
     value: String,
     hash: AtomicCell<Option<pyhash::PyHash>>,
+    len: AtomicCell<Option<usize>>,
 }
 impl ThreadSafe for PyString {}
 
@@ -71,6 +72,7 @@ impl From<String> for PyString {
         PyString {
             value: s,
             hash: AtomicCell::default(),
+            len: AtomicCell::default(),
         }
     }
 }
@@ -294,20 +296,21 @@ impl PyString {
 
     #[pymethod(name = "__hash__")]
     fn hash(&self) -> pyhash::PyHash {
-        match self.hash.load() {
-            Some(hash) => hash,
-            None => {
-                let hash = pyhash::hash_value(&self.value);
-                self.hash.store(Some(hash));
-                hash
-            }
-        }
+        self.hash.load().unwrap_or_else(|| {
+            let hash = pyhash::hash_value(&self.value);
+            self.hash.store(Some(hash));
+            hash
+        })
     }
 
     #[pymethod(name = "__len__")]
     #[inline]
     fn len(&self) -> usize {
-        self.value.chars().count()
+        self.len.load().unwrap_or_else(|| {
+            let len = self.value.chars().count();
+            self.len.store(Some(len));
+            len
+        })
     }
 
     #[pymethod(name = "__sizeof__")]
