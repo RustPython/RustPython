@@ -83,7 +83,6 @@ impl<'a> FStringParser<'a> {
                 // format '{' PYTHON_EXPRESSION '=' FORMAT_SPECIFIER? '}'
                 '=' if self.chars.peek() != Some(&'=') => { // check for delims empty?
                     pred_expression_text = expression.to_string(); // safe expression before = to print it
-                    //  pred_expression_text contains trailing spaces, which are trimmed somewhere later before printing, this needs to be prevented orovercome here
                 }
 
                 ':' if delims.is_empty() => {
