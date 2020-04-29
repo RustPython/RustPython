@@ -1,4 +1,4 @@
-from testutils import assert_raises
+#from testutils import assert_raises
 foo = 'bar'
 
 assert f"{''}" == ''
@@ -16,6 +16,13 @@ assert f'{"!:"}' == '!:'
 assert fr'x={4*10}\n' == 'x=40\\n'
 assert f'{16:0>+#10x}' == '00000+0x10'
 assert f"{{{(lambda x: f'hello, {x}')('world}')}" == '{hello, world}'
+
+assert f'{foo=}' == 'foo=bar'
+
+num=42
+assert f'{num=}' == 'num=42'
+assert f'{num=:>10}' == 'num=        42'
+
 
 spec = "0>+#10x"
 assert f"{16:{spec}}{foo}" == '00000+0x10bar'
@@ -61,3 +68,75 @@ assert f'>{v}' == '>\u262e'
 assert f'>{v!r}' == ">'\u262e'"
 assert f'>{v!s}' == '>\u262e'
 assert f'>{v!a}' == r">'\u262e'"
+
+
+
+
+
+### Tests for fstring selfdocumenting form CPython
+
+class C:
+    def assertEqual(self, a,b):
+        assert a==b, "{0} == {1}".format(a,b)
+
+self=C()
+
+x = 'A string'
+self.assertEqual(f'{10=}', '10=10')
+self.assertEqual(f'{x=}', 'x=' + x )#repr(x)) # TODO: add  ' when printing strings
+#self.assertEqual(f'{x =}', 'x =' + x )# + repr(x)) # TODO: remove trim in impl
+# self.assertEqual(f'{x=!s}', 'x=' + str(x)) # TODO : implement format specs properly
+# self.assertEqual(f'{x=!r}', 'x=' + x) #repr(x))
+#self.assertEqual(f'{x=!a}', 'x=' + ascii(x))
+
+x = 2.71828
+self.assertEqual(f'{x=:.2f}', 'x=' + format(x, '.2f'))
+self.assertEqual(f'{x=:}', 'x=' + format(x, ''))
+# self.assertEqual(f'{x=!r:^20}', 'x=' + format(repr(x), '^20'))
+# self.assertEqual(f'{x=!s:^20}', 'x=' + format(str(x), '^20'))
+# self.assertEqual(f'{x=!a:^20}', 'x=' + format(ascii(x), '^20'))
+
+x = 9
+self.assertEqual(f'{3*x+15=}', '3*x+15=42')
+
+# There is code in ast.c that deals with non-ascii expression values.  So,
+# use a unicode identifier to trigger that.
+tenπ = 31.4
+self.assertEqual(f'{tenπ=:.2f}', 'tenπ=31.40')
+
+# Also test with Unicode in non-identifiers.
+#self.assertEqual(f'{"Σ"=}', '"Σ"=\'Σ\'') ' TODO ' missing
+
+# Make sure nested fstrings still work.
+self.assertEqual(f'{f"{3.1415=:.1f}":*^20}', '*****3.1415=3.1*****')
+
+# Make sure text before and after an expression with = works
+# correctly.
+pi = 'π'
+#self.assertEqual(f'alpha α {pi=} ω omega', "alpha α pi='π' ω omega") # ' missing around pi
+
+# Check multi-line expressions.
+#self.assertEqual(f'''{3=}''', '\n3\n=3') # TODO: multiline f strings not supported, seems to be an rustpython issue
+
+# Since = is handled specially, make sure all existing uses of
+# it still work.
+
+self.assertEqual(f'{0==1}', 'False')
+self.assertEqual(f'{0!=1}', 'True')
+self.assertEqual(f'{0<=1}', 'True')
+self.assertEqual(f'{0>=1}', 'False')
+
+# Make sure leading and following text works.
+x = 'foo'
+#self.assertEqual(f'X{x=}Y', 'Xx='+repr(x)+'Y') # TODO ' 
+self.assertEqual(f'X{x=}Y', 'Xx='+x+'Y') # just for the moment
+
+# Make sure whitespace around the = works.
+# self.assertEqual(f'X{x  =}Y', 'Xx  ='+repr(x)+'Y')  # TODO '
+# self.assertEqual(f'X{x=  }Y', 'Xx=  '+repr(x)+'Y') # TODO '
+# self.assertEqual(f'X{x  =  }Y', 'Xx  =  '+repr(x)+'Y') # TODO '
+
+# TODO remove trim
+self.assertEqual(f'X{x  =}Y', 'Xx  ='+x+'Y')
+self.assertEqual(f'X{x=  }Y', 'Xx=  '+x+'Y')
+self.assertEqual(f'X{x  =  }Y', 'Xx  =  '+x+'Y')

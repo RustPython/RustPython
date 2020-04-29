@@ -27,9 +27,36 @@ impl<'a> FStringParser<'a> {
         let mut delims = Vec::new();
         let mut conversion = None;
         let mut pred_expression_text = String::new();
+        let mut trailing_seq=String::new();
 
         while let Some(ch) = self.chars.next() {
             match ch {
+                // can be integrated better with the remainign code, but as a starting point ok
+                // in general I would do here a tokenizing of the fstrings to omit this peeking.
+                '!' if self.chars.peek() == Some(&'=') => {
+                    expression.push('!');
+                    expression.push('=');
+                    self.chars.next();
+                }
+
+                '=' if self.chars.peek() == Some(&'=') => {
+                    expression.push('=');
+                    expression.push('=');
+                    self.chars.next();
+                }
+
+                '>' if self.chars.peek() == Some(&'=') => {
+                    expression.push('>');
+                    expression.push('=');
+                    self.chars.next();
+                }
+
+                '<' if self.chars.peek() == Some(&'=') => {
+                    expression.push('<');
+                    expression.push('=');
+                    self.chars.next();
+                }
+
                 '!' if delims.is_empty() && self.chars.peek() != Some(&'=') => {
                     if expression.trim().is_empty() {
                         return Err(EmptyExpression);
@@ -54,8 +81,9 @@ impl<'a> FStringParser<'a> {
 
                 // match a python 3.8 self documenting expression
                 // format '{' PYTHON_EXPRESSION '=' FORMAT_SPECIFIER? '}'
-                '=' if self.chars.peek() != Some(&'=') => { 
-                    pred_expression_text = expression.trim().to_string(); // use expression and remove whitespace
+                '=' if self.chars.peek() != Some(&'=') => { // check for delims empty?
+                    pred_expression_text = expression.to_string(); // safe expression before = to print it
+                    //  pred_expression_text contains trailing spaces, which are trimmed somewhere later before printing, this needs to be prevented orovercome here
                 }
 
                 ':' if delims.is_empty() => {
@@ -143,7 +171,11 @@ impl<'a> FStringParser<'a> {
                         return Ok(Joined{
                                 values:vec![
                                     Constant{
-                                        value:pred_expression_text.to_owned()
+                                        value:pred_expression_text.to_owned()+"="
+                                    },
+
+                                    Constant {
+                                        value:trailing_seq.to_owned()
                                     },
 
                                     FormattedValue {
@@ -167,6 +199,11 @@ impl<'a> FStringParser<'a> {
                         }
                     }
                 }
+
+                ' ' if !pred_expression_text.is_empty() => {
+                    trailing_seq.push(ch);
+                }
+
                 _ => {
                     expression.push(ch);
                 }
@@ -370,9 +407,7 @@ mod tests {
         assert_eq!(parse_fstring("{a:{b}"), Err(UnclosedLbrace));
         assert_eq!(parse_fstring("{"), Err(UnclosedLbrace));
 
-        // TODO: which err?
-        //assert_eq!(parse_fstring("{}"), Err()); // which one?
-        assert!(parse_fstring("{}").is_err()); // take this for the moment
+        assert_eq!(parse_fstring("{}"), Err(EmptyExpression));
 
         // TODO: check for InvalidExpression enum?
         assert!(parse_fstring("{class}").is_err());
@@ -381,6 +416,27 @@ mod tests {
     #[test]
     fn test_parse_fstring_not_equals() {
         let source = String::from("{1 != 2}");
+        let parse_ast = parse_fstring(&source);
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
+    fn test_parse_fstring_equals() {
+        let source = String::from("{42 == 42}");
+        let parse_ast = parse_fstring(&source);
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
+    fn test_parse_fstring_selfdoc_prec_space() {
+        let source = String::from("{x   =}");
+        let parse_ast = parse_fstring(&source);
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
+    fn test_parse_fstring_selfdoc_trailing_space() {
+        let source = String::from("{x=   }");
         let parse_ast = parse_fstring(&source);
         assert!(parse_ast.is_ok());
     }
