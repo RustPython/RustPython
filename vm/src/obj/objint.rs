@@ -13,7 +13,6 @@ use super::objfloat;
 use super::objmemory::PyMemoryView;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::{self, PyClassRef};
-use crate::exceptions::PyBaseExceptionRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
@@ -724,26 +723,21 @@ struct IntToByteArgs {
 
 // Casting function:
 pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult<BigInt> {
-    let base_u32 = match base.to_u32() {
-        Some(base_u32) => base_u32,
-        None => {
-            return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned()))
-        }
+    let base = match base.to_u32() {
+        Some(base) if base == 0 || (2..=36).contains(&base) => base,
+        _ => return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned())),
     };
-    if base_u32 != 0 && (base_u32 < 2 || base_u32 > 36) {
-        return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned()));
-    }
 
     let bytes_to_int = |bytes: &[u8]| {
-        let s = std::str::from_utf8(bytes)
-            .map_err(|e| vm.new_value_error(format!("utf8 decode error: {}", e)))?;
-        str_to_int(vm, s, base)
+        std::str::from_utf8(bytes)
+            .ok()
+            .and_then(|s| str_to_int(s, base))
     };
 
-    match_class!(match obj.clone() {
+    let opt = match_class!(match obj.clone() {
         string @ PyString => {
             let s = string.as_str();
-            str_to_int(vm, &s, base)
+            str_to_int(&s, base)
         }
         bytes @ PyBytes => {
             let bytes = bytes.get_value();
@@ -770,36 +764,39 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult
                 )
             })?;
             let result = vm.invoke(&method, PyFuncArgs::default())?;
-            match result.payload::<PyInt>() {
+            return match result.payload::<PyInt>() {
                 Some(int_obj) => Ok(int_obj.as_bigint().clone()),
                 None => Err(vm.new_type_error(format!(
                     "TypeError: __int__ returned non-int (type '{}')",
                     result.class().name
                 ))),
-            }
+            };
         }
-    })
+    });
+    match opt {
+        Some(int) => Ok(int),
+        None => Err(vm.new_value_error(format!(
+            "invalid literal for int() with base {}: {}",
+            base,
+            vm.to_repr(obj)?,
+        ))),
+    }
 }
 
-fn str_to_int(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<BigInt> {
-    let mut buf = validate_literal(vm, literal, base)?;
+fn str_to_int(literal: &str, mut base: u32) -> Option<BigInt> {
+    let mut buf = validate_literal(literal)?.to_owned();
     let is_signed = buf.starts_with('+') || buf.starts_with('-');
     let radix_range = if is_signed { 1..3 } else { 0..2 };
     let radix_candidate = buf.get(radix_range.clone());
 
-    let mut base_u32 = match base.to_u32() {
-        Some(base_u32) => base_u32,
-        None => return Err(invalid_literal(vm, literal, base)),
-    };
-
     // try to find base
     if let Some(radix_candidate) = radix_candidate {
         if let Some(matched_radix) = detect_base(&radix_candidate) {
-            if base_u32 == 0 || base_u32 == matched_radix {
+            if base == 0 || base == matched_radix {
                 /* If base is 0 or equal radix number, it means radix is validate
                  * So change base to radix number and remove radix from literal
                  */
-                base_u32 = matched_radix;
+                base = matched_radix;
                 buf.drain(radix_range);
 
                 /* first underscore with radix is validate
@@ -808,49 +805,50 @@ fn str_to_int(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<Big
                 if buf.starts_with('_') {
                     buf.remove(0);
                 }
-            } else if (matched_radix == 2 && base_u32 < 12)
-                || (matched_radix == 8 && base_u32 < 25)
-                || (matched_radix == 16 && base_u32 < 34)
+            } else if (matched_radix == 2 && base < 12)
+                || (matched_radix == 8 && base < 25)
+                || (matched_radix == 16 && base < 34)
             {
-                return Err(invalid_literal(vm, literal, base));
+                return None;
             }
         }
     }
 
     // base still not found, try to use default
-    if base_u32 == 0 {
+    if base == 0 {
         if buf.starts_with('0') {
-            return Err(invalid_literal(vm, literal, base));
+            if buf.chars().all(|c| matches!(c, '+' | '-' | '0' | '_')) {
+                return Some(BigInt::zero());
+            }
+            return None;
         }
 
-        base_u32 = 10;
+        base = 10;
     }
 
-    BigInt::from_str_radix(&buf, base_u32).map_err(|_err| invalid_literal(vm, literal, base))
+    BigInt::from_str_radix(&buf, base).ok()
 }
 
-fn validate_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyResult<String> {
+fn validate_literal(literal: &str) -> Option<&str> {
     let trimmed = literal.trim();
     if trimmed.starts_with('_') || trimmed.ends_with('_') {
-        return Err(invalid_literal(vm, literal, base));
+        return None;
     }
 
-    let mut buf = String::with_capacity(trimmed.len());
     let mut last_tok = None;
     for c in trimmed.chars() {
         if !(c.is_ascii_alphanumeric() || c == '_' || c == '+' || c == '-') {
-            return Err(invalid_literal(vm, literal, base));
+            return None;
         }
 
         if c == '_' && Some(c) == last_tok {
-            return Err(invalid_literal(vm, literal, base));
+            return None;
         }
 
         last_tok = Some(c);
-        buf.push(c);
     }
 
-    Ok(buf)
+    Some(trimmed)
 }
 
 fn detect_base(literal: &str) -> Option<u32> {
@@ -860,13 +858,6 @@ fn detect_base(literal: &str) -> Option<u32> {
         "0b" | "0B" => Some(2),
         _ => None,
     }
-}
-
-fn invalid_literal(vm: &VirtualMachine, literal: &str, base: &BigInt) -> PyBaseExceptionRef {
-    vm.new_value_error(format!(
-        "invalid literal for int() with base {}: '{}'",
-        base, literal
-    ))
 }
 
 // Retrieve inner int value:
