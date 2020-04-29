@@ -73,10 +73,6 @@ impl<'a> FStringParser<'a> {
                             return Err(ExpectedRbrace);
                         }
                     });
-
-                    if self.chars.peek() != Some(&'}') {
-                        return Err(ExpectedRbrace);
-                    }
                 }
 
                 // match a python 3.8 self documenting expression
