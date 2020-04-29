@@ -74,12 +74,12 @@ assert f'>{v!a}' == r">'\u262e'"
 # Test format specifier after conversion flag
 #assert f'{"42"!s:<5}' == '42   ', '#' + f'{"42"!s:5}' +'#' # TODO: default alignment in cpython is left
 
-assert f'{"42"!s:<5}' == '42   ', '#' + f'{"42"!s:5}' +'#'
-assert f'{"42"!s:>5}' == '   42', '#' + f'{"42"!s:5}' +'#'
+assert f'{"42"!s:<5}' == '42   ', '#' + f'{"42"!s:<5}' +'#'
+assert f'{"42"!s:>5}' == '   42', '#' + f'{"42"!s:>5}' +'#'
 
-#assert f'{"42"=!s:5}' == '42=42   ', '#'+ f'{"42"!s:5}' +'#' # TODO add ' arround string literal in expression # TODO default alingment in cpython is left
-assert f'{"42"=!s:<5}' == '42=42   ', '#'+ f'{"42"!s:5}' +'#' # TODO add ' arround string literal in expression
-assert f'{"42"=!s:>5}' == '42=   42', '#'+ f'{"42"!s:5}' +'#' # TODO add ' arround string literal in expression
+#assert f'{"42"=!s:5}' == '42=42   ', '#'+ f'{"42"=!s:5}' +'#' # TODO add ' arround string literal in expression # TODO default alingment in cpython is left
+assert f'{"42"=!s:<5}' == '"42"=42   ', '#'+ f'{"42"=!s:<5}' +'#' # TODO add ' arround string literal in expression
+assert f'{"42"=!s:>5}' == '"42"=   42', '#'+ f'{"42"=!s:>5}' +'#' # TODO add ' arround string literal in expression
 
 
 
