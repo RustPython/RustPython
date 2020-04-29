@@ -19,6 +19,9 @@ use crate::js_module;
 use crate::wasm_builtins;
 use rustpython_compiler::mode::Mode;
 
+// Currently WASM do not support multithreading. We should change this once it is enabled.
+thread_local!(static JS_FUNC: RefCell<Option<js_sys::Function>> = RefCell::new(None));
+
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
     pub scope: RefCell<Scope>,
@@ -151,6 +154,20 @@ pub struct WASMVirtualMachine {
     pub(crate) id: String,
 }
 
+fn stdout_js_func(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    JS_FUNC.with(|func| {
+        func.borrow()
+            .as_ref()
+            .unwrap()
+            .call1(
+                &JsValue::UNDEFINED,
+                &wasm_builtins::format_print_args(vm, args)?.into(),
+            )
+            .map_err(|err| convert::js_py_typeerror(vm, err))?;
+        Ok(vm.get_none())
+    })
+}
+
 #[wasm_bindgen(js_class = VirtualMachine)]
 impl WASMVirtualMachine {
     pub(crate) fn with_unchecked<F, R>(&self, f: F) -> R
@@ -229,15 +246,8 @@ impl WASMVirtualMachine {
                 }
             } else if stdout.is_function() {
                 let func = js_sys::Function::from(stdout);
-                vm.ctx
-                    .new_method(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
-                        func.call1(
-                            &JsValue::UNDEFINED,
-                            &wasm_builtins::format_print_args(vm, args)?.into(),
-                        )
-                        .map_err(|err| convert::js_py_typeerror(vm, err))?;
-                        Ok(vm.get_none())
-                    })
+                JS_FUNC.with(|thread_func| thread_func.replace(Some(func.clone())));
+                vm.ctx.new_method(stdout_js_func)
             } else if stdout.is_null() {
                 fn noop(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
                     Ok(vm.get_none())

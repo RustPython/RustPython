@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
@@ -12,6 +14,9 @@ use rustpython_vm::{exceptions, py_serde};
 
 use crate::browser_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
+
+// Currently WASM do not support multithreading. We should change this once it is enabled.
+thread_local!(static JS_FUNC: RefCell<Option<js_sys::Function>> = RefCell::new(None));
 
 #[wasm_bindgen(inline_js = r"
 export class PyError extends Error {
@@ -149,6 +154,25 @@ pub fn pyresult_to_jsresult(vm: &VirtualMachine, result: PyResult) -> Result<JsV
         .map_err(|err| py_err_to_js_err(vm, &err))
 }
 
+fn js_func_to_py(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    JS_FUNC.with(|func| {
+        let this = Object::new();
+        for (k, v) in args.kwargs {
+            Reflect::set(&this, &k.into(), &py_to_js(vm, v)).expect("property to be settable");
+        }
+        let js_args = Array::new();
+        for v in args.args {
+            js_args.push(&py_to_js(vm, v));
+        }
+        func.borrow()
+            .as_ref()
+            .unwrap()
+            .apply(&this, &js_args)
+            .map(|val| js_to_py(vm, val))
+            .map_err(|err| js_err_to_py_err(vm, &err))
+    })
+}
+
 pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
     if js_val.is_object() {
         if let Some(promise) = js_val.dyn_ref::<Promise>() {
@@ -191,22 +215,8 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
         }
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);
-        vm.ctx
-            .new_method(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
-                let func = func.clone();
-                let this = Object::new();
-                for (k, v) in args.kwargs {
-                    Reflect::set(&this, &k.into(), &py_to_js(vm, v))
-                        .expect("property to be settable");
-                }
-                let js_args = Array::new();
-                for v in args.args {
-                    js_args.push(&py_to_js(vm, v));
-                }
-                func.apply(&this, &js_args)
-                    .map(|val| js_to_py(vm, val))
-                    .map_err(|err| js_err_to_py_err(vm, &err))
-            })
+        JS_FUNC.with(|thread_func| thread_func.replace(Some(func.clone())));
+        vm.ctx.new_method(js_func_to_py)
     } else if let Some(err) = js_val.dyn_ref::<js_sys::Error>() {
         js_err_to_py_err(vm, err).into_object()
     } else if js_val.is_undefined() {
