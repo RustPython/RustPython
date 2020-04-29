@@ -305,6 +305,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__len__")]
+    #[inline]
     fn len(&self) -> usize {
         self.value.chars().count()
     }
@@ -965,85 +966,69 @@ impl PyString {
         }
     }
 
-    fn get_fill_char<'a>(
-        rep: &'a OptionalArg<PyStringRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<&'a str> {
-        let rep_str = match rep {
-            OptionalArg::Present(ref st) => &st.value,
-            OptionalArg::Missing => " ",
-        };
-        if rep_str.len() == 1 {
-            Ok(rep_str)
-        } else {
-            Err(vm
-                .new_type_error("The fill character must be exactly one character long".to_owned()))
+    fn get_fill_char(fillchar: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult<char> {
+        match fillchar {
+            OptionalArg::Present(ref s) => {
+                let mut chars = s.value.chars();
+                let first = chars.next();
+                let second = chars.next();
+                if first.is_some() && second.is_none() {
+                    // safeness is guaranteed by upper first.is_some()
+                    Ok(first.unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() }))
+                } else {
+                    Err(vm.new_type_error(
+                        "The fill character must be exactly one character long".to_owned(),
+                    ))
+                }
+            }
+            OptionalArg::Missing => Ok(' '),
         }
     }
 
-    #[pymethod]
-    fn ljust(
+    #[inline]
+    fn pad(
         &self,
-        len: usize,
-        rep: OptionalArg<PyStringRef>,
+        width: isize,
+        fillchar: OptionalArg<PyStringRef>,
+        pad: fn(&str, usize, char) -> String,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        let value = &self.value;
-        let rep_char = Self::get_fill_char(&rep, vm)?;
-        if len <= value.len() {
-            Ok(value.to_owned())
+        let fillchar = Self::get_fill_char(fillchar, vm)?;
+        Ok(if self.len() as isize >= width {
+            String::from(&self.value)
         } else {
-            Ok(format!("{}{}", value, rep_char.repeat(len - value.len())))
-        }
-    }
-
-    #[pymethod]
-    fn rjust(
-        &self,
-        len: usize,
-        rep: OptionalArg<PyStringRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
-        let value = &self.value;
-        let rep_char = Self::get_fill_char(&rep, vm)?;
-        if len <= value.len() {
-            Ok(value.to_owned())
-        } else {
-            Ok(format!("{}{}", rep_char.repeat(len - value.len()), value))
-        }
+            pad(&self.value, width as usize, fillchar)
+        })
     }
 
     #[pymethod]
     fn center(
         &self,
-        len: usize,
-        rep: OptionalArg<PyStringRef>,
+        width: isize,
+        fillchar: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        let value = &self.value;
-        let rep_char = Self::get_fill_char(&rep, vm)?;
-        let value_len = self.value.chars().count();
+        self.pad(width, fillchar, PyCommonString::<char>::py_center, vm)
+    }
 
-        if len <= value_len {
-            return Ok(value.to_owned());
-        }
-        let diff: usize = len - value_len;
-        let mut left_buff: usize = diff / 2;
-        let mut right_buff: usize = left_buff;
+    #[pymethod]
+    fn ljust(
+        &self,
+        width: isize,
+        fillchar: OptionalArg<PyStringRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        self.pad(width, fillchar, PyCommonString::<char>::py_ljust, vm)
+    }
 
-        if diff % 2 != 0 && value_len % 2 == 0 {
-            left_buff += 1
-        }
-
-        if diff % 2 != 0 && value_len % 2 != 0 {
-            right_buff += 1
-        }
-        Ok(format!(
-            "{}{}{}",
-            rep_char.repeat(left_buff),
-            value,
-            rep_char.repeat(right_buff)
-        ))
+    #[pymethod]
+    fn rjust(
+        &self,
+        width: isize,
+        fillchar: OptionalArg<PyStringRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        self.pad(width, fillchar, PyCommonString::<char>::py_rjust, vm)
     }
 
     #[pymethod]
@@ -1750,16 +1735,39 @@ impl PyCommonStringWrapper<str> for PyStringRef {
 }
 
 impl PyCommonString<char> for str {
-    fn get_slice(&self, range: std::ops::Range<usize>) -> &Self {
+    type Container = String;
+
+    fn with_capacity(capacity: usize) -> Self::Container {
+        String::with_capacity(capacity)
+    }
+
+    fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
         &self[range]
+    }
+
+    fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
+        let mut chars = self.chars();
+        for _ in 0..range.start {
+            let _ = chars.next();
+        }
+        let start = chars.as_str();
+        for _ in range {
+            let _ = chars.next();
+        }
+        let end = chars.as_str();
+        &start[..start.len() - end.len()]
     }
 
     fn is_empty(&self) -> bool {
         Self::is_empty(self)
     }
 
-    fn len(&self) -> usize {
+    fn bytes_len(&self) -> usize {
         Self::len(self)
+    }
+
+    fn chars_len(&self) -> usize {
+        self.chars().count()
     }
 
     fn py_split_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
@@ -1812,5 +1820,13 @@ impl PyCommonString<char> for str {
             splited.push(convert(&self[..last_offset]));
         }
         splited
+    }
+
+    fn py_pad(&self, left: usize, right: usize, fill: char) -> Self::Container {
+        let mut u = String::with_capacity((left + right) * fill.len_utf8() + self.len());
+        u.extend(std::iter::repeat(fill).take(left));
+        u.push_str(self);
+        u.extend(std::iter::repeat(fill).take(right));
+        u
     }
 }

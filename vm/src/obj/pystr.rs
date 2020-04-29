@@ -114,8 +114,14 @@ where
 }
 
 pub trait PyCommonString<E> {
-    fn get_slice(&self, range: std::ops::Range<usize>) -> &Self;
-    fn len(&self) -> usize;
+    type Container;
+
+    fn with_capacity(capacity: usize) -> Self::Container;
+    fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
+    // FIXME: get_chars is expensive for str
+    fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
+    fn bytes_len(&self) -> usize;
+    fn chars_len(&self) -> usize;
     fn is_empty(&self) -> bool;
 
     fn py_split<T, SP, SN, SW, R>(
@@ -164,9 +170,9 @@ pub trait PyCommonString<E> {
         T: TryFromObject,
         F: Fn(&Self, &T) -> bool,
     {
-        let (affix, range) = args.get_value(self.len());
+        let (affix, range) = args.get_value(self.bytes_len());
         if range.is_normal() {
-            let value = self.get_slice(range);
+            let value = self.get_bytes(range);
             single_or_tuple_any(
                 affix,
                 |s: &T| Ok(func(value, s)),
@@ -212,7 +218,7 @@ pub trait PyCommonString<E> {
     {
         if range.is_normal() {
             let start = range.start;
-            if let Some(index) = find(self.get_slice(range), &needle) {
+            if let Some(index) = find(self.get_chars(range), &needle) {
                 return Some(start + index);
             }
         }
@@ -225,9 +231,25 @@ pub trait PyCommonString<E> {
         F: Fn(&Self, &Self) -> usize,
     {
         if range.is_normal() {
-            count(self.get_slice(range), &needle)
+            count(self.get_chars(range), &needle)
         } else {
             0
         }
+    }
+
+    fn py_pad(&self, left: usize, right: usize, fillchar: E) -> Self::Container;
+
+    fn py_center(&self, width: usize, fillchar: E) -> Self::Container {
+        let marg = width - self.chars_len();
+        let left = marg / 2 + (marg & width & 1);
+        self.py_pad(left, marg - left, fillchar)
+    }
+
+    fn py_ljust(&self, width: usize, fillchar: E) -> Self::Container {
+        self.py_pad(0, width - self.chars_len(), fillchar)
+    }
+
+    fn py_rjust(&self, width: usize, fillchar: E) -> Self::Container {
+        self.py_pad(width - self.chars_len(), 0, fillchar)
     }
 }

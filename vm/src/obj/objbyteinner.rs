@@ -1,6 +1,5 @@
 use bstr::ByteSlice;
 use num_bigint::{BigInt, ToBigInt};
-use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::convert::TryFrom;
 use std::ops::Range;
@@ -179,25 +178,17 @@ impl ByteInnerFindOptions {
 #[derive(FromArgs)]
 pub struct ByteInnerPaddingOptions {
     #[pyarg(positional_only, optional = false)]
-    width: PyIntRef,
+    width: isize,
     #[pyarg(positional_only, optional = true)]
-    fillbyte: OptionalArg<PyObjectRef>,
+    fillchar: OptionalArg<PyObjectRef>,
 }
+
 impl ByteInnerPaddingOptions {
-    fn get_value(self, fn_name: &str, len: usize, vm: &VirtualMachine) -> PyResult<(u8, usize)> {
-        let fillbyte = if let OptionalArg::Present(v) = &self.fillbyte {
-            match try_as_byte(&v) {
-                Some(x) => {
-                    if x.len() == 1 {
-                        x[0]
-                    } else {
-                        return Err(vm.new_type_error(format!(
-                            "{}() argument 2 must be a byte string of length 1, not {}",
-                            fn_name, &v
-                        )));
-                    }
-                }
-                None => {
+    fn get_value(self, fn_name: &str, vm: &VirtualMachine) -> PyResult<(isize, u8)> {
+        let fillchar = if let OptionalArg::Present(v) = self.fillchar {
+            match try_as_byte(v.clone()) {
+                Some(x) if x.len() == 1 => x[0],
+                _ => {
                     return Err(vm.new_type_error(format!(
                         "{}() argument 2 must be a byte string of length 1, not {}",
                         fn_name, &v
@@ -208,20 +199,7 @@ impl ByteInnerPaddingOptions {
             b' ' // default is space
         };
 
-        // <0 = no change
-        let width = if let Some(x) = self.width.as_bigint().to_usize() {
-            if x <= len {
-                0
-            } else {
-                x
-            }
-        } else {
-            0
-        };
-
-        let diff: usize = if width != 0 { width - len } else { 0 };
-
-        Ok((fillbyte, diff))
+        Ok((self.width, fillchar))
     }
 }
 
@@ -724,30 +702,27 @@ impl PyByteInner {
             .collect::<Vec<u8>>())
     }
 
+    #[inline]
+    fn pad(
+        &self,
+        options: ByteInnerPaddingOptions,
+        pad: fn(&[u8], usize, u8) -> Vec<u8>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let (width, fillchar) = options.get_value("center", vm)?;
+        Ok(if self.len() as isize >= width {
+            Vec::from(&self.elements[..])
+        } else {
+            pad(&self.elements, width as usize, fillchar)
+        })
+    }
+
     pub fn center(
         &self,
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let (fillbyte, diff) = options.get_value("center", self.len(), vm)?;
-
-        let mut ln: usize = diff / 2;
-        let mut rn: usize = ln;
-
-        if diff.is_odd() && self.len() % 2 == 0 {
-            ln += 1
-        }
-
-        if diff.is_odd() && self.len() % 2 != 0 {
-            rn += 1
-        }
-
-        // merge all
-        let mut res = vec![fillbyte; ln];
-        res.extend_from_slice(&self.elements[..]);
-        res.extend_from_slice(&vec![fillbyte; rn][..]);
-
-        Ok(res)
+        self.pad(options, PyCommonString::<u8>::py_center, vm)
     }
 
     pub fn ljust(
@@ -755,14 +730,7 @@ impl PyByteInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let (fillbyte, diff) = options.get_value("ljust", self.len(), vm)?;
-
-        // merge all
-        let mut res = vec![];
-        res.extend_from_slice(&self.elements[..]);
-        res.extend_from_slice(&vec![fillbyte; diff][..]);
-
-        Ok(res)
+        self.pad(options, PyCommonString::<u8>::py_ljust, vm)
     }
 
     pub fn rjust(
@@ -770,13 +738,7 @@ impl PyByteInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let (fillbyte, diff) = options.get_value("rjust", self.len(), vm)?;
-
-        // merge all
-        let mut res = vec![fillbyte; diff];
-        res.extend_from_slice(&self.elements[..]);
-
-        Ok(res)
+        self.pad(options, PyCommonString::<u8>::py_rjust, vm)
     }
 
     pub fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
@@ -1130,7 +1092,9 @@ impl PyByteInner {
         {
             return Err(vm.new_overflow_error("replace bytes is too long".to_owned()));
         }
-        let result_len = self.elements.len() + count * (to.len() - from.len());
+        let result_len = (self.elements.len() as isize
+            + count as isize * (to.len() as isize - from.len() as isize))
+            as usize;
 
         let mut result = Vec::with_capacity(result_len);
         let mut last_end = 0;
@@ -1259,8 +1223,8 @@ impl PyByteInner {
     }
 }
 
-pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
-    match_class!(match obj.clone() {
+pub fn try_as_byte(obj: PyObjectRef) -> Option<Vec<u8>> {
+    match_class!(match obj {
         i @ PyBytes => Some(i.get_value().to_vec()),
         j @ PyByteArray => Some(j.borrow_value().elements.to_vec()),
         _ => None,
@@ -1350,7 +1314,17 @@ impl PyCommonStringWrapper<[u8]> for PyByteInner {
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
 impl PyCommonString<u8> for [u8] {
-    fn get_slice(&self, range: std::ops::Range<usize>) -> &Self {
+    type Container = Vec<u8>;
+
+    fn with_capacity(capacity: usize) -> Self::Container {
+        Vec::with_capacity(capacity)
+    }
+
+    fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
+        &self[range]
+    }
+
+    fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
         &self[range]
     }
 
@@ -1358,7 +1332,11 @@ impl PyCommonString<u8> for [u8] {
         Self::is_empty(self)
     }
 
-    fn len(&self) -> usize {
+    fn bytes_len(&self) -> usize {
+        Self::len(self)
+    }
+
+    fn chars_len(&self) -> usize {
         Self::len(self)
     }
 
@@ -1406,5 +1384,13 @@ impl PyCommonString<u8> for [u8] {
             splited.push(convert(haystack));
         }
         splited
+    }
+
+    fn py_pad(&self, left: usize, right: usize, fill: u8) -> Self::Container {
+        let mut u = Vec::with_capacity(left + self.len() + right);
+        u.extend(std::iter::repeat(fill).take(left));
+        u.extend_from_slice(self);
+        u.extend(std::iter::repeat(fill).take(right));
+        u
     }
 }

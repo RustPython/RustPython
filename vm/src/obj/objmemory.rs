@@ -18,7 +18,7 @@ pub type PyMemoryViewRef = PyRef<PyMemoryView>;
 #[pyimpl]
 impl PyMemoryView {
     pub fn try_value(&self) -> Option<Vec<u8>> {
-        try_as_byte(&self.obj_ref)
+        try_as_byte(self.obj_ref.clone())
     }
 
     #[pyslot]
