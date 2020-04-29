@@ -23,18 +23,14 @@ fn rlock_enter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(instance.clone())
 }
 
-fn rlock_exit(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        // The context manager protocol requires these, but we don't use them
-        required = [
-            (_instance, None),
-            (_exception_type, None),
-            (_exception_value, None),
-            (_traceback, None)
-        ]
-    );
+fn rlock_exit(
+    // The context manager protocol requires these, but we don't use them
+    _instance: PyObjectRef,
+    _exception_type: PyObjectRef,
+    _exception_value: PyObjectRef,
+    _traceback: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult {
     Ok(vm.get_none())
 }
 
