@@ -651,7 +651,14 @@ fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
             }
         }
     } else {
-        return Err(vm.new_type_error(format!("can't convert {} to float", obj.class().name)));
+        let method = vm.get_method_or_type_error(obj.clone(), "__float__", || {
+            format!(
+                "float() argument must be a string or a number, not '{}'",
+                obj.class().name
+            )
+        })?;
+        let result = vm.invoke(&method, vec![])?;
+        PyFloatRef::try_from_object(vm, result)?.to_f64()
     };
     Ok(value)
 }
@@ -712,21 +719,6 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
     obj.payload::<PyFloat>().unwrap().value
 }
 
-fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
-    if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
-        Ok(float.value)
-    } else {
-        let method = vm.get_method_or_type_error(obj.clone(), "__float__", || {
-            format!(
-                "float() argument must be a string or a number, not '{}'",
-                obj.class().name
-            )
-        })?;
-        let result = vm.invoke(&method, vec![])?;
-        Ok(get_value(&result))
-    }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct IntoPyFloat {
     value: f64,
@@ -741,7 +733,7 @@ impl IntoPyFloat {
 impl TryFromObject for IntoPyFloat {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         Ok(IntoPyFloat {
-            value: make_float(vm, &obj)?,
+            value: to_float(vm, &obj)?,
         })
     }
 }

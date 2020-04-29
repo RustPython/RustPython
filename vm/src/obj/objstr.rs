@@ -1173,13 +1173,8 @@ impl PyString {
     }
 
     #[pymethod]
-    fn encode(
-        zelf: PyRef<Self>,
-        encoding: OptionalArg<PyStringRef>,
-        errors: OptionalArg<PyStringRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyBytesRef> {
-        encode_string(zelf, encoding.into_option(), errors.into_option(), vm)
+    fn encode(zelf: PyRef<Self>, args: EncodeArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        encode_string(zelf, args.encoding, args.errors, vm)
     }
 
     #[pymethod(magic)]
@@ -1199,6 +1194,14 @@ impl PyString {
             string: zelf,
         }
     }
+}
+
+#[derive(FromArgs)]
+struct EncodeArgs {
+    #[pyarg(positional_or_keyword, default = "None")]
+    encoding: Option<PyStringRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    errors: Option<PyStringRef>,
 }
 
 pub(crate) fn encode_string(

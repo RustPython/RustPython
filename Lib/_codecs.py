@@ -115,7 +115,7 @@ def encode(v, encoding=None, errors='strict'):
     if not isinstance(errors, str):
         raise TypeError("Errors must be a string")
     codec = lookup(encoding)
-    res = codec.encode(v, errors)
+    res = codec[0](v, errors)
     if not isinstance(res, tuple) or len(res) != 2:
         raise TypeError("encoder must return a tuple (object, integer)")
     return res[0]
@@ -137,7 +137,7 @@ def decode(obj, encoding=None, errors='strict'):
     if not isinstance(errors, str):
         raise TypeError("Errors must be a string")
     codec = lookup(encoding)
-    res = codec.decode(obj, errors)
+    res = codec[1](obj, errors)
     if not isinstance(res, tuple) or len(res) != 2:
         raise TypeError("encoder must return a tuple (object, integer)")
     return res[0]
@@ -1347,7 +1347,7 @@ def unicode_encode_ucs1(p, size, errors, limit):
             while collend < len(p) and ord(p[collend]) >= limit:
                 collend += 1
             x = unicode_call_errorhandler(errors, encoding, reason, p, collstart, collend, False)
-            res += str(x[0])
+            res += x[0].encode()
             pos = x[1]
     
     return res
@@ -1406,8 +1406,8 @@ def PyUnicode_DecodeUnicodeEscape(s, size, errors):
     pos = 0
     while (pos < size): 
 ##        /* Non-escape characters are interpreted as Unicode ordinals */
-        if (s[pos] != '\\') :
-            p += chr(ord(s[pos]))
+        if (chr(s[pos]) != '\\') :
+            p += chr(s[pos])
             pos += 1
             continue
 ##        /* \ - Escapes */
@@ -1416,7 +1416,7 @@ def PyUnicode_DecodeUnicodeEscape(s, size, errors):
             if pos >= len(s):
                 errmessage = "\\ at end of string"
                 unicode_call_errorhandler(errors, "unicodeescape", errmessage, s, pos-1, size)
-            ch = s[pos]
+            ch = chr(s[pos])
             pos += 1
     ##        /* \x escapes */
             if ch == '\\'  : p += '\\'
@@ -1469,24 +1469,24 @@ def PyUnicode_DecodeUnicodeEscape(s, size, errors):
 ##        /* \N{name} */
             elif ch == 'N':
                 message = "malformed \\N character escape"
-                #pos += 1
+                # pos += 1
                 look = pos
                 try:
                     import unicodedata
                 except ImportError:
                     message = "\\N escapes not supported (can't load unicodedata module)"
                     unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-1, size)
-                if look < size and s[look] == '{':
+                if look < size and chr(s[look]) == '{':
                     #/* look for the closing brace */
-                    while (look < size and s[look] != '}'):
+                    while (look < size and chr(s[look]) != '}'):
                         look += 1
-                    if (look > pos+1 and look < size and s[look] == '}'):
+                    if (look > pos+1 and look < size and chr(s[look]) == '}'):
                         #/* found a name.  look it up in the unicode database */
                         message = "unknown Unicode character name"
                         st = s[pos+1:look]
                         try:
                             chr = unicodedata.lookup("%s" % st)
-                        except KeyError as e:
+                        except LookupError as e:
                             x = unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-1, look+1)
                         else:
                             x = chr, look + 1 
