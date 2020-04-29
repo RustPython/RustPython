@@ -77,9 +77,9 @@ assert f'>{v!a}' == r">'\u262e'"
 assert f'{"42"!s:<5}' == '42   ', '#' + f'{"42"!s:<5}' +'#'
 assert f'{"42"!s:>5}' == '   42', '#' + f'{"42"!s:>5}' +'#'
 
-#assert f'{"42"=!s:5}' == '42=42   ', '#'+ f'{"42"=!s:5}' +'#' # TODO add ' arround string literal in expression # TODO default alingment in cpython is left
-assert f'{"42"=!s:<5}' == '"42"=42   ', '#'+ f'{"42"=!s:<5}' +'#' # TODO add ' arround string literal in expression
-assert f'{"42"=!s:>5}' == '"42"=   42', '#'+ f'{"42"=!s:>5}' +'#' # TODO add ' arround string literal in expression
+#assert f'{"42"=!s:5}' == '"42"=42   ', '#'+ f'{"42"=!s:5}' +'#' # TODO default alingment in cpython is left
+assert f'{"42"=!s:<5}' == '"42"=42   ', '#'+ f'{"42"=!s:<5}' +'#'
+assert f'{"42"=!s:>5}' == '"42"=   42', '#'+ f'{"42"=!s:>5}' +'#'
 
 
 
@@ -95,16 +95,16 @@ x = 'A string'
 self.assertEqual(f'{10=}', '10=10')
 self.assertEqual(f'{x=}', 'x=' + x )#repr(x)) # TODO: add  ' when printing strings
 self.assertEqual(f'{x =}', 'x =' + x )# + repr(x)) # TODO: implement '  handling
-self.assertEqual(f'{x=!s}', 'x=' + str(x)) # TODO : implement format specs properly
+self.assertEqual(f'{x=!s}', 'x=' + str(x))
 # self.assertEqual(f'{x=!r}', 'x=' + x) #repr(x))
 self.assertEqual(f'{x=!a}', 'x=' + ascii(x))
 
 x = 2.71828
 self.assertEqual(f'{x=:.2f}', 'x=' + format(x, '.2f'))
 self.assertEqual(f'{x=:}', 'x=' + format(x, ''))
-#self.assertEqual(f'{x=!r:^20}', 'x=' + format(repr(x), '^20')) #TODO formatspecifier after conversion flsg is currently not supported (also for classical fstrings)
-#self.assertEqual(f'{x=!s:^20}', 'x=' + format(str(x), '^20'))
-#self.assertEqual(f'{x=!a:^20}', 'x=' + format(ascii(x), '^20'))
+self.assertEqual(f'{x=!r:^20}', 'x=' + format(repr(x), '^20')) #TODO formatspecifier after conversion flsg is currently not supported (also for classical fstrings)
+self.assertEqual(f'{x=!s:^20}', 'x=' + format(str(x), '^20'))
+self.assertEqual(f'{x=!a:^20}', 'x=' + format(ascii(x), '^20'))
 
 x = 9
 self.assertEqual(f'{3*x+15=}', '3*x+15=42')
@@ -146,7 +146,7 @@ self.assertEqual(f'X{x=}Y', 'Xx='+x+'Y') # just for the moment
 # self.assertEqual(f'X{x=  }Y', 'Xx=  '+repr(x)+'Y') # TODO '
 # self.assertEqual(f'X{x  =  }Y', 'Xx  =  '+repr(x)+'Y') # TODO '
 
-# TODO remove trim
+
 self.assertEqual(f'X{x  =}Y', 'Xx  ='+x+'Y')
 self.assertEqual(f'X{x=  }Y', 'Xx=  '+x+'Y')
 self.assertEqual(f'X{x  =  }Y', 'Xx  =  '+x+'Y')
