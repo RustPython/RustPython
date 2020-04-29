@@ -1281,13 +1281,13 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
 }
 
 #[cfg(target_os = "linux")]
-type MODE_t = u32;
+type ModeT = u32;
 
 #[cfg(target_os = "macos")]
-type MODE_t = u16;
+type ModeT = u16;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-fn os_umask(mask: MODE_t, _vm: &VirtualMachine) -> PyResult<MODE_t> {
+fn os_umask(mask: ModeT, _vm: &VirtualMachine) -> PyResult<ModeT> {
     let ret_mask = unsafe { libc::umask(mask) };
     Ok(ret_mask)
 }
