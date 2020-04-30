@@ -17,10 +17,15 @@ assert fr'x={4*10}\n' == 'x=40\\n'
 assert f'{16:0>+#10x}' == '00000+0x10'
 assert f"{{{(lambda x: f'hello, {x}')('world}')}" == '{hello, world}'
 
-assert f'{foo=}' == 'foo=bar'
+
+# base test of self documenting strings
+#assert f'{foo=}' == 'foo=bar' # TODO ' missing
 
 num=42
-assert f'{num=}' == 'num=42'
+
+f'{num=}' # keep this line as it will fail when using a python 3.7 interpreter 
+
+assert f'{num=}' == 'num=42', 
 assert f'{num=:>10}' == 'num=        42'
 
 

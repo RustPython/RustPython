@@ -73,6 +73,11 @@ impl<'a> FStringParser<'a> {
                             return Err(ExpectedRbrace);
                         }
                     });
+
+                    let peek = self.chars.peek();
+                    if peek != Some(&'}') && peek != Some(&':') {
+                        return Err(ExpectedRbrace);
+                    }
                 }
 
                 // match a python 3.8 self documenting expression
@@ -383,6 +388,7 @@ mod tests {
     #[test]
     fn test_parse_invalid_fstring() {
         assert_eq!(parse_fstring("{5!a"), Err(ExpectedRbrace));
+
         assert_eq!(parse_fstring("{5!a1}"), Err(ExpectedRbrace));
         assert_eq!(parse_fstring("{5!"), Err(ExpectedRbrace));
 
