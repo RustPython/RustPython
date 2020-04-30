@@ -816,63 +816,35 @@ impl PyString {
     }
 
     #[inline]
-    fn _find<F>(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        find: F,
-    ) -> Option<usize>
+    fn _find<F>(&self, args: FindArgs, find: F) -> Option<usize>
     where
         F: Fn(&str, &str) -> Option<usize>,
     {
-        let range = adjust_indices(start, end, self.value.len());
+        let (sub, range) = args.get_value(self.len());
         self.value.py_find(&sub.value, range, find)
     }
 
     #[pymethod]
-    fn find(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-    ) -> isize {
-        self._find(sub, start, end, |r, s| r.find(s))
+    fn find(&self, args: FindArgs) -> isize {
+        self._find(args, |r, s| r.find(s))
             .map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
-    fn rfind(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-    ) -> isize {
-        self._find(sub, start, end, |r, s| r.rfind(s))
+    fn rfind(&self, args: FindArgs) -> isize {
+        self._find(args, |r, s| r.rfind(s))
             .map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
-    fn index(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
-        self._find(sub, start, end, |r, s| r.find(s))
+    fn index(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        self._find(args, |r, s| r.find(s))
             .ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
     #[pymethod]
-    fn rindex(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
-        self._find(sub, start, end, |r, s| r.rfind(s))
+    fn rindex(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        self._find(args, |r, s| r.rfind(s))
             .ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
@@ -947,15 +919,10 @@ impl PyString {
     }
 
     #[pymethod]
-    fn count(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-    ) -> usize {
-        let range = adjust_indices(start, end, self.value.len());
+    fn count(&self, args: FindArgs) -> usize {
+        let (needle, range) = args.get_value(self.len());
         self.value
-            .py_count(&sub.value, range, |h, n| h.matches(n).count())
+            .py_count(&needle.value, range, |h, n| h.matches(n).count())
     }
 
     #[pymethod]
@@ -1255,6 +1222,23 @@ impl TryFromObject for std::ffi::CString {
 }
 
 type SplitArgs = pystr::SplitArgs<PyStringRef, str, char>;
+
+#[derive(FromArgs)]
+pub struct FindArgs {
+    #[pyarg(positional_only, optional = false)]
+    sub: PyStringRef,
+    #[pyarg(positional_only, default = "None")]
+    start: Option<PyIntRef>,
+    #[pyarg(positional_only, default = "None")]
+    end: Option<PyIntRef>,
+}
+
+impl FindArgs {
+    fn get_value(self, len: usize) -> (PyStringRef, std::ops::Range<usize>) {
+        let range = adjust_indices(self.start, self.end, len);
+        (self.sub, range)
+    }
+}
 
 pub fn init(ctx: &PyContext) {
     PyString::extend_class(ctx, &ctx.types.str_type);

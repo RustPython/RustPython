@@ -154,10 +154,10 @@ impl ByteInnerNewOptions {
 pub struct ByteInnerFindOptions {
     #[pyarg(positional_only, optional = false)]
     sub: Either<PyByteInner, PyIntRef>,
-    #[pyarg(positional_only, optional = true)]
-    start: OptionalArg<Option<isize>>,
-    #[pyarg(positional_only, optional = true)]
-    end: OptionalArg<Option<isize>>,
+    #[pyarg(positional_only, default = "None")]
+    start: Option<PyIntRef>,
+    #[pyarg(positional_only, default = "None")]
+    end: Option<PyIntRef>,
 }
 
 impl ByteInnerFindOptions {

@@ -1,7 +1,8 @@
 use crate::function::{single_or_tuple_any, OptionalOption};
+use crate::obj::objint::PyIntRef;
 use crate::pyobject::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
-use num_traits::cast::ToPrimitive;
+use num_traits::{cast::ToPrimitive, sign::Signed};
 
 #[derive(FromArgs)]
 pub struct SplitArgs<T, S, E>
@@ -58,10 +59,10 @@ impl ExpandTabsArgs {
 pub struct StartsEndsWithArgs {
     #[pyarg(positional_only, optional = false)]
     affix: PyObjectRef,
-    #[pyarg(positional_only, optional = true)]
-    start: OptionalOption<isize>,
-    #[pyarg(positional_only, optional = true)]
-    end: OptionalOption<isize>,
+    #[pyarg(positional_only, default = "None")]
+    start: Option<PyIntRef>,
+    #[pyarg(positional_only, default = "None")]
+    end: Option<PyIntRef>,
 }
 
 impl StartsEndsWithArgs {
@@ -71,14 +72,25 @@ impl StartsEndsWithArgs {
     }
 }
 
+fn cap_to_isize(py_int: PyIntRef) -> isize {
+    let big = py_int.as_bigint();
+    big.to_isize().unwrap_or_else(|| {
+        if big.is_negative() {
+            std::isize::MIN
+        } else {
+            std::isize::MAX
+        }
+    })
+}
+
 // help get optional string indices
 pub fn adjust_indices(
-    start: OptionalOption<isize>,
-    end: OptionalOption<isize>,
+    start: Option<PyIntRef>,
+    end: Option<PyIntRef>,
     len: usize,
 ) -> std::ops::Range<usize> {
-    let mut start = start.flat_option().unwrap_or(0);
-    let mut end = end.flat_option().unwrap_or(len as isize);
+    let mut start = start.map_or(0, cap_to_isize);
+    let mut end = end.map_or(len as isize, cap_to_isize);
     if end > len as isize {
         end = len as isize;
     } else if end < 0 {
