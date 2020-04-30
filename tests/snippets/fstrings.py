@@ -1,4 +1,20 @@
-#from testutils import assert_raises
+from testutils import assert_raises
+
+#test only makes sense with python 3.8 or higher (or RustPython)
+import sys
+import platform
+if platform.python_implementation() == 'CPython':
+    assert sys.version_info.major == 3, 'Incompatible Python Version, expected CPython 3.8 or later'
+    assert sys.version_info.minor == 8, 'Incompatible Python Version, expected CPython 3.8 or later'
+elif platform.python_implementation == 'RustPython':
+    # ok
+    pass
+else:
+    # other implementation - lets give it a try
+    pass
+
+
+# lets start tersing
 foo = 'bar'
 
 assert f"{''}" == ''
@@ -25,7 +41,7 @@ num=42
 
 f'{num=}' # keep this line as it will fail when using a python 3.7 interpreter 
 
-assert f'{num=}' == 'num=42', 
+assert f'{num=}' == 'num=42'
 assert f'{num=:>10}' == 'num=        42'
 
 

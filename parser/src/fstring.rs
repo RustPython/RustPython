@@ -171,10 +171,10 @@ impl<'a> FStringParser<'a> {
                         return Ok(Joined {
                             values: vec![
                                 Constant {
-                                    value: pred_expression_text.to_owned() + "=",
+                                    value: pred_expression_text + "=",
                                 },
                                 Constant {
-                                    value: trailing_seq.to_owned(),
+                                    value: trailing_seq,
                                 },
                                 FormattedValue {
                                     value: Box::new(
