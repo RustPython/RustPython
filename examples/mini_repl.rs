@@ -6,8 +6,7 @@
 use rustpython_compiler as compiler;
 use rustpython_vm as vm;
 // these are needed for special memory shenanigans to let us share a variable with Python and Rust
-use std::cell::Cell;
-use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 // this needs to be in scope in order to insert things into scope.globals
 use vm::pyobject::ItemProtocol;
 
@@ -53,12 +52,13 @@ macro_rules! add_python_function {
     }};
 }
 
-fn main() -> vm::pyobject::PyResult<()> {
-    // you can also use a raw pointer instead of Rc<Cell<_>>, but that requires usage of unsafe.
-    // both methods are ways of circumnavigating the fact that Python doesn't respect Rust's borrow
-    // checking rules.
-    let on: Rc<Cell<bool>> = Rc::new(Cell::new(true));
+static ON: AtomicBool = AtomicBool::new(false);
 
+fn on(b: bool) {
+    ON.store(b, Ordering::Relaxed);
+}
+
+fn main() -> vm::pyobject::PyResult<()> {
     let mut input = String::with_capacity(50);
     let stdin = std::io::stdin();
 
@@ -66,14 +66,9 @@ fn main() -> vm::pyobject::PyResult<()> {
     let scope: vm::scope::Scope = vm.new_scope_with_builtins();
 
     // typing `quit()` is too long, let's make `on(False)` work instead.
-    scope.globals.set_item(
-        "on",
-        vm.context().new_function({
-            let on = Rc::clone(&on);
-            move |b: bool| on.set(b)
-        }),
-        &vm,
-    )?;
+    scope
+        .globals
+        .set_item("on", vm.context().new_function(on), &vm)?;
 
     // let's include a fibonacci function, but let's be lazy and write it in Python
     add_python_function!(
@@ -84,7 +79,7 @@ fn main() -> vm::pyobject::PyResult<()> {
         r#"def fib(n): return n if n <= 1 else fib(n - 1) + fib(n - 2)"#
     )?;
 
-    while on.get() {
+    while ON.load(Ordering::Relaxed) {
         input.clear();
         stdin
             .read_line(&mut input)

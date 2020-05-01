@@ -4,15 +4,15 @@
 use super::objtype::PyClassRef;
 use crate::function::{FunctionBox, OptionalArg, OwnedParam, RefParam};
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+    TryFromObject, TypeProtocol,
 };
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
 
-pub type PyGetterFunc = FunctionBox<dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult>;
+pub type PyGetterFunc = FunctionBox<dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult + Send + Sync>;
 pub type PySetterFunc =
-    FunctionBox<dyn Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult<()>>;
+    FunctionBox<dyn Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult<()> + Send + Sync>;
 
 pub trait IntoPyGetterFunc<T> {
     fn into_getter(self) -> PyGetterFunc;
@@ -20,7 +20,7 @@ pub trait IntoPyGetterFunc<T> {
 
 impl<F, T, R> IntoPyGetterFunc<(OwnedParam<T>, R, VirtualMachine)> for F
 where
-    F: Fn(T, &VirtualMachine) -> R + 'static,
+    F: Fn(T, &VirtualMachine) -> R + 'static + Send + Sync,
     T: TryFromObject,
     R: IntoPyObject,
 {
@@ -34,7 +34,7 @@ where
 
 impl<F, S, R> IntoPyGetterFunc<(RefParam<S>, R, VirtualMachine)> for F
 where
-    F: Fn(&S, &VirtualMachine) -> R + 'static,
+    F: Fn(&S, &VirtualMachine) -> R + 'static + Send + Sync,
     S: PyValue,
     R: IntoPyObject,
 {
@@ -48,7 +48,7 @@ where
 
 impl<F, T, R> IntoPyGetterFunc<(OwnedParam<T>, R)> for F
 where
-    F: Fn(T) -> R + 'static,
+    F: Fn(T) -> R + 'static + Send + Sync,
     T: TryFromObject,
     R: IntoPyObject,
 {
@@ -59,7 +59,7 @@ where
 
 impl<F, S, R> IntoPyGetterFunc<(RefParam<S>, R)> for F
 where
-    F: Fn(&S) -> R + 'static,
+    F: Fn(&S) -> R + 'static + Send + Sync,
     S: PyValue,
     R: IntoPyObject,
 {
@@ -90,7 +90,7 @@ pub trait IntoPySetterFunc<T> {
 
 impl<F, T, V, R> IntoPySetterFunc<(OwnedParam<T>, V, R, VirtualMachine)> for F
 where
-    F: Fn(T, V, &VirtualMachine) -> R + 'static,
+    F: Fn(T, V, &VirtualMachine) -> R + 'static + Send + Sync,
     T: TryFromObject,
     V: TryFromObject,
     R: IntoPyNoResult,
@@ -106,7 +106,7 @@ where
 
 impl<F, S, V, R> IntoPySetterFunc<(RefParam<S>, V, R, VirtualMachine)> for F
 where
-    F: Fn(&S, V, &VirtualMachine) -> R + 'static,
+    F: Fn(&S, V, &VirtualMachine) -> R + 'static + Send + Sync,
     S: PyValue,
     V: TryFromObject,
     R: IntoPyNoResult,
@@ -122,7 +122,7 @@ where
 
 impl<F, T, V, R> IntoPySetterFunc<(OwnedParam<T>, V, R)> for F
 where
-    F: Fn(T, V) -> R + 'static,
+    F: Fn(T, V) -> R + 'static + Send + Sync,
     T: TryFromObject,
     V: TryFromObject,
     R: IntoPyNoResult,
@@ -134,7 +134,7 @@ where
 
 impl<F, S, V, R> IntoPySetterFunc<(RefParam<S>, V, R)> for F
 where
-    F: Fn(&S, V) -> R + 'static,
+    F: Fn(&S, V) -> R + 'static + Send + Sync,
     S: PyValue,
     V: TryFromObject,
     R: IntoPyNoResult,
@@ -151,6 +151,8 @@ pub struct PyGetSet {
     setter: Option<PySetterFunc>,
     // doc: Option<String>,
 }
+
+impl ThreadSafe for PyGetSet {}
 
 impl std::fmt::Debug for PyGetSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -4,7 +4,6 @@
 //!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
 //!
 
-use std::borrow::Borrow;
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
@@ -730,7 +729,7 @@ impl VirtualMachine {
         cls: Option<PyObjectRef>,
     ) -> Option<PyResult> {
         let descr_class = descr.class();
-        let slots = descr_class.slots.borrow();
+        let slots = descr_class.slots.read().unwrap();
         if let Some(descr_get) = slots.descr_get.as_ref() {
             Some(descr_get(self, descr, obj, OptionalArg::from_option(cls)))
         } else if let Some(ref descriptor) = descr_class.get_attr("__get__") {
@@ -782,15 +781,13 @@ impl VirtualMachine {
 
     fn _invoke(&self, callable: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
-        let class = callable.class();
-        let slots = class.slots.borrow();
-        if let Some(slot_call) = slots.borrow().call.as_ref() {
+        if let Some(slot_call) = callable.class().slots.read().unwrap().call.as_ref() {
             self.trace_event(TraceEvent::Call)?;
             let args = args.insert(callable.clone());
             let result = slot_call(self, args);
             self.trace_event(TraceEvent::Return)?;
             result
-        } else if class.has_attr("__call__") {
+        } else if callable.class().has_attr("__call__") {
             self.call_method(&callable, "__call__", args)
         } else {
             Err(self.new_type_error(format!(
@@ -1007,7 +1004,7 @@ impl VirtualMachine {
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
-        obj.class().slots.borrow().call.is_some() || obj.class().has_attr("__call__")
+        obj.class().slots.read().unwrap().call.is_some() || obj.class().has_attr("__call__")
     }
 
     #[inline]

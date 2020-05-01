@@ -458,8 +458,8 @@ tuple_from_py_func_args!(A, B, C, D, E, F);
 pub type FunctionBox<T> = SmallBox<T, S1>;
 
 /// A built-in Python function.
-pub type PyNativeFunc = FunctionBox<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
-// TODO: + Send + Sync
+pub type PyNativeFunc =
+    FunctionBox<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static + Send + Sync>;
 
 /// Implemented by types that are or can generate built-in functions.
 ///
@@ -481,7 +481,7 @@ pub trait IntoPyNativeFunc<T, R, VM> {
 
 impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult, VirtualMachine> for F
 where
-    F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static,
+    F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static + Send + Sync,
 {
     fn into_func(self) -> PyNativeFunc {
         smallbox!(self)
@@ -499,7 +499,7 @@ macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),*) => {
         impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
-            F: Fn($($T,)* &VirtualMachine) -> R + 'static,
+            F: Fn($($T,)* &VirtualMachine) -> R + 'static + Send + Sync,
             $($T: FromArgs,)*
             R: IntoPyObject,
         {
@@ -514,7 +514,7 @@ macro_rules! into_py_native_func_tuple {
 
         impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
-            F: Fn(&S, $($T,)* &VirtualMachine) -> R + 'static,
+            F: Fn(&S, $($T,)* &VirtualMachine) -> R + 'static  + Send + Sync,
             S: PyValue,
             $($T: FromArgs,)*
             R: IntoPyObject,
@@ -530,7 +530,7 @@ macro_rules! into_py_native_func_tuple {
 
         impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, ()> for F
         where
-            F: Fn($($T,)*) -> R + 'static,
+            F: Fn($($T,)*) -> R + 'static  + Send + Sync,
             $($T: FromArgs,)*
             R: IntoPyObject,
         {
@@ -541,7 +541,7 @@ macro_rules! into_py_native_func_tuple {
 
         impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
         where
-            F: Fn(&S, $($T,)*) -> R + 'static,
+            F: Fn(&S, $($T,)*) -> R + 'static  + Send + Sync,
             S: PyValue,
             $($T: FromArgs,)*
             R: IntoPyObject,

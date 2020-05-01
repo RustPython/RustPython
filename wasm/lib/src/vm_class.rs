@@ -67,6 +67,7 @@ impl StoredVirtualMachine {
 // https://rustwasm.github.io/2018/10/24/multithreading-rust-and-wasm.html#atomic-instructions
 thread_local! {
     static STORED_VMS: RefCell<HashMap<String, Rc<StoredVirtualMachine>>> = RefCell::default();
+    static JS_PRINT_FUNC: RefCell<Option<js_sys::Function>> = RefCell::new(None);
 }
 
 pub fn get_vm_id(vm: &VirtualMachine) -> &str {
@@ -229,14 +230,20 @@ impl WASMVirtualMachine {
                 }
             } else if stdout.is_function() {
                 let func = js_sys::Function::from(stdout);
+                JS_PRINT_FUNC.with(|thread_func| thread_func.replace(Some(func.clone())));
                 vm.ctx
                     .new_method(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
-                        func.call1(
-                            &JsValue::UNDEFINED,
-                            &wasm_builtins::format_print_args(vm, args)?.into(),
-                        )
-                        .map_err(|err| convert::js_py_typeerror(vm, err))?;
-                        Ok(vm.get_none())
+                        JS_PRINT_FUNC.with(|func| {
+                            func.borrow()
+                                .as_ref()
+                                .unwrap()
+                                .call1(
+                                    &JsValue::UNDEFINED,
+                                    &wasm_builtins::format_print_args(vm, args)?.into(),
+                                )
+                                .map_err(|err| convert::js_py_typeerror(vm, err))?;
+                            Ok(vm.get_none())
+                        })
                     })
             } else if stdout.is_null() {
                 fn noop(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {

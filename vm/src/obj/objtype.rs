@@ -1,6 +1,6 @@
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::sync::RwLock;
 
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
@@ -12,7 +12,7 @@ use super::objweakref::PyWeak;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
+    PyResult, PyValue, ThreadSafe, TypeProtocol,
 };
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
@@ -27,10 +27,12 @@ pub struct PyClass {
     pub name: String,
     pub bases: Vec<PyClassRef>,
     pub mro: Vec<PyClassRef>,
-    pub subclasses: RefCell<Vec<PyWeak>>,
-    pub attributes: RefCell<PyAttributes>,
-    pub slots: RefCell<PyClassSlots>,
+    pub subclasses: RwLock<Vec<PyWeak>>,
+    pub attributes: RwLock<PyAttributes>,
+    pub slots: RwLock<PyClassSlots>,
 }
+
+impl ThreadSafe for PyClass {}
 
 impl fmt::Display for PyClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -97,7 +99,8 @@ impl PyClassRef {
     #[pyproperty(magic)]
     fn qualname(self, vm: &VirtualMachine) -> PyObjectRef {
         self.attributes
-            .borrow()
+            .read()
+            .unwrap()
             .get("__qualname__")
             .cloned()
             .unwrap_or_else(|| vm.ctx.new_str(self.name.clone()))
@@ -107,7 +110,8 @@ impl PyClassRef {
     fn module(self, vm: &VirtualMachine) -> PyObjectRef {
         // TODO: Implement getting the actual module a builtin type is from
         self.attributes
-            .borrow()
+            .read()
+            .unwrap()
             .get("__module__")
             .cloned()
             .unwrap_or_else(|| vm.ctx.new_str("builtins".to_owned()))
@@ -116,7 +120,8 @@ impl PyClassRef {
     #[pyproperty(magic, setter)]
     fn set_module(self, value: PyObjectRef) {
         self.attributes
-            .borrow_mut()
+            .write()
+            .unwrap()
             .insert("__module__".to_owned(), value);
     }
 
@@ -145,7 +150,7 @@ impl PyClassRef {
 
         if let Some(attr) = self.get_attr(&name) {
             let attr_class = attr.class();
-            let slots = attr_class.slots.borrow();
+            let slots = attr_class.slots.read().unwrap();
             if let Some(ref descr_get) = slots.descr_get {
                 return descr_get(vm, attr, None, OptionalArg::Present(self.into_object()));
             } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
@@ -180,7 +185,8 @@ impl PyClassRef {
         }
 
         self.attributes
-            .borrow_mut()
+            .write()
+            .unwrap()
             .insert(attr_name.to_string(), value);
         Ok(())
     }
@@ -196,7 +202,7 @@ impl PyClassRef {
         }
 
         if self.get_attr(attr_name.as_str()).is_some() {
-            self.attributes.borrow_mut().remove(attr_name.as_str());
+            self.attributes.write().unwrap().remove(attr_name.as_str());
             Ok(())
         } else {
             Err(vm.new_attribute_error(attr_name.as_str().to_owned()))
@@ -206,13 +212,14 @@ impl PyClassRef {
     // This is used for class initialisation where the vm is not yet available.
     pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
         self.attributes
-            .borrow_mut()
+            .write()
+            .unwrap()
             .insert(attr_name.to_owned(), value.into());
     }
 
     #[pymethod(magic)]
     fn subclasses(self) -> PyList {
-        let mut subclasses = self.subclasses.borrow_mut();
+        let mut subclasses = self.subclasses.write().unwrap();
         subclasses.retain(|x| x.upgrade().is_some());
         PyList::from(
             subclasses
@@ -269,7 +276,7 @@ impl PyClassRef {
             // Search the bases for the proper metatype to deal with this:
             let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
             let metatype = if !winner.is(&metatype) {
-                if let Some(ref tp_new) = winner.clone().slots.borrow().new {
+                if let Some(ref tp_new) = winner.clone().slots.read().unwrap().new {
                     // Pass it to the winner
 
                     return tp_new(vm, args.insert(winner.into_object()));
@@ -294,10 +301,10 @@ impl PyClassRef {
         let typ = new(metatype, name.as_str(), base.clone(), bases, attributes)
             .map_err(|e| vm.new_type_error(e))?;
 
-        typ.slots.borrow_mut().flags = base.slots.borrow().flags;
+        typ.slots.write().unwrap().flags = base.slots.read().unwrap().flags;
         vm.ctx.add_tp_new_wrapper(&typ);
 
-        for (name, obj) in typ.attributes.borrow().iter() {
+        for (name, obj) in typ.attributes.read().unwrap().clone().iter() {
             if let Some(meth) = vm.get_method(obj.clone(), "__set_name__") {
                 let set_name = meth?;
                 vm.invoke(
@@ -393,9 +400,9 @@ fn call_tp_new(
     let class_with_new_slot = typ
         .iter_mro()
         .cloned()
-        .find(|cls| cls.slots.borrow().new.is_some())
+        .find(|cls| cls.slots.read().unwrap().new.is_some())
         .expect("Should be able to find a new slot somewhere in the mro");
-    let slots = class_with_new_slot.slots.borrow();
+    let slots = class_with_new_slot.slots.read().unwrap();
     let new_slot = slots.new.as_ref().unwrap();
     new_slot(vm, args.insert(subtype.into_object()))
 }
@@ -422,7 +429,8 @@ impl PyClassRef {
         flame_guard!(format!("class_get_attr({:?})", attr_name));
 
         self.attributes
-            .borrow()
+            .read()
+            .unwrap()
             .get(attr_name)
             .cloned()
             .or_else(|| self.get_super_attr(attr_name))
@@ -431,13 +439,13 @@ impl PyClassRef {
     pub fn get_super_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
         self.mro
             .iter()
-            .find_map(|class| class.attributes.borrow().get(attr_name).cloned())
+            .find_map(|class| class.attributes.read().unwrap().get(attr_name).cloned())
     }
 
     // This is the internal has_attr implementation for fast lookup on a class.
     pub fn has_attr(&self, attr_name: &str) -> bool {
         self.iter_mro()
-            .any(|c| c.attributes.borrow().contains_key(attr_name))
+            .any(|c| c.attributes.read().unwrap().contains_key(attr_name))
     }
 
     pub fn get_attributes(self) -> PyAttributes {
@@ -445,7 +453,7 @@ impl PyClassRef {
         let mut attributes = PyAttributes::new();
 
         for bc in self.iter_mro().rev() {
-            for (name, value) in bc.attributes.borrow().iter() {
+            for (name, value) in bc.attributes.read().unwrap().clone().iter() {
                 attributes.insert(name.to_owned(), value.clone());
             }
         }
@@ -540,9 +548,9 @@ pub fn new(
             name: String::from(name),
             bases,
             mro,
-            subclasses: RefCell::default(),
-            attributes: RefCell::new(dict),
-            slots: RefCell::default(),
+            subclasses: RwLock::default(),
+            attributes: RwLock::new(dict),
+            slots: RwLock::default(),
         },
         dict: None,
         typ: typ.into_typed_pyobj(),
@@ -553,7 +561,8 @@ pub fn new(
 
     for base in &new_type.bases {
         base.subclasses
-            .borrow_mut()
+            .write()
+            .unwrap()
             .push(PyWeak::downgrade(new_type.as_object()));
     }
 
@@ -603,7 +612,13 @@ fn best_base<'a>(bases: &'a [PyClassRef], vm: &VirtualMachine) -> PyResult<PyCla
         //         return NULL;
         // }
 
-        if !base_i.slots.borrow().flags.has_feature(PyTpFlags::BASETYPE) {
+        if !base_i
+            .slots
+            .read()
+            .unwrap()
+            .flags
+            .has_feature(PyTpFlags::BASETYPE)
+        {
             return Err(vm.new_type_error(format!(
                 "type '{}' is not an acceptable base type",
                 base_i.name
