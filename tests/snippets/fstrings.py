@@ -167,7 +167,6 @@ self.assertEqual(f'{0>=1}', 'False')
 # self.assertEqual(f'X{x=  }Y', 'Xx=  '+repr(x)+'Y') # TODO '
 # self.assertEqual(f'X{x  =  }Y', 'Xx  =  '+repr(x)+'Y') # TODO '
 
-
 # self.assertEqual(f'X{x  =}Y', 'Xx  ='+x+'Y')
 # self.assertEqual(f'X{x=  }Y', 'Xx=  '+x+'Y')
 # self.assertEqual(f'X{x  =  }Y', 'Xx  =  '+x+'Y')
