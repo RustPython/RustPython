@@ -150,6 +150,19 @@ impl PyValue for PyDecompress {
 }
 #[pyimpl]
 impl PyDecompress {
+    #[pyproperty]
+    fn eof(&self) -> bool {
+        self.eof.load()
+    }
+    #[pyproperty]
+    fn unused_data(&self) -> PyBytesRef {
+        self.unused_data.lock().unwrap().clone()
+    }
+    #[pyproperty]
+    fn unconsumed_tail(&self) -> PyBytesRef {
+        self.unconsumed_tail.lock().unwrap().clone()
+    }
+
     fn save_unconsumed_input(
         &self,
         d: &mut Decompress,
