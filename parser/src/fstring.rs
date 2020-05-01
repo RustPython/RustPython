@@ -26,9 +26,37 @@ impl<'a> FStringParser<'a> {
         let mut spec = None;
         let mut delims = Vec::new();
         let mut conversion = None;
+        let mut pred_expression_text = String::new();
+        let mut trailing_seq = String::new();
 
         while let Some(ch) = self.chars.next() {
             match ch {
+                // can be integrated better with the remainign code, but as a starting point ok
+                // in general I would do here a tokenizing of the fstrings to omit this peeking.
+                '!' if self.chars.peek() == Some(&'=') => {
+                    expression.push('!');
+                    expression.push('=');
+                    self.chars.next();
+                }
+
+                '=' if self.chars.peek() == Some(&'=') => {
+                    expression.push('=');
+                    expression.push('=');
+                    self.chars.next();
+                }
+
+                '>' if self.chars.peek() == Some(&'=') => {
+                    expression.push('>');
+                    expression.push('=');
+                    self.chars.next();
+                }
+
+                '<' if self.chars.peek() == Some(&'=') => {
+                    expression.push('<');
+                    expression.push('=');
+                    self.chars.next();
+                }
+
                 '!' if delims.is_empty() && self.chars.peek() != Some(&'=') => {
                     if expression.trim().is_empty() {
                         return Err(EmptyExpression);
@@ -46,10 +74,19 @@ impl<'a> FStringParser<'a> {
                         }
                     });
 
-                    if self.chars.peek() != Some(&'}') {
+                    let peek = self.chars.peek();
+                    if peek != Some(&'}') && peek != Some(&':') {
                         return Err(ExpectedRbrace);
                     }
                 }
+
+                // match a python 3.8 self documenting expression
+                // format '{' PYTHON_EXPRESSION '=' FORMAT_SPECIFIER? '}'
+                '=' if self.chars.peek() != Some(&'=') => {
+                    // check for delims empty?
+                    pred_expression_text = expression.to_string(); // safe expression before = to print it
+                }
+
                 ':' if delims.is_empty() => {
                     let mut nested = false;
                     let mut in_nested = false;
@@ -121,14 +158,35 @@ impl<'a> FStringParser<'a> {
                     if expression.is_empty() {
                         return Err(EmptyExpression);
                     }
-                    return Ok(FormattedValue {
-                        value: Box::new(
-                            parse_expression(expression.trim())
-                                .map_err(|e| InvalidExpression(Box::new(e.error)))?,
-                        ),
-                        conversion,
-                        spec,
-                    });
+                    if pred_expression_text.is_empty() {
+                        return Ok(FormattedValue {
+                            value: Box::new(
+                                parse_expression(expression.trim())
+                                    .map_err(|e| InvalidExpression(Box::new(e.error)))?,
+                            ),
+                            conversion,
+                            spec,
+                        });
+                    } else {
+                        return Ok(Joined {
+                            values: vec![
+                                Constant {
+                                    value: pred_expression_text + "=",
+                                },
+                                Constant {
+                                    value: trailing_seq,
+                                },
+                                FormattedValue {
+                                    value: Box::new(
+                                        parse_expression(expression.trim())
+                                            .map_err(|e| InvalidExpression(Box::new(e.error)))?,
+                                    ),
+                                    conversion,
+                                    spec,
+                                },
+                            ],
+                        });
+                    }
                 }
                 '"' | '\'' => {
                     expression.push(ch);
@@ -139,6 +197,11 @@ impl<'a> FStringParser<'a> {
                         }
                     }
                 }
+
+                ' ' if !pred_expression_text.is_empty() => {
+                    trailing_seq.push(ch);
+                }
+
                 _ => {
                     expression.push(ch);
                 }
@@ -299,8 +362,33 @@ mod tests {
     }
 
     #[test]
+    fn test_fstring_parse_selfdocumenting_base() {
+        let src = String::from("{user=}");
+        let parse_ast = parse_fstring(&src);
+
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
+    fn test_fstring_parse_selfdocumenting_base_more() {
+        let src = String::from("mix {user=} with text and {second=}");
+        let parse_ast = parse_fstring(&src);
+
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
+    fn test_fstring_parse_selfdocumenting_format() {
+        let src = String::from("{user=:>10}");
+        let parse_ast = parse_fstring(&src);
+
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
     fn test_parse_invalid_fstring() {
         assert_eq!(parse_fstring("{5!a"), Err(ExpectedRbrace));
+
         assert_eq!(parse_fstring("{5!a1}"), Err(ExpectedRbrace));
         assert_eq!(parse_fstring("{5!"), Err(ExpectedRbrace));
 
@@ -318,6 +406,8 @@ mod tests {
         assert_eq!(parse_fstring("{a:{b}"), Err(UnclosedLbrace));
         assert_eq!(parse_fstring("{"), Err(UnclosedLbrace));
 
+        assert_eq!(parse_fstring("{}"), Err(EmptyExpression));
+
         // TODO: check for InvalidExpression enum?
         assert!(parse_fstring("{class}").is_err());
     }
@@ -325,6 +415,27 @@ mod tests {
     #[test]
     fn test_parse_fstring_not_equals() {
         let source = String::from("{1 != 2}");
+        let parse_ast = parse_fstring(&source);
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
+    fn test_parse_fstring_equals() {
+        let source = String::from("{42 == 42}");
+        let parse_ast = parse_fstring(&source);
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
+    fn test_parse_fstring_selfdoc_prec_space() {
+        let source = String::from("{x   =}");
+        let parse_ast = parse_fstring(&source);
+        assert!(parse_ast.is_ok());
+    }
+
+    #[test]
+    fn test_parse_fstring_selfdoc_trailing_space() {
+        let source = String::from("{x=   }");
         let parse_ast = parse_fstring(&source);
         assert!(parse_ast.is_ok());
     }
