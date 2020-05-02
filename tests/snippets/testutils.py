@@ -75,7 +75,7 @@ def skip_if_unsupported(req_maj_vers, req_min_vers, test_fct):
     def exec():
         test_fct()
 
-    if platform.python_implementation == 'RustPython':
+    if platform.python_implementation() == 'RustPython':
         exec()
     elif sys.version_info.major>=req_maj_vers and sys.version_info.minor>=req_min_vers:
         exec()
@@ -86,7 +86,7 @@ def fail_if_unsupported(req_maj_vers, req_min_vers, test_fct):
     def exec():
         test_fct()
 
-    if platform.python_implementation == 'RustPython':
+    if platform.python_implementation() == 'RustPython':
         exec()
     elif sys.version_info.major>=req_maj_vers and sys.version_info.minor>=req_min_vers:
         exec()
