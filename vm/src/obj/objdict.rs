@@ -104,6 +104,91 @@ impl PyDictRef {
         Ok(())
     }
 
+    fn merge_no_arg(
+        dict: &DictContentType,
+        dict_obj: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let OptionalArg::Present(dict_obj) = dict_obj {
+            let dicted: Result<PyDictRef, _> = dict_obj.clone().downcast();
+            if let Ok(dict_obj) = dicted {
+                for (key, value) in dict_obj {
+                    dict.insert(vm, &key, value)?;
+                }
+            } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
+                let keys = objiter::get_iter(vm, &vm.invoke(&keys?, vec![])?)?;
+                while let Some(key) = objiter::get_next_object(vm, &keys)? {
+                    let val = dict_obj.get_item(&key, vm)?;
+                    dict.insert(vm, &key, val)?;
+                }
+            } else {
+                let iter = objiter::get_iter(vm, &dict_obj)?;
+                loop {
+                    fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
+                        vm.new_type_error("Iterator must have exactly two elements".to_owned())
+                    }
+                    let element = match objiter::get_next_object(vm, &iter)? {
+                        Some(obj) => obj,
+                        None => break,
+                    };
+                    let elem_iter = objiter::get_iter(vm, &element)?;
+                    let key = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+                    let value = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+                    if objiter::get_next_object(vm, &elem_iter)?.is_some() {
+                        return Err(err(vm));
+                    }
+                    dict.insert(vm, &key, value)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn merge_no_arg_dict(
+        dict: &DictContentType,
+        dict_other: PyDictRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        for (key, value) in dict_other {
+            dict.insert(vm, &key, value)?;
+        }
+        // if let OptionalArg::Present(dict_obj) = dict_obj {
+        //     let dicted: Result<PyDictRef, _> = dict_obj.clone().downcast();
+        //     if let Ok(dict_obj) = dicted {
+        //         for (key, value) in dict_obj {
+        //             dict.insert(vm, &key, value)?;
+        //         }
+        //     } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
+        //         let keys = objiter::get_iter(vm, &vm.invoke(&keys?, vec![])?)?;
+        //         while let Some(key) = objiter::get_next_object(vm, &keys)? {
+        //             let val = dict_obj.get_item(&key, vm)?;
+        //             dict.insert(vm, &key, val)?;
+        //         }
+        //     } else {
+        //         let iter = objiter::get_iter(vm, &dict_obj)?;
+        //         loop {
+        //             fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
+        //                 vm.new_type_error("Iterator must have exactly two elements".to_owned())
+        //             }
+        //             let element = match objiter::get_next_object(vm, &iter)? {
+        //                 Some(obj) => obj,
+        //                 None => break,
+        //             };
+        //             let elem_iter = objiter::get_iter(vm, &element)?;
+        //             let key = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+        //             let value = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+        //             if objiter::get_next_object(vm, &elem_iter)?.is_some() {
+        //                 return Err(err(vm));
+        //             }
+        //             dict.insert(vm, &key, value)?;
+        //         }
+        //     }
+        // }
+
+        Ok(())
+    }
+
     #[pyclassmethod]
     fn fromkeys(
         class: PyClassRef,
@@ -319,6 +404,32 @@ impl PyDictRef {
     ) -> PyResult<()> {
         PyDictRef::merge(&self.entries, dict_obj, kwargs, vm)
     }
+
+    #[pymethod(name="__ior__")]
+    fn ior(self, other:PyObjectRef, vm:&VirtualMachine) -> PyResult {
+        PyDictRef::merge_no_arg(&self.entries, OptionalArg::Present(other), vm);
+        Ok(self.into_object())
+    }
+
+    #[pymethod(name="__ror__")]
+    fn ror(self, other:PyObjectRef, vm:&VirtualMachine) -> PyResult<PyDict> {
+        let dicted: Result<PyDictRef, _> = other.clone().downcast();
+        if let Ok(other) = dicted {
+            let other_cp=other.copy();
+            PyDictRef::merge_no_arg_dict(&other_cp.entries, self, vm);
+            return Ok(other_cp);
+        }
+        let err_msg = vm.new_str("__ror__ not implemented for non-dict type".to_owned());
+        Err(vm.new_key_error(err_msg))
+    }
+
+    // #[pymethod(name="__or__")]
+    // fn or(self, other:PyObjectRef, vm:&VirtualMachine) -> PyResult<PyDict> { // PyResult {
+    //     //if type(other)==dict
+    //     let cp=self.copy();
+    //     PyDictRef::merge_no_arg(&cp.entries, OptionalArg::Present(other), vm);
+    //     Ok(cp)
+    // }
 
     #[pymethod]
     fn pop(
