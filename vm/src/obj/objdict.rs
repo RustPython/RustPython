@@ -423,13 +423,17 @@ impl PyDictRef {
         Err(vm.new_key_error(err_msg))
     }
 
-    // #[pymethod(name="__or__")]
-    // fn or(self, other:PyObjectRef, vm:&VirtualMachine) -> PyResult<PyDict> { // PyResult {
-    //     //if type(other)==dict
-    //     let cp=self.copy();
-    //     PyDictRef::merge_no_arg(&cp.entries, OptionalArg::Present(other), vm);
-    //     Ok(cp)
-    // }
+    #[pymethod(name="__or__")]
+    fn or(self, other:PyObjectRef, vm:&VirtualMachine) -> PyResult<PyDict> { // PyResult {
+        let dicted: Result<PyDictRef, _> = other.clone().downcast();
+        if let Ok(other) = dicted {
+            let self_cp=self.copy();
+            PyDictRef::merge_no_arg_dict(&self_cp.entries, other, vm);
+            return Ok(self_cp);
+        }
+        let err_msg = vm.new_str("__or__ not implemented for non-dict type".to_owned());
+        Err(vm.new_key_error(err_msg))
+    }
 
     #[pymethod]
     fn pop(
