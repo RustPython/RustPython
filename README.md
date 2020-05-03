@@ -141,6 +141,8 @@ Most tasks are listed in the
 [issue tracker](https://github.com/RustPython/RustPython/issues). Check issues
 labeled with `good first issue` if you wish to start coding.
 
+To enhance CPython compatibility, try to increase unittest coverage by checking this article: [How to contribute to RustPython by CPython unittest](https://rustpython.github.io/guideline/2020/04/04/how-to-contribute-by-cpython-unittest.html)
+
 Another approach is to checkout the source code: builtin functions and object
 methods are often the simplest and easiest way to contribute.
 
