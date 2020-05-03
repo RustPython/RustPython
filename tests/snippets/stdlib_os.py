@@ -293,6 +293,8 @@ if "win" not in sys.platform:
         assert_raises(PermissionError, lambda: os.setpgid(os.getpid(), 42))
         assert_raises(PermissionError, lambda: os.setuid(42))
         assert_raises(PermissionError, lambda: os.seteuid(42))
+        assert_raises(PermissionError, lambda: os.setreuid(42, 42))
+        assert_raises(PermissionError, lambda: os.setresuid(42, 42, 42))
 
     # pty
     a, b = os.openpty()

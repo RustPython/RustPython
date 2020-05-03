@@ -1248,6 +1248,28 @@ fn os_seteuid(euid: u32, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
+fn os_setreuid(ruid: u32, euid: u32, vm: &VirtualMachine) -> PyResult<()> {
+    unistd::setuid(Uid::from_raw(ruid)).map_err(|err| convert_nix_error(vm, err))?;
+    unistd::seteuid(Uid::from_raw(euid)).map_err(|err| convert_nix_error(vm, err))
+}
+
+// cfg from nix
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+fn os_setresuid(ruid: u32, euid: u32, suid: u32, vm: &VirtualMachine) -> PyResult<()> {
+    unistd::setresuid(
+        Uid::from_raw(ruid),
+        Uid::from_raw(euid),
+        Uid::from_raw(suid),
+    )
+    .map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
 pub fn os_openpty(vm: &VirtualMachine) -> PyResult {
     match openpty(None, None) {
         Ok(r) => Ok(vm
@@ -1622,10 +1644,22 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "setsid" => ctx.new_function(os_setsid),
         "setegid" => ctx.new_function(os_setegid),
         "seteuid" => ctx.new_function(os_seteuid),
+        "setreuid" => ctx.new_function(os_setreuid),
         "openpty" => ctx.new_function(os_openpty),
         "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
         "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
         "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
+    });
+
+    // cfg taken from nix
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    extend_module!(vm, module, {
+        "setresuid" => ctx.new_function(os_setresuid),
     });
 
     // cfg taken from nix
