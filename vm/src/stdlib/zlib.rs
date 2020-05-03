@@ -96,19 +96,25 @@ fn zlib_compress(data: PyBytesRef, level: OptionalArg<i32>, vm: &VirtualMachine)
     Ok(vm.ctx.new_bytes(encoded_bytes))
 }
 
+// TODO: validate wbits value here
+fn header_from_wbits(wbits: OptionalArg<i8>) -> (bool, u8) {
+    let wbits = wbits.unwrap_or(MAX_WBITS as i8);
+    (wbits > 0, wbits.abs() as u8)
+}
+
 /// Returns a bytes object containing the uncompressed data.
 fn zlib_decompress(
     data: PyBytesRef,
-    wbits: OptionalArg<u8>,
+    wbits: OptionalArg<i8>,
     bufsize: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult {
     let encoded_bytes = data.get_value();
 
-    let wbits = wbits.unwrap_or(MAX_WBITS);
+    let (header, wbits) = header_from_wbits(wbits);
     let bufsize = bufsize.unwrap_or(DEF_BUF_SIZE);
 
-    let mut decompressor = Decompress::new_with_window_bits(true, wbits);
+    let mut decompressor = Decompress::new_with_window_bits(header, wbits);
     let mut decoded_bytes = Vec::with_capacity(bufsize);
 
     match decompressor.decompress_vec(&encoded_bytes, &mut decoded_bytes, FlushDecompress::Finish) {
@@ -119,12 +125,12 @@ fn zlib_decompress(
 }
 
 fn zlib_decompressobj(
-    wbits: OptionalArg<u8>,
+    wbits: OptionalArg<i8>,
     zdict: OptionalArg<PyBytesLike>,
     vm: &VirtualMachine,
 ) -> PyDecompress {
-    let wbits = wbits.unwrap_or(MAX_WBITS);
-    let mut decompress = Decompress::new_with_window_bits(true, wbits);
+    let (header, wbits) = header_from_wbits(wbits);
+    let mut decompress = Decompress::new_with_window_bits(header, wbits);
     if let OptionalArg::Present(dict) = zdict {
         dict.with_ref(|d| decompress.set_dictionary(d).unwrap());
     }
