@@ -338,8 +338,7 @@ impl PyDictRef {
             PyDictRef::merge_dict(&self.entries, other, vm)?;
             return Ok(self.into_object());
         }
-        let err_msg = vm.new_str("__ior__ not implemented for non-dict type".to_owned());
-        Err(vm.new_key_error(err_msg))
+        Err(vm.new_type_error("__ior__ not implemented for non-dict type".to_owned()))
     }
 
     #[pymethod(name = "__ror__")]
@@ -350,8 +349,7 @@ impl PyDictRef {
             PyDictRef::merge_dict(&other_cp.entries, self, vm)?;
             return Ok(other_cp);
         }
-        let err_msg = vm.new_str("__ror__ not implemented for non-dict type".to_owned());
-        Err(vm.new_key_error(err_msg))
+        Err(vm.new_type_error("__ror__ not implemented for non-dict type".to_owned()))
     }
 
     #[pymethod(name = "__or__")]
@@ -362,8 +360,7 @@ impl PyDictRef {
             PyDictRef::merge_dict(&self_cp.entries, other, vm)?;
             return Ok(self_cp);
         }
-        let err_msg = vm.new_str("__or__ not implemented for non-dict type".to_owned());
-        Err(vm.new_key_error(err_msg))
+        Err(vm.new_type_error("__or__ not implemented for non-dict type".to_owned()))
     }
 
     #[pymethod]
