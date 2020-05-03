@@ -104,17 +104,6 @@ impl PyDictRef {
         Ok(())
     }
 
-    fn merge_dict(
-        dict: &DictContentType,
-        dict_other: PyDictRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        for (key, value) in dict_other {
-            dict.insert(vm, &key, value)?;
-        }
-        Ok(())
-    }
-
     #[pyclassmethod]
     fn fromkeys(
         class: PyClassRef,
@@ -329,41 +318,6 @@ impl PyDictRef {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         PyDictRef::merge(&self.entries, dict_obj, kwargs, vm)
-    }
-
-    #[pymethod(name = "__ior__")]
-    fn ior(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let dicted: Result<PyDictRef, _> = other.clone().downcast();
-        if let Ok(other) = dicted {
-            PyDictRef::merge_dict(&self.entries, other, vm)?;
-            return Ok(self.into_object());
-        }
-        let err_msg = vm.new_str("__ior__ not implemented for non-dict type".to_owned());
-        Err(vm.new_key_error(err_msg))
-    }
-
-    #[pymethod(name = "__ror__")]
-    fn ror(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDict> {
-        let dicted: Result<PyDictRef, _> = other.clone().downcast();
-        if let Ok(other) = dicted {
-            let other_cp = other.copy();
-            PyDictRef::merge_dict(&other_cp.entries, self, vm)?;
-            return Ok(other_cp);
-        }
-        let err_msg = vm.new_str("__ror__ not implemented for non-dict type".to_owned());
-        Err(vm.new_key_error(err_msg))
-    }
-
-    #[pymethod(name = "__or__")]
-    fn or(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDict> {
-        let dicted: Result<PyDictRef, _> = other.clone().downcast();
-        if let Ok(other) = dicted {
-            let self_cp = self.copy();
-            PyDictRef::merge_dict(&self_cp.entries, other, vm)?;
-            return Ok(self_cp);
-        }
-        let err_msg = vm.new_str("__or__ not implemented for non-dict type".to_owned());
-        Err(vm.new_key_error(err_msg))
     }
 
     #[pymethod]
