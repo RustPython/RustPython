@@ -8,7 +8,7 @@ use std::io::{self, prelude::*, Cursor, SeekFrom};
 use num_traits::ToPrimitive;
 
 use crate::exceptions::PyBaseExceptionRef;
-use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
+use crate::function::{Args, KwArgs, OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbyteinner::PyBytesLike;
@@ -577,35 +577,57 @@ mod fileio {
         flag as u32
     }
 
-    fn file_io_init(
-        file_io: PyObjectRef,
+    #[derive(FromArgs)]
+    struct FileIOArgs {
+        #[pyarg(positional_only)]
         name: Either<PyStringRef, i64>,
-        mode: OptionalArg<PyStringRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let (name, file_no) = match name {
+        #[pyarg(positional_or_keyword, default = "None")]
+        mode: Option<PyStringRef>,
+        #[pyarg(positional_or_keyword, default = "true")]
+        closefd: bool,
+        #[pyarg(positional_or_keyword, default = "None")]
+        opener: Option<PyObjectRef>,
+    }
+    fn file_io_init(file_io: PyObjectRef, args: FileIOArgs, vm: &VirtualMachine) -> PyResult {
+        let (name, file_no) = match args.name {
             Either::A(name) => {
-                let mode = match mode {
-                    OptionalArg::Present(mode) => compute_c_flag(mode.as_str()),
-                    OptionalArg::Missing => libc::O_RDONLY as _,
+                if !args.closefd {
+                    return Err(
+                        vm.new_value_error("Cannot use closefd=False with file name".to_owned())
+                    );
+                }
+                let mode = match args.mode {
+                    Some(mode) => compute_c_flag(mode.as_str()),
+                    None => libc::O_RDONLY as _,
                 };
-                (
-                    name.clone().into_object(),
+                let fd = if let Some(opener) = args.opener {
+                    let fd =
+                        vm.invoke(&opener, vec![name.clone().into_object(), vm.new_int(mode)])?;
+                    if !vm.isinstance(&fd, &vm.ctx.types.int_type)? {
+                        return Err(vm.new_type_error("expected integer from opener".to_owned()));
+                    }
+                    let fd = i64::try_from_object(vm, fd)?;
+                    if fd < 0 {
+                        return Err(vm.new_os_error("Negative file descriptor".to_owned()));
+                    }
+                    fd
+                } else {
                     os::os_open(
                         os::PyPathLike::new_str(name.as_str().to_owned()),
                         mode as _,
                         OptionalArg::Missing,
                         OptionalArg::Missing,
                         vm,
-                    )?,
-                )
+                    )?
+                };
+                (name.clone().into_object(), fd)
             }
             Either::B(fno) => (vm.new_int(fno), fno),
         };
 
         vm.set_attr(&file_io, "name", name)?;
         vm.set_attr(&file_io, "__fileno", vm.new_int(file_no))?;
-        vm.set_attr(&file_io, "closefd", vm.new_bool(false))?;
+        vm.set_attr(&file_io, "__closefd", vm.new_bool(args.closefd))?;
         vm.set_attr(&file_io, "__closed", vm.new_bool(false))?;
         Ok(vm.get_none())
     }
@@ -701,9 +723,12 @@ mod fileio {
     }
 
     fn file_io_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let raw_handle = i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
-        drop(os::rust_file(raw_handle));
-        vm.set_attr(&instance, "closefd", vm.new_bool(true))?;
+        let closefd = objbool::boolval(vm, vm.get_attribute(instance.clone(), "__closefd")?)?;
+        if closefd {
+            let raw_handle =
+                i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
+            drop(os::rust_file(raw_handle));
+        }
         vm.set_attr(&instance, "__closed", vm.new_bool(true))?;
         Ok(())
     }
@@ -949,16 +974,56 @@ fn split_mode_string(mode_string: &str) -> Result<(String, String), String> {
 fn io_open_wrapper(
     file: PyObjectRef,
     mode: OptionalArg<PyStringRef>,
+    opts: OpenArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
-    io_open(file, mode.as_ref().into_option().map(|s| s.as_str()), vm)
+    io_open(
+        file,
+        mode.as_ref().into_option().map(|s| s.as_str()),
+        opts,
+        vm,
+    )
 }
 fn io_open_code(file: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     // TODO: lifecycle hooks or something?
-    io_open(file, Some("rb"), vm)
+    io_open(file, Some("rb"), Default::default(), vm)
 }
 
-pub fn io_open(file: PyObjectRef, mode: Option<&str>, vm: &VirtualMachine) -> PyResult {
+#[derive(FromArgs)]
+#[allow(unused)]
+pub struct OpenArgs {
+    #[pyarg(positional_or_keyword, default = "-1")]
+    buffering: isize,
+    #[pyarg(positional_or_keyword, default = "None")]
+    encoding: Option<PyStringRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    errors: Option<PyStringRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    newline: Option<PyStringRef>,
+    #[pyarg(positional_or_keyword, default = "true")]
+    closefd: bool,
+    #[pyarg(positional_or_keyword, default = "None")]
+    opener: Option<PyObjectRef>,
+}
+impl Default for OpenArgs {
+    fn default() -> Self {
+        OpenArgs {
+            buffering: -1,
+            encoding: None,
+            errors: None,
+            newline: None,
+            closefd: true,
+            opener: None,
+        }
+    }
+}
+
+pub fn io_open(
+    file: PyObjectRef,
+    mode: Option<&str>,
+    opts: OpenArgs,
+    vm: &VirtualMachine,
+) -> PyResult {
     // mode is optional: 'rt' is the default mode (open from reading text)
     let mode_string = mode.unwrap_or("rt");
 
@@ -981,7 +1046,13 @@ pub fn io_open(file: PyObjectRef, mode: Option<&str>, vm: &VirtualMachine) -> Py
     })?;
     let file_io_obj = vm.invoke(
         &file_io_class,
-        vec![file.clone(), vm.ctx.new_str(mode.clone())],
+        PyFuncArgs::from((
+            Args::new(vec![file.clone(), vm.ctx.new_str(mode.clone())]),
+            KwArgs::new(maplit::hashmap! {
+                "closefd".to_owned() => vm.new_bool(opts.closefd),
+                "opener".to_owned() => opts.opener.unwrap_or_else(|| vm.get_none()),
+            }),
+        )),
     )?;
 
     // Create Buffered class to consume FileIO. The type of buffered class depends on

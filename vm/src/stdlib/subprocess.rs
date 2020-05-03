@@ -95,6 +95,7 @@ fn convert_to_file_io(file: &Option<File>, mode: &str, vm: &VirtualMachine) -> P
         Some(ref stdin) => io_open(
             vm.new_int(raw_file_number(stdin.try_clone().unwrap())),
             Some(mode),
+            Default::default(),
             vm,
         ),
         None => Ok(vm.get_none()),

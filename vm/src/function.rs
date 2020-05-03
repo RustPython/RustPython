@@ -261,6 +261,10 @@ pub trait FromArgs: Sized {
 pub struct KwArgs<T = PyObjectRef>(HashMap<String, T>);
 
 impl<T> KwArgs<T> {
+    pub fn new(map: HashMap<String, T>) -> Self {
+        KwArgs(map)
+    }
+
     pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
         self.0.remove(name)
     }
