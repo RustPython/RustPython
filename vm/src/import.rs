@@ -6,8 +6,8 @@ use rand::Rng;
 use crate::bytecode::CodeObject;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtraceback::{PyTraceback, PyTracebackRef};
-use crate::obj::{objcode, objtype};
-use crate::pyobject::{ItemProtocol, PyResult, PyValue};
+use crate::obj::{objcode, objlist, objtype};
+use crate::pyobject::{ItemProtocol, PyResult, PyValue, TryFromObject};
 use crate::scope::Scope;
 use crate::version::get_git_revision;
 use crate::vm::{InitParameter, VirtualMachine};
@@ -37,6 +37,17 @@ pub fn init_importlib(vm: &VirtualMachine, initialize_parameter: InitParameter) 
                 magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
             }
             vm.set_attr(&importlib_external, "MAGIC_NUMBER", vm.ctx.new_bytes(magic))?;
+            let zipimport_res = (|| -> PyResult<()> {
+                let zipimport = vm.import("zipimport", &[], 0)?;
+                let zipimporter = vm.get_attribute(zipimport, "zipimporter")?;
+                let path_hooks = vm.get_attribute(vm.sys_module.clone(), "path_hooks")?;
+                let path_hooks = objlist::PyListRef::try_from_object(vm, path_hooks)?;
+                path_hooks.insert(0, zipimporter);
+                Ok(())
+            })();
+            if let Err(_) = zipimport_res {
+                eprintln!("couldn't init zipimport")
+            }
         }
         InitParameter::NoInitialize => {
             panic!("Import library initialize should be InitializeInternal or InitializeExternal");
