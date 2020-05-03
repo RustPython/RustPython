@@ -91,5 +91,5 @@ def fail_if_unsupported(req_maj_vers, req_min_vers, test_fct):
     elif sys.version_info.major>=req_maj_vers and sys.version_info.minor>=req_min_vers:
         exec()
     else:
-        assert False, f'Test cannot performed on this python version. {platform.python_implementation()} {paltform.python_version()}'
+        assert False, f'Test cannot performed on this python version. {platform.python_implementation()} {platform.python_version()}'
 
