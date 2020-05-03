@@ -785,6 +785,22 @@ fn text_io_wrapper_seekable(_self: PyObjectRef) -> bool {
     true
 }
 
+fn text_io_wrapper_seek(
+    instance: PyObjectRef,
+    offset: PyObjectRef,
+    how: OptionalArg,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let raw = vm.get_attribute(instance, "buffer")?;
+    let args: Vec<_> = std::iter::once(offset).chain(how.into_option()).collect();
+    vm.invoke(&vm.get_attribute(raw, "seek")?, args)
+}
+
+fn text_io_wrapper_tell(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let raw = vm.get_attribute(instance, "buffer")?;
+    vm.invoke(&vm.get_attribute(raw, "tell")?, vec![])
+}
+
 fn text_io_wrapper_read(
     instance: PyObjectRef,
     size: OptionalOption<PyObjectRef>,
@@ -930,16 +946,21 @@ fn split_mode_string(mode_string: &str) -> Result<(String, String), String> {
     Ok((mode, typ.to_string()))
 }
 
-pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(file, None)],
-        optional = [(mode, Some(vm.ctx.str_type()))]
-    );
+fn io_open_wrapper(
+    file: PyObjectRef,
+    mode: OptionalArg<PyStringRef>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    io_open(file, mode.as_ref().into_option().map(|s| s.as_str()), vm)
+}
+fn io_open_code(file: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    // TODO: lifecycle hooks or something?
+    io_open(file, Some("rb"), vm)
+}
 
+pub fn io_open(file: PyObjectRef, mode: Option<&str>, vm: &VirtualMachine) -> PyResult {
     // mode is optional: 'rt' is the default mode (open from reading text)
-    let mode_string = mode.map_or("rt", objstr::borrow_value);
+    let mode_string = mode.unwrap_or("rt");
 
     let (mode, typ) = match split_mode_string(mode_string) {
         Ok((mode, typ)) => (mode, typ),
@@ -1061,6 +1082,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let text_io_wrapper = py_class!(ctx, "TextIOWrapper", text_io_base.clone(), {
         "__init__" => ctx.new_method(text_io_wrapper_init),
         "seekable" => ctx.new_method(text_io_wrapper_seekable),
+        "seek" => ctx.new_method(text_io_wrapper_seek),
+        "tell" => ctx.new_method(text_io_wrapper_tell),
         "read" => ctx.new_method(text_io_wrapper_read),
         "write" => ctx.new_method(text_io_wrapper_write),
         "readline" => ctx.new_method(text_io_wrapper_readline),
@@ -1098,7 +1121,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     let module = py_module!(vm, "_io", {
-        "open" => ctx.new_function(io_open),
+        "open" => ctx.new_function(io_open_wrapper),
+        "open_code" => ctx.new_function(io_open_code),
         "_IOBase" => io_base,
         "_RawIOBase" => raw_io_base.clone(),
         "_BufferedIOBase" => buffered_io_base,

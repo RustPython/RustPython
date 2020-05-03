@@ -90,15 +90,12 @@ fn convert_redirection(arg: Option<i64>, vm: &VirtualMachine) -> PyResult<subpro
     }
 }
 
-fn convert_to_file_io(file: &Option<File>, mode: String, vm: &VirtualMachine) -> PyResult {
+fn convert_to_file_io(file: &Option<File>, mode: &str, vm: &VirtualMachine) -> PyResult {
     match file {
         Some(ref stdin) => io_open(
+            vm.new_int(raw_file_number(stdin.try_clone().unwrap())),
+            Some(mode),
             vm,
-            vec![
-                vm.new_int(raw_file_number(stdin.try_clone().unwrap())),
-                vm.new_str(mode),
-            ]
-            .into(),
         ),
         None => Ok(vm.get_none()),
     }
@@ -169,15 +166,15 @@ impl PopenRef {
     }
 
     fn stdin(self, vm: &VirtualMachine) -> PyResult {
-        convert_to_file_io(&self.process.borrow().stdin, "wb".to_owned(), vm)
+        convert_to_file_io(&self.process.borrow().stdin, "wb", vm)
     }
 
     fn stdout(self, vm: &VirtualMachine) -> PyResult {
-        convert_to_file_io(&self.process.borrow().stdout, "rb".to_owned(), vm)
+        convert_to_file_io(&self.process.borrow().stdout, "rb", vm)
     }
 
     fn stderr(self, vm: &VirtualMachine) -> PyResult {
-        convert_to_file_io(&self.process.borrow().stderr, "rb".to_owned(), vm)
+        convert_to_file_io(&self.process.borrow().stderr, "rb", vm)
     }
 
     fn terminate(self, vm: &VirtualMachine) -> PyResult<()> {
