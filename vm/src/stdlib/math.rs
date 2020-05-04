@@ -301,7 +301,9 @@ where
                 if let Some(bb) = b.payload_if_subclass::<PyInt>(vm) {
                     res = op(&res, bb);
                 } else {
-                    return Err(vm.new_type_error("Only integer arguments are supported".to_owned()));
+                    return Err(
+                        vm.new_type_error("Only integer arguments are supported".to_owned())
+                    );
                 }
             }
             Ok(res)
