@@ -108,20 +108,40 @@ fn zlib_decompress(
     wbits: OptionalArg<i8>,
     bufsize: OptionalArg<usize>,
     vm: &VirtualMachine,
-) -> PyResult {
-    let encoded_bytes = data.get_value();
+) -> PyResult<Vec<u8>> {
+    let data = data.get_value();
 
     let (header, wbits) = header_from_wbits(wbits);
     let bufsize = bufsize.unwrap_or(DEF_BUF_SIZE);
 
-    let mut decompressor = Decompress::new_with_window_bits(header, wbits);
-    let mut decoded_bytes = Vec::with_capacity(bufsize);
+    let mut d = Decompress::new_with_window_bits(header, wbits);
+    let mut buf = Vec::new();
 
-    match decompressor.decompress_vec(&encoded_bytes, &mut decoded_bytes, FlushDecompress::Finish) {
-        Ok(Status::BufError) => Err(zlib_error("inconsistent or truncated state", vm)),
-        Err(_) => Err(zlib_error("invalid input data", vm)),
-        _ => Ok(vm.ctx.new_bytes(decoded_bytes)),
+    // TODO: maybe deduplicate this with the Decompress.{decompress,flush}
+    'outer: for chunk in data.chunks(libc::c_uint::max_value() as usize) {
+        // if this is the final chunk, finish it
+        let flush = if d.total_in() == (data.len() - chunk.len()) as u64 {
+            FlushDecompress::Finish
+        } else {
+            FlushDecompress::None
+        };
+        loop {
+            buf.reserve(bufsize);
+            match d.decompress_vec(chunk, &mut buf, flush) {
+                // we've run out of space, loop again and allocate more
+                Ok(_) if buf.len() == buf.capacity() => {}
+                // we've reached the end of the stream, we're done
+                Ok(Status::StreamEnd) => {
+                    break 'outer;
+                }
+                // we've reached the end of this chunk of the data, do the next one
+                Ok(_) => break,
+                Err(_) => return Err(zlib_error("invalid input data", vm)),
+            }
+        }
     }
+    buf.shrink_to_fit();
+    Ok(buf)
 }
 
 fn zlib_decompressobj(
