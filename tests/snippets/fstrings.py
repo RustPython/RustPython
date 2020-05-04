@@ -4,8 +4,7 @@ from testutils import assert_raises
 import sys
 import platform
 if platform.python_implementation() == 'CPython':
-    assert sys.version_info.major == 3, 'Incompatible Python Version, expected CPython 3.8 or later'
-    assert sys.version_info.minor == 8, 'Incompatible Python Version, expected CPython 3.8 or later'
+    assert sys.version_info >= (3, 8), 'Incompatible Python Version, expected CPython 3.8 or later'
 elif platform.python_implementation == 'RustPython':
     # ok
     pass

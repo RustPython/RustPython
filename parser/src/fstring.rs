@@ -34,8 +34,7 @@ impl<'a> FStringParser<'a> {
                 // can be integrated better with the remainign code, but as a starting point ok
                 // in general I would do here a tokenizing of the fstrings to omit this peeking.
                 '!' if self.chars.peek() == Some(&'=') => {
-                    expression.push('!');
-                    expression.push('=');
+                    expression.push_str("!=");
                     self.chars.next();
                 }
 
@@ -74,8 +73,8 @@ impl<'a> FStringParser<'a> {
                         }
                     });
 
-                    let peek = self.chars.peek();
-                    if peek != Some(&'}') && peek != Some(&':') {
+                    if let Some(peek) = self.chars.peek() {
+                        if peek != '}' && peek != ':' {
                         return Err(ExpectedRbrace);
                     }
                 }
@@ -197,11 +196,9 @@ impl<'a> FStringParser<'a> {
                         }
                     }
                 }
-
                 ' ' if !pred_expression_text.is_empty() => {
                     trailing_seq.push(ch);
                 }
-
                 _ => {
                     expression.push(ch);
                 }
@@ -388,7 +385,6 @@ mod tests {
     #[test]
     fn test_parse_invalid_fstring() {
         assert_eq!(parse_fstring("{5!a"), Err(ExpectedRbrace));
-
         assert_eq!(parse_fstring("{5!a1}"), Err(ExpectedRbrace));
         assert_eq!(parse_fstring("{5!"), Err(ExpectedRbrace));
 
