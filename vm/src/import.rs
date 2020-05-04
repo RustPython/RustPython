@@ -45,7 +45,7 @@ pub fn init_importlib(vm: &VirtualMachine, initialize_parameter: InitParameter) 
                 path_hooks.insert(0, zipimporter);
                 Ok(())
             })();
-            if let Err(_) = zipimport_res {
+            if zipimport_res.is_err() {
                 eprintln!("couldn't init zipimport")
             }
         }

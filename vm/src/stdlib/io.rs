@@ -620,14 +620,14 @@ mod fileio {
                         vm,
                     )?
                 };
-                (name.clone().into_object(), fd)
+                (name.into_object(), fd)
             }
             Either::B(fno) => (vm.new_int(fno), fno),
         };
 
         vm.set_attr(&file_io, "name", name)?;
         vm.set_attr(&file_io, "__fileno", vm.new_int(file_no))?;
-        vm.set_attr(&file_io, "__closefd", vm.new_bool(args.closefd))?;
+        vm.set_attr(&file_io, "closefd", vm.new_bool(args.closefd))?;
         vm.set_attr(&file_io, "__closed", vm.new_bool(false))?;
         Ok(vm.get_none())
     }
@@ -723,7 +723,7 @@ mod fileio {
     }
 
     fn file_io_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let closefd = objbool::boolval(vm, vm.get_attribute(instance.clone(), "__closefd")?)?;
+        let closefd = objbool::boolval(vm, vm.get_attribute(instance.clone(), "closefd")?)?;
         if closefd {
             let raw_handle =
                 i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
