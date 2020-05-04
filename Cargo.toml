@@ -18,6 +18,8 @@ path = "./benchmarks/bench.rs"
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 
+ssl = ["rustpython-vm/ssl"]
+
 [dependencies]
 log = "0.4"
 env_logger = "0.7"
