@@ -284,7 +284,7 @@ where
     if !args.kwargs.is_empty() {
         Err(vm.new_type_error("Takes no keyword arguments".to_owned()))
     } else if args.args.is_empty() {
-        return Ok(default);
+        Ok(default)
     } else if args.args.len() == 1 {
         let a: PyObjectRef = args.args[0].clone();
         if let Some(aa) = a.payload_if_subclass::<PyInt>(vm) {
