@@ -384,7 +384,6 @@ mod tests {
     #[test]
     fn test_parse_invalid_fstring() {
         assert_eq!(parse_fstring("{5!a"), Err(ExpectedRbrace));
-
         assert_eq!(parse_fstring("{5!a1}"), Err(ExpectedRbrace));
         assert_eq!(parse_fstring("{5!"), Err(ExpectedRbrace));
         assert_eq!(parse_fstring("abc{!a 'cat'}"), Err(EmptyExpression));
