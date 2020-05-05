@@ -15,6 +15,7 @@ mod hashlib;
 mod imp;
 pub mod io;
 mod itertools;
+mod json;
 #[cfg(feature = "rustpython-parser")]
 mod keyword;
 mod marshal;
@@ -71,14 +72,15 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     let mut modules = hashmap! {
         "array".to_owned() => Box::new(array::make_module) as StdlibInitFunc,
         "binascii".to_owned() => Box::new(binascii::make_module),
-        "dis".to_owned() => Box::new(dis::make_module),
         "_collections".to_owned() => Box::new(collections::make_module),
         "_csv".to_owned() => Box::new(csv::make_module),
-        "_functools".to_owned() => Box::new(functools::make_module),
+        "dis".to_owned() => Box::new(dis::make_module),
         "errno".to_owned() => Box::new(errno::make_module),
+        "_functools".to_owned() => Box::new(functools::make_module),
         "hashlib".to_owned() => Box::new(hashlib::make_module),
         "itertools".to_owned() => Box::new(itertools::make_module),
         "_io".to_owned() => Box::new(io::make_module),
+        "_json".to_owned() => Box::new(json::make_module),
         "marshal".to_owned() => Box::new(marshal::make_module),
         "math".to_owned() => Box::new(math::make_module),
         "_operator".to_owned() => Box::new(operator::make_module),
