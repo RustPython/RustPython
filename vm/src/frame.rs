@@ -647,13 +647,10 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::Continue => self.unwind_blocks(vm, UnwindReason::Continue),
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
-                if !expr.is(&vm.get_none()) {
-                    let repr = vm.to_repr(&expr)?;
-                    // TODO: implement sys.displayhook
-                    if let Ok(ref print) = vm.get_attribute(vm.builtins.clone(), "print") {
-                        vm.invoke(print, vec![repr.into_object()])?;
-                    }
-                }
+
+                let displayhook = vm.get_attribute(vm.sys_module.clone(), "displayhook")?;
+                vm.invoke(&displayhook, vec![expr])?;
+
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {

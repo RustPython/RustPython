@@ -618,7 +618,7 @@ pub fn builtin_exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine
     Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
 }
 
-#[derive(Debug, FromArgs)]
+#[derive(Debug, Default, FromArgs)]
 pub struct PrintOptions {
     #[pyarg(keyword_only, default = "None")]
     sep: Option<PyStringRef>,

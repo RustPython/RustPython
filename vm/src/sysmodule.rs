@@ -1,8 +1,9 @@
 use std::sync::Arc;
 use std::{env, mem};
 
+use crate::builtins;
 use crate::frame::FrameRef;
-use crate::function::OptionalArg;
+use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
 use crate::pyhash::PyHashInfo;
 use crate::pyobject::{
@@ -202,6 +203,24 @@ fn sys_exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
     Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
 }
 
+fn sys_audit(_args: PyFuncArgs) {
+    // TODO: sys.audit implementation
+}
+
+fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    // Save non-None values as "_"
+    if vm.is_none(&obj) {
+        return Ok(());
+    }
+    // set to none to avoid recursion while printing
+    vm.set_attr(&vm.builtins, "_", vm.get_none())?;
+    // TODO: catch encoding errors
+    let repr = vm.to_repr(&obj)?.into_object();
+    builtins::builtin_print(Args::new(vec![repr]), Default::default(), vm)?;
+    vm.set_attr(&vm.builtins, "_", obj)?;
+    Ok(())
+}
+
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
     let ctx = &vm.ctx;
 
@@ -394,6 +413,9 @@ settrace() -- set the global debug tracing function
       "base_exec_prefix" => ctx.new_str(base_exec_prefix.to_owned()),
       "exit" => ctx.new_function(sys_exit),
       "abiflags" => ctx.new_str("".to_owned()),
+      "audit" => ctx.new_function(sys_audit),
+      "displayhook" => ctx.new_function(sys_displayhook),
+      "__displayhook__" => ctx.new_function(sys_displayhook),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();
