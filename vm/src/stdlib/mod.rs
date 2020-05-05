@@ -53,7 +53,7 @@ mod pwd;
 mod select;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod signal;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
 #[cfg(not(target_arch = "wasm32"))]
 mod subprocess;
@@ -125,6 +125,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         );
         modules.insert("signal".to_owned(), Box::new(signal::make_module));
         modules.insert("select".to_owned(), Box::new(select::make_module));
+        #[cfg(feature = "ssl")]
         modules.insert("_ssl".to_owned(), Box::new(ssl::make_module));
         modules.insert("_subprocess".to_owned(), Box::new(subprocess::make_module));
         #[cfg(not(target_os = "redox"))]

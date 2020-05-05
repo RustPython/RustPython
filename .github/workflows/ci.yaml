@@ -6,7 +6,7 @@ on:
 name: CI
 
 env:
-  VCPKGRS_DYNAMIC: 1
+  CARGO_ARGS: --all --features ssl
 
 jobs:
   rust_tests:
@@ -33,7 +33,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose --all
+          args: --verbose ${{ env.CARGO_ARGS }}
 
   snippets_cpython:
     name: Run snippets and cpython tests
@@ -59,7 +59,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --verbose --all
+          args: --release --verbose ${{ env.CARGO_ARGS }}
       - uses: actions/setup-python@v1
         with:
           python-version: 3.8
@@ -74,7 +74,7 @@ jobs:
         run: pipenv run pytest -v
         working-directory: ./tests
       - name: run cpython tests
-        run: cargo run --release -- -m test -v
+        run: target/release/rustpython -m test -v
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
         if: runner.os != 'Windows'
@@ -99,7 +99,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --all -- -Dwarnings
+          args: ${{ env.CARGO_ARGS }} -- -Dwarnings
 
   lint:
     name: Lint Python code with flake8

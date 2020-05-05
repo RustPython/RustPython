@@ -14,6 +14,8 @@ vm-tracing-logging = []
 flame-it = ["flame", "flamer"]
 freeze-stdlib = []
 
+ssl = ["openssl", "openssl-sys", "openssl-probe"]
+
 [dependencies]
 # Crypto:
 digest = "0.8.1"
@@ -99,9 +101,9 @@ gethostname = "0.2.0"
 subprocess = "0.2.2"
 socket2 = { version = "0.3", features = ["unix"] }
 rustyline = "6.0"
-openssl = { version = "0.10", features = ["vendored"] }
-openssl-sys = "0.9"
-openssl-probe = "0.1"
+openssl = { version = "0.10", features = ["vendored"], optional = true }
+openssl-sys = { version = "0.9", optional = true }
+openssl-probe = { version = "0.1", optional = true }
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1"
