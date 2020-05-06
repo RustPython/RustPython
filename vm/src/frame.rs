@@ -92,6 +92,8 @@ pub struct Frame {
     pub scope: Scope,
     /// index of last instruction ran
     pub lasti: AtomicUsize,
+    /// marker to know if this frame is being traced
+    pub trace: Option<PyObjectRef>,
     state: Mutex<FrameState>,
 }
 
@@ -167,6 +169,7 @@ impl Frame {
                 stack: Vec::new(),
                 blocks: Vec::new(),
             }),
+            trace: None::<PyObjectRef>,
         }
     }
 }

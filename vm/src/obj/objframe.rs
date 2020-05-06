@@ -5,7 +5,7 @@
 use super::objcode::PyCodeRef;
 use super::objdict::PyDictRef;
 use crate::frame::FrameRef;
-use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyResult};
+use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
@@ -67,5 +67,24 @@ impl FrameRef {
     #[pyproperty]
     fn f_lineno(self) -> usize {
         self.current_location().row()
+    }
+
+    #[pyproperty]
+    fn f_trace(self, vm: &VirtualMachine) -> PyObjectRef {
+        let result = self.trace.clone().unwrap_or_else(|| vm.get_none());
+        println!("{:#?}", result);
+        result
+    }
+
+    #[pyproperty(setter)]
+    fn set_f_trace(self, value: PyObjectRef, vm: &VirtualMachine) {
+        println!("value={:#?}", value);
+        let trace = &self.trace;
+        println!("trace={:#?}", trace);
+        let mut cloned = trace.clone();
+        println!("cloned={:#?}", cloned);
+        let replaced = cloned.replace(value.clone());
+        println!("replaced={:#?}", replaced);
+        self.f_trace(vm);
     }
 }
