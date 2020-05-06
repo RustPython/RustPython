@@ -211,7 +211,7 @@ impl FrameRef {
     }
 
     pub fn current_location(&self) -> bytecode::Location {
-        self.code.locations[self.lasti.load(Ordering::Relaxed)]
+        self.code.locations[self.lasti.load(Ordering::Relaxed) - 1]
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
