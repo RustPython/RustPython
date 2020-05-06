@@ -159,7 +159,7 @@ impl PyList {
     }
 
     #[pymethod]
-    fn insert(&self, position: isize, element: PyObjectRef) {
+    pub(crate) fn insert(&self, position: isize, element: PyObjectRef) {
         let mut elements = self.borrow_elements_mut();
         let vec_len = elements.len().to_isize().unwrap();
         // This unbounded position can be < 0 or > vec.len()
