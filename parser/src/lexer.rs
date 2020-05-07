@@ -530,7 +530,7 @@ where
         loop {
             match self.next_char() {
                 Some('\\') => {
-                    if self.chr0 == Some(quote_char) {
+                    if self.chr0 == Some(quote_char) && !is_raw {
                         string_content.push(quote_char);
                         self.next_char();
                     } else if is_raw {
@@ -1625,7 +1625,7 @@ mod tests {
                     is_fstring: false,
                 },
                 Tok::String {
-                    value: String::from("raw\'"),
+                    value: String::from("raw\\'"),
                     is_fstring: false,
                 },
                 Tok::String {

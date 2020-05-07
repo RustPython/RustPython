@@ -187,7 +187,7 @@ pub fn get_py_int(obj: &PyObjectRef) -> &PyInt {
     &obj.payload::<PyInt>().unwrap()
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct IntoPyBool {
     value: bool,
 }

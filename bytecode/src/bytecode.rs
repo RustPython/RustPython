@@ -73,6 +73,10 @@ impl CodeFlags {
     pub const NAME_MAPPING: &'static [(&'static str, CodeFlags)] = &[
         ("GENERATOR", CodeFlags::IS_GENERATOR),
         ("COROUTINE", CodeFlags::IS_COROUTINE),
+        (
+            "ASYNC_GENERATOR",
+            Self::from_bits_truncate(Self::IS_GENERATOR.bits | Self::IS_COROUTINE.bits),
+        ),
         ("VARARGS", CodeFlags::HAS_VARARGS),
         ("VARKEYWORDS", CodeFlags::HAS_VARKEYWORDS),
     ];

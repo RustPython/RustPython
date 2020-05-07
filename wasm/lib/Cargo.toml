@@ -25,6 +25,7 @@ serde-wasm-bindgen = "0.1"
 serde = "1.0"
 js-sys = "0.3"
 futures = "0.1"
+generational-arena = "0.2"
 
 [dependencies.web-sys]
 version = "0.3"
@@ -40,4 +41,4 @@ features = [
 ]
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-O1"]
+wasm-opt = false#["-O1"]

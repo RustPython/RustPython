@@ -19,4 +19,3 @@ assert mod.get_thing() == 1
 );
         """
     )
-

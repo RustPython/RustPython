@@ -6,15 +6,12 @@ use js_sys::{Object, TypeError};
 use wasm_bindgen::prelude::*;
 
 use rustpython_compiler::compile;
-use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::pyobject::{
-    ItemProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, PyValue,
-};
+use rustpython_vm::pyobject::{ItemProtocol, PyObject, PyObjectPayload, PyObjectRef, PyValue};
 use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::{InitParameter, PySettings, VirtualMachine};
 
 use crate::browser_module::setup_browser_module;
-use crate::convert::{self, PyResultExt};
+use crate::convert::{self, JsHandle, PyResultExt};
 use crate::js_module;
 use crate::wasm_builtins;
 use rustpython_compiler::mode::Mode;
@@ -67,7 +64,6 @@ impl StoredVirtualMachine {
 // https://rustwasm.github.io/2018/10/24/multithreading-rust-and-wasm.html#atomic-instructions
 thread_local! {
     static STORED_VMS: RefCell<HashMap<String, Rc<StoredVirtualMachine>>> = RefCell::default();
-    static JS_PRINT_FUNC: RefCell<Option<js_sys::Function>> = RefCell::new(None);
 }
 
 pub fn get_vm_id(vm: &VirtualMachine) -> &str {
@@ -223,39 +219,28 @@ impl WASMVirtualMachine {
             fn error() -> JsValue {
                 TypeError::new("Unknown stdout option, please pass a function or 'console'").into()
             }
-            let print_fn: PyObjectRef = if let Some(s) = stdout.as_string() {
+            use wasm_builtins::make_stdout_object;
+            let stdout: PyObjectRef = if let Some(s) = stdout.as_string() {
                 match s.as_str() {
-                    "console" => vm.ctx.new_method(wasm_builtins::builtin_print_console),
+                    "console" => make_stdout_object(vm, wasm_builtins::sys_stdout_write_console),
                     _ => return Err(error()),
                 }
             } else if stdout.is_function() {
-                let func = js_sys::Function::from(stdout);
-                JS_PRINT_FUNC.with(|thread_func| thread_func.replace(Some(func.clone())));
-                vm.ctx
-                    .new_method(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
-                        JS_PRINT_FUNC.with(|func| {
-                            func.borrow()
-                                .as_ref()
-                                .unwrap()
-                                .call1(
-                                    &JsValue::UNDEFINED,
-                                    &wasm_builtins::format_print_args(vm, args)?.into(),
-                                )
-                                .map_err(|err| convert::js_py_typeerror(vm, err))?;
-                            Ok(vm.get_none())
-                        })
-                    })
+                let func_handle = JsHandle::new(stdout);
+                make_stdout_object(vm, move |data, vm| {
+                    let func = js_sys::Function::from(func_handle.get());
+                    func.call1(&JsValue::UNDEFINED, &data.into())
+                        .map_err(|err| convert::js_py_typeerror(vm, err))?;
+                    Ok(())
+                })
             } else if stdout.is_null() {
-                fn noop(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-                    Ok(vm.get_none())
-                }
-                vm.ctx.new_method(noop)
+                make_stdout_object(vm, |_, _| Ok(()))
             } else if stdout.is_undefined() {
-                vm.ctx.new_method(wasm_builtins::builtin_print_console)
+                make_stdout_object(vm, wasm_builtins::sys_stdout_write_console)
             } else {
                 return Err(error());
             };
-            vm.set_attr(&vm.builtins, "print", print_fn).unwrap();
+            vm.set_attr(&vm.sys_module, "stdout", stdout).unwrap();
             Ok(())
         })?
     }
