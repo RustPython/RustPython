@@ -1625,7 +1625,7 @@ mod tests {
                     is_fstring: false,
                 },
                 Tok::String {
-                    value: String::from("raw\'"),
+                    value: String::from("raw\\'"),
                     is_fstring: false,
                 },
                 Tok::String {
