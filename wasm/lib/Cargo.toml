@@ -41,4 +41,4 @@ features = [
 ]
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-O1"]
+wasm-opt = false#["-O1"]
