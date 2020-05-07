@@ -186,9 +186,19 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
     // add the current directory to sys.path
     settings.path_list.push("".to_owned());
 
+    if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
+        settings.path_list.extend(
+            std::env::split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()),
+        )
+    } else if option_env!("RUSTPYTHONPATH").is_none() {
+        settings
+            .path_list
+            .push(concat!(env!("CARGO_MANIFEST_DIR"), "/Lib").to_owned());
+    }
+
     if !ignore_environment {
-        settings.path_list.append(&mut get_paths("RUSTPYTHONPATH"));
-        settings.path_list.append(&mut get_paths("PYTHONPATH"));
+        settings.path_list.extend(get_paths("RUSTPYTHONPATH"));
+        settings.path_list.extend(get_paths("PYTHONPATH"));
     }
 
     // Now process command line flags:
@@ -268,18 +278,18 @@ fn get_env_var_value(name: &str) -> Result<u8, std::env::VarError> {
 }
 
 /// Helper function to retrieve a sequence of paths from an environment variable.
-fn get_paths(env_variable_name: &str) -> Vec<String> {
-    let paths = env::var_os(env_variable_name);
-    match paths {
-        Some(paths) => env::split_paths(&paths)
-            .map(|path| {
-                path.into_os_string()
-                    .into_string()
-                    .unwrap_or_else(|_| panic!("{} isn't valid unicode", env_variable_name))
-            })
-            .collect(),
-        None => vec![],
-    }
+fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
+    env::var_os(env_variable_name)
+        .into_iter()
+        .flat_map(move |paths| {
+            env::split_paths(&paths)
+                .map(|path| {
+                    path.into_os_string()
+                        .into_string()
+                        .unwrap_or_else(|_| panic!("{} isn't valid unicode", env_variable_name))
+                })
+                .collect::<Vec<_>>()
+        })
 }
 
 #[cfg(feature = "flame-it")]
@@ -329,24 +339,6 @@ fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>>
 }
 
 fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
-    if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
-        let sys_path = vm.get_attribute(vm.sys_module.clone(), "path")?;
-        for (i, path) in std::env::split_paths(paths).enumerate() {
-            vm.call_method(
-                &sys_path,
-                "insert",
-                vec![
-                    vm.ctx.new_int(i),
-                    vm.ctx.new_str(
-                        path.into_os_string()
-                            .into_string()
-                            .expect("Invalid UTF8 in BUILDTIME_RUSTPYTHONPATH"),
-                    ),
-                ],
-            )?;
-        }
-    }
-
     let scope = vm.new_scope_with_builtins();
     let main_module = vm.new_module("__main__", scope.globals.clone());
 
