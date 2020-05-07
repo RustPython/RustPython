@@ -619,6 +619,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b980f2816d6ee8673b6517b52cb0e808a180efc92e5c19d02cdda79066703ef"
 
 [[package]]
+name = "generational-arena"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "921c3803adaeb9f9639de5149d9f0f9f4b79f00c423915b701db2e02ed80b9ce"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1642,6 +1651,7 @@ version = "0.1.0-pre-alpha.2"
 dependencies = [
  "cfg-if",
  "futures",
+ "generational-arena",
  "js-sys",
  "rustpython-compiler",
  "rustpython-parser",
