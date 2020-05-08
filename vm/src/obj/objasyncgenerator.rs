@@ -129,7 +129,7 @@ impl PyAsyncGenWrappedValue {
             if objtype::isinstance(&e, &vm.ctx.exceptions.stop_async_iteration)
                 || objtype::isinstance(&e, &vm.ctx.exceptions.generator_exit)
             {
-                ag.inner.closed.set(true);
+                ag.inner.closed.store(true);
             }
             ag.running_async.set(false);
         }
