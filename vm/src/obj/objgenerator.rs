@@ -7,7 +7,7 @@ use super::objcoroinner::{Coro, Variant};
 use super::objtype::PyClassRef;
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
 use crate::vm::VirtualMachine;
 
 pub type PyGeneratorRef = PyRef<PyGenerator>;
@@ -17,6 +17,8 @@ pub type PyGeneratorRef = PyRef<PyGenerator>;
 pub struct PyGenerator {
     inner: Coro,
 }
+
+impl ThreadSafe for PyGenerator {}
 
 impl PyValue for PyGenerator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
