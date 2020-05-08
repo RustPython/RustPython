@@ -70,21 +70,14 @@ impl FrameRef {
     }
 
     #[pyproperty]
-    fn f_trace(self, vm: &VirtualMachine) -> PyObjectRef {
-        let result = self.trace.clone().unwrap_or_else(|| vm.get_none());
-        println!("{:#?}", result);
-        result
+    fn f_trace(self) -> PyObjectRef {
+        let boxed = self.trace.read();
+        boxed.unwrap().clone()
     }
 
     #[pyproperty(setter)]
-    fn set_f_trace(self, value: PyObjectRef, vm: &VirtualMachine) {
-        println!("value={:#?}", value);
-        let trace = &self.trace;
-        println!("trace={:#?}", trace);
-        let mut cloned = trace.clone();
-        println!("cloned={:#?}", cloned);
-        let replaced = cloned.replace(value.clone());
-        println!("replaced={:#?}", replaced);
-        self.f_trace(vm);
+    fn set_f_trace(self, value: PyObjectRef) {
+        let mut storage = self.trace.write().unwrap();
+        *storage = value;
     }
 }

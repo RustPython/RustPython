@@ -1,6 +1,6 @@
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -93,7 +93,7 @@ pub struct Frame {
     /// index of last instruction ran
     pub lasti: AtomicUsize,
     /// marker to know if this frame is being traced
-    pub trace: Option<PyObjectRef>,
+    pub trace: RwLock<PyObjectRef>,
     state: Mutex<FrameState>,
 }
 
@@ -169,7 +169,7 @@ impl Frame {
                 stack: Vec::new(),
                 blocks: Vec::new(),
             }),
-            trace: None::<PyObjectRef>,
+            trace: RwLock::new(vm.get_none()),
         }
     }
 }
