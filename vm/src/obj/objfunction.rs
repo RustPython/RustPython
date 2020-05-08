@@ -232,7 +232,7 @@ impl PyFunction {
         self.fill_locals_from_args(&code, &scope.get_locals(), func_args, vm)?;
 
         // Construct frame:
-        let frame = Frame::new(code.clone(), scope).into_ref(vm);
+        let frame = Frame::new(code.clone(), scope, vm).into_ref(vm);
 
         // If we have a generator, create a new generator
         let is_gen = code.flags.contains(bytecode::CodeFlags::IS_GENERATOR);

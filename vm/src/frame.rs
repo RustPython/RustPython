@@ -149,7 +149,7 @@ impl ExecutionResult {
 pub type FrameResult = PyResult<Option<ExecutionResult>>;
 
 impl Frame {
-    pub fn new(code: PyCodeRef, scope: Scope) -> Frame {
+    pub fn new(code: PyCodeRef, scope: Scope, vm: &VirtualMachine) -> Frame {
         //populate the globals and locals
         //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
         /*
