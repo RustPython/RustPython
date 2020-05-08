@@ -1444,6 +1444,14 @@ fn os_utime(
     unimplemented!("utime")
 }
 
+#[cfg(unix)]
+fn os_sync(_vm: &VirtualMachine) -> PyResult<()> {
+    unsafe {
+        libc::sync();
+    }
+    Ok(())
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1626,6 +1634,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "setgid" => ctx.new_function(os_setgid),
         "setpgid" => ctx.new_function(os_setpgid),
         "setuid" => ctx.new_function(os_setuid),
+        "sync" => ctx.new_function(os_sync),
         "system" => ctx.new_function(os_system),
         "ttyname" => ctx.new_function(os_ttyname),
         "uname" => ctx.new_function(os_uname),
