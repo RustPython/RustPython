@@ -6,26 +6,31 @@ use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::py_serde;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+    TryFromObject, TypeProtocol,
 };
 use crate::slots::PyTpFlags;
 use crate::types::create_type;
 use crate::VirtualMachine;
+
 use itertools::Itertools;
-use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
+use std::sync::RwLock;
+
+use crossbeam_utils::atomic::AtomicCell;
 
 #[pyclass]
 pub struct PyBaseException {
-    traceback: RefCell<Option<PyTracebackRef>>,
-    cause: RefCell<Option<PyBaseExceptionRef>>,
-    context: RefCell<Option<PyBaseExceptionRef>>,
-    suppress_context: Cell<bool>,
-    args: RefCell<PyTupleRef>,
+    traceback: RwLock<Option<PyTracebackRef>>,
+    cause: RwLock<Option<PyBaseExceptionRef>>,
+    context: RwLock<Option<PyBaseExceptionRef>>,
+    suppress_context: AtomicCell<bool>,
+    args: RwLock<PyTupleRef>,
 }
+
+impl ThreadSafe for PyBaseException {}
 
 impl fmt::Debug for PyBaseException {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -48,11 +53,11 @@ impl PyValue for PyBaseException {
 impl PyBaseException {
     pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
         PyBaseException {
-            traceback: RefCell::new(None),
-            cause: RefCell::new(None),
-            context: RefCell::new(None),
-            suppress_context: Cell::new(false),
-            args: RefCell::new(PyTuple::from(args).into_ref(vm)),
+            traceback: RwLock::new(None),
+            cause: RwLock::new(None),
+            context: RwLock::new(None),
+            suppress_context: AtomicCell::new(false),
+            args: RwLock::new(PyTuple::from(args).into_ref(vm)),
         }
     }
 
@@ -63,65 +68,65 @@ impl PyBaseException {
 
     #[pymethod(name = "__init__")]
     fn init(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        self.args.replace(PyTuple::from(args.args).into_ref(vm));
+        *self.args.write().unwrap() = PyTuple::from(args.args).into_ref(vm);
         Ok(())
     }
 
     #[pyproperty]
     pub fn args(&self) -> PyTupleRef {
-        self.args.borrow().clone()
+        self.args.read().unwrap().clone()
     }
 
     #[pyproperty(setter)]
     fn set_args(&self, args: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        self.args.replace(PyTuple::from(args).into_ref(vm));
+        *self.args.write().unwrap() = PyTuple::from(args).into_ref(vm);
         Ok(())
     }
 
     #[pyproperty(name = "__traceback__")]
     pub fn traceback(&self) -> Option<PyTracebackRef> {
-        self.traceback.borrow().clone()
+        self.traceback.read().unwrap().clone()
     }
 
     #[pyproperty(name = "__traceback__", setter)]
     pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
-        self.traceback.replace(traceback);
+        *self.traceback.write().unwrap() = traceback;
     }
 
     #[pyproperty(name = "__cause__")]
     pub fn cause(&self) -> Option<PyBaseExceptionRef> {
-        self.cause.borrow().clone()
+        self.cause.read().unwrap().clone()
     }
 
     #[pyproperty(name = "__cause__", setter)]
     pub fn set_cause(&self, cause: Option<PyBaseExceptionRef>) {
-        self.cause.replace(cause);
+        *self.cause.write().unwrap() = cause;
     }
 
     #[pyproperty(name = "__context__")]
     pub fn context(&self) -> Option<PyBaseExceptionRef> {
-        self.context.borrow().clone()
+        self.context.read().unwrap().clone()
     }
 
     #[pyproperty(name = "__context__", setter)]
     pub fn set_context(&self, context: Option<PyBaseExceptionRef>) {
-        self.context.replace(context);
+        *self.context.write().unwrap() = context;
     }
 
     #[pyproperty(name = "__suppress_context__")]
     fn get_suppress_context(&self) -> bool {
-        self.suppress_context.get()
+        self.suppress_context.load()
     }
 
     #[pyproperty(name = "__suppress_context__", setter)]
     fn set_suppress_context(&self, suppress_context: bool) {
-        self.suppress_context.set(suppress_context);
+        self.suppress_context.store(suppress_context);
     }
 
     #[pymethod]
     fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
-        zelf.traceback.replace(tb);
+        *zelf.traceback.write().unwrap() = tb;
         Ok(zelf.as_object().clone())
     }
 
@@ -213,7 +218,7 @@ pub fn write_exception_inner<W: Write>(
     vm: &VirtualMachine,
     exc: &PyBaseExceptionRef,
 ) -> io::Result<()> {
-    if let Some(tb) = exc.traceback.borrow().clone() {
+    if let Some(tb) = exc.traceback.read().unwrap().clone() {
         writeln!(output, "Traceback (most recent call last):")?;
         for tb in tb.iter() {
             write_traceback_entry(output, &tb)?;
@@ -605,7 +610,8 @@ fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
 fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef, &VirtualMachine) -> PyObjectRef {
     move |exc, vm| {
         exc.args
-            .borrow()
+            .read()
+            .unwrap()
             .as_slice()
             .get(idx)
             .cloned()
@@ -716,7 +722,7 @@ impl serde::Serialize for SerializeException<'_> {
             "context",
             &self.exc.context().as_ref().map(|e| Self::new(self.vm, e)),
         )?;
-        struc.serialize_field("suppress_context", &self.exc.suppress_context.get())?;
+        struc.serialize_field("suppress_context", &self.exc.suppress_context.load())?;
 
         let args = {
             struct Args<'vm>(&'vm VirtualMachine, PyTupleRef);
