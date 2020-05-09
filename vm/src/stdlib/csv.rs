@@ -1,5 +1,5 @@
-use std::cell::RefCell;
 use std::fmt::{self, Debug, Formatter};
+use std::sync::RwLock;
 
 use csv as rust_csv;
 use itertools::join;
@@ -10,7 +10,7 @@ use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{IntoPyObject, TryFromObject, TypeProtocol};
-use crate::pyobject::{PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
 use crate::types::create_type;
 use crate::VirtualMachine;
 
@@ -126,8 +126,10 @@ impl ReadState {
 
 #[pyclass(name = "Reader")]
 struct Reader {
-    state: RefCell<ReadState>,
+    state: RwLock<ReadState>,
 }
+
+impl ThreadSafe for Reader {}
 
 impl Debug for Reader {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
@@ -143,7 +145,7 @@ impl PyValue for Reader {
 
 impl Reader {
     fn new(iter: PyIterable<PyObjectRef>, config: ReaderOption) -> Self {
-        let state = RefCell::new(ReadState::new(iter, config));
+        let state = RwLock::new(ReadState::new(iter, config));
         Reader { state }
     }
 }
@@ -152,13 +154,13 @@ impl Reader {
 impl Reader {
     #[pymethod(name = "__iter__")]
     fn iter(this: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        this.state.borrow_mut().cast_to_reader(vm)?;
+        this.state.write().unwrap().cast_to_reader(vm)?;
         this.into_pyobject(vm)
     }
 
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let mut state = self.state.borrow_mut();
+        let mut state = self.state.write().unwrap();
         state.cast_to_reader(vm)?;
 
         if let ReadState::CsvIter(ref mut reader) = &mut *state {
