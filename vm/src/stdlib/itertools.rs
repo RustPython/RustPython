@@ -60,13 +60,11 @@ mod decl {
                     let iter = get_iter(vm, &self.iterables[pos])?;
                     *self.cached_iter.write().unwrap() = Some(iter.clone());
                     iter
+                } else if let Some(cached_iter) = (*(self.cached_iter.read().unwrap())).clone() {
+                    cached_iter
                 } else {
-                    if let Some(cached_iter) = (*(self.cached_iter.read().unwrap())).clone() {
-                        cached_iter
-                    } else {
-                        // Someone changed cached iter to None since we checked.
-                        continue;
-                    }
+                    // Someone changed cached iter to None since we checked.
+                    continue;
                 };
 
                 // We need to call "call_next" outside of the lock.
