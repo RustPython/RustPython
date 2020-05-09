@@ -2,11 +2,11 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "itertools")]
 mod decl {
+    use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
     use num_traits::{One, Signed, ToPrimitive, Zero};
-    use std::cell::{Cell, RefCell};
     use std::iter;
-    use std::rc::Rc;
+    use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
     use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;
@@ -15,7 +15,8 @@ mod decl {
     use crate::obj::objtuple::PyTuple;
     use crate::obj::objtype::{self, PyClassRef};
     use crate::pyobject::{
-        IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+        IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+        TypeProtocol,
     };
     use crate::vm::VirtualMachine;
 
@@ -23,8 +24,11 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsChain {
         iterables: Vec<PyObjectRef>,
-        cur: RefCell<(usize, Option<PyObjectRef>)>,
+        cur_idx: AtomicCell<usize>,
+        cached_iter: RwLock<Option<PyObjectRef>>,
     }
+
+    impl ThreadSafe for PyItertoolsChain {}
 
     impl PyValue for PyItertoolsChain {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -38,27 +42,40 @@ mod decl {
         fn tp_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             PyItertoolsChain {
                 iterables: args.args,
-                cur: RefCell::new((0, None)),
+                cur_idx: AtomicCell::new(0),
+                cached_iter: RwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
 
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
-            let (ref mut cur_idx, ref mut cur_iter) = *self.cur.borrow_mut();
-            while *cur_idx < self.iterables.len() {
-                if cur_iter.is_none() {
-                    *cur_iter = Some(get_iter(vm, &self.iterables[*cur_idx])?);
+            loop {
+                let pos = self.cur_idx.load();
+                if pos >= self.iterables.len() {
+                    break;
                 }
+                let cur_iter = if self.cached_iter.read().unwrap().is_none() {
+                    // We need to call "get_iter" outside of the lock.
+                    let iter = get_iter(vm, &self.iterables[pos])?;
+                    *self.cached_iter.write().unwrap() = Some(iter.clone());
+                    iter
+                } else {
+                    if let Some(cached_iter) = (*(self.cached_iter.read().unwrap())).clone() {
+                        cached_iter
+                    } else {
+                        // Someone changed cached iter to None since we checked.
+                        continue;
+                    }
+                };
 
-                // can't be directly inside the 'match' clause, otherwise the borrows collide.
-                let obj = call_next(vm, cur_iter.as_ref().unwrap());
-                match obj {
+                // We need to call "call_next" outside of the lock.
+                match call_next(vm, &cur_iter) {
                     Ok(ok) => return Ok(ok),
                     Err(err) => {
                         if objtype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
-                            *cur_idx += 1;
-                            *cur_iter = None;
+                            self.cur_idx.fetch_add(1);
+                            *self.cached_iter.write().unwrap() = None;
                         } else {
                             return Err(err);
                         }
@@ -85,7 +102,8 @@ mod decl {
 
             PyItertoolsChain {
                 iterables,
-                cur: RefCell::new((0, None)),
+                cur_idx: AtomicCell::new(0),
+                cached_iter: RwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -97,6 +115,8 @@ mod decl {
         data: PyObjectRef,
         selector: PyObjectRef,
     }
+
+    impl ThreadSafe for PyItertoolsCompress {}
 
     impl PyValue for PyItertoolsCompress {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -145,9 +165,11 @@ mod decl {
     #[pyclass(name = "count")]
     #[derive(Debug)]
     struct PyItertoolsCount {
-        cur: RefCell<BigInt>,
+        cur: RwLock<BigInt>,
         step: BigInt,
     }
+
+    impl ThreadSafe for PyItertoolsCount {}
 
     impl PyValue for PyItertoolsCount {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -174,7 +196,7 @@ mod decl {
             };
 
             PyItertoolsCount {
-                cur: RefCell::new(start),
+                cur: RwLock::new(start),
                 step,
             }
             .into_ref_with_type(vm, cls)
@@ -182,8 +204,9 @@ mod decl {
 
         #[pymethod(name = "__next__")]
         fn next(&self) -> PyResult<PyInt> {
-            let result = self.cur.borrow().clone();
-            *self.cur.borrow_mut() += &self.step;
+            let mut cur = self.cur.write().unwrap();
+            let result = cur.clone();
+            *cur += &self.step;
             Ok(PyInt::new(result))
         }
 
@@ -196,11 +219,12 @@ mod decl {
     #[pyclass(name = "cycle")]
     #[derive(Debug)]
     struct PyItertoolsCycle {
-        iter: RefCell<PyObjectRef>,
-        saved: RefCell<Vec<PyObjectRef>>,
-        index: Cell<usize>,
-        first_pass: Cell<bool>,
+        iter: PyObjectRef,
+        saved: RwLock<Vec<PyObjectRef>>,
+        index: AtomicCell<usize>,
     }
+
+    impl ThreadSafe for PyItertoolsCycle {}
 
     impl PyValue for PyItertoolsCycle {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -219,36 +243,31 @@ mod decl {
             let iter = get_iter(vm, &iterable)?;
 
             PyItertoolsCycle {
-                iter: RefCell::new(iter.clone()),
-                saved: RefCell::new(Vec::new()),
-                index: Cell::new(0),
-                first_pass: Cell::new(false),
+                iter: iter.clone(),
+                saved: RwLock::new(Vec::new()),
+                index: AtomicCell::new(0),
             }
             .into_ref_with_type(vm, cls)
         }
 
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
-            let item = if let Some(item) = get_next_object(vm, &self.iter.borrow())? {
-                if self.first_pass.get() {
-                    return Ok(item);
-                }
-
-                self.saved.borrow_mut().push(item.clone());
+            let item = if let Some(item) = get_next_object(vm, &self.iter)? {
+                self.saved.write().unwrap().push(item.clone());
                 item
             } else {
-                if self.saved.borrow().len() == 0 {
+                let saved = self.saved.read().unwrap();
+                if saved.len() == 0 {
                     return Err(new_stop_iteration(vm));
                 }
 
-                let last_index = self.index.get();
-                self.index.set(self.index.get() + 1);
+                let last_index = self.index.fetch_add(1);
 
-                if self.index.get() >= self.saved.borrow().len() {
-                    self.index.set(0);
+                if last_index >= saved.len() - 1 {
+                    self.index.store(0);
                 }
 
-                self.saved.borrow()[last_index].clone()
+                saved[last_index].clone()
             };
 
             Ok(item)
@@ -264,8 +283,10 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsRepeat {
         object: PyObjectRef,
-        times: Option<RefCell<BigInt>>,
+        times: Option<RwLock<BigInt>>,
     }
+
+    impl ThreadSafe for PyItertoolsRepeat {}
 
     impl PyValue for PyItertoolsRepeat {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -283,7 +304,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let times = match times.into_option() {
-                Some(int) => Some(RefCell::new(int.as_bigint().clone())),
+                Some(int) => Some(RwLock::new(int.as_bigint().clone())),
                 None => None,
             };
 
@@ -297,10 +318,11 @@ mod decl {
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             if let Some(ref times) = self.times {
-                if *times.borrow() <= BigInt::zero() {
+                let mut times = times.write().unwrap();
+                if *times <= BigInt::zero() {
                     return Err(new_stop_iteration(vm));
                 }
-                *times.borrow_mut() -= 1;
+                *times -= 1;
             }
 
             Ok(self.object.clone())
@@ -314,7 +336,7 @@ mod decl {
         #[pymethod(name = "__length_hint__")]
         fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
             match self.times {
-                Some(ref times) => vm.new_int(times.borrow().clone()),
+                Some(ref times) => vm.new_int(times.read().unwrap().clone()),
                 None => vm.new_int(0),
             }
         }
@@ -326,6 +348,8 @@ mod decl {
         function: PyObjectRef,
         iter: PyObjectRef,
     }
+
+    impl ThreadSafe for PyItertoolsStarmap {}
 
     impl PyValue for PyItertoolsStarmap {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -366,8 +390,10 @@ mod decl {
     struct PyItertoolsTakewhile {
         predicate: PyObjectRef,
         iterable: PyObjectRef,
-        stop_flag: RefCell<bool>,
+        stop_flag: AtomicCell<bool>,
     }
+
+    impl ThreadSafe for PyItertoolsTakewhile {}
 
     impl PyValue for PyItertoolsTakewhile {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -389,14 +415,14 @@ mod decl {
             PyItertoolsTakewhile {
                 predicate,
                 iterable: iter,
-                stop_flag: RefCell::new(false),
+                stop_flag: AtomicCell::new(false),
             }
             .into_ref_with_type(vm, cls)
         }
 
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
-            if *self.stop_flag.borrow() {
+            if self.stop_flag.load() {
                 return Err(new_stop_iteration(vm));
             }
 
@@ -409,7 +435,7 @@ mod decl {
             if verdict {
                 Ok(obj)
             } else {
-                *self.stop_flag.borrow_mut() = true;
+                self.stop_flag.store(true);
                 Err(new_stop_iteration(vm))
             }
         }
@@ -425,8 +451,10 @@ mod decl {
     struct PyItertoolsDropwhile {
         predicate: PyCallable,
         iterable: PyObjectRef,
-        start_flag: Cell<bool>,
+        start_flag: AtomicCell<bool>,
     }
+
+    impl ThreadSafe for PyItertoolsDropwhile {}
 
     impl PyValue for PyItertoolsDropwhile {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -448,7 +476,7 @@ mod decl {
             PyItertoolsDropwhile {
                 predicate,
                 iterable: iter,
-                start_flag: Cell::new(false),
+                start_flag: AtomicCell::new(false),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -458,13 +486,13 @@ mod decl {
             let predicate = &self.predicate;
             let iterable = &self.iterable;
 
-            if !self.start_flag.get() {
+            if !self.start_flag.load() {
                 loop {
                     let obj = call_next(vm, iterable)?;
                     let pred = predicate.clone();
                     let pred_value = vm.invoke(&pred.into_object(), vec![obj.clone()])?;
                     if !objbool::boolval(vm, pred_value)? {
-                        self.start_flag.set(true);
+                        self.start_flag.store(true);
                         return Ok(obj);
                     }
                 }
@@ -482,11 +510,13 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsIslice {
         iterable: PyObjectRef,
-        cur: RefCell<usize>,
-        next: RefCell<usize>,
+        cur: AtomicCell<usize>,
+        next: AtomicCell<usize>,
         stop: Option<usize>,
         step: usize,
     }
+
+    impl ThreadSafe for PyItertoolsIslice {}
 
     impl PyValue for PyItertoolsIslice {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -567,8 +597,8 @@ mod decl {
 
             PyItertoolsIslice {
                 iterable: iter,
-                cur: RefCell::new(0),
-                next: RefCell::new(start),
+                cur: AtomicCell::new(0),
+                next: AtomicCell::new(start),
                 stop,
                 step,
             }
@@ -577,23 +607,23 @@ mod decl {
 
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
-            while *self.cur.borrow() < *self.next.borrow() {
+            while self.cur.load() < self.next.load() {
                 call_next(vm, &self.iterable)?;
-                *self.cur.borrow_mut() += 1;
+                self.cur.fetch_add(1);
             }
 
             if let Some(stop) = self.stop {
-                if *self.cur.borrow() >= stop {
+                if self.cur.load() >= stop {
                     return Err(new_stop_iteration(vm));
                 }
             }
 
             let obj = call_next(vm, &self.iterable)?;
-            *self.cur.borrow_mut() += 1;
+            self.cur.fetch_add(1);
 
             // TODO is this overflow check required? attempts to copy CPython.
-            let (next, ovf) = (*self.next.borrow()).overflowing_add(self.step);
-            *self.next.borrow_mut() = if ovf { self.stop.unwrap() } else { next };
+            let (next, ovf) = self.next.load().overflowing_add(self.step);
+            self.next.store(if ovf { self.stop.unwrap() } else { next });
 
             Ok(obj)
         }
@@ -610,6 +640,8 @@ mod decl {
         predicate: PyObjectRef,
         iterable: PyObjectRef,
     }
+
+    impl ThreadSafe for PyItertoolsFilterFalse {}
 
     impl PyValue for PyItertoolsFilterFalse {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -665,8 +697,10 @@ mod decl {
     struct PyItertoolsAccumulate {
         iterable: PyObjectRef,
         binop: PyObjectRef,
-        acc_value: RefCell<Option<PyObjectRef>>,
+        acc_value: RwLock<Option<PyObjectRef>>,
     }
+
+    impl ThreadSafe for PyItertoolsAccumulate {}
 
     impl PyValue for PyItertoolsAccumulate {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -688,7 +722,7 @@ mod decl {
             PyItertoolsAccumulate {
                 iterable: iter,
                 binop: binop.unwrap_or_else(|| vm.get_none()),
-                acc_value: RefCell::from(Option::None),
+                acc_value: RwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -698,7 +732,9 @@ mod decl {
             let iterable = &self.iterable;
             let obj = call_next(vm, iterable)?;
 
-            let next_acc_value = match &*self.acc_value.borrow() {
+            let acc_value = self.acc_value.read().unwrap().clone();
+
+            let next_acc_value = match acc_value {
                 None => obj.clone(),
                 Some(value) => {
                     if self.binop.is(&vm.get_none()) {
@@ -708,7 +744,7 @@ mod decl {
                     }
                 }
             };
-            self.acc_value.replace(Option::from(next_acc_value.clone()));
+            *self.acc_value.write().unwrap() = Some(next_acc_value.clone());
 
             Ok(next_acc_value)
         }
@@ -722,32 +758,36 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsTeeData {
         iterable: PyObjectRef,
-        values: RefCell<Vec<PyObjectRef>>,
+        values: RwLock<Vec<PyObjectRef>>,
     }
 
+    impl ThreadSafe for PyItertoolsTeeData {}
+
     impl PyItertoolsTeeData {
-        fn new(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Rc<PyItertoolsTeeData>> {
-            Ok(Rc::new(PyItertoolsTeeData {
+        fn new(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Arc<PyItertoolsTeeData>> {
+            Ok(Arc::new(PyItertoolsTeeData {
                 iterable: get_iter(vm, &iterable)?,
-                values: RefCell::new(vec![]),
+                values: RwLock::new(vec![]),
             }))
         }
 
         fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult {
-            if self.values.borrow().len() == index {
+            if self.values.read().unwrap().len() == index {
                 let result = call_next(vm, &self.iterable)?;
-                self.values.borrow_mut().push(result);
+                self.values.write().unwrap().push(result);
             }
-            Ok(self.values.borrow()[index].clone())
+            Ok(self.values.read().unwrap()[index].clone())
         }
     }
 
     #[pyclass(name = "tee")]
     #[derive(Debug)]
     struct PyItertoolsTee {
-        tee_data: Rc<PyItertoolsTeeData>,
-        index: Cell<usize>,
+        tee_data: Arc<PyItertoolsTeeData>,
+        index: AtomicCell<usize>,
     }
+
+    impl ThreadSafe for PyItertoolsTee {}
 
     impl PyValue for PyItertoolsTee {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -764,7 +804,7 @@ mod decl {
             }
             Ok(PyItertoolsTee {
                 tee_data: PyItertoolsTeeData::new(it, vm)?,
-                index: Cell::from(0),
+                index: AtomicCell::new(0),
             }
             .into_ref_with_type(vm, PyItertoolsTee::class(vm))?
             .into_object())
@@ -800,8 +840,8 @@ mod decl {
         #[pymethod(name = "__copy__")]
         fn copy(&self, vm: &VirtualMachine) -> PyResult {
             Ok(PyItertoolsTee {
-                tee_data: Rc::clone(&self.tee_data),
-                index: self.index.clone(),
+                tee_data: Arc::clone(&self.tee_data),
+                index: AtomicCell::new(self.index.load()),
             }
             .into_ref_with_type(vm, Self::class(vm))?
             .into_object())
@@ -809,8 +849,8 @@ mod decl {
 
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
-            let value = self.tee_data.get_item(vm, self.index.get())?;
-            self.index.set(self.index.get() + 1);
+            let value = self.tee_data.get_item(vm, self.index.load())?;
+            self.index.fetch_add(1);
             Ok(value)
         }
 
@@ -824,10 +864,12 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsProduct {
         pools: Vec<Vec<PyObjectRef>>,
-        idxs: RefCell<Vec<usize>>,
-        cur: Cell<usize>,
-        stop: Cell<bool>,
+        idxs: RwLock<Vec<usize>>,
+        cur: AtomicCell<usize>,
+        stop: AtomicCell<bool>,
     }
+
+    impl ThreadSafe for PyItertoolsProduct {}
 
     impl PyValue for PyItertoolsProduct {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -871,9 +913,9 @@ mod decl {
 
             PyItertoolsProduct {
                 pools,
-                idxs: RefCell::new(vec![0; l]),
-                cur: Cell::new(l - 1),
-                stop: Cell::new(false),
+                idxs: RwLock::new(vec![0; l]),
+                cur: AtomicCell::new(l - 1),
+                stop: AtomicCell::new(false),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -881,7 +923,7 @@ mod decl {
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             // stop signal
-            if self.stop.get() {
+            if self.stop.load() {
                 return Err(new_stop_iteration(vm));
             }
 
@@ -893,41 +935,36 @@ mod decl {
                 }
             }
 
+            let idxs = self.idxs.write().unwrap();
+
             let res = PyTuple::from(
                 pools
                     .iter()
-                    .zip(self.idxs.borrow().iter())
+                    .zip(idxs.iter())
                     .map(|(pool, idx)| pool[*idx].clone())
                     .collect::<Vec<PyObjectRef>>(),
             );
 
-            self.update_idxs();
-
-            if self.is_end() {
-                self.stop.set(true);
-            }
+            self.update_idxs(idxs);
 
             Ok(res.into_ref(vm).into_object())
         }
 
-        fn is_end(&self) -> bool {
-            let cur = self.cur.get();
-            self.idxs.borrow()[cur] == self.pools[cur].len() - 1 && cur == 0
-        }
+        fn update_idxs(&self, mut idxs: RwLockWriteGuard<'_, Vec<usize>>) {
+            let cur = self.cur.load();
+            let lst_idx = &self.pools[cur].len() - 1;
 
-        fn update_idxs(&self) {
-            let lst_idx = &self.pools[self.cur.get()].len() - 1;
-
-            if self.idxs.borrow()[self.cur.get()] == lst_idx {
-                if self.is_end() {
+            if idxs[cur] == lst_idx {
+                if cur == 0 {
+                    self.stop.store(true);
                     return;
                 }
-                self.idxs.borrow_mut()[self.cur.get()] = 0;
-                self.cur.set(self.cur.get() - 1);
-                self.update_idxs();
+                idxs[cur] = 0;
+                self.cur.fetch_sub(1);
+                self.update_idxs(idxs);
             } else {
-                self.idxs.borrow_mut()[self.cur.get()] += 1;
-                self.cur.set(self.idxs.borrow().len() - 1);
+                idxs[cur] += 1;
+                self.cur.store(idxs.len() - 1);
             }
         }
 
@@ -941,10 +978,12 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsCombinations {
         pool: Vec<PyObjectRef>,
-        indices: RefCell<Vec<usize>>,
-        r: Cell<usize>,
-        exhausted: Cell<bool>,
+        indices: RwLock<Vec<usize>>,
+        r: AtomicCell<usize>,
+        exhausted: AtomicCell<bool>,
     }
+
+    impl ThreadSafe for PyItertoolsCombinations {}
 
     impl PyValue for PyItertoolsCombinations {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -974,9 +1013,9 @@ mod decl {
 
             PyItertoolsCombinations {
                 pool,
-                indices: RefCell::new((0..r).collect()),
-                r: Cell::new(r),
-                exhausted: Cell::new(r > n),
+                indices: RwLock::new((0..r).collect()),
+                r: AtomicCell::new(r),
+                exhausted: AtomicCell::new(r > n),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -989,27 +1028,28 @@ mod decl {
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             // stop signal
-            if self.exhausted.get() {
+            if self.exhausted.load() {
                 return Err(new_stop_iteration(vm));
             }
 
             let n = self.pool.len();
-            let r = self.r.get();
+            let r = self.r.load();
 
             if r == 0 {
-                self.exhausted.set(true);
+                self.exhausted.store(true);
                 return Ok(vm.ctx.new_tuple(vec![]));
             }
 
             let res = PyTuple::from(
                 self.indices
-                    .borrow()
+                    .read()
+                    .unwrap()
                     .iter()
                     .map(|&i| self.pool[i].clone())
                     .collect::<Vec<PyObjectRef>>(),
             );
 
-            let mut indices = self.indices.borrow_mut();
+            let mut indices = self.indices.write().unwrap();
 
             // Scan indices right-to-left until finding one that is not at its maximum (i + n - r).
             let mut idx = r as isize - 1;
@@ -1020,7 +1060,7 @@ mod decl {
             // If no suitable index is found, then the indices are all at
             // their maximum value and we're done.
             if idx < 0 {
-                self.exhausted.set(true);
+                self.exhausted.store(true);
             } else {
                 // Increment the current index which we know is not at its
                 // maximum.  Then move back to the right setting each index
@@ -1040,10 +1080,12 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsCombinationsWithReplacement {
         pool: Vec<PyObjectRef>,
-        indices: RefCell<Vec<usize>>,
-        r: Cell<usize>,
-        exhausted: Cell<bool>,
+        indices: RwLock<Vec<usize>>,
+        r: AtomicCell<usize>,
+        exhausted: AtomicCell<bool>,
     }
+
+    impl ThreadSafe for PyItertoolsCombinationsWithReplacement {}
 
     impl PyValue for PyItertoolsCombinationsWithReplacement {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -1073,9 +1115,9 @@ mod decl {
 
             PyItertoolsCombinationsWithReplacement {
                 pool,
-                indices: RefCell::new(vec![0; r]),
-                r: Cell::new(r),
-                exhausted: Cell::new(n == 0 && r > 0),
+                indices: RwLock::new(vec![0; r]),
+                r: AtomicCell::new(r),
+                exhausted: AtomicCell::new(n == 0 && r > 0),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -1088,19 +1130,19 @@ mod decl {
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             // stop signal
-            if self.exhausted.get() {
+            if self.exhausted.load() {
                 return Err(new_stop_iteration(vm));
             }
 
             let n = self.pool.len();
-            let r = self.r.get();
+            let r = self.r.load();
 
             if r == 0 {
-                self.exhausted.set(true);
+                self.exhausted.store(true);
                 return Ok(vm.ctx.new_tuple(vec![]));
             }
 
-            let mut indices = self.indices.borrow_mut();
+            let mut indices = self.indices.write().unwrap();
 
             let res = vm
                 .ctx
@@ -1115,7 +1157,7 @@ mod decl {
             // If no suitable index is found, then the indices are all at
             // their maximum value and we're done.
             if idx < 0 {
-                self.exhausted.set(true);
+                self.exhausted.store(true);
             } else {
                 let index = indices[idx as usize] + 1;
 
@@ -1133,13 +1175,15 @@ mod decl {
     #[pyclass(name = "permutations")]
     #[derive(Debug)]
     struct PyItertoolsPermutations {
-        pool: Vec<PyObjectRef>,              // Collected input iterable
-        indices: RefCell<Vec<usize>>,        // One index per element in pool
-        cycles: RefCell<Vec<usize>>,         // One rollover counter per element in the result
-        result: RefCell<Option<Vec<usize>>>, // Indexes of the most recently returned result
-        r: Cell<usize>,                      // Size of result tuple
-        exhausted: Cell<bool>,               // Set when the iterator is exhausted
+        pool: Vec<PyObjectRef>,             // Collected input iterable
+        indices: RwLock<Vec<usize>>,        // One index per element in pool
+        cycles: RwLock<Vec<usize>>,         // One rollover counter per element in the result
+        result: RwLock<Option<Vec<usize>>>, // Indexes of the most recently returned result
+        r: AtomicCell<usize>,               // Size of result tuple
+        exhausted: AtomicCell<bool>,        // Set when the iterator is exhausted
     }
+
+    impl ThreadSafe for PyItertoolsPermutations {}
 
     impl PyValue for PyItertoolsPermutations {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -1179,11 +1223,11 @@ mod decl {
 
             PyItertoolsPermutations {
                 pool,
-                indices: RefCell::new((0..n).collect()),
-                cycles: RefCell::new((0..r).map(|i| n - i).collect()),
-                result: RefCell::new(None),
-                r: Cell::new(r),
-                exhausted: Cell::new(r > n),
+                indices: RwLock::new((0..n).collect()),
+                cycles: RwLock::new((0..r).map(|i| n - i).collect()),
+                result: RwLock::new(None),
+                r: AtomicCell::new(r),
+                exhausted: AtomicCell::new(r > n),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -1196,23 +1240,23 @@ mod decl {
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             // stop signal
-            if self.exhausted.get() {
+            if self.exhausted.load() {
                 return Err(new_stop_iteration(vm));
             }
 
             let n = self.pool.len();
-            let r = self.r.get();
+            let r = self.r.load();
 
             if n == 0 {
-                self.exhausted.set(true);
+                self.exhausted.store(true);
                 return Ok(vm.ctx.new_tuple(vec![]));
             }
 
-            let result = &mut *self.result.borrow_mut();
+            let mut result = self.result.write().unwrap();
 
-            if let Some(ref mut result) = result {
-                let mut indices = self.indices.borrow_mut();
-                let mut cycles = self.cycles.borrow_mut();
+            if let Some(ref mut result) = *result {
+                let mut indices = self.indices.write().unwrap();
+                let mut cycles = self.cycles.write().unwrap();
                 let mut sentinel = false;
 
                 // Decrement rightmost cycle, moving leftward upon zero rollover
@@ -1241,7 +1285,7 @@ mod decl {
                     }
                 }
                 if !sentinel {
-                    self.exhausted.set(true);
+                    self.exhausted.store(true);
                     return Err(new_stop_iteration(vm));
                 }
             } else {
@@ -1265,8 +1309,9 @@ mod decl {
     struct PyItertoolsZipLongest {
         iterators: Vec<PyObjectRef>,
         fillvalue: PyObjectRef,
-        numactive: Cell<usize>,
     }
+
+    impl ThreadSafe for PyItertoolsZipLongest {}
 
     impl PyValue for PyItertoolsZipLongest {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -1299,12 +1344,9 @@ mod decl {
                 .map(|iterable| get_iter(vm, &iterable))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let numactive = Cell::new(iterators.len());
-
             PyItertoolsZipLongest {
                 iterators,
                 fillvalue,
-                numactive,
             }
             .into_ref_with_type(vm, cls)
         }
@@ -1315,7 +1357,7 @@ mod decl {
                 Err(new_stop_iteration(vm))
             } else {
                 let mut result: Vec<PyObjectRef> = Vec::new();
-                let mut numactive = self.numactive.get();
+                let mut numactive = self.iterators.len();
 
                 for idx in 0..self.iterators.len() {
                     let next_obj = match call_next(vm, &self.iterators[idx]) {
