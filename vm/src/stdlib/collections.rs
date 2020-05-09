@@ -6,22 +6,26 @@ mod _collections {
     use crate::obj::{objiter, objtype::PyClassRef};
     use crate::pyobject::{
         IdProtocol, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef,
-        PyRef, PyResult, PyValue,
+        PyRef, PyResult, PyValue, ThreadSafe,
     };
     use crate::sequence;
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
     use itertools::Itertools;
-    use std::cell::{Cell, RefCell};
     use std::collections::VecDeque;
+    use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+    use crossbeam_utils::atomic::AtomicCell;
 
     #[pyclass(name = "deque")]
-    #[derive(Debug, Clone)]
+    #[derive(Debug)]
     struct PyDeque {
-        deque: RefCell<VecDeque<PyObjectRef>>,
-        maxlen: Cell<Option<usize>>,
+        deque: RwLock<VecDeque<PyObjectRef>>,
+        maxlen: AtomicCell<Option<usize>>,
     }
     type PyDequeRef = PyRef<PyDeque>;
+
+    impl ThreadSafe for PyDeque {}
 
     impl PyValue for PyDeque {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -36,8 +40,12 @@ mod _collections {
     }
 
     impl PyDeque {
-        fn borrow_deque<'a>(&'a self) -> impl std::ops::Deref<Target = VecDeque<PyObjectRef>> + 'a {
-            self.deque.borrow()
+        fn borrow_deque(&self) -> RwLockReadGuard<'_, VecDeque<PyObjectRef>> {
+            self.deque.read().unwrap()
+        }
+
+        fn borrow_deque_mut(&self) -> RwLockWriteGuard<'_, VecDeque<PyObjectRef>> {
+            self.deque.write().unwrap()
         }
     }
 
@@ -51,8 +59,8 @@ mod _collections {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let py_deque = PyDeque {
-                deque: RefCell::default(),
-                maxlen: maxlen.into(),
+                deque: RwLock::default(),
+                maxlen: AtomicCell::new(maxlen),
             };
             if let OptionalArg::Present(iter) = iter {
                 py_deque.extend(iter, vm)?;
@@ -62,8 +70,8 @@ mod _collections {
 
         #[pymethod]
         fn append(&self, obj: PyObjectRef) {
-            let mut deque = self.deque.borrow_mut();
-            if self.maxlen.get() == Some(deque.len()) {
+            let mut deque = self.borrow_deque_mut();
+            if self.maxlen.load() == Some(deque.len()) {
                 deque.pop_front();
             }
             deque.push_back(obj);
@@ -71,8 +79,8 @@ mod _collections {
 
         #[pymethod]
         fn appendleft(&self, obj: PyObjectRef) {
-            let mut deque = self.deque.borrow_mut();
-            if self.maxlen.get() == Some(deque.len()) {
+            let mut deque = self.borrow_deque_mut();
+            if self.maxlen.load() == Some(deque.len()) {
                 deque.pop_back();
             }
             deque.push_front(obj);
@@ -80,18 +88,21 @@ mod _collections {
 
         #[pymethod]
         fn clear(&self) {
-            self.deque.borrow_mut().clear()
+            self.borrow_deque_mut().clear()
         }
 
         #[pymethod]
         fn copy(&self) -> Self {
-            self.clone()
+            PyDeque {
+                deque: RwLock::new(self.borrow_deque().clone()),
+                maxlen: AtomicCell::new(self.maxlen.load()),
+            }
         }
 
         #[pymethod]
         fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
             let mut count = 0;
-            for elem in self.deque.borrow().iter() {
+            for elem in self.borrow_deque().iter() {
                 if vm.identical_or_equal(elem, &obj)? {
                     count += 1;
                 }
@@ -124,7 +135,7 @@ mod _collections {
             stop: OptionalArg<usize>,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
-            let deque = self.deque.borrow();
+            let deque = self.borrow_deque();
             let start = start.unwrap_or(0);
             let stop = stop.unwrap_or_else(|| deque.len());
             for (i, elem) in deque.iter().skip(start).take(stop - start).enumerate() {
@@ -141,9 +152,9 @@ mod _collections {
 
         #[pymethod]
         fn insert(&self, idx: i32, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let mut deque = self.deque.borrow_mut();
+            let mut deque = self.borrow_deque_mut();
 
-            if self.maxlen.get() == Some(deque.len()) {
+            if self.maxlen.load() == Some(deque.len()) {
                 return Err(vm.new_index_error("deque already at its maximum size".to_owned()));
             }
 
@@ -166,23 +177,21 @@ mod _collections {
 
         #[pymethod]
         fn pop(&self, vm: &VirtualMachine) -> PyResult {
-            self.deque
-                .borrow_mut()
+            self.borrow_deque_mut()
                 .pop_back()
                 .ok_or_else(|| vm.new_index_error("pop from an empty deque".to_owned()))
         }
 
         #[pymethod]
         fn popleft(&self, vm: &VirtualMachine) -> PyResult {
-            self.deque
-                .borrow_mut()
+            self.borrow_deque_mut()
                 .pop_front()
                 .ok_or_else(|| vm.new_index_error("pop from an empty deque".to_owned()))
         }
 
         #[pymethod]
         fn remove(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let mut deque = self.deque.borrow_mut();
+            let mut deque = self.borrow_deque_mut();
             let mut idx = None;
             for (i, elem) in deque.iter().enumerate() {
                 if vm.identical_or_equal(elem, &obj)? {
@@ -196,13 +205,13 @@ mod _collections {
 
         #[pymethod]
         fn reverse(&self) {
-            self.deque
-                .replace_with(|deque| deque.iter().cloned().rev().collect());
+            let rev: VecDeque<_> = self.borrow_deque().iter().cloned().rev().collect();
+            *self.borrow_deque_mut() = rev;
         }
 
         #[pymethod]
         fn rotate(&self, mid: OptionalArg<isize>) {
-            let mut deque = self.deque.borrow_mut();
+            let mut deque = self.borrow_deque_mut();
             let mid = mid.unwrap_or(1);
             if mid < 0 {
                 deque.rotate_left(-mid as usize);
@@ -213,26 +222,25 @@ mod _collections {
 
         #[pyproperty]
         fn maxlen(&self) -> Option<usize> {
-            self.maxlen.get()
+            self.maxlen.load()
         }
 
         #[pyproperty(setter)]
         fn set_maxlen(&self, maxlen: Option<usize>) {
-            self.maxlen.set(maxlen);
+            self.maxlen.store(maxlen);
         }
 
         #[pymethod(name = "__repr__")]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let repr = if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
                 let elements = zelf
-                    .deque
-                    .borrow()
+                    .borrow_deque()
                     .iter()
                     .map(|obj| vm.to_repr(obj))
                     .collect::<Result<Vec<_>, _>>()?;
                 let maxlen = zelf
                     .maxlen
-                    .get()
+                    .load()
                     .map(|maxlen| format!(", maxlen={}", maxlen))
                     .unwrap_or_default();
                 format!("deque([{}]{})", elements.into_iter().format(", "), maxlen)
@@ -336,29 +344,29 @@ mod _collections {
 
         #[pymethod(name = "__mul__")]
         fn mul(&self, n: isize) -> Self {
-            let deque: &VecDeque<_> = &self.deque.borrow();
+            let deque: &VecDeque<_> = &self.borrow_deque();
             let mul = sequence::seq_mul(deque, n);
-            let skipped = if let Some(maxlen) = self.maxlen.get() {
+            let skipped = if let Some(maxlen) = self.maxlen.load() {
                 mul.len() - maxlen
             } else {
                 0
             };
             let deque = mul.skip(skipped).cloned().collect();
             PyDeque {
-                deque: RefCell::new(deque),
-                maxlen: self.maxlen.clone(),
+                deque: RwLock::new(deque),
+                maxlen: AtomicCell::new(self.maxlen.load()),
             }
         }
 
         #[pymethod(name = "__len__")]
         fn len(&self) -> usize {
-            self.deque.borrow().len()
+            self.borrow_deque().len()
         }
 
         #[pymethod(name = "__iter__")]
         fn iter(zelf: PyRef<Self>) -> PyDequeIterator {
             PyDequeIterator {
-                position: Cell::new(0),
+                position: AtomicCell::new(0),
                 deque: zelf,
             }
         }
@@ -367,9 +375,11 @@ mod _collections {
     #[pyclass(name = "_deque_iterator")]
     #[derive(Debug)]
     struct PyDequeIterator {
-        position: Cell<usize>,
+        position: AtomicCell<usize>,
         deque: PyDequeRef,
     }
+
+    impl ThreadSafe for PyDequeIterator {}
 
     impl PyValue for PyDequeIterator {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -381,9 +391,10 @@ mod _collections {
     impl PyDequeIterator {
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
-            if self.position.get() < self.deque.deque.borrow().len() {
-                let ret = self.deque.deque.borrow()[self.position.get()].clone();
-                self.position.set(self.position.get() + 1);
+            let pos = self.position.fetch_add(1);
+            let deque = self.deque.borrow_deque();
+            if pos < deque.len() {
+                let ret = deque[pos].clone();
                 Ok(ret)
             } else {
                 Err(objiter::new_stop_iteration(vm))
