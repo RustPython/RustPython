@@ -341,8 +341,6 @@ class BaseTest:
             a.fromlist(data2)
             self.assertEqual(list(it), [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exhausted_iterator(self):
         a = array.array(self.typecode, self.example)
         self.assertEqual(list(a), list(self.example))
