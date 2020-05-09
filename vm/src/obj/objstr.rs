@@ -535,7 +535,7 @@ impl PyString {
     #[pymethod]
     fn removeprefix(&self, pref: PyStringRef) -> PyResult<String> {
         if self.value.as_str().starts_with(&pref.value) {
-            return Ok(self.value[pref.len()..].to_string());
+            return Ok(self.value[pref.value.len()..].to_string());
         }
         Ok(self.value.to_string())
     }
@@ -543,7 +543,7 @@ impl PyString {
     #[pymethod]
     fn removesuffix(&self, suff: PyStringRef) -> PyResult<String> {
         if self.value.as_str().ends_with(&suff.value) {
-            return Ok(self.value[..self.value.len() - suff.len()].to_string());
+            return Ok(self.value[..self.value.len() - suff.value.len()].to_string());
         }
         Ok(self.value.to_string())
     }
