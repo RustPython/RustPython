@@ -681,6 +681,8 @@ class BaseTest:
         self.checkraises(OverflowError, A2_16, "replace", "A", A2_16)
         self.checkraises(OverflowError, A2_16, "replace", "AA", A2_16+A2_16)
 
+
+    # Python 3.9
     def test_removeprefix(self):
         self.checkequal('am', 'spam', 'removeprefix', 'sp')
         self.checkequal('spamspam', 'spamspamspam', 'removeprefix', 'spam')
@@ -699,6 +701,7 @@ class BaseTest:
         self.checkraises(TypeError, 'hello', 'removeprefix', 'h', 42)
         self.checkraises(TypeError, 'hello', 'removeprefix', ("he", "l"))
 
+    # Python 3.9
     def test_removesuffix(self):
         self.checkequal('sp', 'spam', 'removesuffix', 'am')
         self.checkequal('spamspam', 'spamspamspam', 'removesuffix', 'spam')

@@ -389,6 +389,26 @@ impl PyByteArray {
         self.borrow_value().rstrip(chars).into()
     }
 
+    #[pymethod(name = "removeprefix")]
+    fn removeprefix(&self, prefix: PyByteInner) -> PyByteArray {
+        let value = self.borrow_value();
+        if value.elements.starts_with(&prefix.elements) {
+            return value.elements[prefix.elements.len()..].to_vec().into();
+        }
+        value.elements.to_vec().into()
+    }
+
+    #[pymethod(name = "removesuffix")]
+    fn removesuffix(&self, suffix: PyByteInner) -> PyByteArray {
+        let value = self.borrow_value();
+        if value.elements.ends_with(&suffix.elements) {
+            return value.elements[..value.elements.len() - suffix.elements.len()]
+                .to_vec()
+                .into();
+        }
+        value.elements.to_vec().into()
+    }
+
     #[pymethod(name = "split")]
     fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         self.borrow_value()

@@ -347,6 +347,16 @@ impl PyBytes {
         self.inner.rstrip(chars).into()
     }
 
+    #[pymethod(name = "removeprefix")]
+    fn removeprefix(&self, prefix: PyByteInner) -> PyBytes {
+        self.inner.removeprefix(prefix).into()
+    }
+
+    #[pymethod(name = "removesuffix")]
+    fn removesuffix(&self, suffix: PyByteInner) -> PyBytes {
+        self.inner.removesuffix(suffix).into()
+    }
+
     #[pymethod(name = "split")]
     fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         self.inner

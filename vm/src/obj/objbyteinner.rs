@@ -843,6 +843,22 @@ impl PyByteInner {
             .to_vec()
     }
 
+    // new in Python 3.9
+    pub fn removeprefix(&self, prefix: PyByteInner) -> Vec<u8> {
+        if self.elements.starts_with(&prefix.elements) {
+            return self.elements[prefix.elements.len()..].to_vec();
+        }
+        self.elements.to_vec()
+    }
+
+    // new in Python 3.9
+    pub fn removesuffix(&self, suffix: PyByteInner) -> Vec<u8> {
+        if self.elements.ends_with(&suffix.elements) {
+            return self.elements[..self.elements.len() - suffix.elements.len()].to_vec();
+        }
+        self.elements.to_vec()
+    }
+
     pub fn split<F>(
         &self,
         options: ByteInnerSplitOptions,
