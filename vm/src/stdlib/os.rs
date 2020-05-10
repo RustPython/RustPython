@@ -1457,6 +1457,25 @@ fn os_sync(_vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
+// cfg from nix
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+fn os_getresuid(vm: &VirtualMachine) -> PyResult<(u32, u32, u32)> {
+    let mut ruid = 0;
+    let mut euid = 0;
+    let mut suid = 0;
+    let ret = unsafe { libc::getresuid(&mut ruid, &mut euid, &mut suid) };
+    if ret == 0 {
+        Ok((ruid, euid, suid))
+    } else {
+        Err(errno_err(vm))
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1688,6 +1707,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     ))]
     extend_module!(vm, module, {
         "setresuid" => ctx.new_function(os_setresuid),
+        "getresuid" => ctx.new_function(os_getresuid),
     });
 
     // cfg taken from nix
