@@ -696,6 +696,8 @@ class MathTests(unittest.TestCase):
     #         s = msum(vals)
     #         self.assertEqual(msum(vals), math.fsum(vals))
 
+
+    # Python 3.9
     def testGcd(self):
         gcd = math.gcd
         self.assertEqual(gcd(0, 0), 0)
@@ -981,6 +983,7 @@ class MathTests(unittest.TestCase):
                 with self.assertRaises(TypeError):
                     math.isqrt(value)
 
+    # Python 3.9
     def testlcm(self):
         lcm = math.lcm
         self.assertEqual(lcm(0, 0), 0)

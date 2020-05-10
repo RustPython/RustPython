@@ -9,7 +9,7 @@ use statrs::function::gamma::{gamma, ln_gamma};
 use num_bigint::BigInt;
 use num_traits::{One, Zero};
 
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{Args, OptionalArg};
 use crate::obj::objfloat::{self, IntoPyFloat, PyFloatRef};
 use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objtype;
@@ -272,55 +272,33 @@ fn math_ldexp(
     Ok(value * (2_f64).powf(objint::try_float(i.as_bigint(), vm)?))
 }
 
-fn math_perf_arb_len_int_op<F>(
-    args: PyFuncArgs,
-    vm: &VirtualMachine,
-    op: F,
-    default: BigInt,
-) -> PyResult<BigInt>
+fn math_perf_arb_len_int_op<F>(args: Args<PyIntRef>, op: F, default: BigInt) -> BigInt
 where
     F: Fn(&BigInt, &PyInt) -> BigInt,
 {
-    if !args.kwargs.is_empty() {
-        Err(vm.new_type_error("Takes no keyword arguments".to_owned()))
-    } else if args.args.is_empty() {
-        Ok(default)
-    } else if args.args.len() == 1 {
-        let a: PyObjectRef = args.args[0].clone();
-        if let Some(aa) = a.payload_if_subclass::<PyInt>(vm) {
-            let res = op(aa.as_bigint(), aa);
-            Ok(res)
-        } else {
-            Err(vm.new_type_error("Only integer arguments are supported".to_owned()))
-        }
-    } else {
-        let a = args.args[0].clone();
-        if let Some(aa) = a.payload_if_subclass::<PyInt>(vm) {
-            let mut res = aa.as_bigint().clone();
-            for b in args.args[1..].iter() {
-                if let Some(bb) = b.payload_if_subclass::<PyInt>(vm) {
-                    res = op(&res, bb);
-                } else {
-                    return Err(
-                        vm.new_type_error("Only integer arguments are supported".to_owned())
-                    );
-                }
-            }
-            Ok(res)
-        } else {
-            Err(vm.new_type_error("Only integer arguments are supported".to_owned()))
-        }
+    let argvec = args.into_vec();
+
+    if argvec.is_empty() {
+        return default;
+    } else if argvec.len() == 1 {
+        return op(argvec[0].as_bigint(), &argvec[0]);
     }
+
+    let mut res = argvec[0].as_bigint().clone();
+    for num in argvec[1..].iter() {
+        res = op(&res, &num)
+    }
+    res
 }
 
-fn math_gcd(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<BigInt> {
+fn math_gcd(args: Args<PyIntRef>) -> BigInt {
     use num_integer::Integer;
-    math_perf_arb_len_int_op(args, vm, |x, y| x.gcd(y.as_bigint()), BigInt::zero())
+    math_perf_arb_len_int_op(args, |x, y| x.gcd(y.as_bigint()), BigInt::zero())
 }
 
-fn math_lcm(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<BigInt> {
+fn math_lcm(args: Args<PyIntRef>) -> BigInt {
     use num_integer::Integer;
-    math_perf_arb_len_int_op(args, vm, |x, y| x.lcm(y.as_bigint()), BigInt::one())
+    math_perf_arb_len_int_op(args, |x, y| x.lcm(y.as_bigint()), BigInt::one())
 }
 
 fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
