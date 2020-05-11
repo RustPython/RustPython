@@ -813,6 +813,12 @@ impl VirtualMachine {
     /// Call registered trace function.
     fn trace_event(&self, event: TraceEvent) -> PyResult<()> {
         if *self.use_tracing.borrow() {
+            let trace_func = self.trace_func.borrow().clone();
+            let profile_func = self.profile_func.borrow().clone();
+            if self.is_none(&trace_func) && self.is_none(&profile_func) {
+                return Ok(());
+            }
+
             let frame = self.get_none();
             let event = self.new_str(event.to_string());
             let arg = self.get_none();
@@ -820,7 +826,6 @@ impl VirtualMachine {
 
             // temporarily disable tracing, during the call to the
             // tracing function itself.
-            let trace_func = self.trace_func.borrow().clone();
             if !self.is_none(&trace_func) {
                 self.use_tracing.replace(false);
                 let res = self.invoke(&trace_func, args.clone());
@@ -828,7 +833,6 @@ impl VirtualMachine {
                 res?;
             }
 
-            let profile_func = self.profile_func.borrow().clone();
             if !self.is_none(&profile_func) {
                 self.use_tracing.replace(false);
                 let res = self.invoke(&profile_func, args);
