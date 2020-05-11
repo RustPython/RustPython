@@ -819,7 +819,12 @@ impl VirtualMachine {
                 return Ok(());
             }
 
-            let frame = self.get_none();
+            let frame_ref = self.current_frame();
+            if frame_ref.is_none() {
+                return Ok(());
+            }
+
+            let frame = frame_ref.unwrap().as_object().clone();
             let event = self.new_str(event.to_string());
             let arg = self.get_none();
             let args = vec![frame, event, arg];
