@@ -44,7 +44,7 @@ assert a == (1, 2, 3, 1)
 b = (55, *a)
 assert b == (55, 1, 2, 3, 1)
 
-assert () is ()
+assert () is ()  # noqa
 
 a = ()
 b = ()
