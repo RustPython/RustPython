@@ -125,7 +125,7 @@ impl fmt::Display for CompileError {
             if self.location.column() > 0 {
                 if let Some(line) = statement.lines().nth(self.location.row() - 1) {
                     // visualize the error, when location and statement are provided
-                    return write!(f, "\n{}\n{}", line, self.location.visualize(&error_desc));
+                    return write!(f, "{}", self.location.visualize(line, &error_desc));
                 }
             }
         }
