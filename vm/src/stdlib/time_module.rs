@@ -70,32 +70,41 @@ fn time_monotonic(_vm: &VirtualMachine) -> f64 {
     }
 }
 
-fn pyobj_to_naive_date_time(value: Either<f64, i64>) -> NaiveDateTime {
-    match value {
+fn pyobj_to_naive_date_time(
+    value: Either<f64, i64>,
+    vm: &VirtualMachine,
+) -> PyResult<NaiveDateTime> {
+    let timestamp = match value {
         Either::A(float) => {
             let secs = float.trunc() as i64;
             let nsecs = (float.fract() * 1e9) as u32;
-            NaiveDateTime::from_timestamp(secs, nsecs)
+            NaiveDateTime::from_timestamp_opt(secs, nsecs)
         }
-        Either::B(int) => NaiveDateTime::from_timestamp(int, 0),
-    }
+        Either::B(int) => NaiveDateTime::from_timestamp_opt(int, 0),
+    };
+    timestamp.ok_or_else(|| {
+        vm.new_overflow_error("timestamp out of range for platform time_t".to_owned())
+    })
 }
 
 /// https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
-fn time_gmtime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyObjectRef {
+fn time_gmtime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     let default = chrono::offset::Utc::now().naive_utc();
     let instant = match secs {
-        OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs),
+        OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
         OptionalArg::Missing => default,
     };
-    PyStructTime::new(vm, instant, 0).into_obj(vm)
+    Ok(PyStructTime::new(vm, instant, 0).into_obj(vm))
 }
 
-fn time_localtime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyObjectRef {
-    let instant = optional_or_localtime(secs);
+fn time_localtime(
+    secs: OptionalArg<Either<f64, i64>>,
+    vm: &VirtualMachine,
+) -> PyResult<PyObjectRef> {
+    let instant = optional_or_localtime(secs, vm)?;
     // TODO: isdst flag must be valid value here
     // https://docs.python.org/3/library/time.html#time.localtime
-    PyStructTime::new(vm, instant, -1).into_obj(vm)
+    Ok(PyStructTime::new(vm, instant, -1).into_obj(vm))
 }
 
 fn time_mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult {
@@ -105,12 +114,15 @@ fn time_mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult {
 }
 
 /// Construct a localtime from the optional seconds, or get the current local time.
-fn optional_or_localtime(secs: OptionalArg<Either<f64, i64>>) -> NaiveDateTime {
+fn optional_or_localtime(
+    secs: OptionalArg<Either<f64, i64>>,
+    vm: &VirtualMachine,
+) -> PyResult<NaiveDateTime> {
     let default = chrono::offset::Local::now().naive_local();
-    match secs {
-        OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs),
+    Ok(match secs {
+        OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
         OptionalArg::Missing => default,
-    }
+    })
 }
 
 const CFMT: &str = "%a %b %e %H:%M:%S %Y";
@@ -125,9 +137,9 @@ fn time_asctime(t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_str(formatted_time))
 }
 
-fn time_ctime(secs: OptionalArg<Either<f64, i64>>) -> String {
-    let instant = optional_or_localtime(secs);
-    instant.format(&CFMT).to_string()
+fn time_ctime(secs: OptionalArg<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<String> {
+    let instant = optional_or_localtime(secs, vm)?;
+    Ok(instant.format(&CFMT).to_string())
 }
 
 fn time_strftime(
