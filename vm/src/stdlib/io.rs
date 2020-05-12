@@ -1,10 +1,11 @@
 /*
  * I/O core tools.
  */
-use std::cell::{RefCell, RefMut};
 use std::fs;
 use std::io::{self, prelude::*, Cursor, SeekFrom};
+use std::sync::{RwLock, RwLockWriteGuard};
 
+use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 
 use crate::exceptions::PyBaseExceptionRef;
@@ -18,7 +19,7 @@ use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -120,10 +121,13 @@ impl BufferedIO {
 
 #[derive(Debug)]
 struct PyStringIO {
-    buffer: RefCell<Option<BufferedIO>>,
+    buffer: RwLock<BufferedIO>,
+    closed: AtomicCell<bool>,
 }
 
 type PyStringIORef = PyRef<PyStringIO>;
+
+impl ThreadSafe for PyStringIO {}
 
 impl PyValue for PyStringIO {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -132,10 +136,9 @@ impl PyValue for PyStringIO {
 }
 
 impl PyStringIORef {
-    fn buffer(&self, vm: &VirtualMachine) -> PyResult<RefMut<BufferedIO>> {
-        let buffer = self.buffer.borrow_mut();
-        if buffer.is_some() {
-            Ok(RefMut::map(buffer, |opt| opt.as_mut().unwrap()))
+    fn buffer(&self, vm: &VirtualMachine) -> PyResult<RwLockWriteGuard<'_, BufferedIO>> {
+        if !self.closed.load() {
+            Ok(self.buffer.write().unwrap())
         } else {
             Err(vm.new_value_error("I/O operation on closed file.".to_owned()))
         }
@@ -209,11 +212,11 @@ impl PyStringIORef {
     }
 
     fn closed(self) -> bool {
-        self.buffer.borrow().is_none()
+        self.closed.load()
     }
 
     fn close(self) {
-        self.buffer.replace(None);
+        self.closed.store(true);
     }
 }
 
@@ -235,17 +238,21 @@ fn string_io_new(
     let input = flatten.map_or_else(Vec::new, |v| objstr::borrow_value(&v).as_bytes().to_vec());
 
     PyStringIO {
-        buffer: RefCell::new(Some(BufferedIO::new(Cursor::new(input)))),
+        buffer: RwLock::new(BufferedIO::new(Cursor::new(input))),
+        closed: AtomicCell::new(false),
     }
     .into_ref_with_type(vm, cls)
 }
 
 #[derive(Debug)]
 struct PyBytesIO {
-    buffer: RefCell<Option<BufferedIO>>,
+    buffer: RwLock<BufferedIO>,
+    closed: AtomicCell<bool>,
 }
 
 type PyBytesIORef = PyRef<PyBytesIO>;
+
+impl ThreadSafe for PyBytesIO {}
 
 impl PyValue for PyBytesIO {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -254,10 +261,9 @@ impl PyValue for PyBytesIO {
 }
 
 impl PyBytesIORef {
-    fn buffer(&self, vm: &VirtualMachine) -> PyResult<RefMut<BufferedIO>> {
-        let buffer = self.buffer.borrow_mut();
-        if buffer.is_some() {
-            Ok(RefMut::map(buffer, |opt| opt.as_mut().unwrap()))
+    fn buffer(&self, vm: &VirtualMachine) -> PyResult<RwLockWriteGuard<'_, BufferedIO>> {
+        if !self.closed.load() {
+            Ok(self.buffer.write().unwrap())
         } else {
             Err(vm.new_value_error("I/O operation on closed file.".to_owned()))
         }
@@ -320,11 +326,11 @@ impl PyBytesIORef {
     }
 
     fn closed(self) -> bool {
-        self.buffer.borrow().is_none()
+        self.closed.load()
     }
 
     fn close(self) {
-        self.buffer.replace(None);
+        self.closed.store(true)
     }
 }
 
@@ -339,7 +345,8 @@ fn bytes_io_new(
     };
 
     PyBytesIO {
-        buffer: RefCell::new(Some(BufferedIO::new(Cursor::new(raw_bytes)))),
+        buffer: RwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
+        closed: AtomicCell::new(false),
     }
     .into_ref_with_type(vm, cls)
 }
