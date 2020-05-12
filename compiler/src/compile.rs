@@ -1374,7 +1374,7 @@ impl<O: OutputStream> Compiler<O> {
                 for (i, element) in elements.iter().enumerate() {
                     if let ast::ExpressionType::Starred { .. } = &element.node {
                         if seen_star {
-                            return Err(self.error(CompileErrorType::StarArgs));
+                            return Err(self.error(CompileErrorType::MultipleStarArgs));
                         } else {
                             seen_star = true;
                             self.emit(Instruction::UnpackEx {
@@ -1782,11 +1782,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.compile_comprehension(kind, generators)?;
             }
             Starred { .. } => {
-                return Err(
-                    self.error(CompileErrorType::SyntaxError(std::string::String::from(
-                        "Invalid starred expression",
-                    ))),
-                );
+                return Err(self.error(CompileErrorType::InvalidStarExpr));
             }
             IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
