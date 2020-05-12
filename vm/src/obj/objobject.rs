@@ -187,9 +187,12 @@ impl PyBaseObject {
 
     #[pyproperty(magic)]
     fn dict(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        object
-            .dict()
-            .ok_or_else(|| vm.new_attribute_error("no dictionary.".to_owned()))
+        object.dict().ok_or_else(|| {
+            vm.new_attribute_error(format!(
+                "'{}' object has no attribute '__dict__'",
+                object.class().name
+            ))
+        })
     }
 
     #[pyproperty(magic, setter)]
