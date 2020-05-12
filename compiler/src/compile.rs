@@ -1399,7 +1399,14 @@ impl<O: OutputStream> Compiler<O> {
                     }
                 }
             }
-            _ => return Err(self.error(CompileErrorType::Assign(target.name()))),
+            _ => {
+                return Err(self.error(match target.node {
+                    ast::ExpressionType::Starred { .. } => CompileErrorType::SyntaxError(
+                        "starred assignment target must be in a list or tuple".to_owned(),
+                    ),
+                    _ => CompileErrorType::Assign(target.name()),
+                }))
+            }
         }
 
         Ok(())

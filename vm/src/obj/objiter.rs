@@ -26,7 +26,7 @@ pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
         vm.invoke(&method, vec![])
     } else {
         vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
-            format!("Cannot iterate over {}", iter_target.class().name)
+            format!("'{}' object is not iterable", iter_target.class().name)
         })?;
         Ok(PySequenceIterator::new_forward(iter_target.clone())
             .into_ref(vm)
