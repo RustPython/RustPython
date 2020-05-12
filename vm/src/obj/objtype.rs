@@ -86,9 +86,35 @@ impl PyClassRef {
         issubclass(&subclass, &self)
     }
 
+    #[inline]
+    fn _get_attribute<F>(&self, name: &str, op: F) -> PyObjectRef
+    where
+        F: Fn() -> PyObjectRef,
+    {
+        self.attributes
+            .read()
+            .unwrap()
+            .get(name)
+            .cloned()
+            .unwrap_or_else(op)
+    }
+
+    #[inline]
+    fn _set_attribute(&self, name: &str, value: PyObjectRef) {
+        self.attributes
+            .write()
+            .unwrap()
+            .insert(name.to_owned(), value);
+    }
+
     #[pyproperty(magic)]
-    fn name(self) -> String {
-        self.name.clone()
+    fn name(self, vm: &VirtualMachine) -> PyObjectRef {
+        self._get_attribute("__name__", || vm.ctx.new_str(self.name.clone()))
+    }
+
+    #[pyproperty(magic, setter)]
+    fn set_name(self, value: PyObjectRef) {
+        self._set_attribute("__name__", value)
     }
 
     #[pymethod(magic)]
@@ -98,31 +124,23 @@ impl PyClassRef {
 
     #[pyproperty(magic)]
     fn qualname(self, vm: &VirtualMachine) -> PyObjectRef {
-        self.attributes
-            .read()
-            .unwrap()
-            .get("__qualname__")
-            .cloned()
-            .unwrap_or_else(|| vm.ctx.new_str(self.name.clone()))
+        self._get_attribute("__qualname__", || vm.ctx.new_str(self.name.clone()))
+    }
+
+    #[pyproperty(magic, setter)]
+    fn set_qualname(self, value: PyObjectRef) {
+        self._set_attribute("__qualname__", value)
     }
 
     #[pyproperty(magic)]
     fn module(self, vm: &VirtualMachine) -> PyObjectRef {
         // TODO: Implement getting the actual module a builtin type is from
-        self.attributes
-            .read()
-            .unwrap()
-            .get("__module__")
-            .cloned()
-            .unwrap_or_else(|| vm.ctx.new_str("builtins".to_owned()))
+        self._get_attribute("__module__", || vm.ctx.new_str("builtins".to_owned()))
     }
 
     #[pyproperty(magic, setter)]
     fn set_module(self, value: PyObjectRef) {
-        self.attributes
-            .write()
-            .unwrap()
-            .insert("__module__".to_owned(), value);
+        self._set_attribute("__module__", value)
     }
 
     #[pymethod(magic)]
