@@ -3,6 +3,7 @@ use crate::obj::objint::PyIntRef;
 use crate::pyobject::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 use num_traits::{cast::ToPrimitive, sign::Signed};
+use std::ops::Range;
 
 #[derive(FromArgs)]
 pub struct SplitArgs<T, S, E>
@@ -263,5 +264,42 @@ pub trait PyCommonString<E> {
 
     fn py_rjust(&self, width: usize, fillchar: E) -> Self::Container {
         self.py_pad(width - self.chars_len(), 0, fillchar)
+    }
+
+    fn py_removeprefix<FC>(
+        &self,
+        prefix: &Self::Container,
+        prefix_len: usize,
+        is_prefix: FC,
+    ) -> &Self
+    where
+        FC: Fn(&Self, &Self::Container) -> bool,
+    {
+        //if self.py_starts_with(prefix) {
+        if is_prefix(&self, &prefix) {
+            return self.get_bytes(Range {
+                start: prefix_len,
+                end: self.bytes_len(),
+            });
+        }
+        &self
+    }
+
+    fn py_removesuffix<FC>(
+        &self,
+        suffix: &Self::Container,
+        suffix_len: usize,
+        is_suffix: FC,
+    ) -> &Self
+    where
+        FC: Fn(&Self, &Self::Container) -> bool,
+    {
+        if is_suffix(&self, &suffix) {
+            return self.get_bytes(Range {
+                start: 0,
+                end: self.bytes_len() - suffix_len,
+            });
+        }
+        &self
     }
 }

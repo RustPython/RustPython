@@ -347,11 +347,25 @@ impl PyBytes {
         self.inner.rstrip(chars).into()
     }
 
+    /// removeprefix($self, prefix, /)
+    ///
+    ///
+    /// Return a bytes object with the given prefix string removed if present.
+    ///
+    /// If the bytes starts with the prefix string, return string[len(prefix):]
+    /// Otherwise, return a copy of the original bytes.
     #[pymethod(name = "removeprefix")]
     fn removeprefix(&self, prefix: PyByteInner) -> PyBytes {
         self.inner.removeprefix(prefix).into()
     }
 
+    /// removesuffix(self, prefix, /)
+    ///
+    ///
+    /// Return a bytes object with the given suffix string removed if present.
+    ///
+    /// If the bytes ends with the suffix string, return string[:len(suffix)]
+    /// Otherwise, return a copy of the original bytes.
     #[pymethod(name = "removesuffix")]
     fn removesuffix(&self, suffix: PyByteInner) -> PyBytes {
         self.inner.removesuffix(suffix).into()

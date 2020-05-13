@@ -845,18 +845,22 @@ impl PyByteInner {
 
     // new in Python 3.9
     pub fn removeprefix(&self, prefix: PyByteInner) -> Vec<u8> {
-        if self.elements.starts_with(&prefix.elements) {
-            return self.elements[prefix.elements.len()..].to_vec();
-        }
-        self.elements.to_vec()
+        // self.elements.py_removeprefix(&prefix.elements, prefix.elements.len(), |s:&Self, p:&Vec<u8>| s.elements.starts_with(&p)).to_vec()
+
+        self.elements
+            .py_removeprefix(&prefix.elements, prefix.elements.len(), |s, p| {
+                s.starts_with(p)
+            })
+            .to_vec()
     }
 
     // new in Python 3.9
     pub fn removesuffix(&self, suffix: PyByteInner) -> Vec<u8> {
-        if self.elements.ends_with(&suffix.elements) {
-            return self.elements[..self.elements.len() - suffix.elements.len()].to_vec();
-        }
-        self.elements.to_vec()
+        self.elements
+            .py_removesuffix(&suffix.elements, suffix.elements.len(), |s, p| {
+                s.ends_with(p)
+            })
+            .to_vec()
     }
 
     pub fn split<F>(

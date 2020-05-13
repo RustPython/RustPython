@@ -389,24 +389,38 @@ impl PyByteArray {
         self.borrow_value().rstrip(chars).into()
     }
 
+    /// removeprefix($self, prefix, /)
+    ///
+    ///
+    /// Return a bytearray object with the given prefix string removed if present.
+    ///
+    /// If the bytearray starts with the prefix string, return string[len(prefix):]
+    /// Otherwise, return a copy of the original bytearray.
     #[pymethod(name = "removeprefix")]
     fn removeprefix(&self, prefix: PyByteInner) -> PyByteArray {
-        let value = self.borrow_value();
-        if value.elements.starts_with(&prefix.elements) {
-            return value.elements[prefix.elements.len()..].to_vec().into();
-        }
-        value.elements.to_vec().into()
+        self.borrow_value().elements[..]
+            .py_removeprefix(&prefix.elements, prefix.elements.len(), |s, p| {
+                s.starts_with(p)
+            })
+            .to_vec()
+            .into()
     }
 
+    /// removesuffix(self, prefix, /)
+    ///
+    ///
+    /// Return a bytearray object with the given suffix string removed if present.
+    ///
+    /// If the bytearray ends with the suffix string, return string[:len(suffix)]
+    /// Otherwise, return a copy of the original bytearray.
     #[pymethod(name = "removesuffix")]
     fn removesuffix(&self, suffix: PyByteInner) -> PyByteArray {
-        let value = self.borrow_value();
-        if value.elements.ends_with(&suffix.elements) {
-            return value.elements[..value.elements.len() - suffix.elements.len()]
-                .to_vec()
-                .into();
-        }
-        value.elements.to_vec().into()
+        self.borrow_value().elements[..]
+            .py_removesuffix(&suffix.elements, suffix.elements.len(), |s, p| {
+                s.ends_with(p)
+            })
+            .to_vec()
+            .into()
     }
 
     #[pymethod(name = "split")]
