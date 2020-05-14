@@ -533,6 +533,22 @@ impl PyString {
     }
 
     #[pymethod]
+    fn removeprefix(&self, pref: PyStringRef) -> PyResult<String> {
+        if self.value.as_str().starts_with(&pref.value) {
+            return Ok(self.value[pref.len()..].to_string());
+        }
+        Ok(self.value.to_string())
+    }
+
+    #[pymethod]
+    fn removesuffix(&self, suff: PyStringRef) -> PyResult<String> {
+        if self.value.as_str().ends_with(&suff.value) {
+            return Ok(self.value[..self.value.len() - suff.len()].to_string());
+        }
+        Ok(self.value.to_string())
+    }
+
+    #[pymethod]
     fn isalnum(&self) -> bool {
         !self.value.is_empty() && self.value.chars().all(char::is_alphanumeric)
     }

@@ -92,4 +92,3 @@ def fail_if_unsupported(req_maj_vers, req_min_vers, test_fct):
         exec()
     else:
         assert False, f'Test cannot performed on this python version. {platform.python_implementation()} {platform.python_version()}'
-
