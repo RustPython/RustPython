@@ -5,7 +5,7 @@
 use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, ThreadSafe};
 use crate::vm::VirtualMachine;
 
 use itertools::Itertools;
@@ -59,6 +59,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 struct PyUCD {
     unic_version: UnicodeVersion,
 }
+
+impl ThreadSafe for PyUCD {}
 
 impl PyValue for PyUCD {
     fn class(vm: &VirtualMachine) -> PyClassRef {

@@ -5,7 +5,7 @@ use rustpython_parser::parser;
 
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
 use crate::vm::VirtualMachine;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -71,6 +71,8 @@ type PySymbolRef = PyRef<PySymbol>;
 struct PySymbolTable {
     symtable: symboltable::SymbolTable,
 }
+
+impl ThreadSafe for PySymbolTable {}
 
 impl fmt::Debug for PySymbolTable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -157,6 +159,8 @@ impl PySymbolTable {
 struct PySymbol {
     symbol: symboltable::Symbol,
 }
+
+impl ThreadSafe for PySymbol {}
 
 impl fmt::Debug for PySymbol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

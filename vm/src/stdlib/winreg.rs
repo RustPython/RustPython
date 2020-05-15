@@ -1,14 +1,15 @@
 #![allow(non_snake_case)]
-
-use std::cell::{Ref, RefCell};
 use std::convert::TryInto;
 use std::io;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::os;
 use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use crate::pyobject::{
+    PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TryFromObject,
+};
 use crate::VirtualMachine;
 
 use winapi::shared::winerror;
@@ -17,9 +18,14 @@ use winreg::{enums::RegType, RegKey, RegValue};
 #[pyclass]
 #[derive(Debug)]
 struct PyHKEY {
-    key: RefCell<RegKey>,
+    key: RwLock<RegKey>,
 }
 type PyHKEYRef = PyRef<PyHKEY>;
+
+// TODO: fix this
+unsafe impl Sync for PyHKEY {}
+
+impl ThreadSafe for PyHKEY {}
 
 impl PyValue for PyHKEY {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -31,24 +37,28 @@ impl PyValue for PyHKEY {
 impl PyHKEY {
     fn new(key: RegKey) -> Self {
         Self {
-            key: RefCell::new(key),
+            key: RwLock::new(key),
         }
     }
 
-    fn key(&self) -> Ref<RegKey> {
-        self.key.borrow()
+    fn key(&self) -> RwLockReadGuard<'_, RegKey> {
+        self.key.read().unwrap()
+    }
+
+    fn key_mut(&self) -> RwLockWriteGuard<'_, RegKey> {
+        self.key.write().unwrap()
     }
 
     #[pymethod]
     fn Close(&self) {
         let null_key = RegKey::predef(0 as winreg::HKEY);
-        let key = self.key.replace(null_key);
+        let key = std::mem::replace(&mut *self.key_mut(), null_key);
         drop(key);
     }
     #[pymethod]
     fn Detach(&self) -> usize {
         let null_key = RegKey::predef(0 as winreg::HKEY);
-        let key = self.key.replace(null_key);
+        let key = std::mem::replace(&mut *self.key_mut(), null_key);
         let handle = key.raw_handle();
         std::mem::forget(key);
         handle as usize
