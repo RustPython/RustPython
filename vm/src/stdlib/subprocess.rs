@@ -20,6 +20,10 @@ struct Popen {
     args: PyObjectRef,
 }
 
+// Remove once https://github.com/hniksic/rust-subprocess/issues/42 is resolved
+#[cfg(windows)]
+unsafe impl Sync for Popen {}
+
 impl ThreadSafe for Popen {}
 
 impl PyValue for Popen {

@@ -22,6 +22,9 @@ struct PyHKEY {
 }
 type PyHKEYRef = PyRef<PyHKEY>;
 
+// TODO: fix this
+unsafe impl Sync for PyHKEY {}
+
 impl ThreadSafe for PyHKEY {}
 
 impl PyValue for PyHKEY {
