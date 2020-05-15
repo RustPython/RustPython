@@ -7,8 +7,9 @@ mod _random {
     use crate::function::OptionalOption;
     use crate::obj::objint::PyIntRef;
     use crate::obj::objtype::PyClassRef;
-    use crate::pyobject::{PyClassImpl, PyRef, PyResult, PyValue};
+    use crate::pyobject::{PyClassImpl, PyRef, PyResult, PyValue, ThreadSafe};
     use crate::VirtualMachine;
+    use generational_arena::{self, Arena};
     use num_bigint::{BigInt, Sign};
     use num_traits::Signed;
     use rand::RngCore;
@@ -53,11 +54,50 @@ mod _random {
         }
     }
 
+    thread_local!(static RNG_HANDLES: RefCell<Arena<PyRng>> = RefCell::new(Arena::new()));
+
+    #[derive(Debug)]
+    struct RngHandle(generational_arena::Index);
+    impl RngHandle {
+        fn new(rng: PyRng) -> Self {
+            let idx = RNG_HANDLES.with(|arena| arena.borrow_mut().insert(rng));
+            RngHandle(idx)
+        }
+        fn exec<F, R>(&self, func: F) -> R
+        where
+            F: Fn(&mut PyRng) -> R,
+        {
+            RNG_HANDLES.with(|arena| {
+                func(
+                    arena
+                        .borrow_mut()
+                        .get_mut(self.0)
+                        .expect("index was removed"),
+                )
+            })
+        }
+        fn replace(&self, rng: PyRng) {
+            RNG_HANDLES.with(|arena| {
+                *arena
+                    .borrow_mut()
+                    .get_mut(self.0)
+                    .expect("index was removed") = rng
+            })
+        }
+    }
+    impl Drop for RngHandle {
+        fn drop(&mut self) {
+            RNG_HANDLES.with(|arena| arena.borrow_mut().remove(self.0));
+        }
+    }
+
     #[pyclass(name = "Random")]
     #[derive(Debug)]
     struct PyRandom {
-        rng: RefCell<PyRng>,
+        rng: RngHandle,
     }
+
+    impl ThreadSafe for PyRandom {}
 
     impl PyValue for PyRandom {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -70,14 +110,14 @@ mod _random {
         #[pyslot(new)]
         fn new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             PyRandom {
-                rng: RefCell::new(PyRng::default()),
+                rng: RngHandle::new(PyRng::default()),
             }
             .into_ref_with_type(vm, cls)
         }
 
         #[pymethod]
         fn random(&self) -> f64 {
-            mt19937::gen_res53(&mut *self.rng.borrow_mut())
+            self.rng.exec(mt19937::gen_res53)
         }
 
         #[pymethod]
@@ -93,31 +133,32 @@ mod _random {
                 }
             };
 
-            *self.rng.borrow_mut() = new_rng;
+            self.rng.replace(new_rng);
         }
 
         #[pymethod]
-        fn getrandbits(&self, mut k: usize) -> BigInt {
-            let mut rng = self.rng.borrow_mut();
+        fn getrandbits(&self, k: usize) -> BigInt {
+            self.rng.exec(|rng| {
+                let mut k = k;
+                let mut gen_u32 = |k| rng.next_u32() >> (32 - k) as u32;
 
-            let mut gen_u32 = |k| rng.next_u32() >> (32 - k) as u32;
+                if k <= 32 {
+                    return gen_u32(k).into();
+                }
 
-            if k <= 32 {
-                return gen_u32(k).into();
-            }
+                let words = (k - 1) / 8 + 1;
+                let mut wordarray = vec![0u32; words];
 
-            let words = (k - 1) / 8 + 1;
-            let mut wordarray = vec![0u32; words];
+                let it = wordarray.iter_mut();
+                #[cfg(target_endian = "big")]
+                let it = it.rev();
+                for word in it {
+                    *word = gen_u32(k);
+                    k -= 32;
+                }
 
-            let it = wordarray.iter_mut();
-            #[cfg(target_endian = "big")]
-            let it = it.rev();
-            for word in it {
-                *word = gen_u32(k);
-                k -= 32;
-            }
-
-            BigInt::from_slice(Sign::NoSign, &wordarray)
+                BigInt::from_slice(Sign::NoSign, &wordarray)
+            })
         }
     }
 }
