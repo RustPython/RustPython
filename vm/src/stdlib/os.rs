@@ -1,4 +1,3 @@
-use std::cell::{Cell, RefCell};
 use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -7,10 +6,12 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
+use std::sync::RwLock;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
 use bitflags::bitflags;
+use crossbeam_utils::atomic::AtomicCell;
 #[cfg(unix)]
 use nix::errno::Errno;
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -35,8 +36,8 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -597,6 +598,8 @@ struct DirEntry {
     mode: OutputMode,
 }
 
+impl ThreadSafe for DirEntry {}
+
 type DirEntryRef = PyRef<DirEntry>;
 
 impl PyValue for DirEntry {
@@ -683,10 +686,12 @@ impl DirEntryRef {
 #[pyclass]
 #[derive(Debug)]
 struct ScandirIterator {
-    entries: RefCell<fs::ReadDir>,
-    exhausted: Cell<bool>,
+    entries: RwLock<fs::ReadDir>,
+    exhausted: AtomicCell<bool>,
     mode: OutputMode,
 }
+
+impl ThreadSafe for ScandirIterator {}
 
 impl PyValue for ScandirIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -698,11 +703,11 @@ impl PyValue for ScandirIterator {
 impl ScandirIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.exhausted.get() {
+        if self.exhausted.load() {
             return Err(objiter::new_stop_iteration(vm));
         }
 
-        match self.entries.borrow_mut().next() {
+        match self.entries.write().unwrap().next() {
             Some(entry) => match entry {
                 Ok(entry) => Ok(DirEntry {
                     entry,
@@ -713,7 +718,7 @@ impl ScandirIterator {
                 Err(s) => Err(convert_io_error(vm, s)),
             },
             None => {
-                self.exhausted.set(true);
+                self.exhausted.store(true);
                 Err(objiter::new_stop_iteration(vm))
             }
         }
@@ -721,7 +726,7 @@ impl ScandirIterator {
 
     #[pymethod]
     fn close(&self) {
-        self.exhausted.set(true);
+        self.exhausted.store(true);
     }
 
     #[pymethod(name = "__iter__")]
@@ -748,8 +753,8 @@ fn os_scandir(path: OptionalArg<PyPathLike>, vm: &VirtualMachine) -> PyResult {
 
     match fs::read_dir(path.path) {
         Ok(iter) => Ok(ScandirIterator {
-            entries: RefCell::new(iter),
-            exhausted: Cell::new(false),
+            entries: RwLock::new(iter),
+            exhausted: AtomicCell::new(false),
             mode: path.mode,
         }
         .into_ref(vm)
