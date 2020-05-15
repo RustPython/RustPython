@@ -1,7 +1,7 @@
-use std::cell::RefCell;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::ErrorKind;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 
 use crate::function::OptionalArg;
@@ -9,16 +9,18 @@ use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objlist::PyListRef;
 use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
 use crate::stdlib::io::io_open;
 use crate::stdlib::os::{convert_io_error, raw_file_number, rust_file};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
 struct Popen {
-    process: RefCell<subprocess::Popen>,
+    process: RwLock<subprocess::Popen>,
     args: PyObjectRef,
 }
+
+impl ThreadSafe for Popen {}
 
 impl PyValue for Popen {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -103,6 +105,14 @@ fn convert_to_file_io(file: &Option<File>, mode: &str, vm: &VirtualMachine) -> P
 }
 
 impl PopenRef {
+    fn borrow_process(&self) -> RwLockReadGuard<'_, subprocess::Popen> {
+        self.process.read().unwrap()
+    }
+
+    fn borrow_process_mut(&self) -> RwLockWriteGuard<'_, subprocess::Popen> {
+        self.process.write().unwrap()
+    }
+
     fn new(cls: PyClassRef, args: PopenArgs, vm: &VirtualMachine) -> PyResult<PopenRef> {
         let stdin = convert_redirection(args.stdin, vm)?;
         let stdout = convert_redirection(args.stdout, vm)?;
@@ -130,27 +140,26 @@ impl PopenRef {
         .map_err(|s| vm.new_os_error(format!("Could not start program: {}", s)))?;
 
         Popen {
-            process: RefCell::new(process),
+            process: RwLock::new(process),
             args: args.args.into_object(),
         }
         .into_ref_with_type(vm, cls)
     }
 
     fn poll(self) -> Option<subprocess::ExitStatus> {
-        self.process.borrow_mut().poll()
+        self.borrow_process_mut().poll()
     }
 
     fn return_code(self) -> Option<subprocess::ExitStatus> {
-        self.process.borrow().exit_status()
+        self.borrow_process().exit_status()
     }
 
     fn wait(self, args: PopenWaitArgs, vm: &VirtualMachine) -> PyResult<i64> {
         let timeout = match args.timeout {
             Some(timeout) => self
-                .process
-                .borrow_mut()
+                .borrow_process_mut()
                 .wait_timeout(Duration::new(timeout, 0)),
-            None => self.process.borrow_mut().wait().map(Some),
+            None => self.borrow_process_mut().wait().map(Some),
         }
         .map_err(|s| vm.new_os_error(format!("Could not start program: {}", s)))?;
         if let Some(exit) = timeout {
@@ -167,27 +176,25 @@ impl PopenRef {
     }
 
     fn stdin(self, vm: &VirtualMachine) -> PyResult {
-        convert_to_file_io(&self.process.borrow().stdin, "wb", vm)
+        convert_to_file_io(&self.borrow_process().stdin, "wb", vm)
     }
 
     fn stdout(self, vm: &VirtualMachine) -> PyResult {
-        convert_to_file_io(&self.process.borrow().stdout, "rb", vm)
+        convert_to_file_io(&self.borrow_process().stdout, "rb", vm)
     }
 
     fn stderr(self, vm: &VirtualMachine) -> PyResult {
-        convert_to_file_io(&self.process.borrow().stderr, "rb", vm)
+        convert_to_file_io(&self.borrow_process().stderr, "rb", vm)
     }
 
     fn terminate(self, vm: &VirtualMachine) -> PyResult<()> {
-        self.process
-            .borrow_mut()
+        self.borrow_process_mut()
             .terminate()
             .map_err(|err| convert_io_error(vm, err))
     }
 
     fn kill(self, vm: &VirtualMachine) -> PyResult<()> {
-        self.process
-            .borrow_mut()
+        self.borrow_process_mut()
             .kill()
             .map_err(|err| convert_io_error(vm, err))
     }
@@ -202,7 +209,7 @@ impl PopenRef {
             OptionalArg::Present(ref bytes) => Some(bytes.get_value().to_vec()),
             OptionalArg::Missing => None,
         };
-        let mut communicator = self.process.borrow_mut().communicate_start(bytes);
+        let mut communicator = self.borrow_process_mut().communicate_start(bytes);
         if let OptionalArg::Present(timeout) = args.timeout {
             communicator = communicator.limit_time(Duration::new(timeout, 0));
         }
@@ -217,7 +224,7 @@ impl PopenRef {
     }
 
     fn pid(self) -> Option<u32> {
-        self.process.borrow().pid()
+        self.borrow_process().pid()
     }
 
     fn enter(self) -> Self {
@@ -230,7 +237,7 @@ impl PopenRef {
         _exception_value: PyObjectRef,
         _traceback: PyObjectRef,
     ) {
-        let mut process = self.process.borrow_mut();
+        let mut process = self.borrow_process_mut();
         process.stdout.take();
         process.stdin.take();
         process.stderr.take();
