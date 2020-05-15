@@ -9,9 +9,9 @@ use statrs::function::gamma::{gamma, ln_gamma};
 use num_bigint::BigInt;
 use num_traits::{One, Zero};
 
-use crate::function::OptionalArg;
+use crate::function::{Args, OptionalArg};
 use crate::obj::objfloat::{self, IntoPyFloat, PyFloatRef};
-use crate::obj::objint::{self, PyIntRef};
+use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objtype;
 use crate::pyobject::{Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
@@ -272,9 +272,33 @@ fn math_ldexp(
     Ok(value * (2_f64).powf(objint::try_float(i.as_bigint(), vm)?))
 }
 
-fn math_gcd(a: PyIntRef, b: PyIntRef) -> BigInt {
+fn math_perf_arb_len_int_op<F>(args: Args<PyIntRef>, op: F, default: BigInt) -> BigInt
+where
+    F: Fn(&BigInt, &PyInt) -> BigInt,
+{
+    let argvec = args.into_vec();
+
+    if argvec.is_empty() {
+        return default;
+    } else if argvec.len() == 1 {
+        return op(argvec[0].as_bigint(), &argvec[0]);
+    }
+
+    let mut res = argvec[0].as_bigint().clone();
+    for num in argvec[1..].iter() {
+        res = op(&res, &num)
+    }
+    res
+}
+
+fn math_gcd(args: Args<PyIntRef>) -> BigInt {
     use num_integer::Integer;
-    a.as_bigint().gcd(b.as_bigint())
+    math_perf_arb_len_int_op(args, |x, y| x.gcd(y.as_bigint()), BigInt::zero())
+}
+
+fn math_lcm(args: Args<PyIntRef>) -> BigInt {
+    use num_integer::Integer;
+    math_perf_arb_len_int_op(args, |x, y| x.lcm(y.as_bigint()), BigInt::one())
 }
 
 fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
@@ -436,6 +460,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
         // Gcd function
         "gcd" => ctx.new_function(math_gcd),
+        "lcm" => ctx.new_function(math_lcm),
 
         // Factorial function
         "factorial" => ctx.new_function(math_factorial),
