@@ -1575,6 +1575,7 @@ dependencies = [
  "flamer",
  "flate2",
  "foreign-types-shared",
+ "generational-arena",
  "gethostname",
  "getrandom",
  "hex",

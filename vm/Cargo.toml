@@ -70,6 +70,7 @@ num_enum = "0.4"
 smallbox = "0.8"
 bstr = "0.2.12"
 crossbeam-utils = "0.7"
+generational-arena = "0.2"
 
 ## unicode stuff
 unicode_names2 = "0.4"
