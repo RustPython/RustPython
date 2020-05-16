@@ -398,12 +398,7 @@ impl PyByteArray {
     /// Otherwise, return a copy of the original bytearray.
     #[pymethod(name = "removeprefix")]
     fn removeprefix(&self, prefix: PyByteInner) -> PyByteArray {
-        self.borrow_value().elements[..]
-            .py_removeprefix(&prefix.elements, prefix.elements.len(), |s, p| {
-                s.starts_with(p)
-            })
-            .to_vec()
-            .into()
+        self.borrow_value().removeprefix(prefix).into()
     }
 
     /// removesuffix(self, prefix, /)
@@ -415,12 +410,7 @@ impl PyByteArray {
     /// Otherwise, return a copy of the original bytearray.
     #[pymethod(name = "removesuffix")]
     fn removesuffix(&self, suffix: PyByteInner) -> PyByteArray {
-        self.borrow_value().elements[..]
-            .py_removesuffix(&suffix.elements, suffix.elements.len(), |s, p| {
-                s.ends_with(p)
-            })
-            .to_vec()
-            .into()
+        self.borrow_value().removesuffix(suffix).to_vec().into()
     }
 
     #[pymethod(name = "split")]

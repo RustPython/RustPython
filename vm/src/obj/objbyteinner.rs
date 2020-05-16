@@ -845,8 +845,6 @@ impl PyByteInner {
 
     // new in Python 3.9
     pub fn removeprefix(&self, prefix: PyByteInner) -> Vec<u8> {
-        // self.elements.py_removeprefix(&prefix.elements, prefix.elements.len(), |s:&Self, p:&Vec<u8>| s.elements.starts_with(&p)).to_vec()
-
         self.elements
             .py_removeprefix(&prefix.elements, prefix.elements.len(), |s, p| {
                 s.starts_with(p)
