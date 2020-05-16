@@ -380,6 +380,7 @@ settrace() -- set the global debug tracing function
       "path_hooks" => ctx.new_list(vec![]),
       "path_importer_cache" => ctx.new_dict(),
       "pycache_prefix" => vm.get_none(),
+      "displayhook" => vm.get_none(),
       "dont_write_bytecode" => vm.new_bool(vm.settings.dont_write_bytecode),
       "setprofile" => ctx.new_function(sys_setprofile),
       "setrecursionlimit" => ctx.new_function(sys_setrecursionlimit),
