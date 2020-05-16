@@ -149,7 +149,7 @@ TestOrStarExprList: ast::Expression = {
 };
 
 TestOrStarExpr: ast::Expression = {
-    Test,
+    NamedExpression_Test,
     StarExpr,
 };
 
@@ -314,7 +314,7 @@ CompoundStatement: ast::Statement = {
 };
 
 IfStatement: ast::Statement = {
-    <location:@L> "if" <test:Test> ":" <body:Suite> <s2:(@L "elif" Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
+    <location:@L> "if" <test:NamedExpression_Test> ":" <body:Suite> <s2:(@L "elif" NamedExpression_Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
         // Determine last else:
         let mut last = s3.map(|s| s.2);
 
@@ -335,7 +335,7 @@ IfStatement: ast::Statement = {
 };
 
 WhileStatement: ast::Statement = {
-    <location:@L> "while" <test:Test> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
+    <location:@L> "while" <test:NamedExpression_Test> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
         let orelse = s2.map(|s| s.2);
         ast::Statement {
             location,
@@ -651,6 +651,22 @@ Test: ast::Expression = {
     },
     LambdaDef,
 };
+
+NamedExpression_Test: ast::Expression = {
+    <left:Test> <right: (@L ":=" Test)?> => {
+        if let Some(r) = right {
+            ast::Expression {
+                location: r.0,
+                node: ast::ExpressionType::NamedExpression {
+                        left: Box::new(left),
+                        right: Box::new(r.2),
+                    }
+            }
+        } else {
+            left
+        }
+    }
+}
 
 LambdaDef: ast::Expression = {
     <location:@L> "lambda" <p:ParameterList<UntypedParameter>?> ":" <body:Test> =>
@@ -1058,7 +1074,7 @@ ArgumentList: ast::ArgumentList = {
 };
 
 FunctionArgument: (Option<Option<String>>, ast::Expression) = {
-    <e:Test> <c:CompFor?> => {
+    <e:NamedExpression_Test> <c:CompFor?> => {
         let expr = match c {
             Some(c) => ast::Expression {
                 location: e.location,
@@ -1176,6 +1192,7 @@ extern {
         ">>=" => lexer::Tok::RightShiftEqual,
         "**=" => lexer::Tok::DoubleStarEqual,
         "//=" => lexer::Tok::DoubleSlashEqual,
+        ":=" => lexer::Tok::ColonEqual,
         "==" => lexer::Tok::EqEqual,
         "!=" => lexer::Tok::NotEqual,
         "<" => lexer::Tok::Less,

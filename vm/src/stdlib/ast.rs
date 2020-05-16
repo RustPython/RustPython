@@ -517,6 +517,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
         }),
         String { value } => string_to_ast(vm, value)?,
         Bytes { value } => node!(vm, Bytes, { s => vm.ctx.new_bytes(value.clone()) }),
+        NamedExpression { left, right } => node!(vm, NamedExpression, { left => expression_to_ast(vm, left)?, right => expression_to_ast(vm, right)? })
     };
 
     let lineno = vm.ctx.new_int(expression.location.row());

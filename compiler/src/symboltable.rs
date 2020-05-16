@@ -679,6 +679,11 @@ impl SymbolTableBuilder {
                 self.scan_expression(body, &ExpressionContext::Load)?;
                 self.scan_expression(orelse, &ExpressionContext::Load)?;
             }
+
+            NamedExpression { left, right } => {
+                self.scan_expression(right, &ExpressionContext::Store)?;
+                self.scan_expression(left, &ExpressionContext::Load)?;
+            }
         }
         Ok(())
     }
