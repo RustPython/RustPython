@@ -606,7 +606,7 @@ Path: ast::Expression = {
 
 // Decorators:
 Decorator: ast::Expression = {
-    <Location:@L>"@" <p:Test> "\n" => {
+    <location:@L>"@" <p:Test> "\n" => {
         p
     },
 };

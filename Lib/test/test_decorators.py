@@ -274,8 +274,6 @@ class TestDecorators(unittest.TestCase):
         self.assertEqual(bar(), 42)
         self.assertEqual(actions, expected_actions)
 
-    # this test was already not working before adding the Py39 decorator extension
-    @unittest.expectedFailure('TODO RustPython')
     def test_wrapped_descriptor_inside_classmethod(self):
         class BoundWrapper:
             def __init__(self, wrapped):
