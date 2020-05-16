@@ -34,6 +34,10 @@ pub struct PyJsValue {
 }
 type PyJsValueRef = PyRef<PyJsValue>;
 
+// TODO: Fix this when threading is supported in WASM.
+unsafe impl Send for PyJsValue {}
+unsafe impl Sync for PyJsValue {}
+
 impl PyValue for PyJsValue {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("_js", "JsValue")
