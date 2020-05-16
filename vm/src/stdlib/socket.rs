@@ -22,8 +22,7 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
-    TryFromObject,
+    Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -51,8 +50,6 @@ pub struct PySocket {
     proto: AtomicCell<i32>,
     sock: RwLock<Socket>,
 }
-
-impl ThreadSafe for PySocket {}
 
 impl PyValue for PySocket {
     fn class(vm: &VirtualMachine) -> PyClassRef {

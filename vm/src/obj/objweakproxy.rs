@@ -1,7 +1,7 @@
 use super::objtype::PyClassRef;
 use super::objweakref::PyWeak;
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 #[pyclass]
@@ -9,8 +9,6 @@ use crate::vm::VirtualMachine;
 pub struct PyWeakProxy {
     weak: PyWeak,
 }
-
-impl ThreadSafe for PyWeakProxy {}
 
 impl PyValue for PyWeakProxy {
     fn class(vm: &VirtualMachine) -> PyClassRef {

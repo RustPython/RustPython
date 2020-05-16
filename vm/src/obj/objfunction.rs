@@ -11,7 +11,7 @@ use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objgenerator::PyGenerator;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    ThreadSafe, TypeProtocol,
+    TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
@@ -28,7 +28,6 @@ pub struct PyFunction {
     defaults: Option<PyTupleRef>,
     kw_only_defaults: Option<PyDictRef>,
 }
-impl ThreadSafe for PyFunction {}
 
 impl SlotDescriptor for PyFunction {
     fn descr_get(
@@ -293,8 +292,6 @@ pub struct PyBoundMethod {
     object: PyObjectRef,
     pub function: PyObjectRef,
 }
-
-impl ThreadSafe for PyBoundMethod {}
 
 impl SlotCall for PyBoundMethod {
     fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {

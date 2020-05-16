@@ -18,7 +18,7 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TryFromObject, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
@@ -42,8 +42,6 @@ use crate::vm::VirtualMachine;
 pub struct PyInt {
     value: BigInt,
 }
-
-impl ThreadSafe for PyInt {}
 
 impl fmt::Display for PyInt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

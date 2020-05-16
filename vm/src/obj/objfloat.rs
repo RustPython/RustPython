@@ -12,7 +12,7 @@ use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
     IntoPyObject, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue, ThreadSafe, TryFromObject, TypeProtocol,
+    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -22,8 +22,6 @@ use crate::vm::VirtualMachine;
 pub struct PyFloat {
     value: f64,
 }
-
-impl ThreadSafe for PyFloat {}
 
 impl PyFloat {
     pub fn to_f64(self) -> f64 {

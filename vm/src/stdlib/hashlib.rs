@@ -2,7 +2,7 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue, ThreadSafe};
+use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 use std::fmt;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -19,8 +19,6 @@ struct PyHasher {
     name: String,
     buffer: RwLock<HashWrapper>,
 }
-
-impl ThreadSafe for PyHasher {}
 
 impl fmt::Debug for PyHasher {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

@@ -10,7 +10,7 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+    PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -24,7 +24,6 @@ pub struct PyDict {
     entries: DictContentType,
 }
 pub type PyDictRef = PyRef<PyDict>;
-impl ThreadSafe for PyDict {}
 
 impl fmt::Debug for PyDict {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

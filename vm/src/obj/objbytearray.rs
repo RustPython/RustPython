@@ -21,7 +21,7 @@ use crate::function::{OptionalArg, OptionalOption};
 use crate::obj::objstr::do_cformat_string;
 use crate::pyobject::{
     Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, ThreadSafe, TryFromObject, TypeProtocol,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -41,8 +41,6 @@ use crate::vm::VirtualMachine;
 pub struct PyByteArray {
     inner: RwLock<PyByteInner>,
 }
-
-impl ThreadSafe for PyByteArray {}
 
 pub type PyByteArrayRef = PyRef<PyByteArray>;
 

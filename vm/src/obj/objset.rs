@@ -9,8 +9,8 @@ use crate::dictdatatype;
 use crate::function::{Args, OptionalArg};
 use crate::pyhash;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
-    TryFromObject, TypeProtocol,
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -26,7 +26,6 @@ pub struct PySet {
     inner: PySetInner,
 }
 pub type PySetRef = PyRef<PySet>;
-impl ThreadSafe for PySet {}
 
 /// frozenset() -> empty frozenset object
 /// frozenset(iterable) -> frozenset object
@@ -38,7 +37,6 @@ pub struct PyFrozenSet {
     inner: PySetInner,
 }
 pub type PyFrozenSetRef = PyRef<PyFrozenSet>;
-impl ThreadSafe for PyFrozenSet {}
 
 impl fmt::Debug for PySet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

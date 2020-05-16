@@ -31,7 +31,7 @@ use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TryFromObject, TryIntoRef, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -52,7 +52,6 @@ pub struct PyString {
     hash: AtomicCell<Option<pyhash::PyHash>>,
     len: AtomicCell<Option<usize>>,
 }
-impl ThreadSafe for PyString {}
 
 impl PyString {
     #[inline]
@@ -103,7 +102,6 @@ pub struct PyStringIterator {
     pub string: PyStringRef,
     position: AtomicCell<usize>,
 }
-impl ThreadSafe for PyStringIterator {}
 
 impl PyValue for PyStringIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -137,7 +135,6 @@ pub struct PyStringReverseIterator {
     pub position: AtomicCell<isize>,
     pub string: PyStringRef,
 }
-impl ThreadSafe for PyStringReverseIterator {}
 
 impl PyValue for PyStringReverseIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {

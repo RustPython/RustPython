@@ -1,7 +1,7 @@
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TypeProtocol,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
@@ -32,7 +32,6 @@ pub struct PyClassMethod {
     callable: PyObjectRef,
 }
 pub type PyClassMethodRef = PyRef<PyClassMethod>;
-impl ThreadSafe for PyClassMethod {}
 
 impl PyClassMethod {
     pub fn new(value: PyObjectRef) -> Self {

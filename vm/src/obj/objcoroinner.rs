@@ -1,7 +1,7 @@
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, FrameRef};
-use crate::pyobject::{PyObjectRef, PyResult, ThreadSafe};
+use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -41,8 +41,6 @@ pub struct Coro {
     started: AtomicCell<bool>,
     variant: Variant,
 }
-
-impl ThreadSafe for Coro {}
 
 impl Coro {
     pub fn new(frame: FrameRef, variant: Variant) -> Self {

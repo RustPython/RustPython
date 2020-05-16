@@ -7,7 +7,7 @@ mod _random {
     use crate::function::OptionalOption;
     use crate::obj::objint::PyIntRef;
     use crate::obj::objtype::PyClassRef;
-    use crate::pyobject::{PyClassImpl, PyRef, PyResult, PyValue, ThreadSafe};
+    use crate::pyobject::{PyClassImpl, PyRef, PyResult, PyValue};
     use crate::VirtualMachine;
     use generational_arena::{self, Arena};
     use num_bigint::{BigInt, Sign};
@@ -96,8 +96,6 @@ mod _random {
     struct PyRandom {
         rng: RngHandle,
     }
-
-    impl ThreadSafe for PyRandom {}
 
     impl PyValue for PyRandom {
         fn class(vm: &VirtualMachine) -> PyClassRef {

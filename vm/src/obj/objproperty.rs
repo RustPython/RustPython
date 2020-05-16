@@ -6,8 +6,7 @@ use std::sync::RwLock;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
-    TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
@@ -52,7 +51,6 @@ pub struct PyProperty {
     deleter: Option<PyObjectRef>,
     doc: RwLock<Option<PyObjectRef>>,
 }
-impl ThreadSafe for PyProperty {}
 
 impl PyValue for PyProperty {
     fn class(vm: &VirtualMachine) -> PyClassRef {

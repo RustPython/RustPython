@@ -10,8 +10,8 @@ use super::objstr::PyStringRef;
 use super::objtype::{self, PyClass, PyClassRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
-    TryFromObject, TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::scope::NameProtocol;
 use crate::slots::SlotDescriptor;
@@ -27,7 +27,6 @@ pub struct PySuper {
     typ: PyClassRef,
     obj: Option<(PyObjectRef, PyClassRef)>,
 }
-impl ThreadSafe for PySuper {}
 
 impl PyValue for PySuper {
     fn class(vm: &VirtualMachine) -> PyClassRef {

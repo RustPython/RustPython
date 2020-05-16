@@ -27,7 +27,7 @@ mod _struct {
         objtuple::PyTuple, objtype::PyClassRef,
     };
     use crate::pyobject::{
-        Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TryFromObject,
+        Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };
     use crate::VirtualMachine;
 
@@ -678,8 +678,6 @@ mod _struct {
         spec: FormatSpec,
         fmt_str: PyStringRef,
     }
-
-    impl ThreadSafe for PyStruct {}
 
     impl PyValue for PyStruct {
         fn class(vm: &VirtualMachine) -> PyClassRef {

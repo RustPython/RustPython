@@ -4,7 +4,7 @@ use super::objtype::{self, PyClassRef};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -16,7 +16,6 @@ pub struct PyAsyncGen {
     running_async: AtomicCell<bool>,
 }
 pub type PyAsyncGenRef = PyRef<PyAsyncGen>;
-impl ThreadSafe for PyAsyncGen {}
 
 impl PyValue for PyAsyncGen {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -164,8 +163,6 @@ struct PyAsyncGenASend {
     value: PyObjectRef,
 }
 
-impl ThreadSafe for PyAsyncGenASend {}
-
 impl PyValue for PyAsyncGenASend {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.types.async_generator_asend.clone()
@@ -261,8 +258,6 @@ struct PyAsyncGenAThrow {
     state: AtomicCell<AwaitableState>,
     value: (PyObjectRef, PyObjectRef, PyObjectRef),
 }
-
-impl ThreadSafe for PyAsyncGenAThrow {}
 
 impl PyValue for PyAsyncGenAThrow {
     fn class(vm: &VirtualMachine) -> PyClassRef {

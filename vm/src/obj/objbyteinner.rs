@@ -17,8 +17,7 @@ use super::pystr::{self, PyCommonString, PyCommonStringWrapper};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
-    Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, ThreadSafe, TryFromObject,
-    TypeProtocol,
+    Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -32,8 +31,6 @@ impl From<Vec<u8>> for PyByteInner {
         Self { elements }
     }
 }
-
-impl ThreadSafe for PyByteInner {}
 
 impl TryFromObject for PyByteInner {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {

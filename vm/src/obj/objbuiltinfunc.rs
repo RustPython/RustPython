@@ -3,7 +3,7 @@ use std::fmt;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, ThreadSafe, TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::{SlotCall, SlotDescriptor};
 use crate::vm::VirtualMachine;
@@ -12,7 +12,6 @@ use crate::vm::VirtualMachine;
 pub struct PyBuiltinFunction {
     value: PyNativeFunc,
 }
-impl ThreadSafe for PyBuiltinFunction {}
 
 impl PyValue for PyBuiltinFunction {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -49,7 +48,6 @@ impl PyBuiltinFunction {}
 pub struct PyBuiltinMethod {
     function: PyBuiltinFunction,
 }
-impl ThreadSafe for PyBuiltinMethod {}
 
 impl PyValue for PyBuiltinMethod {
     fn class(vm: &VirtualMachine) -> PyClassRef {

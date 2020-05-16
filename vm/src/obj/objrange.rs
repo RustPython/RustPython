@@ -12,8 +12,7 @@ use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TryFromObject,
-    TypeProtocol,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -32,7 +31,6 @@ pub struct PyRange {
     pub stop: PyIntRef,
     pub step: PyIntRef,
 }
-impl ThreadSafe for PyRange {}
 
 impl PyValue for PyRange {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -405,7 +403,6 @@ pub struct PyRangeIterator {
     position: AtomicCell<usize>,
     range: PyRangeRef,
 }
-impl ThreadSafe for PyRangeIterator {}
 
 impl PyValue for PyRangeIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {

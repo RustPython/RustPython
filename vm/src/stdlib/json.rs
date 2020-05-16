@@ -1,7 +1,7 @@
 use crate::obj::objiter;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::{objbool, objtype::PyClassRef};
-use crate::pyobject::{IdProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
+use crate::pyobject::{IdProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::VirtualMachine;
 
 use num_bigint::BigInt;
@@ -18,8 +18,6 @@ struct JsonScanner {
     parse_constant: PyObjectRef,
     ctx: PyObjectRef,
 }
-
-impl ThreadSafe for JsonScanner {}
 
 impl PyValue for JsonScanner {
     fn class(vm: &VirtualMachine) -> PyClassRef {

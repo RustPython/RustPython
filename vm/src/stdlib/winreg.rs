@@ -7,9 +7,7 @@ use super::os;
 use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{
-    PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TryFromObject,
-};
+use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
 
 use winapi::shared::winerror;
@@ -24,8 +22,6 @@ type PyHKEYRef = PyRef<PyHKEY>;
 
 // TODO: fix this
 unsafe impl Sync for PyHKEY {}
-
-impl ThreadSafe for PyHKEY {}
 
 impl PyValue for PyHKEY {
     fn class(vm: &VirtualMachine) -> PyClassRef {

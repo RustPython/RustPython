@@ -12,7 +12,7 @@ use super::objweakref::PyWeak;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef,
-    PyResult, PyValue, ThreadSafe, TypeProtocol,
+    PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
@@ -31,8 +31,6 @@ pub struct PyClass {
     pub attributes: RwLock<PyAttributes>,
     pub slots: RwLock<PyClassSlots>,
 }
-
-impl ThreadSafe for PyClass {}
 
 impl fmt::Display for PyClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
