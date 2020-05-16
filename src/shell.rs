@@ -1,7 +1,7 @@
 mod helper;
 
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
-use rustpython_parser::error::ParseErrorType;
+use rustpython_parser::error::{LexicalErrorType, ParseErrorType};
 use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
     exceptions::{print_exception, PyBaseExceptionRef},
@@ -23,6 +23,10 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResul
             Ok(_val) => ShellExecResult::Ok,
             Err(err) => ShellExecResult::PyErr(err),
         },
+        Err(CompileError {
+            error: CompileErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::EOF)),
+            ..
+        }) => ShellExecResult::Continue,
         Err(CompileError {
             error: CompileErrorType::Parse(ParseErrorType::EOF),
             ..

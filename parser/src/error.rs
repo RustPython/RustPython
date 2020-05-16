@@ -28,6 +28,7 @@ pub enum LexicalErrorType {
     UnrecognizedToken { tok: char },
     FStringError(FStringErrorType),
     LineContinuationError,
+    EOF,
     OtherError(String),
 }
 
@@ -59,6 +60,7 @@ impl fmt::Display for LexicalErrorType {
             LexicalErrorType::LineContinuationError => {
                 write!(f, "unexpected character after line continuation character")
             }
+            LexicalErrorType::EOF => write!(f, "unexpected EOF while parsing"),
             LexicalErrorType::OtherError(msg) => write!(f, "{}", msg),
         }
     }

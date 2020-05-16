@@ -1191,6 +1191,13 @@ where
                         location: self.get_pos(),
                     });
                 }
+
+                if self.chr0.is_none() {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::EOF,
+                        location: self.get_pos(),
+                    });
+                }
             }
 
             _ => {
