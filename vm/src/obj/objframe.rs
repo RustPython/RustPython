@@ -24,6 +24,15 @@ impl FrameRef {
         "<frame object at .. >".to_owned()
     }
 
+    #[pymethod(name = "__delattr__")]
+    fn delattr(self, value: PyObjectRef, vm: &VirtualMachine) {
+        println!("Called: FrameRef::f_trace over {:?}", value);
+        let value_str = vm.to_str(&value).unwrap().to_string();
+        if value_str == "f_trace" {
+            self.set_f_trace(vm.get_none());
+        };
+    }
+
     #[pymethod]
     fn clear(self) {
         // TODO
