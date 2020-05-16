@@ -61,6 +61,7 @@ pub enum Tok {
     RightShiftEqual,
     DoubleSlash, // '//'
     DoubleSlashEqual,
+    ColonEqual,
     At,
     AtEqual,
     Rarrow,
@@ -222,6 +223,7 @@ impl fmt::Display for Tok {
             While => f.write_str("'while'"),
             With => f.write_str("'with'"),
             Yield => f.write_str("'yield'"),
+            ColonEqual => f.write_str("':='"),
         }
     }
 }

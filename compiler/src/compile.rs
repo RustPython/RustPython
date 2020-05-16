@@ -1801,6 +1801,12 @@ impl<O: OutputStream> Compiler<O> {
                 // End
                 self.set_label(end_label);
             }
+
+            NamedExpression { left, right } => {
+                self.compile_expression(right)?;
+                self.emit(Instruction::Duplicate);
+                self.compile_store(left)?;
+            }
         }
         Ok(())
     }
