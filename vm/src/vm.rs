@@ -46,7 +46,6 @@ use crate::pyobject::{
 use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
-use crossbeam_utils::atomic::AtomicCell;
 
 // use objects::objects;
 
@@ -65,6 +64,7 @@ pub struct VirtualMachine {
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
+    pub recursion_limit: Cell<usize>,
     pub signal_handlers: Option<RefCell<[PyObjectRef; NSIG]>>,
     pub state: Arc<PyGlobalState>,
     pub initialized: bool,
@@ -72,7 +72,6 @@ pub struct VirtualMachine {
 
 pub struct PyGlobalState {
     pub settings: PySettings,
-    pub recursion_limit: AtomicCell<usize>,
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
     pub frozen: HashMap<String, bytecode::FrozenModule>,
 }
@@ -199,10 +198,10 @@ impl VirtualMachine {
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
+            recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
             signal_handlers: Some(signal_handlers),
             state: Arc::new(PyGlobalState {
                 settings,
-                recursion_limit: AtomicCell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
                 stdlib_inits,
                 frozen,
             }),
@@ -310,7 +309,7 @@ impl VirtualMachine {
     }
 
     fn check_recursive_call(&self, _where: &str) -> PyResult<()> {
-        if self.frames.borrow().len() > self.state.recursion_limit.load() {
+        if self.frames.borrow().len() > self.recursion_limit.get() {
             Err(self.new_recursion_error(format!("maximum recursion depth exceeded {}", _where)))
         } else {
             Ok(())
