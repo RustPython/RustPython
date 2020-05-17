@@ -2,7 +2,6 @@
 
 import os as _os
 import sys as _sys
-import _rp_thread  # Hack: Trigger populating of RustPython _thread with dummies
 import _thread
 
 from time import monotonic as _time

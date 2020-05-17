@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::{env, fmt};
 
 use arr_macro::arr;
+use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use once_cell::sync::Lazy;
@@ -74,6 +75,7 @@ pub struct PyGlobalState {
     pub settings: PySettings,
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
     pub frozen: HashMap<String, bytecode::FrozenModule>,
+    pub stacksize: AtomicCell<usize>,
 }
 
 pub const NSIG: usize = 64;
@@ -204,6 +206,7 @@ impl VirtualMachine {
                 settings,
                 stdlib_inits,
                 frozen,
+                stacksize: AtomicCell::new(0),
             }),
             initialized: false,
         };
