@@ -13,7 +13,7 @@ use crate::function::{Args, OptionalArg};
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue, ThreadSafe, TryFromObject};
+use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject};
 use crate::vm::VirtualMachine;
 
 #[pyclass(name = "Pattern")]
@@ -22,8 +22,6 @@ struct PyPattern {
     regex: Regex,
     pattern: String,
 }
-
-impl ThreadSafe for PyPattern {}
 
 const IGNORECASE: usize = 2;
 const LOCALE: usize = 4;
@@ -76,8 +74,6 @@ struct PyMatch {
     haystack: PyStringRef,
     captures: Vec<Option<(usize, usize)>>,
 }
-
-impl ThreadSafe for PyMatch {}
 
 impl fmt::Debug for PyMatch {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

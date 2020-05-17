@@ -4,7 +4,7 @@ use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 pub type PyCoroutineRef = PyRef<PyCoroutine>;
@@ -14,8 +14,6 @@ pub type PyCoroutineRef = PyRef<PyCoroutine>;
 pub struct PyCoroutine {
     inner: Coro,
 }
-
-impl ThreadSafe for PyCoroutine {}
 
 impl PyValue for PyCoroutine {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -102,8 +100,6 @@ impl PyCoroutine {
 pub struct PyCoroutineWrapper {
     coro: PyCoroutineRef,
 }
-
-impl ThreadSafe for PyCoroutineWrapper {}
 
 impl PyValue for PyCoroutineWrapper {
     fn class(vm: &VirtualMachine) -> PyClassRef {

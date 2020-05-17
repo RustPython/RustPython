@@ -9,7 +9,7 @@ use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objlist::PyListRef;
 use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
+use crate::pyobject::{Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::stdlib::io::io_open;
 use crate::stdlib::os::{convert_io_error, raw_file_number, rust_file};
 use crate::vm::VirtualMachine;
@@ -23,8 +23,6 @@ struct Popen {
 // Remove once https://github.com/hniksic/rust-subprocess/issues/42 is resolved
 #[cfg(windows)]
 unsafe impl Sync for Popen {}
-
-impl ThreadSafe for Popen {}
 
 impl PyValue for Popen {
     fn class(vm: &VirtualMachine) -> PyClassRef {

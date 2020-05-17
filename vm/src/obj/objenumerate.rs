@@ -8,7 +8,7 @@ use super::objint::PyIntRef;
 use super::objiter;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 #[pyclass]
@@ -18,7 +18,6 @@ pub struct PyEnumerate {
     iterator: PyObjectRef,
 }
 type PyEnumerateRef = PyRef<PyEnumerate>;
-impl ThreadSafe for PyEnumerate {}
 
 impl PyValue for PyEnumerate {
     fn class(vm: &VirtualMachine) -> PyClassRef {

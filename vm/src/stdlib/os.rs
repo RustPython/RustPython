@@ -36,8 +36,8 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
-    TryFromObject, TypeProtocol,
+    Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -598,8 +598,6 @@ struct DirEntry {
     mode: OutputMode,
 }
 
-impl ThreadSafe for DirEntry {}
-
 type DirEntryRef = PyRef<DirEntry>;
 
 impl PyValue for DirEntry {
@@ -690,8 +688,6 @@ struct ScandirIterator {
     exhausted: AtomicCell<bool>,
     mode: OutputMode,
 }
-
-impl ThreadSafe for ScandirIterator {}
 
 impl PyValue for ScandirIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {

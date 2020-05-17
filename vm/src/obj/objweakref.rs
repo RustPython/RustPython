@@ -2,7 +2,6 @@ use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     PyClassImpl, PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult, PyValue,
-    ThreadSafe,
 };
 use crate::slots::SlotCall;
 use crate::vm::VirtualMachine;
@@ -14,8 +13,6 @@ use std::sync::{Arc, Weak};
 pub struct PyWeak {
     referent: Weak<PyObject<dyn PyObjectPayload>>,
 }
-
-impl ThreadSafe for PyWeak {}
 
 impl PyWeak {
     pub fn downgrade(obj: &PyObjectRef) -> PyWeak {

@@ -4,8 +4,8 @@
 use super::objtype::PyClassRef;
 use crate::function::{FunctionBox, OptionalArg, OwnedParam, RefParam};
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
-    TryFromObject, TypeProtocol,
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
@@ -151,8 +151,6 @@ pub struct PyGetSet {
     setter: Option<PySetterFunc>,
     // doc: Option<String>,
 }
-
-impl ThreadSafe for PyGetSet {}
 
 impl std::fmt::Debug for PyGetSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -1,6 +1,6 @@
 use crate::obj::objstr::PyString;
 use crate::pyhash;
-use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult, ThreadSafe};
+use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
 /// Ordered dictionary implementation.
@@ -22,8 +22,6 @@ type EntryIndex = usize;
 pub struct Dict<T = PyObjectRef> {
     inner: RwLock<InnerDict<T>>,
 }
-
-impl ThreadSafe for Dict {}
 
 struct InnerDict<T> {
     size: usize,

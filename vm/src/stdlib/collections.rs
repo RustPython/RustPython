@@ -6,7 +6,7 @@ mod _collections {
     use crate::obj::{objiter, objtype::PyClassRef};
     use crate::pyobject::{
         IdProtocol, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef,
-        PyRef, PyResult, PyValue, ThreadSafe,
+        PyRef, PyResult, PyValue,
     };
     use crate::sequence;
     use crate::vm::ReprGuard;
@@ -24,8 +24,6 @@ mod _collections {
         maxlen: AtomicCell<Option<usize>>,
     }
     type PyDequeRef = PyRef<PyDeque>;
-
-    impl ThreadSafe for PyDeque {}
 
     impl PyValue for PyDeque {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -378,8 +376,6 @@ mod _collections {
         position: AtomicCell<usize>,
         deque: PyDequeRef,
     }
-
-    impl ThreadSafe for PyDequeIterator {}
 
     impl PyValue for PyDequeIterator {
         fn class(vm: &VirtualMachine) -> PyClassRef {

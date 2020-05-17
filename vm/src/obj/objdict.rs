@@ -1,5 +1,6 @@
-use std::cell::Cell;
 use std::fmt;
+
+use crossbeam_utils::atomic::AtomicCell;
 
 use super::objiter;
 use super::objstr;
@@ -9,7 +10,7 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+    PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -23,7 +24,6 @@ pub struct PyDict {
     entries: DictContentType,
 }
 pub type PyDictRef = PyRef<PyDict>;
-impl ThreadSafe for PyDict {}
 
 impl fmt::Debug for PyDict {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -585,14 +585,14 @@ macro_rules! dict_iterator {
         struct $iter_name {
             pub dict: PyDictRef,
             pub size: dictdatatype::DictSize,
-            pub position: Cell<usize>,
+            pub position: AtomicCell<usize>,
         }
 
         #[pyimpl]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
-                    position: Cell::new(0),
+                    position: AtomicCell::new(0),
                     size: dict.size(),
                     dict,
                 }
@@ -601,15 +601,15 @@ macro_rules! dict_iterator {
             #[pymethod(name = "__next__")]
             #[allow(clippy::redundant_closure_call)]
             fn next(&self, vm: &VirtualMachine) -> PyResult {
-                let mut position = self.position.get();
                 if self.dict.entries.has_changed_size(&self.size) {
                     return Err(
                         vm.new_runtime_error("dictionary changed size during iteration".to_owned())
                     );
                 }
+                let mut position = self.position.load();
                 match self.dict.entries.next_entry(&mut position) {
                     Some((key, value)) => {
-                        self.position.set(position);
+                        self.position.store(position);
                         Ok($result_fn(vm, key, value))
                     }
                     None => Err(objiter::new_stop_iteration(vm)),
@@ -623,7 +623,7 @@ macro_rules! dict_iterator {
 
             #[pymethod(name = "__length_hint__")]
             fn length_hint(&self) -> usize {
-                self.dict.entries.len_from_entry_index(self.position.get())
+                self.dict.entries.len_from_entry_index(self.position.load())
             }
         }
 

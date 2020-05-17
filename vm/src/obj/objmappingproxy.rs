@@ -4,8 +4,7 @@ use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
-    TryFromObject,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -14,7 +13,6 @@ use crate::vm::VirtualMachine;
 pub struct PyMappingProxy {
     mapping: MappingProxyInner,
 }
-impl ThreadSafe for PyMappingProxy {}
 
 #[derive(Debug)]
 enum MappingProxyInner {

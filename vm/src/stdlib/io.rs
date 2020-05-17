@@ -19,7 +19,7 @@ use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TryFromObject,
+    BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -126,8 +126,6 @@ struct PyStringIO {
 }
 
 type PyStringIORef = PyRef<PyStringIO>;
-
-impl ThreadSafe for PyStringIO {}
 
 impl PyValue for PyStringIO {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -251,8 +249,6 @@ struct PyBytesIO {
 }
 
 type PyBytesIORef = PyRef<PyBytesIO>;
-
-impl ThreadSafe for PyBytesIO {}
 
 impl PyValue for PyBytesIO {
     fn class(vm: &VirtualMachine) -> PyClassRef {

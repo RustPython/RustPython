@@ -14,6 +14,14 @@ use rustpython_vm::VirtualMachine;
 
 use crate::{convert, vm_class::weak_vm, wasm_builtins::window};
 
+// TODO: Fix this when threading is supported in WASM.
+unsafe impl Send for PyPromise {}
+unsafe impl Sync for PyPromise {}
+unsafe impl Send for Document {}
+unsafe impl Sync for Document {}
+unsafe impl Send for Element {}
+unsafe impl Sync for Element {}
+
 enum FetchResponseFormat {
     Json,
     Text,

@@ -1,7 +1,7 @@
 use super::objiter;
 use super::objtype::PyClassRef;
 use crate::function::Args;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 pub type PyZipRef = PyRef<PyZip>;
@@ -11,7 +11,6 @@ pub type PyZipRef = PyRef<PyZip>;
 pub struct PyZip {
     iterators: Vec<PyObjectRef>,
 }
-impl ThreadSafe for PyZip {}
 
 impl PyValue for PyZip {
     fn class(vm: &VirtualMachine) -> PyClassRef {

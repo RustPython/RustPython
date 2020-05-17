@@ -17,7 +17,7 @@ use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
     IdProtocol, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe, TryFromObject, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
 use crate::vm::{ReprGuard, VirtualMachine};
@@ -31,8 +31,6 @@ use crate::vm::{ReprGuard, VirtualMachine};
 pub struct PyList {
     elements: RwLock<Vec<PyObjectRef>>,
 }
-
-impl ThreadSafe for PyList {}
 
 impl fmt::Debug for PyList {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -876,8 +874,6 @@ pub struct PyListIterator {
     pub list: PyListRef,
 }
 
-impl ThreadSafe for PyListIterator {}
-
 impl PyValue for PyListIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.listiterator_type()
@@ -916,8 +912,6 @@ pub struct PyListReverseIterator {
     pub position: AtomicCell<isize>,
     pub list: PyListRef,
 }
-
-impl ThreadSafe for PyListReverseIterator {}
 
 impl PyValue for PyListReverseIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {

@@ -1,7 +1,7 @@
 use super::objiter;
 use super::objtype::PyClassRef;
 use crate::function::Args;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 /// map(func, *iterables) --> map object
@@ -15,7 +15,6 @@ pub struct PyMap {
     iterators: Vec<PyObjectRef>,
 }
 type PyMapRef = PyRef<PyMap>;
-impl ThreadSafe for PyMap {}
 
 impl PyValue for PyMap {
     fn class(vm: &VirtualMachine) -> PyClassRef {

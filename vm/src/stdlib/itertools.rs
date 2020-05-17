@@ -15,8 +15,7 @@ mod decl {
     use crate::obj::objtuple::PyTuple;
     use crate::obj::objtype::{self, PyClassRef};
     use crate::pyobject::{
-        IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
-        TypeProtocol,
+        IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     };
     use crate::vm::VirtualMachine;
 
@@ -27,8 +26,6 @@ mod decl {
         cur_idx: AtomicCell<usize>,
         cached_iter: RwLock<Option<PyObjectRef>>,
     }
-
-    impl ThreadSafe for PyItertoolsChain {}
 
     impl PyValue for PyItertoolsChain {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -114,8 +111,6 @@ mod decl {
         selector: PyObjectRef,
     }
 
-    impl ThreadSafe for PyItertoolsCompress {}
-
     impl PyValue for PyItertoolsCompress {
         fn class(vm: &VirtualMachine) -> PyClassRef {
             vm.class("itertools", "compress")
@@ -166,8 +161,6 @@ mod decl {
         cur: RwLock<BigInt>,
         step: BigInt,
     }
-
-    impl ThreadSafe for PyItertoolsCount {}
 
     impl PyValue for PyItertoolsCount {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -221,8 +214,6 @@ mod decl {
         saved: RwLock<Vec<PyObjectRef>>,
         index: AtomicCell<usize>,
     }
-
-    impl ThreadSafe for PyItertoolsCycle {}
 
     impl PyValue for PyItertoolsCycle {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -283,8 +274,6 @@ mod decl {
         object: PyObjectRef,
         times: Option<RwLock<BigInt>>,
     }
-
-    impl ThreadSafe for PyItertoolsRepeat {}
 
     impl PyValue for PyItertoolsRepeat {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -347,8 +336,6 @@ mod decl {
         iter: PyObjectRef,
     }
 
-    impl ThreadSafe for PyItertoolsStarmap {}
-
     impl PyValue for PyItertoolsStarmap {
         fn class(vm: &VirtualMachine) -> PyClassRef {
             vm.class("itertools", "starmap")
@@ -390,8 +377,6 @@ mod decl {
         iterable: PyObjectRef,
         stop_flag: AtomicCell<bool>,
     }
-
-    impl ThreadSafe for PyItertoolsTakewhile {}
 
     impl PyValue for PyItertoolsTakewhile {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -452,8 +437,6 @@ mod decl {
         start_flag: AtomicCell<bool>,
     }
 
-    impl ThreadSafe for PyItertoolsDropwhile {}
-
     impl PyValue for PyItertoolsDropwhile {
         fn class(vm: &VirtualMachine) -> PyClassRef {
             vm.class("itertools", "dropwhile")
@@ -513,8 +496,6 @@ mod decl {
         stop: Option<usize>,
         step: usize,
     }
-
-    impl ThreadSafe for PyItertoolsIslice {}
 
     impl PyValue for PyItertoolsIslice {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -639,8 +620,6 @@ mod decl {
         iterable: PyObjectRef,
     }
 
-    impl ThreadSafe for PyItertoolsFilterFalse {}
-
     impl PyValue for PyItertoolsFilterFalse {
         fn class(vm: &VirtualMachine) -> PyClassRef {
             vm.class("itertools", "filterfalse")
@@ -697,8 +676,6 @@ mod decl {
         binop: PyObjectRef,
         acc_value: RwLock<Option<PyObjectRef>>,
     }
-
-    impl ThreadSafe for PyItertoolsAccumulate {}
 
     impl PyValue for PyItertoolsAccumulate {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -759,8 +736,6 @@ mod decl {
         values: RwLock<Vec<PyObjectRef>>,
     }
 
-    impl ThreadSafe for PyItertoolsTeeData {}
-
     impl PyItertoolsTeeData {
         fn new(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Arc<PyItertoolsTeeData>> {
             Ok(Arc::new(PyItertoolsTeeData {
@@ -784,8 +759,6 @@ mod decl {
         tee_data: Arc<PyItertoolsTeeData>,
         index: AtomicCell<usize>,
     }
-
-    impl ThreadSafe for PyItertoolsTee {}
 
     impl PyValue for PyItertoolsTee {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -866,8 +839,6 @@ mod decl {
         cur: AtomicCell<usize>,
         stop: AtomicCell<bool>,
     }
-
-    impl ThreadSafe for PyItertoolsProduct {}
 
     impl PyValue for PyItertoolsProduct {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -981,8 +952,6 @@ mod decl {
         exhausted: AtomicCell<bool>,
     }
 
-    impl ThreadSafe for PyItertoolsCombinations {}
-
     impl PyValue for PyItertoolsCombinations {
         fn class(vm: &VirtualMachine) -> PyClassRef {
             vm.class("itertools", "combinations")
@@ -1083,8 +1052,6 @@ mod decl {
         exhausted: AtomicCell<bool>,
     }
 
-    impl ThreadSafe for PyItertoolsCombinationsWithReplacement {}
-
     impl PyValue for PyItertoolsCombinationsWithReplacement {
         fn class(vm: &VirtualMachine) -> PyClassRef {
             vm.class("itertools", "combinations_with_replacement")
@@ -1180,8 +1147,6 @@ mod decl {
         r: AtomicCell<usize>,               // Size of result tuple
         exhausted: AtomicCell<bool>,        // Set when the iterator is exhausted
     }
-
-    impl ThreadSafe for PyItertoolsPermutations {}
 
     impl PyValue for PyItertoolsPermutations {
         fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -1308,8 +1273,6 @@ mod decl {
         iterators: Vec<PyObjectRef>,
         fillvalue: PyObjectRef,
     }
-
-    impl ThreadSafe for PyItertoolsZipLongest {}
 
     impl PyValue for PyItertoolsZipLongest {
         fn class(vm: &VirtualMachine) -> PyClassRef {

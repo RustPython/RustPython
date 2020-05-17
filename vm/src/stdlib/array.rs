@@ -6,7 +6,7 @@ use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
     Either, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    ThreadSafe, TryFromObject,
+    TryFromObject,
 };
 use crate::VirtualMachine;
 
@@ -228,8 +228,6 @@ pub struct PyArray {
     array: RwLock<ArrayContentType>,
 }
 
-impl ThreadSafe for PyArray {}
-
 pub type PyArrayRef = PyRef<PyArray>;
 
 impl PyValue for PyArray {
@@ -434,8 +432,6 @@ pub struct PyArrayIter {
     position: AtomicCell<usize>,
     array: PyArrayRef,
 }
-
-impl ThreadSafe for PyArrayIter {}
 
 impl PyValue for PyArrayIter {
     fn class(vm: &VirtualMachine) -> PyClassRef {

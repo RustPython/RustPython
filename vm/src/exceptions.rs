@@ -6,8 +6,8 @@ use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::py_serde;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
-    TryFromObject, TypeProtocol,
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::slots::PyTpFlags;
 use crate::types::create_type;
@@ -29,8 +29,6 @@ pub struct PyBaseException {
     suppress_context: AtomicCell<bool>,
     args: RwLock<PyTupleRef>,
 }
-
-impl ThreadSafe for PyBaseException {}
 
 impl fmt::Debug for PyBaseException {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

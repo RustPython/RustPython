@@ -10,7 +10,7 @@ use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{IntoPyObject, TryFromObject, TypeProtocol};
-use crate::pyobject::{PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe};
+use crate::pyobject::{PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::types::create_type;
 use crate::VirtualMachine;
 
@@ -128,8 +128,6 @@ impl ReadState {
 struct Reader {
     state: RwLock<ReadState>,
 }
-
-impl ThreadSafe for Reader {}
 
 impl Debug for Reader {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {

@@ -1,6 +1,6 @@
 use crate::frame::FrameRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyContext, PyRef, PyValue, ThreadSafe};
+use crate::pyobject::{PyClassImpl, PyContext, PyRef, PyValue};
 use crate::vm::VirtualMachine;
 
 #[pyclass]
@@ -11,7 +11,6 @@ pub struct PyTraceback {
     pub lasti: usize,
     pub lineno: usize,
 }
-impl ThreadSafe for PyTraceback {}
 
 pub type PyTracebackRef = PyRef<PyTraceback>;
 

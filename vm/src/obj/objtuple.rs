@@ -9,7 +9,7 @@ use crate::pyhash;
 use crate::pyobject::{
     IntoPyObject,
     PyArithmaticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::sequence;
 use crate::vm::{ReprGuard, VirtualMachine};
@@ -22,8 +22,6 @@ use crate::vm::{ReprGuard, VirtualMachine};
 pub struct PyTuple {
     elements: Vec<PyObjectRef>,
 }
-
-impl ThreadSafe for PyTuple {}
 
 impl fmt::Debug for PyTuple {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -248,8 +246,6 @@ pub struct PyTupleIterator {
     position: AtomicCell<usize>,
     tuple: PyTupleRef,
 }
-
-impl ThreadSafe for PyTupleIterator {}
 
 impl PyValue for PyTupleIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
