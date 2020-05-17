@@ -154,14 +154,14 @@ fn update_use_tracing(vm: &VirtualMachine) {
 }
 
 fn sys_getrecursionlimit(vm: &VirtualMachine) -> usize {
-    vm.recursion_limit.get()
+    vm.state.recursion_limit.load()
 }
 
 fn sys_setrecursionlimit(recursion_limit: usize, vm: &VirtualMachine) -> PyResult {
     let recursion_depth = vm.frames.borrow().len();
 
     if recursion_limit > recursion_depth + 1 {
-        vm.recursion_limit.set(recursion_limit);
+        vm.state.recursion_limit.store(recursion_limit);
         Ok(vm.ctx.none())
     } else {
         Err(vm.new_recursion_error(format!(
@@ -348,7 +348,7 @@ setprofile() -- set the global profiling function
 setrecursionlimit() -- set the max recursion depth for the interpreter
 settrace() -- set the global debug tracing function
 ";
-    let mut module_names: Vec<String> = vm.stdlib_inits.borrow().keys().cloned().collect();
+    let mut module_names: Vec<String> = vm.state.stdlib_inits.keys().cloned().collect();
     module_names.push("sys".to_owned());
     module_names.push("builtins".to_owned());
     module_names.sort();

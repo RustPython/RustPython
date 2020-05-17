@@ -4,7 +4,7 @@
 //!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
 //!
 
-use std::cell::{Cell, Ref, RefCell};
+use std::cell::{Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -46,6 +46,7 @@ use crate::pyobject::{
 use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
+use crossbeam_utils::atomic::AtomicCell;
 
 // use objects::objects;
 
@@ -56,21 +57,25 @@ use crate::sysmodule;
 pub struct VirtualMachine {
     pub builtins: PyObjectRef,
     pub sys_module: PyObjectRef,
-    pub stdlib_inits: RefCell<HashMap<String, stdlib::StdlibInitFunc>>,
     pub ctx: PyContext,
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
     pub exceptions: RefCell<Vec<PyBaseExceptionRef>>,
-    pub frozen: RefCell<HashMap<String, bytecode::FrozenModule>>,
-    pub import_func: RefCell<PyObjectRef>,
+    pub import_func: PyObjectRef,
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: RefCell<bool>,
-    pub signal_handlers: RefCell<[PyObjectRef; NSIG]>,
+    pub signal_handlers: Option<RefCell<[PyObjectRef; NSIG]>>,
     pub settings: PySettings,
-    pub recursion_limit: Cell<usize>,
     pub codec_registry: RefCell<Vec<PyObjectRef>>,
+    pub state: Arc<PyGlobalState>,
     pub initialized: bool,
+}
+
+pub struct PyGlobalState {
+    pub recursion_limit: AtomicCell<usize>,
+    pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
+    pub frozen: HashMap<String, bytecode::FrozenModule>,
 }
 
 pub const NSIG: usize = 64;
@@ -175,31 +180,34 @@ impl VirtualMachine {
         let sysmod_dict = ctx.new_dict();
         let sysmod = new_module(sysmod_dict.clone());
 
-        let stdlib_inits = RefCell::new(stdlib::get_module_inits());
-        let frozen = RefCell::new(frozen::get_module_inits());
-        let import_func = RefCell::new(ctx.none());
+        let import_func = ctx.none();
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
         let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
         let initialize_parameter = settings.initialization_parameter;
 
+        let stdlib_inits = stdlib::get_module_inits();
+        let frozen = frozen::get_module_inits();
+
         let mut vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
-            stdlib_inits,
             ctx,
             frames: RefCell::new(vec![]),
             wasm_id: None,
             exceptions: RefCell::new(vec![]),
-            frozen,
             import_func,
             profile_func,
             trace_func,
             use_tracing: RefCell::new(false),
-            signal_handlers,
+            signal_handlers: Some(signal_handlers),
             settings,
-            recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
             codec_registry: RefCell::default(),
+            state: Arc::new(PyGlobalState {
+                recursion_limit: AtomicCell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
+                stdlib_inits,
+                frozen,
+            }),
             initialized: false,
         };
 
@@ -232,7 +240,7 @@ impl VirtualMachine {
                 builtins::make_module(self, self.builtins.clone());
                 sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
 
-                let inner_init = || -> PyResult<()> {
+                let mut inner_init = || -> PyResult<()> {
                     #[cfg(not(target_arch = "wasm32"))]
                     import::import_builtin(self, "signal")?;
 
@@ -266,7 +274,9 @@ impl VirtualMachine {
                     Ok(())
                 };
 
-                self.expect_pyresult(inner_init(), "initializiation failed");
+                let res = inner_init();
+
+                self.expect_pyresult(res, "initializiation failed");
 
                 self.initialized = true;
             }
@@ -302,7 +312,7 @@ impl VirtualMachine {
     }
 
     fn check_recursive_call(&self, _where: &str) -> PyResult<()> {
-        if self.frames.borrow().len() > self.recursion_limit.get() {
+        if self.frames.borrow().len() > self.state.recursion_limit.load() {
             Err(self.new_recursion_error(format!("maximum recursion depth exceeded {}", _where)))
         } else {
             Ok(())

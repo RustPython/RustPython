@@ -14,14 +14,13 @@ use crate::vm::{InitParameter, VirtualMachine};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
-pub fn init_importlib(vm: &VirtualMachine, initialize_parameter: InitParameter) -> PyResult {
+pub fn init_importlib(vm: &mut VirtualMachine, initialize_parameter: InitParameter) -> PyResult {
     flame_guard!("init importlib");
     let importlib = import_frozen(vm, "_frozen_importlib")?;
     let impmod = import_builtin(vm, "_imp")?;
     let install = vm.get_attribute(importlib.clone(), "_install")?;
     vm.invoke(&install, vec![vm.sys_module.clone(), impmod])?;
-    vm.import_func
-        .replace(vm.get_attribute(importlib.clone(), "__import__")?);
+    vm.import_func = vm.get_attribute(importlib.clone(), "__import__")?;
 
     match initialize_parameter {
         InitParameter::InitializeExternal if cfg!(feature = "rustpython-compiler") => {
@@ -58,16 +57,16 @@ pub fn init_importlib(vm: &VirtualMachine, initialize_parameter: InitParameter) 
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    vm.frozen
-        .borrow()
+    vm.state
+        .frozen
         .get(module_name)
         .ok_or_else(|| vm.new_import_error(format!("Cannot import frozen module {}", module_name)))
         .and_then(|frozen| import_codeobj(vm, module_name, frozen.code.clone(), false))
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    vm.stdlib_inits
-        .borrow()
+    vm.state
+        .stdlib_inits
         .get(module_name)
         .ok_or_else(|| vm.new_import_error(format!("Cannot import bultin module {}", module_name)))
         .and_then(|make_module_func| {

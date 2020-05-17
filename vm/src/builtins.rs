@@ -736,7 +736,7 @@ fn builtin_sum(iterable: PyIterable, start: OptionalArg, vm: &VirtualMachine) ->
 
 // Should be renamed to builtin___import__?
 fn builtin_import(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    vm.invoke(&vm.import_func.borrow(), args)
+    vm.invoke(&vm.import_func, args)
 }
 
 fn builtin_vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
