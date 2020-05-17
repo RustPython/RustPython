@@ -1079,10 +1079,10 @@ where
                 self.next_char();
                 if let Some('=') = self.chr0 {
                     self.next_char();
-                    let tok_end=self.get_pos();
+                    let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::ColonEqual, tok_end));
                 } else {
-                    let tok_end=self.get_pos();
+                    let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::Colon, tok_end));
                 }
             }
