@@ -653,17 +653,21 @@ Test: ast::Expression = {
 };
 
 NamedExpression_Test: ast::Expression = {
-    <left:Test> <right: (@L ":=" Test)?> => {
-        if let Some(r) = right {
+    <location:@L><left: (Identifier ":=")?> <right:Test> => {
+        if let Some(l) = left {
             ast::Expression {
-                location: r.0,
+                location: location,
                 node: ast::ExpressionType::NamedExpression {
-                        left: Box::new(left),
-                        right: Box::new(r.2),
-                    }
+                        left: Box::new(
+                            ast::Expression {
+                                location: location,
+                                node: ast::ExpressionType::Identifier { name: l.0, },
+                            }),
+                        right: Box::new(right),
+                }
             }
         } else {
-            left
+            right
         }
     }
 }
