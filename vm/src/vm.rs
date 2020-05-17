@@ -56,7 +56,7 @@ use crate::sysmodule;
 pub struct VirtualMachine {
     pub builtins: PyObjectRef,
     pub sys_module: PyObjectRef,
-    pub ctx: PyContext,
+    pub ctx: Arc<PyContext>,
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
     pub exceptions: RefCell<Vec<PyBaseExceptionRef>>,
@@ -190,7 +190,7 @@ impl VirtualMachine {
         let mut vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
-            ctx,
+            ctx: Arc::new(ctx),
             frames: RefCell::new(vec![]),
             wasm_id: None,
             exceptions: RefCell::new(vec![]),
@@ -277,6 +277,25 @@ impl VirtualMachine {
 
                 self.initialized = true;
             }
+        }
+    }
+
+    pub(crate) fn new_thread(&self) -> VirtualMachine {
+        VirtualMachine {
+            builtins: self.builtins.clone(),
+            sys_module: self.sys_module.clone(),
+            ctx: self.ctx.clone(),
+            frames: RefCell::new(vec![]),
+            wasm_id: self.wasm_id.clone(),
+            exceptions: RefCell::new(vec![]),
+            import_func: self.import_func.clone(),
+            profile_func: RefCell::new(self.get_none()),
+            trace_func: RefCell::new(self.get_none()),
+            use_tracing: Cell::new(false),
+            recursion_limit: self.recursion_limit.clone(),
+            signal_handlers: None,
+            state: self.state.clone(),
+            initialized: self.initialized,
         }
     }
 

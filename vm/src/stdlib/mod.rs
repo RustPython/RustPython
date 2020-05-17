@@ -65,7 +65,7 @@ mod winreg;
 #[cfg(not(any(target_arch = "wasm32", target_os = "redox")))]
 mod zlib;
 
-pub type StdlibInitFunc = Box<dyn Fn(&VirtualMachine) -> PyObjectRef>;
+pub type StdlibInitFunc = Box<dyn Fn(&VirtualMachine) -> PyObjectRef + Send + Sync>;
 
 pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[allow(unused_mut)]

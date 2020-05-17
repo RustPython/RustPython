@@ -1,7 +1,10 @@
 /// Implementation of the _thread module
-use crate::function::PyFuncArgs;
+use crate::exceptions;
+use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
+use crate::obj::objdict::PyDictRef;
+use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use parking_lot::{
@@ -145,15 +148,44 @@ impl PyRLock {
     }
 }
 
-fn get_ident() -> u64 {
-    let id = std::thread::current().id();
-    // TODO: use id.as_u64() once it's stable, until then, ThreadId is just a wrapper
-    // around NonZeroU64, so this is safe
-    unsafe { std::mem::transmute(id) }
+fn thread_get_ident() -> u64 {
+    thread_to_id(&std::thread::current())
 }
 
-fn allocate_lock() -> PyLock {
+fn thread_to_id(t: &std::thread::Thread) -> u64 {
+    // TODO: use id.as_u64() once it's stable, until then, ThreadId is just a wrapper
+    // around NonZeroU64, so this is safe
+    unsafe { std::mem::transmute(t.id()) }
+}
+
+fn thread_allocate_lock() -> PyLock {
     PyLock { mu: RawMutex::INIT }
+}
+
+fn thread_start_new_thread(
+    func: PyCallable,
+    args: PyTupleRef,
+    kwargs: OptionalArg<PyDictRef>,
+    vm: &VirtualMachine,
+) -> u64 {
+    let thread_vm = vm.new_thread();
+    let handle = std::thread::spawn(move || {
+        let vm = &thread_vm;
+        let args = Args::from(args.as_slice().to_owned());
+        let kwargs = KwArgs::from(kwargs.map_or_else(Default::default, |k| k.to_attributes()));
+        if let Err(exc) = func.invoke(PyFuncArgs::from((args, kwargs)), vm) {
+            let stderr = std::io::stderr();
+            let mut stderr = stderr.lock();
+            let repr = vm.to_repr(&func.into_object()).ok();
+            let repr = repr
+                .as_ref()
+                .map_or("<object repr() failed>", |s| s.as_str());
+            writeln!(stderr, "Exception ignored in thread started by: {}", repr)
+                .and_then(|()| exceptions::write_exception(&mut stderr, vm, &exc))
+                .ok();
+        }
+    });
+    thread_to_id(&handle.thread())
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -162,8 +194,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     py_module!(vm, "_thread", {
         "RLock" => PyRLock::make_class(ctx),
         "LockType" => PyLock::make_class(ctx),
-        "get_ident" => ctx.new_function(get_ident),
-        "allocate_lock" => ctx.new_function(allocate_lock),
+        "get_ident" => ctx.new_function(thread_get_ident),
+        "allocate_lock" => ctx.new_function(thread_allocate_lock),
+        "start_new_thread" => ctx.new_function(thread_start_new_thread),
         "TIMEOUT_MAX" => ctx.new_float(TIMEOUT_MAX),
     })
 }
