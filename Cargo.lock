@@ -698,6 +698,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "instant"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7152d2aed88aa566e7a342250f21ba2222c1ae230ad577499dbfa3c18475b80"
+
+[[package]]
 name = "is-macro"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -829,8 +835,7 @@ dependencies = [
 [[package]]
 name = "lock_api"
 version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4da24a77a3d8a6d4862d95f72e6fdb9c09a643ecdb402d754004a557f2bec75"
+source = "git+https://github.com/Amanieu/parking_lot#b338bb5ac6f517d270530e4cb2ed344d136661f5"
 dependencies = [
  "scopeguard",
 ]
@@ -1088,9 +1093,9 @@ checksum = "a86ed3f5f244b372d6b1a00b72ef7f8876d0bc6a78a4c9985c53614041512063"
 [[package]]
 name = "parking_lot"
 version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3a704eb390aafdc107b0e392f56a82b668e3a71366993b5340f5833fd62505e"
+source = "git+https://github.com/Amanieu/parking_lot#b338bb5ac6f517d270530e4cb2ed344d136661f5"
 dependencies = [
+ "instant",
  "lock_api",
  "parking_lot_core",
 ]
@@ -1098,11 +1103,11 @@ dependencies = [
 [[package]]
 name = "parking_lot_core"
 version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d58c7c768d4ba344e3e8d72518ac13e259d7c7ade24167003b8488e10b6740a3"
+source = "git+https://github.com/Amanieu/parking_lot#b338bb5ac6f517d270530e4cb2ed344d136661f5"
 dependencies = [
  "cfg-if",
  "cloudabi",
+ "instant",
  "libc",
  "redox_syscall",
  "smallvec",
