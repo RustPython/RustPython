@@ -2057,10 +2057,11 @@ impl<O: OutputStream> Compiler<O> {
                 });
             }
             ast::ComprehensionKind::Dict { key, value } => {
+                // changed evaluation order for Py38 named expression PEP 572
+                self.compile_expression(key)?; 
                 self.compile_expression(value)?;
-                self.compile_expression(key)?;
 
-                self.emit(Instruction::MapAdd {
+                self.emit(Instruction::MapAddRev {
                     i: 1 + generators.len(),
                 });
             }
