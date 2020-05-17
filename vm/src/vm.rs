@@ -4,7 +4,7 @@
 //!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
 //!
 
-use std::cell::{Ref, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -64,15 +64,14 @@ pub struct VirtualMachine {
     pub import_func: PyObjectRef,
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
-    pub use_tracing: RefCell<bool>,
+    pub use_tracing: Cell<bool>,
     pub signal_handlers: Option<RefCell<[PyObjectRef; NSIG]>>,
-    pub settings: PySettings,
-    pub codec_registry: RefCell<Vec<PyObjectRef>>,
     pub state: Arc<PyGlobalState>,
     pub initialized: bool,
 }
 
 pub struct PyGlobalState {
+    pub settings: PySettings,
     pub recursion_limit: AtomicCell<usize>,
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
     pub frozen: HashMap<String, bytecode::FrozenModule>,
@@ -199,11 +198,10 @@ impl VirtualMachine {
             import_func,
             profile_func,
             trace_func,
-            use_tracing: RefCell::new(false),
+            use_tracing: Cell::new(false),
             signal_handlers: Some(signal_handlers),
-            settings,
-            codec_registry: RefCell::default(),
             state: Arc::new(PyGlobalState {
+                settings,
                 recursion_limit: AtomicCell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
                 stdlib_inits,
                 frozen,
@@ -824,7 +822,7 @@ impl VirtualMachine {
 
     /// Call registered trace function.
     fn trace_event(&self, event: TraceEvent) -> PyResult<()> {
-        if *self.use_tracing.borrow() {
+        if self.use_tracing.get() {
             let frame = self.get_none();
             let event = self.new_str(event.to_string());
             let arg = self.get_none();
@@ -834,17 +832,17 @@ impl VirtualMachine {
             // tracing function itself.
             let trace_func = self.trace_func.borrow().clone();
             if !self.is_none(&trace_func) {
-                self.use_tracing.replace(false);
+                self.use_tracing.set(false);
                 let res = self.invoke(&trace_func, args.clone());
-                self.use_tracing.replace(true);
+                self.use_tracing.set(true);
                 res?;
             }
 
             let profile_func = self.profile_func.borrow().clone();
             if !self.is_none(&profile_func) {
-                self.use_tracing.replace(false);
+                self.use_tracing.set(false);
                 let res = self.invoke(&profile_func, args);
-                self.use_tracing.replace(true);
+                self.use_tracing.set(true);
                 res?;
             }
         }
@@ -1043,7 +1041,7 @@ impl VirtualMachine {
     #[cfg(feature = "rustpython-compiler")]
     pub fn compile_opts(&self) -> CompileOpts {
         CompileOpts {
-            optimize: self.settings.optimize,
+            optimize: self.state.settings.optimize,
         }
     }
 
