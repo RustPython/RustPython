@@ -1,7 +1,7 @@
 /// Implementation of the _thread module
 use crate::function::PyFuncArgs;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use parking_lot::{
@@ -190,7 +190,7 @@ impl PyValue for PyRLock {
 
 impl fmt::Debug for PyRLock {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.pad("PyLock")
+        f.pad("PyRLock")
     }
 }
 
@@ -202,7 +202,15 @@ impl LockProtocol for PyRLock {
 }
 
 #[pyimpl(with(LockProtocol))]
-impl PyRLock {}
+impl PyRLock {
+    #[pyslot]
+    fn tp_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        PyRLock {
+            mu: RawRMutex::INIT,
+        }
+        .into_ref_with_type(vm, cls)
+    }
+}
 
 fn get_ident() -> u64 {
     let id = std::thread::current().id();
