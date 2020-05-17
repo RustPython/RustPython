@@ -128,6 +128,9 @@ impl<R: RawMutexT, G: GetThreadId> RawReentrantMutex<R, G> {
     }
 }
 
+unsafe impl<R: RawMutexT + Send, G: GetThreadId + Send> Send for RawReentrantMutex<R, G> {}
+unsafe impl<R: RawMutexT + Sync, G: GetThreadId + Sync> Sync for RawReentrantMutex<R, G> {}
+
 unsafe impl<R: RawMutexT, G: GetThreadId> RawMutexT for RawReentrantMutex<R, G> {
     const INIT: Self = RawReentrantMutex {
         owner: AtomicUsize::new(0),
