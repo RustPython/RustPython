@@ -66,7 +66,7 @@ pub struct VirtualMachine {
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
     pub recursion_limit: Cell<usize>,
-    pub signal_handlers: Option<RefCell<[PyObjectRef; NSIG]>>,
+    pub signal_handlers: Option<Box<RefCell<[PyObjectRef; NSIG]>>>,
     pub state: Arc<PyGlobalState>,
     pub initialized: bool,
 }
@@ -201,7 +201,7 @@ impl VirtualMachine {
             trace_func,
             use_tracing: Cell::new(false),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
-            signal_handlers: Some(signal_handlers),
+            signal_handlers: Some(Box::new(signal_handlers)),
             state: Arc::new(PyGlobalState {
                 settings,
                 stdlib_inits,
