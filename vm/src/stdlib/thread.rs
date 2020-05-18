@@ -182,6 +182,7 @@ fn thread_start_new_thread(
         let args = Args::from(args.as_slice().to_owned());
         let kwargs = KwArgs::from(kwargs.map_or_else(Default::default, |k| k.to_attributes()));
         if let Err(exc) = func.invoke(PyFuncArgs::from((args, kwargs)), vm) {
+            // TODO: sys.unraisablehook
             let stderr = std::io::stderr();
             let mut stderr = stderr.lock();
             let repr = vm.to_repr(&func.into_object()).ok();
