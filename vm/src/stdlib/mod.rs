@@ -30,6 +30,7 @@ pub mod socket;
 mod string;
 #[cfg(feature = "rustpython-compiler")]
 mod symtable;
+#[cfg(not(target_arch = "wasm32"))]
 mod thread;
 mod time_module;
 #[cfg(feature = "rustpython-parser")]
@@ -89,7 +90,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "_random".to_owned() => Box::new(random::make_module),
         "_string".to_owned() => Box::new(string::make_module),
         "_struct".to_owned() => Box::new(pystruct::make_module),
-        "_thread".to_owned() => Box::new(thread::make_module),
         "time".to_owned() => Box::new(time_module::make_module),
         "_weakref".to_owned() => Box::new(weakref::make_module),
         "_imp".to_owned() => Box::new(imp::make_module),
@@ -130,6 +130,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         #[cfg(feature = "ssl")]
         modules.insert("_ssl".to_owned(), Box::new(ssl::make_module));
         modules.insert("_subprocess".to_owned(), Box::new(subprocess::make_module));
+        modules.insert("_thread".to_owned(), Box::new(thread::make_module));
         #[cfg(not(target_os = "redox"))]
         modules.insert("zlib".to_owned(), Box::new(zlib::make_module));
         modules.insert(
