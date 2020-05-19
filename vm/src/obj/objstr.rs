@@ -529,6 +529,36 @@ impl PyString {
         )
     }
 
+    /// removeprefix($self, prefix, /)
+    ///
+    ///
+    /// Return a str with the given prefix string removed if present.
+    ///
+    /// If the string starts with the prefix string, return string[len(prefix):]
+    /// Otherwise, return a copy of the original string.
+    #[pymethod]
+    fn removeprefix(&self, pref: PyStringRef) -> String {
+        self.value
+            .as_str()
+            .py_removeprefix(&pref.value, pref.value.len(), |s, p| s.starts_with(p))
+            .to_string()
+    }
+
+    /// removesuffix(self, prefix, /)
+    ///
+    ///
+    /// Return a str with the given suffix string removed if present.
+    ///
+    /// If the string ends with the suffix string, return string[:len(suffix)]
+    /// Otherwise, return a copy of the original string.
+    #[pymethod]
+    fn removesuffix(&self, suff: PyStringRef) -> String {
+        self.value
+            .as_str()
+            .py_removesuffix(&suff.value, suff.value.len(), |s, p| s.ends_with(p))
+            .to_string()
+    }
+
     #[pymethod]
     fn isalnum(&self) -> bool {
         !self.value.is_empty() && self.value.chars().all(char::is_alphanumeric)

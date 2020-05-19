@@ -387,6 +387,30 @@ impl PyByteArray {
         self.borrow_value().rstrip(chars).into()
     }
 
+    /// removeprefix($self, prefix, /)
+    ///
+    ///
+    /// Return a bytearray object with the given prefix string removed if present.
+    ///
+    /// If the bytearray starts with the prefix string, return string[len(prefix):]
+    /// Otherwise, return a copy of the original bytearray.
+    #[pymethod(name = "removeprefix")]
+    fn removeprefix(&self, prefix: PyByteInner) -> PyByteArray {
+        self.borrow_value().removeprefix(prefix).into()
+    }
+
+    /// removesuffix(self, prefix, /)
+    ///
+    ///
+    /// Return a bytearray object with the given suffix string removed if present.
+    ///
+    /// If the bytearray ends with the suffix string, return string[:len(suffix)]
+    /// Otherwise, return a copy of the original bytearray.
+    #[pymethod(name = "removesuffix")]
+    fn removesuffix(&self, suffix: PyByteInner) -> PyByteArray {
+        self.borrow_value().removesuffix(suffix).to_vec().into()
+    }
+
     #[pymethod(name = "split")]
     fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         self.borrow_value()
