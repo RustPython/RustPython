@@ -1,7 +1,7 @@
 use super::Diagnostic;
 use crate::util::{def_to_name, ItemIdent, ItemMeta};
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{quote, quote_spanned};
+use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashSet;
 use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Meta, NestedMeta};
 
@@ -156,62 +156,57 @@ fn extract_module_items(mut items: Vec<ItemIdent>) -> Result<TokenStream2, Diagn
 }
 
 pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
-    match item {
-        Item::Mod(mut module) => {
-            let module_name = def_to_name(&module.ident, "pymodule", attr)?;
-
-            if let Some(content) = module.content.as_mut() {
-                let items = content
-                    .1
-                    .iter_mut()
-                    .filter_map(|item| match item {
-                        Item::Fn(syn::ItemFn { attrs, sig, .. }) => Some(ItemIdent {
-                            attrs,
-                            ident: &sig.ident,
-                        }),
-                        Item::Struct(syn::ItemStruct { attrs, ident, .. }) => {
-                            Some(ItemIdent { attrs, ident })
-                        }
-                        Item::Enum(syn::ItemEnum { attrs, ident, .. }) => {
-                            Some(ItemIdent { attrs, ident })
-                        }
-                        _ => None,
-                    })
-                    .collect();
-
-                let extend_mod = extract_module_items(items)?;
-                content.1.push(parse_quote! {
-                    const MODULE_NAME: &str = #module_name;
-                });
-                content.1.push(parse_quote! {
-                    pub(crate) fn extend_module(
-                        vm: &::rustpython_vm::vm::VirtualMachine,
-                        module: &::rustpython_vm::pyobject::PyObjectRef,
-                    ) {
-                        #extend_mod
-                    }
-                });
-                content.1.push(parse_quote! {
-                    #[allow(dead_code)]
-                    pub(crate) fn make_module(
-                        vm: &::rustpython_vm::vm::VirtualMachine
-                    ) -> ::rustpython_vm::pyobject::PyObjectRef {
-                        let module = vm.new_module(MODULE_NAME, vm.ctx.new_dict());
-                        extend_module(vm, &module);
-                        module
-                    }
-                });
-
-                Ok(quote! {
-                    #module
-                })
-            } else {
-                bail_span!(
-                    module,
-                    "#[pymodule] can only be on a module declaration with body"
-                )
-            }
-        }
+    let mut module = match item {
+        Item::Mod(m) => m,
         other => bail_span!(other, "#[pymodule] can only be on a module declaration"),
-    }
+    };
+    let module_name = def_to_name(&module.ident, "pymodule", attr)?;
+
+    let (_, content) = match module.content.as_mut() {
+        Some(c) => c,
+        None => bail_span!(
+            module,
+            "#[pymodule] can only be on a module declaration with body"
+        ),
+    };
+
+    let items = content
+        .iter_mut()
+        .filter_map(|item| match item {
+            Item::Fn(syn::ItemFn { attrs, sig, .. }) => Some(ItemIdent {
+                attrs,
+                ident: &sig.ident,
+            }),
+            Item::Struct(syn::ItemStruct { attrs, ident, .. }) => Some(ItemIdent { attrs, ident }),
+            Item::Enum(syn::ItemEnum { attrs, ident, .. }) => Some(ItemIdent { attrs, ident }),
+            _ => None,
+        })
+        .collect();
+
+    let extend_mod = extract_module_items(items)?;
+    content.extend(vec![
+        parse_quote! {
+            const MODULE_NAME: &str = #module_name;
+        },
+        parse_quote! {
+            pub(crate) fn extend_module(
+                vm: &::rustpython_vm::vm::VirtualMachine,
+                module: &::rustpython_vm::pyobject::PyObjectRef,
+            ) {
+                #extend_mod
+            }
+        },
+        parse_quote! {
+            #[allow(dead_code)]
+            pub(crate) fn make_module(
+                vm: &::rustpython_vm::vm::VirtualMachine
+            ) -> ::rustpython_vm::pyobject::PyObjectRef {
+                let module = vm.new_module(MODULE_NAME, vm.ctx.new_dict());
+                extend_module(vm, &module);
+                module
+            }
+        },
+    ]);
+
+    Ok(module.into_token_stream())
 }
