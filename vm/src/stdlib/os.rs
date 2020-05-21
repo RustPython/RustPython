@@ -1512,6 +1512,19 @@ fn os_setregid(rgid: u32, egid: u32, vm: &VirtualMachine) -> PyResult<i32> {
     }
 }
 
+// cfg from nix
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+fn os_initgroups(user_name: PyStringRef, gid: u32, vm: &VirtualMachine) -> PyResult<()> {
+    let user = ffi::CString::new(user_name.as_str()).unwrap();
+    let gid = Gid::from_raw(gid);
+    unistd::initgroups(&user, gid).map_err(|err| convert_nix_error(vm, err))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1746,6 +1759,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "getresuid" => ctx.new_function(os_getresuid),
         "getresgid" => ctx.new_function(os_getresgid),
         "setregid" => ctx.new_function(os_setregid),
+        "initgroups" => ctx.new_function(os_initgroups),
     });
 
     // cfg taken from nix
