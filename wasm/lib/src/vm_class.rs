@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 
 use js_sys::{Object, TypeError};
 use wasm_bindgen::prelude::*;
@@ -36,9 +37,9 @@ impl StoredVirtualMachine {
         vm.wasm_id = Some(id);
         let scope = vm.new_scope_with_builtins();
 
-        js_module::setup_js_module(&vm);
+        js_module::setup_js_module(&mut vm);
         if inject_browser_module {
-            vm.stdlib_inits.borrow_mut().insert(
+            Arc::get_mut(&mut vm.state).unwrap().stdlib_inits.insert(
                 "_window".to_owned(),
                 Box::new(|vm| {
                     py_module!(vm, "_window", {
@@ -46,7 +47,7 @@ impl StoredVirtualMachine {
                     })
                 }),
             );
-            setup_browser_module(&vm);
+            setup_browser_module(&mut vm);
         }
 
         vm.initialize(InitParameter::InitializeInternal);
@@ -288,26 +289,19 @@ impl WASMVirtualMachine {
     #[wasm_bindgen(js_name = injectJSModule)]
     pub fn inject_js_module(&self, name: String, module: Object) -> Result<(), JsValue> {
         self.with(|StoredVirtualMachine { ref vm, .. }| {
-            let mut module_items: HashMap<String, PyObjectRef> = HashMap::new();
+            let py_module = vm.new_module(&name, vm.ctx.new_dict());
             for entry in convert::object_entries(&module) {
                 let (key, value) = entry?;
                 let key = Object::from(key).to_string();
-                module_items.insert(key.into(), convert::js_to_py(vm, value));
+                extend_module!(vm, py_module, {
+                    String::from(key) => convert::js_to_py(vm, value),
+                });
             }
 
-            let mod_name = name.clone();
-
-            let stdlib_init_fn = move |vm: &VirtualMachine| {
-                let module = vm.new_module(&name, vm.ctx.new_dict());
-                for (key, value) in module_items.clone() {
-                    vm.set_attr(&module, key, value).unwrap();
-                }
-                module
-            };
-
-            vm.stdlib_inits
-                .borrow_mut()
-                .insert(mod_name, Box::new(stdlib_init_fn));
+            let sys_modules = vm
+                .get_attribute(vm.sys_module.clone(), "modules")
+                .to_js(vm)?;
+            sys_modules.set_item(&name, py_module, vm).to_js(vm)?;
 
             Ok(())
         })?

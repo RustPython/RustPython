@@ -736,7 +736,7 @@ fn builtin_sum(iterable: PyIterable, start: OptionalArg, vm: &VirtualMachine) ->
 
 // Should be renamed to builtin___import__?
 fn builtin_import(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    vm.invoke(&vm.import_func.borrow(), args)
+    vm.invoke(&vm.import_func, args)
 }
 
 fn builtin_vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
@@ -761,7 +761,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         });
     }
 
-    let debug_mode: bool = vm.settings.optimize == 0;
+    let debug_mode: bool = vm.state.settings.optimize == 0;
     extend_module!(vm, module, {
         "__debug__" => ctx.new_bool(debug_mode),
         //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146

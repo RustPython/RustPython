@@ -18,7 +18,8 @@ use crate::vm::{PySettings, VirtualMachine};
 
 fn argv(vm: &VirtualMachine) -> PyObjectRef {
     vm.ctx.new_list(
-        vm.settings
+        vm.state
+            .settings
             .argv
             .iter()
             .map(|arg| vm.new_str(arg.to_owned()))
@@ -150,7 +151,7 @@ fn update_use_tracing(vm: &VirtualMachine) {
     let trace_is_none = vm.is_none(&vm.trace_func.borrow());
     let profile_is_none = vm.is_none(&vm.profile_func.borrow());
     let tracing = !(trace_is_none && profile_is_none);
-    vm.use_tracing.replace(tracing);
+    vm.use_tracing.set(tracing);
 }
 
 fn sys_getrecursionlimit(vm: &VirtualMachine) -> usize {
@@ -225,7 +226,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
     let ctx = &vm.ctx;
 
     let flags_type = SysFlags::make_class(ctx);
-    let flags = SysFlags::from_settings(&vm.settings)
+    let flags = SysFlags::from_settings(&vm.state.settings)
         .into_struct_sequence(vm, flags_type)
         .unwrap();
 
@@ -246,7 +247,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
     });
 
     let path = ctx.new_list(
-        vm.settings
+        vm.state
+            .settings
             .path_list
             .iter()
             .map(|path| ctx.new_str(path.clone()))
@@ -348,7 +350,7 @@ setprofile() -- set the global profiling function
 setrecursionlimit() -- set the max recursion depth for the interpreter
 settrace() -- set the global debug tracing function
 ";
-    let mut module_names: Vec<String> = vm.stdlib_inits.borrow().keys().cloned().collect();
+    let mut module_names: Vec<String> = vm.state.stdlib_inits.keys().cloned().collect();
     module_names.push("sys".to_owned());
     module_names.push("builtins".to_owned());
     module_names.sort();
@@ -399,7 +401,7 @@ settrace() -- set the global debug tracing function
       "path_hooks" => ctx.new_list(vec![]),
       "path_importer_cache" => ctx.new_dict(),
       "pycache_prefix" => vm.get_none(),
-      "dont_write_bytecode" => vm.new_bool(vm.settings.dont_write_bytecode),
+      "dont_write_bytecode" => vm.new_bool(vm.state.settings.dont_write_bytecode),
       "setprofile" => ctx.new_function(sys_setprofile),
       "setrecursionlimit" => ctx.new_function(sys_setrecursionlimit),
       "settrace" => ctx.new_function(sys_settrace),

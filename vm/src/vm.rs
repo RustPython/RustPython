@@ -56,21 +56,24 @@ use crate::sysmodule;
 pub struct VirtualMachine {
     pub builtins: PyObjectRef,
     pub sys_module: PyObjectRef,
-    pub stdlib_inits: RefCell<HashMap<String, stdlib::StdlibInitFunc>>,
     pub ctx: PyContext,
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
     pub exceptions: RefCell<Vec<PyBaseExceptionRef>>,
-    pub frozen: RefCell<HashMap<String, bytecode::FrozenModule>>,
-    pub import_func: RefCell<PyObjectRef>,
+    pub import_func: PyObjectRef,
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
-    pub use_tracing: RefCell<bool>,
-    pub signal_handlers: RefCell<[PyObjectRef; NSIG]>,
-    pub settings: PySettings,
+    pub use_tracing: Cell<bool>,
     pub recursion_limit: Cell<usize>,
-    pub codec_registry: RefCell<Vec<PyObjectRef>>,
+    pub signal_handlers: Option<RefCell<[PyObjectRef; NSIG]>>,
+    pub state: Arc<PyGlobalState>,
     pub initialized: bool,
+}
+
+pub struct PyGlobalState {
+    pub settings: PySettings,
+    pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
+    pub frozen: HashMap<String, bytecode::FrozenModule>,
 }
 
 pub const NSIG: usize = 64;
@@ -175,31 +178,33 @@ impl VirtualMachine {
         let sysmod_dict = ctx.new_dict();
         let sysmod = new_module(sysmod_dict.clone());
 
-        let stdlib_inits = RefCell::new(stdlib::get_module_inits());
-        let frozen = RefCell::new(frozen::get_module_inits());
-        let import_func = RefCell::new(ctx.none());
+        let import_func = ctx.none();
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
         let signal_handlers = RefCell::new(arr![ctx.none(); 64]);
         let initialize_parameter = settings.initialization_parameter;
 
+        let stdlib_inits = stdlib::get_module_inits();
+        let frozen = frozen::get_module_inits();
+
         let mut vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
-            stdlib_inits,
             ctx,
             frames: RefCell::new(vec![]),
             wasm_id: None,
             exceptions: RefCell::new(vec![]),
-            frozen,
             import_func,
             profile_func,
             trace_func,
-            use_tracing: RefCell::new(false),
-            signal_handlers,
-            settings,
+            use_tracing: Cell::new(false),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
-            codec_registry: RefCell::default(),
+            signal_handlers: Some(signal_handlers),
+            state: Arc::new(PyGlobalState {
+                settings,
+                stdlib_inits,
+                frozen,
+            }),
             initialized: false,
         };
 
@@ -232,7 +237,7 @@ impl VirtualMachine {
                 builtins::make_module(self, self.builtins.clone());
                 sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
 
-                let inner_init = || -> PyResult<()> {
+                let mut inner_init = || -> PyResult<()> {
                     #[cfg(not(target_arch = "wasm32"))]
                     import::import_builtin(self, "signal")?;
 
@@ -266,7 +271,9 @@ impl VirtualMachine {
                     Ok(())
                 };
 
-                self.expect_pyresult(inner_init(), "initializiation failed");
+                let res = inner_init();
+
+                self.expect_pyresult(res, "initializiation failed");
 
                 self.initialized = true;
             }
@@ -814,7 +821,7 @@ impl VirtualMachine {
 
     /// Call registered trace function.
     fn trace_event(&self, event: TraceEvent) -> PyResult<()> {
-        if *self.use_tracing.borrow() {
+        if self.use_tracing.get() {
             let frame = self.get_none();
             let event = self.new_str(event.to_string());
             let arg = self.get_none();
@@ -824,17 +831,17 @@ impl VirtualMachine {
             // tracing function itself.
             let trace_func = self.trace_func.borrow().clone();
             if !self.is_none(&trace_func) {
-                self.use_tracing.replace(false);
+                self.use_tracing.set(false);
                 let res = self.invoke(&trace_func, args.clone());
-                self.use_tracing.replace(true);
+                self.use_tracing.set(true);
                 res?;
             }
 
             let profile_func = self.profile_func.borrow().clone();
             if !self.is_none(&profile_func) {
-                self.use_tracing.replace(false);
+                self.use_tracing.set(false);
                 let res = self.invoke(&profile_func, args);
-                self.use_tracing.replace(true);
+                self.use_tracing.set(true);
                 res?;
             }
         }
@@ -1033,7 +1040,7 @@ impl VirtualMachine {
     #[cfg(feature = "rustpython-compiler")]
     pub fn compile_opts(&self) -> CompileOpts {
         CompileOpts {
-            optimize: self.settings.optimize,
+            optimize: self.state.settings.optimize,
         }
     }
 

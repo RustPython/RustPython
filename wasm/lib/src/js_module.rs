@@ -5,6 +5,7 @@ use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStringRef, objtype::PyC
 use rustpython_vm::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use rustpython_vm::types::create_type;
 use rustpython_vm::VirtualMachine;
+use std::sync::Arc;
 use wasm_bindgen::{prelude::*, JsCast};
 
 #[wasm_bindgen(inline_js = "
@@ -257,8 +258,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     })
 }
 
-pub fn setup_js_module(vm: &VirtualMachine) {
-    vm.stdlib_inits
-        .borrow_mut()
+pub fn setup_js_module(vm: &mut VirtualMachine) {
+    let state = Arc::get_mut(&mut vm.state).unwrap();
+    state
+        .stdlib_inits
         .insert("_js".to_owned(), Box::new(make_module));
 }

@@ -26,11 +26,11 @@ fn imp_lock_held(_vm: &VirtualMachine) -> PyResult<()> {
 }
 
 fn imp_is_builtin(name: PyStringRef, vm: &VirtualMachine) -> bool {
-    vm.stdlib_inits.borrow().contains_key(name.as_str())
+    vm.state.stdlib_inits.contains_key(name.as_str())
 }
 
 fn imp_is_frozen(name: PyStringRef, vm: &VirtualMachine) -> bool {
-    vm.frozen.borrow().contains_key(name.as_str())
+    vm.state.frozen.contains_key(name.as_str())
 }
 
 fn imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -40,7 +40,7 @@ fn imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 
     if let Ok(module) = sys_modules.get_item(name, vm) {
         Ok(module)
-    } else if let Some(make_module_func) = vm.stdlib_inits.borrow().get(name) {
+    } else if let Some(make_module_func) = vm.state.stdlib_inits.get(name) {
         Ok(make_module_func(vm))
     } else {
         Ok(vm.get_none())
@@ -53,8 +53,8 @@ fn imp_exec_builtin(_mod: PyModuleRef) -> i32 {
 }
 
 fn imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyCode> {
-    vm.frozen
-        .borrow()
+    vm.state
+        .frozen
         .get(name.as_str())
         .map(|frozen| {
             let mut frozen = frozen.code.clone();
@@ -71,8 +71,8 @@ fn imp_init_frozen(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn imp_is_frozen_package(name: PyStringRef, vm: &VirtualMachine) -> PyResult<bool> {
-    vm.frozen
-        .borrow()
+    vm.state
+        .frozen
         .get(name.as_str())
         .map(|frozen| frozen.package)
         .ok_or_else(|| {

@@ -1,5 +1,6 @@
 use futures::Future;
 use js_sys::Promise;
+use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
@@ -375,11 +376,12 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     })
 }
 
-pub fn setup_browser_module(vm: &VirtualMachine) {
-    vm.stdlib_inits
-        .borrow_mut()
+pub fn setup_browser_module(vm: &mut VirtualMachine) {
+    let state = Arc::get_mut(&mut vm.state).unwrap();
+    state
+        .stdlib_inits
         .insert("_browser".to_owned(), Box::new(make_module));
-    vm.frozen.borrow_mut().extend(py_compile_bytecode!(
+    state.frozen.extend(py_compile_bytecode!(
         file = "src/browser.py",
         module_name = "browser",
     ));
