@@ -606,20 +606,8 @@ Path: ast::Expression = {
 
 // Decorators:
 Decorator: ast::Expression = {
-    "@" <p:Path> <a: (@L "(" ArgumentList ")")?> "\n" => {
-        match a {
-            Some((location, _, arg, _)) => {
-                ast::Expression {
-                    location,
-                    node: ast::ExpressionType::Call {
-                        function: Box::new(p),
-                        args: arg.args,
-                        keywords: arg.keywords,
-                    }
-                }
-            },
-            None => p,
-        }
+    <location:@L>"@" <p:Test> "\n" => {
+        p
     },
 };
 
