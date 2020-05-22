@@ -698,6 +698,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "instant"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7152d2aed88aa566e7a342250f21ba2222c1ae230ad577499dbfa3c18475b80"
+
+[[package]]
 name = "is-macro"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -824,6 +830,14 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "lock_api"
+version = "0.3.4"
+source = "git+https://github.com/Amanieu/parking_lot#b338bb5ac6f517d270530e4cb2ed344d136661f5"
+dependencies = [
+ "scopeguard",
 ]
 
 [[package]]
@@ -1075,6 +1089,30 @@ name = "ordermap"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a86ed3f5f244b372d6b1a00b72ef7f8876d0bc6a78a4c9985c53614041512063"
+
+[[package]]
+name = "parking_lot"
+version = "0.10.2"
+source = "git+https://github.com/Amanieu/parking_lot#b338bb5ac6f517d270530e4cb2ed344d136661f5"
+dependencies = [
+ "instant",
+ "lock_api",
+ "parking_lot_core",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.7.2"
+source = "git+https://github.com/Amanieu/parking_lot#b338bb5ac6f517d270530e4cb2ed344d136661f5"
+dependencies = [
+ "cfg-if",
+ "cloudabi",
+ "instant",
+ "libc",
+ "redox_syscall",
+ "smallvec",
+ "winapi",
+]
 
 [[package]]
 name = "paste"
@@ -1603,6 +1641,7 @@ dependencies = [
  "openssl",
  "openssl-probe",
  "openssl-sys",
+ "parking_lot",
  "paste",
  "pwd",
  "rand 0.7.3",
@@ -1697,6 +1736,12 @@ dependencies = [
  "lazy_static 1.4.0",
  "winapi",
 ]
+
+[[package]]
+name = "scopeguard"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
 
 [[package]]
 name = "semver"
