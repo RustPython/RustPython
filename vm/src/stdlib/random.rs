@@ -17,13 +17,13 @@ mod _random {
 
     #[derive(Debug)]
     enum PyRng {
-        Std(StdRng),
+        Std(Box<StdRng>),
         MT(Box<mt19937::MT19937>),
     }
 
     impl Default for PyRng {
         fn default() -> Self {
-            PyRng::Std(StdRng::from_entropy())
+            PyRng::Std(Box::new(StdRng::from_entropy()))
         }
     }
 
