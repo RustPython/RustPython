@@ -104,6 +104,7 @@ class ThreadRunningTests(BasicThreadTest):
 
         thread.stack_size(0)
 
+    @unittest.skip("TODO: RUSTPYTHON, weakref destructors")
     def test__count(self):
         # Test the _count() function.
         orig = thread._count()
@@ -133,6 +134,7 @@ class ThreadRunningTests(BasicThreadTest):
                 time.sleep(POLL_SLEEP)
             self.assertEqual(thread._count(), orig)
 
+    @unittest.skip("TODO: RUSTPYTHON, sys.unraisablehook")
     def test_unraisable_exception(self):
         def task():
             started.release()

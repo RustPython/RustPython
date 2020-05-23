@@ -3,11 +3,11 @@
 if __name__ != 'test.support':
     raise ImportError('support must be imported from the test package')
 
-# import asyncio.events
+import asyncio.events
 import collections.abc
 import contextlib
 import errno
-# import faulthandler
+import faulthandler
 import fnmatch
 import functools
 # import gc
@@ -16,7 +16,7 @@ import hashlib
 import importlib
 import importlib.util
 import locale
-# import logging.handlers
+import logging.handlers
 # import nntplib
 import os
 import platform
@@ -28,13 +28,13 @@ import struct
 import subprocess
 import sys
 import sysconfig
-# import tempfile
+import tempfile
 import _thread
-# import threading
+import threading
 import time
 import types
 import unittest
-# import urllib.error
+import urllib.error
 import warnings
 
 from .testresult import get_test_runner
