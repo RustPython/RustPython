@@ -76,6 +76,7 @@ pub struct PyGlobalState {
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
     pub frozen: HashMap<String, bytecode::FrozenModule>,
     pub stacksize: AtomicCell<usize>,
+    pub thread_count: AtomicCell<usize>,
 }
 
 pub const NSIG: usize = 64;
@@ -207,6 +208,7 @@ impl VirtualMachine {
                 stdlib_inits,
                 frozen,
                 stacksize: AtomicCell::new(0),
+                thread_count: AtomicCell::new(0),
             }),
             initialized: false,
         };
