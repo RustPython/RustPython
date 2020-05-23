@@ -151,7 +151,7 @@ class NamedExpressionInvalidTest(unittest.TestCase):
         for case, target, code in cases:
             msg = f"assignment expression cannot rebind comprehension iteration variable '{target}'"
             with self.subTest(case=case):
-                with self.assertRaisesRegex(SyntaxError, msg):
+                with self.assertRaises(SyntaxError):
                     exec(code, {}, {})
 
     @unittest.expectedFailure # TODO RustPython
@@ -308,7 +308,6 @@ print(a)"""
         with self.assertRaisesRegex(NameError, "name 'a' is not defined"):
             exec(code, {}, {})
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_scope_02(self):
         total = 0
         partial_sums = [total := total + v for v in range(5)]
@@ -326,7 +325,17 @@ print(a)"""
     def test_named_expression_scope_04(self):
         def spam(a):
             return a
+
+        y=1
         res = [[y := spam(x), x/y] for x in range(1, 5)]
+
+        self.assertEqual(y, 4)
+
+    def test_named_expression_scope_04a(self):
+        def spam(a):
+            return a
+        y=1
+        res = [y := spam(x//y) for x in range(1, 5)]
 
         self.assertEqual(y, 4)
 
@@ -393,8 +402,7 @@ print(a)"""
 
         self.assertEqual(res, [0, 1, 2, 3, 4])
         self.assertEqual(j, 4)
-
-    @unittest.expectedFailure # TODO RustPython
+        
     def test_named_expression_scope_17(self):
         b = 0
         res = [b := i + b for i in range(5)]
@@ -477,7 +485,6 @@ spam()"""
 
         self.assertEqual(ns["a"], 20)
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_variable_reuse_in_comprehensions(self):
         # The compiler is expected to raise syntax error for comprehension
         # iteration variables, but should be fine with rebinding of other
@@ -520,7 +527,6 @@ spam()"""
         finally:
             GLOBAL_VAR = None
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_global_scope_no_global_keyword(self):
         sentinel = object()
         def f():
