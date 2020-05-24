@@ -202,11 +202,13 @@ impl<'a> SymbolTableAnalyzer<'a> {
         }
         let (symbols, st_typ) = self.tables.pop().unwrap();
 
-        println!("\n\nanalyze scope {:?} of type {:?}", symbols, st_typ.to_string());
+        //println!("\n\n\n\n\nbefore analyze scope {:?} of type {:?}", symbols, st_typ.to_string());
         // Analyze symbols:
         for symbol in symbols.values_mut() {
             self.analyze_symbol(symbol, st_typ)?;
         }
+
+        //println!("\n\n\nafter analyze scope {:?} of type {:?}", symbols, st_typ.to_string());
 
         Ok(())
     }
@@ -255,14 +257,13 @@ impl<'a> SymbolTableAnalyzer<'a> {
                 SymbolScope::Unknown => {
                     // Try hard to figure out what the scope of this symbol is.
                     self.analyze_unknown_symbol(symbol);
-                    
                 }
             }
         }
         Ok(())
     }
-    
-    fn analyze_unknown_symbol(&self, symbol: &mut Symbol){
+
+    fn analyze_unknown_symbol(&self, symbol: &mut Symbol) {
         if symbol.is_assigned || symbol.is_parameter {
             symbol.scope = SymbolScope::Local;
         } else {
@@ -286,172 +287,76 @@ impl<'a> SymbolTableAnalyzer<'a> {
         }
     }
 
-    fn analyze_symbol_comprehension(&mut self, symbol: &mut Symbol, parent_offset:usize) -> SymbolTableResult {
+    fn analyze_symbol_comprehension(
+        &mut self,
+        symbol: &mut Symbol,
+        parent_offset: usize,
+    ) -> SymbolTableResult {
         // when this is called, we expect to be in the direct parent scope of the scope that contains 'symbol'
-        println!("   analyze symbol {:?}", symbol);
-        
+        //println!("   analyze symbol {:?}", symbol);
+
         //let mut last=self.tables.last_mut().unwrap();
         let offs = self.tables.len() - 1 - parent_offset;
-        let mut last=self.tables.get_mut(offs).unwrap();
-        let mut symbols=&mut last.0;
-        let table_type=last.1;
+        let last = self.tables.get_mut(offs).unwrap();
+        let symbols = &mut last.0;
+        let table_type = last.1;
 
         match table_type {
-                SymbolTableType::Module => {
-                    symbol.scope = SymbolScope::Global;
-                }
-                SymbolTableType::Class => {}
-                SymbolTableType::Function => match symbols.get_mut(&symbol.name) {
-                    Some(parent_symbol) => {
-                        match parent_symbol.scope { // possibly we can omit this check?
-                            SymbolScope::Unknown => {
-                                parent_symbol.is_assigned = true; // this information is new, as it was 
-                            },
-                            _ => {}
-                        }
-
-                        println!("      symbol in parent scope contained");
-                        match symbol.scope {
-                            SymbolScope::Global => {
-                                symbol.scope = SymbolScope::Global;
-                            }
-                            _ => {
-                                symbol.scope = SymbolScope::Nonlocal;
-                            }
-                        }
-                    },
-                    None => {
-                        println!("      adding {:?} to next outer scope", symbol.name);
-                        /*
-                        //symbol.scope = SymbolScope::Nonlocal;
-                        let mut sym_cloned = symbol.clone();
-                        sym_cloned.scope=SymbolScope::Local;
-                        symbol.scope = SymbolScope::Nonlocal;
-                        last.0.insert(sym_cloned.name.to_owned(),sym_cloned);*/
-
-                        //assert!(false); // I guess this shall not happen, but if so we find it quickly to replace with proper handling
-                        println!("Found undefined symbol {:?} in scope {:?}", symbol.name, table_type.to_string());
-                    }
-                },
-                SymbolTableType::Comprehension => {
-                    // TODO check for conflicts
-
-                    match symbols.get_mut(&symbol.name) {
-                        Some(parent_symbol) => {
-                            parent_symbol.is_assigned=true; // more checks are reauired
-                        },
-                        None => {
-                            let cloned_sym=symbol.clone();
-                            last.0.insert(cloned_sym.name.to_owned(), cloned_sym);
-
-                        },
-                    }
-
-                    self.analyze_symbol_comprehension(symbol, parent_offset+1);
-                }
+            SymbolTableType::Module => {
+                symbol.scope = SymbolScope::Global;
             }
-        
-        
-        
-        /*//  mostly working code
-        let parent_symbol_table = self.tables.last();
+            SymbolTableType::Class => {}
+            SymbolTableType::Function => match symbols.get_mut(&symbol.name) {
+                Some(parent_symbol) => {
+                    match parent_symbol.scope {
+                        // possibly we can omit this check?
+                        SymbolScope::Unknown => {
+                            parent_symbol.is_assigned = true; // this information is new, as it was
+                            self.analyze_unknown_symbol(symbol);
+                        }
+                        _ => {}
+                    }
 
-        // todo Iterate this over the scope hierarchy
-        if let Some((symbols, table_type)) = parent_symbol_table {
-            match table_type {
-                SymbolTableType::Module => {
-                    symbol.scope = SymbolScope::Global;
-                }
-                SymbolTableType::Class => {}
-                SymbolTableType::Function => match symbols.get(&symbol.name) {
-                    Some(_parent_symbol) => match symbol.scope {
+                    println!("      symbol in parent scope contained");
+                    match symbol.scope {
                         SymbolScope::Global => {
                             symbol.scope = SymbolScope::Global;
                         }
                         _ => {
                             symbol.scope = SymbolScope::Nonlocal;
                         }
-                    },
-                    None => {
-                        //symbol.scope = SymbolScope::Nonlocal;
                     }
-                },
-                SymbolTableType::Comprehension => {
-                    // TODO check for conflicts
                 }
-            }
-        }*/
-
-        /*match symbol.scope {
-            SymbolScope::Nonlocal => {
-                // check if name is defined in parent table!
-                let parent_symbol_table = self.tables.last();
-                // symbol.table.borrow().parent.clone();
-
-                if let Some((symbols, _)) = parent_symbol_table {
-                    let scope_depth = self.tables.len();
-                    if !symbols.contains_key(&symbol.name) || scope_depth < 2 {
-                        return Err(SymbolTableError {
-                            error: format!("no binding for nonlocal '{}' found", symbol.name),
-                            location: Default::default(),
-                        });
-                    }
-                } else {
-                    return Err(SymbolTableError {
-                        error: format!(
-                            "nonlocal {} defined at place without an enclosing scope",
-                            symbol.name
-                        ),
-                        location: Default::default(),
-                    });
-                }
-            }
-            SymbolScope::Global => {
-                // TODO: add more checks for globals?
-            }
-            SymbolScope::Local => {
-                let parent_symbol_table = self.tables.last();
-
-                if let Some((_, table_type)) = parent_symbol_table {
-                    let found_in_outer_scope = symbol.name == "__class__"
-                            || self.tables.iter().skip(1).any(|(symbols, typ)| {
-                                *typ != SymbolTableType::Class && symbols.contains_key(&symbol.name)
-                            });
-                    if found_in_outer_scope && table_type != &SymbolTableType::Module {
-                        symbol.scope = SymbolScope::Nonlocal;
-                    }
-                } else {
-                    // keep local
-                }
-            }
-            SymbolScope::Unknown => {
-                // Try hard to figure out what the scope of this symbol is.
-
-                if symbol.is_assigned || symbol.is_parameter {
+                None => {
+                    //println!("      adding {:?} to next outer scope", symbol.name);
+                    /*
+                    //symbol.scope = SymbolScope::Nonlocal;
+                    let mut sym_cloned = symbol.clone();
+                    sym_cloned.scope=SymbolScope::Local;
                     symbol.scope = SymbolScope::Nonlocal;
-                } else {
-                    // Interesting stuff about the __class__ variable:
-                    // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
-                    let found_in_outer_scope = symbol.name == "__class__"
-                        || self.tables.iter().skip(1).any(|(symbols, typ)| {
-                            *typ != SymbolTableType::Class && symbols.contains_key(&symbol.name)
-                        });
+                    last.0.insert(sym_cloned.name.to_owned(),sym_cloned);*/
 
-                    if found_in_outer_scope {
-                        // Symbol is in some outer scope.
-                        symbol.is_free = true;
-                       // symbol.scope = SymbolScope::Nonlocal;
-                    } else if self.tables.is_empty() {
-                        // Don't make assumptions when we don't know.
-                        symbol.scope = SymbolScope::Unknown;
-                    } else {
-                        // If there are scopes above we can assume global.
-                        symbol.scope = SymbolScope::Global;
+                    //assert!(false); // I guess this shall not happen, but if so we find it quickly to replace with proper handling
+                    //println!("Found undefined symbol {:?} in scope {:?}", symbol.name, table_type.to_string());
+                }
+            },
+            SymbolTableType::Comprehension => {
+                // TODO check for conflicts
+
+                match symbols.get_mut(&symbol.name) {
+                    Some(parent_symbol) => {
+                        parent_symbol.is_assigned = true; // more checks are reauired
+                    }
+                    None => {
+                        let cloned_sym = symbol.clone();
+
+                        last.0.insert(cloned_sym.name.to_owned(), cloned_sym);
                     }
                 }
-            }
-        }*/
 
+                self.analyze_symbol_comprehension(symbol, parent_offset + 1)?;
+            }
+        }
         Ok(())
     }
 }
