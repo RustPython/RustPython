@@ -315,7 +315,6 @@ print(a)"""
         self.assertEqual(partial_sums, [0, 1, 3, 6, 10])
         self.assertEqual(total, 10)
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_scope_03(self):
         containsOne = any((lastNum := num) == 1 for num in [1, 2, 3])
 
@@ -339,7 +338,6 @@ print(a)"""
 
         self.assertEqual(y, 4)
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_scope_05(self):
         def spam(a):
             return a
@@ -361,7 +359,6 @@ print(a)"""
 
         self.assertEqual(lines, [1, 2])
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_scope_08(self):
         def spam(a):
             return a
@@ -375,7 +372,6 @@ print(a)"""
         self.assertEqual(a, 2)
         self.assertEqual(b, 1)
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_scope_09(self):
         def spam(a):
             return a
@@ -388,15 +384,15 @@ print(a)"""
         self.assertEqual(res, [0, 2])
         self.assertEqual(a, 2)
 
-    @unittest.expectedFailure # TODO RustPython
+    #@unittest.expectedFailure # TODO RustPython
     def test_named_expression_scope_10(self):
         res = [b := [a := 1 for i in range(2)] for j in range(2)]
 
         self.assertEqual(res, [[1, 1], [1, 1]])
-        self.assertEqual(a, 1)
         self.assertEqual(b, [1, 1])
+        self.assertEqual(a, 1)
+        
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_scope_11(self):
         res = [j := i for i in range(5)]
 
