@@ -84,8 +84,8 @@ class NamedExpressionInvalidTest(unittest.TestCase):
     def test_named_expression_invalid_12(self):
         code = """spam(a=1, (b := 2))"""
 
- #       with self.assertRaisesRegex(SyntaxError,
-#            "positional argument follows keyword argument"):
+        #with self.assertRaisesRegex(SyntaxError,
+        #    "positional argument follows keyword argument"):
         with self.assertRaises(SyntaxError): # TODO RustPython
             exec(code, {}, {})
 
@@ -347,6 +347,9 @@ print(a)"""
         self.assertEqual(res, [(1, 1, 1.0), (2, 2, 1.0), (3, 3, 1.0)])
         self.assertEqual(y, 3)
 
+    # TODO RustPython, 
+    # seems to be general nesting problem, see 
+    # test_named_expression_scop_10_rp_scope_prob as reference
     @unittest.expectedFailure # TODO RustPython
     def test_named_expression_scope_06(self):
         res = [[spam := i for i in range(3)] for j in range(2)]
@@ -384,13 +387,32 @@ print(a)"""
         self.assertEqual(res, [0, 2])
         self.assertEqual(a, 2)
 
-    #@unittest.expectedFailure # TODO RustPython
+    # TODO RustPython, 
+    # seems to be general nesting problem, see 
+    # test_named_expression_scop_10_rp_scope_prob as reference
+    @unittest.expectedFailure 
     def test_named_expression_scope_10(self):
         res = [b := [a := 1 for i in range(2)] for j in range(2)]
 
         self.assertEqual(res, [[1, 1], [1, 1]])
         self.assertEqual(b, [1, 1])
         self.assertEqual(a, 1)
+
+    # the following test is not from CPyrgon and just as refernce for a common scoping problem of RustPython
+    @unittest.skip # needs skipping due to weired behaviour
+    def test_named_expression_scop_10_rp_scope_prob(self):
+        def foo():
+            rr=0
+            def foo0():
+                nonlocal rr
+                def foo1():
+                    nonlocal rr
+                    rr+=42
+                foo1()
+            foo0()
+            return rr
+
+        self.assertEqual(foo(), 42)
         
 
     def test_named_expression_scope_11(self):
