@@ -269,6 +269,11 @@ impl<T> KwArgs<T> {
         self.0.remove(name)
     }
 }
+impl<T> From<HashMap<String, T>> for KwArgs<T> {
+    fn from(map: HashMap<String, T>) -> Self {
+        KwArgs(map)
+    }
+}
 
 impl<T> FromArgs for KwArgs<T>
 where

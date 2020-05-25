@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::{env, fmt};
 
 use arr_macro::arr;
+use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use once_cell::sync::Lazy;
@@ -56,7 +57,7 @@ use crate::sysmodule;
 pub struct VirtualMachine {
     pub builtins: PyObjectRef,
     pub sys_module: PyObjectRef,
-    pub ctx: PyContext,
+    pub ctx: Arc<PyContext>,
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
     pub exceptions: RefCell<Vec<PyBaseExceptionRef>>,
@@ -65,7 +66,7 @@ pub struct VirtualMachine {
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
     pub recursion_limit: Cell<usize>,
-    pub signal_handlers: Option<RefCell<[PyObjectRef; NSIG]>>,
+    pub signal_handlers: Option<Box<RefCell<[PyObjectRef; NSIG]>>>,
     pub state: Arc<PyGlobalState>,
     pub initialized: bool,
 }
@@ -74,6 +75,8 @@ pub struct PyGlobalState {
     pub settings: PySettings,
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
     pub frozen: HashMap<String, bytecode::FrozenModule>,
+    pub stacksize: AtomicCell<usize>,
+    pub thread_count: AtomicCell<usize>,
 }
 
 pub const NSIG: usize = 64;
@@ -190,7 +193,7 @@ impl VirtualMachine {
         let mut vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
-            ctx,
+            ctx: Arc::new(ctx),
             frames: RefCell::new(vec![]),
             wasm_id: None,
             exceptions: RefCell::new(vec![]),
@@ -199,11 +202,13 @@ impl VirtualMachine {
             trace_func,
             use_tracing: Cell::new(false),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
-            signal_handlers: Some(signal_handlers),
+            signal_handlers: Some(Box::new(signal_handlers)),
             state: Arc::new(PyGlobalState {
                 settings,
                 stdlib_inits,
                 frozen,
+                stacksize: AtomicCell::new(0),
+                thread_count: AtomicCell::new(0),
             }),
             initialized: false,
         };
@@ -277,6 +282,25 @@ impl VirtualMachine {
 
                 self.initialized = true;
             }
+        }
+    }
+
+    pub(crate) fn new_thread(&self) -> VirtualMachine {
+        VirtualMachine {
+            builtins: self.builtins.clone(),
+            sys_module: self.sys_module.clone(),
+            ctx: self.ctx.clone(),
+            frames: RefCell::new(vec![]),
+            wasm_id: self.wasm_id.clone(),
+            exceptions: RefCell::new(vec![]),
+            import_func: self.import_func.clone(),
+            profile_func: RefCell::new(self.get_none()),
+            trace_func: RefCell::new(self.get_none()),
+            use_tracing: Cell::new(false),
+            recursion_limit: self.recursion_limit.clone(),
+            signal_handlers: None,
+            state: self.state.clone(),
+            initialized: self.initialized,
         }
     }
 

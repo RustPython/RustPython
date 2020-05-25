@@ -1,23 +1,28 @@
 use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult, PyValue,
+    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::slots::SlotCall;
 use crate::vm::VirtualMachine;
 
+use crate::pyhash::PyHash;
+use crossbeam_utils::atomic::AtomicCell;
 use std::sync::{Arc, Weak};
 
 #[pyclass]
 #[derive(Debug)]
 pub struct PyWeak {
     referent: Weak<PyObject<dyn PyObjectPayload>>,
+    hash: AtomicCell<Option<PyHash>>,
 }
 
 impl PyWeak {
     pub fn downgrade(obj: &PyObjectRef) -> PyWeak {
         PyWeak {
             referent: Arc::downgrade(obj),
+            hash: AtomicCell::new(None),
         }
     }
 
@@ -52,6 +57,48 @@ impl PyWeak {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         PyWeak::downgrade(&referent).into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(magic)]
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
+        match self.hash.load() {
+            Some(hash) => Ok(hash),
+            None => {
+                let obj = self
+                    .upgrade()
+                    .ok_or_else(|| vm.new_type_error("weak object has gone away".to_owned()))?;
+                let hash = vm._hash(&obj)?;
+                self.hash.store(Some(hash));
+                Ok(hash)
+            }
+        }
+    }
+
+    #[pymethod(magic)]
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(other) = other.payload_if_subclass::<Self>(vm) {
+            self.upgrade()
+                .and_then(|s| other.upgrade().map(|o| (s, o)))
+                .map_or(Ok(false), |(a, b)| vm.bool_eq(a, b))
+                .map(|b| vm.new_bool(b))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    #[pymethod(magic)]
+    fn repr(zelf: PyRef<Self>) -> String {
+        let id = zelf.get_id();
+        if let Some(o) = zelf.upgrade() {
+            format!(
+                "<weakref at {}; to '{}' at {}>",
+                id,
+                o.class().name,
+                o.get_id(),
+            )
+        } else {
+            format!("<weakref at {}; dead>", id)
+        }
     }
 }
 
