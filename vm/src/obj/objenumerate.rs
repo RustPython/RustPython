@@ -1,5 +1,5 @@
+use parking_lot::RwLock;
 use std::ops::AddAssign;
-use std::sync::RwLock;
 
 use num_bigint::BigInt;
 use num_traits::Zero;
@@ -50,7 +50,7 @@ impl PyEnumerate {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<(BigInt, PyObjectRef)> {
         let next_obj = objiter::call_next(vm, &self.iterator)?;
-        let mut counter = self.counter.write().unwrap();
+        let mut counter = self.counter.write();
         let position = counter.clone();
         AddAssign::add_assign(&mut counter as &mut BigInt, 1);
         Ok((position, next_obj))

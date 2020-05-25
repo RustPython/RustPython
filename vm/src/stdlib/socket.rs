@@ -1,6 +1,6 @@
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::io::{self, prelude::*};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, ToSocketAddrs};
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 
 use byteorder::{BigEndian, ByteOrder};
@@ -76,11 +76,11 @@ pub type PySocketRef = PyRef<PySocket>;
 #[pyimpl(flags(BASETYPE))]
 impl PySocket {
     fn sock(&self) -> RwLockReadGuard<'_, Socket> {
-        self.sock.read().unwrap()
+        self.sock.read()
     }
 
     fn sock_mut(&self) -> RwLockWriteGuard<'_, Socket> {
-        self.sock.write().unwrap()
+        self.sock.write()
     }
 
     #[pyslot]
@@ -127,7 +127,7 @@ impl PySocket {
             self.proto.store(proto);
             sock
         };
-        *self.sock.write().unwrap() = sock;
+        *self.sock.write() = sock;
         Ok(())
     }
 

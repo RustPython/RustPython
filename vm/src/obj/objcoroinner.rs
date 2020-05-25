@@ -5,7 +5,7 @@ use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Variant {
@@ -69,10 +69,10 @@ impl Coro {
         let curr_exception_stack_len = vm.exceptions.borrow().len();
         vm.exceptions
             .borrow_mut()
-            .append(&mut self.exceptions.write().unwrap());
+            .append(&mut self.exceptions.write());
         let result = vm.with_frame(self.frame.clone(), func);
         std::mem::swap(
-            &mut *self.exceptions.write().unwrap(),
+            &mut *self.exceptions.write(),
             &mut vm
                 .exceptions
                 .borrow_mut()

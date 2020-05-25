@@ -12,8 +12,8 @@ mod _collections {
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
     use itertools::Itertools;
+    use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
     use std::collections::VecDeque;
-    use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
     use crossbeam_utils::atomic::AtomicCell;
 
@@ -39,11 +39,11 @@ mod _collections {
 
     impl PyDeque {
         fn borrow_deque(&self) -> RwLockReadGuard<'_, VecDeque<PyObjectRef>> {
-            self.deque.read().unwrap()
+            self.deque.read()
         }
 
         fn borrow_deque_mut(&self) -> RwLockWriteGuard<'_, VecDeque<PyObjectRef>> {
-            self.deque.write().unwrap()
+            self.deque.write()
         }
     }
 

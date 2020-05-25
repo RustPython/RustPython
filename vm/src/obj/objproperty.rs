@@ -1,7 +1,7 @@
 /*! Python `property` descriptor class.
 
 */
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
@@ -141,11 +141,11 @@ impl PyProperty {
     }
 
     fn doc_getter(&self) -> Option<PyObjectRef> {
-        self.doc.read().unwrap().clone()
+        self.doc.read().clone()
     }
 
     fn doc_setter(&self, value: PyObjectRef, vm: &VirtualMachine) {
-        *self.doc.write().unwrap() = py_none_to_option(vm, &value);
+        *self.doc.write() = py_none_to_option(vm, &value);
     }
 
     // Python builder functions

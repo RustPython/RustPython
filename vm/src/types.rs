@@ -40,9 +40,10 @@ use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::pyobject::{PyAttributes, PyContext, PyObject};
+use parking_lot::RwLock;
 use std::mem::MaybeUninit;
 use std::ptr;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// Holder of references to builtin types.
 #[derive(Debug)]
@@ -350,7 +351,6 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
     object_type
         .subclasses
         .write()
-        .unwrap()
         .push(objweakref::PyWeak::downgrade(&type_type.as_object()));
 
     (type_type, object_type)

@@ -1,9 +1,9 @@
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
 
 use indexmap::IndexMap;
 use itertools::Itertools;
+use parking_lot::Mutex;
 
 use crate::builtins::builtin_isinstance;
 use crate::bytecode;
@@ -173,7 +173,7 @@ impl Frame {
 
 impl FrameRef {
     fn with_exec<R>(&self, f: impl FnOnce(ExecutingFrame) -> R) -> R {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock();
         let exec = ExecutingFrame {
             code: &self.code,
             scope: &self.scope,
@@ -1491,10 +1491,7 @@ impl ExecutingFrame<'_> {
 
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let state = match self.state.lock() {
-            Ok(state) => state,
-            Err(_posion) => return f.pad("Frame Object {{ poisoned }}"),
-        };
+        let state = self.state.lock();
         let stack_str = state
             .stack
             .iter()

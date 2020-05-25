@@ -14,10 +14,10 @@ use crate::types::create_type;
 use crate::VirtualMachine;
 
 use itertools::Itertools;
+use parking_lot::RwLock;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
-use std::sync::RwLock;
 
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -66,50 +66,50 @@ impl PyBaseException {
 
     #[pymethod(name = "__init__")]
     fn init(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        *self.args.write().unwrap() = PyTuple::from(args.args).into_ref(vm);
+        *self.args.write() = PyTuple::from(args.args).into_ref(vm);
         Ok(())
     }
 
     #[pyproperty]
     pub fn args(&self) -> PyTupleRef {
-        self.args.read().unwrap().clone()
+        self.args.read().clone()
     }
 
     #[pyproperty(setter)]
     fn set_args(&self, args: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        *self.args.write().unwrap() = PyTuple::from(args).into_ref(vm);
+        *self.args.write() = PyTuple::from(args).into_ref(vm);
         Ok(())
     }
 
     #[pyproperty(name = "__traceback__")]
     pub fn traceback(&self) -> Option<PyTracebackRef> {
-        self.traceback.read().unwrap().clone()
+        self.traceback.read().clone()
     }
 
     #[pyproperty(name = "__traceback__", setter)]
     pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
-        *self.traceback.write().unwrap() = traceback;
+        *self.traceback.write() = traceback;
     }
 
     #[pyproperty(name = "__cause__")]
     pub fn cause(&self) -> Option<PyBaseExceptionRef> {
-        self.cause.read().unwrap().clone()
+        self.cause.read().clone()
     }
 
     #[pyproperty(name = "__cause__", setter)]
     pub fn set_cause(&self, cause: Option<PyBaseExceptionRef>) {
-        *self.cause.write().unwrap() = cause;
+        *self.cause.write() = cause;
     }
 
     #[pyproperty(name = "__context__")]
     pub fn context(&self) -> Option<PyBaseExceptionRef> {
-        self.context.read().unwrap().clone()
+        self.context.read().clone()
     }
 
     #[pyproperty(name = "__context__", setter)]
     pub fn set_context(&self, context: Option<PyBaseExceptionRef>) {
-        *self.context.write().unwrap() = context;
+        *self.context.write() = context;
     }
 
     #[pyproperty(name = "__suppress_context__")]
@@ -124,7 +124,7 @@ impl PyBaseException {
 
     #[pymethod]
     fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
-        *zelf.traceback.write().unwrap() = tb;
+        *zelf.traceback.write() = tb;
         Ok(zelf.as_object().clone())
     }
 
@@ -216,7 +216,7 @@ pub fn write_exception_inner<W: Write>(
     vm: &VirtualMachine,
     exc: &PyBaseExceptionRef,
 ) -> io::Result<()> {
-    if let Some(tb) = exc.traceback.read().unwrap().clone() {
+    if let Some(tb) = exc.traceback.read().clone() {
         writeln!(output, "Traceback (most recent call last):")?;
         for tb in tb.iter() {
             write_traceback_entry(output, &tb)?;
@@ -430,7 +430,7 @@ impl ExceptionZoo {
     pub fn new(type_type: &PyClassRef, object_type: &PyClassRef) -> Self {
         let create_exception_type = |name: &str, base: &PyClassRef| {
             let typ = create_type(name, type_type, base);
-            typ.slots.write().unwrap().flags |= PyTpFlags::BASETYPE;
+            typ.slots.write().flags |= PyTpFlags::BASETYPE;
             typ
         };
         // Sorted By Hierarchy then alphabetized.
@@ -609,7 +609,6 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef, &VirtualMachine) -
     move |exc, vm| {
         exc.args
             .read()
-            .unwrap()
             .as_slice()
             .get(idx)
             .cloned()

@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::convert::TryInto;
 use std::io;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::os;
 use crate::function::OptionalArg;
@@ -38,11 +38,11 @@ impl PyHKEY {
     }
 
     fn key(&self) -> RwLockReadGuard<'_, RegKey> {
-        self.key.read().unwrap()
+        self.key.read()
     }
 
     fn key_mut(&self) -> RwLockWriteGuard<'_, RegKey> {
-        self.key.write().unwrap()
+        self.key.write()
     }
 
     #[pymethod]

@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::{One, ToPrimitive, Zero};
+use parking_lot::Mutex;
 
 use crate::bytecode;
 use crate::dictdatatype::DictKey;
@@ -616,7 +617,7 @@ impl PyContext {
     }
 
     pub fn add_tp_new_wrapper(&self, ty: &PyClassRef) {
-        if !ty.attributes.read().unwrap().contains_key("__new__") {
+        if !ty.attributes.read().contains_key("__new__") {
             let new_wrapper =
                 self.new_bound_method(self.tp_new_wrapper.clone(), ty.clone().into_object());
             ty.set_str_attr("__new__", new_wrapper);
@@ -1185,14 +1186,14 @@ where
     T: ?Sized + PyObjectPayload,
 {
     pub fn dict(&self) -> Option<PyDictRef> {
-        self.dict.as_ref().map(|mu| mu.lock().unwrap().clone())
+        self.dict.as_ref().map(|mu| mu.lock().clone())
     }
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
     pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
         match self.dict {
             Some(ref mu) => {
-                *mu.lock().unwrap() = dict;
+                *mu.lock() = dict;
                 Ok(())
             }
             None => Err(dict),
@@ -1333,7 +1334,7 @@ pub trait PyClassImpl: PyClassDef {
 
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
         Self::impl_extend_class(ctx, class);
-        class.slots.write().unwrap().flags = Self::TP_FLAGS;
+        class.slots.write().flags = Self::TP_FLAGS;
         ctx.add_tp_new_wrapper(&class);
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc));

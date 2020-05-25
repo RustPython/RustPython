@@ -13,7 +13,7 @@ mod _random {
     use num_traits::Signed;
     use rand::{rngs::StdRng, RngCore, SeedableRng};
 
-    use std::sync::Mutex;
+    use parking_lot::Mutex;
 
     #[derive(Debug)]
     enum PyRng {
@@ -78,7 +78,7 @@ mod _random {
 
         #[pymethod]
         fn random(&self) -> f64 {
-            let mut rng = self.rng.lock().unwrap();
+            let mut rng = self.rng.lock();
             mt19937::gen_res53(&mut *rng)
         }
 
@@ -95,12 +95,12 @@ mod _random {
                 }
             };
 
-            *self.rng.lock().unwrap() = new_rng;
+            *self.rng.lock() = new_rng;
         }
 
         #[pymethod]
         fn getrandbits(&self, k: usize) -> BigInt {
-            let mut rng = self.rng.lock().unwrap();
+            let mut rng = self.rng.lock();
             let mut k = k;
             let mut gen_u32 = |k| rng.next_u32() >> (32 - k) as u32;
 

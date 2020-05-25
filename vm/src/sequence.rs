@@ -1,7 +1,7 @@
 use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
+use parking_lot::{RwLockReadGuard, RwLockWriteGuard};
 use std::ops::Deref;
-use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef> + 'a>;
 

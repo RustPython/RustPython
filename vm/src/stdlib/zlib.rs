@@ -13,8 +13,8 @@ use crossbeam_utils::atomic::AtomicCell;
 use flate2::{write::ZlibEncoder, Compression, Decompress, FlushDecompress, Status};
 use libz_sys as libz;
 
+use parking_lot::Mutex;
 use std::io::Write;
-use std::sync::Mutex;
 
 // copied from zlibmodule.c (commit 530f506ac91338)
 const MAX_WBITS: u8 = 15;
@@ -182,11 +182,11 @@ impl PyDecompress {
     }
     #[pyproperty]
     fn unused_data(&self) -> PyBytesRef {
-        self.unused_data.lock().unwrap().clone()
+        self.unused_data.lock().clone()
     }
     #[pyproperty]
     fn unconsumed_tail(&self) -> PyBytesRef {
-        self.unconsumed_tail.lock().unwrap().clone()
+        self.unconsumed_tail.lock().clone()
     }
 
     fn save_unconsumed_input(
@@ -200,7 +200,7 @@ impl PyDecompress {
         let leftover = &data[(d.total_in() - orig_in) as usize..];
 
         if stream_end && !leftover.is_empty() {
-            let mut unused_data = self.unused_data.lock().unwrap();
+            let mut unused_data = self.unused_data.lock();
             let unused = unused_data
                 .get_value()
                 .iter()
@@ -210,7 +210,7 @@ impl PyDecompress {
             *unused_data = PyBytes::new(unused).into_ref(vm);
         }
 
-        let mut unconsumed_tail = self.unconsumed_tail.lock().unwrap();
+        let mut unconsumed_tail = self.unconsumed_tail.lock();
         if !leftover.is_empty() || unconsumed_tail.len() > 0 {
             *unconsumed_tail = PyBytes::new(leftover.to_owned()).into_ref(vm);
         }
@@ -221,7 +221,7 @@ impl PyDecompress {
         let limited = args.max_length == 0;
         let data = args.data.get_value();
 
-        let mut d = self.decompress.lock().unwrap();
+        let mut d = self.decompress.lock();
 
         let orig_in = d.total_in();
         let mut buf = Vec::new();
@@ -285,8 +285,8 @@ impl PyDecompress {
             OptionalArg::Missing => DEF_BUF_SIZE,
         };
 
-        let data = self.unconsumed_tail.lock().unwrap();
-        let mut d = self.decompress.lock().unwrap();
+        let data = self.unconsumed_tail.lock();
+        let mut d = self.decompress.lock();
 
         let orig_in = d.total_in();
         let mut buf = Vec::new();

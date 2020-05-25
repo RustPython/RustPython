@@ -1,10 +1,10 @@
 //! Implementation of the python bytearray object.
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::convert::TryFrom;
 use std::mem::size_of;
 use std::str::FromStr;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::objbyteinner::{
     ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
@@ -58,11 +58,11 @@ impl PyByteArray {
     }
 
     pub fn borrow_value(&self) -> RwLockReadGuard<'_, PyByteInner> {
-        self.inner.read().unwrap()
+        self.inner.read()
     }
 
     pub fn borrow_value_mut(&self) -> RwLockWriteGuard<'_, PyByteInner> {
-        self.inner.write().unwrap()
+        self.inner.write()
     }
 }
 

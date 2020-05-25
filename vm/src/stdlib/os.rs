@@ -1,3 +1,4 @@
+use parking_lot::RwLock;
 use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -6,7 +7,6 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
-use std::sync::RwLock;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
@@ -727,7 +727,7 @@ impl ScandirIterator {
             return Err(objiter::new_stop_iteration(vm));
         }
 
-        match self.entries.write().unwrap().next() {
+        match self.entries.write().next() {
             Some(entry) => match entry {
                 Ok(entry) => Ok(DirEntry {
                     entry,
