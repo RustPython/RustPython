@@ -2,19 +2,22 @@
 use crate::exceptions;
 use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::obj::objdict::PyDictRef;
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    Either, IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    Either, IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
+use crossbeam_utils::atomic::AtomicCell;
 use parking_lot::{
     lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     RawMutex, RawThreadId,
 };
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::Write;
 use std::time::Duration;
 use std::{fmt, thread};
@@ -264,12 +267,99 @@ fn thread_count(vm: &VirtualMachine) -> usize {
     vm.state.thread_count.load()
 }
 
+static LOCAL_DATA_KEY: AtomicCell<usize> = AtomicCell::new(0);
+thread_local!(static LOCAL_DATA: RefCell<HashMap<usize, PyDictRef>> = RefCell::default());
+
+#[pyclass(name = "_local")]
+#[derive(Debug)]
+struct PyLocal {
+    key: usize,
+}
+
+impl PyValue for PyLocal {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("_thread", "_local")
+    }
+}
+
+impl Drop for PyLocal {
+    fn drop(&mut self) {
+        LOCAL_DATA.with(|map| map.borrow_mut().remove(&self.key));
+    }
+}
+
+#[pyimpl(flags(BASETYPE))]
+impl PyLocal {
+    fn ldict(&self, vm: &VirtualMachine) -> PyDictRef {
+        LOCAL_DATA.with(|map| {
+            map.borrow_mut()
+                .entry(self.key)
+                .or_insert_with(|| vm.ctx.new_dict())
+                .clone()
+        })
+    }
+
+    #[pyslot]
+    fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        PyLocal {
+            key: LOCAL_DATA_KEY.fetch_add(1),
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(magic)]
+    fn getattribute(zelf: PyRef<Self>, attr: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let ldict = zelf.ldict(vm);
+        if attr.as_str() == "__dict__" {
+            Ok(ldict.into_object())
+        } else {
+            let zelf = zelf.into_object();
+            vm.generic_getattribute_opt(zelf.clone(), attr.clone(), Some(ldict))?
+                .ok_or_else(|| {
+                    vm.new_attribute_error(format!("{} has no attribute '{}'", zelf, attr))
+                })
+        }
+    }
+
+    #[pymethod(magic)]
+    fn setattr(
+        zelf: PyRef<Self>,
+        attr: PyStringRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if attr.as_str() == "__dict__" {
+            Err(vm.new_attribute_error(format!(
+                "{} attribute '__dict__' is read-only",
+                zelf.as_object()
+            )))
+        } else {
+            zelf.ldict(vm).set_item(attr.as_object(), value, vm)?;
+            Ok(())
+        }
+    }
+
+    #[pymethod(magic)]
+    fn delattr(zelf: PyRef<Self>, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+        if attr.as_str() == "__dict__" {
+            Err(vm.new_attribute_error(format!(
+                "{} attribute '__dict__' is read-only",
+                zelf.as_object()
+            )))
+        } else {
+            zelf.ldict(vm).del_item(attr.as_object(), vm)?;
+            Ok(())
+        }
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     py_module!(vm, "_thread", {
         "RLock" => PyRLock::make_class(ctx),
         "LockType" => PyLock::make_class(ctx),
+        "_local" => PyLocal::make_class(ctx),
         "get_ident" => ctx.new_function(thread_get_ident),
         "allocate_lock" => ctx.new_function(thread_allocate_lock),
         "start_new_thread" => ctx.new_function(thread_start_new_thread),

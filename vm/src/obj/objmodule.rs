@@ -67,6 +67,7 @@ impl PyModuleRef {
         vm.generic_getattribute_opt(
             self.as_object().clone(),
             PyString::from("__name__").into_ref(vm),
+            None,
         )
         .unwrap_or(None)
         .and_then(|obj| obj.payload::<PyString>().map(|s| s.as_str().to_owned()))
@@ -74,7 +75,7 @@ impl PyModuleRef {
 
     #[pymethod(magic)]
     fn getattribute(self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        vm.generic_getattribute_opt(self.as_object().clone(), name.clone())?
+        vm.generic_getattribute_opt(self.as_object().clone(), name.clone(), None)?
             .ok_or_else(|| {
                 let module_name = if let Some(name) = self.name(vm) {
                     format!(" '{}'", name)
