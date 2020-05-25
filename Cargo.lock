@@ -835,7 +835,7 @@ dependencies = [
 [[package]]
 name = "lock_api"
 version = "0.3.4"
-source = "git+https://github.com/Amanieu/parking_lot#b338bb5ac6f517d270530e4cb2ed344d136661f5"
+source = "git+https://github.com/Amanieu/parking_lot#ecaa94438e570c84f1a4c7db830916890f2ae44c"
 dependencies = [
  "scopeguard",
 ]
@@ -1093,7 +1093,7 @@ checksum = "a86ed3f5f244b372d6b1a00b72ef7f8876d0bc6a78a4c9985c53614041512063"
 [[package]]
 name = "parking_lot"
 version = "0.10.2"
-source = "git+https://github.com/Amanieu/parking_lot#b338bb5ac6f517d270530e4cb2ed344d136661f5"
+source = "git+https://github.com/Amanieu/parking_lot#ecaa94438e570c84f1a4c7db830916890f2ae44c"
 dependencies = [
  "instant",
  "lock_api",
@@ -1103,7 +1103,7 @@ dependencies = [
 [[package]]
 name = "parking_lot_core"
 version = "0.7.2"
-source = "git+https://github.com/Amanieu/parking_lot#b338bb5ac6f517d270530e4cb2ed344d136661f5"
+source = "git+https://github.com/Amanieu/parking_lot#ecaa94438e570c84f1a4c7db830916890f2ae44c"
 dependencies = [
  "cfg-if",
  "cloudabi",
