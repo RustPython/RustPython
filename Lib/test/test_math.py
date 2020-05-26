@@ -249,7 +249,7 @@ class MathTests(unittest.TestCase):
         self.ftest('e', math.e, 2.718281828459045235360287)
         self.assertEqual(math.tau, 2*math.pi)
 
-    @unittest.skip('RustPython')
+    @unittest.skip('TODO: RustPython')
     def testAcos(self):
         self.assertRaises(TypeError, math.acos)
         self.ftest('acos(-1)', math.acos(-1), math.pi)
@@ -261,7 +261,7 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.acos, -1 - eps)
         self.assertTrue(math.isnan(math.acos(NAN)))
 
-    @unittest.skip('RustPython')
+    @unittest.skip('TODO: RustPython')
     def testAcosh(self):
         self.assertRaises(TypeError, math.acosh)
         self.ftest('acosh(1)', math.acosh(1), 0)
@@ -272,7 +272,7 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.acosh, NINF)
         self.assertTrue(math.isnan(math.acosh(NAN)))
 
-    @unittest.skip('RustPython')
+    @unittest.skip('TODO: RustPython')
     def testAsin(self):
         self.assertRaises(TypeError, math.asin)
         self.ftest('asin(-1)', math.asin(-1), -math.pi/2)
@@ -302,7 +302,7 @@ class MathTests(unittest.TestCase):
         self.ftest('atan(-inf)', math.atan(NINF), -math.pi/2)
         self.assertTrue(math.isnan(math.atan(NAN)))
 
-    @unittest.skip('RustPython')
+    @unittest.skip('TODO: RustPython')
     def testAtanh(self):
         self.assertRaises(TypeError, math.atan)
         self.ftest('atanh(0)', math.atanh(0), 0)
@@ -375,7 +375,7 @@ class MathTests(unittest.TestCase):
         self.assertTrue(math.isnan(math.atan2(NAN, INF)))
         self.assertTrue(math.isnan(math.atan2(NAN, NAN)))
 
-    @unittest.skip('RustPython')
+    @unittest.skip('TODO: RustPython')
     def testCeil(self):
         self.assertRaises(TypeError, math.ceil)
         self.assertEqual(int, type(math.ceil(0.5)))
@@ -444,7 +444,7 @@ class MathTests(unittest.TestCase):
         # similarly, copysign(2., NAN) could be 2. or -2.
         self.assertEqual(abs(math.copysign(2., NAN)), 2.)
 
-    @unittest.skip('RustPython')
+    @unittest.skip('TODO: RustPython')
     def testCos(self):
         self.assertRaises(TypeError, math.cos)
         self.ftest('cos(-pi/2)', math.cos(-math.pi/2), 0, abs_tol=math.ulp(1))
@@ -503,7 +503,7 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.factorial, -1)
         self.assertRaises(ValueError, math.factorial, -10**100)
 
-    @unittest.skip('RustPython')
+    @unittest.skip('TODO: RustPython')
     def testFactorialNonIntegers(self):
         with self.assertWarns(DeprecationWarning):
             self.assertEqual(math.factorial(5.0), 120)
@@ -815,7 +815,7 @@ class MathTests(unittest.TestCase):
             scale = FLOAT_MIN / 2.0 ** exp
             self.assertEqual(math.hypot(4*scale, 3*scale), 5*scale)
 
-    @unittest.skip('RustPython')
+    @unittest.skip('TODO: RustPython')
     def testDist(self):
         from decimal import Decimal as D
         from fractions import Fraction as F
