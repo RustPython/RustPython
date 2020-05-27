@@ -202,14 +202,10 @@ impl<'a> SymbolTableAnalyzer<'a> {
         }
         let (symbols, st_typ) = self.tables.pop().unwrap();
 
-        //println!("\n\n\n\n\nbefore analyze scope {:?} of type {:?}", symbols, st_typ.to_string());
         // Analyze symbols:
         for symbol in symbols.values_mut() {
             self.analyze_symbol(symbol, st_typ)?;
         }
-
-        //println!("\n\n\nafter analyze scope {:?} of type {:?}", symbols, st_typ.to_string());
-
         Ok(())
     }
 
@@ -218,7 +214,6 @@ impl<'a> SymbolTableAnalyzer<'a> {
         symbol: &mut Symbol,
         curr_st_typ: SymbolTableType,
     ) -> SymbolTableResult {
-        //assert!(!symbol.is_assign_namedexpr_in_comprehension || curr_st_typ==SymbolTableType::Comprehension);
         if symbol.is_assign_namedexpr_in_comprehension
             && curr_st_typ == SymbolTableType::Comprehension
         {
@@ -292,10 +287,8 @@ impl<'a> SymbolTableAnalyzer<'a> {
         symbol: &mut Symbol,
         parent_offset: usize,
     ) -> SymbolTableResult {
+        // TODO: quite C-ish way to implement the iteration
         // when this is called, we expect to be in the direct parent scope of the scope that contains 'symbol'
-        //println!("   analyze symbol {:?}", symbol);
-
-        //let mut last=self.tables.last_mut().unwrap();
         let offs = self.tables.len() - 1 - parent_offset;
         let last = self.tables.get_mut(offs).unwrap();
         let symbols = &mut last.0;
@@ -306,18 +299,13 @@ impl<'a> SymbolTableAnalyzer<'a> {
                 symbol.scope = SymbolScope::Global;
             }
             SymbolTableType::Class => {}
-            SymbolTableType::Function => match symbols.get_mut(&symbol.name) {
-                Some(parent_symbol) => {
-                    match parent_symbol.scope {
-                        // possibly we can omit this check?
-                        SymbolScope::Unknown => {
-                            parent_symbol.is_assigned = true; // this information is new, as it was
-                            self.analyze_unknown_symbol(symbol);
-                        }
-                        _ => {}
+            SymbolTableType::Function => {
+                if let Some(parent_symbol) = symbols.get_mut(&symbol.name) {
+                    if let SymbolScope::Unknown = parent_symbol.scope {
+                        parent_symbol.is_assigned = true; // this information is new, as the asignment is done in inner scope
+                        self.analyze_unknown_symbol(symbol);
                     }
 
-                    println!("      symbol in parent scope contained");
                     match symbol.scope {
                         SymbolScope::Global => {
                             symbol.scope = SymbolScope::Global;
@@ -327,25 +315,13 @@ impl<'a> SymbolTableAnalyzer<'a> {
                         }
                     }
                 }
-                None => {
-                    //println!("      adding {:?} to next outer scope", symbol.name);
-                    /*
-                    //symbol.scope = SymbolScope::Nonlocal;
-                    let mut sym_cloned = symbol.clone();
-                    sym_cloned.scope=SymbolScope::Local;
-                    symbol.scope = SymbolScope::Nonlocal;
-                    last.0.insert(sym_cloned.name.to_owned(),sym_cloned);*/
-
-                    //assert!(false); // I guess this shall not happen, but if so we find it quickly to replace with proper handling
-                    //println!("Found undefined symbol {:?} in scope {:?}", symbol.name, table_type.to_string());
-                }
-            },
+            }
             SymbolTableType::Comprehension => {
                 // TODO check for conflicts
 
                 match symbols.get_mut(&symbol.name) {
                     Some(parent_symbol) => {
-                        parent_symbol.is_assigned = true; // more checks are reauired
+                        parent_symbol.is_assigned = true; // more checks are required
                     }
                     None => {
                         let cloned_sym = symbol.clone();
