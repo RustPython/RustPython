@@ -6,7 +6,6 @@ GLOBAL_VAR = None
 
 class NamedExpressionInvalidTest(unittest.TestCase):
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_invalid_01(self):
         code = """x := 0"""
 
@@ -14,7 +13,6 @@ class NamedExpressionInvalidTest(unittest.TestCase):
         with self.assertRaises(SyntaxError): # TODO RustPython
             exec(code, {}, {})
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_invalid_02(self):
         code = """x = y := 0"""
 
@@ -22,7 +20,6 @@ class NamedExpressionInvalidTest(unittest.TestCase):
         with self.assertRaises(SyntaxError): # TODO RustPython
             exec(code, {}, {})
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_invalid_03(self):
         code = """y := f(x)"""
 
@@ -30,7 +27,6 @@ class NamedExpressionInvalidTest(unittest.TestCase):
         with self.assertRaises(SyntaxError): # TODO RustPython
             exec(code, {}, {})
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_invalid_04(self):
         code = """y0 = y1 := f(x)"""
 

@@ -148,7 +148,25 @@ TestOrStarExprList: ast::Expression = {
     }
 };
 
+TestOrStarNamedExprList: ast::Expression = {
+    <location:@L> <elements:OneOrMore<TestOrStarNamedExpr>> <comma:","?> => {
+        if elements.len() == 1 && comma.is_none() {
+            elements.into_iter().next().unwrap()
+        } else {
+            ast::Expression {
+                location,
+                node: ast::ExpressionType::Tuple { elements }
+            }
+        }
+    }
+};
+
 TestOrStarExpr: ast::Expression = {
+    Test,
+    StarExpr,
+};
+
+TestOrStarNamedExpr: ast::Expression = {
     NamedExpression_Test,
     StarExpr,
 };
@@ -932,7 +950,7 @@ Atom: ast::Expression = {
             node: ast::ExpressionType::List { elements }
         }
     },
-    <location:@L> "[" <element:TestOrStarExpr> <generators:CompFor> "]" => {
+    <location:@L> "[" <element:TestOrStarNamedExpr> <generators:CompFor> "]" => {
         ast::Expression {
             location,
             node: ast::ExpressionType::Comprehension {
@@ -941,7 +959,7 @@ Atom: ast::Expression = {
             }
         }
     },
-    <location:@L> "(" <elements:TestOrStarExprList?> ")" => {
+    <location:@L> "(" <elements:TestOrStarNamedExprList?> ")" => {
         elements.unwrap_or(ast::Expression {
              location,
              node: ast::ExpressionType::Tuple { elements: Vec::new() }
@@ -990,7 +1008,7 @@ Atom: ast::Expression = {
 };
 
 ListLiteralValues: Vec<ast::Expression> = {
-    <e:OneOrMore<TestOrStarExpr>> ","? => e,
+    <e:OneOrMore<TestOrStarNamedExpr>> ","? => e,
 };
 
 DictLiteralValues: Vec<(Option<ast::Expression>, ast::Expression)> = {
@@ -1007,7 +1025,7 @@ DictElement: (Option<ast::Expression>, ast::Expression) = {
 };
 
 SetLiteralValues: Vec<ast::Expression> = {
-    <e1:OneOrMore<TestOrStarExpr>> ","? => e1
+    <e1:OneOrMore<TestOrStarNamedExpr>> ","? => e1
 };
 
 ExpressionOrStarExpression = {
