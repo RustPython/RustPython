@@ -374,6 +374,7 @@ class CustomTextTestResult(result.TestResult):
             self.stream.writeln(self.separator_pre_result)
             self.stream.writeln("EXPECTED FAILURE")
         self.stream.flush()
+        self.results['suites'][self.suite_map[self.suite]]['cases'][self.current_case_number]['result'] = 'expected_failure'
         self.num_passed += 1
         self.addScreenshots(test)
 
