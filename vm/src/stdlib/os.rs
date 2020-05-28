@@ -394,7 +394,7 @@ fn getgroups() -> nix::Result<Vec<Gid>> {
     })
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "openbsd"))]
 use nix::unistd::getgroups;
 
 #[cfg(target_os = "redox")]
@@ -813,6 +813,8 @@ fn os_stat(
     use std::os::linux::fs::MetadataExt;
     #[cfg(target_os = "macos")]
     use std::os::macos::fs::MetadataExt;
+    #[cfg(target_os = "openbsd")]
+    use std::os::openbsd::fs::MetadataExt;
     #[cfg(target_os = "redox")]
     use std::os::redox::fs::MetadataExt;
 
@@ -919,7 +921,8 @@ fn os_stat(
     target_os = "macos",
     target_os = "android",
     target_os = "redox",
-    windows
+    windows,
+    unix
 )))]
 fn os_stat(
     file: Either<PyPathLike, i64>,
@@ -1308,13 +1311,13 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "openbsd"))]
 type ModeT = u32;
 
 #[cfg(target_os = "macos")]
 type ModeT = u16;
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "openbsd"))]
 fn os_umask(mask: ModeT, _vm: &VirtualMachine) -> PyResult<ModeT> {
     let ret_mask = unsafe { libc::umask(mask) };
     Ok(ret_mask)
