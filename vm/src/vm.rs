@@ -250,7 +250,10 @@ impl VirtualMachine {
 
                     #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
                     {
-                        let io = self.import("io", &[], 0)?;
+                        // this isn't fully compatible with CPython; it imports "io" and sets
+                        // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
+                        // require the Python stdlib to be present
+                        let io = self.import("_io", &[], 0)?;
                         let io_open = self.get_attribute(io.clone(), "open")?;
                         let set_stdio = |name, fd, mode: &str| {
                             let stdio = self.invoke(
@@ -269,8 +272,7 @@ impl VirtualMachine {
                         set_stdio("stdout", 1, "w")?;
                         set_stdio("stderr", 2, "w")?;
 
-                        let open_wrapper = self.get_attribute(io, "OpenWrapper")?;
-                        self.set_attr(&self.builtins, "open", open_wrapper)?;
+                        self.set_attr(&self.builtins, "open", io_open)?;
                     }
 
                     Ok(())
