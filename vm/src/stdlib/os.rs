@@ -1311,7 +1311,7 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "openbsd")]
+#[cfg(any(target_os = "linux", target_os = "openbsd"))]
 type ModeT = u32;
 
 #[cfg(target_os = "macos")]
