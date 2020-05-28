@@ -404,7 +404,6 @@ fn getgroups() -> nix::Result<Vec<Gid>> {
 
 #[cfg(unix)]
 fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-    
     use std::os::unix::fs::MetadataExt;
 
     let path = path.as_str();
@@ -814,10 +813,10 @@ fn os_stat(
     use std::os::linux::fs::MetadataExt;
     #[cfg(target_os = "macos")]
     use std::os::macos::fs::MetadataExt;
-    #[cfg(target_os = "redox")]
-    use std::os::redox::fs::MetadataExt;
     #[cfg(target_os = "openbsd")]
     use std::os::openbsd::fs::MetadataExt;
+    #[cfg(target_os = "redox")]
+    use std::os::redox::fs::MetadataExt;
 
     let get_stats = move || -> io::Result<PyObjectRef> {
         let meta = match file {
@@ -1312,7 +1311,7 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "openbsd"))]
+#[cfg(any(target_os = "linux", target_os = "openbsd")]
 type ModeT = u32;
 
 #[cfg(target_os = "macos")]
