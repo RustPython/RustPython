@@ -643,6 +643,10 @@ pub fn init(ctx: &PyContext) {
         "text" => ctx.none(),
     });
 
+    extend_class!(ctx, &excs.system_exit, {
+        "code" => ctx.new_readonly_getset("code", make_arg_getter(0)),
+    });
+
     extend_class!(ctx, &excs.import_error, {
         "__init__" => ctx.new_method(import_error_init),
         "msg" => ctx.new_readonly_getset("msg", make_arg_getter(0)),
