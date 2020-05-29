@@ -1080,6 +1080,8 @@ pub fn io_open(
         )),
     )?;
 
+    vm.set_attr(&file_io_obj, "mode", vm.new_str(mode_string.to_owned()))?;
+
     // Create Buffered class to consume FileIO. The type of buffered class depends on
     // the operation in the mode.
     // There are 3 possible classes here, each inheriting from the RawBaseIO
