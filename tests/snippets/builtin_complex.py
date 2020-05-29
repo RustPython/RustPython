@@ -158,3 +158,9 @@ class Complex():
 
 assert Complex(4, 5) - 3 == Complex(1, 5)
 assert 7 - Complex(4, 5) == Complex(3, -5)
+
+assert complex("5+2j") == 5 + 2j
+assert complex("5-2j") == 5 - 2j
+assert complex("-2j") == -2j
+assert_raises(TypeError, lambda: complex("5+2j", 1))
+assert_raises(ValueError, lambda: complex("abc"))
