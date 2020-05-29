@@ -1147,12 +1147,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "read" => ctx.new_method(raw_io_base_read),
     });
 
-    let buffered_io_base = py_class!(ctx, "_BufferedIOBase", io_base.clone(), {
-        "__init__" => ctx.new_method(buffered_io_base_init),
-        "fileno" => ctx.new_method(buffered_io_base_fileno),
-        "name" => ctx.new_readonly_getset("name", buffered_io_base_name),
-        "mode" => ctx.new_readonly_getset("mode", buffered_io_base_mode),
-    });
+    let buffered_io_base = py_class!(ctx, "_BufferedIOBase", io_base.clone(), {});
 
     //TextIO Base has no public constructor
     let text_io_base = py_class!(ctx, "_TextIOBase", io_base.clone(), {});
@@ -1162,19 +1157,26 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         //workaround till the buffered classes can be fixed up to be more
         //consistent with the python model
         //For more info see: https://github.com/RustPython/RustPython/issues/547
+        "__init__" => ctx.new_method(buffered_io_base_init),
         "read" => ctx.new_method(buffered_reader_read),
         "seekable" => ctx.new_method(buffered_reader_seekable),
         "seek" => ctx.new_method(buffered_reader_seek),
         "tell" => ctx.new_method(buffered_reader_tell),
         "close" => ctx.new_method(buffered_reader_close),
+        "fileno" => ctx.new_method(buffered_io_base_fileno),
+        "name" => ctx.new_readonly_getset("name", buffered_io_base_name),
+        "mode" => ctx.new_readonly_getset("mode", buffered_io_base_mode),
     });
 
     let buffered_writer = py_class!(ctx, "BufferedWriter", buffered_io_base.clone(), {
         //workaround till the buffered classes can be fixed up to be more
         //consistent with the python model
         //For more info see: https://github.com/RustPython/RustPython/issues/547
+        "__init__" => ctx.new_method(buffered_io_base_init),
         "write" => ctx.new_method(buffered_writer_write),
         "seekable" => ctx.new_method(buffered_writer_seekable),
+        "name" => ctx.new_readonly_getset("name", buffered_io_base_name),
+        "mode" => ctx.new_readonly_getset("mode", buffered_io_base_mode),
     });
 
     //TextIOBase Subclass
