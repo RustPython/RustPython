@@ -605,7 +605,7 @@ mod fileio {
         let mode = args
             .mode
             .map(|mode| mode.as_str().to_owned())
-            .unwrap_or("r".to_owned());
+            .unwrap_or_else(|| "r".to_owned());
         let (name, file_no) = match args.name {
             Either::A(name) => {
                 if !args.closefd {
