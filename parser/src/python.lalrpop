@@ -167,7 +167,7 @@ TestOrStarExpr: ast::Expression = {
 };
 
 TestOrStarNamedExpr: ast::Expression = {
-    NamedExpression_Test,
+    NamedExpressionTest,
     StarExpr,
 };
 
@@ -332,7 +332,7 @@ CompoundStatement: ast::Statement = {
 };
 
 IfStatement: ast::Statement = {
-    <location:@L> "if" <test:NamedExpression_Test> ":" <body:Suite> <s2:(@L "elif" NamedExpression_Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
+    <location:@L> "if" <test:NamedExpressionTest> ":" <body:Suite> <s2:(@L "elif" NamedExpressionTest ":" Suite)*> <s3:("else" ":" Suite)?> => {
         // Determine last else:
         let mut last = s3.map(|s| s.2);
 
@@ -353,7 +353,7 @@ IfStatement: ast::Statement = {
 };
 
 WhileStatement: ast::Statement = {
-    <location:@L> "while" <test:NamedExpression_Test> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
+    <location:@L> "while" <test:NamedExpressionTest> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
         let orelse = s2.map(|s| s.2);
         ast::Statement {
             location,
@@ -658,7 +658,7 @@ Test: ast::Expression = {
     LambdaDef,
 };
 
-NamedExpression_Test: ast::Expression = {
+NamedExpressionTest: ast::Expression = {
     <location:@L><left: (Identifier ":=")?> <right:Test> => {
         if let Some(l) = left {
             ast::Expression {
@@ -1084,7 +1084,7 @@ ArgumentList: ast::ArgumentList = {
 };
 
 FunctionArgument: (Option<Option<String>>, ast::Expression) = {
-    <e:NamedExpression_Test> <c:CompFor?> => {
+    <e:NamedExpressionTest> <c:CompFor?> => {
         let expr = match c {
             Some(c) => ast::Expression {
                 location: e.location,
