@@ -223,8 +223,6 @@ impl<'a> SymbolTableAnalyzer<'a> {
                 SymbolScope::Nonlocal => {
                     // check if name is defined in parent table!
                     let parent_symbol_table = self.tables.last();
-                    // symbol.table.borrow().parent.clone();
-
                     if let Some((symbols, _)) = parent_symbol_table {
                         let scope_depth = self.tables.len();
                         if !symbols.contains_key(&symbol.name) || scope_depth < 2 {
@@ -282,6 +280,9 @@ impl<'a> SymbolTableAnalyzer<'a> {
         }
     }
 
+    // Implements the symbol analysis and scope extension for names
+    // assigned by a named expression in a comprehension. See:
+    // https://github.com/python/cpython/blob/7b78e7f9fd77bb3280ee39fb74b86772a7d46a70/Python/symtable.c#L1435
     fn analyze_symbol_comprehension(
         &mut self,
         symbol: &mut Symbol,
@@ -317,8 +318,7 @@ impl<'a> SymbolTableAnalyzer<'a> {
                 }
             }
             SymbolTableType::Comprehension => {
-                // TODO check for conflicts
-
+                // TODO check for conflicts - requires more context information about variables
                 match symbols.get_mut(&symbol.name) {
                     Some(parent_symbol) => {
                         parent_symbol.is_assigned = true; // more checks are required
@@ -361,7 +361,6 @@ enum ExpressionContext {
     Load,
     Store,
     Delete,
-    NamedExprStore,
 }
 
 impl SymbolTableBuilder {
@@ -742,14 +741,6 @@ impl SymbolTableBuilder {
                     ExpressionContext::Store => {
                         self.register_name(name, SymbolUsage::Assigned)?;
                     }
-                    ExpressionContext::NamedExprStore => {
-                        let table = self.tables.last().unwrap();
-                        if table.typ == SymbolTableType::Comprehension {
-                            self.register_name(name, SymbolUsage::AssignedNamedExprInCompr)?;
-                        } else {
-                            self.register_name(name, SymbolUsage::Assigned)?;
-                        }
-                    }
                 }
             }
             Lambda { args, body } => {
@@ -765,7 +756,24 @@ impl SymbolTableBuilder {
 
             NamedExpression { left, right } => {
                 self.scan_expression(right, &ExpressionContext::Load)?;
-                self.scan_expression(left, &ExpressionContext::NamedExprStore)?;
+
+                // special handling for assigned identifier in named expressions
+                // that are used in comprehensions. This required to correctly
+                // propagate the scope of the named assigned named and not to
+                // propagate inner names.
+                if let Identifier { name } = &left.node {
+                    let table = self.tables.last().unwrap();
+                    if table.typ == SymbolTableType::Comprehension {
+                        self.register_name(name, SymbolUsage::AssignedNamedExprInCompr)?;
+                    } else {
+                        // omit one recursion. When the handling of an store changes for
+                        // Identifiers this needs adapted - more forward safe would be
+                        // calling scan_expression directly.
+                        self.register_name(name, SymbolUsage::Assigned)?;
+                    }
+                } else {
+                    self.scan_expression(left, &ExpressionContext::Store)?;
+                }
             }
         }
         Ok(())
