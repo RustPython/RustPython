@@ -610,7 +610,7 @@ fn str_to_float(vm: &VirtualMachine, literal: &str) -> PyResult<f64> {
 
         if !c.is_ascii_alphanumeric() {
             if let Some(l) = last_tok {
-                if !l.is_ascii_alphanumeric() {
+                if !l.is_ascii_alphanumeric() && !(c == '.' && (l == '-' || l == '+')) {
                     return Err(invalid_convert(vm, literal));
                 }
             }

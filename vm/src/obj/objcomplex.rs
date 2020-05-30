@@ -1,13 +1,16 @@
 use num_complex::Complex64;
 use num_traits::Zero;
 use std::num::Wrapping;
+use std::str::FromStr;
 
-use super::objfloat::{self, IntoPyFloat};
+use super::objfloat::{self, IntoPyFloat, PyFloat};
+use super::objint::{self, PyInt};
+use super::objstr::PyString;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyhash;
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -222,13 +225,36 @@ impl PyComplex {
     #[pyslot]
     fn tp_new(
         cls: PyClassRef,
-        real: OptionalArg<IntoPyFloat>,
+        real: OptionalArg<PyObjectRef>,
         imag: OptionalArg<IntoPyFloat>,
         vm: &VirtualMachine,
     ) -> PyResult<PyComplexRef> {
         let real = match real {
             OptionalArg::Missing => 0.0,
-            OptionalArg::Present(ref value) => value.to_f64(),
+            OptionalArg::Present(obj) => match_class!(match obj {
+                i @ PyInt => {
+                    objint::try_float(i.as_bigint(), vm)?
+                }
+                f @ PyFloat => {
+                    f.to_f64()
+                }
+                s @ PyString => {
+                    if imag.into_option().is_some() {
+                        return Err(vm.new_type_error(
+                            "complex() can't take second arg if first is a string".to_owned(),
+                        ));
+                    }
+                    let value = Complex64::from_str(s.as_str())
+                        .map_err(|err| vm.new_value_error(err.to_string()))?;
+                    return PyComplex { value }.into_ref_with_type(vm, cls);
+                }
+                obj => {
+                    return Err(vm.new_type_error(format!(
+                        "complex() first argument must be a string or a number, not '{}'",
+                        obj.class()
+                    )));
+                }
+            }),
         };
 
         let imag = match imag {
