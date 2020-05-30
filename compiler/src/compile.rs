@@ -1374,7 +1374,7 @@ impl<O: OutputStream> Compiler<O> {
                 for (i, element) in elements.iter().enumerate() {
                     if let ast::ExpressionType::Starred { .. } = &element.node {
                         if seen_star {
-                            return Err(self.error(CompileErrorType::StarArgs));
+                            return Err(self.error(CompileErrorType::MultipleStarArgs));
                         } else {
                             seen_star = true;
                             self.emit(Instruction::UnpackEx {
@@ -1399,7 +1399,14 @@ impl<O: OutputStream> Compiler<O> {
                     }
                 }
             }
-            _ => return Err(self.error(CompileErrorType::Assign(target.name()))),
+            _ => {
+                return Err(self.error(match target.node {
+                    ast::ExpressionType::Starred { .. } => CompileErrorType::SyntaxError(
+                        "starred assignment target must be in a list or tuple".to_owned(),
+                    ),
+                    _ => CompileErrorType::Assign(target.name()),
+                }))
+            }
         }
 
         Ok(())
@@ -1782,11 +1789,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.compile_comprehension(kind, generators)?;
             }
             Starred { .. } => {
-                return Err(
-                    self.error(CompileErrorType::SyntaxError(std::string::String::from(
-                        "Invalid starred expression",
-                    ))),
-                );
+                return Err(self.error(CompileErrorType::InvalidStarExpr));
             }
             IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
@@ -2031,21 +2034,33 @@ impl<O: OutputStream> Compiler<O> {
             }
         }
 
+        let mut compile_element = |element| {
+            self.compile_expression(element).map_err(|e| {
+                if matches!(e.error, CompileErrorType::InvalidStarExpr) {
+                    self.error(CompileErrorType::SyntaxError(
+                        "iterable unpacking cannot be used in comprehension".to_owned(),
+                    ))
+                } else {
+                    e
+                }
+            })
+        };
+
         match kind {
             ast::ComprehensionKind::GeneratorExpression { element } => {
-                self.compile_expression(element)?;
+                compile_element(element)?;
                 self.mark_generator();
                 self.emit(Instruction::YieldValue);
                 self.emit(Instruction::Pop);
             }
             ast::ComprehensionKind::List { element } => {
-                self.compile_expression(element)?;
+                compile_element(element)?;
                 self.emit(Instruction::ListAppend {
                     i: 1 + generators.len(),
                 });
             }
             ast::ComprehensionKind::Set { element } => {
-                self.compile_expression(element)?;
+                compile_element(element)?;
                 self.emit(Instruction::SetAdd {
                     i: 1 + generators.len(),
                 });

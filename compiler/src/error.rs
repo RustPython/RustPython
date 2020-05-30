@@ -47,7 +47,9 @@ pub enum CompileErrorType {
     Parse(ParseErrorType),
     SyntaxError(String),
     /// Multiple `*` detected
-    StarArgs,
+    MultipleStarArgs,
+    /// Misplaced `*` expression
+    InvalidStarExpr,
     /// Break statement outside of loop.
     InvalidBreak,
     /// Continue statement outside of loop.
@@ -97,7 +99,10 @@ impl fmt::Display for CompileError {
             CompileErrorType::ExpectExpr => "Expecting expression, got statement".to_owned(),
             CompileErrorType::Parse(err) => err.to_string(),
             CompileErrorType::SyntaxError(err) => err.to_string(),
-            CompileErrorType::StarArgs => "Two starred expressions in assignment".to_owned(),
+            CompileErrorType::MultipleStarArgs => {
+                "two starred expressions in assignment".to_owned()
+            }
+            CompileErrorType::InvalidStarExpr => "can't use starred expression here".to_owned(),
             CompileErrorType::InvalidBreak => "'break' outside loop".to_owned(),
             CompileErrorType::InvalidContinue => "'continue' outside loop".to_owned(),
             CompileErrorType::InvalidReturn => "'return' outside function".to_owned(),
@@ -120,7 +125,7 @@ impl fmt::Display for CompileError {
             if self.location.column() > 0 {
                 if let Some(line) = statement.lines().nth(self.location.row() - 1) {
                     // visualize the error, when location and statement are provided
-                    return write!(f, "\n{}\n{}", line, self.location.visualize(&error_desc));
+                    return write!(f, "{}", self.location.visualize(line, &error_desc));
                 }
             }
         }

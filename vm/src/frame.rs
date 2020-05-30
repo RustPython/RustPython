@@ -940,7 +940,9 @@ impl ExecutingFrame<'_> {
         if unpack {
             for obj in self.pop_multiple(size) {
                 // Take all key-value pairs from the dict:
-                let dict: PyDictRef = obj.downcast().expect("Need a dictionary to build a map.");
+                let dict: PyDictRef = obj.downcast().map_err(|obj| {
+                    vm.new_type_error(format!("'{}' object is not a mapping", obj.class().name))
+                })?;
                 for (key, value) in dict {
                     if for_call {
                         if map_obj.contains_key(&key, vm) {
@@ -1014,6 +1016,7 @@ impl ExecutingFrame<'_> {
                 let kwargs = if *has_kwargs {
                     let kw_dict: PyDictRef = match self.pop_value().downcast() {
                         Err(_) => {
+                            // TODO: check collections.abc.Mapping
                             return Err(vm.new_type_error("Kwargs must be a dict.".to_owned()));
                         }
                         Ok(x) => x,
@@ -1137,7 +1140,7 @@ impl ExecutingFrame<'_> {
         let min_expected = before + after;
         if elements.len() < min_expected {
             Err(vm.new_value_error(format!(
-                "Not enough values to unpack (expected at least {}, got {}",
+                "not enough values to unpack (expected at least {}, got {})",
                 min_expected,
                 elements.len()
             )))
