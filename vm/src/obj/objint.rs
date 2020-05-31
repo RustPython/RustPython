@@ -653,6 +653,18 @@ impl PyInt {
     fn denominator(&self) -> usize {
         1
     }
+
+    #[pymethod]
+    /// Returns the number of ones 1 an int. When the number is < 0,
+    /// then it returns the number of ones of the absolute value.
+    fn bit_count(&self) -> u32 {
+        self.value
+            .to_u32_digits()
+            .1
+            .iter()
+            .map(|n| n.count_ones())
+            .sum()
+    }
 }
 
 #[derive(FromArgs)]
