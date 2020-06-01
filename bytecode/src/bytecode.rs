@@ -273,6 +273,7 @@ pub enum Instruction {
     MapAdd {
         i: usize,
     },
+
     PrintExpr,
     LoadBuildClass,
     UnpackSequence {
@@ -296,6 +297,13 @@ pub enum Instruction {
     },
     GetAIter,
     GetANext,
+
+    /// Reverse order evaluation in MapAdd
+    /// required to support named expressions of Python 3.8 in dict comprehension
+    /// today (including Py3.9) only required in dict comprehension.
+    MapAddRev {
+        i: usize,
+    },
 }
 
 use self::Instruction::*;
@@ -586,7 +594,7 @@ impl Instruction {
             BuildSlice { size } => w!(BuildSlice, size),
             ListAppend { i } => w!(ListAppend, i),
             SetAdd { i } => w!(SetAdd, i),
-            MapAdd { i } => w!(MapAdd, i),
+            MapAddRev { i } => w!(MapAddRev, i),
             PrintExpr => w!(PrintExpr),
             LoadBuildClass => w!(LoadBuildClass),
             UnpackSequence { size } => w!(UnpackSequence, size),
@@ -597,6 +605,7 @@ impl Instruction {
             GetAwaitable => w!(GetAwaitable),
             GetAIter => w!(GetAIter),
             GetANext => w!(GetANext),
+            MapAdd { i } => w!(MapAdd, i),
         }
     }
 }

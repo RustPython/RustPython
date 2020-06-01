@@ -1804,6 +1804,12 @@ impl<O: OutputStream> Compiler<O> {
                 // End
                 self.set_label(end_label);
             }
+
+            NamedExpression { left, right } => {
+                self.compile_expression(right)?;
+                self.emit(Instruction::Duplicate);
+                self.compile_store(left)?;
+            }
         }
         Ok(())
     }
@@ -2066,10 +2072,11 @@ impl<O: OutputStream> Compiler<O> {
                 });
             }
             ast::ComprehensionKind::Dict { key, value } => {
-                self.compile_expression(value)?;
+                // changed evaluation order for Py38 named expression PEP 572
                 self.compile_expression(key)?;
+                self.compile_expression(value)?;
 
-                self.emit(Instruction::MapAdd {
+                self.emit(Instruction::MapAddRev {
                     i: 1 + generators.len(),
                 });
             }

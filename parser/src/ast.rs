@@ -309,6 +309,12 @@ pub enum ExpressionType {
         orelse: Box<Expression>,
     },
 
+    // A named expression
+    NamedExpression {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+
     /// The literal 'True'.
     True,
 
@@ -364,6 +370,7 @@ impl Expression {
             IfExpression { .. } => "conditional expression",
             True | False | None => "keyword",
             Ellipsis => "ellipsis",
+            NamedExpression { .. } => "named expression",
         }
     }
 }

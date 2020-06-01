@@ -426,6 +426,14 @@ impl ExecutingFrame<'_> {
                 vm.call_method(&dict_obj, "__setitem__", vec![key, value])?;
                 Ok(None)
             }
+            bytecode::Instruction::MapAddRev { i } => {
+                // change order of evalutio of key and value to support Py3.8 Named expressions in dict comprehension
+                let dict_obj = self.nth_value(*i + 1);
+                let value = self.pop_value();
+                let key = self.pop_value();
+                vm.call_method(&dict_obj, "__setitem__", vec![key, value])?;
+                Ok(None)
+            }
             bytecode::Instruction::BinaryOperation { ref op, inplace } => {
                 self.execute_binop(vm, op, *inplace)
             }
