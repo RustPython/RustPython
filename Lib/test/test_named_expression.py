@@ -166,7 +166,7 @@ class NamedExpressionInvalidTest(unittest.TestCase):
                 with self.assertRaisesRegex(SyntaxError, msg):
                     exec(f"lambda: {code}", {}) # Function scope
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO RustPythonskip
     def test_named_expression_invalid_comprehension_iterable_expression(self):
         cases = [
             ("Top level", "[i for i in (i := range(5))]"),
@@ -394,21 +394,21 @@ print(a)"""
         self.assertEqual(b, [1, 1])
         self.assertEqual(a, 1)
 
-    # the following test is not from CPyrgon and just as refernce for a common scoping problem of RustPython
-    @unittest.skip # needs skipping due to weired behaviour
+    # the following test is not from CPython and just as refernce for a common scoping problem of RustPython
     def test_named_expression_scop_10_rp_scope_prob(self):
         def foo():
-            rr=0
+            rr=36
             def foo0():
                 nonlocal rr
                 def foo1():
                     nonlocal rr
+                    self.assertEqual(rr,36)
                     rr+=42
                 foo1()
             foo0()
             return rr
 
-        self.assertEqual(foo(), 42)
+        self.assertEqual(foo(), 78)
         
 
     def test_named_expression_scope_11(self):
@@ -550,7 +550,6 @@ spam()"""
         f()
         self.assertEqual(GLOBAL_VAR, None)
 
-    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_nonlocal_scope(self):
         sentinel = object()
         def f():
