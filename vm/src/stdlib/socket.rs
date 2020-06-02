@@ -32,7 +32,21 @@ type RawSocket = std::os::unix::io::RawFd;
 type RawSocket = std::os::windows::raw::SOCKET;
 
 #[cfg(unix)]
-use libc as c;
+mod c {
+    pub use libc::*;
+    // https://gitlab.redox-os.org/redox-os/relibc/-/blob/master/src/header/netdb/mod.rs
+    #[cfg(target_os = "redox")]
+    pub const AI_PASSIVE: c_int = 0x01;
+    #[cfg(target_os = "redox")]
+    pub const AI_ALL: c_int = 0x10;
+    // https://gitlab.redox-os.org/redox-os/relibc/-/blob/master/src/header/sys_socket/constants.rs
+    #[cfg(target_os = "redox")]
+    pub const SO_TYPE: c_int = 3;
+    #[cfg(target_os = "redox")]
+    pub const MSG_OOB: c_int = 1;
+    #[cfg(target_os = "redox")]
+    pub const MSG_WAITALL: c_int = 256;
+}
 #[cfg(windows)]
 mod c {
     pub use winapi::shared::ws2def::*;
@@ -667,6 +681,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SHUT_WR" => ctx.new_int(c::SHUT_WR),
         "SHUT_RDWR" => ctx.new_int(c::SHUT_RDWR),
         "MSG_PEEK" => ctx.new_int(c::MSG_PEEK),
+        "MSG_OOB" => ctx.new_int(c::MSG_OOB),
+        "MSG_WAITALL" => ctx.new_int(c::MSG_WAITALL),
         "IPPROTO_TCP" => ctx.new_int(c::IPPROTO_TCP),
         "IPPROTO_UDP" => ctx.new_int(c::IPPROTO_UDP),
         "IPPROTO_IP" => ctx.new_int(c::IPPROTO_IP),
@@ -674,20 +690,17 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "IPPROTO_IPV6" => ctx.new_int(c::IPPROTO_IPV6),
         "SOL_SOCKET" => ctx.new_int(c::SOL_SOCKET),
         "SO_REUSEADDR" => ctx.new_int(c::SO_REUSEADDR),
-        "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
-        "SO_BROADCAST" => ctx.new_int(c::SO_BROADCAST),
         "SO_TYPE" => ctx.new_int(c::SO_TYPE),
+        "SO_BROADCAST" => ctx.new_int(c::SO_BROADCAST),
+        "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
+        "AI_ALL" => ctx.new_int(c::AI_ALL),
+        "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
     });
 
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
         "getaddrinfo" => ctx.new_function(socket_getaddrinfo),
         "gethostbyaddr" => ctx.new_function(socket_gethostbyaddr),
-        // non-redox constants
-        "MSG_OOB" => ctx.new_int(c::MSG_OOB),
-        "MSG_WAITALL" => ctx.new_int(c::MSG_WAITALL),
-        "AI_ALL" => ctx.new_int(c::AI_ALL),
-        "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
     });
 
     extend_module_platform_specific(vm, &module);

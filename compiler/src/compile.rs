@@ -2042,7 +2042,7 @@ impl<O: OutputStream> Compiler<O> {
 
         let mut compile_element = |element| {
             self.compile_expression(element).map_err(|e| {
-                if matches!(e.error, CompileErrorType::InvalidStarExpr) {
+                if let CompileErrorType::InvalidStarExpr = e.error {
                     self.error(CompileErrorType::SyntaxError(
                         "iterable unpacking cannot be used in comprehension".to_owned(),
                     ))

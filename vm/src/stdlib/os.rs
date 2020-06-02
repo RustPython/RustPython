@@ -1314,10 +1314,18 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
 #[cfg(any(target_os = "linux", target_os = "openbsd"))]
 type ModeT = u32;
 
+#[cfg(target_os = "redox")]
+type ModeT = i32;
+
 #[cfg(target_os = "macos")]
 type ModeT = u16;
 
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "openbsd"))]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "openbsd",
+    target_os = "redox"
+))]
 fn os_umask(mask: ModeT, _vm: &VirtualMachine) -> PyResult<ModeT> {
     let ret_mask = unsafe { libc::umask(mask) };
     Ok(ret_mask)
@@ -1455,6 +1463,7 @@ fn os_utime(
 
 #[cfg(unix)]
 fn os_sync(_vm: &VirtualMachine) -> PyResult<()> {
+    #[cfg(not(target_os = "redox"))]
     unsafe {
         libc::sync();
     }
