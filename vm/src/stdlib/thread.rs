@@ -11,13 +11,13 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use crossbeam_utils::atomic::AtomicCell;
 use parking_lot::{
     lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     RawMutex, RawThreadId,
 };
+use thread_local::ThreadLocal;
+
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::io::Write;
 use std::time::Duration;
 use std::{fmt, thread};
@@ -267,13 +267,10 @@ fn thread_count(vm: &VirtualMachine) -> usize {
     vm.state.thread_count.load()
 }
 
-static LOCAL_DATA_KEY: AtomicCell<usize> = AtomicCell::new(0);
-thread_local!(static LOCAL_DATA: RefCell<HashMap<usize, PyDictRef>> = RefCell::default());
-
 #[pyclass(name = "_local")]
 #[derive(Debug)]
 struct PyLocal {
-    key: usize,
+    data: ThreadLocal<PyDictRef>,
 }
 
 impl PyValue for PyLocal {
@@ -282,27 +279,16 @@ impl PyValue for PyLocal {
     }
 }
 
-impl Drop for PyLocal {
-    fn drop(&mut self) {
-        LOCAL_DATA.with(|map| map.borrow_mut().remove(&self.key));
-    }
-}
-
 #[pyimpl(flags(BASETYPE))]
 impl PyLocal {
     fn ldict(&self, vm: &VirtualMachine) -> PyDictRef {
-        LOCAL_DATA.with(|map| {
-            map.borrow_mut()
-                .entry(self.key)
-                .or_insert_with(|| vm.ctx.new_dict())
-                .clone()
-        })
+        self.data.get_or(|| vm.ctx.new_dict()).clone()
     }
 
     #[pyslot]
     fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyLocal {
-            key: LOCAL_DATA_KEY.fetch_add(1),
+            data: ThreadLocal::new(),
         }
         .into_ref_with_type(vm, cls)
     }
