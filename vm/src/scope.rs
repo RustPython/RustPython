@@ -114,13 +114,7 @@ impl NameProtocol for Scope {
 
     fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
         // find the innermost outer scope that contains the symbol name
-        if let Some(locals) = self
-            .locals
-            .iter()
-            .rev()
-            .filter(|l| l.contains_key(name, vm))
-            .nth(0)
-        {
+        if let Some(locals) = self.locals.iter().rev().find(|l| l.contains_key(name, vm)) {
             // add to the symbol
             locals.set_item(name, value, vm).unwrap();
         } else {
