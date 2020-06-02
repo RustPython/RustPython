@@ -471,6 +471,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.checkraises(TypeError, ' ', 'join', [1, 2, 3])
         self.checkraises(TypeError, ' ', 'join', ['1', '2', 3])
 
+    @unittest.skip("TODO: RUSTPYTHON, oom handling")
     @unittest.skipIf(sys.maxsize > 2**32,
         'needs too much memory on a 64-bit platform')
     def test_join_overflow(self):
@@ -2357,6 +2358,7 @@ class UnicodeTest(string_tests.CommonTest,
     # This test only affects 32-bit platforms because expandtabs can only take
     # an int as the max value, not a 64-bit C long.  If expandtabs is changed
     # to take a 64-bit long, this test should apply to all platforms.
+    @unittest.skip("TODO: RUSTPYTHON, oom handling")
     @unittest.skipIf(sys.maxsize > (1 << 32) or struct.calcsize('P') != 4,
                      'only applies to 32-bit platforms')
     def test_expandtabs_overflows_gracefully(self):
