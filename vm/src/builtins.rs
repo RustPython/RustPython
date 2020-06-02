@@ -716,11 +716,13 @@ fn builtin_setattr(
 // builtin_slice
 
 fn builtin_sorted(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(iterable, None)]);
-    let items = vm.extract_elements(iterable)?;
+    let iterable = args.take_positional();
+    if iterable.is_none() {
+        return Err(vm.new_type_error("sorted expected 1 arguments, got 0".to_string()));
+    }
+    let items = vm.extract_elements(&iterable.unwrap())?;
     let lst = vm.ctx.new_list(items);
 
-    args.shift();
     vm.call_method(&lst, "sort", args)?;
     Ok(lst)
 }

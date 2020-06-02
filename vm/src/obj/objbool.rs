@@ -150,18 +150,28 @@ impl PyBool {
     }
 
     #[pyslot]
-    fn tp_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(
-            vm,
-            args,
-            required = [(_zelf, Some(vm.ctx.type_type()))],
-            optional = [(val, None)]
-        );
-        let value = match val {
-            Some(val) => boolval(vm, val.clone())?,
-            None => false,
-        };
-        Ok(vm.new_bool(value))
+    fn tp_new(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+        let zelf = &args.shift();
+        if !objtype::isinstance(&zelf, &vm.ctx.type_type()) {
+            let zelf_typ = zelf.class();
+            let actual_type = vm.to_pystr(&zelf_typ)?;
+            return Err(vm.new_type_error(format!(
+                "requires a 'type' object but received a '{}'",
+                actual_type
+            )));
+        }
+        if args.args.len() > 1 {
+            Err(vm.new_type_error(format!(
+                "bool expected at most 1 arguments, got {}",
+                args.args.len()
+            )))
+        } else {
+            let value = match args.take_positional() {
+                Some(val) => boolval(vm, val.clone())?,
+                None => false,
+            };
+            Ok(vm.new_bool(value))
+        }
     }
 }
 
