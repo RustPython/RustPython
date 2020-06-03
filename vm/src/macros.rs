@@ -328,3 +328,17 @@ macro_rules! class_or_notimplemented {
         }
     };
 }
+
+#[macro_export]
+macro_rules! named_function {
+    ($ctx:expr, $module:ident, $func:ident) => {{
+        paste::expr! {
+            $crate::pyobject::PyContext::new_function_named(
+                &$ctx,
+                [<$module _ $func>],
+                stringify!($module).to_owned(),
+                stringify!($func).to_owned(),
+            )
+        }
+    }};
+}

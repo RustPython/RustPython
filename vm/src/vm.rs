@@ -1483,6 +1483,13 @@ impl VirtualMachine {
         attr_name: impl TryIntoRef<PyString>,
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
+        // let attr_name = attr_name.try_into_ref(self)?;
+        // let value = attr_value.into();
+        // let dict = module.dict().expect("module doesn't have dict");
+        // if let Ok(module_name) = dict.get_item("__name__", self) {
+        //     let _ = self.set_attr(&value, "__module__", module_name);
+        // }
+        // dict.set_item(&attr_name, value, self)?;
         let val = attr_value.into();
         objobject::setattr(module.clone(), attr_name.try_into_ref(self)?, val, self)
     }

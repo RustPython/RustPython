@@ -338,8 +338,8 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             type_type,
         );
 
-        let type_type = PyClassRef::new_ref_unchecked(Arc::from_raw(type_type_ptr));
-        let object_type = PyClassRef::new_ref_unchecked(Arc::from_raw(object_type_ptr));
+        let type_type = PyClassRef::from_obj_unchecked(Arc::from_raw(type_type_ptr));
+        let object_type = PyClassRef::from_obj_unchecked(Arc::from_raw(object_type_ptr));
 
         (*type_type_ptr).payload.mro = vec![object_type.clone()];
         (*type_type_ptr).payload.bases = vec![object_type.clone()];
