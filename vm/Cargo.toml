@@ -102,7 +102,7 @@ crc32fast = "1.2.0"
 adler32 = "1.0.3"
 gethostname = "0.2.0"
 subprocess = "0.2.2"
-socket2 = { version = "0.3", features = ["unix"] }
+socket2 = "0.3"
 rustyline = "6.0"
 openssl = { version = "0.10", features = ["vendored"], optional = true }
 openssl-sys = { version = "0.9", optional = true }
