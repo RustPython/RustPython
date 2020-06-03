@@ -1003,7 +1003,7 @@ impl VirtualMachine {
     }
 
     pub fn generic_getattribute(&self, obj: PyObjectRef, name: PyStringRef) -> PyResult {
-        self.generic_getattribute_opt(obj.clone(), name.clone())?
+        self.generic_getattribute_opt(obj.clone(), name.clone(), None)?
             .ok_or_else(|| self.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
     }
 
@@ -1012,6 +1012,7 @@ impl VirtualMachine {
         &self,
         obj: PyObjectRef,
         name_str: PyStringRef,
+        dict: Option<PyDictRef>,
     ) -> PyResult<Option<PyObjectRef>> {
         let name = name_str.as_str();
         let cls = obj.class();
@@ -1025,7 +1026,9 @@ impl VirtualMachine {
             }
         }
 
-        let attr = if let Some(dict) = obj.dict() {
+        let dict = dict.or_else(|| obj.dict());
+
+        let attr = if let Some(dict) = dict {
             dict.get_item_option(name_str.as_str(), self)?
         } else {
             None
