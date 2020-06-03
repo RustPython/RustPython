@@ -292,7 +292,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self) -> pyhash::PyHash {
+    pub(crate) fn hash(&self) -> pyhash::PyHash {
         self.hash.load().unwrap_or_else(|| {
             let hash = pyhash::hash_value(&self.value);
             self.hash.store(Some(hash));
