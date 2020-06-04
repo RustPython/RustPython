@@ -136,10 +136,12 @@ pub enum SequenceIndex {
 impl TryFromObject for SequenceIndex {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         match_class!(match obj {
-            i @ PyInt => Ok(SequenceIndex::Int(isize::try_from_object(
-                vm,
-                i.into_object()
-            )?)),
+            i @ PyInt => i
+                .as_bigint()
+                .to_isize()
+                .map(SequenceIndex::Int)
+                .ok_or_else(|| vm
+                    .new_index_error("cannot fit 'int' into an index-sized integer".to_owned())),
             s @ PySlice => Ok(SequenceIndex::Slice(s)),
             obj => Err(vm.new_type_error(format!(
                 "sequence indices be integers or slices, not {}",

@@ -4,12 +4,8 @@ import sys
 def expect_cannot_fit_index_error(s, index):
     try:
         s[index]
-    except IndexError:
-        pass
-    # TODO: Replace current except block with commented
-    # after solving https://github.com/RustPython/RustPython/issues/322
-    # except IndexError as error:
-    #     assert str(error) == "cannot fit 'int' into an index-sized integer"
+    except IndexError as error:
+        assert str(error) == "cannot fit 'int' into an index-sized integer"
     else:
         assert False
 
