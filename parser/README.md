@@ -8,7 +8,7 @@ The steps are:
 
 This crate is published on [https://docs.rs/rustpython-parser](https://docs.rs/rustpython-parser).
 
-We wrote [a blog post](https://rustpython.github.io/featured/2020/03/11/thing-explainer-parser.html) with screenshots and an explanation to help you understand the steps by seeing them in action.
+We wrote [a blog post](https://rustpython.github.io/2020/04/02/thing-explainer-parser.html) with screenshots and an explanation to help you understand the steps by seeing them in action.
 
 For more information on LALRPOP, here is a link to the [LALRPOP book](https://github.com/lalrpop/lalrpop).
 
