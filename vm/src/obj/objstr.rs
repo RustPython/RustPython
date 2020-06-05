@@ -4,6 +4,7 @@ use std::mem::size_of;
 use std::ops::Range;
 use std::str::FromStr;
 use std::string::ToString;
+use std::sync::Arc;
 
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -22,6 +23,7 @@ use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtuple;
 use super::objtype::{self, PyClassRef};
 use super::pystr::{self, adjust_indices, PyCommonString, PyCommonStringWrapper};
+use crate::bytecode::StringData;
 use crate::cformat::{
     CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
     CNumberType,
@@ -34,6 +36,12 @@ use crate::pyobject::{
     PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+
+#[derive(Debug)]
+enum PyStringInner {
+    Direct(StringData),
+    RefCount(Arc<StringData>),
+}
 
 /// str(object='') -> str
 /// str(bytes_or_buffer[, encoding[, errors]]) -> str
@@ -48,30 +56,27 @@ use crate::vm::VirtualMachine;
 #[pyclass(name = "str")]
 #[derive(Debug)]
 pub struct PyString {
-    value: String,
-    hash: AtomicCell<Option<pyhash::PyHash>>,
-    len: AtomicCell<Option<usize>>,
+    inner: PyStringInner,
 }
 
 impl PyString {
+    fn inner(&self) -> &StringData {
+        match &self.inner {
+            PyStringInner::Direct(s) => s,
+            PyStringInner::RefCount(s) => s,
+        }
+    }
+
     #[inline]
     pub fn as_str(&self) -> &str {
-        &self.value
+        self.inner().as_ref()
     }
 }
 
-impl From<&str> for PyString {
-    fn from(s: &str) -> PyString {
-        s.to_owned().into()
-    }
-}
-
-impl From<String> for PyString {
-    fn from(s: String) -> PyString {
+impl<T: Into<StringData>> From<T> for PyString {
+    fn from(s: T) -> Self {
         PyString {
-            value: s,
-            hash: AtomicCell::default(),
-            len: AtomicCell::default(),
+            inner: PyStringInner::Direct(s.into()),
         }
     }
 }
@@ -80,7 +85,7 @@ pub type PyStringRef = PyRef<PyString>;
 
 impl fmt::Display for PyString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.value, f)
+        fmt::Display::fmt(self.as_str(), f)
     }
 }
 
@@ -116,7 +121,7 @@ impl PyStringIterator {
         // TODO: use something more performant than chars().nth() that's still atomic
         let pos = self.position.fetch_add(1);
 
-        if let Some(c) = self.string.value.chars().nth(pos) {
+        if let Some(c) = self.string.as_str().chars().nth(pos) {
             Ok(c.to_string())
         } else {
             Err(objiter::new_stop_iteration(vm))
@@ -148,7 +153,7 @@ impl PyStringReverseIterator {
     fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
         let pos = self.position.fetch_sub(1);
         if pos > 0 {
-            if let Some(c) = self.string.value.chars().nth(pos as usize - 1) {
+            if let Some(c) = self.string.as_str().chars().nth(pos as usize - 1) {
                 return Ok(c.to_string());
             }
         }
@@ -205,7 +210,7 @@ impl PyString {
     #[pymethod(name = "__add__")]
     fn add(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            Ok(format!("{}{}", self.value, borrow_value(&rhs)))
+            Ok(format!("{}{}", self, borrow_value(&rhs)))
         } else {
             Err(vm.new_type_error(format!("Cannot add {} and {}", self, rhs)))
         }
@@ -213,13 +218,13 @@ impl PyString {
 
     #[pymethod(name = "__bool__")]
     fn bool(&self) -> bool {
-        !self.value.is_empty()
+        !self.as_str().is_empty()
     }
 
     #[pymethod(name = "__eq__")]
     fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            vm.new_bool(self.value == borrow_value(&rhs))
+            vm.new_bool(self.as_str() == borrow_value(&rhs))
         } else {
             vm.ctx.not_implemented()
         }
@@ -228,7 +233,7 @@ impl PyString {
     #[pymethod(name = "__ne__")]
     fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            vm.new_bool(self.value != borrow_value(&rhs))
+            vm.new_bool(self.as_str() != borrow_value(&rhs))
         } else {
             vm.ctx.not_implemented()
         }
@@ -236,7 +241,7 @@ impl PyString {
 
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyStringRef) -> bool {
-        self.value.contains(&needle.value)
+        self.as_str().contains(&needle.as_str())
     }
 
     #[pymethod(name = "__getitem__")]
@@ -244,19 +249,19 @@ impl PyString {
         match needle {
             SequenceIndex::Int(pos) => {
                 let index: usize = if pos.is_negative() {
-                    (self.value.chars().count() as isize + pos) as usize
+                    (self.char_len() as isize + pos) as usize
                 } else {
                     pos.abs() as usize
                 };
 
-                if let Some(character) = self.value.chars().nth(index) {
+                if let Some(character) = self.as_str().chars().nth(index) {
                     Ok(vm.new_str(character.to_string()))
                 } else {
                     Err(vm.new_index_error("string index out of range".to_owned()))
                 }
             }
             SequenceIndex::Slice(slice) => {
-                let string = self.value.get_slice_items(vm, &slice)?;
+                let string = self.as_str().get_slice_items(vm, &slice)?;
                 Ok(vm.new_str(string))
             }
         }
@@ -264,52 +269,44 @@ impl PyString {
 
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyStringRef) -> bool {
-        self.value > other.value
+        self.as_str() > other.as_str()
     }
 
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyStringRef) -> bool {
-        self.value >= other.value
+        self.as_str() >= other.as_str()
     }
 
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyStringRef) -> bool {
-        self.value < other.value
+        self.as_str() < other.as_str()
     }
 
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyStringRef) -> bool {
-        self.value <= other.value
+        self.as_str() <= other.as_str()
     }
 
     #[pymethod(name = "__hash__")]
     pub(crate) fn hash(&self) -> pyhash::PyHash {
-        self.hash.load().unwrap_or_else(|| {
-            let hash = pyhash::hash_value(&self.value);
-            self.hash.store(Some(hash));
-            hash
-        })
+        self.inner().hash()
     }
 
     #[pymethod(name = "__len__")]
     #[inline]
-    fn len(&self) -> usize {
-        self.len.load().unwrap_or_else(|| {
-            let len = self.value.chars().count();
-            self.len.store(Some(len));
-            len
-        })
+    fn char_len(&self) -> usize {
+        self.inner().char_len()
     }
 
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self) -> usize {
-        size_of::<Self>() + self.value.capacity() * size_of::<u8>()
+        size_of::<Self>() + self.as_str().len() * size_of::<u8>()
     }
 
     #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
     fn mul(&self, value: isize) -> String {
-        self.value.repeat(value.max(0) as usize)
+        self.as_str().repeat(value.max(0) as usize)
     }
 
     #[pymethod(name = "__str__")]
@@ -319,13 +316,13 @@ impl PyString {
 
     #[pymethod(name = "__repr__")]
     pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let in_len = self.value.len();
+        let in_len = self.as_str().len();
         let mut out_len = 0usize;
         // let mut max = 127;
         let mut squote = 0;
         let mut dquote = 0;
 
-        for ch in self.value.chars() {
+        for ch in self.as_str().chars() {
             let incr = match ch {
                 '\'' => {
                     squote += 1;
@@ -372,9 +369,9 @@ impl PyString {
         let mut repr = String::with_capacity(out_len);
         repr.push(quote);
         if unchanged {
-            repr.push_str(&self.value);
+            repr.push_str(&self.as_str());
         } else {
-            for ch in self.value.chars() {
+            for ch in self.as_str().chars() {
                 if ch == quote || ch == '\\' {
                     repr.push('\\');
                     repr.push(ch);
@@ -410,23 +407,23 @@ impl PyString {
 
     #[pymethod]
     fn lower(&self) -> String {
-        self.value.to_lowercase()
+        self.as_str().to_lowercase()
     }
 
     // casefold is much more aggressive than lower
     #[pymethod]
     fn casefold(&self) -> String {
-        caseless::default_case_fold_str(&self.value)
+        caseless::default_case_fold_str(&self.as_str())
     }
 
     #[pymethod]
     fn upper(&self) -> String {
-        self.value.to_uppercase()
+        self.as_str().to_uppercase()
     }
 
     #[pymethod]
     fn capitalize(&self) -> String {
-        let mut chars = self.value.chars();
+        let mut chars = self.as_str().chars();
         if let Some(first_char) = chars.next() {
             format!(
                 "{}{}",
@@ -440,7 +437,7 @@ impl PyString {
 
     #[pymethod]
     fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
-        let elements = self.value.py_split(
+        let elements = self.as_str().py_split(
             args,
             vm,
             |v, s, vm| v.split(s).map(|s| vm.ctx.new_str(s)).collect(),
@@ -452,7 +449,7 @@ impl PyString {
 
     #[pymethod]
     fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
-        let mut elements = self.value.py_split(
+        let mut elements = self.as_str().py_split(
             args,
             vm,
             |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_str(s)).collect(),
@@ -467,7 +464,7 @@ impl PyString {
 
     #[pymethod]
     fn strip(&self, chars: OptionalOption<PyStringRef>) -> String {
-        self.value
+        self.as_str()
             .py_strip(
                 chars,
                 |s, chars| s.trim_matches(|c| chars.contains(c)),
@@ -478,7 +475,7 @@ impl PyString {
 
     #[pymethod]
     fn lstrip(&self, chars: OptionalOption<PyStringRef>) -> String {
-        self.value
+        self.as_str()
             .py_strip(
                 chars,
                 |s, chars| s.trim_start_matches(|c| chars.contains(c)),
@@ -489,7 +486,7 @@ impl PyString {
 
     #[pymethod]
     fn rstrip(&self, chars: OptionalOption<PyStringRef>) -> String {
-        self.value
+        self.as_str()
             .py_strip(
                 chars,
                 |s, chars| s.trim_end_matches(|c| chars.contains(c)),
@@ -500,7 +497,7 @@ impl PyString {
 
     #[pymethod]
     fn endswith(&self, args: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        self.value.as_str().py_startsendswith(
+        self.as_str().py_startsendswith(
             args,
             "endswith",
             "str",
@@ -511,7 +508,7 @@ impl PyString {
 
     #[pymethod]
     fn startswith(&self, args: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        self.value.as_str().py_startsendswith(
+        self.as_str().py_startsendswith(
             args,
             "startswith",
             "str",
@@ -529,9 +526,8 @@ impl PyString {
     /// Otherwise, return a copy of the original string.
     #[pymethod]
     fn removeprefix(&self, pref: PyStringRef) -> String {
-        self.value
-            .as_str()
-            .py_removeprefix(&pref.value, pref.value.len(), |s, p| s.starts_with(p))
+        self.as_str()
+            .py_removeprefix(&pref.as_str(), pref.as_str().len(), |s, p| s.starts_with(p))
             .to_string()
     }
 
@@ -544,20 +540,19 @@ impl PyString {
     /// Otherwise, return a copy of the original string.
     #[pymethod]
     fn removesuffix(&self, suff: PyStringRef) -> String {
-        self.value
-            .as_str()
-            .py_removesuffix(&suff.value, suff.value.len(), |s, p| s.ends_with(p))
+        self.as_str()
+            .py_removesuffix(&suff.as_str(), suff.as_str().len(), |s, p| s.ends_with(p))
             .to_string()
     }
 
     #[pymethod]
     fn isalnum(&self) -> bool {
-        !self.value.is_empty() && self.value.chars().all(char::is_alphanumeric)
+        !self.as_str().is_empty() && self.as_str().chars().all(char::is_alphanumeric)
     }
 
     #[pymethod]
     fn isnumeric(&self) -> bool {
-        !self.value.is_empty() && self.value.chars().all(char::is_numeric)
+        !self.as_str().is_empty() && self.as_str().chars().all(char::is_numeric)
     }
 
     #[pymethod]
@@ -567,10 +562,10 @@ impl PyString {
             0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
         ];
 
-        if self.value.is_empty() {
+        if self.as_str().is_empty() {
             false
         } else {
-            self.value
+            self.as_str()
                 .chars()
                 .filter(|c| !c.is_digit(10))
                 .all(|c| valid_unicodes.contains(&(c as u16)))
@@ -579,16 +574,16 @@ impl PyString {
 
     #[pymethod]
     fn isdecimal(&self) -> bool {
-        if self.value.is_empty() {
+        if self.as_str().is_empty() {
             false
         } else {
-            self.value.chars().all(|c| c.is_ascii_digit())
+            self.as_str().chars().all(|c| c.is_ascii_digit())
         }
     }
 
     #[pymethod(name = "__mod__")]
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let format_string_text = &self.value;
+        let format_string_text = &self.as_str();
         let format_string = CFormatString::from_str(format_string_text)
             .map_err(|err| vm.new_value_error(err.to_string()))?;
         do_cformat(vm, format_string, values.clone())
@@ -657,7 +652,7 @@ impl PyString {
     #[pymethod(name = "__format__")]
     fn format_str(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
         match FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_string(&self.value))
+            .and_then(|format_spec| format_spec.format_string(&self.as_str()))
         {
             Ok(string) => Ok(string),
             Err(err) => Err(vm.new_value_error(err.to_string())),
@@ -668,9 +663,9 @@ impl PyString {
     /// uppercase character and the remaining characters are lowercase.
     #[pymethod]
     fn title(&self) -> String {
-        let mut title = String::with_capacity(self.value.len());
+        let mut title = String::with_capacity(self.as_str().len());
         let mut previous_is_cased = false;
-        for c in self.value.chars() {
+        for c in self.as_str().chars() {
             if c.is_lowercase() {
                 if !previous_is_cased {
                     title.extend(c.to_titlecase());
@@ -695,8 +690,8 @@ impl PyString {
 
     #[pymethod]
     fn swapcase(&self) -> String {
-        let mut swapped_str = String::with_capacity(self.value.len());
-        for c in self.value.chars() {
+        let mut swapped_str = String::with_capacity(self.as_str().len());
+        for c in self.as_str().chars() {
             // to_uppercase returns an iterator, to_ascii_uppercase returns the char
             if c.is_lowercase() {
                 swapped_str.push(c.to_ascii_uppercase());
@@ -711,21 +706,31 @@ impl PyString {
 
     #[pymethod]
     fn isalpha(&self) -> bool {
-        !self.value.is_empty() && self.value.chars().all(char::is_alphabetic)
+        !self.as_str().is_empty() && self.as_str().chars().all(char::is_alphabetic)
     }
 
     #[pymethod]
-    fn replace(&self, old: PyStringRef, new: PyStringRef, count: OptionalArg<isize>) -> String {
+    fn replace(
+        zelf: PyRef<Self>,
+        old: PyStringRef,
+        new: PyStringRef,
+        count: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyStringRef {
         match count {
             OptionalArg::Present(maxcount) if maxcount >= 0 => {
-                if maxcount == 0 || self.value.is_empty() {
+                if maxcount == 0 || zelf.as_str().is_empty() {
                     // nothing to do; return the original bytes
-                    return self.value.clone();
+                    return zelf;
                 }
-                self.value
-                    .replacen(&old.value, &new.value, maxcount as usize)
+                PyString::from(zelf.as_str().replacen(
+                    &old.as_str(),
+                    &new.as_str(),
+                    maxcount as usize,
+                ))
+                .into_ref(vm)
             }
-            _ => self.value.replace(&old.value, &new.value),
+            _ => PyString::from(zelf.as_str().replace(&old.as_str(), &new.as_str())).into_ref(vm),
         }
     }
 
@@ -746,7 +751,7 @@ impl PyString {
     ///   * Zs (Separator, Space) other than ASCII space('\x20').
     #[pymethod]
     fn isprintable(&self) -> bool {
-        self.value
+        self.as_str()
             .chars()
             .all(|c| c == '\u{0020}' || char_is_printable(c))
     }
@@ -755,7 +760,7 @@ impl PyString {
     // which is why isspace is using is_ascii_whitespace. Same for isupper & islower
     #[pymethod]
     fn isspace(&self) -> bool {
-        !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii_whitespace())
+        !self.as_str().is_empty() && self.as_str().chars().all(|c| c.is_ascii_whitespace())
     }
 
     // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.
@@ -763,7 +768,7 @@ impl PyString {
     fn islower(&self) -> bool {
         // CPython unicode_islower_impl
         let mut cased = false;
-        for c in self.value.chars() {
+        for c in self.as_str().chars() {
             if c.is_uppercase() {
                 return false;
             } else if !cased && c.is_lowercase() {
@@ -778,7 +783,7 @@ impl PyString {
     fn isupper(&self) -> bool {
         // CPython unicode_isupper_impl
         let mut cased = false;
-        for c in self.value.chars() {
+        for c in self.as_str().chars() {
             if c.is_lowercase() {
                 return false;
             } else if !cased && c.is_uppercase() {
@@ -790,14 +795,14 @@ impl PyString {
 
     #[pymethod]
     fn isascii(&self) -> bool {
-        self.value.chars().all(|c| c.is_ascii())
+        self.as_str().chars().all(|c| c.is_ascii())
     }
 
     #[pymethod]
     fn splitlines(&self, args: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         let mut elements = vec![];
         let mut curr = "".to_owned();
-        let mut chars = self.value.chars().peekable();
+        let mut chars = self.as_str().chars().peekable();
         while let Some(ch) = chars.next() {
             if ch == '\n' || ch == '\r' {
                 if args.keepends {
@@ -825,9 +830,9 @@ impl PyString {
         for (idx, elem) in iterable.iter(vm)?.enumerate() {
             let elem = elem?;
             if idx != 0 {
-                joined.push_str(&self.value);
+                joined.push_str(&self.as_str());
             }
-            joined.push_str(&elem.value)
+            joined.push_str(&elem.as_str())
         }
 
         Ok(joined)
@@ -838,8 +843,8 @@ impl PyString {
     where
         F: Fn(&str, &str) -> Option<usize>,
     {
-        let (sub, range) = args.get_value(self.len());
-        self.value.py_find(&sub.value, range, find)
+        let (sub, range) = args.get_value(self.char_len());
+        self.as_str().py_find(&sub.as_str(), range, find)
     }
 
     #[pymethod]
@@ -868,13 +873,13 @@ impl PyString {
 
     #[pymethod]
     fn partition(&self, sub: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        if sub.value.is_empty() {
+        if sub.as_str().is_empty() {
             return Err(vm.new_value_error("empty separator".to_owned()));
         }
-        let mut sp = self.value.splitn(2, &sub.value);
+        let mut sp = self.as_str().splitn(2, sub.as_str());
         let front = sp.next().unwrap();
         let elems = if let Some(back) = sp.next() {
-            [front, &sub.value, back]
+            [front, &sub.as_str(), back]
         } else {
             [front, "", ""]
         };
@@ -888,13 +893,13 @@ impl PyString {
 
     #[pymethod]
     fn rpartition(&self, sub: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        if sub.value.is_empty() {
+        if sub.as_str().is_empty() {
             return Err(vm.new_value_error("empty separator".to_owned()));
         }
-        let mut sp = self.value.rsplitn(2, &sub.value);
+        let mut sp = self.as_str().rsplitn(2, sub.as_str());
         let back = sp.next().unwrap();
         let elems = if let Some(front) = sp.next() {
-            [front, &sub.value, back]
+            [front, &sub.as_str(), back]
         } else {
             ["", "", back]
         };
@@ -910,13 +915,13 @@ impl PyString {
     /// empty, `false` otherwise.
     #[pymethod]
     fn istitle(&self) -> bool {
-        if self.value.is_empty() {
+        if self.as_str().is_empty() {
             return false;
         }
 
         let mut cased = false;
         let mut previous_is_cased = false;
-        for c in self.value.chars() {
+        for c in self.as_str().chars() {
             if c.is_uppercase() || c.is_titlecase() {
                 if previous_is_cased {
                     return false;
@@ -938,9 +943,9 @@ impl PyString {
 
     #[pymethod]
     fn count(&self, args: FindArgs) -> usize {
-        let (needle, range) = args.get_value(self.len());
-        self.value
-            .py_count(&needle.value, range, |h, n| h.matches(n).count())
+        let (needle, range) = args.get_value(self.char_len());
+        self.as_str()
+            .py_count(&needle.as_str(), range, |h, n| h.matches(n).count())
     }
 
     #[pymethod]
@@ -948,7 +953,7 @@ impl PyString {
         use super::objbyteinner::bytes_zfill;
         unsafe {
             String::from_utf8_unchecked(bytes_zfill(
-                self.value.as_bytes(),
+                self.as_str().as_bytes(),
                 width.to_usize().unwrap_or(0),
             ))
         }
@@ -956,68 +961,84 @@ impl PyString {
 
     fn get_fill_char(fillchar: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult<char> {
         match fillchar {
+<<<<<<< HEAD
             OptionalArg::Present(ref s) => s.value.chars().exactly_one().map_err(|_| {
                 vm.new_type_error(
                     "The fill character must be exactly one character long".to_owned(),
                 )
             }),
+=======
+            OptionalArg::Present(ref s) => {
+                let mut chars = s.as_str().chars();
+                let first = chars.next();
+                let second = chars.next();
+                if first.is_some() && second.is_none() {
+                    // safeness is guaranteed by upper first.is_some()
+                    Ok(first.unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() }))
+                } else {
+                    Err(vm.new_type_error(
+                        "The fill character must be exactly one character long".to_owned(),
+                    ))
+                }
+            }
+>>>>>>> 9fdca211... Refactor PyString to hold StringData inside
             OptionalArg::Missing => Ok(' '),
         }
     }
 
     #[inline]
     fn pad(
-        &self,
+        zelf: PyRef<Self>,
         width: isize,
         fillchar: OptionalArg<PyStringRef>,
-        pad: fn(&str, usize, char) -> String,
+        pad: fn(&str, usize, char) -> StringData,
         vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    ) -> PyResult<PyStringRef> {
         let fillchar = Self::get_fill_char(fillchar, vm)?;
-        Ok(if self.len() as isize >= width {
-            String::from(&self.value)
+        Ok(if zelf.char_len() as isize >= width {
+            zelf
         } else {
-            pad(&self.value, width as usize, fillchar)
+            PyString::from(pad(zelf.as_str(), width as usize, fillchar)).into_ref(vm)
         })
     }
 
     #[pymethod]
     fn center(
-        &self,
+        zelf: PyRef<Self>,
         width: isize,
         fillchar: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<String> {
-        self.pad(width, fillchar, PyCommonString::<char>::py_center, vm)
+    ) -> PyResult<PyStringRef> {
+        Self::pad(zelf, width, fillchar, PyCommonString::<char>::py_center, vm)
     }
 
     #[pymethod]
     fn ljust(
-        &self,
+        zelf: PyRef<Self>,
         width: isize,
         fillchar: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<String> {
-        self.pad(width, fillchar, PyCommonString::<char>::py_ljust, vm)
+    ) -> PyResult<PyStringRef> {
+        Self::pad(zelf, width, fillchar, PyCommonString::<char>::py_ljust, vm)
     }
 
     #[pymethod]
     fn rjust(
-        &self,
+        zelf: PyRef<Self>,
         width: isize,
         fillchar: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<String> {
-        self.pad(width, fillchar, PyCommonString::<char>::py_rjust, vm)
+    ) -> PyResult<PyStringRef> {
+        Self::pad(zelf, width, fillchar, PyCommonString::<char>::py_rjust, vm)
     }
 
     #[pymethod]
     fn expandtabs(&self, args: pystr::ExpandTabsArgs) -> String {
         let tab_stop = args.tabsize();
-        let mut expanded_str = String::with_capacity(self.value.len());
+        let mut expanded_str = String::with_capacity(self.as_str().len());
         let mut tab_size = tab_stop;
         let mut col_count = 0 as usize;
-        for ch in self.value.chars() {
+        for ch in self.as_str().chars() {
             match ch {
                 '\t' => {
                     let num_spaces = tab_size - col_count;
@@ -1044,7 +1065,7 @@ impl PyString {
 
     #[pymethod]
     fn isidentifier(&self) -> bool {
-        let mut chars = self.value.chars();
+        let mut chars = self.as_str().chars();
         let is_identifier_start = chars.next().map_or(false, |c| c == '_' || is_xid_start(c));
         // a string is not an identifier if it has whitespace or starts with a number
         is_identifier_start && chars.all(is_xid_continue)
@@ -1058,11 +1079,11 @@ impl PyString {
         })?;
 
         let mut translated = String::new();
-        for c in self.value.chars() {
+        for c in self.as_str().chars() {
             match table.get_item(&(c as u32).into_pyobject(vm)?, vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyString>() {
-                        translated.push_str(&text.value);
+                        translated.push_str(&text.as_str());
                     } else if let Some(bigint) = value.payload::<PyInt>() {
                         match bigint.as_bigint().to_u32().and_then(std::char::from_u32) {
                             Some(ch) => translated.push(ch as char),
@@ -1097,12 +1118,12 @@ impl PyString {
         if let OptionalArg::Present(to_str) = to_str {
             match dict_or_str.downcast::<PyString>() {
                 Ok(from_str) => {
-                    if to_str.len() == from_str.len() {
-                        for (c1, c2) in from_str.value.chars().zip(to_str.value.chars()) {
+                    if to_str.char_len() == from_str.char_len() {
+                        for (c1, c2) in from_str.as_str().chars().zip(to_str.as_str().chars()) {
                             new_dict.set_item(&vm.new_int(c1 as u32), vm.new_int(c2 as u32), vm)?;
                         }
                         if let OptionalArg::Present(none_str) = none_str {
-                            for c in none_str.value.chars() {
+                            for c in none_str.as_str().chars() {
                                 new_dict.set_item(&vm.new_int(c as u32), vm.get_none(), vm)?;
                             }
                         }
@@ -1130,8 +1151,8 @@ impl PyString {
                                 vm,
                             )?;
                         } else if let Some(string) = key.payload::<PyString>() {
-                            if string.len() == 1 {
-                                let num_value = string.value.chars().next().unwrap() as u32;
+                            if string.char_len() == 1 {
+                                let num_value = string.as_str().chars().next().unwrap() as u32;
                                 new_dict.set_item(&num_value.into_pyobject(vm)?, val, vm)?;
                             } else {
                                 return Err(vm.new_value_error(
@@ -1164,7 +1185,7 @@ impl PyString {
 
     #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyStringReverseIterator {
-        let begin = zelf.value.chars().count();
+        let begin = zelf.as_str().chars().count();
 
         PyStringReverseIterator {
             position: AtomicCell::new(begin as isize),
@@ -1258,11 +1279,11 @@ pub fn init(ctx: &PyContext) {
 }
 
 pub fn clone_value(obj: &PyObjectRef) -> String {
-    obj.payload::<PyString>().unwrap().value.clone()
+    obj.payload::<PyString>().unwrap().as_str().to_owned()
 }
 
 pub fn borrow_value(obj: &PyObjectRef) -> &str {
-    &obj.payload::<PyString>().unwrap().value
+    &obj.payload::<PyString>().unwrap().as_str()
 }
 
 fn call_getitem(vm: &VirtualMachine, container: &PyObjectRef, key: &PyObjectRef) -> PyResult {
@@ -1629,7 +1650,7 @@ impl PySliceableSequence for str {
     }
 
     fn len(&self) -> usize {
-        self.chars().count()
+        self.len()
     }
 
     fn is_empty(&self) -> bool {
@@ -1730,16 +1751,12 @@ mod tests {
 
 impl PyCommonStringWrapper<str> for PyStringRef {
     fn as_ref(&self) -> &str {
-        self.value.as_str()
+        self.as_str()
     }
 }
 
 impl PyCommonString<char> for str {
-    type Container = String;
-
-    fn with_capacity(capacity: usize) -> Self::Container {
-        String::with_capacity(capacity)
-    }
+    type Container = StringData;
 
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
         &self[range]
@@ -1827,6 +1844,6 @@ impl PyCommonString<char> for str {
         u.extend(std::iter::repeat(fill).take(left));
         u.push_str(self);
         u.extend(std::iter::repeat(fill).take(right));
-        u
+        u.into()
     }
 }

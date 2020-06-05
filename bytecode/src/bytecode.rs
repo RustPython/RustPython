@@ -5,6 +5,7 @@ use bitflags::bitflags;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_complex::Complex64;
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -648,4 +649,58 @@ impl fmt::Debug for CodeObject {
 pub struct FrozenModule {
     pub code: CodeObject,
     pub package: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct StringData {
+    s: Box<str>,
+    hash: OnceCell<i64>,
+    len: OnceCell<usize>,
+}
+
+impl StringData {
+    pub fn as_str(&self) -> &str {
+        self.as_ref()
+    }
+
+    pub fn hash(&self) -> i64 {
+        *self.hash.get_or_init(|| {
+            use std::hash::*;
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            self.s.hash(&mut hasher);
+            hasher.finish() as i64
+        })
+    }
+
+    pub fn char_len(&self) -> usize {
+        *self.len.get_or_init(|| self.s.chars().count())
+    }
+}
+
+impl AsRef<str> for StringData {
+    fn as_ref(&self) -> &str {
+        &self.s
+    }
+}
+
+impl From<Box<str>> for StringData {
+    fn from(s: Box<str>) -> Self {
+        StringData {
+            s,
+            hash: OnceCell::new(),
+            len: OnceCell::new(),
+        }
+    }
+}
+
+impl From<String> for StringData {
+    fn from(s: String) -> Self {
+        s.into_boxed_str().into()
+    }
+}
+
+impl From<&str> for StringData {
+    fn from(s: &str) -> Self {
+        Box::<str>::from(s).into()
+    }
 }

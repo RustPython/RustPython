@@ -1566,6 +1566,7 @@ dependencies = [
  "lz4-compress",
  "num-bigint",
  "num-complex",
+ "once_cell",
  "serde",
 ]
 

@@ -128,7 +128,6 @@ where
 pub trait PyCommonString<E> {
     type Container;
 
-    fn with_capacity(capacity: usize) -> Self::Container;
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
     // FIXME: get_chars is expensive for str
     fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
@@ -265,14 +264,9 @@ pub trait PyCommonString<E> {
         self.py_pad(width - self.chars_len(), 0, fillchar)
     }
 
-    fn py_removeprefix<FC>(
-        &self,
-        prefix: &Self::Container,
-        prefix_len: usize,
-        is_prefix: FC,
-    ) -> &Self
+    fn py_removeprefix<FC>(&self, prefix: &Self, prefix_len: usize, is_prefix: FC) -> &Self
     where
-        FC: Fn(&Self, &Self::Container) -> bool,
+        FC: Fn(&Self, &Self) -> bool,
     {
         //if self.py_starts_with(prefix) {
         if is_prefix(&self, &prefix) {
@@ -282,14 +276,9 @@ pub trait PyCommonString<E> {
         }
     }
 
-    fn py_removesuffix<FC>(
-        &self,
-        suffix: &Self::Container,
-        suffix_len: usize,
-        is_suffix: FC,
-    ) -> &Self
+    fn py_removesuffix<FC>(&self, suffix: &Self, suffix_len: usize, is_suffix: FC) -> &Self
     where
-        FC: Fn(&Self, &Self::Container) -> bool,
+        FC: Fn(&Self, &Self) -> bool,
     {
         if is_suffix(&self, &suffix) {
             self.get_bytes(0..self.bytes_len() - suffix_len)

@@ -48,7 +48,7 @@ rustc_version_runtime = "0.1.*"
 statrs = "0.12.0"
 caseless = "0.2.1"
 chrono = { version = "0.4", features = ["wasmbind"] }
-once_cell = "1.3.1"
+once_cell = "1.3"
 lexical = "4"
 itertools = "0.8"
 hex = "0.4.0"

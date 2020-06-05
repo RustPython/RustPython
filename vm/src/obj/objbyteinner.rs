@@ -1325,10 +1325,6 @@ const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 impl PyCommonString<u8> for [u8] {
     type Container = Vec<u8>;
 
-    fn with_capacity(capacity: usize) -> Self::Container {
-        Vec::with_capacity(capacity)
-    }
-
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
         &self[range]
     }
