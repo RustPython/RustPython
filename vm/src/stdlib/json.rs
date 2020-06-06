@@ -7,6 +7,8 @@ use crate::VirtualMachine;
 use num_bigint::BigInt;
 use std::str::FromStr;
 
+mod machinery;
+
 #[pyclass(name = "Scanner")]
 #[derive(Debug)]
 struct JsonScanner {
@@ -209,11 +211,30 @@ impl JsonScanner {
     }
 }
 
+fn encode_string(s: &str, ascii_only: bool) -> String {
+    let mut buf = Vec::<u8>::with_capacity(s.len() + 2);
+    machinery::write_json_string(s, ascii_only, &mut buf)
+        // writing to a vec can't fail
+        .unwrap_or_else(|_| unsafe { std::hint::unreachable_unchecked() });
+    // TODO: verify that the implementation is correct enough to use `from_utf8_unchecked`
+    String::from_utf8(buf).expect("invalid utf-8 in json output")
+}
+
+fn _json_encode_basestring(s: PyStringRef) -> String {
+    encode_string(s.as_str(), false)
+}
+
+fn _json_encode_basestring_ascii(s: PyStringRef) -> String {
+    encode_string(s.as_str(), true)
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     let scanner_cls = JsonScanner::make_class(ctx);
     scanner_cls.set_str_attr("__module__", vm.new_str("_json".to_owned()));
     py_module!(vm, "_json", {
         "make_scanner" => scanner_cls,
+        "encode_basestring" => named_function!(ctx, _json, encode_basestring),
+        "encode_basestring_ascii" => named_function!(ctx, _json, encode_basestring_ascii),
     })
 }

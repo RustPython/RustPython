@@ -591,7 +591,7 @@ impl<O: OutputStream> Compiler<O> {
                         {
                             return Err(self.error_loc(
                                 CompileErrorType::AsyncReturnValue,
-                                statement.location.clone(),
+                                statement.location,
                             ));
                         }
                         self.compile_expression(v)?;

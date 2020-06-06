@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol,
@@ -11,12 +12,15 @@ use crate::vm::VirtualMachine;
 #[pyclass]
 pub struct PyBuiltinFunction {
     value: PyNativeFunc,
+    module: Option<PyStringRef>,
+    name: Option<PyStringRef>,
 }
 
 impl PyValue for PyBuiltinFunction {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.builtin_function_or_method_type()
     }
+    const HAVE_DICT: bool = true;
 }
 
 impl fmt::Debug for PyBuiltinFunction {
@@ -27,7 +31,19 @@ impl fmt::Debug for PyBuiltinFunction {
 
 impl PyBuiltinFunction {
     pub fn new(value: PyNativeFunc) -> Self {
-        Self { value }
+        Self {
+            value,
+            module: None,
+            name: None,
+        }
+    }
+
+    pub fn new_with_name(value: PyNativeFunc, module: PyStringRef, name: PyStringRef) -> Self {
+        Self {
+            value,
+            module: Some(module),
+            name: Some(name),
+        }
     }
 
     pub fn as_func(&self) -> &PyNativeFunc {
@@ -42,7 +58,16 @@ impl SlotCall for PyBuiltinFunction {
 }
 
 #[pyimpl(with(SlotCall))]
-impl PyBuiltinFunction {}
+impl PyBuiltinFunction {
+    #[pyproperty(magic)]
+    fn module(&self) -> Option<PyStringRef> {
+        self.module.clone()
+    }
+    #[pyproperty(magic)]
+    fn name(&self) -> Option<PyStringRef> {
+        self.name.clone()
+    }
+}
 
 #[pyclass]
 pub struct PyBuiltinMethod {
@@ -64,7 +89,12 @@ impl fmt::Debug for PyBuiltinMethod {
 impl PyBuiltinMethod {
     pub fn new(value: PyNativeFunc) -> Self {
         Self {
-            function: PyBuiltinFunction { value },
+            function: PyBuiltinFunction::new(value),
+        }
+    }
+    pub fn new_with_name(value: PyNativeFunc, module: PyStringRef, name: PyStringRef) -> Self {
+        Self {
+            function: PyBuiltinFunction::new_with_name(value, module, name),
         }
     }
 
@@ -100,9 +130,14 @@ impl SlotCall for PyBuiltinMethod {
 
 #[pyimpl(with(SlotDescriptor, SlotCall))]
 impl PyBuiltinMethod {
-    // TODO: give builtin functions names
     #[pyproperty(magic)]
-    fn name(&self) {}
+    fn module(&self) -> Option<PyStringRef> {
+        self.function.module.clone()
+    }
+    #[pyproperty(magic)]
+    fn name(&self) -> Option<PyStringRef> {
+        self.function.name.clone()
+    }
 }
 
 pub fn init(context: &PyContext) {
