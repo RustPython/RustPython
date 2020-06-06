@@ -174,6 +174,7 @@ class PyCompileTestsBase:
         # Specifying optimized bytecode should lead to a path reflecting that.
         self.assertIn('opt-2', py_compile.compile(self.source_path, optimize=2))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_invalidation_mode(self):
         py_compile.compile(
             self.source_path,
@@ -193,6 +194,7 @@ class PyCompileTestsBase:
         self.assertEqual(flags, 0b1)
 
 
+@unittest.skip("TODO: RUSTPYTHON")
 class PyCompileTestsWithSourceEpoch(PyCompileTestsBase,
                                     unittest.TestCase,
                                     metaclass=SourceDateEpochTestMeta,
