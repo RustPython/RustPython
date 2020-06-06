@@ -2,13 +2,17 @@
 //! implements bytecode structure.
 
 use bitflags::bitflags;
+use indexmap::IndexSet;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
+use std::borrow::{Borrow, Cow};
+use std::cmp::PartialEq;
 use std::collections::{HashMap, HashSet};
-use std::fmt;
+use std::sync::Arc;
+use std::{fmt, hash};
 
 /// Sourcecode location.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -40,15 +44,20 @@ pub struct CodeObject {
     pub label_map: HashMap<Label, usize>,
     pub locations: Vec<Location>,
     pub flags: CodeFlags,
-    pub posonlyarg_count: usize, // Number of positional-only arguments
-    pub arg_names: Vec<String>,  // Names of positional arguments
-    pub varargs_name: Option<String>, // *args or *
-    pub kwonlyarg_names: Vec<String>,
-    pub varkeywords_name: Option<String>, // **kwargs or **
+    pub posonlyarg_count: usize,   // Number of positional-only arguments
+    pub arg_names: Vec<StringIdx>, // Names of positional arguments
+    pub varargs_name: Option<StringIdx>, // *args or *
+    pub kwonlyarg_names: Vec<StringIdx>,
+    pub varkeywords_name: Option<StringIdx>, // **kwargs or **
     pub source_path: String,
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
+    pub strings: IndexSet<Arc<StringData>>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct StringIdx(usize);
 
 bitflags! {
     #[derive(Serialize, Deserialize)]
@@ -132,24 +141,24 @@ pub enum Instruction {
         name: String,
     },
     LoadName {
-        name: String,
+        name: StringIdx,
         scope: NameScope,
     },
     StoreName {
-        name: String,
+        name: StringIdx,
         scope: NameScope,
     },
     DeleteName {
-        name: String,
+        name: StringIdx,
     },
     Subscript,
     StoreSubscript,
     DeleteSubscript,
     StoreAttr {
-        name: String,
+        name: StringIdx,
     },
     DeleteAttr {
-        name: String,
+        name: StringIdx,
     },
     LoadConst {
         value: Constant,
@@ -162,7 +171,7 @@ pub enum Instruction {
         inplace: bool,
     },
     LoadAttr {
-        name: String,
+        name: StringIdx,
     },
     CompareOperation {
         op: ComparisonOperator,
@@ -322,7 +331,7 @@ pub enum Constant {
     Float { value: f64 },
     Complex { value: Complex64 },
     Boolean { value: bool },
-    String { value: String },
+    String { value: Arc<StringData> },
     Bytes { value: Vec<u8> },
     Code { code: Box<CodeObject> },
     Tuple { elements: Vec<Constant> },
@@ -391,6 +400,14 @@ impl CodeObject {
         first_line_number: usize,
         obj_name: String,
     ) -> CodeObject {
+        let mut strings = IndexSet::new();
+        let mut map_string = |s: String| Self::add_string_to_set(s.into(), &mut strings);
+
+        let arg_names = arg_names.into_iter().map(&mut map_string).collect();
+        let varargs_name = varargs_name.map(&mut map_string);
+        let kwonlyarg_names = kwonlyarg_names.into_iter().map(&mut map_string).collect();
+        let varkeywords_name = varkeywords_name.map(map_string);
+
         CodeObject {
             instructions: Vec::new(),
             label_map: HashMap::new(),
@@ -404,7 +421,26 @@ impl CodeObject {
             source_path,
             first_line_number,
             obj_name,
+            strings,
         }
+    }
+
+    fn add_string_to_set<'s>(s: Cow<'s, str>, set: &mut IndexSet<Arc<StringData>>) -> StringIdx {
+        let idx = set
+            .get_index_of(EquivalentString::new(s.as_ref()))
+            .unwrap_or_else(|| {
+                set.insert_full(Arc::new(StringData::from(s.into_owned())))
+                    .0
+            });
+        StringIdx(idx)
+    }
+
+    pub fn store_string<'s>(&mut self, s: Cow<'s, str>) -> StringIdx {
+        Self::add_string_to_set(s, &mut self.strings)
+    }
+
+    pub fn get_string(&self, idx: StringIdx) -> &Arc<StringData> {
+        self.strings.get_index(idx.0).expect("invalid string index")
     }
 
     /// Load a code object from bytes
@@ -430,14 +466,15 @@ impl CodeObject {
     }
 
     pub fn varnames(&self) -> impl Iterator<Item = &str> + '_ {
+        let as_str = move |&i: &StringIdx| self.get_string(i).as_str();
         self.arg_names
             .iter()
-            .map(String::as_str)
-            .chain(self.kwonlyarg_names.iter().map(String::as_str))
+            .map(as_str)
+            .chain(self.kwonlyarg_names.iter().map(as_str))
             .chain(
                 self.instructions
                     .iter()
-                    .filter_map(|i| match i {
+                    .filter_map(move |i| match i {
                         Instruction::LoadName {
                             name,
                             scope: NameScope::Local,
@@ -445,7 +482,7 @@ impl CodeObject {
                         | Instruction::StoreName {
                             name,
                             scope: NameScope::Local,
-                        } => Some(name.as_str()),
+                        } => Some(as_str(name)),
                         _ => None,
                     })
                     .unique(),
@@ -469,7 +506,7 @@ impl CodeObject {
                 write!(f, "          ")?;
             }
             write!(f, "{} {:5} ", arrow, offset)?;
-            instruction.fmt_dis(f, &self.label_map, expand_codeobjects, level)?;
+            instruction.fmt_dis(f, &self.label_map, &self.strings, expand_codeobjects, level)?;
         }
         Ok(())
     }
@@ -496,6 +533,7 @@ impl Instruction {
         &self,
         f: &mut fmt::Formatter,
         label_map: &HashMap<Label, usize>,
+        strings: &IndexSet<Arc<StringData>>,
         expand_codeobjects: bool,
         level: usize,
     ) -> fmt::Result {
@@ -520,6 +558,7 @@ impl Instruction {
                 )
             };
         }
+        let s = |StringIdx(idx)| strings.get_index(idx).unwrap();
 
         match self {
             Import {
@@ -534,14 +573,14 @@ impl Instruction {
             ),
             ImportStar => w!(ImportStar),
             ImportFrom { name } => w!(ImportFrom, name),
-            LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
-            StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
-            DeleteName { name } => w!(DeleteName, name),
+            LoadName { name, scope } => w!(LoadName, s(*name), format!("{:?}", scope)),
+            StoreName { name, scope } => w!(StoreName, s(*name), format!("{:?}", scope)),
+            DeleteName { name } => w!(DeleteName, s(*name)),
             Subscript => w!(Subscript),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),
-            StoreAttr { name } => w!(StoreAttr, name),
-            DeleteAttr { name } => w!(DeleteAttr, name),
+            StoreAttr { name } => w!(StoreAttr, s(*name)),
+            DeleteAttr { name } => w!(DeleteAttr, s(*name)),
             LoadConst { value } => match value {
                 Constant::Code { code } if expand_codeobjects => {
                     writeln!(f, "LoadConst ({:?}):", code)?;
@@ -552,7 +591,7 @@ impl Instruction {
             },
             UnaryOperation { op } => w!(UnaryOperation, format!("{:?}", op)),
             BinaryOperation { op, inplace } => w!(BinaryOperation, format!("{:?}", op), inplace),
-            LoadAttr { name } => w!(LoadAttr, name),
+            LoadAttr { name } => w!(LoadAttr, s(*name)),
             CompareOperation { op } => w!(CompareOperation, format!("{:?}", op)),
             Pop => w!(Pop),
             Rotate { amount } => w!(Rotate, amount),
@@ -651,19 +690,22 @@ pub struct FrozenModule {
     pub package: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StringData {
     s: Box<str>,
+    #[serde(skip)]
     hash: OnceCell<i64>,
+    #[serde(skip)]
     len: OnceCell<usize>,
 }
 
 impl StringData {
+    #[inline]
     pub fn as_str(&self) -> &str {
         self.as_ref()
     }
 
-    pub fn hash(&self) -> i64 {
+    pub fn hash_value(&self) -> i64 {
         *self.hash.get_or_init(|| {
             use std::hash::*;
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -675,9 +717,22 @@ impl StringData {
     pub fn char_len(&self) -> usize {
         *self.len.get_or_init(|| self.s.chars().count())
     }
+
+    pub fn into_string(self) -> String {
+        self.s.into_string()
+    }
 }
 
+impl PartialEq for StringData {
+    fn eq(&self, other: &Self) -> bool {
+        self.s == other.s
+    }
+}
+
+impl Eq for StringData {}
+
 impl AsRef<str> for StringData {
+    #[inline]
     fn as_ref(&self) -> &str {
         &self.s
     }
@@ -702,5 +757,45 @@ impl From<String> for StringData {
 impl From<&str> for StringData {
     fn from(s: &str) -> Self {
         Box::<str>::from(s).into()
+    }
+}
+
+impl From<&String> for StringData {
+    fn from(s: &String) -> Self {
+        s.as_str().into()
+    }
+}
+
+impl Borrow<str> for StringData {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+// dumb workaround for Arc<T: Borrow<U>> not implementing Borrow<U>
+#[derive(Hash, PartialEq, Eq)]
+#[repr(transparent)]
+struct EquivalentString(str);
+impl EquivalentString {
+    fn new(s: &str) -> &Self {
+        unsafe { &*(s as *const str as *const Self) }
+    }
+}
+
+impl<'s> Borrow<EquivalentString> for Arc<StringData> {
+    fn borrow(&self) -> &EquivalentString {
+        EquivalentString::new(self.as_str())
+    }
+}
+
+impl fmt::Display for StringData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self.as_str(), f)
+    }
+}
+
+impl hash::Hash for StringData {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        hash::Hash::hash(self.as_str(), state)
     }
 }
