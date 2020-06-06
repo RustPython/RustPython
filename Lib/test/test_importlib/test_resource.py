@@ -48,6 +48,7 @@ class ResourceZipTests(ResourceTests, util.ZipSetup, unittest.TestCase):
     pass
 
 
+@unittest.skip("TODO: RUSTPYTHON")
 class ResourceLoaderTests(unittest.TestCase):
     def test_resource_contents(self):
         package = util.create_package(

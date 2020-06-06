@@ -242,6 +242,8 @@ class ReloadTests:
             self.assertIs(reloaded, types)
             self.assertIs(sys.modules['types'], types)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_reload_location_changed(self):
         name = 'spam'
         with support.temp_cwd(None) as cwd:
@@ -293,6 +295,8 @@ class ReloadTests:
                     self.maxDiff = None
                     self.assertEqual(ns, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_reload_namespace_changed(self):
         name = 'spam'
         with support.temp_cwd(None) as cwd:

@@ -789,6 +789,7 @@ class SourceOnlyLoaderTests(SourceLoaderTestHarness):
 
     """
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_get_source(self):
         # Verify the source code is returned as a string.
         # If an OSError is raised by get_data then raise ImportError.
@@ -843,6 +844,7 @@ class SourceOnlyLoaderTests(SourceLoaderTestHarness):
             self.verify_module(module)
             self.assertFalse(hasattr(module, '__path__'))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_get_source_encoding(self):
         # Source is considered encoded in UTF-8 by default unless otherwise
         # specified by an encoding line.
@@ -958,6 +960,7 @@ class SourceLoaderBytecodeTests(SourceLoaderTestHarness):
                          loader_mock=SPLIT_SL)
 
 
+@unittest.skip("TODO: RUSTPYTHON")
 class SourceLoaderGetSourceTests:
 
     """Tests for importlib.abc.SourceLoader.get_source()."""

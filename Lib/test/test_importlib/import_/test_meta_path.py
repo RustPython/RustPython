@@ -30,6 +30,8 @@ class CallingOrder:
             with util.import_state(meta_path=[first, second]):
                 self.assertIs(self.__import__(mod_name), second.modules[mod_name])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_empty(self):
         # Raise an ImportWarning if sys.meta_path is empty.
         module_name = 'nothing'
@@ -51,6 +53,7 @@ class CallingOrder:
  ) = util.test_both(CallingOrder, __import__=util.__import__)
 
 
+@unittest.skip("TODO: RUSTPYTHON")
 class CallSignature:
 
     """If there is no __path__ entry on the parent module, then 'path' is None

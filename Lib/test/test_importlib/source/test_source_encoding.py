@@ -57,30 +57,36 @@ class EncodingTest:
         source = "{0}\na=42\n".format(encoding_line).encode("koi8-r")
         self.run_test(source)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     # [default encoding]
     def test_default_encoding(self):
         self.run_test(self.source_line.encode('utf-8'))
 
     # [encoding first line]
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_encoding_on_first_line(self):
         encoding = 'Latin-1'
         source = self.create_source(encoding)
         self.run_test(source)
 
     # [encoding second line]
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_encoding_on_second_line(self):
         source = b"#/usr/bin/python\n" + self.create_source('Latin-1')
         self.run_test(source)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     # [BOM]
     def test_bom(self):
         self.run_test(codecs.BOM_UTF8 + self.source_line.encode('utf-8'))
 
+    @unittest.skip("TODO: RUSTPYTHON")
     # [BOM and utf-8]
     def test_bom_and_utf_8(self):
         source = codecs.BOM_UTF8 + self.create_source('utf-8')
         self.run_test(source)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     # [BOM conflict]
     def test_bom_conflict(self):
         source = codecs.BOM_UTF8 + self.create_source('latin-1')

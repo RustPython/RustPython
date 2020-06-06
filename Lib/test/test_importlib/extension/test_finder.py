@@ -19,6 +19,8 @@ class FinderTests(abc.FinderTests):
             warnings.simplefilter('ignore', DeprecationWarning)
             return importer.find_module(fullname)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_module(self):
         self.assertTrue(self.find_module(util.EXTENSIONS.name))
 

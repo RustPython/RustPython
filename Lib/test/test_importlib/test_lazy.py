@@ -52,6 +52,7 @@ class TestingImporter(abc.MetaPathFinder, abc.Loader):
         self.loaded = module
 
 
+@unittest.skip("TODO: RUSTPYTHON")
 class LazyLoaderTests(unittest.TestCase):
 
     def test_init(self):

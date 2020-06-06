@@ -19,10 +19,14 @@ class FindSpecTests(abc.FinderTests):
         spec = self.find(name)
         self.assertEqual(spec.origin, 'frozen')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_package(self):
         spec = self.find('__phello__')
         self.assertIsNotNone(spec)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_module_in_package(self):
         spec = self.find('__phello__.spam', ['__phello__'])
         self.assertIsNotNone(spec)
@@ -56,10 +60,14 @@ class FinderTests(abc.FinderTests):
         loader = self.find(name)
         self.assertTrue(hasattr(loader, 'load_module'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_package(self):
         loader = self.find('__phello__')
         self.assertTrue(hasattr(loader, 'load_module'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_module_in_package(self):
         loader = self.find('__phello__.spam', ['__phello__'])
         self.assertTrue(hasattr(loader, 'load_module'))

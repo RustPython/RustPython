@@ -1,4 +1,4 @@
-﻿from . import util
+from . import util
 abc = util.import_importlib('importlib.abc')
 init = util.import_importlib('importlib')
 machinery = util.import_importlib('importlib.machinery')
@@ -17,6 +17,7 @@ import unittest.mock
 import warnings
 
 
+@unittest.skip("TODO: RUSTPYTHON")
 class DecodeSourceBytesTests:
 
     source = "string ='ü'"
@@ -543,6 +544,7 @@ class MagicNumberTests:
         # Should be 4 bytes.
         self.assertEqual(len(self.util.MAGIC_NUMBER), 4)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_incorporates_rn(self):
         # The magic number uses \r\n to come out wrong when splitting on lines.
         self.assertTrue(self.util.MAGIC_NUMBER.endswith(b'\r\n'))
@@ -584,6 +586,8 @@ class PEP3147Tests:
         self.assertEqual(self.util.cache_from_source(path, optimization=''),
                          expect)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cache_from_source_debug_override(self):
         # Given the path to a .py file, return the path to its PEP 3147/PEP 488
         # defined .pyc file (i.e. under __pycache__).

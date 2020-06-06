@@ -44,6 +44,7 @@ class UseCache:
  ) = util.test_both(UseCache, __import__=util.__import__)
 
 
+@unittest.skip("TODO: RUSTPYTHON")
 class ImportlibUseCache(UseCache, unittest.TestCase):
 
     # Pertinent only to PEP 302; exec_module() doesn't return a module.

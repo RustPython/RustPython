@@ -56,6 +56,8 @@ class Using__package__:
                                          '__path__': []})
         self.assertEqual(module.__name__, 'pkg')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_warn_when_using___name__(self):
         with self.assertWarns(ImportWarning):
             self.import_module({'__name__': 'pkg.fake', '__path__': []})
@@ -73,6 +75,8 @@ class Using__package__:
         module = self.import_module({'__spec__': FakeSpec('pkg.fake')})
         self.assertEqual(module.__name__, 'pkg')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_warn_when_package_and_spec_disagree(self):
         # Raise an ImportWarning if __package__ != __spec__.parent.
         with self.assertWarns(ImportWarning):
