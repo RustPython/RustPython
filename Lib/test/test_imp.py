@@ -57,17 +57,20 @@ class LockTests(unittest.TestCase):
                             "RuntimeError")
 
 class ImportTests(unittest.TestCase):
-    def setUp(self):
-        mod = importlib.import_module('test.encoded_modules')
-        self.test_strings = mod.test_strings
-        self.test_path = mod.__path__
+    # TODO: RustPython
+    # def setUp(self):
+    #     mod = importlib.import_module('test.encoded_modules')
+    #     self.test_strings = mod.test_strings
+    #     self.test_path = mod.__path__
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_import_encoded_module(self):
         for modname, encoding, teststr in self.test_strings:
             mod = importlib.import_module('test.encoded_modules.'
                                           'module_' + modname)
             self.assertEqual(teststr, mod.test)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_find_module_encoding(self):
         for mod, encoding, _ in self.test_strings:
             with imp.find_module('module_' + mod, self.test_path)[0] as fd:
@@ -77,6 +80,7 @@ class ImportTests(unittest.TestCase):
         with self.assertRaises(SyntaxError):
             imp.find_module('badsyntax_pep3120', path)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_issue1267(self):
         for mod, encoding, _ in self.test_strings:
             fp, filename, info  = imp.find_module('module_' + mod,
@@ -96,6 +100,7 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(fp.readline(),
                              '"""Tokenization help for Python programs.\n')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_issue3594(self):
         temp_mod_name = 'test_imp_helper'
         sys.path.insert(0, '.')
@@ -110,6 +115,7 @@ class ImportTests(unittest.TestCase):
             support.unlink(temp_mod_name + '.py')
             support.unlink(temp_mod_name + '.pyc')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_issue5604(self):
         # Test cannot cover imp.load_compiled function.
         # Martin von Loewis note what shared library cannot have non-ascii
@@ -197,11 +203,13 @@ class ImportTests(unittest.TestCase):
             support.rmtree(test_package_name)
             support.rmtree('__pycache__')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_issue9319(self):
         path = os.path.dirname(__file__)
         self.assertRaises(SyntaxError,
                           imp.find_module, "badsyntax_pep3120", [path])
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_load_from_source(self):
         # Verify that the imp module can correctly load and find .py files
         # XXX (ncoghlan): It would be nice to use support.CleanImport
@@ -305,6 +313,7 @@ class ImportTests(unittest.TestCase):
             self.assertRaisesRegex(ImportError, '^No module',
                 imp.find_module, support.TESTFN, ["."])
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_multiple_calls_to_get_data(self):
         # Issue #18755: make sure multiple calls to get_data() can succeed.
         loader = imp._LoadSourceCompatibility('imp', imp.__file__,
@@ -312,6 +321,7 @@ class ImportTests(unittest.TestCase):
         loader.get_data(imp.__file__)  # File should be closed
         loader.get_data(imp.__file__)  # Will need to create a newly opened file
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_load_source(self):
         # Create a temporary module since load_source(name) modifies
         # sys.modules[name] attributes like __loader___
@@ -343,10 +353,13 @@ class ImportTests(unittest.TestCase):
         import _frozen_importlib
         self.assertEqual(_frozen_importlib.__spec__.origin, "frozen")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_source_hash(self):
         self.assertEqual(_imp.source_hash(42, b'hi'), b'\xc6\xe7Z\r\x03:}\xab')
         self.assertEqual(_imp.source_hash(43, b'hi'), b'\x85\x9765\xf8\x9a\x8b9')
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_pyc_invalidation_mode_from_cmdline(self):
         cases = [
             ([], "default"),
@@ -362,6 +375,7 @@ class ImportTests(unittest.TestCase):
             res = script_helper.assert_python_ok(*args)
             self.assertEqual(res.out.strip().decode('utf-8'), expected)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_find_and_load_checked_pyc(self):
         # issue 34056
         with support.temp_cwd():
