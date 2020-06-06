@@ -62,7 +62,10 @@ fn imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyC
             PyCode::new(frozen)
         })
         .ok_or_else(|| {
-            vm.new_import_error(format!("No such frozen object named {}", name.as_str()))
+            vm.new_import_error(
+                format!("No such frozen object named {}", name.as_str()),
+                name.as_str(),
+            )
         })
 }
 
@@ -76,7 +79,10 @@ fn imp_is_frozen_package(name: PyStringRef, vm: &VirtualMachine) -> PyResult<boo
         .get(name.as_str())
         .map(|frozen| frozen.package)
         .ok_or_else(|| {
-            vm.new_import_error(format!("No such frozen object named {}", name.as_str()))
+            vm.new_import_error(
+                format!("No such frozen object named {}", name.as_str()),
+                name.as_str(),
+            )
         })
 }
 

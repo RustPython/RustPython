@@ -556,9 +556,12 @@ impl VirtualMachine {
         syntax_error
     }
 
-    pub fn new_import_error(&self, msg: String) -> PyBaseExceptionRef {
+    pub fn new_import_error(&self, msg: String, name: &str) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.clone();
-        self.new_exception_msg(import_error, msg)
+        let exc = self.new_exception_msg(import_error, msg);
+        self.set_attr(exc.as_object(), "name", self.new_str(name.to_owned()))
+            .unwrap();
+        exc
     }
 
     pub fn new_runtime_error(&self, msg: String) -> PyBaseExceptionRef {
@@ -699,11 +702,22 @@ impl VirtualMachine {
         };
 
         match cached_module {
-            Some(module) => Ok(module),
+            Some(cached_module) => {
+                if self.is_none(&cached_module) {
+                    Err(self.new_import_error(
+                        format!("import of {} halted; None in sys.modules", module),
+                        module,
+                    ))
+                } else {
+                    Ok(cached_module)
+                }
+            }
             None => {
                 let import_func = self
                     .get_attribute(self.builtins.clone(), "__import__")
-                    .map_err(|_| self.new_import_error("__import__ not found".to_owned()))?;
+                    .map_err(|_| {
+                        self.new_import_error("__import__ not found".to_owned(), module)
+                    })?;
 
                 let (locals, globals) = if let Some(frame) = self.current_frame() {
                     (
