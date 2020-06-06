@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 
 use crate::builtins::builtin_isinstance;
-use crate::bytecode;
+use crate::bytecode::{self, StringIdx};
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::PyFuncArgs;
 use crate::obj::objasyncgenerator::PyAsyncGenWrappedValue;
@@ -348,12 +348,12 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::LoadName {
                 ref name,
                 ref scope,
-            } => self.load_name(vm, name, scope),
+            } => self.load_name(vm, *name, scope),
             bytecode::Instruction::StoreName {
                 ref name,
                 ref scope,
-            } => self.store_name(vm, name, scope),
-            bytecode::Instruction::DeleteName { ref name } => self.delete_name(vm, name),
+            } => self.store_name(vm, *name, scope),
+            bytecode::Instruction::DeleteName { ref name } => self.delete_name(vm, *name),
             bytecode::Instruction::Subscript => self.execute_subscript(vm),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
@@ -437,9 +437,9 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::BinaryOperation { ref op, inplace } => {
                 self.execute_binop(vm, op, *inplace)
             }
-            bytecode::Instruction::LoadAttr { ref name } => self.load_attr(vm, name),
-            bytecode::Instruction::StoreAttr { ref name } => self.store_attr(vm, name),
-            bytecode::Instruction::DeleteAttr { ref name } => self.delete_attr(vm, name),
+            bytecode::Instruction::LoadAttr { ref name } => self.load_attr(vm, *name),
+            bytecode::Instruction::StoreAttr { ref name } => self.store_attr(vm, *name),
+            bytecode::Instruction::DeleteAttr { ref name } => self.delete_attr(vm, *name),
             bytecode::Instruction::UnaryOperation { ref op } => self.execute_unop(vm, op),
             bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(vm, op),
             bytecode::Instruction::ReturnValue => {
@@ -786,9 +786,8 @@ impl ExecutingFrame<'_> {
         if let Some(dict) = module.dict() {
             for (k, v) in &dict {
                 let k = vm.to_str(&k)?;
-                let k = k.as_str();
-                if !k.starts_with('_') {
-                    self.scope.store_name(&vm, k, v);
+                if !k.as_str().starts_with('_') {
+                    self.scope.store_name(&vm, &k.data(), v);
                 }
             }
         }
@@ -859,28 +858,22 @@ impl ExecutingFrame<'_> {
     fn store_name(
         &mut self,
         vm: &VirtualMachine,
-        name: &str,
+        name: StringIdx,
         name_scope: &bytecode::NameScope,
     ) -> FrameResult {
         let obj = self.pop_value();
+        let name = self.code.get_string(name);
         match name_scope {
-            bytecode::NameScope::Global => {
-                self.scope.store_global(vm, name, obj);
-            }
-            bytecode::NameScope::NonLocal => {
-                self.scope.store_cell(vm, name, obj);
-            }
-            bytecode::NameScope::Local => {
-                self.scope.store_name(vm, name, obj);
-            }
-            bytecode::NameScope::Free => {
-                self.scope.store_name(vm, name, obj);
-            }
+            bytecode::NameScope::Global => self.scope.store_global(vm, name, obj),
+            bytecode::NameScope::NonLocal => self.scope.store_cell(vm, name, obj),
+            bytecode::NameScope::Local => self.scope.store_name(vm, name, obj),
+            bytecode::NameScope::Free => self.scope.store_name(vm, name, obj),
         }
         Ok(None)
     }
 
-    fn delete_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
+    fn delete_name(&self, vm: &VirtualMachine, name: StringIdx) -> FrameResult {
+        let name = self.code.get_string(name);
         match self.scope.delete_name(vm, name) {
             Ok(_) => Ok(None),
             Err(_) => Err(vm.new_name_error(format!("name '{}' is not defined", name))),
@@ -891,9 +884,10 @@ impl ExecutingFrame<'_> {
     fn load_name(
         &mut self,
         vm: &VirtualMachine,
-        name: &str,
+        name: StringIdx,
         name_scope: &bytecode::NameScope,
     ) -> FrameResult {
+        let name = self.code.get_string(name);
         let optional_value = match name_scope {
             bytecode::NameScope::Global => self.scope.load_global(vm, name),
             bytecode::NameScope::NonLocal => self.scope.load_cell(vm, name),
@@ -1412,23 +1406,25 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn load_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
+    fn load_attr(&mut self, vm: &VirtualMachine, attr_name: StringIdx) -> FrameResult {
+        let attr_name = vm.new_str(self.code.get_string(attr_name));
         let parent = self.pop_value();
         let obj = vm.get_attribute(parent, attr_name)?;
         self.push_value(obj);
         Ok(None)
     }
 
-    fn store_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
+    fn store_attr(&mut self, vm: &VirtualMachine, attr_name: StringIdx) -> FrameResult {
+        let attr_name = vm.new_str(self.code.get_string(attr_name));
         let parent = self.pop_value();
         let value = self.pop_value();
-        vm.set_attr(&parent, vm.new_str(attr_name.to_owned()), value)?;
+        vm.set_attr(&parent, attr_name, value)?;
         Ok(None)
     }
 
-    fn delete_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
+    fn delete_attr(&mut self, vm: &VirtualMachine, attr_name: StringIdx) -> FrameResult {
         let parent = self.pop_value();
-        let name = vm.ctx.new_str(attr_name.to_owned());
+        let name = vm.new_str(self.code.get_string(attr_name));
         vm.del_attr(&parent, name)?;
         Ok(None)
     }

@@ -41,8 +41,8 @@ use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
-    TryIntoRef, TypeProtocol,
+    IdProtocol, IntoPyString, ItemProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
+    TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::stdlib;
@@ -379,8 +379,8 @@ impl VirtualMachine {
     }
 
     /// Create a new python string object.
-    pub fn new_str(&self, s: String) -> PyObjectRef {
-        self.ctx.new_str(s)
+    pub fn new_str(&self, s: impl IntoPyString) -> PyObjectRef {
+        self.ctx.new_str(s.into_py_string())
     }
 
     /// Create a new python int object.

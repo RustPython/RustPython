@@ -33,7 +33,7 @@ use crate::obj::objnone::{PyNone, PyNoneRef};
 use crate::obj::objobject;
 use crate::obj::objset::PySet;
 use crate::obj::objstaticmethod::PyStaticMethod;
-use crate::obj::objstr;
+use crate::obj::objstr::PyString;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::scope::Scope;
@@ -420,11 +420,8 @@ impl PyContext {
         PyObject::new(PyComplex::from(value), self.complex_type(), None)
     }
 
-    pub fn new_str<S>(&self, s: S) -> PyObjectRef
-    where
-        objstr::PyString: std::convert::From<S>,
-    {
-        PyObject::new(objstr::PyString::from(s), self.str_type(), None)
+    pub fn new_str<S: Into<PyString>>(&self, s: S) -> PyObjectRef {
+        PyObject::new(s.into(), self.str_type(), None)
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
@@ -496,7 +493,7 @@ impl PyContext {
     where
         F: IntoPyNativeFunc<T, R, VM>,
     {
-        let stringref = |s| PyRef::new_ref(objstr::PyString::from(s), self.str_type(), None);
+        let stringref = |s| PyRef::new_ref(PyString::from(s), self.str_type(), None);
         PyObject::new(
             PyBuiltinFunction::new_with_name(f.into_func(), stringref(module), stringref(name)),
             self.builtin_function_or_method_type(),
@@ -597,7 +594,7 @@ impl PyContext {
             bytecode::Constant::Integer { ref value } => self.new_bigint(value),
             bytecode::Constant::Float { ref value } => self.new_float(*value),
             bytecode::Constant::Complex { ref value } => self.new_complex(*value),
-            bytecode::Constant::String { ref value } => self.new_str(value.clone()),
+            bytecode::Constant::String { ref value } => self.new_str(value.into_py_string()),
             bytecode::Constant::Bytes { ref value } => self.new_bytes(value.clone()),
             bytecode::Constant::Boolean { value } => self.new_bool(value),
             bytecode::Constant::Code { ref code } => {
@@ -744,6 +741,10 @@ impl<T: PyValue> PyRef<T> {
 
     pub fn into_typed_pyobj(self) -> Arc<PyObject<T>> {
         self.into_object().downcast_generic().unwrap()
+    }
+
+    pub fn is_exact_class(&self, vm: &VirtualMachine) -> bool {
+        self.typ().is(&T::class(vm))
     }
 }
 
@@ -1125,6 +1126,17 @@ impl IntoPyObject for &PyObjectRef {
     }
 }
 
+impl IntoPyObject for StringRef {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.new_str(self))
+    }
+}
+impl IntoPyObject for &StringRef {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.new_str(self))
+    }
+}
+
 impl<T> IntoPyObject for PyResult<T>
 where
     T: IntoPyObject,
@@ -1374,6 +1386,45 @@ where
 }
 
 pub type PyComparisonValue = PyArithmaticValue<bool>;
+
+pub type StringRef = Arc<bytecode::StringData>;
+
+mod sealed {
+    use super::*;
+    pub trait Sealed {}
+    impl Sealed for String {}
+    impl Sealed for PyString {}
+    impl Sealed for StringRef {}
+    impl Sealed for &'_ StringRef {}
+}
+
+pub trait IntoPyString: sealed::Sealed {
+    fn into_py_string(self) -> PyString;
+}
+
+impl IntoPyString for String {
+    fn into_py_string(self) -> PyString {
+        self.into()
+    }
+}
+
+impl IntoPyString for PyString {
+    fn into_py_string(self) -> PyString {
+        self
+    }
+}
+
+impl IntoPyString for StringRef {
+    fn into_py_string(self) -> PyString {
+        PyString::new(self)
+    }
+}
+
+impl IntoPyString for &'_ StringRef {
+    fn into_py_string(self) -> PyString {
+        PyString::new(self.clone())
+    }
+}
 
 #[cfg(test)]
 mod tests {

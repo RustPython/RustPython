@@ -66,7 +66,7 @@ pub fn hash_float(value: f64) -> PyHash {
     x as PyHash * value.signum() as PyHash
 }
 
-pub fn hash_value<T: Hash>(data: &T) -> PyHash {
+pub fn hash_value<T: Hash + ?Sized>(data: &T) -> PyHash {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     data.hash(&mut hasher);
     hasher.finish() as PyHash
@@ -97,9 +97,13 @@ pub fn hash_iter_unordered<'a, I: std::iter::Iterator<Item = &'a PyObjectRef>>(
     Ok(hash)
 }
 
+pub fn hash_as_bigint(value: i64) -> PyHash {
+    value % MODULUS as i64
+}
+
 pub fn hash_bigint(value: &BigInt) -> PyHash {
     match value.to_i64() {
-        Some(i64_value) => (i64_value % MODULUS as i64),
+        Some(i64_value) => hash_as_bigint(i64_value),
         None => (value % MODULUS).to_i64().unwrap(),
     }
 }

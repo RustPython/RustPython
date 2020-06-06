@@ -4,7 +4,6 @@ use std::mem::size_of;
 use std::ops::Range;
 use std::str::FromStr;
 use std::string::ToString;
-use std::sync::Arc;
 
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -33,17 +32,10 @@ use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    PyResult, PyValue, StringRef, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
-#[derive(Debug)]
-enum PyStringInner {
-    Direct(StringData),
-    RefCount(Arc<StringData>),
-}
-
-/// str(object='') -> str
 /// str(bytes_or_buffer[, encoding[, errors]]) -> str
 ///
 /// Create a new string object from the given object. If encoding or
@@ -56,27 +48,28 @@ enum PyStringInner {
 #[pyclass(name = "str")]
 #[derive(Debug)]
 pub struct PyString {
-    inner: PyStringInner,
+    inner: StringRef,
 }
 
 impl PyString {
-    fn inner(&self) -> &StringData {
-        match &self.inner {
-            PyStringInner::Direct(s) => s,
-            PyStringInner::RefCount(s) => s,
-        }
+    pub fn new(inner: StringRef) -> Self {
+        PyString { inner }
     }
 
     #[inline]
     pub fn as_str(&self) -> &str {
-        self.inner().as_ref()
+        self.inner.as_str()
+    }
+
+    pub fn data(&self) -> StringRef {
+        self.inner.clone()
     }
 }
 
 impl<T: Into<StringData>> From<T> for PyString {
     fn from(s: T) -> Self {
         PyString {
-            inner: PyStringInner::Direct(s.into()),
+            inner: s.into().into(),
         }
     }
 }
@@ -289,13 +282,13 @@ impl PyString {
 
     #[pymethod(name = "__hash__")]
     pub(crate) fn hash(&self) -> pyhash::PyHash {
-        self.inner().hash()
+        self.inner.hash_value()
     }
 
     #[pymethod(name = "__len__")]
     #[inline]
     fn char_len(&self) -> usize {
-        self.inner().char_len()
+        self.inner.char_len()
     }
 
     #[pymethod(name = "__sizeof__")]
@@ -719,7 +712,7 @@ impl PyString {
     ) -> PyStringRef {
         match count {
             OptionalArg::Present(maxcount) if maxcount >= 0 => {
-                if maxcount == 0 || zelf.as_str().is_empty() {
+                if (maxcount == 0 || zelf.as_str().is_empty()) && !zelf.is_exact_class(vm) {
                     // nothing to do; return the original bytes
                     return zelf;
                 }
@@ -961,27 +954,11 @@ impl PyString {
 
     fn get_fill_char(fillchar: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult<char> {
         match fillchar {
-<<<<<<< HEAD
-            OptionalArg::Present(ref s) => s.value.chars().exactly_one().map_err(|_| {
+            OptionalArg::Present(ref s) => s.as_str().chars().exactly_one().map_err(|_| {
                 vm.new_type_error(
                     "The fill character must be exactly one character long".to_owned(),
                 )
             }),
-=======
-            OptionalArg::Present(ref s) => {
-                let mut chars = s.as_str().chars();
-                let first = chars.next();
-                let second = chars.next();
-                if first.is_some() && second.is_none() {
-                    // safeness is guaranteed by upper first.is_some()
-                    Ok(first.unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() }))
-                } else {
-                    Err(vm.new_type_error(
-                        "The fill character must be exactly one character long".to_owned(),
-                    ))
-                }
-            }
->>>>>>> 9fdca211... Refactor PyString to hold StringData inside
             OptionalArg::Missing => Ok(' '),
         }
     }
@@ -995,11 +972,16 @@ impl PyString {
         vm: &VirtualMachine,
     ) -> PyResult<PyStringRef> {
         let fillchar = Self::get_fill_char(fillchar, vm)?;
-        Ok(if zelf.char_len() as isize >= width {
-            zelf
+        let ret = if zelf.char_len() as isize >= width {
+            if zelf.is_exact_class(vm) {
+                zelf
+            } else {
+                PyString::new(zelf.data()).into_ref(vm)
+            }
         } else {
             PyString::from(pad(zelf.as_str(), width as usize, fillchar)).into_ref(vm)
-        })
+        };
+        Ok(ret)
     }
 
     #[pymethod]

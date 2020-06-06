@@ -342,3 +342,14 @@ macro_rules! named_function {
         }
     }};
 }
+
+#[macro_export]
+macro_rules! strdata {
+    ($s:literal) => {{
+        use $crate::__exports::Lazy;
+        static DATA: Lazy<$crate::pyobject::StringRef> =
+            Lazy::new(|| $crate::pyobject::StringRef::new($s.into()));
+        let data: &$crate::pyobject::StringRef = &DATA;
+        data
+    }};
+}

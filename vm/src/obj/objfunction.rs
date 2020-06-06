@@ -81,21 +81,18 @@ impl PyFunction {
         // See also: PyEval_EvalCodeWithName in cpython:
         // https://github.com/python/cpython/blob/master/Python/ceval.c#L3681
 
-        let n = if nargs > nexpected_args {
-            nexpected_args
-        } else {
-            nargs
-        };
+        let n = std::cmp::min(nargs, nexpected_args);
 
         // Copy positional arguments into local variables
         for i in 0..n {
-            let arg_name = &code_object.arg_names[i];
+            let arg_name = code_object.get_string(code_object.arg_names[i]);
             let arg = &func_args.args[i];
             locals.set_item(arg_name, arg.clone(), vm)?;
         }
 
         // Pack other positional arguments in to *args:
-        if let Some(ref vararg_name) = code_object.varargs_name {
+        if let Some(vararg_name) = code_object.varargs_name {
+            let vararg_name = code_object.get_string(vararg_name);
             let mut last_args = vec![];
             for i in n..nargs {
                 let arg = &func_args.args[i];
@@ -120,7 +117,8 @@ impl PyFunction {
             .contains(bytecode::CodeFlags::HAS_VARKEYWORDS)
         {
             let d = vm.ctx.new_dict();
-            if let Some(ref kwargs_name) = code_object.varkeywords_name {
+            if let Some(kwargs_name) = code_object.varkeywords_name {
+                let kwargs_name = code_object.get_string(kwargs_name);
                 locals.set_item(kwargs_name, d.as_object().clone(), vm)?;
             }
             Some(d)
@@ -132,9 +130,14 @@ impl PyFunction {
         // Handle keyword arguments
         for (name, value) in func_args.kwargs {
             // Check if we have a parameter with this name:
-            if code_object.arg_names.contains(&name) || code_object.kwonlyarg_names.contains(&name)
+            let contains_str = |v: &[crate::bytecode::StringIdx], s| {
+                v.iter()
+                    .any(|&idx| code_object.get_string(idx).as_str() == s)
+            };
+            if contains_str(&code_object.arg_names, &name)
+                || contains_str(&code_object.kwonlyarg_names, &name)
             {
-                if posonly_args.contains(&name) {
+                if contains_str(&posonly_args, &name) {
                     posonly_passed_as_kwarg.push(name);
                     continue;
                 } else if locals.contains_key(&name, vm) {
@@ -170,16 +173,16 @@ impl PyFunction {
             let required_args = nexpected_args - num_defaults_available;
             let mut missing = vec![];
             for i in 0..required_args {
-                let variable_name = &code_object.arg_names[i];
+                let variable_name = code_object.get_string(code_object.arg_names[i]);
                 if !locals.contains_key(variable_name, vm) {
                     missing.push(variable_name)
                 }
             }
             if !missing.is_empty() {
                 return Err(vm.new_type_error(format!(
-                    "Missing {} required positional arguments: {:?}",
+                    "Missing {} required positional arguments: {}",
                     missing.len(),
-                    missing
+                    missing.iter().format(", "),
                 )));
             }
             if let Some(defaults) = &self.defaults {
@@ -187,7 +190,7 @@ impl PyFunction {
                 // We have sufficient defaults, so iterate over the corresponding names and use
                 // the default if we don't already have a value
                 for (default_index, i) in (required_args..nexpected_args).enumerate() {
-                    let arg_name = &code_object.arg_names[i];
+                    let arg_name = code_object.get_string(code_object.arg_names[i]);
                     if !locals.contains_key(arg_name, vm) {
                         locals.set_item(arg_name, defaults[default_index].clone(), vm)?;
                     }
@@ -197,6 +200,7 @@ impl PyFunction {
 
         // Check if kw only arguments are all present:
         for arg_name in &code_object.kwonlyarg_names {
+            let arg_name = code_object.get_string(*arg_name);
             if !locals.contains_key(arg_name, vm) {
                 if let Some(kw_only_defaults) = &self.kw_only_defaults {
                     if let Some(default) = kw_only_defaults.get_item_option(arg_name, vm)? {

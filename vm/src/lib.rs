@@ -88,5 +88,6 @@ pub use rustpython_bytecode::*;
 #[doc(hidden)]
 pub mod __exports {
     pub use maplit::hashmap;
+    pub use once_cell::sync::Lazy;
     pub use smallbox::smallbox;
 }

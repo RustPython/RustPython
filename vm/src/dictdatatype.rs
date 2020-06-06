@@ -1,14 +1,12 @@
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::pyhash;
-use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
+use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult, StringRef};
 use crate::vm::VirtualMachine;
-use num_bigint::ToBigInt;
 /// Ordered dictionary implementation.
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
 /// And: http://code.activestate.com/recipes/578375/
-use std::collections::{hash_map::DefaultHasher, HashMap};
-use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
 use std::mem::size_of;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -423,10 +421,7 @@ pub trait DictKey {
 /// to index dictionaries.
 impl DictKey for &PyObjectRef {
     fn do_hash(self, vm: &VirtualMachine) -> PyResult<HashValue> {
-        let raw_hash = vm._hash(self)?;
-        let mut hasher = DefaultHasher::new();
-        raw_hash.hash(&mut hasher);
-        Ok(hasher.finish() as HashValue)
+        vm._hash(self)
     }
 
     fn do_is(self, other: &PyObjectRef) -> bool {
@@ -438,9 +433,14 @@ impl DictKey for &PyObjectRef {
     }
 }
 
+// for the following DictKey impls, we use pyhash::hash_as_bigint because vm._hash() takes the
+// BigInt that obj.__hash__() returns and does `raw_hash % MODULUS` to get an i64.
+// pyhash::hash_as_bigint does the same here, to ensure that the string types' do_hash returns the
+// same as what PyObjectRef::do_hash() does for an equivalent python str
+
 impl DictKey for &PyStringRef {
     fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
-        Ok(self.hash())
+        Ok(pyhash::hash_as_bigint(self.hash()))
     }
 
     fn do_is(self, other: &PyObjectRef) -> bool {
@@ -458,16 +458,30 @@ impl DictKey for &PyStringRef {
     }
 }
 
+impl DictKey for &StringRef {
+    fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
+        Ok(pyhash::hash_as_bigint(self.hash_value()))
+    }
+
+    fn do_is(self, _other: &PyObjectRef) -> bool {
+        false
+    }
+
+    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+        if let Some(py_str_value) = other_key.payload::<PyString>() {
+            Ok(py_str_value.as_str() == self.as_str())
+        } else {
+            vm.bool_eq(vm.new_str(self), other_key.clone())
+        }
+    }
+}
+
 /// Implement trait for the str type, so that we can use strings
 /// to index dictionaries.
 impl DictKey for &str {
     fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStringRef
-        let raw_hash = pyhash::hash_value(&self.to_owned()).to_bigint().unwrap();
-        let raw_hash = pyhash::hash_bigint(&raw_hash);
-        let mut hasher = DefaultHasher::new();
-        raw_hash.hash(&mut hasher);
-        Ok(hasher.finish() as HashValue)
+        Ok(pyhash::hash_as_bigint(pyhash::hash_value(self) as HashValue))
     }
 
     fn do_is(self, _other: &PyObjectRef) -> bool {
