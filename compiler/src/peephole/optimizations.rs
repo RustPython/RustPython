@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use rustpython_bytecode::bytecode::{self, Instruction};
 
 use super::{InstructionMetadata, OptimizationBuffer};
@@ -58,9 +60,11 @@ pub fn operator(buf: &mut impl OptimizationBuffer) {
             (op!(Power), lc!(Float, lhs), lc!(Float, rhs)) => {
                 emitconst!(buf, [lhs_meta, rhs_meta], Float, lhs.powf(rhs))
             }
-            (op!(Add), lc!(String, mut lhs), lc!(String, rhs)) => {
-                lhs.push_str(&rhs);
-                emitconst!(buf, [lhs_meta, rhs_meta], String, lhs);
+            (op!(Add), lc!(String, lhs), lc!(String, rhs)) => {
+                let mut lhs = Arc::try_unwrap(lhs)
+                    .map_or_else(|s| s.as_str().to_owned(), |s| s.into_string());
+                lhs.push_str(rhs.as_str());
+                emitconst!(buf, [lhs_meta, rhs_meta], String, Arc::new(lhs.into()));
             }
             (op, lhs, rhs) => {
                 buf.emit(lhs, lhs_meta);

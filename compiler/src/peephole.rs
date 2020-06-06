@@ -1,6 +1,6 @@
 use crate::output_stream::OutputStream;
 use arrayvec::ArrayVec;
-use rustpython_bytecode::bytecode::{CodeObject, Instruction, Label, Location};
+use rustpython_bytecode::bytecode::{CodeObject, Instruction, Label, Location, StringIdx};
 
 pub mod optimizations;
 
@@ -114,6 +114,9 @@ where
     }
     fn is_generator(&self) -> bool {
         self.inner.is_generator()
+    }
+    fn store_string<'s>(&mut self, s: std::borrow::Cow<'s, str>) -> StringIdx {
+        self.inner.store_string(s)
     }
 }
 

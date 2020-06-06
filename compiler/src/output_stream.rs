@@ -1,4 +1,6 @@
-use rustpython_bytecode::bytecode::{CodeFlags, CodeObject, Instruction, Label, Location};
+use rustpython_bytecode::bytecode::{
+    CodeFlags, CodeObject, Instruction, Label, Location, StringIdx,
+};
 
 pub trait OutputStream: From<CodeObject> + Into<CodeObject> {
     /// Output an instruction
@@ -9,6 +11,8 @@ pub trait OutputStream: From<CodeObject> + Into<CodeObject> {
     fn mark_generator(&mut self);
     /// Check to see if the inner CodeObject is a generator
     fn is_generator(&self) -> bool;
+    /// Cache a string in the string cache
+    fn store_string<'s>(&mut self, s: std::borrow::Cow<'s, str>) -> StringIdx;
 }
 
 pub struct CodeObjectStream {
@@ -40,5 +44,8 @@ impl OutputStream for CodeObjectStream {
     }
     fn is_generator(&self) -> bool {
         self.code.flags.contains(CodeFlags::IS_GENERATOR)
+    }
+    fn store_string<'s>(&mut self, s: std::borrow::Cow<'s, str>) -> StringIdx {
+        self.code.store_string(s)
     }
 }
