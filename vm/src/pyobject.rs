@@ -599,7 +599,7 @@ impl PyContext {
             bytecode::Constant::Complex { ref value } => self.new_complex(*value),
             bytecode::Constant::String { ref value } => self.new_str(value.clone()),
             bytecode::Constant::Bytes { ref value } => self.new_bytes(value.clone()),
-            bytecode::Constant::Boolean { ref value } => self.new_bool(value.clone()),
+            bytecode::Constant::Boolean { value } => self.new_bool(value),
             bytecode::Constant::Code { ref code } => {
                 self.new_code_object(*code.clone()).into_object()
             }
