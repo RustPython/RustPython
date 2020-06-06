@@ -145,7 +145,7 @@ impl PyLock {
     }
 }
 
-type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
+pub type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
 #[pyclass(name = "RLock")]
 struct PyRLock {
     mu: RawRMutex,

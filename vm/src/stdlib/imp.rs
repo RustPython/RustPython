@@ -1,28 +1,34 @@
 use crate::import;
+use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCode;
 use crate::obj::objmodule::PyModuleRef;
 use crate::obj::objstr;
 use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
+use crate::stdlib::thread::RawRMutex;
 use crate::vm::VirtualMachine;
+
+static IMP_LOCK: RawRMutex = RawRMutex::INIT;
 
 fn imp_extension_suffixes(vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_list(vec![]))
 }
 
-fn imp_acquire_lock(_vm: &VirtualMachine) -> PyResult<()> {
-    // TODO
-    Ok(())
+fn imp_acquire_lock(_vm: &VirtualMachine) {
+    IMP_LOCK.lock()
 }
 
-fn imp_release_lock(_vm: &VirtualMachine) -> PyResult<()> {
-    // TODO
-    Ok(())
+fn imp_release_lock(vm: &VirtualMachine) -> PyResult<()> {
+    if !IMP_LOCK.is_locked() {
+        Err(vm.new_runtime_error("Global import lock not held".to_owned()))
+    } else {
+        IMP_LOCK.unlock();
+        Ok(())
+    }
 }
 
-fn imp_lock_held(_vm: &VirtualMachine) -> PyResult<()> {
-    // TODO
-    Ok(())
+fn imp_lock_held(_vm: &VirtualMachine) -> bool {
+    IMP_LOCK.is_locked()
 }
 
 fn imp_is_builtin(name: PyStringRef, vm: &VirtualMachine) -> bool {
@@ -90,6 +96,11 @@ fn imp_fix_co_filename(_code: PyObjectRef, _path: PyStringRef) {
     // TODO:
 }
 
+fn imp_source_hash(_key: u64, _source: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    // TODO:
+    Ok(vm.get_none())
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     py_module!(vm, "_imp", {
@@ -105,5 +116,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "init_frozen" => ctx.new_function(imp_init_frozen),
         "is_frozen_package" => ctx.new_function(imp_is_frozen_package),
         "_fix_co_filename" => ctx.new_function(imp_fix_co_filename),
+        "source_hash" => ctx.new_function(imp_source_hash)
     })
 }
