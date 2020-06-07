@@ -6,6 +6,7 @@ use std::str::FromStr;
 use std::string::ToString;
 
 use crossbeam_utils::atomic::AtomicCell;
+use itertools::Itertools;
 use num_traits::ToPrimitive;
 use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
@@ -17,8 +18,7 @@ use super::objfloat;
 use super::objint::{self, PyInt, PyIntRef};
 use super::objiter;
 use super::objnone::PyNone;
-use super::objsequence::PySliceableSequence;
-use super::objslice::PySliceRef;
+use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtuple;
 use super::objtype::{self, PyClassRef};
 use super::pystr::{self, adjust_indices, PyCommonString, PyCommonStringWrapper};
@@ -30,8 +30,8 @@ use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatSpec
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
-    Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -240,32 +240,23 @@ impl PyString {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(&self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    fn getitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
         match needle {
-            Either::A(pos) => match pos.as_bigint().to_isize() {
-                Some(pos) => {
-                    let index: usize = if pos.is_negative() {
-                        (self.value.chars().count() as isize + pos) as usize
-                    } else {
-                        pos.abs() as usize
-                    };
+            SequenceIndex::Int(pos) => {
+                let index: usize = if pos.is_negative() {
+                    (self.value.chars().count() as isize + pos) as usize
+                } else {
+                    pos.abs() as usize
+                };
 
-                    if let Some(character) = self.value.chars().nth(index) {
-                        Ok(vm.new_str(character.to_string()))
-                    } else {
-                        Err(vm.new_index_error("string index out of range".to_owned()))
-                    }
+                if let Some(character) = self.value.chars().nth(index) {
+                    Ok(vm.new_str(character.to_string()))
+                } else {
+                    Err(vm.new_index_error("string index out of range".to_owned()))
                 }
-                None => {
-                    Err(vm
-                        .new_index_error("cannot fit 'int' into an index-sized integer".to_owned()))
-                }
-            },
-            Either::B(slice) => {
-                let string = self
-                    .value
-                    .to_owned()
-                    .get_slice_items(vm, slice.as_object())?;
+            }
+            SequenceIndex::Slice(slice) => {
+                let string = self.value.get_slice_items(vm, &slice)?;
                 Ok(vm.new_str(string))
             }
         }
@@ -965,19 +956,11 @@ impl PyString {
 
     fn get_fill_char(fillchar: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult<char> {
         match fillchar {
-            OptionalArg::Present(ref s) => {
-                let mut chars = s.value.chars();
-                let first = chars.next();
-                let second = chars.next();
-                if first.is_some() && second.is_none() {
-                    // safeness is guaranteed by upper first.is_some()
-                    Ok(first.unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() }))
-                } else {
-                    Err(vm.new_type_error(
-                        "The fill character must be exactly one character long".to_owned(),
-                    ))
-                }
-            }
+            OptionalArg::Present(ref s) => s.value.chars().exactly_one().map_err(|_| {
+                vm.new_type_error(
+                    "The fill character must be exactly one character long".to_owned(),
+                )
+            }),
             OptionalArg::Missing => Ok(' '),
         }
     }
@@ -1602,7 +1585,7 @@ fn perform_format_map(
     Ok(vm.ctx.new_str(final_string))
 }
 
-impl PySliceableSequence for String {
+impl PySliceableSequence for str {
     type Sliced = String;
 
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {

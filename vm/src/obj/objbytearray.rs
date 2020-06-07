@@ -12,7 +12,7 @@ use super::objbyteinner::{
 };
 use super::objint::PyIntRef;
 use super::objiter;
-use super::objslice::PySliceRef;
+use super::objsequence::SequenceIndex;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
 use super::pystr::{self, PyCommonString};
@@ -172,22 +172,17 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(&self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    fn getitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
         self.borrow_value().getitem(needle, vm)
     }
 
     #[pymethod(name = "__setitem__")]
-    fn setitem(
-        &self,
-        needle: Either<i32, PySliceRef>,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn setitem(&self, needle: SequenceIndex, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.borrow_value_mut().setitem(needle, value, vm)
     }
 
     #[pymethod(name = "__delitem__")]
-    fn delitem(&self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult<()> {
+    fn delitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
         self.borrow_value_mut().delitem(needle, vm)
     }
 

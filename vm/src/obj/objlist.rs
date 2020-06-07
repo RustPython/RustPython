@@ -11,7 +11,7 @@ use super::objbool;
 use super::objbyteinner;
 use super::objint::PyIntRef;
 use super::objiter;
-use super::objsequence::{get_item, SequenceIndex};
+use super::objsequence::{get_item, get_pos, get_slice_range, SequenceIndex};
 use super::objslice::PySliceRef;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
@@ -60,51 +60,6 @@ impl PyList {
 
     pub fn borrow_elements_mut(&self) -> RwLockWriteGuard<'_, Vec<PyObjectRef>> {
         self.elements.write().unwrap()
-    }
-
-    fn get_pos(p: i32, len: usize) -> Option<usize> {
-        // convert a (potentially negative) positon into a real index
-        if p < 0 {
-            if -p as usize > len {
-                None
-            } else {
-                Some(len - ((-p) as usize))
-            }
-        } else if p as usize >= len {
-            None
-        } else {
-            Some(p as usize)
-        }
-    }
-
-    fn get_slice_pos(slice_pos: &BigInt, len: usize) -> usize {
-        if let Some(pos) = slice_pos.to_i32() {
-            if let Some(index) = PyList::get_pos(pos, len) {
-                // within bounds
-                return index;
-            }
-        }
-
-        if slice_pos.is_negative() {
-            // slice past start bound, round to start
-            0
-        } else {
-            // slice past end bound, round to end
-            len
-        }
-    }
-
-    fn get_slice_range(start: &Option<BigInt>, stop: &Option<BigInt>, len: usize) -> Range<usize> {
-        let start = start
-            .as_ref()
-            .map(|x| PyList::get_slice_pos(x, len))
-            .unwrap_or(0);
-        let stop = stop
-            .as_ref()
-            .map(|x| PyList::get_slice_pos(x, len))
-            .unwrap_or_else(|| len);
-
-        start..stop
     }
 
     pub(crate) fn get_byte_inner(
@@ -273,9 +228,9 @@ impl PyList {
         }
     }
 
-    fn setindex(&self, index: i32, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn setindex(&self, index: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let mut elements = self.borrow_elements_mut();
-        if let Some(pos_index) = PyList::get_pos(index, elements.len()) {
+        if let Some(pos_index) = get_pos(index, elements.len()) {
             elements[pos_index] = value;
             Ok(vm.get_none())
         } else {
@@ -297,16 +252,16 @@ impl PyList {
         if step.is_zero() {
             Err(vm.new_value_error("slice step cannot be zero".to_owned()))
         } else if step.is_positive() {
-            let range = PyList::get_slice_range(&start, &stop, elements.len());
+            let range = get_slice_range(&start, &stop, elements.len());
             if range.start < range.end {
-                match step.to_i32() {
+                match step.to_isize() {
                     Some(1) => PyList::_set_slice(elements, range, items, vm),
                     Some(num) => {
                         // assign to extended slice
                         PyList::_set_stepped_slice(elements, range, num as usize, items, vm)
                     }
                     None => {
-                        // not sure how this is reached, step too big for i32?
+                        // not sure how this is reached, step too big for isize?
                         // then step is bigger than the than len of the list, no question
                         #[allow(clippy::range_plus_one)]
                         PyList::_set_stepped_slice(
@@ -339,13 +294,13 @@ impl PyList {
                     x + 1
                 }
             });
-            let range = PyList::get_slice_range(&stop, &start, elements.len());
-            match (-step).to_i32() {
+            let range = get_slice_range(&stop, &start, elements.len());
+            match (-step).to_isize() {
                 Some(num) => {
                     PyList::_set_stepped_slice_reverse(elements, range, num as usize, items, vm)
                 }
                 None => {
-                    // not sure how this is reached, step too big for i32?
+                    // not sure how this is reached, step too big for isize?
                     // then step is bigger than the than len of the list no question
                     PyList::_set_stepped_slice_reverse(
                         elements,
@@ -638,9 +593,9 @@ impl PyList {
         }
     }
 
-    fn delindex(&self, index: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn delindex(&self, index: isize, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = self.borrow_elements_mut();
-        if let Some(pos_index) = PyList::get_pos(index, elements.len()) {
+        if let Some(pos_index) = get_pos(index, elements.len()) {
             elements.remove(pos_index);
             Ok(())
         } else {
@@ -657,10 +612,10 @@ impl PyList {
         if step.is_zero() {
             Err(vm.new_value_error("slice step cannot be zero".to_owned()))
         } else if step.is_positive() {
-            let range = PyList::get_slice_range(&start, &stop, elements.len());
+            let range = get_slice_range(&start, &stop, elements.len());
             if range.start < range.end {
                 #[allow(clippy::range_plus_one)]
-                match step.to_i32() {
+                match step.to_isize() {
                     Some(1) => {
                         PyList::_del_slice(elements, range);
                         Ok(())
@@ -695,9 +650,9 @@ impl PyList {
                     x + 1
                 }
             });
-            let range = PyList::get_slice_range(&stop, &start, elements.len());
+            let range = get_slice_range(&stop, &start, elements.len());
             if range.start < range.end {
-                match (-step).to_i32() {
+                match (-step).to_isize() {
                     Some(1) => {
                         PyList::_del_slice(elements, range);
                         Ok(())

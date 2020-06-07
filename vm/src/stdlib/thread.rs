@@ -24,10 +24,10 @@ use std::{fmt, thread};
 
 // PY_TIMEOUT_MAX is a value in microseconds
 #[cfg(not(target_os = "windows"))]
-const PY_TIMEOUT_MAX: isize = std::isize::MAX / 1_000;
+const PY_TIMEOUT_MAX: i64 = i64::MAX / 1_000;
 
 #[cfg(target_os = "windows")]
-const PY_TIMEOUT_MAX: isize = 0xffffffff * 1_000;
+const PY_TIMEOUT_MAX: i64 = 0xffffffff * 1_000;
 
 // this is a value in seconds
 const TIMEOUT_MAX: f64 = (PY_TIMEOUT_MAX / 1_000_000) as f64;
@@ -37,7 +37,7 @@ struct AcquireArgs {
     #[pyarg(positional_or_keyword, default = "true")]
     blocking: bool,
     #[pyarg(positional_or_keyword, default = "Either::A(-1.0)")]
-    timeout: Either<f64, isize>,
+    timeout: Either<f64, i64>,
 }
 
 macro_rules! acquire_lock_impl {

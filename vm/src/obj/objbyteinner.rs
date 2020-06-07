@@ -10,7 +10,7 @@ use super::objint::{self, PyInt, PyIntRef};
 use super::objlist::PyList;
 use super::objmemory::PyMemoryView;
 use super::objnone::PyNoneRef;
-use super::objsequence::PySliceableSequence;
+use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objslice::PySliceRef;
 use super::objstr::{self, PyString, PyStringRef};
 use super::pystr::{self, PyCommonString, PyCommonStringWrapper};
@@ -327,22 +327,22 @@ impl PyByteInner {
         })
     }
 
-    pub fn getitem(&self, needle: Either<i32, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    pub fn getitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
         match needle {
-            Either::A(int) => {
+            SequenceIndex::Int(int) => {
                 if let Some(idx) = self.elements.get_pos(int) {
                     Ok(vm.new_int(self.elements[idx]))
                 } else {
                     Err(vm.new_index_error("index out of range".to_owned()))
                 }
             }
-            Either::B(slice) => Ok(vm
-                .ctx
-                .new_bytes(self.elements.get_slice_items(vm, slice.as_object())?)),
+            SequenceIndex::Slice(slice) => {
+                Ok(vm.ctx.new_bytes(self.elements.get_slice_items(vm, &slice)?))
+            }
         }
     }
 
-    fn setindex(&mut self, int: i32, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn setindex(&mut self, int: isize, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(idx) = self.elements.get_pos(int) {
             let result = match_class!(match object {
                 i @ PyInt => {
@@ -392,30 +392,24 @@ impl PyByteInner {
             range.end = range.start;
         }
         self.elements.splice(range, items);
-        Ok(vm
-            .ctx
-            .new_bytes(self.elements.get_slice_items(vm, slice.as_object())?))
+        Ok(vm.ctx.new_bytes(self.elements.get_slice_items(vm, &slice)?))
     }
 
     pub fn setitem(
         &mut self,
-        needle: Either<i32, PySliceRef>,
+        needle: SequenceIndex,
         object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
         match needle {
-            Either::A(int) => self.setindex(int, object, vm),
-            Either::B(slice) => self.setslice(slice, object, vm),
+            SequenceIndex::Int(int) => self.setindex(int, object, vm),
+            SequenceIndex::Slice(slice) => self.setslice(slice, object, vm),
         }
     }
 
-    pub fn delitem(
-        &mut self,
-        needle: Either<i32, PySliceRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    pub fn delitem(&mut self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
         match needle {
-            Either::A(int) => {
+            SequenceIndex::Int(int) => {
                 if let Some(idx) = self.elements.get_pos(int) {
                     self.elements.remove(idx);
                     Ok(())
@@ -423,7 +417,7 @@ impl PyByteInner {
                     Err(vm.new_index_error("index out of range".to_owned()))
                 }
             }
-            Either::B(slice) => self.delslice(slice, vm),
+            SequenceIndex::Slice(slice) => self.delslice(slice, vm),
         }
     }
 

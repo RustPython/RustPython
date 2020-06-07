@@ -54,8 +54,6 @@ class BaseBytesTest:
             self.assertEqual(a, b)
             self.assertEqual(type(a), type(b))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_empty_sequence(self):
         b = self.type2test()
         self.assertEqual(len(b), 0)
