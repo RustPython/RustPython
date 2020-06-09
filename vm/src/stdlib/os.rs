@@ -41,6 +41,15 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
+// cfg from nix
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+use crate::pyobject::PyIterable;
+
 #[cfg(windows)]
 pub const MODULE_NAME: &str = "nt";
 #[cfg(not(windows))]
@@ -1537,6 +1546,25 @@ fn os_initgroups(user_name: PyStringRef, gid: u32, vm: &VirtualMachine) -> PyRes
     unistd::initgroups(&user, gid).map_err(|err| convert_nix_error(vm, err))
 }
 
+// cfg from nix
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+fn os_setgroups(group_ids: PyIterable<u32>, vm: &VirtualMachine) -> PyResult<()> {
+    let gids = group_ids
+        .iter(vm)?
+        .map(|entry| match entry {
+            Ok(id) => Ok(unistd::Gid::from_raw(id)),
+            Err(err) => Err(err),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let ret = unistd::setgroups(&gids);
+    ret.map_err(|err| convert_nix_error(vm, err))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1772,6 +1800,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "getresgid" => ctx.new_function(os_getresgid),
         "setregid" => ctx.new_function(os_setregid),
         "initgroups" => ctx.new_function(os_initgroups),
+        "setgroups" => ctx.new_function(os_setgroups),
     });
 
     // cfg taken from nix
