@@ -166,7 +166,7 @@ class NamedExpressionInvalidTest(unittest.TestCase):
                 with self.assertRaisesRegex(SyntaxError, msg):
                     exec(f"lambda: {code}", {}) # Function scope
 
-    @unittest.expectedFailure # TODO RustPythonskip
+    @unittest.expectedFailure # TODO RustPython
     def test_named_expression_invalid_comprehension_iterable_expression(self):
         cases = [
             ("Top level", "[i for i in (i := range(5))]"),
