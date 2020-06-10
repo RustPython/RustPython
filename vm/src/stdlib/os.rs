@@ -1530,7 +1530,7 @@ fn os_setresgid(rgid: u32, egid: u32, sgid: u32, vm: &VirtualMachine) -> PyResul
         Gid::from_raw(egid),
         Gid::from_raw(sgid),
     )
-    .map_err(|err| convert_nix_error(vm, err));
+    .map_err(|err| convert_nix_error(vm, err))
 }
 
 // cfg from nix
@@ -1540,10 +1540,10 @@ fn os_setresgid(rgid: u32, egid: u32, sgid: u32, vm: &VirtualMachine) -> PyResul
     target_os = "linux",
     target_os = "openbsd"
 ))]
-fn os_setregid(rgid: u32, egid: u32, vm: &VirtualMachine) -> PyResult<(i32)> {
+fn os_setregid(rgid: u32, egid: u32, vm: &VirtualMachine) -> PyResult<()> {
     let ret = unsafe { libc::setregid(rgid, egid) };
     if ret == 0 {
-        Ok(0)
+        Ok(())
     } else {
         Err(errno_err(vm))
     }
