@@ -9,8 +9,7 @@ if sys.platform != 'win32':  # pragma: no cover
 
 import _winapi
 import itertools
-# XXX RustPython TODO: msvcrt
-# import msvcrt
+import msvcrt
 import os
 import socket
 import subprocess
