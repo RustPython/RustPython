@@ -101,7 +101,6 @@ uname = "0.1.1"
 crc32fast = "1.2.0"
 adler32 = "1.0.3"
 gethostname = "0.2.0"
-subprocess = "0.2.2"
 socket2 = "0.3"
 rustyline = "6.0"
 openssl = { version = "0.10", features = ["vendored"], optional = true }

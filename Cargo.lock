@@ -1691,7 +1691,6 @@ dependencies = [
  "smallbox",
  "socket2",
  "statrs",
- "subprocess",
  "thread_local",
  "uname",
  "unic-bidi",
@@ -1958,16 +1957,6 @@ name = "strsim"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6446ced80d6c486436db5c078dde11a9f73d42b57fb273121e160b84f63d894c"
-
-[[package]]
-name = "subprocess"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5109e3c3215ce5339ca9766a6db7f39144ccc7d9bad53b96d65cfb14ae6c2985"
-dependencies = [
- "libc",
- "winapi",
-]
 
 [[package]]
 name = "subtle"

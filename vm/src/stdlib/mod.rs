@@ -59,8 +59,6 @@ mod select;
 pub mod signal;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
-#[cfg(not(target_arch = "wasm32"))]
-mod subprocess;
 #[cfg(windows)]
 mod winapi;
 #[cfg(windows)]
@@ -131,7 +129,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("select".to_owned(), Box::new(select::make_module));
         #[cfg(feature = "ssl")]
         modules.insert("_ssl".to_owned(), Box::new(ssl::make_module));
-        modules.insert("_subprocess".to_owned(), Box::new(subprocess::make_module));
         modules.insert("_thread".to_owned(), Box::new(thread::make_module));
         #[cfg(not(target_os = "redox"))]
         modules.insert("zlib".to_owned(), Box::new(zlib::make_module));
