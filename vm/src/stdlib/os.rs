@@ -1524,7 +1524,23 @@ fn os_getresgid(vm: &VirtualMachine) -> PyResult<(u32, u32, u32)> {
     target_os = "linux",
     target_os = "openbsd"
 ))]
-fn os_setregid(rgid: u32, egid: u32, vm: &VirtualMachine) -> PyResult<i32> {
+fn os_setresgid(rgid: u32, egid: u32, sgid: u32, vm: &VirtualMachine) -> PyResult<()> {
+    unistd::setresgid(
+        Gid::from_raw(rgid),
+        Gid::from_raw(egid),
+        Gid::from_raw(sgid),
+    )
+    .map_err(|err| convert_nix_error(vm, err));
+}
+
+// cfg from nix
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+fn os_setregid(rgid: u32, egid: u32, vm: &VirtualMachine) -> PyResult<(i32)> {
     let ret = unsafe { libc::setregid(rgid, egid) };
     if ret == 0 {
         Ok(0)
@@ -1798,6 +1814,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "setresuid" => ctx.new_function(os_setresuid),
         "getresuid" => ctx.new_function(os_getresuid),
         "getresgid" => ctx.new_function(os_getresgid),
+        "setresgid" => ctx.new_function(os_setresgid),
         "setregid" => ctx.new_function(os_setregid),
         "initgroups" => ctx.new_function(os_initgroups),
         "setgroups" => ctx.new_function(os_setgroups),
