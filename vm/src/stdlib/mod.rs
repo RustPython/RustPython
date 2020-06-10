@@ -49,6 +49,8 @@ mod faulthandler;
 mod msvcrt;
 #[cfg(not(target_arch = "wasm32"))]
 mod multiprocessing;
+#[cfg(unix)]
+mod posixsubprocess;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
 #[cfg(not(target_arch = "wasm32"))]
@@ -143,6 +145,14 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
     {
         modules.insert("pwd".to_owned(), Box::new(pwd::make_module));
+    }
+
+    #[cfg(unix)]
+    {
+        modules.insert(
+            "_posixsubprocess".to_owned(),
+            Box::new(posixsubprocess::make_module),
+        );
     }
 
     // Windows-only
