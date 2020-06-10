@@ -850,12 +850,12 @@ fn text_io_wrapper_init(
     let mut self_encoding = None; // TODO: Try os.device_encoding(fileno)
     if encoding.is_none() && self_encoding.is_none() {
         // TODO: locale module
-        self_encoding = Some("utf-8");
+        self_encoding = Some("utf-8".to_owned());
     }
-    if let Some(self_encoding) = self_encoding {
-        encoding = Some(PyString::from(self_encoding).into_ref(vm));
+    if let Some(ref self_encoding) = self_encoding {
+        encoding = Some(PyString::from(self_encoding.clone()).into_ref(vm));
     } else if let Some(ref encoding) = encoding {
-        self_encoding = Some(encoding.as_str())
+        self_encoding = Some(encoding.as_str().to_owned())
     } else {
         return Err(vm.new_os_error("could not determine default encoding".to_owned()));
     }
@@ -870,7 +870,7 @@ fn text_io_wrapper_init(
     vm.set_attr(
         &instance,
         "encoding",
-        self_encoding.map_or_else(|| vm.get_none(), |s| vm.ctx.new_str(s)),
+        self_encoding.map_or_else(|| vm.get_none(), |s| vm.new_str(s)),
     )?;
     vm.set_attr(&instance, "errors", errors)?;
     vm.set_attr(&instance, "buffer", args.buffer.clone())?;

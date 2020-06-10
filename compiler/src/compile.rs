@@ -2290,9 +2290,9 @@ fn compile_conversion_flag(conversion_flag: ast::ConversionFlag) -> bytecode::Co
     }
 }
 
-fn string_constant(s: impl Into<bytecode::StringData>) -> bytecode::Constant {
+fn string_constant(s: impl Into<String>) -> bytecode::Constant {
     bytecode::Constant::String {
-        value: s.into().into(),
+        value: bytecode::StringData::from(s.into()).into(),
     }
 }
 

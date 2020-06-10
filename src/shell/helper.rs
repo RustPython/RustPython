@@ -79,7 +79,7 @@ impl<'vm> ShellHelper<'vm> {
 
             let mut current = self
                 .scope
-                .load_global(self.vm, &StringRef::new(first.into()))?;
+                .load_global(self.vm, &StringRef::new(first.to_owned().into()))?;
 
             for attr in parents {
                 current = self.vm.get_attribute(current.clone(), attr.as_str()).ok()?;

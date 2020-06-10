@@ -90,7 +90,7 @@ impl TryIntoRef<PyString> for String {
 
 impl TryIntoRef<PyString> for &str {
     fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyString>> {
-        Ok(PyString::from(self).into_ref(vm))
+        Ok(PyString::from(self.to_owned()).into_ref(vm))
     }
 }
 
@@ -197,7 +197,7 @@ impl PyString {
         if string.class().is(&cls) {
             Ok(string)
         } else {
-            PyString::from(string.as_str()).into_ref_with_type(vm, cls)
+            PyString::from(string.as_str().to_owned()).into_ref_with_type(vm, cls)
         }
     }
     #[pymethod(name = "__add__")]
@@ -433,9 +433,9 @@ impl PyString {
         let elements = self.as_str().py_split(
             args,
             vm,
-            |v, s, vm| v.split(s).map(|s| vm.ctx.new_str(s)).collect(),
-            |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_str(s)).collect(),
-            |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_str(s)),
+            |v, s, vm| v.split(s).map(|s| vm.new_str(s.to_owned())).collect(),
+            |v, s, n, vm| v.splitn(n, s).map(|s| vm.new_str(s.to_owned())).collect(),
+            |v, n, vm| v.py_split_whitespace(n, |s| vm.new_str(s.to_owned())),
         )?;
         Ok(vm.ctx.new_list(elements))
     }
@@ -445,9 +445,9 @@ impl PyString {
         let mut elements = self.as_str().py_split(
             args,
             vm,
-            |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_str(s)).collect(),
-            |v, s, n, vm| v.rsplitn(n, s).map(|s| vm.ctx.new_str(s)).collect(),
-            |v, n, vm| v.py_rsplit_whitespace(n, |s| vm.ctx.new_str(s)),
+            |v, s, vm| v.rsplit(s).map(|s| vm.new_str(s.to_owned())).collect(),
+            |v, s, n, vm| v.rsplitn(n, s).map(|s| vm.new_str(s.to_owned())).collect(),
+            |v, n, vm| v.py_rsplit_whitespace(n, |s| vm.new_str(s.to_owned())),
         )?;
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.

@@ -690,9 +690,44 @@ pub struct FrozenModule {
     pub package: bool,
 }
 
+#[derive(Clone)]
+enum StringDataInner {
+    Static(&'static str),
+    Owned(Box<str>),
+}
+impl StringDataInner {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Static(s) => s,
+            Self::Owned(ref s) => &*s,
+        }
+    }
+}
+impl fmt::Debug for StringDataInner {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(self.as_str(), f)
+    }
+}
+impl serde::Serialize for StringDataInner {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+impl<'de> serde::Deserialize<'de> for StringDataInner {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        serde::Deserialize::deserialize(deserializer).map(Self::Owned)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StringData {
-    s: Box<str>,
+    inner: StringDataInner,
     #[serde(skip)]
     hash: OnceCell<i64>,
     #[serde(skip)]
@@ -702,30 +737,33 @@ pub struct StringData {
 impl StringData {
     #[inline]
     pub fn as_str(&self) -> &str {
-        self.as_ref()
+        self.inner.as_str()
     }
 
     pub fn hash_value(&self) -> i64 {
         *self.hash.get_or_init(|| {
             use std::hash::*;
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            self.s.hash(&mut hasher);
+            self.as_str().hash(&mut hasher);
             hasher.finish() as i64
         })
     }
 
     pub fn char_len(&self) -> usize {
-        *self.len.get_or_init(|| self.s.chars().count())
+        *self.len.get_or_init(|| self.as_str().chars().count())
     }
 
     pub fn into_string(self) -> String {
-        self.s.into_string()
+        match self.inner {
+            StringDataInner::Static(s) => s.to_owned(),
+            StringDataInner::Owned(s) => s.into(),
+        }
     }
 }
 
 impl PartialEq for StringData {
     fn eq(&self, other: &Self) -> bool {
-        self.s == other.s
+        self.as_str() == other.as_str()
     }
 }
 
@@ -734,14 +772,14 @@ impl Eq for StringData {}
 impl AsRef<str> for StringData {
     #[inline]
     fn as_ref(&self) -> &str {
-        &self.s
+        self.as_str()
     }
 }
 
 impl From<Box<str>> for StringData {
     fn from(s: Box<str>) -> Self {
         StringData {
-            s,
+            inner: StringDataInner::Owned(s),
             hash: OnceCell::new(),
             len: OnceCell::new(),
         }
@@ -754,15 +792,13 @@ impl From<String> for StringData {
     }
 }
 
-impl From<&str> for StringData {
-    fn from(s: &str) -> Self {
-        Box::<str>::from(s).into()
-    }
-}
-
-impl From<&String> for StringData {
-    fn from(s: &String) -> Self {
-        s.as_str().into()
+impl From<&'static str> for StringData {
+    fn from(s: &'static str) -> Self {
+        StringData {
+            inner: StringDataInner::Static(s),
+            hash: OnceCell::new(),
+            len: OnceCell::new(),
+        }
     }
 }
 

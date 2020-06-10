@@ -695,8 +695,10 @@ mod _struct {
         ) -> PyResult<PyRef<Self>> {
             let fmt_str = match fmt {
                 Either::A(s) => s,
-                Either::B(b) => PyString::from(std::str::from_utf8(b.get_value()).unwrap())
-                    .into_ref_with_type(vm, vm.ctx.str_type())?,
+                Either::B(b) => {
+                    PyString::from(std::str::from_utf8(b.get_value()).unwrap().to_owned())
+                        .into_ref_with_type(vm, vm.ctx.str_type())?
+                }
             };
             let spec = FormatSpec::parse(fmt_str.as_str()).map_err(|e| new_struct_error(vm, e))?;
             PyStruct { spec, fmt_str }.into_ref_with_type(vm, cls)
