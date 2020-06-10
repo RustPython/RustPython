@@ -130,8 +130,9 @@ fn _winapi_CreateProcess(
     args: CreateProcessArgs,
     vm: &VirtualMachine,
 ) -> PyResult<(usize, usize, u32, u32)> {
-    let mut si: winbase::STARTUPINFOEXW = unsafe { std::mem::zeroed() };
-    si.StartupInfo.cb = std::mem::size_of_val(&si) as _;
+    use winbase::STARTUPINFOEXW;
+    let mut si: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
+    si.StartupInfo.cb = 84; // std::mem::size_of::<STARTUPINFOEXW>() as _;
 
     macro_rules! si_attr {
         ($attr:ident, $t:ty) => {{
@@ -206,7 +207,7 @@ fn _winapi_CreateProcess(
                 | winbase::CREATE_UNICODE_ENVIRONMENT,
             env as _,
             current_dir,
-            &mut si as *mut winbase::STARTUPINFOEXW as _,
+            &mut si as *mut STARTUPINFOEXW as _,
             &mut procinfo,
         )
     };
