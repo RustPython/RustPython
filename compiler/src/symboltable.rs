@@ -221,11 +221,19 @@ impl<'a> SymbolTableAnalyzer<'a> {
         } else {
             match symbol.scope {
                 SymbolScope::Nonlocal => {
-                    // check if name is defined in parent table!
-                    let parent_symbol_table = self.tables.last();
-                    if let Some((symbols, _)) = parent_symbol_table {
-                        let scope_depth = self.tables.len();
-                        if !symbols.contains_key(&symbol.name) || scope_depth < 2 {
+                    let scope_depth = self.tables.len();
+                    if scope_depth > 0 {
+                        // check if the name is already defined in any outer scope
+                        // therefore
+                        if scope_depth < 2
+                            || !self
+                                .tables
+                                .iter()
+                                .skip(1) // omit the global scope as it is not non-local
+                                .rev() // revert the order for better performance
+                                .any(|t| t.0.contains_key(&symbol.name))
+                        // true when any of symbol tables contains the name -> then negate
+                        {
                             return Err(SymbolTableError {
                                 error: format!("no binding for nonlocal '{}' found", symbol.name),
                                 location: Default::default(),

@@ -112,11 +112,23 @@ impl NameProtocol for Scope {
     }
 
     fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
-        self.locals
-            .get(1)
-            .expect("no outer scope for non-local")
-            .set_item(name, value, vm)
-            .unwrap();
+        // find the innermost outer scope that contains the symbol name
+        if let Some(locals) = self.locals.iter().rev().find(|l| l.contains_key(name, vm)) {
+            // add to the symbol
+            locals.set_item(name, value, vm).unwrap();
+        } else {
+            // somewhat limited solution -> fallback to the old rustpython strategy
+            // and store the next outer scope
+            // This case is usually considered as a failure case, but kept for the moment
+            // to support the scope propagation for named expression assignments to so far
+            // unknown names in comprehensions. We need to consider here more context
+            // information for correct handling.
+            self.locals
+                .get(1)
+                .expect("no outer scope for non-local")
+                .set_item(name, value, vm)
+                .unwrap();
+        }
     }
 
     fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
