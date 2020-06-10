@@ -274,6 +274,11 @@ impl<T> From<HashMap<String, T>> for KwArgs<T> {
         KwArgs(map)
     }
 }
+impl<T> Default for KwArgs<T> {
+    fn default() -> Self {
+        KwArgs(HashMap::new())
+    }
+}
 
 impl<T> FromArgs for KwArgs<T>
 where

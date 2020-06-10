@@ -10,7 +10,7 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -680,4 +680,27 @@ pub(crate) fn init(context: &PyContext) {
     PyDictValueIterator::extend_class(context, &context.types.dictvalueiterator_type);
     PyDictItems::extend_class(context, &context.types.dictitems_type);
     PyDictItemIterator::extend_class(context, &context.types.dictitemiterator_type);
+}
+
+pub struct PyMapping {
+    dict: PyDictRef,
+}
+
+impl TryFromObject for PyMapping {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let dict = vm.ctx.new_dict();
+        PyDictRef::merge(
+            &dict.entries,
+            OptionalArg::Present(obj),
+            KwArgs::default(),
+            vm,
+        )?;
+        Ok(PyMapping { dict })
+    }
+}
+
+impl PyMapping {
+    pub fn into_dict(self) -> PyDictRef {
+        self.dict
+    }
 }

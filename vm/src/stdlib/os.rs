@@ -30,7 +30,7 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
-use crate::obj::objdict::PyDictRef;
+use crate::obj::objdict::{PyDictRef, PyMapping};
 use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
@@ -1615,7 +1615,7 @@ struct PosixSpawnArgs {
     #[pyarg(positional_only)]
     args: PyIterable<PyPathLike>,
     #[pyarg(positional_only)]
-    env: PyDictRef,
+    env: PyMapping,
     #[pyarg(keyword_only, default = "None")]
     file_actions: Option<PyIterable<PyTupleRef>>,
     #[pyarg(keyword_only, default = "None")]
@@ -1721,7 +1721,7 @@ impl PosixSpawnArgs {
             .map(|s| s.as_ptr() as _)
             .chain(std::iter::once(std::ptr::null_mut()))
             .collect();
-        let mut env = envp_from_dict(self.env, vm)?;
+        let mut env = envp_from_dict(self.env.into_dict(), vm)?;
         let envp: Vec<*mut libc::c_char> = env
             .iter_mut()
             .map(|s| s.as_ptr() as _)
@@ -1766,6 +1766,44 @@ fn os_posix_spawn(args: PosixSpawnArgs, vm: &VirtualMachine) -> PyResult<libc::p
 #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
 fn os_posix_spawnp(args: PosixSpawnArgs, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
     args.spawn(true, vm)
+}
+
+#[cfg(unix)]
+fn os_wifsignaled(status: i32) -> bool {
+    unsafe { libc::WIFSIGNALED(status) }
+}
+#[cfg(unix)]
+fn os_wifstopped(status: i32) -> bool {
+    unsafe { libc::WIFSTOPPED(status) }
+}
+#[cfg(unix)]
+fn os_wifexited(status: i32) -> bool {
+    unsafe { libc::WIFEXITED(status) }
+}
+#[cfg(unix)]
+fn os_wtermsig(status: i32) -> i32 {
+    unsafe { libc::WTERMSIG(status) }
+}
+#[cfg(unix)]
+fn os_wstopsig(status: i32) -> i32 {
+    unsafe { libc::WSTOPSIG(status) }
+}
+#[cfg(unix)]
+fn os_wexitstatus(status: i32) -> i32 {
+    unsafe { libc::WEXITSTATUS(status) }
+}
+
+// TODO: os.wait[pid] for windows
+#[cfg(unix)]
+fn os_waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
+    let mut status = 0;
+    let pid = unsafe { libc::waitpid(pid, &mut status, opt) };
+    let pid = Errno::result(pid).map_err(|e| convert_nix_error(vm, e))?;
+    Ok((pid, status))
+}
+#[cfg(unix)]
+fn os_wait(vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
+    os_waitpid(-1, 0, vm)
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -1956,6 +1994,15 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "ttyname" => ctx.new_function(os_ttyname),
         "uname" => ctx.new_function(os_uname),
         "uname_result" => uname_result,
+        "wait" => ctx.new_function(os_wait),
+        "waitpid" => ctx.new_function(os_waitpid),
+        "WIFSIGNALED" => ctx.new_function(os_wifsignaled),
+        "WIFSTOPPED" => ctx.new_function(os_wifstopped),
+        "WIFEXITED" => ctx.new_function(os_wifexited),
+        "WTERMSIG" => ctx.new_function(os_wtermsig),
+        "WSTOPSIG" => ctx.new_function(os_wstopsig),
+        "WEXITSTATUS" => ctx.new_function(os_wexitstatus),
+        "WNOHANG" => ctx.new_int(libc::WNOHANG),
         "EX_OK" => ctx.new_int(exitcode::OK as i8),
         "EX_USAGE" => ctx.new_int(exitcode::USAGE as i8),
         "EX_DATAERR" => ctx.new_int(exitcode::DATAERR as i8),
