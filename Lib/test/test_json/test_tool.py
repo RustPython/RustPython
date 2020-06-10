@@ -7,7 +7,7 @@ from test import support
 from test.support.script_helper import assert_python_ok
 
 
-@unittest.skip("TODO: RUSTPYTHON") # Need to fix subprocess to take env
+@unittest.skip("TODO: RUSTPYTHON, rustpython -X faulthandler")
 class TestTool(unittest.TestCase):
     data = """
 

@@ -281,10 +281,9 @@ def _syscmd_ver(system='', release='', version='',
     for cmd in ('ver', 'command /c ver', 'cmd /c ver'):
         try:
             info = subprocess.check_output(cmd,
-                                           stderr=subprocess.DEVNULL,)
-                                           # XXX RustPython TODO: more Popen args
-                                           # text=True,
-                                           # shell=True)
+                                           stderr=subprocess.DEVNULL,
+                                           text=True,
+                                           shell=True)
         except (OSError, subprocess.CalledProcessError) as why:
             #print('Command %s failed: %s' % (cmd, why))
             continue
