@@ -1823,6 +1823,43 @@ fn os_wait(vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
     os_waitpid(-1, 0, vm)
 }
 
+fn os_kill(pid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
+    #[cfg(unix)]
+    {
+        let ret = unsafe { libc::kill(pid, sig as i32) };
+        if ret == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(())
+        }
+    }
+    #[cfg(windows)]
+    {
+        use winapi::um::{handleapi, processthreadsapi, wincon, winnt};
+        let sig = sig as u32;
+        let pid = pid as u32;
+
+        if sig == wincon::CTRL_C_EVENT || sig == wincon::CTRL_BREAK_EVENT {
+            let ret = unsafe { wincon::GenerateConsoleCtrlEvent(sig, pid) };
+            let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
+            return res;
+        }
+
+        let h = unsafe { processthreadsapi::OpenProcess(winnt::PROCESS_ALL_ACCESS, 0, pid) };
+        if h.is_null() {
+            return Err(errno_err(vm));
+        }
+        let ret = unsafe { processthreadsapi::TerminateProcess(h, sig) };
+        let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
+        unsafe { handleapi::CloseHandle(h) };
+        res
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        unimplemented!()
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1932,6 +1969,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "lseek" => ctx.new_function(os_lseek),
         "set_inheritable" => ctx.new_function(os_set_inheritable),
         "link" => ctx.new_function(os_link),
+        "kill" => ctx.new_function(os_kill),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),

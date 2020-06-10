@@ -122,7 +122,7 @@ schannel = "0.1"
 
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3"
-features = ["winsock2", "handleapi", "ws2def", "std", "winbase", "wincrypt", "fileapi"]
+features = ["winsock2", "handleapi", "ws2def", "std", "winbase", "wincrypt", "fileapi", "wincon"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
