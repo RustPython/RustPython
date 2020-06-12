@@ -1630,6 +1630,7 @@ dependencies = [
  "bstr",
  "byteorder 1.3.4",
  "caseless",
+ "cfg-if",
  "chrono",
  "crc",
  "crc32fast",

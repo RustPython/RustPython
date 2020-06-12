@@ -73,6 +73,7 @@ crossbeam-utils = "0.7"
 generational-arena = "0.2"
 parking_lot = { git = "https://github.com/Amanieu/parking_lot" } # TODO: use published version
 thread_local = "1.0"
+cfg-if = "0.1.10"
 
 ## unicode stuff
 unicode_names2 = "0.4"
@@ -128,3 +129,6 @@ features = [
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
+
+[build-dependencies]
+itertools = "0.8"

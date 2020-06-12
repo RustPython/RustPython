@@ -30,6 +30,7 @@ pub mod socket;
 mod string;
 #[cfg(feature = "rustpython-compiler")]
 mod symtable;
+mod sysconfigdata;
 #[cfg(not(target_arch = "wasm32"))]
 mod thread;
 mod time_module;
@@ -95,6 +96,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "_imp".to_owned() => Box::new(imp::make_module),
         "unicodedata".to_owned() => Box::new(unicodedata::make_module),
         "_warnings".to_owned() => Box::new(warnings::make_module),
+        crate::sysmodule::sysconfigdata_name() => Box::new(sysconfigdata::make_module),
     };
 
     // Insert parser related modules:
