@@ -129,6 +129,7 @@ class PyCompileTestsBase:
         finally:
             os.chmod(self.directory, mode.st_mode)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_bad_coding(self):
         bad_coding = os.path.join(os.path.dirname(__file__), 'bad_coding2.py')
         with support.captured_stderr():
