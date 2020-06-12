@@ -5,19 +5,26 @@ use crate::obj::objmodule::PyModuleRef;
 use crate::obj::objstr;
 use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::thread::RawRMutex;
 use crate::vm::VirtualMachine;
 
+#[cfg(not(target_arch = "wasm32"))]
 static IMP_LOCK: RawRMutex = RawRMutex::INIT;
 
 fn imp_extension_suffixes(vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_list(vec![]))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn imp_acquire_lock(_vm: &VirtualMachine) {
     IMP_LOCK.lock()
 }
 
+#[cfg(target_arch = "wasm32")]
+fn imp_acquire_lock(_vm: &VirtualMachine) {}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn imp_release_lock(vm: &VirtualMachine) -> PyResult<()> {
     if !IMP_LOCK.is_locked() {
         Err(vm.new_runtime_error("Global import lock not held".to_owned()))
@@ -27,8 +34,17 @@ fn imp_release_lock(vm: &VirtualMachine) -> PyResult<()> {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+fn imp_release_lock(_vm: &VirtualMachine) {}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn imp_lock_held(_vm: &VirtualMachine) -> bool {
     IMP_LOCK.is_locked()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn imp_lock_held(_vm: &VirtualMachine) -> bool {
+    false
 }
 
 fn imp_is_builtin(name: PyStringRef, vm: &VirtualMachine) -> bool {
