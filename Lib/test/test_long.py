@@ -313,7 +313,7 @@ class LongTest(unittest.TestCase):
             with self.subTest(got=got):
                 self.assertEqual(int(got, 0), x)
 
-    @unittest.expectedFailure # RustPython
+    @unittest.skip #Todo RustPython
     def test_format(self):
         for x in special:
             self.check_format_1(x)
