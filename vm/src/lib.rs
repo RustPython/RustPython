@@ -62,7 +62,7 @@ mod dictdatatype;
 pub mod eval;
 pub mod exceptions;
 pub mod format;
-mod frame;
+pub mod frame;
 mod frozen;
 pub mod function;
 pub mod import;
