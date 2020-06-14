@@ -271,74 +271,6 @@ impl<'a> SymbolTableAnalyzer<'a> {
             }
         }
         Ok(())
-
-        /*let mut handled=false;
-        if curr_st_typ == SymbolTableType::Comprehension
-        {
-            if symbol.is_assign_namedexpr_in_comprehension {
-                // propagate symbol to next higher level that can hold it,
-                // i.e., function or module. Comprehension is skipped and
-                // Class is not allowed and detected as error.
-                //symbol.scope = SymbolScope::Nonlocal;
-                handled = true;
-                self.analyze_symbol_comprehension(symbol, 0)?
-            }
-            if symbol.is_iter {
-                if let Some(parent_symbol) = self.tables.last().unwrap().0.get(&symbol.name) {
-                    if parent_symbol.is_assigned {
-                        return Err(SymbolTableError {
-                            error: format!("assignment expression cannot rebind comprehension iteration variable {}", symbol.name),
-                            location: Default::default(),
-                        });
-                    }
-                }
-            }
-        }
-
-        if !handled {
-            match symbol.scope {
-                SymbolScope::Nonlocal => {
-                    let scope_depth = self.tables.len();
-                    if scope_depth > 0 {
-                        // check if the name is already defined in any outer scope
-                        // therefore
-                        if scope_depth < 2
-                            || !self
-                                .tables
-                                .iter()
-                                .skip(1) // omit the global scope as it is not non-local
-                                .rev() // revert the order for better performance
-                                .any(|t| t.0.contains_key(&symbol.name))
-                        // true when any of symbol tables contains the name -> then negate
-                        {
-                            return Err(SymbolTableError {
-                                error: format!("no binding for nonlocal '{}' found", symbol.name),
-                                location: Default::default(),
-                            });
-                        }
-                    } else {
-                        return Err(SymbolTableError {
-                            error: format!(
-                                "nonlocal {} defined at place without an enclosing scope",
-                                symbol.name
-                            ),
-                            location: Default::default(),
-                        });
-                    }
-                }
-                SymbolScope::Global => {
-                    // TODO: add more checks for globals?
-                }
-                SymbolScope::Local => {
-                    // all is well
-                }
-                SymbolScope::Unknown => {
-                    // Try hard to figure out what the scope of this symbol is.
-                    self.analyze_unknown_symbol(symbol);
-                }
-            }
-        }
-        Ok(())*/
     }
 
     fn analyze_unknown_symbol(&self, symbol: &mut Symbol) {
@@ -381,9 +313,7 @@ impl<'a> SymbolTableAnalyzer<'a> {
         let table_type = last.1;
 
         // it is not allowed to use an iterator variable as assignee in a named expression
-        if
-        /*symbol.is_assign_namedexpr_in_comprehension && (maybe this could be asserted) */
-        symbol.is_iter {
+        if symbol.is_iter {
             return Err(SymbolTableError {
                 error: format!(
                     "assignment expression cannot rebind comprehension iteration variable {}",
@@ -903,7 +833,7 @@ impl SymbolTableBuilder {
                 // named expressions are not allowed in the definiton of
                 // comprehension iterator definitions
                 if let ExpressionContext::IterDefinitionExp = *context {
-                        return Err(SymbolTableError {
+                    return Err(SymbolTableError {
                         error: "assignment expression cannot be used in a comprehension iterable expression".to_string(),
                         location: Default::default(),
                     });
