@@ -9,7 +9,7 @@ import array
 
 
 # SHIFT should match the value in longintrepr.h for best testing.
-SHIFT = 32 #sys.int_info.bits_per_digit # TODO RustPython int_info not supported
+SHIFT = 32 #sys.int_info.bits_per_digit # TODO: RUSTPYTHON int_info not supported
 BASE = 2 ** SHIFT
 MASK = BASE - 1
 KARATSUBA_CUTOFF = 70   # from longobject.c
@@ -29,7 +29,7 @@ del p2
 # add complements & negations
 special += [~x for x in special] + [-x for x in special]
 
-DBL_MAX = 1.7976931348623157E+308 # sys.float_info.max # TODO RustPython
+DBL_MAX = 1.7976931348623157E+308 # sys.float_info.max # TODO: RUSTPYTHON
 DBL_MAX_EXP = 1024 # sys.float_info.max_exp
 DBL_MIN_EXP = -1021 # sys.float_info.min_exp
 DBL_MANT_DIG = 53 # sys.float_info.mant_dig
@@ -313,7 +313,7 @@ class LongTest(unittest.TestCase):
             with self.subTest(got=got):
                 self.assertEqual(int(got, 0), x)
 
-    @unittest.skip #Todo RustPython
+    @unittest.skip # TODO: RUSTPYTHON
     def test_format(self):
         for x in special:
             self.check_format_1(x)
@@ -378,12 +378,12 @@ class LongTest(unittest.TestCase):
         # See bpo-34087
         self.assertRaises(ValueError, int, '\u3053\u3093\u306b\u3061\u306f')
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_long_a(self):
         self.assertRaises(ValueError, int, '-012395', 0)
 
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_conversion(self):
 
         class JustLong:
@@ -418,7 +418,7 @@ class LongTest(unittest.TestCase):
         self.assertEqual(actual, expected, msg)
 
     #@support.requires_IEEE_754
-    @unittest.skip # TODO RustPython
+    @unittest.skip # TODO: RUSTPYTHON
     def test_float_conversion(self):
 
         exact_values = [0, 1, 2,
@@ -519,7 +519,7 @@ class LongTest(unittest.TestCase):
         self.assertNotEqual(float(shuge), int(shuge),
             "float(shuge) should not equal int(shuge)")
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_logs(self):
         LOG10E = math.log10(math.e)
 
@@ -933,7 +933,7 @@ class LongTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             42 >> -(1 << 1000)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_lshift_of_zero(self):
         self.assertEqual(0 << 0, 0)
         self.assertEqual(0 << 10, 0)
@@ -956,7 +956,7 @@ class LongTest(unittest.TestCase):
     def test_huge_lshift(self, size):
         self.assertEqual(1 << (sys.maxsize + 1000), 1 << 1000 << sys.maxsize)
 
-    @unittest.expectedFailure # TODO RustPytohn
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_huge_rshift(self):
         self.assertEqual(42 >> (1 << 1000), 0)
         self.assertEqual((-42) >> (1 << 1000), -1)
@@ -1115,7 +1115,7 @@ class LongTest(unittest.TestCase):
         for e in bad_exponents:
             self.assertRaises(TypeError, round, 3, e)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_to_bytes(self):
         def check(tests, byteorder, signed=False):
             for test, expected in tests.items():

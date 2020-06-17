@@ -20,7 +20,7 @@ NAN = float('nan')
 INF = float('inf')
 NINF = float('-inf')
 
-# TODO RustPython: float_info is so far not supported -> hard code for the moment
+# TODO: RUSTPYTHON: float_info is so far not supported -> hard code for the moment
 # FLOAT_MAX = sys.float_info.max
 # FLOAT_MIN = sys.float_info.min
 FLOAT_MAX = 1.7976931348623157e+308
@@ -249,7 +249,7 @@ class MathTests(unittest.TestCase):
         self.ftest('e', math.e, 2.718281828459045235360287)
         self.assertEqual(math.tau, 2*math.pi)
 
-    @unittest.skip('TODO: RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testAcos(self):
         self.assertRaises(TypeError, math.acos)
         self.ftest('acos(-1)', math.acos(-1), math.pi)
@@ -261,7 +261,7 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.acos, -1 - eps)
         self.assertTrue(math.isnan(math.acos(NAN)))
 
-    @unittest.skip('TODO: RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testAcosh(self):
         self.assertRaises(TypeError, math.acosh)
         self.ftest('acosh(1)', math.acosh(1), 0)
@@ -272,7 +272,7 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.acosh, NINF)
         self.assertTrue(math.isnan(math.acosh(NAN)))
 
-    @unittest.skip('TODO: RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testAsin(self):
         self.assertRaises(TypeError, math.asin)
         self.ftest('asin(-1)', math.asin(-1), -math.pi/2)
@@ -302,7 +302,7 @@ class MathTests(unittest.TestCase):
         self.ftest('atan(-inf)', math.atan(NINF), -math.pi/2)
         self.assertTrue(math.isnan(math.atan(NAN)))
 
-    @unittest.skip('TODO: RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testAtanh(self):
         self.assertRaises(TypeError, math.atan)
         self.ftest('atanh(0)', math.atanh(0), 0)
@@ -375,7 +375,7 @@ class MathTests(unittest.TestCase):
         self.assertTrue(math.isnan(math.atan2(NAN, INF)))
         self.assertTrue(math.isnan(math.atan2(NAN, NAN)))
 
-    @unittest.skip('TODO: RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testCeil(self):
         self.assertRaises(TypeError, math.ceil)
         self.assertEqual(int, type(math.ceil(0.5)))
@@ -409,7 +409,7 @@ class MathTests(unittest.TestCase):
         self.assertRaises(TypeError, math.ceil, t)
         self.assertRaises(TypeError, math.ceil, t, 0)
 
-    # TODO Rustpython
+    # TODO: RUSTPYTHON
     # @requires_IEEE_754
     def testCopysign(self):
         self.assertEqual(math.copysign(1, 42), 1.0)
@@ -444,7 +444,7 @@ class MathTests(unittest.TestCase):
         # similarly, copysign(2., NAN) could be 2. or -2.
         self.assertEqual(abs(math.copysign(2., NAN)), 2.)
 
-    @unittest.skip('TODO: RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testCos(self):
         self.assertRaises(TypeError, math.cos)
         self.ftest('cos(-pi/2)', math.cos(-math.pi/2), 0, abs_tol=math.ulp(1))
@@ -476,7 +476,7 @@ class MathTests(unittest.TestCase):
         self.ftest('degrees(-pi/4)', math.degrees(-math.pi/4), -45.0)
         self.ftest('degrees(0)', math.degrees(0), 0)
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testExp(self):
         self.assertRaises(TypeError, math.exp)
         self.ftest('exp(-1)', math.exp(-1), 1/math.e)
@@ -503,7 +503,7 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.factorial, -1)
         self.assertRaises(ValueError, math.factorial, -10**100)
 
-    @unittest.skip('TODO: RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testFactorialNonIntegers(self):
         with self.assertWarns(DeprecationWarning):
             self.assertEqual(math.factorial(5.0), 120)
@@ -526,7 +526,7 @@ class MathTests(unittest.TestCase):
         with self.assertWarns(DeprecationWarning):
             self.assertRaises(OverflowError, math.factorial, 1e100)
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testFloor(self):
         self.assertRaises(TypeError, math.floor)
         self.assertEqual(int, type(math.floor(0.5)))
@@ -599,7 +599,7 @@ class MathTests(unittest.TestCase):
         self.assertTrue(math.isnan(math.frexp(NAN)[0]))
 
 
-    # TODO Rustpython
+    # TODO: RUSTPYTHON
     # @requires_IEEE_754
     # @unittest.skipIf(HAVE_DOUBLE_ROUNDING,
     #                      "fsum is not exact on machines with double rounding")
@@ -738,9 +738,9 @@ class MathTests(unittest.TestCase):
         self.assertRaises(TypeError, gcd, 120.0, 84)
         self.assertRaises(TypeError, gcd, 120, 84.0)
         self.assertRaises(TypeError, gcd, 120, 1, 84.0)
-        #self.assertEqual(gcd(MyIndexable(120), MyIndexable(84)), 12) # TODO RustPython
+        #self.assertEqual(gcd(MyIndexable(120), MyIndexable(84)), 12) # TODO: RUSTPYTHON
 
-    @unittest.skip('TODO: RustPython float support')
+    @unittest.skip('TODO: RUSTPYTHON float support')
     def testHypot(self):
         from decimal import Decimal
         from fractions import Fraction
@@ -815,7 +815,7 @@ class MathTests(unittest.TestCase):
             scale = FLOAT_MIN / 2.0 ** exp
             self.assertEqual(math.hypot(4*scale, 3*scale), 5*scale)
 
-    @unittest.skip('TODO: RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testDist(self):
         from decimal import Decimal as D
         from fractions import Fraction as F
@@ -929,7 +929,7 @@ class MathTests(unittest.TestCase):
             self.assertEqual(math.dist(p, q), 5*scale)
             self.assertEqual(math.dist(q, p), 5*scale)
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testIsqrt(self):
         # Test a variety of inputs, large and small.
         test_values = (
@@ -1026,9 +1026,9 @@ class MathTests(unittest.TestCase):
         self.assertRaises(TypeError, lcm, 120.0, 84)
         self.assertRaises(TypeError, lcm, 120, 84.0)
         self.assertRaises(TypeError, lcm, 120, 0, 84.0)
-        # self.assertEqual(lcm(MyIndexable(120), MyIndexable(84)), 840) # TODO RustPython
+        # self.assertEqual(lcm(MyIndexable(120), MyIndexable(84)), 840) # TODO: RUSTPYTHON
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testLdexp(self):
         self.assertRaises(TypeError, math.ldexp)
         self.ftest('ldexp(0,1)', math.ldexp(0,1), 0)
@@ -1061,7 +1061,7 @@ class MathTests(unittest.TestCase):
             self.assertEqual(math.ldexp(NINF, n), NINF)
             self.assertTrue(math.isnan(math.ldexp(NAN, n)))
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testLog(self):
         self.assertRaises(TypeError, math.log)
         self.ftest('log(1/e)', math.log(1/math.e), -1)
@@ -1078,7 +1078,7 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.log(INF), INF)
         self.assertTrue(math.isnan(math.log(NAN)))
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testLog1p(self):
         self.assertRaises(TypeError, math.log1p)
         for n in [2, 2**90, 2**300]:
@@ -1086,7 +1086,7 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.log1p, -1)
         self.assertEqual(math.log1p(INF), INF)
 
-    # TODO Rustpython
+    # TODO: RUSTPYTHON
     # @requires_IEEE_754
     # def testLog2(self):
     #     self.assertRaises(TypeError, math.log2)
@@ -1105,7 +1105,7 @@ class MathTests(unittest.TestCase):
     #     self.assertRaises(ValueError, math.log2, NINF)
     #     self.assertTrue(math.isnan(math.log2(NAN)))
 
-    # TODO Rustpython
+    # TODO: RUSTPYTHON
     # @requires_IEEE_754
     # # log2() is not accurate enough on Mac OS X Tiger (10.4)
     # @support.requires_mac_ver(10, 5)
@@ -1146,7 +1146,7 @@ class MathTests(unittest.TestCase):
         self.assertTrue(math.isnan(modf_nan[0]))
         self.assertTrue(math.isnan(modf_nan[1]))
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testPow(self):
         self.assertRaises(TypeError, math.pow)
         self.ftest('pow(0,1)', math.pow(0,1), 0)
@@ -1303,7 +1303,7 @@ class MathTests(unittest.TestCase):
         self.ftest('radians(-45)', math.radians(-45), -math.pi/4)
         self.ftest('radians(0)', math.radians(0), 0)
 
-    # TODO Rustpython
+    # TODO: RUSTPYTHON
     # @requires_IEEE_754
     # def testRemainder(self):
     #     from fractions import Fraction
@@ -1455,7 +1455,7 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.sinh(NINF), NINF)
         self.assertTrue(math.isnan(math.sinh(NAN)))
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testSqrt(self):
         self.assertRaises(TypeError, math.sqrt)
         self.ftest('sqrt(0)', math.sqrt(0), 0)
@@ -1479,7 +1479,7 @@ class MathTests(unittest.TestCase):
             self.assertRaises(ValueError, math.tan, NINF)
         self.assertTrue(math.isnan(math.tan(NAN)))
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testTanh(self):
         self.assertRaises(TypeError, math.tanh)
         self.ftest('tanh(0)', math.tanh(0), 0)
@@ -1489,7 +1489,7 @@ class MathTests(unittest.TestCase):
         self.ftest('tanh(-inf)', math.tanh(NINF), -1)
         self.assertTrue(math.isnan(math.tanh(NAN)))
 
-    # TODO Rustpython
+    # TODO: RUSTPYTHON
     # @requires_IEEE_754
     # def testTanhSign(self):
     #     # check that tanh(-0.) == -0. on IEEE 754 systems
@@ -1552,12 +1552,12 @@ class MathTests(unittest.TestCase):
         self.assertFalse(math.isinf(0.))
         self.assertFalse(math.isinf(1.))
 
-    # TODO Rustpython
+    # TODO: RUSTPYTHON
     # @requires_IEEE_754
     # def test_nan_constant(self):
     #     self.assertTrue(math.isnan(math.nan))
 
-    # TODO Rustpython
+    # TODO: RUSTPYTHON
     # @requires_IEEE_754
     # def test_inf_constant(self):
     #     self.assertTrue(math.isinf(math.inf))
@@ -1570,7 +1570,7 @@ class MathTests(unittest.TestCase):
     # still fails this part of the test on some platforms.  For now, we only
     # *run* test_exceptions() in verbose mode, so that this isn't normally
     # tested.
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     @unittest.skipUnless(verbose, 'requires verbose mode')
     def test_exceptions(self):
         try:
@@ -1603,7 +1603,7 @@ class MathTests(unittest.TestCase):
         else:
             self.fail("sqrt(-1) didn't raise ValueError")
 
-    # TODO Rustpython
+    # TODO: RUSTPYTHON
     # @requires_IEEE_754
     # def test_testfile(self):
     #     # Some tests need to be skipped on ancient OS X versions.
@@ -1661,7 +1661,7 @@ class MathTests(unittest.TestCase):
     #         self.fail('Failures in test_testfile:\n  ' +
     #                   '\n  '.join(failures))
 
-    # TODO Rustpython
+    # TODO: RUSTPYTHON
     # @requires_IEEE_754
     # def test_mtestfile(self):
     #     fail_fmt = "{}: {}({!r}): {}"
@@ -1729,7 +1729,7 @@ class MathTests(unittest.TestCase):
     #         self.fail('Failures in test_mtestfile:\n  ' +
     #                   '\n  '.join(failures))
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_prod(self):
         prod = math.prod
         self.assertEqual(prod([]), 1)
@@ -1816,7 +1816,7 @@ class MathTests(unittest.TestCase):
         self.assertEqual(type(prod([1, decimal.Decimal(2.0), 3, 4, 5, 6])),
                          decimal.Decimal)
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testPerm(self):
         perm = math.perm
         factorial = math.factorial
@@ -1881,7 +1881,7 @@ class MathTests(unittest.TestCase):
             self.assertIs(type(perm(IntSubclass(5), IntSubclass(k))), int)
             self.assertIs(type(perm(MyIndexable(5), MyIndexable(k))), int)
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def testComb(self):
         comb = math.comb
         factorial = math.factorial
@@ -1952,7 +1952,7 @@ class MathTests(unittest.TestCase):
             self.assertIs(type(comb(IntSubclass(5), IntSubclass(k))), int)
             self.assertIs(type(comb(MyIndexable(5), MyIndexable(k))), int)
 
-    # TODO Rustpython
+    # TODO: RUSTPYTHON
     # @requires_IEEE_754
     # def test_nextafter(self):
     #     # around 2^52 and 2^63
@@ -2022,7 +2022,7 @@ class MathTests(unittest.TestCase):
     #         with self.subTest(x=x):
     #             self.assertEqual(math.ulp(-x), math.ulp(x))
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_issue39871(self):
         # A SystemError should not be raised if the first arg to atan2(),
         # copysign(), or remainder() cannot be converted to a float.
@@ -2153,7 +2153,7 @@ class IsCloseTests(unittest.TestCase):
         self.assertAllClose(integer_examples, rel_tol=1e-8)
         self.assertAllNotClose(integer_examples, rel_tol=1e-9)
 
-    @unittest.skip('TODO RustPython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_decimals(self):
         # test with Decimal values
         from decimal import Decimal
@@ -2165,7 +2165,7 @@ class IsCloseTests(unittest.TestCase):
         self.assertAllClose(decimal_examples, rel_tol=1e-8)
         self.assertAllNotClose(decimal_examples, rel_tol=1e-9)
 
-    @unittest.skip('TODO Rustpython')
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_fractions(self):
         # test with Fraction values
         from fractions import Fraction

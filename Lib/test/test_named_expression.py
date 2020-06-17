@@ -10,63 +10,63 @@ class NamedExpressionInvalidTest(unittest.TestCase):
         code = """x := 0"""
 
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_02(self):
         code = """x = y := 0"""
 
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_03(self):
         code = """y := f(x)"""
 
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_04(self):
         code = """y0 = y1 := f(x)"""
 
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_06(self):
         code = """((a, b) := (1, 2))"""
 
         #with self.assertRaisesRegex(SyntaxError, "cannot use assignment expressions with tuple"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_07(self):
         code = """def spam(a = b := 42): pass"""
 
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_08(self):
         code = """def spam(a: b := 42 = 5): pass"""
 
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_09(self):
         code = """spam(a=b := 'c')"""
 
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_10(self):
         code = """spam(x = y := f(x))"""
 
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_11(self):
@@ -74,7 +74,7 @@ class NamedExpressionInvalidTest(unittest.TestCase):
 
         #with self.assertRaisesRegex(SyntaxError,
         #    "positional argument follows keyword argument"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_12(self):
@@ -82,7 +82,7 @@ class NamedExpressionInvalidTest(unittest.TestCase):
 
         #with self.assertRaisesRegex(SyntaxError,
         #    "positional argument follows keyword argument"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_13(self):
@@ -90,14 +90,14 @@ class NamedExpressionInvalidTest(unittest.TestCase):
 
         #with self.assertRaisesRegex(SyntaxError,
         #    "positional argument follows keyword argument"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_14(self):
         code = """(x := lambda: y := 1)"""
 
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_15(self):
@@ -105,24 +105,24 @@ class NamedExpressionInvalidTest(unittest.TestCase):
 
         #with self.assertRaisesRegex(SyntaxError,
         #    "cannot use assignment expressions with lambda"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_16(self):
         code = "[i + 1 for i in i := [1,2]]"
 
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
     def test_named_expression_invalid_17(self):
         code = "[i := 0, j := 1 for i, j in [(1, 2), (3, 4)]]"
 
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
-        with self.assertRaises(SyntaxError): # TODO RustPython
+        with self.assertRaises(SyntaxError): # TODO: RUSTPYTHON
             exec(code, {}, {})
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_named_expression_invalid_in_class_body(self):
         code = """class Foo():
             [(42, 1 + ((( j := i )))) for i in range(5)]
@@ -132,7 +132,7 @@ class NamedExpressionInvalidTest(unittest.TestCase):
             "assignment expression within a comprehension cannot be used in a class body"):
             exec(code, {}, {})
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_named_expression_invalid_rebinding_comprehension_iteration_variable(self):
         cases = [
             ("Local reuse", 'i', "[i := 0 for i in range(5)]"),
@@ -150,7 +150,7 @@ class NamedExpressionInvalidTest(unittest.TestCase):
                 with self.assertRaises(SyntaxError):
                     exec(code, {}, {})
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_named_expression_invalid_rebinding_comprehension_inner_loop(self):
         cases = [
             ("Inner reuse", 'j', "[i for i in range(5) if (j := 0) for j in range(5)]"),
@@ -166,7 +166,7 @@ class NamedExpressionInvalidTest(unittest.TestCase):
                 with self.assertRaisesRegex(SyntaxError, msg):
                     exec(f"lambda: {code}", {}) # Function scope
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_named_expression_invalid_comprehension_iterable_expression(self):
         cases = [
             ("Top level", "[i for i in (i := range(5))]"),
@@ -343,8 +343,8 @@ print(a)"""
         self.assertEqual(res, [(1, 1, 1.0), (2, 2, 1.0), (3, 3, 1.0)])
         self.assertEqual(y, 3)
 
-    # TODO RustPython, 
-    @unittest.expectedFailure # TODO RustPython
+    # TODO: RUSTPYTHON, 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_named_expression_scope_06(self):
         res = [[spam := i for i in range(3)] for j in range(2)]
 
@@ -381,7 +381,7 @@ print(a)"""
         self.assertEqual(res, [0, 2])
         self.assertEqual(a, 2)
 
-    # TODO RustPython, 
+    # TODO: RUSTPYTHON, 
     @unittest.expectedFailure 
     def test_named_expression_scope_10(self):
         res = [b := [a := 1 for i in range(2)] for j in range(2)]
@@ -506,7 +506,7 @@ spam()"""
                 self.assertEqual(ns["x"], 2)
                 self.assertEqual(ns["result"], [0, 1, 2])
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_named_expression_global_scope(self):
         sentinel = object()
         global GLOBAL_VAR

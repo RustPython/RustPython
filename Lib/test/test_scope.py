@@ -136,7 +136,7 @@ class ScopeTests(unittest.TestCase):
         h = g(2, 4, 6)
         self.assertEqual(h(), 39)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testFreeVarInMethod(self):
 
         def test():
@@ -202,7 +202,7 @@ class ScopeTests(unittest.TestCase):
 
         self.assertEqual(f(6), 720)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testUnoptimizedNamespaces(self):
 
         check_syntax_error(self, """if 1:
@@ -262,7 +262,7 @@ class ScopeTests(unittest.TestCase):
         h = g(2, 4, 6)
         self.assertEqual(h(), 18)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testUnboundLocal(self):
 
         def errorInOuter():
@@ -280,7 +280,7 @@ class ScopeTests(unittest.TestCase):
         self.assertRaises(UnboundLocalError, errorInOuter)
         self.assertRaises(NameError, errorInInner)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testUnboundLocal_AfterDel(self):
         # #4617: It is now legal to delete a cell variable.
         # The following functions must obviously compile,
@@ -302,7 +302,7 @@ class ScopeTests(unittest.TestCase):
         self.assertRaises(UnboundLocalError, errorInOuter)
         self.assertRaises(NameError, errorInInner)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testUnboundLocal_AugAssign(self):
         # test for bug #1501934: incorrect LOAD/STORE_GLOBAL generation
         exec("""if 1:
@@ -335,7 +335,7 @@ class ScopeTests(unittest.TestCase):
 
         self.assertEqual(makeReturner2(a=11)()['a'], 11)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testScopeOfGlobalStmt(self):
         # Examples posted by Samuele Pedroni to python-dev on 3/1/2001
 
@@ -414,7 +414,7 @@ class ScopeTests(unittest.TestCase):
             self.assertEqual(g.get(), 13)
             """)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testLeaks(self):
 
         class Foo:
@@ -437,7 +437,7 @@ class ScopeTests(unittest.TestCase):
 
         self.assertEqual(Foo.count, 0)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testClassAndGlobal(self):
 
         exec("""if 1:
@@ -460,7 +460,7 @@ class ScopeTests(unittest.TestCase):
             self.assertTrue(X.passed)
             """)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testLocalsFunction(self):
 
         def f(x):
@@ -568,7 +568,7 @@ class ScopeTests(unittest.TestCase):
 
         self.assertRaises(TypeError, sys.settrace)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testEvalExecFreeVars(self):
 
         def f(x):
@@ -603,7 +603,7 @@ class ScopeTests(unittest.TestCase):
         except NameError:
             pass
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testEvalFreeVars(self):
 
         def f(x):
@@ -661,7 +661,7 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(c.dec(), 1)
         self.assertEqual(c.dec(), 0)
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testGlobalInParallelNestedFunctions(self):
         # A symbol table bug leaked the global statement from one
         # function to other nested functions in the same block.
@@ -741,7 +741,7 @@ class ScopeTests(unittest.TestCase):
         def b():
             global a
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testClassNamespaceOverridesClosure(self):
         # See #17853.
         x = 42
