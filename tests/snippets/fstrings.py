@@ -122,7 +122,7 @@ self.assertEqual(f'{x=!s}', 'x=' + str(x))
 x = 2.71828
 self.assertEqual(f'{x=:.2f}', 'x=' + format(x, '.2f'))
 self.assertEqual(f'{x=:}', 'x=' + format(x, ''))
-self.assertEqual(f'{x=!r:^20}', 'x=' + format(repr(x), '^20')) #TODO formatspecifier after conversion flsg is currently not supported (also for classical fstrings)
+self.assertEqual(f'{x=!r:^20}', 'x=' + format(repr(x), '^20')) # TODO formatspecifier after conversion flsg is currently not supported (also for classical fstrings)
 self.assertEqual(f'{x=!s:^20}', 'x=' + format(str(x), '^20'))
 self.assertEqual(f'{x=!a:^20}', 'x=' + format(ascii(x), '^20'))
 
