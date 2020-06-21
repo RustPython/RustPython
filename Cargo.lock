@@ -309,15 +309,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cloudabi"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4344512281c643ae7638bbabc3af17a11307803ec8f0fcad9fae512a8bf36467"
-dependencies = [
- "bitflags",
-]
-
-[[package]]
 name = "constant_time_eq"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -864,7 +855,7 @@ dependencies = [
 [[package]]
 name = "lock_api"
 version = "0.3.4"
-source = "git+https://github.com/Amanieu/parking_lot#99aa542b71fcf1e43c1c7d5f993b9e3b35ab4730"
+source = "git+https://github.com/Amanieu/parking_lot#ecaa94438e570c84f1a4c7db830916890f2ae44c"
 dependencies = [
  "scopeguard",
 ]
@@ -1122,7 +1113,7 @@ checksum = "a86ed3f5f244b372d6b1a00b72ef7f8876d0bc6a78a4c9985c53614041512063"
 [[package]]
 name = "parking_lot"
 version = "0.10.2"
-source = "git+https://github.com/Amanieu/parking_lot#99aa542b71fcf1e43c1c7d5f993b9e3b35ab4730"
+source = "git+https://github.com/Amanieu/parking_lot#ecaa94438e570c84f1a4c7db830916890f2ae44c"
 dependencies = [
  "instant",
  "lock_api",
@@ -1132,10 +1123,10 @@ dependencies = [
 [[package]]
 name = "parking_lot_core"
 version = "0.7.2"
-source = "git+https://github.com/Amanieu/parking_lot#99aa542b71fcf1e43c1c7d5f993b9e3b35ab4730"
+source = "git+https://github.com/Amanieu/parking_lot#ecaa94438e570c84f1a4c7db830916890f2ae44c"
 dependencies = [
  "cfg-if",
- "cloudabi 0.1.0",
+ "cloudabi",
  "instant",
  "libc",
  "redox_syscall",
@@ -1420,7 +1411,7 @@ version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b75f676a1e053fc562eafbb47838d67c84801e38fc1ba459e8f180deabd5071"
 dependencies = [
- "cloudabi 0.0.3",
+ "cloudabi",
  "fuchsia-cprng",
  "libc",
  "rand_core 0.4.2",

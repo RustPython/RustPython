@@ -121,17 +121,13 @@ impl PyLock {
     }
     #[pymethod]
     #[pymethod(name = "release_lock")]
-    fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if self.mu.is_locked() {
-            return Err(vm.new_runtime_error("release unlocked lock".to_owned()));
-        }
-        unsafe { self.mu.unlock() };
-        Ok(())
+    fn release(&self) {
+        self.mu.unlock()
     }
 
     #[pymethod(magic)]
-    fn exit(&self, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        self.release(vm)
+    fn exit(&self, _args: PyFuncArgs) {
+        self.release()
     }
 
     #[pymethod]
@@ -182,17 +178,13 @@ impl PyRLock {
     }
     #[pymethod]
     #[pymethod(name = "release_lock")]
-    fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if self.mu.is_locked() {
-            return Err(vm.new_runtime_error("release unlocked lock".to_owned()));
-        }
-        unsafe { self.mu.unlock() };
-        Ok(())
+    fn release(&self) {
+        self.mu.unlock()
     }
 
     #[pymethod(magic)]
-    fn exit(&self, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        self.release(vm)
+    fn exit(&self, _args: PyFuncArgs) {
+        self.release()
     }
 
     #[pymethod(magic)]
@@ -245,9 +237,7 @@ fn thread_start_new_thread(
         }
         SENTINELS.with(|sents| {
             for lock in sents.replace(Default::default()) {
-                if lock.mu.is_locked() {
-                    unsafe { lock.mu.unlock() };
-                }
+                lock.mu.unlock()
             }
         });
         vm.state.thread_count.fetch_sub(1);
