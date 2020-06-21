@@ -1,6 +1,6 @@
 [package]
 name = "rustpython"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["RustPython Team"]
 edition = "2018"
 description = "A python interpreter written in rust."
