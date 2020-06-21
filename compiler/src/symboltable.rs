@@ -1011,6 +1011,7 @@ impl SymbolTableBuilder {
             }
             SymbolUsage::Iter => {
                 symbol.is_iter = true;
+                symbol.scope = SymbolScope::Local;
             }
         }
 
