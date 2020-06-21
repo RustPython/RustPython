@@ -138,7 +138,7 @@ impl PyContext {
         let exceptions = exceptions::ExceptionZoo::new(&types.type_type, &types.object_type);
 
         fn create_object<T: PyObjectPayload + PyValue>(payload: T, cls: &PyClassRef) -> PyRef<T> {
-            PyRef::new_ref_unchecked(PyObject::new(payload, cls.clone(), None))
+            PyRef::from_obj_unchecked(PyObject::new(payload, cls.clone(), None))
         }
 
         let none_type = create_type("NoneType", &types.type_type, &types.object_type);
@@ -492,6 +492,18 @@ impl PyContext {
         )
     }
 
+    pub fn new_function_named<F, T, R, VM>(&self, f: F, module: String, name: String) -> PyObjectRef
+    where
+        F: IntoPyNativeFunc<T, R, VM>,
+    {
+        let stringref = |s| PyRef::new_ref(objstr::PyString::from(s), self.str_type(), None);
+        PyObject::new(
+            PyBuiltinFunction::new_with_name(f.into_func(), stringref(module), stringref(name)),
+            self.builtin_function_or_method_type(),
+            None,
+        )
+    }
+
     pub fn new_method<F, T, R, VM>(&self, f: F) -> PyObjectRef
     where
         F: IntoPyNativeFunc<T, R, VM>,
@@ -587,7 +599,7 @@ impl PyContext {
             bytecode::Constant::Complex { ref value } => self.new_complex(*value),
             bytecode::Constant::String { ref value } => self.new_str(value.clone()),
             bytecode::Constant::Bytes { ref value } => self.new_bytes(value.clone()),
-            bytecode::Constant::Boolean { ref value } => self.new_bool(value.clone()),
+            bytecode::Constant::Boolean { value } => self.new_bool(value),
             bytecode::Constant::Code { ref code } => {
                 self.new_code_object(*code.clone()).into_object()
             }
@@ -695,9 +707,14 @@ impl<T> Clone for PyRef<T> {
 }
 
 impl<T: PyValue> PyRef<T> {
-    fn new_ref(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new_ref(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> Self {
+        Self::from_obj_unchecked(PyObject::new(payload, typ, dict))
+    }
+
+    fn from_obj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         if obj.payload_is::<T>() {
-            Ok(Self::new_ref_unchecked(obj))
+            Ok(Self::from_obj_unchecked(obj))
         } else {
             Err(vm.new_runtime_error(format!(
                 "Unexpected payload for type {:?}",
@@ -706,7 +723,7 @@ impl<T: PyValue> PyRef<T> {
         }
     }
 
-    pub(crate) fn new_ref_unchecked(obj: PyObjectRef) -> Self {
+    pub(crate) fn from_obj_unchecked(obj: PyObjectRef) -> Self {
         PyRef {
             obj,
             _payload: PhantomData,
@@ -747,7 +764,7 @@ where
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if objtype::isinstance(&obj, &T::class(vm)) {
-            PyRef::new_ref(obj, vm)
+            PyRef::from_obj(obj, vm)
         } else {
             let class = T::class(vm);
             let expected_type = vm.to_pystr(&class)?;
@@ -963,9 +980,12 @@ impl<T> PyIterable<T> {
             },
         )?;
 
+        let lenhint = objiter::length_hint(vm, iter_obj.clone())?;
+
         Ok(PyIterator {
             vm,
             obj: iter_obj,
+            lenhint,
             _item: std::marker::PhantomData,
         })
     }
@@ -974,6 +994,7 @@ impl<T> PyIterable<T> {
 pub struct PyIterator<'a, T> {
     vm: &'a VirtualMachine,
     obj: PyObjectRef,
+    lenhint: Option<usize>,
     _item: std::marker::PhantomData<T>,
 }
 
@@ -994,6 +1015,10 @@ where
                 }
             }
         }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.lenhint.unwrap_or(0), self.lenhint)
     }
 }
 
@@ -1084,6 +1109,12 @@ impl<T> IntoPyObject for PyRef<T> {
     }
 }
 
+impl<T> IntoPyObject for &PyRef<T> {
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
+        Ok(self.obj.clone())
+    }
+}
+
 impl IntoPyObject for PyCallable {
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
         Ok(self.into_object())
@@ -1145,7 +1176,7 @@ where
     where
         T: PyValue,
     {
-        PyRef::new_ref_unchecked(self as PyObjectRef)
+        PyRef::from_obj_unchecked(self as PyObjectRef)
     }
 }
 
@@ -1210,7 +1241,7 @@ pub trait PyValue: fmt::Debug + Send + Sync + Sized + 'static {
             } else {
                 Some(vm.ctx.new_dict())
             };
-            PyRef::new_ref(PyObject::new(self, cls, dict), vm)
+            PyRef::from_obj(PyObject::new(self, cls, dict), vm)
         } else {
             let subtype = vm.to_str(&cls.obj)?;
             let basetype = vm.to_str(&class.obj)?;
@@ -1219,7 +1250,7 @@ pub trait PyValue: fmt::Debug + Send + Sync + Sized + 'static {
     }
 
     fn into_ref_with_type_unchecked(self, cls: PyClassRef, dict: Option<PyDictRef>) -> PyRef<Self> {
-        PyRef::new_ref_unchecked(PyObject::new(self, cls, dict))
+        PyRef::from_obj_unchecked(PyObject::new(self, cls, dict))
     }
 }
 

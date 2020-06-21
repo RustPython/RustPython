@@ -274,6 +274,11 @@ impl<T> From<HashMap<String, T>> for KwArgs<T> {
         KwArgs(map)
     }
 }
+impl<T> Default for KwArgs<T> {
+    fn default() -> Self {
+        KwArgs(HashMap::new())
+    }
+}
 
 impl<T> FromArgs for KwArgs<T>
 where
@@ -563,11 +568,11 @@ macro_rules! into_py_native_func_tuple {
 }
 
 into_py_native_func_tuple!();
-into_py_native_func_tuple!((a, A));
-into_py_native_func_tuple!((a, A), (b, B));
-into_py_native_func_tuple!((a, A), (b, B), (c, C));
-into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D));
-into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
+into_py_native_func_tuple!((v1, T1));
+into_py_native_func_tuple!((v1, T1), (v2, T2));
+into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3));
+into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4));
+into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5));
 
 /// Tests that the predicate is True on a single value, or if the value is a tuple a tuple, then
 /// test that any of the values contained within the tuples satisfies the predicate. Type parameter

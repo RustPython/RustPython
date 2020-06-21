@@ -1,6 +1,6 @@
 <img src="./logo.png" width="125" height="125" align="right" />
 
-# RustPython
+# [RustPython](https://rustpython.github.io/)
 
 A Python-3 (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream:
 :metal:.

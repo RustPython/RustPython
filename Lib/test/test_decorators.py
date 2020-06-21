@@ -308,9 +308,9 @@ class TestDecorators(unittest.TestCase):
                 return 'eggs'
 
         self.assertEqual(Class.inner(), 'spam')
-        #self.assertEqual(Class.outer(), 'eggs') # TODO RustPython
+        #self.assertEqual(Class.outer(), 'eggs') # TODO: RUSTPYTHON
         self.assertEqual(Class().inner(), 'spam')
-        #self.assertEqual(Class().outer(), 'eggs') # TODO RustPython
+        #self.assertEqual(Class().outer(), 'eggs') # TODO: RUSTPYTHON
 
 
 class TestClassDecorators(unittest.TestCase):

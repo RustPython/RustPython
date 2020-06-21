@@ -47,8 +47,6 @@ class AbstractMemoryTests:
         m = None
         self.assertEqual(sys.getrefcount(b), oldrefcount)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getitem(self):
         for tp in self._types:
             self.check_getitem_with_type(tp)

@@ -126,7 +126,8 @@ So, the separate thread:
 
 affects what we see:
 
-  >>> mydata.number
+  >>> # TODO: RUSTPYTHON, __slots__
+  >>> mydata.number #doctest: +SKIP
   11
 
 >>> del mydata

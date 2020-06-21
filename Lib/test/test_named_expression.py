@@ -23,6 +23,7 @@ class NamedExpressionInvalidTest(unittest.TestCase):
 
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"): # TODO RustPython
         with self.assertRaises(SyntaxError):
+
             exec(code, {}, {})
 
     def test_named_expression_invalid_04(self):
@@ -55,7 +56,7 @@ class NamedExpressionInvalidTest(unittest.TestCase):
 
     def test_named_expression_invalid_09(self):
         code = """spam(a=b := 'c')"""
-
+        
         #with self.assertRaisesRegex(SyntaxError, "invalid syntax"):  # TODO RustPython
         with self.assertRaises(SyntaxError):
             exec(code, {}, {})
@@ -521,7 +522,7 @@ spam()"""
                 self.assertEqual(ns["x"], 2)
                 self.assertEqual(ns["result"], [0, 1, 2])
 
-    @unittest.expectedFailure # TODO RustPython
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_named_expression_global_scope(self):
         sentinel = object()
         global GLOBAL_VAR

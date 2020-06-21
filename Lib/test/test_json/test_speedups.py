@@ -14,8 +14,6 @@ class TestSpeedups(CTest):
         self.assertEqual(self.json.decoder.scanstring.__module__, "_json")
         self.assertIs(self.json.decoder.scanstring, self.json.decoder.c_scanstring)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encode_basestring_ascii(self):
         self.assertEqual(self.json.encoder.encode_basestring_ascii.__module__,
                          "_json")

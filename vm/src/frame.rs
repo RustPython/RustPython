@@ -667,13 +667,35 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::UnpackSequence { size } => {
                 let value = self.pop_value();
-                let elements = vm.extract_elements(&value)?;
-                if elements.len() != *size {
-                    Err(vm.new_value_error("Wrong number of values to unpack".to_owned()))
-                } else {
-                    for element in elements.into_iter().rev() {
-                        self.push_value(element);
+                let elements = vm.extract_elements(&value).map_err(|e| {
+                    if e.class().is(&vm.ctx.exceptions.type_error) {
+                        vm.new_type_error(format!(
+                            "cannot unpack non-iterable {} object",
+                            value.class().name
+                        ))
+                    } else {
+                        e
                     }
+                })?;
+                let msg = match elements.len().cmp(size) {
+                    std::cmp::Ordering::Equal => {
+                        for element in elements.into_iter().rev() {
+                            self.push_value(element);
+                        }
+                        None
+                    }
+                    std::cmp::Ordering::Greater => {
+                        Some(format!("too many values to unpack (expected {})", size))
+                    }
+                    std::cmp::Ordering::Less => Some(format!(
+                        "not enough values to unpack (expected {}, got {})",
+                        size,
+                        elements.len()
+                    )),
+                };
+                if let Some(msg) = msg {
+                    Err(vm.new_value_error(msg))
+                } else {
                     Ok(None)
                 }
             }

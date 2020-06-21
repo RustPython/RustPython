@@ -20,7 +20,7 @@ fn time_sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {
 
     let mut ts = libc::timespec {
         tv_sec: std::cmp::min(libc::time_t::max_value() as u64, dur.as_secs()) as libc::time_t,
-        tv_nsec: dur.subsec_nanos().into(),
+        tv_nsec: dur.subsec_nanos() as _,
     };
     let res = unsafe { libc::nanosleep(&ts, &mut ts) };
     let interrupted = res == -1 && nix::errno::errno() == libc::EINTR;

@@ -1,4 +1,4 @@
-use crate::obj::objstr::PyString;
+use crate::obj::objstr::{PyString, PyStringRef};
 use crate::pyhash;
 use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
@@ -435,6 +435,26 @@ impl DictKey for &PyObjectRef {
 
     fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         vm.identical_or_equal(self, other_key)
+    }
+}
+
+impl DictKey for &PyStringRef {
+    fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
+        Ok(self.hash())
+    }
+
+    fn do_is(self, other: &PyObjectRef) -> bool {
+        self.is(other)
+    }
+
+    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+        if self.is(other_key) {
+            Ok(true)
+        } else if let Some(py_str_value) = other_key.payload::<PyString>() {
+            Ok(py_str_value.as_str() == self.as_str())
+        } else {
+            vm.bool_eq(self.clone().into_object(), other_key.clone())
+        }
     }
 }
 

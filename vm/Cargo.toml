@@ -72,6 +72,7 @@ bstr = "0.2.12"
 crossbeam-utils = "0.7"
 generational-arena = "0.2"
 parking_lot = { git = "https://github.com/Amanieu/parking_lot" } # TODO: use published version
+thread_local = "1.0"
 
 ## unicode stuff
 unicode_names2 = "0.4"
@@ -101,7 +102,7 @@ crc32fast = "1.2.0"
 adler32 = "1.0.3"
 gethostname = "0.2.0"
 subprocess = "0.2.2"
-socket2 = { version = "0.3", features = ["unix"] }
+socket2 = "0.3"
 rustyline = "6.0"
 openssl = { version = "0.10", features = ["vendored"], optional = true }
 openssl-sys = { version = "0.9", optional = true }
@@ -119,9 +120,9 @@ libz-sys = "1.0"
 winreg = "0.7"
 schannel = "0.1"
 
-[target."cfg(windows)".dependencies.winapi]
+[target.'cfg(windows)'.dependencies.winapi]
 version = "0.3"
-features = ["winsock2", "handleapi", "ws2def", "std", "winbase", "wincrypt", "fileapi"]
+features = ["winsock2", "handleapi", "ws2def", "std", "winbase", "wincrypt", "fileapi", "wincon"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

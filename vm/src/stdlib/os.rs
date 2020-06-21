@@ -28,7 +28,7 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
-use crate::obj::objdict::PyDictRef;
+use crate::obj::objdict::{PyDictRef, PyMapping};
 use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
@@ -40,6 +40,12 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+
+// just to avoid unused import warnings
+#[cfg(unix)]
+use crate::pyobject::PyIterable;
+#[cfg(unix)]
+use std::convert::TryFrom;
 
 #[cfg(windows)]
 pub const MODULE_NAME: &str = "nt";
@@ -128,6 +134,11 @@ impl PyPathLike {
             path: ffi::OsString::from(path),
             mode: OutputMode::String,
         }
+    }
+    #[cfg(windows)]
+    pub fn wide(&self) -> Vec<u16> {
+        use std::os::windows::ffi::OsStrExt;
+        self.path.encode_wide().chain(std::iter::once(0)).collect()
     }
 }
 
@@ -403,10 +414,8 @@ fn getgroups() -> nix::Result<Vec<Gid>> {
 }
 
 #[cfg(unix)]
-fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+fn os_access(path: PyPathLike, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
     use std::os::unix::fs::MetadataExt;
-
-    let path = path.as_str();
 
     let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
         vm.new_value_error(
@@ -415,7 +424,7 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
         )
     })?;
 
-    let metadata = fs::metadata(path);
+    let metadata = fs::metadata(&path.path);
 
     // if it's only checking for F_OK
     if flags == AccessFlags::F_OK {
@@ -436,6 +445,19 @@ fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool>
     let x_ok = !flags.contains(AccessFlags::X_OK) || perm.is_executable;
 
     Ok(r_ok && w_ok && x_ok)
+}
+#[cfg(windows)]
+fn os_access(path: PyPathLike, mode: u8) -> bool {
+    use winapi::um::{fileapi, winnt};
+    let attr = unsafe { fileapi::GetFileAttributesW(path.wide().as_ptr()) };
+    attr != fileapi::INVALID_FILE_ATTRIBUTES
+        && (mode & 2 == 0
+            || attr & winnt::FILE_ATTRIBUTE_READONLY == 0
+            || attr & winnt::FILE_ATTRIBUTE_DIRECTORY != 0)
+}
+#[cfg(not(any(unix, windows)))]
+fn os_access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+    unimplemented!()
 }
 
 fn os_error(message: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
@@ -1314,10 +1336,18 @@ fn os_urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
 #[cfg(any(target_os = "linux", target_os = "openbsd"))]
 type ModeT = u32;
 
+#[cfg(target_os = "redox")]
+type ModeT = i32;
+
 #[cfg(target_os = "macos")]
 type ModeT = u16;
 
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "openbsd"))]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "openbsd",
+    target_os = "redox"
+))]
 fn os_umask(mask: ModeT, _vm: &VirtualMachine) -> PyResult<ModeT> {
     let ret_mask = unsafe { libc::umask(mask) };
     Ok(ret_mask)
@@ -1455,6 +1485,7 @@ fn os_utime(
 
 #[cfg(unix)]
 fn os_sync(_vm: &VirtualMachine) -> PyResult<()> {
+    #[cfg(not(target_os = "redox"))]
     unsafe {
         libc::sync();
     }
@@ -1506,10 +1537,26 @@ fn os_getresgid(vm: &VirtualMachine) -> PyResult<(u32, u32, u32)> {
     target_os = "linux",
     target_os = "openbsd"
 ))]
-fn os_setregid(rgid: u32, egid: u32, vm: &VirtualMachine) -> PyResult<i32> {
+fn os_setresgid(rgid: u32, egid: u32, sgid: u32, vm: &VirtualMachine) -> PyResult<()> {
+    unistd::setresgid(
+        Gid::from_raw(rgid),
+        Gid::from_raw(egid),
+        Gid::from_raw(sgid),
+    )
+    .map_err(|err| convert_nix_error(vm, err))
+}
+
+// cfg from nix
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+fn os_setregid(rgid: u32, egid: u32, vm: &VirtualMachine) -> PyResult<()> {
     let ret = unsafe { libc::setregid(rgid, egid) };
     if ret == 0 {
-        Ok(0)
+        Ok(())
     } else {
         Err(errno_err(vm))
     }
@@ -1526,6 +1573,291 @@ fn os_initgroups(user_name: PyStringRef, gid: u32, vm: &VirtualMachine) -> PyRes
     let user = ffi::CString::new(user_name.as_str()).unwrap();
     let gid = Gid::from_raw(gid);
     unistd::initgroups(&user, gid).map_err(|err| convert_nix_error(vm, err))
+}
+
+// cfg from nix
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+fn os_setgroups(group_ids: PyIterable<u32>, vm: &VirtualMachine) -> PyResult<()> {
+    let gids = group_ids
+        .iter(vm)?
+        .map(|entry| match entry {
+            Ok(id) => Ok(unistd::Gid::from_raw(id)),
+            Err(err) => Err(err),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let ret = unistd::setgroups(&gids);
+    ret.map_err(|err| convert_nix_error(vm, err))
+}
+
+#[cfg(unix)]
+fn envp_from_dict(dict: PyDictRef, vm: &VirtualMachine) -> PyResult<Vec<ffi::CString>> {
+    use std::os::unix::ffi::OsStringExt;
+    dict.into_iter()
+        .map(|(k, v)| {
+            let k = PyPathLike::try_from_object(vm, k)?.path.into_vec();
+            let v = PyPathLike::try_from_object(vm, v)?.path.into_vec();
+            if k.contains(&0) {
+                return Err(
+                    vm.new_value_error("envp dict key cannot contain a nul byte".to_owned())
+                );
+            }
+            if k.contains(&b'=') {
+                return Err(
+                    vm.new_value_error("envp dict key cannot contain a '=' character".to_owned())
+                );
+            }
+            if v.contains(&0) {
+                return Err(
+                    vm.new_value_error("envp dict value cannot contain a nul byte".to_owned())
+                );
+            }
+            let mut env = k;
+            env.push(b'=');
+            env.extend(v);
+            Ok(unsafe { ffi::CString::from_vec_unchecked(env) })
+        })
+        .collect()
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
+#[derive(FromArgs)]
+struct PosixSpawnArgs {
+    #[pyarg(positional_only)]
+    path: PyPathLike,
+    #[pyarg(positional_only)]
+    args: PyIterable<PyPathLike>,
+    #[pyarg(positional_only)]
+    env: PyMapping,
+    #[pyarg(keyword_only, default = "None")]
+    file_actions: Option<PyIterable<PyTupleRef>>,
+    #[pyarg(keyword_only, default = "None")]
+    setsigdef: Option<PyIterable<i32>>,
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
+#[derive(num_enum::IntoPrimitive, num_enum::TryFromPrimitive)]
+#[repr(i32)]
+enum PosixSpawnFileActionIdentifier {
+    Open,
+    Close,
+    Dup2,
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
+impl PosixSpawnArgs {
+    fn spawn(self, spawnp: bool, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+        use std::os::unix::ffi::OsStringExt;
+        let path = ffi::CString::new(self.path.path.into_vec())
+            .map_err(|_| vm.new_value_error("path should not have nul bytes".to_owned()))?;
+
+        let mut file_actions = unsafe {
+            let mut fa = std::mem::MaybeUninit::uninit();
+            assert!(libc::posix_spawn_file_actions_init(fa.as_mut_ptr()) == 0);
+            fa.assume_init()
+        };
+        if let Some(it) = self.file_actions {
+            for action in it.iter(vm)? {
+                let action = action?;
+                let (id, args) = action.as_slice().split_first().ok_or_else(|| {
+                    vm.new_type_error(
+                        "Each file_actions element must be a non-empty tuple".to_owned(),
+                    )
+                })?;
+                let id = i32::try_from_object(vm, id.clone())?;
+                let id = PosixSpawnFileActionIdentifier::try_from(id)
+                    .map_err(|_| vm.new_type_error("Unknown file_actions identifier".to_owned()))?;
+                let args = PyFuncArgs::from(args.to_vec());
+                let ret = match id {
+                    PosixSpawnFileActionIdentifier::Open => {
+                        let (fd, path, oflag, mode): (_, PyPathLike, _, _) = args.bind(vm)?;
+                        let path = ffi::CString::new(path.path.into_vec()).map_err(|_| {
+                            vm.new_value_error(
+                                "POSIX_SPAWN_OPEN path should not have nul bytes".to_owned(),
+                            )
+                        })?;
+                        unsafe {
+                            libc::posix_spawn_file_actions_addopen(
+                                &mut file_actions,
+                                fd,
+                                path.as_ptr(),
+                                oflag,
+                                mode,
+                            )
+                        }
+                    }
+                    PosixSpawnFileActionIdentifier::Close => {
+                        let (fd,) = args.bind(vm)?;
+                        unsafe { libc::posix_spawn_file_actions_addclose(&mut file_actions, fd) }
+                    }
+                    PosixSpawnFileActionIdentifier::Dup2 => {
+                        let (fd, newfd) = args.bind(vm)?;
+                        unsafe {
+                            libc::posix_spawn_file_actions_adddup2(&mut file_actions, fd, newfd)
+                        }
+                    }
+                };
+                if ret != 0 {
+                    return Err(errno_err(vm));
+                }
+            }
+        }
+
+        let mut attrp = unsafe {
+            let mut sa = std::mem::MaybeUninit::uninit();
+            assert!(libc::posix_spawnattr_init(sa.as_mut_ptr()) == 0);
+            sa.assume_init()
+        };
+        if let Some(sigs) = self.setsigdef {
+            use nix::sys::signal;
+            let mut set = signal::SigSet::empty();
+            for sig in sigs.iter(vm)? {
+                let sig = sig?;
+                let sig = signal::Signal::try_from(sig).map_err(|_| {
+                    vm.new_value_error(format!("signal number {} out of range", sig))
+                })?;
+                set.add(sig);
+            }
+            assert!(unsafe { libc::posix_spawnattr_setsigdefault(&mut attrp, set.as_ref()) } == 0);
+        }
+
+        let mut args: Vec<ffi::CString> = self
+            .args
+            .iter(vm)?
+            .map(|res| {
+                ffi::CString::new(res?.path.into_vec())
+                    .map_err(|_| vm.new_value_error("path should not have nul bytes".to_owned()))
+            })
+            .collect::<Result<_, _>>()?;
+        let argv: Vec<*mut libc::c_char> = args
+            .iter_mut()
+            .map(|s| s.as_ptr() as _)
+            .chain(std::iter::once(std::ptr::null_mut()))
+            .collect();
+        let mut env = envp_from_dict(self.env.into_dict(), vm)?;
+        let envp: Vec<*mut libc::c_char> = env
+            .iter_mut()
+            .map(|s| s.as_ptr() as _)
+            .chain(std::iter::once(std::ptr::null_mut()))
+            .collect();
+
+        let mut pid = 0;
+        let ret = unsafe {
+            if spawnp {
+                libc::posix_spawnp(
+                    &mut pid,
+                    path.as_ptr(),
+                    &file_actions,
+                    &attrp,
+                    argv.as_ptr(),
+                    envp.as_ptr(),
+                )
+            } else {
+                libc::posix_spawn(
+                    &mut pid,
+                    path.as_ptr(),
+                    &file_actions,
+                    &attrp,
+                    argv.as_ptr(),
+                    envp.as_ptr(),
+                )
+            }
+        };
+
+        if ret == 0 {
+            Ok(pid)
+        } else {
+            Err(errno_err(vm))
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
+fn os_posix_spawn(args: PosixSpawnArgs, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+    args.spawn(false, vm)
+}
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
+fn os_posix_spawnp(args: PosixSpawnArgs, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+    args.spawn(true, vm)
+}
+
+#[cfg(unix)]
+fn os_wifsignaled(status: i32) -> bool {
+    unsafe { libc::WIFSIGNALED(status) }
+}
+#[cfg(unix)]
+fn os_wifstopped(status: i32) -> bool {
+    unsafe { libc::WIFSTOPPED(status) }
+}
+#[cfg(unix)]
+fn os_wifexited(status: i32) -> bool {
+    unsafe { libc::WIFEXITED(status) }
+}
+#[cfg(unix)]
+fn os_wtermsig(status: i32) -> i32 {
+    unsafe { libc::WTERMSIG(status) }
+}
+#[cfg(unix)]
+fn os_wstopsig(status: i32) -> i32 {
+    unsafe { libc::WSTOPSIG(status) }
+}
+#[cfg(unix)]
+fn os_wexitstatus(status: i32) -> i32 {
+    unsafe { libc::WEXITSTATUS(status) }
+}
+
+// TODO: os.wait[pid] for windows
+#[cfg(unix)]
+fn os_waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
+    let mut status = 0;
+    let pid = unsafe { libc::waitpid(pid, &mut status, opt) };
+    let pid = Errno::result(pid).map_err(|e| convert_nix_error(vm, e))?;
+    Ok((pid, status))
+}
+#[cfg(unix)]
+fn os_wait(vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
+    os_waitpid(-1, 0, vm)
+}
+
+fn os_kill(pid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
+    #[cfg(unix)]
+    {
+        let ret = unsafe { libc::kill(pid, sig as i32) };
+        if ret == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(())
+        }
+    }
+    #[cfg(windows)]
+    {
+        use winapi::um::{handleapi, processthreadsapi, wincon, winnt};
+        let sig = sig as u32;
+        let pid = pid as u32;
+
+        if sig == wincon::CTRL_C_EVENT || sig == wincon::CTRL_BREAK_EVENT {
+            let ret = unsafe { wincon::GenerateConsoleCtrlEvent(sig, pid) };
+            let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
+            return res;
+        }
+
+        let h = unsafe { processthreadsapi::OpenProcess(winnt::PROCESS_ALL_ACCESS, 0, pid) };
+        if h.is_null() {
+            return Err(errno_err(vm));
+        }
+        let ret = unsafe { processthreadsapi::TerminateProcess(h, sig) };
+        let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
+        unsafe { handleapi::CloseHandle(h) };
+        res
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        unimplemented!()
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -1579,7 +1911,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     #[allow(unused_mut)]
     let mut support_funcs = vec![
         SupportFunc::new(vm, "open", os_open, None, Some(false), None),
-        // access Some Some None
+        SupportFunc::new(vm, "access", os_access, Some(false), Some(false), None),
         SupportFunc::new(vm, "chdir", os_chdir, Some(false), None, None),
         // chflags Some, None Some
         // chown Some Some Some
@@ -1637,6 +1969,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "lseek" => ctx.new_function(os_lseek),
         "set_inheritable" => ctx.new_function(os_set_inheritable),
         "link" => ctx.new_function(os_link),
+        "kill" => ctx.new_function(os_kill),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
@@ -1695,7 +2028,6 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     let uname_result = UnameResult::make_class(ctx);
 
     extend_module!(vm, module, {
-        "access" => ctx.new_function(os_access),
         "chmod" => ctx.new_function(os_chmod),
         "get_inheritable" => ctx.new_function(os_get_inheritable), // TODO: windows
         "get_blocking" => ctx.new_function(os_get_blocking),
@@ -1716,6 +2048,15 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "ttyname" => ctx.new_function(os_ttyname),
         "uname" => ctx.new_function(os_uname),
         "uname_result" => uname_result,
+        "wait" => ctx.new_function(os_wait),
+        "waitpid" => ctx.new_function(os_waitpid),
+        "WIFSIGNALED" => ctx.new_function(os_wifsignaled),
+        "WIFSTOPPED" => ctx.new_function(os_wifstopped),
+        "WIFEXITED" => ctx.new_function(os_wifexited),
+        "WTERMSIG" => ctx.new_function(os_wtermsig),
+        "WSTOPSIG" => ctx.new_function(os_wstopsig),
+        "WEXITSTATUS" => ctx.new_function(os_wexitstatus),
+        "WNOHANG" => ctx.new_int(libc::WNOHANG),
         "EX_OK" => ctx.new_int(exitcode::OK as i8),
         "EX_USAGE" => ctx.new_int(exitcode::USAGE as i8),
         "EX_DATAERR" => ctx.new_int(exitcode::DATAERR as i8),
@@ -1761,8 +2102,10 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "setresuid" => ctx.new_function(os_setresuid),
         "getresuid" => ctx.new_function(os_getresuid),
         "getresgid" => ctx.new_function(os_getresgid),
+        "setresgid" => ctx.new_function(os_setresgid),
         "setregid" => ctx.new_function(os_setregid),
         "initgroups" => ctx.new_function(os_initgroups),
+        "setgroups" => ctx.new_function(os_setgroups),
     });
 
     // cfg taken from nix
@@ -1790,6 +2133,15 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     ))]
     extend_module!(vm, module, {
         "pipe2" => ctx.new_function(os_pipe2),
+    });
+
+    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
+    extend_module!(vm, module, {
+        "posix_spawn" => ctx.new_function(os_posix_spawn),
+        "posix_spawnp" => ctx.new_function(os_posix_spawnp),
+        "POSIX_SPAWN_OPEN" => ctx.new_int(i32::from(PosixSpawnFileActionIdentifier::Open)),
+        "POSIX_SPAWN_CLOSE" => ctx.new_int(i32::from(PosixSpawnFileActionIdentifier::Close)),
+        "POSIX_SPAWN_DUP2" => ctx.new_int(i32::from(PosixSpawnFileActionIdentifier::Dup2)),
     });
 }
 

@@ -10,7 +10,7 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -39,6 +39,7 @@ impl PyValue for PyDict {
 }
 
 // Python dict methods:
+#[allow(clippy::len_without_is_empty)]
 #[pyimpl(flags(BASETYPE))]
 impl PyDictRef {
     #[pyslot]
@@ -179,7 +180,7 @@ impl PyDictRef {
     }
 
     #[pymethod(magic)]
-    fn len(self) -> usize {
+    pub fn len(self) -> usize {
         self.entries.len()
     }
 
@@ -531,6 +532,11 @@ impl Iterator for DictIter {
             None => None,
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let l = self.dict.entries.len_from_entry_index(self.position);
+        (l, Some(l))
+    }
 }
 
 macro_rules! dict_iterator {
@@ -544,7 +550,7 @@ macro_rules! dict_iterator {
         #[pyimpl]
         impl $name {
             fn new(dict: PyDictRef) -> Self {
-                $name { dict: dict }
+                $name { dict }
             }
 
             #[pymethod(name = "__iter__")]
@@ -674,4 +680,27 @@ pub(crate) fn init(context: &PyContext) {
     PyDictValueIterator::extend_class(context, &context.types.dictvalueiterator_type);
     PyDictItems::extend_class(context, &context.types.dictitems_type);
     PyDictItemIterator::extend_class(context, &context.types.dictitemiterator_type);
+}
+
+pub struct PyMapping {
+    dict: PyDictRef,
+}
+
+impl TryFromObject for PyMapping {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let dict = vm.ctx.new_dict();
+        PyDictRef::merge(
+            &dict.entries,
+            OptionalArg::Present(obj),
+            KwArgs::default(),
+            vm,
+        )?;
+        Ok(PyMapping { dict })
+    }
+}
+
+impl PyMapping {
+    pub fn into_dict(self) -> PyDictRef {
+        self.dict
+    }
 }

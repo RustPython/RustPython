@@ -16,7 +16,7 @@ use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint;
 use crate::obj::objiter;
-use crate::obj::objstr::{self, PyStringRef};
+use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -812,12 +812,69 @@ fn buffered_writer_seekable(_self: PyObjectRef) -> bool {
     true
 }
 
+#[derive(FromArgs)]
+struct TextIOWrapperArgs {
+    #[pyarg(positional_or_keyword, optional = false)]
+    buffer: PyObjectRef,
+    #[pyarg(positional_or_keyword, default = "None")]
+    encoding: Option<PyStringRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    errors: Option<PyStringRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    newline: Option<PyStringRef>,
+}
+
+impl TextIOWrapperArgs {
+    fn validate_newline(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(pystr) = &self.newline {
+            match pystr.as_str() {
+                "" | "\n" | "\r" | "\r\n" => Ok(()),
+                _ => {
+                    Err(vm.new_value_error(format!("illegal newline value: '{}'", pystr.repr(vm)?)))
+                }
+            }
+        } else {
+            Ok(())
+        }
+    }
+}
+
 fn text_io_wrapper_init(
     instance: PyObjectRef,
-    buffer: PyObjectRef,
+    args: TextIOWrapperArgs,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    vm.set_attr(&instance, "buffer", buffer.clone())?;
+    args.validate_newline(vm)?;
+
+    let mut encoding: Option<PyStringRef> = args.encoding.clone();
+    let mut self_encoding = None; // TODO: Try os.device_encoding(fileno)
+    if encoding.is_none() && self_encoding.is_none() {
+        // TODO: locale module
+        self_encoding = Some("utf-8");
+    }
+    if let Some(self_encoding) = self_encoding {
+        encoding = Some(PyString::from(self_encoding).into_ref(vm));
+    } else if let Some(ref encoding) = encoding {
+        self_encoding = Some(encoding.as_str())
+    } else {
+        return Err(vm.new_os_error("could not determine default encoding".to_owned()));
+    }
+    let _ = encoding; // TODO: check codec
+
+    let errors = args
+        .errors
+        .map_or_else(|| vm.ctx.new_str("strict"), |o| o.into_object());
+
+    // let readuniversal = args.newline.map_or_else(true, |s| s.as_str().is_empty());
+
+    vm.set_attr(
+        &instance,
+        "encoding",
+        self_encoding.map_or_else(|| vm.get_none(), |s| vm.ctx.new_str(s)),
+    )?;
+    vm.set_attr(&instance, "errors", errors)?;
+    vm.set_attr(&instance, "buffer", args.buffer.clone())?;
+
     Ok(())
 }
 

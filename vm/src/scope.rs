@@ -39,7 +39,6 @@ impl Scope {
     ) -> Scope {
         if !globals.contains_key("__builtins__", vm) {
             globals
-                .clone()
                 .set_item("__builtins__", vm.builtins.clone(), vm)
                 .unwrap();
         }
