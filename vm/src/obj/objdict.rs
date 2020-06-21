@@ -550,7 +550,7 @@ macro_rules! dict_iterator {
         #[pyimpl]
         impl $name {
             fn new(dict: PyDictRef) -> Self {
-                $name { dict: dict }
+                $name { dict }
             }
 
             #[pymethod(name = "__iter__")]
