@@ -122,7 +122,7 @@ impl PyLock {
     #[pymethod]
     #[pymethod(name = "release_lock")]
     fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if self.mu.is_locked() {
+        if !self.mu.is_locked() {
             return Err(vm.new_runtime_error("release unlocked lock".to_owned()));
         }
         unsafe { self.mu.unlock() };
@@ -183,7 +183,7 @@ impl PyRLock {
     #[pymethod]
     #[pymethod(name = "release_lock")]
     fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if self.mu.is_locked() {
+        if !self.mu.is_locked() {
             return Err(vm.new_runtime_error("release unlocked lock".to_owned()));
         }
         unsafe { self.mu.unlock() };
