@@ -28,7 +28,7 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
-use crate::obj::objdict::{PyDictRef, PyMapping};
+use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
@@ -42,6 +42,8 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 // just to avoid unused import warnings
+#[cfg(unix)]
+use crate::obj::objdict::PyMapping;
 #[cfg(unix)]
 use crate::pyobject::PyIterable;
 #[cfg(unix)]
@@ -124,7 +126,7 @@ fn output_by_mode(val: String, mode: OutputMode, vm: &VirtualMachine) -> PyObjec
 }
 
 pub struct PyPathLike {
-    path: ffi::OsString,
+    pub path: ffi::OsString,
     mode: OutputMode,
 }
 
@@ -139,9 +141,6 @@ impl PyPathLike {
     pub fn wide(&self) -> Vec<u16> {
         use std::os::windows::ffi::OsStrExt;
         self.path.encode_wide().chain(std::iter::once(0)).collect()
-    }
-    pub fn into_os_string(self) -> ffi::OsString {
-        self.path
     }
 }
 

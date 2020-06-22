@@ -807,13 +807,14 @@ class Popen(object):
         # quickly terminating child could make our fds unwrappable
         # (see #8458).
 
-        if _mswindows:
-            if p2cwrite != -1:
-                p2cwrite = msvcrt.open_osfhandle(p2cwrite.Detach(), 0)
-            if c2pread != -1:
-                c2pread = msvcrt.open_osfhandle(c2pread.Detach(), 0)
-            if errread != -1:
-                errread = msvcrt.open_osfhandle(errread.Detach(), 0)
+        # XXX RustPython TODO: have fds for fs functions be actual CRT fds on windows, not handles
+        # if _mswindows:
+        #    if p2cwrite != -1:
+        #        p2cwrite = msvcrt.open_osfhandle(p2cwrite.Detach(), 0)
+        #    if c2pread != -1:
+        #        c2pread = msvcrt.open_osfhandle(c2pread.Detach(), 0)
+        #    if errread != -1:
+        #        errread = msvcrt.open_osfhandle(errread.Detach(), 0)
 
         self.text_mode = encoding or errors or text or universal_newlines
 
@@ -1154,7 +1155,11 @@ class Popen(object):
             else:
                 # Assuming file-like object
                 p2cread = msvcrt.get_osfhandle(stdin.fileno())
+            # XXX RUSTPYTHON TODO: figure out why closing these old, non-inheritable
+            # pipe handles is necessary for us, but not CPython
+            old = p2cread
             p2cread = self._make_inheritable(p2cread)
+            if stdin == PIPE: _winapi.CloseHandle(old)
 
             if stdout is None:
                 c2pwrite = _winapi.GetStdHandle(_winapi.STD_OUTPUT_HANDLE)
@@ -1172,7 +1177,11 @@ class Popen(object):
             else:
                 # Assuming file-like object
                 c2pwrite = msvcrt.get_osfhandle(stdout.fileno())
+            # XXX RUSTPYTHON TODO: figure out why closing these old, non-inheritable
+            # pipe handles is necessary for us, but not CPython
+            old = c2pwrite
             c2pwrite = self._make_inheritable(c2pwrite)
+            if stdout == PIPE: _winapi.CloseHandle(old)
 
             if stderr is None:
                 errwrite = _winapi.GetStdHandle(_winapi.STD_ERROR_HANDLE)
@@ -1192,7 +1201,11 @@ class Popen(object):
             else:
                 # Assuming file-like object
                 errwrite = msvcrt.get_osfhandle(stderr.fileno())
+            # XXX RUSTPYTHON TODO: figure out why closing these old, non-inheritable
+            # pipe handles is necessary for us, but not CPython
+            old = errwrite
             errwrite = self._make_inheritable(errwrite)
+            if stderr == PIPE: _winapi.CloseHandle(old)
 
             return (p2cread, p2cwrite,
                     c2pread, c2pwrite,

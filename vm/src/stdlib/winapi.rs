@@ -132,7 +132,7 @@ fn _winapi_CreateProcess(
 ) -> PyResult<(usize, usize, u32, u32)> {
     use winbase::STARTUPINFOEXW;
     let mut si: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
-    si.StartupInfo.cb = 84; // std::mem::size_of::<STARTUPINFOEXW>() as _;
+    si.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as _;
 
     macro_rules! si_attr {
         ($attr:ident, $t:ty) => {{
@@ -309,7 +309,7 @@ fn getattributelist(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<At
                         0,
                         (2 & 0xffff) | 0x20000, // PROC_THREAD_ATTRIBUTE_HANDLE_LIST
                         handlelist.as_mut_ptr() as _,
-                        handlelist.len() as _,
+                        (handlelist.len() * std::mem::size_of::<HANDLE>()) as _,
                         null_mut(),
                         null_mut(),
                     )
@@ -340,6 +340,13 @@ fn _winapi_GetExitCodeProcess(h: usize, vm: &VirtualMachine) -> PyResult<u32> {
     Ok(ec)
 }
 
+fn _winapi_TerminateProcess(h: usize, exit_code: u32, vm: &VirtualMachine) -> PyResult<()> {
+    cvt(vm, unsafe {
+        processthreadsapi::TerminateProcess(h as _, exit_code)
+    })
+    .map(drop)
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     py_module!(vm, "_winapi", {
@@ -351,6 +358,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "CreateProcess" => named_function!(ctx, _winapi, CreateProcess),
         "WaitForSingleObject" => named_function!(ctx, _winapi, WaitForSingleObject),
         "GetExitCodeProcess" => named_function!(ctx, _winapi, GetExitCodeProcess),
+        "TerminateProcess" => named_function!(ctx, _winapi, TerminateProcess),
 
         "WAIT_OBJECT_0" => ctx.new_int(winbase::WAIT_OBJECT_0),
         "WAIT_ABANDONED" => ctx.new_int(winbase::WAIT_ABANDONED),

@@ -23,9 +23,7 @@ struct CStrPathLike {
 }
 impl TryFromObject for CStrPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let s = PyPathLike::try_from_object(vm, obj)?
-            .into_os_string()
-            .into_vec();
+        let s = PyPathLike::try_from_object(vm, obj)?.path.into_vec();
         let s = CString::new(s)
             .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
         Ok(CStrPathLike { s })
