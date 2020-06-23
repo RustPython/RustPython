@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-vm"
-version = "0.1.1"
+version = "0.1.2"
 description = "Rust Python virtual machine."
 authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
@@ -71,7 +71,7 @@ smallbox = "0.8"
 bstr = "0.2.12"
 crossbeam-utils = "0.7"
 generational-arena = "0.2"
-parking_lot = { git = "https://github.com/Amanieu/parking_lot" } # TODO: use published version
+parking_lot = "0.11"
 thread_local = "1.0"
 
 ## unicode stuff
