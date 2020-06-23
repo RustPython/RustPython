@@ -1,4 +1,6 @@
-
+'''
+Front end for RPT for imported test cases.
+'''
 
 import types
 import unittest
@@ -8,9 +10,7 @@ class OriginalMarker:pass
 class ModifiedMarker:pass
 
 
-'''
-Front end for RPT for imported test cases.
-'''
+
 
 def get_originals():
     return get_marked_test_cases(OriginalMarker)

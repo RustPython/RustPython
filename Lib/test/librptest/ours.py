@@ -1,12 +1,13 @@
+'''
+Front End for own test cases in imported test files.
+'''
 
 import types
 
 from .core import mark_test_case_or_reason, get_marked_test_cases, add_subst, get_substitutions as core_get_subs
 
 
-'''
-Front End for own test cases in imported test files.
-'''
+
 
 
 class MarkNew:pass

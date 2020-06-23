@@ -1,7 +1,7 @@
 
 
 import unittest
-import Lib.test.librptest as rpt
+import test.librptest as rpt
 
 import math
 

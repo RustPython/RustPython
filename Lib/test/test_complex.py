@@ -1,5 +1,5 @@
 import unittest
-import Lib.test.librptest as rpt
+import test.librptest as rpt
 from test import support
 from test.test_grammar import (VALID_UNDERSCORE_LITERALS,
                                INVALID_UNDERSCORE_LITERALS)
