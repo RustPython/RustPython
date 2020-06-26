@@ -1383,6 +1383,23 @@ where
 
 pub type PyComparisonValue = PyArithmaticValue<bool>;
 
+#[derive(Clone)]
+pub struct PySequence<T = PyObjectRef>(Vec<T>);
+
+impl<T> PySequence<T> {
+    pub fn into_vec(self) -> Vec<T> {
+        self.0
+    }
+    pub fn as_slice(&self) -> &[T] {
+        &self.0
+    }
+}
+impl<T: TryFromObject> TryFromObject for PySequence<T> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        vm.extract_elements(&obj).map(Self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

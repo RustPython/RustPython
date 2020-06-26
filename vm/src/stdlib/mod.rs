@@ -30,6 +30,7 @@ pub mod socket;
 mod string;
 #[cfg(feature = "rustpython-compiler")]
 mod symtable;
+mod sysconfigdata;
 #[cfg(not(target_arch = "wasm32"))]
 mod thread;
 mod time_module;
@@ -49,6 +50,8 @@ mod faulthandler;
 mod msvcrt;
 #[cfg(not(target_arch = "wasm32"))]
 mod multiprocessing;
+#[cfg(unix)]
+mod posixsubprocess;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
 #[cfg(not(target_arch = "wasm32"))]
@@ -57,8 +60,6 @@ mod select;
 pub mod signal;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
-#[cfg(not(target_arch = "wasm32"))]
-mod subprocess;
 #[cfg(windows)]
 mod winapi;
 #[cfg(windows)]
@@ -95,6 +96,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "_imp".to_owned() => Box::new(imp::make_module),
         "unicodedata".to_owned() => Box::new(unicodedata::make_module),
         "_warnings".to_owned() => Box::new(warnings::make_module),
+        crate::sysmodule::sysconfigdata_name() => Box::new(sysconfigdata::make_module),
     };
 
     // Insert parser related modules:
@@ -129,7 +131,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("select".to_owned(), Box::new(select::make_module));
         #[cfg(feature = "ssl")]
         modules.insert("_ssl".to_owned(), Box::new(ssl::make_module));
-        modules.insert("_subprocess".to_owned(), Box::new(subprocess::make_module));
         modules.insert("_thread".to_owned(), Box::new(thread::make_module));
         #[cfg(not(target_os = "redox"))]
         modules.insert("zlib".to_owned(), Box::new(zlib::make_module));
@@ -143,6 +144,14 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
     {
         modules.insert("pwd".to_owned(), Box::new(pwd::make_module));
+    }
+
+    #[cfg(unix)]
+    {
+        modules.insert(
+            "_posixsubprocess".to_owned(),
+            Box::new(posixsubprocess::make_module),
+        );
     }
 
     // Windows-only

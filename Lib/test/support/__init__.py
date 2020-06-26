@@ -2442,7 +2442,8 @@ def strip_python_stderr(stderr):
     This will typically be run on the result of the communicate() method
     of a subprocess.Popen object.
     """
-    stderr = re.sub(br"\[\d+ refs, \d+ blocks\]\r?\n?", b"", stderr).strip()
+    # XXX RustPython TODO: bytes regexes
+    # stderr = re.sub(br"\[\d+ refs, \d+ blocks\]\r?\n?", b"", stderr).strip()
     return stderr
 
 requires_type_collecting = unittest.skipIf(hasattr(sys, 'getcounts'),

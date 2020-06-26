@@ -183,6 +183,9 @@ impl PyDictRef {
     pub fn len(self) -> usize {
         self.entries.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.entries.len() == 0
+    }
 
     #[pymethod(magic)]
     fn sizeof(self) -> usize {

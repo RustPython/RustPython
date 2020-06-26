@@ -222,6 +222,32 @@ fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
+const PLATFORM: &str = {
+    cfg_if::cfg_if! {
+        if #[cfg(any(target_os = "linux", target_os = "android"))] {
+            // Android is linux as well. see https://bugs.python.org/issue32637
+            "linux"
+        } else if #[cfg(target_os = "macos")] {
+            "darwin"
+        } else if #[cfg(windows)] {
+            "win32"
+        } else {
+            "unknown"
+        }
+    }
+};
+
+const ABIFLAGS: &str = "";
+
+// not the same as CPython (e.g. rust's x86_x64-unknown-linux-gnu is just x86_64-linux-gnu)
+// but hopefully that's just an implementation detail? TODO: copy CPython's multiarch exactly,
+// https://github.com/python/cpython/blob/3.8/configure.ac#L725
+const MULTIARCH: &str = env!("RUSTPYTHON_TARGET_TRIPLE");
+
+pub fn sysconfigdata_name() -> String {
+    format!("_sysconfigdata_{}_{}_{}", ABIFLAGS, PLATFORM, MULTIARCH)
+}
+
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
     let ctx = &vm.ctx;
 
@@ -244,6 +270,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
     let implementation = py_namespace!(vm, {
         "name" => ctx.new_str("rustpython".to_owned()),
         "cache_tag" => ctx.new_str("rustpython-01".to_owned()),
+        "_multiarch" => ctx.new_str(MULTIARCH.to_owned()),
     });
 
     let path = ctx.new_list(
@@ -254,19 +281,6 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
             .map(|path| ctx.new_str(path.clone()))
             .collect(),
     );
-
-    let platform = if cfg!(target_os = "linux") {
-        "linux".to_owned()
-    } else if cfg!(target_os = "macos") {
-        "darwin".to_owned()
-    } else if cfg!(target_os = "windows") {
-        "win32".to_owned()
-    } else if cfg!(target_os = "android") {
-        // Linux as well. see https://bugs.python.org/issue32637
-        "linux".to_owned()
-    } else {
-        "unknown".to_owned()
-    };
 
     let framework = "".to_owned();
 
@@ -395,7 +409,7 @@ settrace() -- set the global debug tracing function
       "_getframe" => ctx.new_function(getframe),
       "modules" => modules.clone(),
       "warnoptions" => ctx.new_list(vec![]),
-      "platform" => ctx.new_str(platform),
+      "platform" => ctx.new_str(PLATFORM.to_owned()),
       "_framework" => ctx.new_str(framework),
       "meta_path" => ctx.new_list(vec![]),
       "path_hooks" => ctx.new_list(vec![]),
@@ -414,7 +428,7 @@ settrace() -- set the global debug tracing function
       "exec_prefix" => ctx.new_str(exec_prefix.to_owned()),
       "base_exec_prefix" => ctx.new_str(base_exec_prefix.to_owned()),
       "exit" => ctx.new_function(sys_exit),
-      "abiflags" => ctx.new_str("".to_owned()),
+      "abiflags" => ctx.new_str(ABIFLAGS.to_owned()),
       "audit" => ctx.new_function(sys_audit),
       "displayhook" => ctx.new_function(sys_displayhook),
       "__displayhook__" => ctx.new_function(sys_displayhook),

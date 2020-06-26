@@ -59,9 +59,22 @@ fn msvcrt_setmode(fd: i32, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
     }
 }
 
+extern "C" {
+    fn _open_osfhandle(osfhandle: isize, flags: i32) -> i32;
+}
+
+fn msvcrt_open_osfhandle(handle: isize, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
+    let ret = unsafe { suppress_iph!(_open_osfhandle(handle, flags)) };
+    if ret == -1 {
+        Err(errno_err(vm))
+    } else {
+        Ok(ret)
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
-    py_module!(vm, "_msvcrt", {
+    py_module!(vm, "msvcrt", {
         "getch" => ctx.new_function(msvcrt_getch),
         "getwch" => ctx.new_function(msvcrt_getwch),
         "getche" => ctx.new_function(msvcrt_getche),
@@ -69,5 +82,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "putch" => ctx.new_function(msvcrt_putch),
         "putwch" => ctx.new_function(msvcrt_putwch),
         "setmode" => ctx.new_function(msvcrt_setmode),
+        "open_osfhandle" => ctx.new_function(msvcrt_open_osfhandle),
     })
 }
