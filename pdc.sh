@@ -9,11 +9,26 @@
 #
 # If you want to customize it or adapt the checks, just add or remove it from/ to the ACTIONS
 
+# Preparation steps run before the first action is executed
+# Typically we clear here the python cache to prevent dirty
+# test results from cached python programs.
+PRE_GLOBAL=("clear_pycache")
+
+# Postprocessing steps run after the last ACTION has finished
+POST_GLOBAL=()
+
+# Preprocessing steps run before each action is executed
+PRE_ACT=()
+
+# Postprocessing steps run after each action is executed
+POST_ACT=()
 
 ACTIONS=("cargo build" "cargo build --release" "cargo fmt --all" "cargo clippy --all -- -Dwarnings" "cargo test --all" "cargo run --release -- -m test -v" "cd tests" "pytest" "cd ..")
 
 # Usually, there should be no need to adapt the remaining file, when adding or removing actions.
 
+# clears the python cache or RustPython
+clear_pycache() { find . -name __pycache__ -type d -exec rm -r {} \; ; }
 
 RUSTPYTHONPATH=Lib
 export RUSTPYTHONPATH
@@ -21,12 +36,29 @@ export RUSTPYTHONPATH
 ACT_RES=0
 FAILS=()
 
+for pre in "${PRE_GLOBAL[@]}"; do
+    $pre
+done
+
 for act in "${ACTIONS[@]}"; do
+
+    for pre in "${PRE_ACTION[@]}"; do
+        $pre
+    done
+
 	$act
 	if ! [ $? -eq  0 ]; then
 		ACT_RES=1
 		FAILS+=("${act}")
 	fi
+
+    for pst in "${POST_ACTION[@]}"; do
+        $pst
+    done
+done
+
+for pst in "${OST_GLOBAL[@]}"; do
+    $pst
 done
 
 echo 
