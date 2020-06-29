@@ -1,7 +1,7 @@
 use num_bigint::Sign;
 use num_traits::Zero;
 
-use crate::function::PyFuncArgs;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult, TryFromObject,
     TypeProtocol,
@@ -150,8 +150,7 @@ impl PyBool {
     }
 
     #[pyslot]
-    fn tp_new(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-        let zelf = &args.shift();
+    fn tp_new(zelf: PyObjectRef, x: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&zelf, &vm.ctx.type_type()) {
             let zelf_typ = zelf.class();
             let actual_type = vm.to_pystr(&zelf_typ)?;
@@ -160,18 +159,11 @@ impl PyBool {
                 actual_type
             )));
         }
-        if args.args.len() > 1 {
-            Err(vm.new_type_error(format!(
-                "bool expected at most 1 arguments, got {}",
-                args.args.len()
-            )))
-        } else {
-            let value = match args.take_positional() {
-                Some(val) => boolval(vm, val.clone())?,
-                None => false,
-            };
-            Ok(vm.new_bool(value))
-        }
+        let val = match x {
+            OptionalArg::Present(val) => boolval(vm, val.clone())?,
+            OptionalArg::Missing => false,
+        };
+        Ok(vm.new_bool(val))
     }
 }
 
