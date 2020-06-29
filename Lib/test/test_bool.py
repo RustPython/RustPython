@@ -171,7 +171,6 @@ class BoolTest(unittest.TestCase):
         self.assertIs(bool(), False)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_keyword_args(self):
         with self.assertRaisesRegex(TypeError, 'keyword argument'):
             bool(x=10)
