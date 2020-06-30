@@ -19,11 +19,11 @@ def add_subst(fct, subst, reason=None):
     else:
         substitutions[fct]=set([(subst, reason)])
 
-### Returns True if a fucntion is substituted otherwise False.
+### Returns True if a function is substituted otherwise False.
 def is_subsituted(fct):
     return fct in substitutions
 
-### Returns a list of functions that are beeing  used as substitutes of the 
+### Returns a list of functions that are being used as substitutes of the 
 ### original function fct. Does not fail and returns an empty set if the function
 ### has no known substitutes.
 def get_substitutions(fct):
@@ -32,8 +32,8 @@ def get_substitutions(fct):
     except:
         return set()
 
-### Add a function that is marked as beeing substituted 
-### When the function is alread known, nothing happens.
+### Add a function that is marked as being substituted 
+### When the function is already known, nothing happens.
 def register_subst(fct):
     if not fct in substitutions:
         substitutions[fct]=set()
