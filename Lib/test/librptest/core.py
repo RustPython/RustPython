@@ -3,6 +3,7 @@ Core Functions Logic to manage and evaluate test case annotations.
 '''
 
 import types
+import collections
 
 
 
@@ -20,7 +21,7 @@ def add_subst(fct, subst, reason=None):
         substitutions[fct]=set([(subst, reason)])
 
 ### Returns True if a function is substituted otherwise False.
-def is_subsituted(fct):
+def is_substituted(fct):
     return fct in substitutions
 
 ### Returns a list of functions that are being used as substitutes of the 
