@@ -620,8 +620,6 @@ class UnicodeTest(string_tests.CommonTest,
         for ch in ['\U00010429', '\U0001044E', '\U0001F40D', '\U0001F46F']:
             self.assertFalse(ch.istitle(), '{!a} is not title'.format(ch))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_isspace(self):
         super().test_isspace()
         self.checkequalnofix(True, '\u2000', 'isspace')

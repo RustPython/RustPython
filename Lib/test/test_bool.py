@@ -204,8 +204,6 @@ class BoolTest(unittest.TestCase):
         self.assertIs(1 in {}, False)
         self.assertIs(1 in {1:1}, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_string(self):
         self.assertIs("xyz".endswith("z"), True)
         self.assertIs("xyz".endswith("x"), False)

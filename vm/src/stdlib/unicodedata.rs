@@ -9,10 +9,10 @@ use crate::pyobject::{PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use itertools::Itertools;
-use unic_bidi::BidiClass;
 use unic_char_property::EnumeratedCharProperty;
 use unic_normal::StrNormalForm;
 use unic_ucd_age::{Age, UnicodeVersion, UNICODE_VERSION};
+use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
