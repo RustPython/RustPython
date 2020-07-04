@@ -185,7 +185,7 @@ impl PyBaseObject {
         if instance.payload_is::<PyBaseObject>() {
             match value.downcast_generic::<PyClass>() {
                 Ok(cls) => {
-                    // TODO cls instances might have a payload
+                    // FIXME(#1979) cls instances might have a payload
                     instance.typ.store(cls);
                     Ok(())
                 }
