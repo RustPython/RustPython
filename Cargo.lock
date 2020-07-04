@@ -1622,6 +1622,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustpython-pylib"
+version = "0.1.0"
+dependencies = [
+ "maplit",
+ "rustpython-bytecode",
+ "rustpython-derive",
+]
+
+[[package]]
 name = "rustpython-vm"
 version = "0.1.2"
 dependencies = [
@@ -1686,6 +1695,7 @@ dependencies = [
  "rustpython-compiler",
  "rustpython-derive",
  "rustpython-parser",
+ "rustpython-pylib",
  "rustyline",
  "schannel",
  "serde",

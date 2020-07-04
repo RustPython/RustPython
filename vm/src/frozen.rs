@@ -29,7 +29,7 @@ pub fn get_module_inits() -> HashMap<String, FrozenModule> {
     // if we're on freeze-stdlib, the core stdlib modules will be included anyway
     #[cfg(feature = "freeze-stdlib")]
     {
-        ext_modules!(dir = "../Lib/");
+        modules.extend(rustpython_pylib::frozen_stdlib());
     }
 
     modules

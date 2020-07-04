@@ -157,10 +157,11 @@ struct PyCompileInput {
 }
 
 impl PyCompileInput {
-    fn compile(&self) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
+    fn parse(&self) -> Result<PyCompileArgs, Diagnostic> {
         let mut module_name = None;
         let mut mode = None;
         let mut source: Option<CompilationSource> = None;
+        let mut crate_name = None;
 
         fn assert_source_empty(source: &Option<CompilationSource>) -> Result<(), Diagnostic> {
             if let Some(source) = source {
@@ -222,21 +223,29 @@ impl PyCompileInput {
                         kind: CompilationSourceKind::Dir(path),
                         span: extract_spans(&name_value).unwrap(),
                     });
+                } else if ident == "crate_name" {
+                    let name = match &name_value.lit {
+                        Lit::Str(s) => syn::Ident::new(&s.value(), s.span()),
+                        _ => bail_span!(name_value.lit, "source must be a string"),
+                    };
+                    crate_name = Some(name);
                 }
             }
         }
 
-        source
-            .ok_or_else(|| {
-                Diagnostic::span_error(
-                    self.span,
-                    "Must have either file or source in py_compile_bytecode!()",
-                )
-            })?
-            .compile(
-                mode.unwrap_or(compile::Mode::Exec),
-                module_name.unwrap_or_else(|| "frozen".to_owned()),
+        let source = source.ok_or_else(|| {
+            Diagnostic::span_error(
+                self.span,
+                "Must have either file or source in py_compile_bytecode!()",
             )
+        })?;
+
+        Ok(PyCompileArgs {
+            source,
+            mode: mode.unwrap_or(compile::Mode::Exec),
+            module_name: module_name.unwrap_or_else(|| "frozen".to_owned()),
+            crate_name: crate_name.unwrap_or_else(|| syn::parse_quote!(rustpython_vm)),
+        })
     }
 }
 
@@ -251,10 +260,19 @@ impl Parse for PyCompileInput {
     }
 }
 
+struct PyCompileArgs {
+    source: CompilationSource,
+    mode: compile::Mode,
+    module_name: String,
+    crate_name: syn::Ident,
+}
+
 pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Diagnostic> {
     let input: PyCompileInput = parse2(input)?;
+    let args = input.parse()?;
 
-    let code_map = input.compile()?;
+    let crate_name = args.crate_name;
+    let code_map = args.source.compile(args.mode, args.module_name)?;
 
     let modules = code_map
         .into_iter()
@@ -263,8 +281,8 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
             let bytes = code.to_bytes();
             let bytes = LitByteStr::new(&bytes, Span::call_site());
             quote! {
-                #module_name.into() => ::rustpython_vm::bytecode::FrozenModule {
-                    code: ::rustpython_vm::bytecode::CodeObject::from_bytes(
+                #module_name.into() => ::#crate_name::bytecode::FrozenModule {
+                    code: ::#crate_name::bytecode::CodeObject::from_bytes(
                         #bytes
                     ).expect("Deserializing CodeObject failed"),
                     package: #package,
@@ -274,7 +292,7 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
 
     let output = quote! {
         ({
-            use ::rustpython_vm::__exports::hashmap;
+            use ::#crate_name::__exports::hashmap;
             hashmap! {
                 #(#modules),*
             }
