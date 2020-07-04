@@ -8,6 +8,7 @@ use std::string::ToString;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
+use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
 use unicode_casing::CharExt;
@@ -751,11 +752,16 @@ impl PyString {
             .all(|c| c == '\u{0020}' || char_is_printable(c))
     }
 
-    // cpython's isspace ignores whitespace, including \t and \n, etc, unless the whole string is empty
-    // which is why isspace is using is_ascii_whitespace. Same for isupper & islower
     #[pymethod]
     fn isspace(&self) -> bool {
-        !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii_whitespace())
+        if self.value.is_empty() {
+            return false;
+        }
+        use unic_ucd_bidi::bidi_class::abbr_names::*;
+        self.value.chars().all(|c| {
+            GeneralCategory::of(c) == GeneralCategory::SpaceSeparator
+                || matches!(BidiClass::of(c), WS | B | S)
+        })
     }
 
     // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.

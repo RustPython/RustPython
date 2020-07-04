@@ -1697,10 +1697,10 @@ dependencies = [
  "statrs",
  "thread_local",
  "uname",
- "unic-bidi",
  "unic-char-property",
  "unic-normal",
  "unic-ucd-age",
+ "unic-ucd-bidi",
  "unic-ucd-category",
  "unic-ucd-ident",
  "unicode-casing",
@@ -2083,16 +2083,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b72f89f0ca32e4db1c04e2a72f5345d59796d4866a1ee0609084569f73683dc8"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "unic-bidi"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1356b759fb6a82050666f11dce4b6fe3571781f1449f3ef78074e408d468ec09"
-dependencies = [
- "matches",
- "unic-ucd-bidi",
 ]
 
 [[package]]

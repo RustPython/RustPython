@@ -81,9 +81,9 @@ unicode_names2 = "0.4"
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
 unicode-casing = "0.1"
 # update version all at the same time
-unic-bidi          = "0.9"
 unic-char-property = "0.9"
 unic-normal        = "0.9"
+unic-ucd-bidi      = "0.9"
 unic-ucd-category  = "0.9"
 unic-ucd-age       = "0.9"
 unic-ucd-ident     = "0.9"
