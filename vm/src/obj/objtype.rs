@@ -16,6 +16,7 @@ use crate::pyobject::{
 };
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
+use arc_swap::ArcSwap;
 use itertools::Itertools;
 
 /// type(object_or_name, bases, dict)
@@ -546,7 +547,7 @@ pub fn new(
             slots: RwLock::default(),
         },
         dict: None,
-        typ: typ.into_typed_pyobj(),
+        typ: ArcSwap::new(typ.into_typed_pyobj()),
     }
     .into_ref();
 

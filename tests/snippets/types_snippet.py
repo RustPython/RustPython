@@ -1,3 +1,5 @@
+from testutils import assert_raises
+
 try:
     import gc
 except ImportError:
@@ -99,3 +101,17 @@ assert C.mro() == [C, B, A, BB, AA, object]
 
 assert type(Exception.args).__name__ == 'getset_descriptor'
 assert type(None).__bool__(None) is False
+
+class A:
+    pass
+
+class B:
+    pass
+
+a = A()
+a.__class__ = B
+assert isinstance(a, B)
+
+b = 1
+with assert_raises(TypeError):
+    b.__class__ = B

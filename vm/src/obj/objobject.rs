@@ -4,6 +4,7 @@ use super::objlist::PyList;
 use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
+use crate::obj::objtype::PyClass;
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassImpl, PyComparisonValue,
@@ -180,9 +181,27 @@ impl PyBaseObject {
     }
 
     #[pyproperty(name = "__class__", setter)]
-    fn set_class(instance: PyObjectRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let type_repr = vm.to_pystr(&instance.class())?;
-        Err(vm.new_type_error(format!("can't change class of type '{}'", type_repr)))
+    fn set_class(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if instance.payload_is::<PyBaseObject>() {
+            match value.downcast_generic::<PyClass>() {
+                Ok(cls) => {
+                    // TODO cls instances might have a payload
+                    instance.typ.store(cls);
+                    Ok(())
+                }
+                Err(value) => {
+                    let type_repr = vm.to_pystr(&value.class())?;
+                    Err(vm.new_type_error(format!(
+                        "__class__ must be set to a class, not '{}' object",
+                        type_repr
+                    )))
+                }
+            }
+        } else {
+            Err(vm.new_type_error(
+                "__class__ assignment only supported for types without a payload".to_owned(),
+            ))
+        }
     }
 
     #[pyproperty(magic)]

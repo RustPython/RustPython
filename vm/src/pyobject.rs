@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
@@ -586,8 +587,8 @@ impl PyContext {
 
     pub fn new_base_object(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: class.into_typed_pyobj(),
-            dict: dict.map(Mutex::new),
+            typ: ArcSwap::new(class.into_typed_pyobj()),
+            dict: dict.map(|d| ArcSwap::new(d.into_typed_pyobj())),
             payload: objobject::PyBaseObject,
         }
         .into_ref()
@@ -643,9 +644,8 @@ pub struct PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    pub typ: Arc<PyObject<PyClass>>,
-    // TODO: make this RwLock once PyObjectRef is Send + Sync
-    pub(crate) dict: Option<Mutex<PyDictRef>>, // __dict__ member
+    pub(crate) typ: ArcSwap<PyObject<PyClass>>, // __class__ member
+    pub(crate) dict: Option<ArcSwap<PyObject<PyDict>>>, // __dict__ member
     pub payload: T,
 }
 
@@ -879,7 +879,7 @@ where
     T: ?Sized + PyObjectPayload,
 {
     fn class(&self) -> PyClassRef {
-        self.typ.clone().into_pyref()
+        self.typ.load_full().into_pyref()
     }
 }
 
@@ -1161,8 +1161,8 @@ where
     #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: typ.into_typed_pyobj(),
-            dict: dict.map(Mutex::new),
+            typ: ArcSwap::new(typ.into_typed_pyobj()),
+            dict: dict.map(|d| ArcSwap::new(d.into_typed_pyobj())),
             payload,
         }
         .into_ref()
@@ -1186,14 +1186,14 @@ where
     T: ?Sized + PyObjectPayload,
 {
     pub fn dict(&self) -> Option<PyDictRef> {
-        self.dict.as_ref().map(|mu| mu.lock().clone())
+        self.dict.as_ref().map(|mu| mu.load_full().into_pyref())
     }
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
     pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
         match self.dict {
             Some(ref mu) => {
-                *mu.lock() = dict;
+                mu.store(dict.into_typed_pyobj());
                 Ok(())
             }
             None => Err(dict),
