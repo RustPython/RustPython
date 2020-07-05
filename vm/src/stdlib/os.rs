@@ -1045,6 +1045,47 @@ fn os_chroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
     nix::unistd::chroot(&*path.path).map_err(|err| convert_nix_error(vm, err))
 }
 
+// As of now, redox does not seems to support chown command (cf. https://gitlab.redox-os.org/redox-os/coreutils , last checked on 05/07/2020)
+#[cfg(all(unix, not(target_os = "redox")))]
+fn os_chown(
+    path: PyPathLike,
+    uid: PyIntRef,
+    gid: PyIntRef,
+    dir_fd: DirFd,
+    follow_symlinks: FollowSymlinks,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let uid = isize::try_from_object(&vm, uid.as_object().clone())?;
+    let gid = isize::try_from_object(&vm, gid.as_object().clone())?;
+
+    let uid = if uid >= 0 {
+        Some(nix::unistd::Uid::from_raw(uid as u32))
+    } else if uid == -1 {
+        None
+    } else {
+        return Err(vm.new_os_error(String::from("Specified uid is not valid.")));
+    };
+
+    let gid = if gid >= 0 {
+        Some(nix::unistd::Gid::from_raw(gid as u32))
+    } else if gid == -1 {
+        None
+    } else {
+        return Err(vm.new_os_error(String::from("Specified gid is not valid.")));
+    };
+
+    let flag = match follow_symlinks.follow_symlinks {
+        true => nix::unistd::FchownatFlags::FollowSymlink,
+        false => nix::unistd::FchownatFlags::NoFollowSymlink,
+    };
+    let dir_fd: Option<std::os::unix::io::RawFd> = match dir_fd.dir_fd {
+        Some(int_ref) => Some(i32::try_from_object(&vm, int_ref.as_object().clone())?),
+        None => None,
+    };
+    nix::unistd::fchownat(dir_fd, path.path.as_os_str(), uid, gid, flag)
+        .map_err(|err| convert_nix_error(vm, err))
+}
+
 #[cfg(unix)]
 fn os_get_inheritable(fd: RawFd, vm: &VirtualMachine) -> PyResult<bool> {
     use nix::fcntl::fcntl;
@@ -2063,7 +2104,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "access", os_access, Some(false), Some(false), None),
         SupportFunc::new(vm, "chdir", os_chdir, Some(false), None, None),
         // chflags Some, None Some
-        // chown Some Some Some
         SupportFunc::new(vm, "listdir", os_listdir, Some(false), None, None),
         SupportFunc::new(vm, "mkdir", os_mkdir, Some(false), Some(false), None),
         // mkfifo Some Some None
@@ -2088,6 +2128,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "chmod", os_chmod, Some(false), Some(false), Some(false)),
         #[cfg(not(target_os = "redox"))]
         SupportFunc::new(vm, "chroot", os_chroot, Some(false), None, None),
+        SupportFunc::new(vm, "chown", os_chown, Some(false), Some(false), Some(false)),
         SupportFunc::new(vm, "umask", os_umask, Some(false), Some(false), Some(false)),
     ]);
     let supports_fd = PySet::default().into_ref(vm);
@@ -2236,6 +2277,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
 
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
+        "chown" => ctx.new_function(os_chown),
         "chroot" => ctx.new_function(os_chroot),
         "getsid" => ctx.new_function(os_getsid),
         "setsid" => ctx.new_function(os_setsid),
