@@ -11,10 +11,10 @@ use crate::pyobject::{
 use crate::types::create_type;
 use crate::VirtualMachine;
 
+use parking_lot::{RwLock, RwLockWriteGuard};
 use std::convert::TryFrom;
 use std::ffi::{CStr, CString};
 use std::fmt;
-use std::sync::{RwLock, RwLockWriteGuard};
 
 use foreign_types_shared::{ForeignType, ForeignTypeRef};
 use openssl::{
@@ -249,17 +249,17 @@ impl PyValue for PySslContext {
 #[pyimpl(flags(BASETYPE))]
 impl PySslContext {
     fn builder(&self) -> RwLockWriteGuard<'_, SslContextBuilder> {
-        self.ctx.write().unwrap()
+        self.ctx.write()
     }
     fn exec_ctx<F, R>(&self, func: F) -> R
     where
         F: Fn(&ssl::SslContextRef) -> R,
     {
-        let c = self.ctx.read().unwrap();
+        let c = self.ctx.read();
         func(unsafe { &**(&*c as *const SslContextBuilder as *const ssl::SslContext) })
     }
     fn ptr(&self) -> *mut sys::SSL_CTX {
-        (*self.ctx.write().unwrap()).as_ptr()
+        (*self.ctx.write()).as_ptr()
     }
 
     #[pyslot]
@@ -528,32 +528,28 @@ impl PyValue for PySslSocket {
 #[pyimpl]
 impl PySslSocket {
     fn stream_builder(&self) -> ssl::SslStreamBuilder<PySocketRef> {
-        std::mem::replace(&mut *self.stream.write().unwrap(), None).unwrap()
+        std::mem::replace(&mut *self.stream.write(), None).unwrap()
     }
     fn exec_stream<F, R>(&self, func: F) -> R
     where
         F: Fn(&mut ssl::SslStream<PySocketRef>) -> R,
     {
-        let mut b = self.stream.write().unwrap();
+        let mut b = self.stream.write();
         func(unsafe {
             &mut *(b.as_mut().unwrap() as *mut ssl::SslStreamBuilder<_> as *mut ssl::SslStream<_>)
         })
     }
     fn set_stream(&self, stream: ssl::SslStream<PySocketRef>) {
-        *self.stream.write().unwrap() = Some(unsafe { std::mem::transmute(stream) });
+        *self.stream.write() = Some(unsafe { std::mem::transmute(stream) });
     }
 
     #[pyproperty]
     fn owner(&self) -> Option<PyObjectRef> {
-        self.owner
-            .read()
-            .unwrap()
-            .as_ref()
-            .and_then(PyWeak::upgrade)
+        self.owner.read().as_ref().and_then(PyWeak::upgrade)
     }
     #[pyproperty(setter)]
     fn set_owner(&self, owner: PyObjectRef) {
-        *self.owner.write().unwrap() = Some(PyWeak::downgrade(&owner))
+        *self.owner.write() = Some(PyWeak::downgrade(&owner))
     }
     #[pyproperty]
     fn server_side(&self) -> bool {

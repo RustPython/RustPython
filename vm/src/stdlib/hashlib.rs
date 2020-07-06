@@ -4,8 +4,8 @@ use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::fmt;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use blake2::{Blake2b, Blake2s};
 use digest::DynDigest;
@@ -42,11 +42,11 @@ impl PyHasher {
     }
 
     fn borrow_value(&self) -> RwLockReadGuard<'_, HashWrapper> {
-        self.buffer.read().unwrap()
+        self.buffer.read()
     }
 
     fn borrow_value_mut(&self) -> RwLockWriteGuard<'_, HashWrapper> {
-        self.buffer.write().unwrap()
+        self.buffer.write()
     }
 
     #[pyslot]

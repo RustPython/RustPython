@@ -1,5 +1,5 @@
+use parking_lot::RwLock;
 use std::fmt::{self, Debug, Formatter};
-use std::sync::RwLock;
 
 use csv as rust_csv;
 use itertools::join;
@@ -152,13 +152,13 @@ impl Reader {
 impl Reader {
     #[pymethod(name = "__iter__")]
     fn iter(this: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        this.state.write().unwrap().cast_to_reader(vm)?;
+        this.state.write().cast_to_reader(vm)?;
         this.into_pyobject(vm)
     }
 
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write();
         state.cast_to_reader(vm)?;
 
         if let ReadState::CsvIter(ref mut reader) = &mut *state {

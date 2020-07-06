@@ -1,9 +1,9 @@
 /*
  * I/O core tools.
  */
+use parking_lot::{RwLock, RwLockWriteGuard};
 use std::fs;
 use std::io::{self, prelude::*, Cursor, SeekFrom};
-use std::sync::{RwLock, RwLockWriteGuard};
 
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
@@ -136,7 +136,7 @@ impl PyValue for PyStringIO {
 impl PyStringIORef {
     fn buffer(&self, vm: &VirtualMachine) -> PyResult<RwLockWriteGuard<'_, BufferedIO>> {
         if !self.closed.load() {
-            Ok(self.buffer.write().unwrap())
+            Ok(self.buffer.write())
         } else {
             Err(vm.new_value_error("I/O operation on closed file.".to_owned()))
         }
@@ -259,7 +259,7 @@ impl PyValue for PyBytesIO {
 impl PyBytesIORef {
     fn buffer(&self, vm: &VirtualMachine) -> PyResult<RwLockWriteGuard<'_, BufferedIO>> {
         if !self.closed.load() {
-            Ok(self.buffer.write().unwrap())
+            Ok(self.buffer.write())
         } else {
             Err(vm.new_value_error("I/O operation on closed file.".to_owned()))
         }

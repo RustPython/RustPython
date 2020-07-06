@@ -7,7 +7,7 @@
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 use std::{env, fmt};
 
 use arr_macro::arr;
@@ -15,6 +15,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use once_cell::sync::Lazy;
+use parking_lot::{Mutex, MutexGuard};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::{
     compile::{self, CompileOpts},
@@ -769,7 +770,7 @@ impl VirtualMachine {
         cls: Option<PyObjectRef>,
     ) -> Option<PyResult> {
         let descr_class = descr.class();
-        let slots = descr_class.slots.read().unwrap();
+        let slots = descr_class.slots.read();
         if let Some(descr_get) = slots.descr_get.as_ref() {
             Some(descr_get(self, descr, obj, OptionalArg::from_option(cls)))
         } else if let Some(ref descriptor) = descr_class.get_attr("__get__") {
@@ -821,7 +822,7 @@ impl VirtualMachine {
 
     fn _invoke(&self, callable: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
-        if let Some(slot_call) = callable.class().slots.read().unwrap().call.as_ref() {
+        if let Some(slot_call) = callable.class().slots.read().call.as_ref() {
             self.trace_event(TraceEvent::Call)?;
             let args = args.insert(callable.clone());
             let result = slot_call(self, args);
@@ -1047,7 +1048,7 @@ impl VirtualMachine {
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
-        obj.class().slots.read().unwrap().call.is_some() || obj.class().has_attr("__call__")
+        obj.class().slots.read().call.is_some() || obj.class().has_attr("__call__")
     }
 
     #[inline]
@@ -1503,7 +1504,7 @@ pub struct ReprGuard {
 /// A guard to protect repr methods from recursion into itself,
 impl ReprGuard {
     fn get_guards<'a>() -> MutexGuard<'a, HashSet<usize>> {
-        REPR_GUARDS.lock().expect("ReprGuard lock poisoned")
+        REPR_GUARDS.lock()
     }
 
     /// Returns None if the guard against 'obj' is still held otherwise returns the guard. The guard

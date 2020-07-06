@@ -5,8 +5,9 @@ mod decl {
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
     use num_traits::{One, Signed, ToPrimitive, Zero};
+    use parking_lot::{RwLock, RwLockWriteGuard};
     use std::iter;
-    use std::sync::{Arc, RwLock, RwLockWriteGuard};
+    use std::sync::Arc;
 
     use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;
@@ -52,12 +53,12 @@ mod decl {
                 if pos >= self.iterables.len() {
                     break;
                 }
-                let cur_iter = if self.cached_iter.read().unwrap().is_none() {
+                let cur_iter = if self.cached_iter.read().is_none() {
                     // We need to call "get_iter" outside of the lock.
                     let iter = get_iter(vm, &self.iterables[pos])?;
-                    *self.cached_iter.write().unwrap() = Some(iter.clone());
+                    *self.cached_iter.write() = Some(iter.clone());
                     iter
-                } else if let Some(cached_iter) = (*(self.cached_iter.read().unwrap())).clone() {
+                } else if let Some(cached_iter) = (*(self.cached_iter.read())).clone() {
                     cached_iter
                 } else {
                     // Someone changed cached iter to None since we checked.
@@ -70,7 +71,7 @@ mod decl {
                     Err(err) => {
                         if objtype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
                             self.cur_idx.fetch_add(1);
-                            *self.cached_iter.write().unwrap() = None;
+                            *self.cached_iter.write() = None;
                         } else {
                             return Err(err);
                         }
@@ -195,7 +196,7 @@ mod decl {
 
         #[pymethod(name = "__next__")]
         fn next(&self) -> PyResult<PyInt> {
-            let mut cur = self.cur.write().unwrap();
+            let mut cur = self.cur.write();
             let result = cur.clone();
             *cur += &self.step;
             Ok(PyInt::new(result))
@@ -242,10 +243,10 @@ mod decl {
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             let item = if let Some(item) = get_next_object(vm, &self.iter)? {
-                self.saved.write().unwrap().push(item.clone());
+                self.saved.write().push(item.clone());
                 item
             } else {
-                let saved = self.saved.read().unwrap();
+                let saved = self.saved.read();
                 if saved.len() == 0 {
                     return Err(new_stop_iteration(vm));
                 }
@@ -305,7 +306,7 @@ mod decl {
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             if let Some(ref times) = self.times {
-                let mut times = times.write().unwrap();
+                let mut times = times.write();
                 if *times <= BigInt::zero() {
                     return Err(new_stop_iteration(vm));
                 }
@@ -323,7 +324,7 @@ mod decl {
         #[pymethod(name = "__length_hint__")]
         fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
             match self.times {
-                Some(ref times) => vm.new_int(times.read().unwrap().clone()),
+                Some(ref times) => vm.new_int(times.read().clone()),
                 None => vm.new_int(0),
             }
         }
@@ -707,7 +708,7 @@ mod decl {
             let iterable = &self.iterable;
             let obj = call_next(vm, iterable)?;
 
-            let acc_value = self.acc_value.read().unwrap().clone();
+            let acc_value = self.acc_value.read().clone();
 
             let next_acc_value = match acc_value {
                 None => obj.clone(),
@@ -719,7 +720,7 @@ mod decl {
                     }
                 }
             };
-            *self.acc_value.write().unwrap() = Some(next_acc_value.clone());
+            *self.acc_value.write() = Some(next_acc_value.clone());
 
             Ok(next_acc_value)
         }
@@ -745,11 +746,11 @@ mod decl {
         }
 
         fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult {
-            if self.values.read().unwrap().len() == index {
+            if self.values.read().len() == index {
                 let result = call_next(vm, &self.iterable)?;
-                self.values.write().unwrap().push(result);
+                self.values.write().push(result);
             }
-            Ok(self.values.read().unwrap()[index].clone())
+            Ok(self.values.read()[index].clone())
         }
     }
 
@@ -904,7 +905,7 @@ mod decl {
                 }
             }
 
-            let idxs = self.idxs.write().unwrap();
+            let idxs = self.idxs.write();
 
             let res = PyTuple::from(
                 pools
@@ -1010,13 +1011,12 @@ mod decl {
             let res = PyTuple::from(
                 self.indices
                     .read()
-                    .unwrap()
                     .iter()
                     .map(|&i| self.pool[i].clone())
                     .collect::<Vec<PyObjectRef>>(),
             );
 
-            let mut indices = self.indices.write().unwrap();
+            let mut indices = self.indices.write();
 
             // Scan indices right-to-left until finding one that is not at its maximum (i + n - r).
             let mut idx = r as isize - 1;
@@ -1107,7 +1107,7 @@ mod decl {
                 return Ok(vm.ctx.new_tuple(vec![]));
             }
 
-            let mut indices = self.indices.write().unwrap();
+            let mut indices = self.indices.write();
 
             let res = vm
                 .ctx
@@ -1215,11 +1215,11 @@ mod decl {
                 return Ok(vm.ctx.new_tuple(vec![]));
             }
 
-            let mut result = self.result.write().unwrap();
+            let mut result = self.result.write();
 
             if let Some(ref mut result) = *result {
-                let mut indices = self.indices.write().unwrap();
-                let mut cycles = self.cycles.write().unwrap();
+                let mut indices = self.indices.write();
+                let mut cycles = self.cycles.write();
                 let mut sentinel = false;
 
                 // Decrement rightmost cycle, moving leftward upon zero rollover

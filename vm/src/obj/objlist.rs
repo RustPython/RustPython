@@ -1,11 +1,11 @@
 use std::fmt;
 use std::mem::size_of;
 use std::ops::{DerefMut, Range};
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::objbool;
 use super::objbyteinner;
@@ -55,11 +55,11 @@ impl PyValue for PyList {
 
 impl PyList {
     pub fn borrow_elements(&self) -> RwLockReadGuard<'_, Vec<PyObjectRef>> {
-        self.elements.read().unwrap()
+        self.elements.read()
     }
 
     pub fn borrow_elements_mut(&self) -> RwLockWriteGuard<'_, Vec<PyObjectRef>> {
-        self.elements.write().unwrap()
+        self.elements.write()
     }
 
     pub(crate) fn get_byte_inner(

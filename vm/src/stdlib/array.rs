@@ -10,8 +10,8 @@ use crate::pyobject::{
 };
 use crate::VirtualMachine;
 
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::fmt;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -239,11 +239,11 @@ impl PyValue for PyArray {
 #[pyimpl(flags(BASETYPE))]
 impl PyArray {
     fn borrow_value(&self) -> RwLockReadGuard<'_, ArrayContentType> {
-        self.array.read().unwrap()
+        self.array.read()
     }
 
     fn borrow_value_mut(&self) -> RwLockWriteGuard<'_, ArrayContentType> {
-        self.array.write().unwrap()
+        self.array.write()
     }
 
     #[pyslot]

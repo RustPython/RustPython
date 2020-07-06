@@ -1,6 +1,6 @@
+use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::sync::RwLock;
 
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
@@ -98,7 +98,6 @@ impl PyClassRef {
     fn qualname(self, vm: &VirtualMachine) -> PyObjectRef {
         self.attributes
             .read()
-            .unwrap()
             .get("__qualname__")
             .cloned()
             .unwrap_or_else(|| vm.ctx.new_str(self.name.clone()))
@@ -109,7 +108,6 @@ impl PyClassRef {
         // TODO: Implement getting the actual module a builtin type is from
         self.attributes
             .read()
-            .unwrap()
             .get("__module__")
             .cloned()
             .unwrap_or_else(|| vm.ctx.new_str("builtins".to_owned()))
@@ -119,7 +117,6 @@ impl PyClassRef {
     fn set_module(self, value: PyObjectRef) {
         self.attributes
             .write()
-            .unwrap()
             .insert("__module__".to_owned(), value);
     }
 
@@ -148,7 +145,7 @@ impl PyClassRef {
 
         if let Some(attr) = self.get_attr(&name) {
             let attr_class = attr.class();
-            let slots = attr_class.slots.read().unwrap();
+            let slots = attr_class.slots.read();
             if let Some(ref descr_get) = slots.descr_get {
                 return descr_get(vm, attr, None, OptionalArg::Present(self.into_object()));
             } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
@@ -182,10 +179,7 @@ impl PyClassRef {
             }
         }
 
-        self.attributes
-            .write()
-            .unwrap()
-            .insert(attr_name.to_string(), value);
+        self.attributes.write().insert(attr_name.to_string(), value);
         Ok(())
     }
 
@@ -200,7 +194,7 @@ impl PyClassRef {
         }
 
         if self.get_attr(attr_name.as_str()).is_some() {
-            self.attributes.write().unwrap().remove(attr_name.as_str());
+            self.attributes.write().remove(attr_name.as_str());
             Ok(())
         } else {
             Err(vm.new_attribute_error(attr_name.as_str().to_owned()))
@@ -211,13 +205,12 @@ impl PyClassRef {
     pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
         self.attributes
             .write()
-            .unwrap()
             .insert(attr_name.to_owned(), value.into());
     }
 
     #[pymethod(magic)]
     fn subclasses(self) -> PyList {
-        let mut subclasses = self.subclasses.write().unwrap();
+        let mut subclasses = self.subclasses.write();
         subclasses.retain(|x| x.upgrade().is_some());
         PyList::from(
             subclasses
@@ -275,7 +268,7 @@ impl PyClassRef {
             let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
             let metatype = if !winner.is(&metatype) {
                 #[allow(clippy::redundant_clone)] // false positive
-                if let Some(ref tp_new) = winner.clone().slots.read().unwrap().new {
+                if let Some(ref tp_new) = winner.clone().slots.read().new {
                     // Pass it to the winner
 
                     return tp_new(vm, args.insert(winner.into_object()));
@@ -300,10 +293,10 @@ impl PyClassRef {
         let typ = new(metatype, name.as_str(), base.clone(), bases, attributes)
             .map_err(|e| vm.new_type_error(e))?;
 
-        typ.slots.write().unwrap().flags = base.slots.read().unwrap().flags;
+        typ.slots.write().flags = base.slots.read().flags;
         vm.ctx.add_tp_new_wrapper(&typ);
 
-        for (name, obj) in typ.attributes.read().unwrap().clone().iter() {
+        for (name, obj) in typ.attributes.read().clone().iter() {
             if let Some(meth) = vm.get_method(obj.clone(), "__set_name__") {
                 let set_name = meth?;
                 vm.invoke(
@@ -399,9 +392,9 @@ fn call_tp_new(
     let class_with_new_slot = typ
         .iter_mro()
         .cloned()
-        .find(|cls| cls.slots.read().unwrap().new.is_some())
+        .find(|cls| cls.slots.read().new.is_some())
         .expect("Should be able to find a new slot somewhere in the mro");
-    let slots = class_with_new_slot.slots.read().unwrap();
+    let slots = class_with_new_slot.slots.read();
     let new_slot = slots.new.as_ref().unwrap();
     new_slot(vm, args.insert(subtype.into_object()))
 }
@@ -429,7 +422,6 @@ impl PyClassRef {
 
         self.attributes
             .read()
-            .unwrap()
             .get(attr_name)
             .cloned()
             .or_else(|| self.get_super_attr(attr_name))
@@ -438,13 +430,13 @@ impl PyClassRef {
     pub fn get_super_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
         self.mro
             .iter()
-            .find_map(|class| class.attributes.read().unwrap().get(attr_name).cloned())
+            .find_map(|class| class.attributes.read().get(attr_name).cloned())
     }
 
     // This is the internal has_attr implementation for fast lookup on a class.
     pub fn has_attr(&self, attr_name: &str) -> bool {
         self.iter_mro()
-            .any(|c| c.attributes.read().unwrap().contains_key(attr_name))
+            .any(|c| c.attributes.read().contains_key(attr_name))
     }
 
     pub fn get_attributes(self) -> PyAttributes {
@@ -452,7 +444,7 @@ impl PyClassRef {
         let mut attributes = PyAttributes::new();
 
         for bc in self.iter_mro().rev() {
-            for (name, value) in bc.attributes.read().unwrap().clone().iter() {
+            for (name, value) in bc.attributes.read().clone().iter() {
                 attributes.insert(name.to_owned(), value.clone());
             }
         }
@@ -561,7 +553,6 @@ pub fn new(
     for base in &new_type.bases {
         base.subclasses
             .write()
-            .unwrap()
             .push(PyWeak::downgrade(new_type.as_object()));
     }
 
@@ -611,13 +602,7 @@ fn best_base<'a>(bases: &'a [PyClassRef], vm: &VirtualMachine) -> PyResult<PyCla
         //         return NULL;
         // }
 
-        if !base_i
-            .slots
-            .read()
-            .unwrap()
-            .flags
-            .has_feature(PyTpFlags::BASETYPE)
-        {
+        if !base_i.slots.read().flags.has_feature(PyTpFlags::BASETYPE) {
             return Err(vm.new_type_error(format!(
                 "type '{}' is not an acceptable base type",
                 base_i.name
