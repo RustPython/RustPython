@@ -1039,7 +1039,7 @@ impl<O: OutputStream> Compiler<O> {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     fn compile_class_def(
