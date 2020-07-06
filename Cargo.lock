@@ -1522,6 +1522,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustpython-common"
+version = "0.0.0"
+dependencies = [
+ "hexf-parse",
+ "lexical",
+ "num-bigint",
+ "num-traits",
+ "parking_lot",
+ "rand 0.7.3",
+]
+
+[[package]]
 name = "rustpython-compiler"
 version = "0.1.2"
 dependencies = [
@@ -1631,6 +1643,7 @@ dependencies = [
  "result-like",
  "rustc_version_runtime",
  "rustpython-bytecode",
+ "rustpython-common",
  "rustpython-compiler",
  "rustpython-derive",
  "rustpython-parser",

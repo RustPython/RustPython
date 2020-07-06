@@ -27,7 +27,6 @@ mod decl {
     use crate::obj::objsequence;
     use crate::obj::objstr::{PyString, PyStringRef};
     use crate::obj::objtype::{self, PyClassRef};
-    use crate::pyhash;
     use crate::pyobject::{
         Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef, PyResult, PyValue,
         TryFromObject, TypeProtocol,
@@ -37,6 +36,7 @@ mod decl {
     #[cfg(feature = "rustpython-parser")]
     use crate::stdlib::ast;
     use crate::vm::VirtualMachine;
+    use rustpython_common::hash::PyHash;
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -329,7 +329,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+    fn hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
         vm._hash(&obj)
     }
 

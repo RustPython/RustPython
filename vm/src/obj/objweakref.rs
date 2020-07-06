@@ -6,8 +6,8 @@ use crate::pyobject::{
 };
 use crate::slots::SlotCall;
 use crate::vm::VirtualMachine;
+use rustpython_common::hash::PyHash;
 
-use crate::pyhash::PyHash;
 use crossbeam_utils::atomic::AtomicCell;
 use std::sync::{Arc, Weak};
 

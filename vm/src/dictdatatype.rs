@@ -1,9 +1,9 @@
 use crate::obj::objstr::{PyString, PyStringRef};
-use crate::pyhash;
 use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use rustpython_common::hash;
 /// Ordered dictionary implementation.
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
@@ -13,9 +13,9 @@ use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 
 /// hash value of an object returned by __hash__
-type HashValue = pyhash::PyHash;
+type HashValue = hash::PyHash;
 /// index calculated by resolving collision
-type HashIndex = pyhash::PyHash;
+type HashIndex = hash::PyHash;
 /// entry index mapped in indices
 type EntryIndex = usize;
 
@@ -463,8 +463,8 @@ impl DictKey for &PyStringRef {
 impl DictKey for &str {
     fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStringRef
-        let raw_hash = pyhash::hash_value(&self.to_owned()).to_bigint().unwrap();
-        let raw_hash = pyhash::hash_bigint(&raw_hash);
+        let raw_hash = hash::hash_value(&self.to_owned()).to_bigint().unwrap();
+        let raw_hash = hash::hash_bigint(&raw_hash);
         let mut hasher = DefaultHasher::new();
         raw_hash.hash(&mut hasher);
         Ok(hasher.finish() as HashValue)

@@ -1,11 +1,7 @@
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-
-use crate::obj::objfloat;
-use crate::pyobject::PyObjectRef;
-use crate::pyobject::PyResult;
-use crate::vm::VirtualMachine;
 
 pub type PyHash = i64;
 pub type PyUHash = u64;
@@ -18,6 +14,12 @@ pub const MODULUS: PyUHash = (1 << BITS) - 1;
 pub const INF: PyHash = 314_159;
 pub const NAN: PyHash = 0;
 pub const IMAG: PyHash = MULTIPLIER;
+pub const ALGO: &str = "siphasher13";
+pub const HASH_BITS: usize = std::mem::size_of::<PyHash>() * 8;
+// internally DefaultHasher uses 2 u64s as the seed, but
+// that's not guaranteed to be consistent across Rust releases
+// TODO: use something like the siphasher crate as our hash algorithm
+pub const SEED_BITS: usize = std::mem::size_of::<PyHash>() * 2 * 8;
 
 // pub const CUTOFF: usize = 7;
 
@@ -35,7 +37,7 @@ pub fn hash_float(value: f64) -> PyHash {
         };
     }
 
-    let frexp = objfloat::ufrexp(value);
+    let frexp = super::float_ops::ufrexp(value);
 
     // process 28 bits at a time;  this should work well both for binary
     // and hexadecimal floating point.
@@ -67,30 +69,32 @@ pub fn hash_float(value: f64) -> PyHash {
 }
 
 pub fn hash_value<T: Hash>(data: &T) -> PyHash {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut hasher = DefaultHasher::new();
     data.hash(&mut hasher);
     hasher.finish() as PyHash
 }
 
-pub fn hash_iter<'a, I: std::iter::Iterator<Item = &'a PyObjectRef>>(
-    iter: I,
-    vm: &VirtualMachine,
-) -> PyResult<PyHash> {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+pub fn hash_iter<'a, T: 'a, I, F, E>(iter: I, hashf: F) -> Result<PyHash, E>
+where
+    I: IntoIterator<Item = &'a T>,
+    F: Fn(&'a T) -> Result<PyHash, E>,
+{
+    let mut hasher = DefaultHasher::new();
     for element in iter {
-        let item_hash = vm._hash(&element)?;
+        let item_hash = hashf(element)?;
         item_hash.hash(&mut hasher);
     }
     Ok(hasher.finish() as PyHash)
 }
 
-pub fn hash_iter_unordered<'a, I: std::iter::Iterator<Item = &'a PyObjectRef>>(
-    iter: I,
-    vm: &VirtualMachine,
-) -> PyResult<PyHash> {
+pub fn hash_iter_unordered<'a, T: 'a, I, F, E>(iter: I, hashf: F) -> Result<PyHash, E>
+where
+    I: IntoIterator<Item = &'a T>,
+    F: Fn(&'a T) -> Result<PyHash, E>,
+{
     let mut hash: PyHash = 0;
     for element in iter {
-        let item_hash = vm._hash(element)?;
+        let item_hash = hashf(element)?;
         // xor is commutative and hash should be independent of order
         hash ^= item_hash;
     }
@@ -102,32 +106,4 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
         Some(i64_value) => (i64_value % MODULUS as i64),
         None => (value % MODULUS).to_i64().unwrap(),
     }
-}
-
-#[pystruct_sequence(module = "sys", name = "hash_info")]
-#[derive(Debug)]
-pub(crate) struct PyHashInfo {
-    width: usize,
-    modulus: PyUHash,
-    inf: PyHash,
-    nan: PyHash,
-    imag: PyHash,
-    algorithm: &'static str,
-    hash_bits: usize,
-    seed_bits: usize,
-}
-impl PyHashInfo {
-    pub const INFO: Self = PyHashInfo {
-        width: BITS,
-        modulus: MODULUS,
-        inf: INF,
-        nan: NAN,
-        imag: IMAG,
-        algorithm: "siphash13",
-        hash_bits: std::mem::size_of::<PyHash>() * 8,
-        // internally hash_map::DefaultHasher uses 2 u64s as the seed, but
-        // that's not guaranteed to be consistent across Rust releases
-        // TODO: use something like the siphasher crate as our hash algorithm
-        seed_bits: std::mem::size_of::<PyHash>() * 2 * 8,
-    };
 }

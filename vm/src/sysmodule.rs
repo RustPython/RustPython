@@ -5,12 +5,12 @@ use crate::builtins;
 use crate::frame::FrameRef;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
-use crate::pyhash::PyHashInfo;
 use crate::pyobject::{
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::version;
 use crate::vm::{PySettings, VirtualMachine};
+use rustpython_common::hash::{PyHash, PyUHash};
 
 /*
  * The magic sys module.
@@ -254,6 +254,34 @@ const MULTIARCH: &str = env!("RUSTPYTHON_TARGET_TRIPLE");
 
 pub fn sysconfigdata_name() -> String {
     format!("_sysconfigdata_{}_{}_{}", ABIFLAGS, PLATFORM, MULTIARCH)
+}
+
+#[pystruct_sequence(module = "sys", name = "hash_info")]
+#[derive(Debug)]
+struct PyHashInfo {
+    width: usize,
+    modulus: PyUHash,
+    inf: PyHash,
+    nan: PyHash,
+    imag: PyHash,
+    algorithm: &'static str,
+    hash_bits: usize,
+    seed_bits: usize,
+}
+impl PyHashInfo {
+    pub const INFO: Self = {
+        use rustpython_common::hash::*;
+        PyHashInfo {
+            width: BITS,
+            modulus: MODULUS,
+            inf: INF,
+            nan: NAN,
+            imag: IMAG,
+            algorithm: ALGO,
+            hash_bits: HASH_BITS,
+            seed_bits: SEED_BITS,
+        }
+    };
 }
 
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {

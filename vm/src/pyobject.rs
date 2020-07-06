@@ -1452,6 +1452,20 @@ impl<T: TryFromObject> TryFromObject for PySequence<T> {
     }
 }
 
+pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
+    iter: I,
+    vm: &VirtualMachine,
+) -> PyResult<rustpython_common::hash::PyHash> {
+    rustpython_common::hash::hash_iter(iter, |obj| vm._hash(obj))
+}
+
+pub fn hash_iter_unordered<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
+    iter: I,
+    vm: &VirtualMachine,
+) -> PyResult<rustpython_common::hash::PyHash> {
+    rustpython_common::hash::hash_iter_unordered(iter, |obj| vm._hash(obj))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

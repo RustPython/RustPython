@@ -40,7 +40,6 @@ use crate::obj::objobject;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
-use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
     TryIntoRef, TypeProtocol,
@@ -1406,7 +1405,7 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<pyhash::PyHash> {
+    pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<rustpython_common::hash::PyHash> {
         let hash_obj = self.call_method(obj, "__hash__", vec![])?;
         if let Some(hash_value) = hash_obj.payload_if_subclass::<PyInt>(self) {
             Ok(hash_value.hash())

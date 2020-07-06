@@ -98,8 +98,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self) -> PyResult<String> {
-        Ok(format!("bytearray(b'{}')", self.borrow_value().repr()?))
+    fn repr(&self) -> String {
+        format!("bytearray(b'{}')", self.borrow_value().repr())
     }
 
     #[pymethod(name = "__len__")]

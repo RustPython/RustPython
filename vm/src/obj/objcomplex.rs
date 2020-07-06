@@ -8,11 +8,11 @@ use super::objint::{self, PyInt};
 use super::objstr::PyString;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
-use crate::pyhash;
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use rustpython_common::hash;
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///
@@ -267,10 +267,10 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self) -> pyhash::PyHash {
-        let re_hash = pyhash::hash_float(self.value.re);
-        let im_hash = pyhash::hash_float(self.value.im);
-        let ret = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(pyhash::IMAG);
+    fn hash(&self) -> hash::PyHash {
+        let re_hash = hash::hash_float(self.value.re);
+        let im_hash = hash::hash_float(self.value.im);
+        let ret = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(hash::IMAG);
         ret.0
     }
 

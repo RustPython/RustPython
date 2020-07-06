@@ -8,7 +8,7 @@ repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
 [workspace]
-members = [".", "derive", "vm", "wasm/lib", "parser", "compiler", "bytecode", "examples/freeze", "vm/pylib-crate"]
+members = [".", "derive", "vm", "wasm/lib", "parser", "compiler", "bytecode", "examples/freeze", "vm/pylib-crate", "common"]
 
 [[bench]]
 name = "bench"
