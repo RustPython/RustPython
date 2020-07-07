@@ -215,18 +215,6 @@ impl PyBaseObject {
     fn reduce(obj: PyObjectRef, proto: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult {
         common_reduce(obj, proto.unwrap_or(0), vm)
     }
-
-    #[pymethod(magic)]
-    fn reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
-        let cls = obj.class();
-        if let Some(reduce) = cls.get_attr("__reduce__") {
-            let object_reduce = vm.ctx.types.object_type.get_attr("__reduce__").unwrap();
-            if !reduce.is(&object_reduce) {
-                return vm.invoke(&reduce, vec![]);
-            }
-        }
-        common_reduce(obj, proto, vm)
-    }
 }
 
 pub(crate) fn setattr(
