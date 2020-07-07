@@ -456,6 +456,13 @@ impl ExecutingFrame<'_> {
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
+            bytecode::Instruction::SetupAnnotation => {
+                let locals = self.scope.get_locals();
+                if let Err(_e) = locals.get_item("__annotations__", vm) {
+                    locals.set_item("__annotations__", vm.ctx.new_dict().into_object(), vm)?;
+                }
+                Ok(None)
+            }
             bytecode::Instruction::SetupLoop { start, end } => {
                 self.push_block(BlockType::Loop {
                     start: *start,
