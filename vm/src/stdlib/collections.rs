@@ -248,6 +248,17 @@ mod _collections {
             Ok(repr)
         }
 
+        #[pymethod(magic)]
+        fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+            for element in self.borrow_deque().iter() {
+                if vm.identical_or_equal(element, &needle)? {
+                    return Ok(true);
+                }
+            }
+
+            Ok(false)
+        }
+
         #[inline]
         fn cmp<F>(
             &self,

@@ -66,8 +66,6 @@ class TestContains(unittest.TestCase):
 
         self.assertNotIn(Deviant1(), Deviant1.aList)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nonreflexive(self):
         # containment and equality tests involving elements that are
         # not necessarily equal to themselves
