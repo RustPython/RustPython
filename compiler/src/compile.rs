@@ -936,7 +936,7 @@ impl<O: OutputStream> Compiler<O> {
             num_annotations += 1;
         }
 
-        for arg in args.args.iter() {
+        let mut visit_arg_annotation = |arg: &ast::Parameter| -> CompileResult<()> {
             if let Some(annotation) = &arg.annotation {
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String {
@@ -946,6 +946,19 @@ impl<O: OutputStream> Compiler<O> {
                 self.compile_expression(&annotation)?;
                 num_annotations += 1;
             }
+            Ok(())
+        };
+
+        for arg in args.args.iter().chain(args.kwonlyargs.iter()) {
+            visit_arg_annotation(arg)?;
+        }
+
+        if let ast::Varargs::Named(arg) = &args.vararg {
+            visit_arg_annotation(arg)?;
+        }
+
+        if let ast::Varargs::Named(arg) = &args.kwarg {
+            visit_arg_annotation(arg)?;
         }
 
         if num_annotations > 0 {
