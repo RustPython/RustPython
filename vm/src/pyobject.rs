@@ -10,7 +10,6 @@ use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::{One, ToPrimitive, Zero};
-use parking_lot::Mutex;
 
 use crate::bytecode;
 use crate::dictdatatype::DictKey;
@@ -77,7 +76,7 @@ pub type PyAttributes = HashMap<String, PyObjectRef>;
 impl fmt::Display for PyObject<dyn PyObjectPayload> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(PyClass { ref name, .. }) = self.payload::<PyClass>() {
-            let type_name = self.class().name.clone();
+            let type_name = self.lease_class().name.clone();
             // We don't have access to a vm, so just assume that if its parent's name
             // is type, it's a type
             if type_name == "type" {
@@ -87,7 +86,7 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
             }
         }
 
-        write!(f, "'{}' object", self.class().name)
+        write!(f, "'{}' object", self.lease_class().name)
     }
 }
 
@@ -719,7 +718,7 @@ impl<T: PyValue> PyRef<T> {
         } else {
             Err(vm.new_runtime_error(format!(
                 "Unexpected payload for type {:?}",
-                obj.class().name
+                obj.lease_class().name
             )))
         }
     }
@@ -822,7 +821,7 @@ impl TryFromObject for PyCallable {
         if vm.is_callable(&obj) {
             Ok(PyCallable { obj })
         } else {
-            Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name)))
+            Err(vm.new_type_error(format!("'{}' object is not callable", obj.lease_class().name)))
         }
     }
 }
@@ -864,13 +863,53 @@ impl<T: PyObjectPayload> IdProtocol for PyRef<T> {
     }
 }
 
+impl<T: PyObjectPayload> IdProtocol for PyLease<T> {
+    fn get_id(&self) -> usize {
+        self.inner.get_id()
+    }
+}
+
+
+pub struct PyLease<T: PyObjectPayload> {
+    inner: arc_swap::Guard<'static, Arc<PyObject<T>>>
+}
+
+impl<T: PyObjectPayload + PyValue> PyLease<T> {
+    // Associated function on purpose, because of deref
+    #[allow(clippy::wrong_self_convention)]
+    pub fn into_pyref(zelf: Self) -> PyRef<T> {
+        PyRef::from_obj_unchecked(arc_swap::Guard::into_inner(zelf.inner) as PyObjectRef)
+    }
+}
+
+impl<T: PyObjectPayload + PyValue> Deref for PyLease<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner.payload
+    }
+}
+
+impl<T> fmt::Display for PyLease<T>
+    where
+        T: PyValue + fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.inner.payload, f)
+    }
+}
+
 pub trait TypeProtocol {
-    fn class(&self) -> PyClassRef;
+    fn lease_class(&self) -> PyLease<PyClass>;
+
+    fn class(&self) -> PyClassRef {
+        PyLease::into_pyref(self.lease_class())
+    }
 }
 
 impl TypeProtocol for PyObjectRef {
-    fn class(&self) -> PyClassRef {
-        (**self).class()
+    fn lease_class(&self) -> PyLease<PyClass> {
+        (**self).lease_class()
     }
 }
 
@@ -878,20 +917,22 @@ impl<T> TypeProtocol for PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    fn class(&self) -> PyClassRef {
-        self.typ.load_full().into_pyref()
+    fn lease_class(&self) -> PyLease<PyClass> {
+        PyLease {
+            inner: self.typ.load()
+        }
     }
 }
 
 impl<T> TypeProtocol for PyRef<T> {
-    fn class(&self) -> PyClassRef {
-        self.obj.class()
+    fn lease_class(&self) -> PyLease<PyClass> {
+        self.obj.lease_class()
     }
 }
 
 impl<T: TypeProtocol> TypeProtocol for &'_ T {
-    fn class(&self) -> PyClassRef {
-        (&**self).class()
+    fn lease_class(&self) -> PyLease<PyClass> {
+        (&**self).lease_class()
     }
 }
 
@@ -933,7 +974,7 @@ pub trait BufferProtocol {
 
 impl BufferProtocol for PyObjectRef {
     fn readonly(&self) -> bool {
-        match self.class().name.as_str() {
+        match self.lease_class().name.as_str() {
             "bytes" => false,
             "bytearray" | "memoryview" => true,
             _ => panic!("Bytes-Like type expected not {:?}", self),
@@ -1036,7 +1077,7 @@ where
             })
         } else {
             vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
-                format!("'{}' object is not iterable", obj.class().name)
+                format!("'{}' object is not iterable", obj.lease_class().name)
             })?;
             Self::try_from_object(
                 vm,
@@ -1310,7 +1351,7 @@ where
         A::try_from_object(vm, obj.clone())
             .map(Either::A)
             .or_else(|_| B::try_from_object(vm, obj.clone()).map(Either::B))
-            .map_err(|_| vm.new_type_error(format!("unexpected type {}", obj.class())))
+            .map_err(|_| vm.new_type_error(format!("unexpected type {}", obj.lease_class())))
     }
 }
 
@@ -1362,7 +1403,7 @@ impl TryFromObject for std::time::Duration {
             .map_err(|_| {
                 vm.new_type_error(format!(
                     "expected an int or float for duration, got {}",
-                    obj.class()
+                    obj.lease_class()
                 ))
             })
     }

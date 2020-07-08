@@ -26,10 +26,7 @@ use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
-use crate::pyobject::{
-    Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
-};
+use crate::pyobject::{Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
 use crate::readline::{Readline, ReadlineResult};
 use crate::scope::Scope;
 #[cfg(feature = "rustpython-parser")]
@@ -38,7 +35,7 @@ use crate::vm::VirtualMachine;
 
 fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let method = vm.get_method_or_type_error(x.clone(), "__abs__", || {
-        format!("bad operand type for abs(): '{}'", x.class().name)
+        format!("bad operand type for abs(): '{}'", x.lease_class().name)
     })?;
     vm.invoke(&method, PyFuncArgs::new(vec![], vec![]))
 }
@@ -286,7 +283,7 @@ fn builtin_format(
         .map_err(|obj| {
             vm.new_type_error(format!(
                 "__format__ must return a str, not {}",
-                obj.class().name
+                obj.lease_class().name
             ))
         })
 }
@@ -374,7 +371,7 @@ pub fn builtin_isinstance(
         |o| {
             format!(
                 "isinstance() arg 2 must be a type or tuple of types, not {}",
-                o.class()
+                o.lease_class()
             )
         },
         vm,
@@ -392,7 +389,7 @@ fn builtin_issubclass(
         |o| {
             format!(
                 "issubclass() arg 2 must be a class or tuple of classes, not {}",
-                o.class()
+                o.lease_class()
             )
         },
         vm,

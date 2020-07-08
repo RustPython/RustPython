@@ -470,8 +470,8 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "Unsupported operand types for '{}': '{}' and '{}'",
             op,
-            a.class().name,
-            b.class().name
+            a.lease_class().name,
+            b.lease_class().name
         ))
     }
 
@@ -642,7 +642,7 @@ impl VirtualMachine {
 
     // Container of the virtual machine state:
     pub fn to_str(&self, obj: &PyObjectRef) -> PyResult<PyStringRef> {
-        if obj.class().is(&self.ctx.types.str_type) {
+        if obj.lease_class().is(&self.ctx.types.str_type) {
             Ok(obj.clone().downcast().unwrap())
         } else {
             let s = self.call_method(&obj, "__str__", vec![])?;
