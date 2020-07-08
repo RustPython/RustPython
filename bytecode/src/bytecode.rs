@@ -205,6 +205,7 @@ pub enum Instruction {
     ReturnValue,
     YieldValue,
     YieldFrom,
+    SetupAnnotation,
     SetupLoop {
         start: Label,
         end: Label,
@@ -570,6 +571,7 @@ impl Instruction {
             ReturnValue => w!(ReturnValue),
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
+            SetupAnnotation => w!(SetupAnnotation),
             SetupLoop { start, end } => w!(SetupLoop, label_map[start], label_map[end]),
             SetupExcept { handler } => w!(SetupExcept, label_map[handler]),
             SetupFinally { handler } => w!(SetupFinally, label_map[handler]),

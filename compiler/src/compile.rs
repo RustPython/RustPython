@@ -984,6 +984,63 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
+    fn find_ann(&self, body: &[ast::Statement]) -> bool {
+        use ast::StatementType::*;
+        let option_stmt_to_bool = |suit: &Option<ast::Suite>| -> bool {
+            match suit {
+                Some(stmts) => self.find_ann(stmts),
+                None => false,
+            }
+        };
+
+        for statement in body {
+            let res = match &statement.node {
+                AnnAssign {
+                    target: _,
+                    annotation: _,
+                    value: _,
+                } => true,
+                For {
+                    is_async: _,
+                    target: _,
+                    iter: _,
+                    body,
+                    orelse,
+                } => self.find_ann(body) || option_stmt_to_bool(orelse),
+                If {
+                    test: _,
+                    body,
+                    orelse,
+                } => self.find_ann(body) || option_stmt_to_bool(orelse),
+                While {
+                    test: _,
+                    body,
+                    orelse,
+                } => self.find_ann(body) || option_stmt_to_bool(orelse),
+                With {
+                    is_async: _,
+                    items: _,
+                    body,
+                } => self.find_ann(body),
+                Try {
+                    body,
+                    handlers: _,
+                    orelse,
+                    finalbody,
+                } => {
+                    self.find_ann(&body)
+                        || option_stmt_to_bool(orelse)
+                        || option_stmt_to_bool(finalbody)
+                }
+                _ => false,
+            };
+            if res {
+                return true;
+            }
+        }
+        false
+    }
+
     fn compile_class_def(
         &mut self,
         name: &str,
@@ -1037,6 +1094,10 @@ impl<O: OutputStream> Compiler<O> {
             name: "__qualname__".to_owned(),
             scope: bytecode::NameScope::Free,
         });
+        // setup annotations
+        if self.find_ann(body) {
+            self.emit(Instruction::SetupAnnotation);
+        }
         self.compile_statements(new_body)?;
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::None,
