@@ -458,7 +458,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
             bytecode::Instruction::SetupAnnotation => {
                 let locals = self.scope.get_locals();
-                if !locals.contains_key("__annotations__") {
+                if !locals.contains_key("__annotations__", vm) {
                     locals.set_item("__annotations__", vm.ctx.new_dict().into_object(), vm)?;
                 }
                 Ok(None)
