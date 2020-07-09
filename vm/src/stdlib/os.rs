@@ -1867,6 +1867,60 @@ fn os_strerror(e: i32) -> String {
         .into_owned()
 }
 
+#[pystruct_sequence(name = "os.terminal_size")]
+#[allow(dead_code)]
+struct PyTerminalSize {
+    columns: usize,
+    lines: usize,
+}
+
+fn os_get_terminal_size(fd: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    let (columns, lines) = {
+        #[cfg(unix)]
+        {
+            nix::ioctl_read_bad!(winsz, libc::TIOCGWINSZ, libc::winsize);
+            let mut w = libc::winsize {
+                ws_row: 0,
+                ws_col: 0,
+                ws_xpixel: 0,
+                ws_ypixel: 0,
+            };
+            unsafe { winsz(fd.unwrap_or(libc::STDOUT_FILENO), &mut w) }
+                .map_err(|e| convert_nix_error(vm, e))?;
+            (w.ws_col.into(), w.ws_row.into())
+        }
+        #[cfg(windows)]
+        {
+            use winapi::um::{handleapi, processenv, winbase, wincon};
+            let stdhandle = match fd {
+                OptionalArg::Present(0) => winbase::STD_INPUT_HANDLE,
+                OptionalArg::Present(1) | OptionalArg::Missing => winbase::STD_OUTPUT_HANDLE,
+                OptionalArg::Present(2) => winbase::STD_ERROR_HANDLE,
+                _ => return Err(vm.new_value_error("bad file descriptor".to_owned())),
+            };
+            let h = unsafe { processenv::GetStdHandle(stdhandle) };
+            if h.is_null() {
+                return Err(vm.new_os_error("handle cannot be retrieved".to_owned()));
+            }
+            if h == handleapi::INVALID_HANDLE_VALUE {
+                return Err(errno_err(vm));
+            }
+            let mut csbi = wincon::CONSOLE_SCREEN_BUFFER_INFO::default();
+            let ret = unsafe { wincon::GetConsoleScreenBufferInfo(h, &mut csbi) };
+            if ret == 0 {
+                return Err(errno_err(vm));
+            }
+            let w = csbi.srWindow;
+            (
+                (w.Right - w.Left + 1) as usize,
+                (w.Bottom - w.Top + 1) as usize,
+            )
+        }
+    };
+    PyTerminalSize { columns, lines }
+        .into_struct_sequence(vm, vm.try_class(MODULE_NAME, "terminal_size")?)
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -1885,6 +1939,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     let stat_result = StatResult::make_class(ctx);
+    let terminal_size = PyTerminalSize::make_class(ctx);
 
     struct SupportFunc<'a> {
         name: &'a str,
@@ -1964,6 +2019,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "ScandirIter" => scandir_iter,
         "DirEntry" => dir_entry,
         "stat_result" => stat_result,
+        "terminal_size" => terminal_size,
         "lstat" => ctx.new_function(os_lstat),
         "getcwd" => ctx.new_function(os_getcwd),
         "chdir" => ctx.new_function(os_chdir),
@@ -1978,6 +2034,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "link" => ctx.new_function(os_link),
         "kill" => ctx.new_function(os_kill),
         "strerror" => ctx.new_function(os_strerror),
+        "get_terminal_size" => ctx.new_function(os_get_terminal_size),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
