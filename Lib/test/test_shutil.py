@@ -2293,6 +2293,7 @@ class _ZeroCopyFileTest(object):
         # Make sure src file is not corrupted.
         self.assertEqual(read_file(TESTFN, binary=True), self.FILEDATA)
 
+    @unittest.skip("TODO: RUSTPYTHON, OSError.filename")
     def test_non_existent_src(self):
         name = tempfile.mktemp()
         with self.assertRaises(FileNotFoundError) as cm:

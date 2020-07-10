@@ -1977,6 +1977,29 @@ fn os_get_terminal_size(fd: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<P
         .into_struct_sequence(vm, vm.try_class(MODULE_NAME, "terminal_size")?)
 }
 
+// from libstd:
+// https://github.com/rust-lang/rust/blob/daecab3a784f28082df90cebb204998051f3557d/src/libstd/sys/unix/fs.rs#L1251
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn fcopyfile(
+        in_fd: libc::c_int,
+        out_fd: libc::c_int,
+        state: *mut libc::c_void, // copyfile_state_t (unused)
+        flags: u32,               // copyfile_flags_t
+    ) -> libc::c_int;
+}
+#[cfg(target_os = "macos")]
+const COPYFILE_DATA: u32 = 1 << 3;
+#[cfg(target_os = "macos")]
+fn os_fcopyfile(in_fd: i32, out_fd: i32, flags: i32, vm: &VirtualMachine) -> PyResult<()> {
+    let ret = unsafe { fcopyfile(in_fd, out_fd, std::ptr::null_mut(), flags as u32) };
+    if ret < 0 {
+        Err(errno_err(vm))
+    } else {
+        Ok(())
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -2263,6 +2286,12 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "POSIX_SPAWN_OPEN" => ctx.new_int(i32::from(PosixSpawnFileActionIdentifier::Open)),
         "POSIX_SPAWN_CLOSE" => ctx.new_int(i32::from(PosixSpawnFileActionIdentifier::Close)),
         "POSIX_SPAWN_DUP2" => ctx.new_int(i32::from(PosixSpawnFileActionIdentifier::Dup2)),
+    });
+
+    #[cfg(target_os = "macos")]
+    extend_module!(vm, module, {
+        "_COPYFILE_DATA" => ctx.new_int(COPYFILE_DATA),
+        "_fcopyfile" => ctx.new_function(os_fcopyfile),
     });
 }
 
