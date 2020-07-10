@@ -7,6 +7,7 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
@@ -119,75 +120,95 @@ enum OutputMode {
     Bytes,
 }
 
-fn output_by_mode(val: String, mode: OutputMode, vm: &VirtualMachine) -> PyObjectRef {
-    match mode {
-        OutputMode::String => vm.ctx.new_str(val),
-        OutputMode::Bytes => vm.ctx.new_bytes(val.into_bytes()),
+impl OutputMode {
+    fn process_path(self, path: impl Into<PathBuf>, vm: &VirtualMachine) -> PyResult {
+        fn inner(mode: OutputMode, path: PathBuf, vm: &VirtualMachine) -> PyResult {
+            let path_as_string = |p: PathBuf| {
+                p.into_os_string().into_string().map_err(|_| {
+                    vm.new_unicode_decode_error(
+                        "Can't convert OS path to valid UTF-8 string".into(),
+                    )
+                })
+            };
+            match mode {
+                OutputMode::String => path_as_string(path).map(|s| vm.new_str(s)),
+                OutputMode::Bytes => {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::ffi::OsStringExt;
+                        Ok(vm.ctx.new_bytes(path.into_os_string().into_vec()))
+                    }
+                    #[cfg(windows)]
+                    {
+                        path_as_string(path).map(|s| vm.ctx.new_bytes(s.into_bytes()))
+                    }
+                }
+            }
+        }
+        inner(self, path.into(), vm)
     }
 }
 
 pub struct PyPathLike {
-    pub path: ffi::OsString,
+    pub path: PathBuf,
     mode: OutputMode,
 }
 
 impl PyPathLike {
     pub fn new_str(path: String) -> Self {
         PyPathLike {
-            path: ffi::OsString::from(path),
+            path: PathBuf::from(path),
             mode: OutputMode::String,
         }
     }
     #[cfg(windows)]
     pub fn wide(&self) -> Vec<u16> {
         use std::os::windows::ffi::OsStrExt;
-        self.path.encode_wide().chain(std::iter::once(0)).collect()
+        self.path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+    #[cfg(unix)]
+    pub fn into_bytes(self) -> Vec<u8> {
+        use std::os::unix::ffi::OsStringExt;
+        self.path.into_os_string().into_vec()
     }
 }
 
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match_class!(match obj.clone() {
-            l @ PyString => {
-                Ok(PyPathLike {
-                    path: ffi::OsString::from(l.as_str()),
+        let match1 = |obj: &PyObjectRef| {
+            let pathlike = match_class!(match obj {
+                ref l @ PyString => PyPathLike {
+                    path: l.as_str().into(),
                     mode: OutputMode::String,
-                })
-            }
-            i @ PyBytes => {
-                Ok(PyPathLike {
-                    path: bytes_as_osstr(&i, vm)?.to_os_string(),
+                },
+                ref i @ PyBytes => PyPathLike {
+                    path: bytes_as_osstr(&i, vm)?.to_os_string().into(),
                     mode: OutputMode::Bytes,
-                })
-            }
-            obj => {
-                let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
-                    format!(
-                        "expected str, bytes or os.PathLike object, not '{}'",
-                        obj.class().name
-                    )
-                })?;
-                let result = vm.invoke(&method, PyFuncArgs::default())?;
-                match_class!(match result.clone() {
-                    l @ PyString => {
-                        Ok(PyPathLike {
-                            path: ffi::OsString::from(l.as_str()),
-                            mode: OutputMode::String,
-                        })
-                    }
-                    i @ PyBytes => {
-                        Ok(PyPathLike {
-                            path: bytes_as_osstr(&i, vm)?.to_os_string(),
-                            mode: OutputMode::Bytes,
-                        })
-                    }
-                    _ => Err(vm.new_type_error(format!(
-                        "expected {}.__fspath__() to return str or bytes, not '{}'",
-                        obj.class().name,
-                        result.class().name
-                    ))),
-                })
-            }
+                },
+                _ => return Ok(None),
+            });
+            Ok(Some(pathlike))
+        };
+        if let Some(pathlike) = match1(&obj)? {
+            return Ok(pathlike);
+        }
+        let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
+            format!(
+                "expected str, bytes or os.PathLike object, not '{}'",
+                obj.class().name
+            )
+        })?;
+        let result = vm.invoke(&method, PyFuncArgs::default())?;
+        match1(&result)?.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "expected {}.__fspath__() to return str or bytes, not '{}'",
+                obj.class().name,
+                result.class().name,
+            ))
         })
     }
 }
@@ -529,11 +550,7 @@ fn os_listdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
     let res: PyResult<Vec<PyObjectRef>> = fs::read_dir(&path.path)
         .map_err(|err| convert_io_error(vm, err))?
         .map(|entry| match entry {
-            Ok(entry_path) => Ok(output_by_mode(
-                entry_path.file_name().into_string().unwrap(),
-                path.mode,
-                vm,
-            )),
+            Ok(entry_path) => path.mode.process_path(entry_path.file_name(), vm),
             Err(s) => Err(convert_io_error(vm, s)),
         })
         .collect();
@@ -541,19 +558,18 @@ fn os_listdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
 }
 
 fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsStr> {
-    let os_str = {
-        #[cfg(unix)]
-        {
-            use std::os::unix::ffi::OsStrExt;
-            Some(ffi::OsStr::from_bytes(b))
-        }
-        #[cfg(not(unix))]
-        {
-            std::str::from_utf8(b).ok().map(|s| s.as_ref())
-        }
-    };
-    os_str
-        .ok_or_else(|| vm.new_value_error("Can't convert bytes to str for env function".to_owned()))
+    #[cfg(unix)]
+    {
+        let _ = vm;
+        use std::os::unix::ffi::OsStrExt;
+        Ok(ffi::OsStr::from_bytes(b))
+    }
+    #[cfg(not(unix))]
+    {
+        std::str::from_utf8(b).map(|s| s.as_ref()).map_err(|_| {
+            vm.new_value_error("Can't convert bytes to str for env function".to_owned())
+        })
+    }
 }
 
 fn os_putenv(
@@ -609,12 +625,10 @@ fn _os_environ(vm: &VirtualMachine) -> PyDictRef {
 }
 
 fn os_readlink(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
+    let mode = path.mode;
     let path = make_path(vm, &path, &dir_fd);
     let path = fs::read_link(path).map_err(|err| convert_io_error(vm, err))?;
-    let path = path.into_os_string().into_string().map_err(|_osstr| {
-        vm.new_unicode_decode_error("Can't convert OS path to valid UTF-8 string".into())
-    })?;
-    Ok(vm.ctx.new_str(path))
+    mode.process_path(path, vm)
 }
 
 #[derive(Debug)]
@@ -644,14 +658,12 @@ struct FollowSymlinks {
 }
 
 impl DirEntryRef {
-    fn name(self, vm: &VirtualMachine) -> PyObjectRef {
-        let file_name = self.entry.file_name().into_string().unwrap();
-        output_by_mode(file_name, self.mode, vm)
+    fn name(self, vm: &VirtualMachine) -> PyResult {
+        self.mode.process_path(self.entry.file_name(), vm)
     }
 
-    fn path(self, vm: &VirtualMachine) -> PyObjectRef {
-        let path = self.entry.path().to_str().unwrap().to_owned();
-        output_by_mode(path, self.mode, vm)
+    fn path(self, vm: &VirtualMachine) -> PyResult {
+        self.mode.process_path(self.entry.path(), vm)
     }
 
     #[allow(clippy::match_bool)]
@@ -696,7 +708,7 @@ impl DirEntryRef {
     fn stat(self, dir_fd: DirFd, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
         os_stat(
             Either::A(PyPathLike {
-                path: self.entry.path().into_os_string(),
+                path: self.entry.path(),
                 mode: OutputMode::String,
             }),
             dir_fd,
@@ -1174,8 +1186,8 @@ fn os_chmod(
     Ok(())
 }
 
-fn os_fspath(path: PyPathLike, vm: &VirtualMachine) -> PyObjectRef {
-    output_by_mode(path.path.to_str().unwrap().to_owned(), path.mode, vm)
+fn os_fspath(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
+    path.mode.process_path(path.path, vm)
 }
 
 fn os_rename(src: PyPathLike, dst: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
@@ -1643,11 +1655,10 @@ fn os_setgroups(group_ids: PyIterable<u32>, vm: &VirtualMachine) -> PyResult<()>
 
 #[cfg(unix)]
 fn envp_from_dict(dict: PyDictRef, vm: &VirtualMachine) -> PyResult<Vec<ffi::CString>> {
-    use std::os::unix::ffi::OsStringExt;
     dict.into_iter()
         .map(|(k, v)| {
-            let k = PyPathLike::try_from_object(vm, k)?.path.into_vec();
-            let v = PyPathLike::try_from_object(vm, v)?.path.into_vec();
+            let k = PyPathLike::try_from_object(vm, k)?.into_bytes();
+            let v = PyPathLike::try_from_object(vm, v)?.into_bytes();
             if k.contains(&0) {
                 return Err(
                     vm.new_value_error("envp dict key cannot contain a nul byte".to_owned())
@@ -1698,8 +1709,7 @@ enum PosixSpawnFileActionIdentifier {
 #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
 impl PosixSpawnArgs {
     fn spawn(self, spawnp: bool, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
-        use std::os::unix::ffi::OsStringExt;
-        let path = ffi::CString::new(self.path.path.into_vec())
+        let path = ffi::CString::new(self.path.into_bytes())
             .map_err(|_| vm.new_value_error("path should not have nul bytes".to_owned()))?;
 
         let mut file_actions = unsafe {
@@ -1722,7 +1732,7 @@ impl PosixSpawnArgs {
                 let ret = match id {
                     PosixSpawnFileActionIdentifier::Open => {
                         let (fd, path, oflag, mode): (_, PyPathLike, _, _) = args.bind(vm)?;
-                        let path = ffi::CString::new(path.path.into_vec()).map_err(|_| {
+                        let path = ffi::CString::new(path.into_bytes()).map_err(|_| {
                             vm.new_value_error(
                                 "POSIX_SPAWN_OPEN path should not have nul bytes".to_owned(),
                             )
@@ -1776,7 +1786,7 @@ impl PosixSpawnArgs {
             .args
             .iter(vm)?
             .map(|res| {
-                ffi::CString::new(res?.path.into_vec())
+                ffi::CString::new(res?.into_bytes())
                     .map_err(|_| vm.new_value_error("path should not have nul bytes".to_owned()))
             })
             .collect::<Result<_, _>>()?;
