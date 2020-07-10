@@ -101,10 +101,10 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        let cls = obj.class();
+        let cls = obj.lease_class();
 
         if let Some(attr) = cls.get_attr(attr_name.as_str()) {
-            if let Some(descriptor) = attr.class().get_attr("__delete__") {
+            if let Some(descriptor) = attr.lease_class().get_attr("__delete__") {
                 return vm.invoke(&descriptor, vec![attr, obj.clone()]).map(|_| ());
             }
         }
@@ -237,7 +237,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
-        let cls = obj.class();
+        let cls = obj.lease_class();
         if let Some(reduce) = cls.get_attr("__reduce__") {
             let object_reduce = vm.ctx.types.object_type.get_attr("__reduce__").unwrap();
             if !reduce.is(&object_reduce) {
@@ -255,10 +255,10 @@ pub(crate) fn setattr(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
-    let cls = obj.class();
+    let cls = obj.lease_class();
 
     if let Some(attr) = cls.get_attr(attr_name.as_str()) {
-        if let Some(descriptor) = attr.class().get_attr("__set__") {
+        if let Some(descriptor) = attr.lease_class().get_attr("__set__") {
             return vm
                 .invoke(&descriptor, vec![attr, obj.clone(), value])
                 .map(|_| ());

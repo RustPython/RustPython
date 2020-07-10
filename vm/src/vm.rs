@@ -672,7 +672,7 @@ impl VirtualMachine {
             if let Ok(val) = TryFromObject::try_from_object(self, obj.clone()) {
                 Ok(val)
             } else {
-                let cls = obj.class();
+                let cls = obj.lease_class();
                 if cls.has_attr("__index__") {
                     self.call_method(obj, "__index__", vec![]).and_then(|r| {
                         if let Ok(val) = TryFromObject::try_from_object(self, r) {
@@ -769,7 +769,7 @@ impl VirtualMachine {
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
     ) -> Option<PyResult> {
-        let descr_class = descr.class();
+        let descr_class = descr.lease_class();
         let slots = descr_class.slots.read();
         if let Some(descr_get) = slots.descr_get.as_ref() {
             Some(descr_get(self, descr, obj, OptionalArg::from_option(cls)))
@@ -803,7 +803,7 @@ impl VirtualMachine {
         flame_guard!(format!("call_method({:?})", method_name));
 
         // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
-        let cls = obj.class();
+        let cls = obj.lease_class();
         match cls.get_attr(method_name) {
             Some(func) => {
                 vm_trace!(
@@ -828,7 +828,7 @@ impl VirtualMachine {
             let result = slot_call(self, args);
             self.trace_event(TraceEvent::Return)?;
             result
-        } else if callable.class().has_attr("__call__") {
+        } else if callable.lease_class().has_attr("__call__") {
             self.call_method(&callable, "__call__", args)
         } else {
             Err(self.new_type_error(format!(
@@ -940,7 +940,7 @@ impl VirtualMachine {
     where
         F: FnOnce() -> String,
     {
-        let cls = obj.class();
+        let cls = obj.lease_class();
         match cls.get_attr(method_name) {
             Some(method) => self.call_if_get_descriptor(method, obj.clone()),
             None => Err(self.new_type_error(err_msg())),
@@ -949,7 +949,7 @@ impl VirtualMachine {
 
     /// May return exception, if `__get__` descriptor raises one
     pub fn get_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
-        let cls = obj.class();
+        let cls = obj.lease_class();
         let method = cls.get_attr(method_name)?;
         Some(self.call_if_get_descriptor(method, obj.clone()))
     }
@@ -1016,10 +1016,10 @@ impl VirtualMachine {
         dict: Option<PyDictRef>,
     ) -> PyResult<Option<PyObjectRef>> {
         let name = name_str.as_str();
-        let cls = obj.class();
+        let cls = obj.lease_class();
 
         if let Some(attr) = cls.get_attr(&name) {
-            let attr_class = attr.class();
+            let attr_class = attr.lease_class();
             if attr_class.has_attr("__set__") {
                 if let Some(r) = self.call_get_descriptor(attr, obj.clone()) {
                     return r.map(Some);
@@ -1048,7 +1048,9 @@ impl VirtualMachine {
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
-        obj.class().slots.read().call.is_some() || obj.class().has_attr("__call__")
+        let class = obj.lease_class();
+        let lock = class.slots.read();
+        lock.call.is_some() || class.has_attr("__call__")
     }
 
     #[inline]

@@ -128,22 +128,22 @@ impl PyClassRef {
     fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let name = name_ref.as_str();
         vm_trace!("type.__getattribute__({:?}, {:?})", self, name);
-        let mcl = self.class();
+        let mcl = self.lease_class();
 
         if let Some(attr) = mcl.get_attr(&name) {
-            let attr_class = attr.class();
+            let attr_class = attr.lease_class();
             if attr_class.has_attr("__set__") {
                 if let Some(ref descriptor) = attr_class.get_attr("__get__") {
                     return vm.invoke(
                         descriptor,
-                        vec![attr, self.into_object(), mcl.into_object()],
+                        vec![attr, self.into_object(), PyLease::into_pyref(mcl).into_object()],
                     );
                 }
             }
         }
 
         if let Some(attr) = self.get_attr(&name) {
-            let attr_class = attr.class();
+            let attr_class = attr.lease_class();
             let slots = attr_class.slots.read();
             if let Some(ref descr_get) = slots.descr_get {
                 return descr_get(vm, attr, None, OptionalArg::Present(self.into_object()));
@@ -158,7 +158,7 @@ impl PyClassRef {
         } else if let Some(attr) = mcl.get_attr(&name) {
             vm.call_if_get_descriptor(attr, self.into_object())
         } else if let Some(ref getter) = self.get_attr("__getattr__") {
-            vm.invoke(getter, vec![mcl.into_object(), name_ref.into_object()])
+            vm.invoke(getter, vec![PyLease::into_pyref(mcl).into_object(), name_ref.into_object()])
         } else {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
         }
@@ -171,8 +171,8 @@ impl PyClassRef {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(attr) = self.class().get_attr(attr_name.as_str()) {
-            if let Some(ref descriptor) = attr.class().get_attr("__set__") {
+        if let Some(attr) = self.lease_class().get_attr(attr_name.as_str()) {
+            if let Some(ref descriptor) = attr.lease_class().get_attr("__set__") {
                 vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
                 return Ok(());
             }
@@ -184,8 +184,8 @@ impl PyClassRef {
 
     #[pymethod(magic)]
     fn delattr(self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(attr) = self.class().get_attr(attr_name.as_str()) {
-            if let Some(ref descriptor) = attr.class().get_attr("__delete__") {
+        if let Some(attr) = self.lease_class().get_attr(attr_name.as_str()) {
+            if let Some(ref descriptor) = attr.lease_class().get_attr("__delete__") {
                 return vm
                     .invoke(descriptor, vec![attr, self.into_object()])
                     .map(|_| ());
@@ -438,7 +438,7 @@ pub fn tp_new_wrapper(
     call_tp_new(zelf, cls, args, vm)
 }
 
-impl PyClassRef {
+impl PyClass {
     /// This is the internal get_attr implementation for fast lookup on a class.
     pub fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
         flame_guard!(format!("class_get_attr({:?})", attr_name));
@@ -458,10 +458,11 @@ impl PyClassRef {
 
     // This is the internal has_attr implementation for fast lookup on a class.
     pub fn has_attr(&self, attr_name: &str) -> bool {
-        self.iter_mro()
-            .any(|c| c.attributes.read().contains_key(attr_name))
+        self.attributes.read().contains_key(attr_name) || self.mro.iter().any(|c| c.attributes.read().contains_key(attr_name))
     }
+}
 
+impl PyClassRef {
     pub fn get_attributes(self) -> PyAttributes {
         // Gather all members here:
         let mut attributes = PyAttributes::new();

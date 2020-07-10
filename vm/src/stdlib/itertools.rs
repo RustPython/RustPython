@@ -794,7 +794,7 @@ mod decl {
         ) -> PyResult<PyRef<PyTuple>> {
             let n = n.unwrap_or(2);
 
-            let copyable = if iterable.class().has_attr("__copy__") {
+            let copyable = if iterable.lease_class().has_attr("__copy__") {
                 vm.call_method(&iterable, "__copy__", PyFuncArgs::from(vec![]))?
             } else {
                 PyItertoolsTee::from_iter(iterable, vm)?
