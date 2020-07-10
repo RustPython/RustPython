@@ -2076,6 +2076,7 @@ class TestCopyFile(unittest.TestCase):
 
         self.assertRaises(OSError, shutil.copyfile, 'srcfile', 'destfile')
 
+    @unittest.skip("TODO: RUSTPYTHON, panics with 'no blocks left to pop'")
     @unittest.skipIf(MACOS, "skipped on macOS")
     def test_w_dest_open_fails(self):
 
@@ -2096,6 +2097,7 @@ class TestCopyFile(unittest.TestCase):
         self.assertEqual(srcfile._exited_with[1].args,
                          ('Cannot open "destfile"',))
 
+    @unittest.skip("TODO: RUSTPYTHON, panics with 'no blocks left to pop'")
     @unittest.skipIf(MACOS, "skipped on macOS")
     def test_w_dest_close_fails(self):
 

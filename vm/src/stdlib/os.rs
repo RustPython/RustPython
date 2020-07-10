@@ -1476,6 +1476,20 @@ fn os_link(src: PyPathLike, dst: PyPathLike, vm: &VirtualMachine) -> PyResult<()
     fs::hard_link(src.path, dst.path).map_err(|err| convert_io_error(vm, err))
 }
 
+#[derive(FromArgs)]
+struct UtimeArgs {
+    #[pyarg(positional_or_keyword)]
+    path: PyPathLike,
+    #[pyarg(positional_or_keyword, default = "None")]
+    times: Option<PyTupleRef>,
+    #[pyarg(keyword_only, default = "None")]
+    ns: Option<PyTupleRef>,
+    #[pyarg(flatten)]
+    dir_fd: DirFd,
+    #[pyarg(flatten)]
+    follow_symlinks: FollowSymlinks,
+}
+
 fn os_utime(
     _path: PyPathLike,
     _time: OptionalArg<PyTupleRef>,

@@ -12,6 +12,7 @@ enum ParameterKind {
     PositionalOnly,
     PositionalOrKeyword,
     KeywordOnly,
+    Flatten,
 }
 
 impl ParameterKind {
@@ -20,6 +21,7 @@ impl ParameterKind {
             "positional_only" => Some(ParameterKind::PositionalOnly),
             "positional_or_keyword" => Some(ParameterKind::PositionalOrKeyword),
             "keyword_only" => Some(ParameterKind::KeywordOnly),
+            "flatten" => Some(ParameterKind::Flatten),
             _ => None,
         }
     }
@@ -52,7 +54,7 @@ impl ArgAttribute {
                     err_span!(
                         first_arg,
                         "The first argument to #[pyarg()] must be the parameter type, either \
-                         'positional_only', 'positional_or_keyword', or 'keyword_only'."
+                         'positional_only', 'positional_or_keyword', 'keyword_only', or 'flatten'."
                     )
                 })?;
 
@@ -78,6 +80,9 @@ impl ArgAttribute {
     }
 
     fn parse_argument(&mut self, arg: &NestedMeta) -> Result<(), Diagnostic> {
+        if let ParameterKind::Flatten = self.kind {
+            bail_span!(arg, "can't put additional arguments on a flatten arg")
+        }
         match arg {
             NestedMeta::Meta(Meta::Path(path)) => {
                 if path_eq(&path, "default") {
@@ -154,6 +159,11 @@ fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
             });
         }
     }
+    if let ParameterKind::Flatten = attr.kind {
+        return Ok(quote! {
+            #name: ::rustpython_vm::function::FromArgs::from_args(vm, args)?,
+        });
+    }
     let middle = quote! {
         .map(|x| ::rustpython_vm::pyobject::TryFromObject::try_from_object(vm, x)).transpose()?
     };
@@ -174,6 +184,7 @@ fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
             ParameterKind::KeywordOnly => quote! {
                 ::rustpython_vm::function::ArgumentError::RequiredKeywordArgument(tringify!(#name))
             },
+            ParameterKind::Flatten => unreachable!(),
         };
         quote! {
             .ok_or_else(|| #err)?
@@ -196,6 +207,7 @@ fn generate_field(field: &Field) -> Result<TokenStream2, Diagnostic> {
                 #name: args.take_keyword(stringify!(#name))#middle#ending,
             }
         }
+        ParameterKind::Flatten => unreachable!(),
     };
     Ok(file_output)
 }
