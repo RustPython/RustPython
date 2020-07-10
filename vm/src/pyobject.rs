@@ -738,10 +738,6 @@ impl<T: PyValue> PyRef<T> {
         self.obj
     }
 
-    pub fn typ(&self) -> PyClassRef {
-        self.obj.class()
-    }
-
     pub fn into_typed_pyobj(self) -> Arc<PyObject<T>> {
         self.into_object().downcast_generic().unwrap()
     }

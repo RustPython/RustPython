@@ -8,10 +8,7 @@ use super::objtype::{self, PyClassRef};
 use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
-use crate::pyobject::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-};
+use crate::pyobject::{IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use std::mem::size_of;
@@ -442,7 +439,7 @@ impl PyDictRef {
         // and prevent the creation of the KeyError exception.
         // Also note, that we prevent the creation of a full PyString object
         // if we lookup local names (which happens all of the time).
-        if self.typ().is(&vm.ctx.dict_type()) {
+        if self.lease_class().is(&vm.ctx.dict_type()) {
             // We can take the short path here!
             match self.inner_getitem_option(key, vm) {
                 Err(exc) => {
@@ -482,7 +479,7 @@ impl ItemProtocol for PyDictRef {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        if self.typ().is(&vm.ctx.dict_type()) {
+        if self.lease_class().is(&vm.ctx.dict_type()) {
             self.inner_setitem_fast(key, value, vm)
                 .map(|_| vm.ctx.none())
         } else {
