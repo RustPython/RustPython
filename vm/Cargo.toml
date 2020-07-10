@@ -108,6 +108,7 @@ rustyline = "6.0"
 openssl = { version = "0.10", features = ["vendored"], optional = true }
 openssl-sys = { version = "0.9", optional = true }
 openssl-probe = { version = "0.1", optional = true }
+utime = "0.3"
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1"

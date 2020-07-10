@@ -18,6 +18,7 @@ use nix::errno::Errno;
 use nix::pty::openpty;
 #[cfg(unix)]
 use nix::unistd::{self, Gid, Pid, Uid};
+use num_traits::ToPrimitive;
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
 #[cfg(windows)]
@@ -29,7 +30,7 @@ use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objint::PyIntRef;
+use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
 use crate::obj::objstr::{PyString, PyStringRef};
@@ -1018,13 +1019,13 @@ fn os_getcwd(vm: &VirtualMachine) -> PyResult<String> {
         .to_owned())
 }
 
-fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    env::set_current_dir(path.as_str()).map_err(|err| convert_io_error(vm, err))
+fn os_chdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
+    env::set_current_dir(&path.path).map_err(|err| convert_io_error(vm, err))
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
-fn os_chroot(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    nix::unistd::chroot(path.as_str()).map_err(|err| convert_nix_error(vm, err))
+fn os_chroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
+    nix::unistd::chroot(&*path.path).map_err(|err| convert_nix_error(vm, err))
 }
 
 #[cfg(unix)]
@@ -1485,17 +1486,48 @@ struct UtimeArgs {
     #[pyarg(keyword_only, default = "None")]
     ns: Option<PyTupleRef>,
     #[pyarg(flatten)]
-    dir_fd: DirFd,
+    _dir_fd: DirFd,
     #[pyarg(flatten)]
-    follow_symlinks: FollowSymlinks,
+    _follow_symlinks: FollowSymlinks,
 }
 
-fn os_utime(
-    _path: PyPathLike,
-    _time: OptionalArg<PyTupleRef>,
-    _vm: &VirtualMachine,
-) -> PyResult<()> {
-    unimplemented!("utime")
+fn os_utime(args: UtimeArgs, vm: &VirtualMachine) -> PyResult<()> {
+    let parse_tup = |tup: PyTupleRef| -> Option<(i64, i64)> {
+        let tup = tup.as_slice();
+        if tup.len() != 2 {
+            return None;
+        }
+        let i = |e: &PyObjectRef| e.clone().downcast::<PyInt>().ok()?.as_bigint().to_i64();
+        Some((i(&tup[0])?, i(&tup[1])?))
+    };
+    let (acc, modif) = match (args.times, args.ns) {
+        (Some(t), None) => parse_tup(t).ok_or_else(|| {
+            vm.new_type_error(
+                "utime: 'times' must be either a tuple of two ints or None".to_owned(),
+            )
+        })?,
+        (None, Some(ns)) => {
+            let (a, m) = parse_tup(ns).ok_or_else(|| {
+                vm.new_type_error("utime: 'ns' must be a tuple of two ints".to_owned())
+            })?;
+            // TODO: do validation to make sure this doesn't.. underflow?
+            (a / 1_000_000_000, m / 1_000_000_000)
+        }
+        (None, None) => {
+            let now = SystemTime::now();
+            let now = now
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or_else(|e| -(e.duration().as_secs() as i64));
+            (now, now)
+        }
+        (Some(_), Some(_)) => {
+            return Err(vm.new_value_error(
+                "utime: you may specify either 'times' or 'ns' but not both".to_owned(),
+            ))
+        }
+    };
+    utime::set_file_times(&args.path.path, acc, modif).map_err(|e| convert_io_error(vm, e))
 }
 
 #[cfg(unix)]
