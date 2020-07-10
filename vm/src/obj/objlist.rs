@@ -137,7 +137,7 @@ impl PyList {
             Err(vm.new_type_error(format!(
                 "Cannot add {} and {}",
                 Self::class(vm).name,
-                other.class().name
+                other.lease_class().name
             )))
         }
     }

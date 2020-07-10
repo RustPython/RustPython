@@ -604,7 +604,7 @@ impl PyByteArray {
                     "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
                      encode arbitrary types",
                     encoding.as_ref().map_or("utf-8", |s| s.as_str()),
-                    obj.class().name,
+                    obj.lease_class().name,
                 ))
             })
     }

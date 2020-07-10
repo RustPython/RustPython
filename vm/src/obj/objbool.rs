@@ -23,7 +23,7 @@ impl TryFromObject for bool {
         if objtype::isinstance(&obj, &vm.ctx.int_type()) {
             Ok(get_value(&obj))
         } else {
-            Err(vm.new_type_error(format!("Expected type bool, not {}", obj.class().name)))
+            Err(vm.new_type_error(format!("Expected type bool, not {}", obj.lease_class().name)))
         }
     }
 }
@@ -44,7 +44,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
             if !objtype::isinstance(&bool_obj, &vm.ctx.bool_type()) {
                 return Err(vm.new_type_error(format!(
                     "__bool__ should return bool, returned type {}",
-                    bool_obj.class().name
+                    bool_obj.lease_class().name
                 )));
             }
 
@@ -68,7 +68,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
                     None => {
                         return Err(vm.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",
-                            bool_obj.class().name
+                            bool_obj.lease_class().name
                         )))
                     }
                 }

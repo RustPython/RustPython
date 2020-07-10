@@ -822,7 +822,7 @@ impl VirtualMachine {
 
     fn _invoke(&self, callable: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
-        if let Some(slot_call) = callable.class().slots.read().call.as_ref() {
+        if let Some(slot_call) = callable.lease_class().slots.read().call.as_ref() {
             self.trace_event(TraceEvent::Call)?;
             let args = args.insert(callable.clone());
             let result = slot_call(self, args);
@@ -833,7 +833,7 @@ impl VirtualMachine {
         } else {
             Err(self.new_type_error(format!(
                 "'{}' object is not callable",
-                callable.class().name
+                callable.lease_class().name
             )))
         }
     }

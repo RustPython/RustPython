@@ -443,13 +443,13 @@ impl PyInt {
                     } else {
                         return Err(vm.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",
-                            value.class().name
+                            value.lease_class().name
                         )));
                     }
                 } else {
                     return Err(vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
-                        value.class().name
+                        value.lease_class().name
                     )));
                 }
             }
@@ -695,7 +695,7 @@ impl IntOptions {
                 let base = vm.to_index(&base).unwrap_or_else(|| {
                     Err(vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer missing string argument",
-                        base.class().name
+                        base.lease_class().name
                     )))
                 })?;
                 base.as_bigint().clone()

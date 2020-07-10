@@ -186,7 +186,7 @@ impl PyString {
                                 "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
                                  encode arbitrary types",
                                 enc,
-                                obj.class().name,
+                                obj.lease_class().name,
                             ))
                         })?
                 } else {
@@ -1060,7 +1060,7 @@ impl PyString {
     #[pymethod]
     fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         vm.get_method_or_type_error(table.clone(), "__getitem__", || {
-            format!("'{}' object is not subscriptable", table.class().name)
+            format!("'{}' object is not subscriptable", table.lease_class().name)
         })?;
 
         let mut translated = String::new();
@@ -1200,7 +1200,7 @@ pub(crate) fn encode_string(
                 "'{}' encoder returned '{}' instead of 'bytes'; use codecs.encode() to \
                  encode arbitrary types",
                 encoding.as_ref().map_or("utf-8", |s| s.as_str()),
-                obj.class().name,
+                obj.lease_class().name,
             ))
         })
 }
@@ -1325,7 +1325,7 @@ fn do_cformat_specifier(
                     "%{} format: {} is required, not {}",
                     format_spec.format_char,
                     required_type_string,
-                    obj.class()
+                    obj.lease_class()
                 )));
             }
             Ok(format_spec.format_number(objint::get_value(&obj)))
@@ -1340,7 +1340,7 @@ fn do_cformat_specifier(
                 "%{} format: {} is required, not {}",
                 format_spec.format_char,
                 required_type_string,
-                obj.class()
+                obj.lease_class()
             )));
         }
         .map_err(|e| vm.new_not_implemented_error(e)),
@@ -1730,7 +1730,7 @@ mod tests {
         let translated = text.translate(translated, &vm).unwrap();
         assert_eq!(translated, "🎅xda".to_owned());
         let translated = text.translate(vm.new_int(3), &vm);
-        assert_eq!(translated.unwrap_err().class().name, "TypeError".to_owned());
+        assert_eq!(translated.unwrap_err().lease_class().name, "TypeError".to_owned());
     }
 }
 

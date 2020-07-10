@@ -309,7 +309,7 @@ impl PyClassRef {
                 .map_err(|e| {
                     let err = vm.new_runtime_error(format!(
                         "Error calling __set_name__ on '{}' instance {} in '{}'",
-                        obj.class().name,
+                        obj.lease_class().name,
                         name,
                         typ.name
                     ));

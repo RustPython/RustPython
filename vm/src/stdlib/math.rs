@@ -207,7 +207,7 @@ fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -
     let method = vm.get_method_or_type_error(value.clone(), func_name, || {
         format!(
             "type '{}' doesn't define '{}' method",
-            value.class().name,
+            value.lease_class().name,
             func_name,
         )
     })?;

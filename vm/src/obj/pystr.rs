@@ -194,7 +194,7 @@ pub trait PyCommonString<E> {
                         func_name,
                         py_type_name,
                         py_type_name,
-                        o.class(),
+                        o.lease_class(),
                     )
                 },
                 vm,

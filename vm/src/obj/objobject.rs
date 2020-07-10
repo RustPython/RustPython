@@ -115,7 +115,7 @@ impl PyBaseObject {
         } else {
             Err(vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
-                obj.class().name,
+                obj.lease_class().name,
                 attr_name.as_str()
             )))
         }
@@ -128,7 +128,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn repr(zelf: PyObjectRef) -> String {
-        format!("<{} object at 0x{:x}>", zelf.class().name, zelf.get_id())
+        format!("<{} object at 0x{:x}>", zelf.lease_class().name, zelf.get_id())
     }
 
     #[pyclassmethod(magic)]
@@ -209,7 +209,7 @@ impl PyBaseObject {
         object.dict().ok_or_else(|| {
             vm.new_attribute_error(format!(
                 "'{}' object has no attribute '__dict__'",
-                object.class().name
+                object.lease_class().name
             ))
         })
     }
@@ -219,7 +219,7 @@ impl PyBaseObject {
         instance.set_dict(value).map_err(|_| {
             vm.new_attribute_error(format!(
                 "'{}' object has no attribute '__dict__'",
-                instance.class().name
+                instance.lease_class().name
             ))
         })
     }
@@ -271,7 +271,7 @@ pub(crate) fn setattr(
     } else {
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
-            obj.class().name,
+            obj.lease_class().name,
             attr_name.as_str()
         )))
     }

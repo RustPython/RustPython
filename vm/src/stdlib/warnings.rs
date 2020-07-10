@@ -21,7 +21,7 @@ fn warnings_warn(args: WarnArgs, vm: &VirtualMachine) -> PyResult<()> {
         if !objtype::issubclass(&category, &vm.ctx.exceptions.warning) {
             return Err(vm.new_type_error(format!(
                 "category must be a Warning subclass, not '{}'",
-                category.class().name
+                category.lease_class().name
             )));
         }
         category

@@ -240,7 +240,7 @@ impl PyGetSet {
             Err(vm.new_attribute_error(format!(
                 "attribute '{}' of '{}' objects is not writable",
                 self.name,
-                obj.class().name
+                obj.lease_class().name
             )))
         }
     }

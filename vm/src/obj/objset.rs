@@ -807,7 +807,7 @@ impl TryFromObject for SetIterable {
         } else {
             Err(vm.new_type_error(format!(
                 "{} is not a subtype of set or frozenset",
-                obj.class()
+                obj.lease_class()
             )))
         }
     }
