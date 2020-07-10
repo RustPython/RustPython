@@ -874,6 +874,11 @@ impl<T: IdProtocol> IdProtocol for &'_ T {
     }
 }
 
+/// A short term reference to a Python object that's held inside an atomic Arc.
+///
+/// This avoids having to clone the underlying Arc, when we just need to inspect the object.
+///
+/// See https://docs.rs/arc-swap/0.4.7/arc_swap/ for more information.
 pub struct PyLease<T: PyObjectPayload> {
     inner: arc_swap::Guard<'static, Arc<PyObject<T>>>,
 }
