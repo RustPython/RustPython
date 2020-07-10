@@ -23,7 +23,9 @@ use crate::obj::objstr::{self, PyString};
 use crate::obj::objtraceback::PyTraceback;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
-use crate::pyobject::{IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol};
+use crate::pyobject::{
+    IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use crate::scope::{NameProtocol, Scope};
 use crate::vm::VirtualMachine;
 
@@ -976,7 +978,10 @@ impl ExecutingFrame<'_> {
             for obj in self.pop_multiple(size) {
                 // Take all key-value pairs from the dict:
                 let dict: PyDictRef = obj.downcast().map_err(|obj| {
-                    vm.new_type_error(format!("'{}' object is not a mapping", obj.lease_class().name))
+                    vm.new_type_error(format!(
+                        "'{}' object is not a mapping",
+                        obj.lease_class().name
+                    ))
                 })?;
                 for (key, value) in dict {
                     if for_call {

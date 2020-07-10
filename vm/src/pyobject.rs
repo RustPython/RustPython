@@ -817,7 +817,10 @@ impl TryFromObject for PyCallable {
         if vm.is_callable(&obj) {
             Ok(PyCallable { obj })
         } else {
-            Err(vm.new_type_error(format!("'{}' object is not callable", obj.lease_class().name)))
+            Err(vm.new_type_error(format!(
+                "'{}' object is not callable",
+                obj.lease_class().name
+            )))
         }
     }
 }
@@ -872,7 +875,7 @@ impl<T: IdProtocol> IdProtocol for &'_ T {
 }
 
 pub struct PyLease<T: PyObjectPayload> {
-    inner: arc_swap::Guard<'static, Arc<PyObject<T>>>
+    inner: arc_swap::Guard<'static, Arc<PyObject<T>>>,
 }
 
 impl<T: PyObjectPayload + PyValue> PyLease<T> {
@@ -892,8 +895,8 @@ impl<T: PyObjectPayload + PyValue> Deref for PyLease<T> {
 }
 
 impl<T> fmt::Display for PyLease<T>
-    where
-        T: PyValue + fmt::Display,
+where
+    T: PyValue + fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.inner.payload, f)
@@ -920,7 +923,7 @@ where
 {
     fn lease_class(&self) -> PyLease<PyClass> {
         PyLease {
-            inner: self.typ.load()
+            inner: self.typ.load(),
         }
     }
 }

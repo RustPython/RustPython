@@ -8,7 +8,10 @@ use super::objtype::{self, PyClassRef};
 use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
-use crate::pyobject::{IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol};
+use crate::pyobject::{
+    IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use std::mem::size_of;

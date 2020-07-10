@@ -23,7 +23,10 @@ impl TryFromObject for bool {
         if objtype::isinstance(&obj, &vm.ctx.types.int_type) {
             Ok(get_value(&obj))
         } else {
-            Err(vm.new_type_error(format!("Expected type bool, not {}", obj.lease_class().name)))
+            Err(vm.new_type_error(format!(
+                "Expected type bool, not {}",
+                obj.lease_class().name
+            )))
         }
     }
 }

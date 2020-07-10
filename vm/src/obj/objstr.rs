@@ -1730,7 +1730,10 @@ mod tests {
         let translated = text.translate(translated, &vm).unwrap();
         assert_eq!(translated, "🎅xda".to_owned());
         let translated = text.translate(vm.new_int(3), &vm);
-        assert_eq!(translated.unwrap_err().lease_class().name, "TypeError".to_owned());
+        assert_eq!(
+            translated.unwrap_err().lease_class().name,
+            "TypeError".to_owned()
+        );
     }
 }
 

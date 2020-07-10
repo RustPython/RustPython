@@ -10,7 +10,10 @@ use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, PyLease};
+use crate::pyobject::{
+    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
 use arc_swap::ArcSwap;
@@ -136,7 +139,11 @@ impl PyClassRef {
                 if let Some(ref descriptor) = attr_class.get_attr("__get__") {
                     return vm.invoke(
                         descriptor,
-                        vec![attr, self.into_object(), PyLease::into_pyref(mcl).into_object()],
+                        vec![
+                            attr,
+                            self.into_object(),
+                            PyLease::into_pyref(mcl).into_object(),
+                        ],
                     );
                 }
             }
@@ -158,7 +165,13 @@ impl PyClassRef {
         } else if let Some(attr) = mcl.get_attr(&name) {
             vm.call_if_get_descriptor(attr, self.into_object())
         } else if let Some(ref getter) = self.get_attr("__getattr__") {
-            vm.invoke(getter, vec![PyLease::into_pyref(mcl).into_object(), name_ref.into_object()])
+            vm.invoke(
+                getter,
+                vec![
+                    PyLease::into_pyref(mcl).into_object(),
+                    name_ref.into_object(),
+                ],
+            )
         } else {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
         }
@@ -458,7 +471,11 @@ impl PyClass {
 
     // This is the internal has_attr implementation for fast lookup on a class.
     pub fn has_attr(&self, attr_name: &str) -> bool {
-        self.attributes.read().contains_key(attr_name) || self.mro.iter().any(|c| c.attributes.read().contains_key(attr_name))
+        self.attributes.read().contains_key(attr_name)
+            || self
+                .mro
+                .iter()
+                .any(|c| c.attributes.read().contains_key(attr_name))
     }
 }
 

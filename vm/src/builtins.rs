@@ -26,7 +26,10 @@ use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyhash;
-use crate::pyobject::{Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
+use crate::pyobject::{
+    Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
+};
 use crate::readline::{Readline, ReadlineResult};
 use crate::scope::Scope;
 #[cfg(feature = "rustpython-parser")]
