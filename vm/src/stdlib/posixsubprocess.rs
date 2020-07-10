@@ -182,7 +182,7 @@ fn close_fds(above: i32, keep: &[i32]) -> nix::Result<()> {
 ))]
 const FD_DIR_NAME: &[u8] = b"/dev/fd\0";
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 const FD_DIR_NAME: &[u8] = b"/proc/self/fd\0";
 
 fn pos_int_from_ascii(name: &CStr) -> Option<i32> {

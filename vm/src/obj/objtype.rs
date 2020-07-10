@@ -268,10 +268,12 @@ impl PyClassRef {
             let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
             let metatype = if !winner.is(&metatype) {
                 #[allow(clippy::redundant_clone)] // false positive
-                if let Some(ref tp_new) = winner.clone().slots.read().new {
-                    // Pass it to the winner
+                {
+                    if let Some(ref tp_new) = winner.clone().slots.read().new {
+                        // Pass it to the winner
 
-                    return tp_new(vm, args.insert(winner.into_object()));
+                        return tp_new(vm, args.insert(winner.into_object()));
+                    }
                 }
                 winner
             } else {
