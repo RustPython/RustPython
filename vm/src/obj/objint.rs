@@ -681,9 +681,9 @@ impl IntOptions {
             // FIXME: unnessessary bigint clone/creation
             let base = if let OptionalArg::Present(base) = self.base {
                 if ![
-                    &vm.ctx.str_type(),
-                    &vm.ctx.bytes_type(),
-                    &vm.ctx.bytearray_type(),
+                    &vm.ctx.types.str_type,
+                    &vm.ctx.types.bytes_type,
+                    &vm.ctx.types.bytearray_type,
                 ]
                 .iter()
                 .any(|&typ| objtype::isinstance(&val, typ))

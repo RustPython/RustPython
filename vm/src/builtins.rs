@@ -587,8 +587,8 @@ fn builtin_pow(
         }
         OptionalArg::Present(m) => {
             // Check if the 3rd argument is defined and perform modulus on the result
-            if !(objtype::isinstance(&x, &vm.ctx.int_type())
-                && objtype::isinstance(&y, &vm.ctx.int_type()))
+            if !(objtype::isinstance(&x, &vm.ctx.types.int_type)
+                && objtype::isinstance(&y, &vm.ctx.types.int_type))
             {
                 return Err(vm.new_type_error(
                     "pow() 3rd argument not allowed unless all arguments are integers".to_owned(),
@@ -928,9 +928,10 @@ pub fn builtin_build_class_(
     };
 
     for base in bases.clone() {
-        if objtype::issubclass(&base.class(), &metaclass) {
+        let base_class = base.lease_class();
+        if objtype::issubclass(&base_class, &metaclass) {
             metaclass = base.class();
-        } else if !objtype::issubclass(&metaclass, &base.class()) {
+        } else if !objtype::issubclass(&metaclass, &base_class) {
             return Err(vm.new_type_error(
                 "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
                  subclass of the metaclasses of all its bases"

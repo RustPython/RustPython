@@ -1336,8 +1336,8 @@ impl VirtualMachine {
         // TODO: _Py_EnterRecursiveCall(tstate, " in comparison")
 
         let mut checked_reverse_op = false;
-        let v_class = v.class();
-        let w_class = w.class();
+        let v_class = v.lease_class();
+        let w_class = w.lease_class();
         if !v_class.is(&w_class) && objtype::issubclass(&w_class, &v_class) {
             if let Some(method_or_err) = self.get_method(w.clone(), swap_op) {
                 let method = method_or_err?;

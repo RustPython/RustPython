@@ -865,6 +865,11 @@ impl<T: PyObjectPayload> IdProtocol for PyLease<T> {
     }
 }
 
+impl<T: IdProtocol> IdProtocol for &'_ T {
+    fn get_id(&self) -> usize {
+        (&**self).get_id()
+    }
+}
 
 pub struct PyLease<T: PyObjectPayload> {
     inner: arc_swap::Guard<'static, Arc<PyObject<T>>>
@@ -1254,7 +1259,7 @@ impl PyObject<dyn PyObjectPayload> {
         &self,
         vm: &VirtualMachine,
     ) -> Option<&T> {
-        if objtype::issubclass(&self.class(), &T::class(vm)) {
+        if objtype::issubclass(self.lease_class(), &T::class(vm)) {
             self.payload()
         } else {
             None

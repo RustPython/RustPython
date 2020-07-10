@@ -505,7 +505,7 @@ mod decl {
     }
 
     fn pyobject_to_opt_usize(obj: PyObjectRef, vm: &VirtualMachine) -> Option<usize> {
-        let is_int = objtype::isinstance(&obj, &vm.ctx.int_type());
+        let is_int = objtype::isinstance(&obj, &vm.ctx.types.int_type);
         if is_int {
             objint::get_value(&obj).to_usize()
         } else {

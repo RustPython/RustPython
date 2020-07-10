@@ -26,7 +26,7 @@ impl PyMemoryView {
         bytes_object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyMemoryViewRef> {
-        let object_type = bytes_object.class();
+        let object_type = bytes_object.lease_class();
 
         if issubclass(&object_type, &vm.ctx.types.memoryview_type)
             || issubclass(&object_type, &vm.ctx.types.bytes_type)

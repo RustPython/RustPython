@@ -798,8 +798,9 @@ struct SetIterable {
 
 impl TryFromObject for SetIterable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if objtype::issubclass(&obj.class(), &vm.ctx.set_type())
-            || objtype::issubclass(&obj.class(), &vm.ctx.frozenset_type())
+        let class = obj.lease_class();
+        if objtype::issubclass(&class, &vm.ctx.set_type())
+            || objtype::issubclass(&class, &vm.ctx.frozenset_type())
         {
             Ok(SetIterable {
                 iterable: Args::new(vec![PyIterable::try_from_object(vm, obj)?]),

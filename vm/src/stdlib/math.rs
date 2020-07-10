@@ -225,7 +225,7 @@ fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
 fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if objtype::isinstance(&value, &vm.ctx.float_type()) {
+    if objtype::isinstance(&value, &vm.ctx.types.float_type) {
         let v = objfloat::get_value(&value);
         let v = objfloat::try_bigint(v.ceil(), vm)?;
         Ok(vm.ctx.new_int(v))
@@ -241,7 +241,7 @@ fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
 fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if objtype::isinstance(&value, &vm.ctx.float_type()) {
+    if objtype::isinstance(&value, &vm.ctx.types.float_type) {
         let v = objfloat::get_value(&value);
         let v = objfloat::try_bigint(v.floor(), vm)?;
         Ok(vm.ctx.new_int(v))

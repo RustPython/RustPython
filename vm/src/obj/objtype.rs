@@ -10,14 +10,12 @@ use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{
-    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, PyLease};
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
 use arc_swap::ArcSwap;
 use itertools::Itertools;
+use std::ops::Deref;
 
 /// type(object_or_name, bases, dict)
 /// type(object) -> the object's type
@@ -364,18 +362,40 @@ pub(crate) fn init(ctx: &PyContext) {
     PyClassRef::extend_class(ctx, &ctx.types.type_type);
 }
 
+pub trait DerefToPyClass {
+    fn deref_to_class(&self) -> &PyClass;
+}
+
+impl DerefToPyClass for PyClassRef {
+    fn deref_to_class(&self) -> &PyClass {
+        self.deref()
+    }
+}
+
+impl DerefToPyClass for PyLease<PyClass> {
+    fn deref_to_class(&self) -> &PyClass {
+        self.deref()
+    }
+}
+
+impl<T: DerefToPyClass> DerefToPyClass for &'_ T {
+    fn deref_to_class(&self) -> &PyClass {
+        (&**self).deref_to_class()
+    }
+}
+
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
 #[inline]
 pub fn isinstance<T: TypeProtocol>(obj: &T, cls: &PyClassRef) -> bool {
-    issubclass(&obj.class(), &cls)
+    issubclass(obj.lease_class(), &cls)
 }
 
 /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
 /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
 /// method.
-pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
-    subclass.iter_mro().any(|c| c.is(cls))
+pub fn issubclass<T: DerefToPyClass + IdProtocol, R: IdProtocol>(subclass: T, cls: R) -> bool {
+    subclass.is(&cls) || subclass.deref_to_class().mro.iter().any(|c| c.is(&cls))
 }
 
 fn call_tp_new(
@@ -570,11 +590,11 @@ fn calculate_meta_class(
     // = _PyType_CalculateMetaclass
     let mut winner = metatype;
     for base in bases {
-        let base_type = base.class();
+        let base_type = base.lease_class();
         if issubclass(&winner, &base_type) {
             continue;
         } else if issubclass(&base_type, &winner) {
-            winner = base_type.clone();
+            winner = PyLease::into_pyref(base_type);
             continue;
         }
 
