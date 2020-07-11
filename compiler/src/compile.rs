@@ -1405,7 +1405,7 @@ impl<O: OutputStream> Compiler<O> {
 
         // Annotations are only evaluated in a module or class.
         if self.ctx.in_func() {
-            return Ok(())
+            return Ok(());
         }
 
         // Compile annotation:
