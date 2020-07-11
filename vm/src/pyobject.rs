@@ -41,6 +41,7 @@ use crate::scope::Scope;
 use crate::slots::PyTpFlags;
 use crate::types::{create_type, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
+use parking_lot::{RwLock, RwLockReadGuard};
 
 /* Python objects and references.
 
@@ -586,7 +587,7 @@ impl PyContext {
 
     pub fn new_base_object(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: ArcSwap::new(class.into_typed_pyobj()),
+            typ: RwLock::new(class.into_typed_pyobj()),
             dict: dict.map(|d| ArcSwap::new(d.into_typed_pyobj())),
             payload: objobject::PyBaseObject,
         }
@@ -643,7 +644,7 @@ pub struct PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    pub(crate) typ: ArcSwap<PyObject<PyClass>>, // __class__ member
+    pub(crate) typ: RwLock<Arc<PyObject<PyClass>>>, // __class__ member
     pub(crate) dict: Option<ArcSwap<PyObject<PyDict>>>, // __dict__ member
     pub payload: T,
 }
@@ -862,7 +863,7 @@ impl<T: PyObjectPayload> IdProtocol for PyRef<T> {
     }
 }
 
-impl<T: PyObjectPayload> IdProtocol for PyLease<T> {
+impl<'a, T: PyObjectPayload> IdProtocol for PyLease<'a, T> {
     fn get_id(&self) -> usize {
         self.inner.get_id()
     }
@@ -879,19 +880,19 @@ impl<T: IdProtocol> IdProtocol for &'_ T {
 /// This avoids having to clone the underlying Arc, when we just need to inspect the object.
 ///
 /// See https://docs.rs/arc-swap/0.4.7/arc_swap/ for more information.
-pub struct PyLease<T: PyObjectPayload> {
-    inner: arc_swap::Guard<'static, Arc<PyObject<T>>>,
+pub struct PyLease<'a, T: PyObjectPayload> {
+    inner: RwLockReadGuard<'a, Arc<PyObject<T>>>,
 }
 
-impl<T: PyObjectPayload + PyValue> PyLease<T> {
+impl<'a, T: PyObjectPayload + PyValue> PyLease<'a, T> {
     // Associated function on purpose, because of deref
     #[allow(clippy::wrong_self_convention)]
     pub fn into_pyref(zelf: Self) -> PyRef<T> {
-        PyRef::from_obj_unchecked(arc_swap::Guard::into_inner(zelf.inner) as PyObjectRef)
+        PyRef::from_obj_unchecked(zelf.inner.clone() as PyObjectRef)
     }
 }
 
-impl<T: PyObjectPayload + PyValue> Deref for PyLease<T> {
+impl<'a, T: PyObjectPayload + PyValue> Deref for PyLease<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -899,7 +900,7 @@ impl<T: PyObjectPayload + PyValue> Deref for PyLease<T> {
     }
 }
 
-impl<T> fmt::Display for PyLease<T>
+impl<'a, T> fmt::Display for PyLease<'a, T>
 where
     T: PyValue + fmt::Display,
 {
@@ -909,7 +910,7 @@ where
 }
 
 pub trait TypeProtocol {
-    fn lease_class(&self) -> PyLease<PyClass>;
+    fn lease_class(&self) -> PyLease<'_, PyClass>;
 
     fn class(&self) -> PyClassRef {
         PyLease::into_pyref(self.lease_class())
@@ -917,7 +918,7 @@ pub trait TypeProtocol {
 }
 
 impl TypeProtocol for PyObjectRef {
-    fn lease_class(&self) -> PyLease<PyClass> {
+    fn lease_class(&self) -> PyLease<'_, PyClass> {
         (**self).lease_class()
     }
 }
@@ -926,21 +927,21 @@ impl<T> TypeProtocol for PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    fn lease_class(&self) -> PyLease<PyClass> {
+    fn lease_class(&self) -> PyLease<'_, PyClass> {
         PyLease {
-            inner: self.typ.load(),
+            inner: self.typ.read(),
         }
     }
 }
 
 impl<T> TypeProtocol for PyRef<T> {
-    fn lease_class(&self) -> PyLease<PyClass> {
+    fn lease_class(&self) -> PyLease<'_, PyClass> {
         self.obj.lease_class()
     }
 }
 
 impl<T: TypeProtocol> TypeProtocol for &'_ T {
-    fn lease_class(&self) -> PyLease<PyClass> {
+    fn lease_class(&self) -> PyLease<'_, PyClass> {
         (&**self).lease_class()
     }
 }
@@ -1211,7 +1212,7 @@ where
     #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: ArcSwap::new(typ.into_typed_pyobj()),
+            typ: RwLock::new(typ.into_typed_pyobj()),
             dict: dict.map(|d| ArcSwap::new(d.into_typed_pyobj())),
             payload,
         }

@@ -40,7 +40,6 @@ use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::pyobject::{PyAttributes, PyContext, PyObject};
-use arc_swap::ArcSwap;
 use parking_lot::RwLock;
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -295,7 +294,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
     // (and yes, this will never get dropped. TODO?)
     let (type_type, object_type) = unsafe {
         type PyClassObj = PyObject<PyClass>;
-        type UninitRef<T> = ArcSwap<MaybeUninit<T>>;
+        type UninitRef<T> = RwLock<Arc<MaybeUninit<T>>>;
 
         let type_type: Arc<MaybeUninit<PyClassObj>> = Arc::new(partially_init!(
             PyObject::<PyClass> {
@@ -332,12 +331,12 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             Arc::into_raw(type_type.clone()) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
 
         ptr::write(
-            &mut (*object_type_ptr).typ as *mut ArcSwap<PyClassObj> as *mut UninitRef<PyClassObj>,
-            ArcSwap::new(type_type.clone()),
+            &mut (*object_type_ptr).typ as *mut RwLock<Arc<PyClassObj>> as *mut UninitRef<PyClassObj>,
+            RwLock::new(type_type.clone()),
         );
         ptr::write(
-            &mut (*type_type_ptr).typ as *mut ArcSwap<PyClassObj> as *mut UninitRef<PyClassObj>,
-            ArcSwap::new(type_type),
+            &mut (*type_type_ptr).typ as *mut RwLock<Arc<PyClassObj>> as *mut UninitRef<PyClassObj>,
+            RwLock::new(type_type),
         );
 
         let type_type = PyClassRef::from_obj_unchecked(Arc::from_raw(type_type_ptr));

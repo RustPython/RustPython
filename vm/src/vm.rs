@@ -769,7 +769,7 @@ impl VirtualMachine {
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
     ) -> Option<PyResult> {
-        let descr_class = descr.lease_class();
+        let descr_class = descr.class();
         let slots = descr_class.slots.read();
         if let Some(descr_get) = slots.descr_get.as_ref() {
             Some(descr_get(self, descr, obj, OptionalArg::from_option(cls)))
@@ -1016,11 +1016,12 @@ impl VirtualMachine {
         dict: Option<PyDictRef>,
     ) -> PyResult<Option<PyObjectRef>> {
         let name = name_str.as_str();
-        let cls = obj.lease_class();
+        let cls = obj.class();
 
         if let Some(attr) = cls.get_attr(&name) {
             let attr_class = attr.lease_class();
             if attr_class.has_attr("__set__") {
+                drop(attr_class);
                 if let Some(r) = self.call_get_descriptor(attr, obj.clone()) {
                     return r.map(Some);
                 }
@@ -1341,6 +1342,8 @@ impl VirtualMachine {
         let v_class = v.lease_class();
         let w_class = w.lease_class();
         if !v_class.is(&w_class) && objtype::issubclass(&w_class, &v_class) {
+            drop(w_class);
+            drop(v_class);
             if let Some(method_or_err) = self.get_method(w.clone(), swap_op) {
                 let method = method_or_err?;
                 checked_reverse_op = true;
@@ -1350,8 +1353,10 @@ impl VirtualMachine {
                     return Ok(result);
                 }
             }
+        } else {
+            drop(w_class);
+            drop(v_class);
         }
-
         self.call_or_unsupported(v, w, op, |vm, v, w| {
             if !checked_reverse_op {
                 self.call_or_unsupported(w, v, swap_op, |vm, v, w| default(vm, v, w))

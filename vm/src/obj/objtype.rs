@@ -16,7 +16,6 @@ use crate::pyobject::{
 };
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
-use arc_swap::ArcSwap;
 use itertools::Itertools;
 use std::ops::Deref;
 
@@ -137,12 +136,14 @@ impl PyClassRef {
             let attr_class = attr.lease_class();
             if attr_class.has_attr("__set__") {
                 if let Some(ref descriptor) = attr_class.get_attr("__get__") {
+                    drop(attr_class);
+                    let mcl = PyLease::into_pyref(mcl).into_object();
                     return vm.invoke(
                         descriptor,
                         vec![
                             attr,
                             self.into_object(),
-                            PyLease::into_pyref(mcl).into_object(),
+                            mcl,
                         ],
                     );
                 }
@@ -150,11 +151,13 @@ impl PyClassRef {
         }
 
         if let Some(attr) = self.get_attr(&name) {
-            let attr_class = attr.lease_class();
+            let attr_class = attr.class();
             let slots = attr_class.slots.read();
             if let Some(ref descr_get) = slots.descr_get {
+                drop(mcl);
                 return descr_get(vm, attr, None, OptionalArg::Present(self.into_object()));
             } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
+                drop(mcl);
                 // TODO: is this nessessary?
                 return vm.invoke(descriptor, vec![attr, vm.get_none(), self.into_object()]);
             }
@@ -163,6 +166,7 @@ impl PyClassRef {
         if let Some(cls_attr) = self.get_attr(&name) {
             Ok(cls_attr)
         } else if let Some(attr) = mcl.get_attr(&name) {
+            drop(mcl);
             vm.call_if_get_descriptor(attr, self.into_object())
         } else if let Some(ref getter) = self.get_attr("__getattr__") {
             vm.invoke(
@@ -184,8 +188,10 @@ impl PyClassRef {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(attr) = self.lease_class().get_attr(attr_name.as_str()) {
-            if let Some(ref descriptor) = attr.lease_class().get_attr("__set__") {
+        let res = self.lease_class().get_attr(attr_name.as_str());
+        if let Some(attr) = res {
+            let res = attr.lease_class().get_attr("__set__");
+            if let Some(ref descriptor) = res {
                 vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
                 return Ok(());
             }
@@ -197,8 +203,10 @@ impl PyClassRef {
 
     #[pymethod(magic)]
     fn delattr(self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(attr) = self.lease_class().get_attr(attr_name.as_str()) {
-            if let Some(ref descriptor) = attr.lease_class().get_attr("__delete__") {
+        let res = self.lease_class().get_attr(attr_name.as_str());
+        if let Some(attr) = res {
+            let res = attr.lease_class().get_attr("__delete__");
+            if let Some(ref descriptor) = res {
                 return vm
                     .invoke(descriptor, vec![attr, self.into_object()])
                     .map(|_| ());
@@ -385,7 +393,7 @@ impl DerefToPyClass for PyClassRef {
     }
 }
 
-impl DerefToPyClass for PyLease<PyClass> {
+impl<'a> DerefToPyClass for PyLease<'a, PyClass> {
     fn deref_to_class(&self) -> &PyClass {
         self.deref()
     }
@@ -585,7 +593,7 @@ pub fn new(
             slots: RwLock::default(),
         },
         dict: None,
-        typ: ArcSwap::new(typ.into_typed_pyobj()),
+        typ: RwLock::new(typ.into_typed_pyobj()),
     }
     .into_ref();
 

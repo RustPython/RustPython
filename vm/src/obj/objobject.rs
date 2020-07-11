@@ -104,7 +104,8 @@ impl PyBaseObject {
         let cls = obj.lease_class();
 
         if let Some(attr) = cls.get_attr(attr_name.as_str()) {
-            if let Some(descriptor) = attr.lease_class().get_attr("__delete__") {
+            let res = attr.lease_class().get_attr("__delete__");
+            if let Some(descriptor) = res {
                 return vm.invoke(&descriptor, vec![attr, obj.clone()]).map(|_| ());
             }
         }
@@ -190,7 +191,7 @@ impl PyBaseObject {
             match value.downcast_generic::<PyClass>() {
                 Ok(cls) => {
                     // FIXME(#1979) cls instances might have a payload
-                    instance.typ.store(cls);
+                    *instance.typ.write() = cls;
                     Ok(())
                 }
                 Err(value) => {
@@ -248,6 +249,7 @@ impl PyBaseObject {
                 return vm.invoke(&reduce, vec![]);
             }
         }
+        drop(cls);
         common_reduce(obj, proto, vm)
     }
 }
@@ -262,7 +264,8 @@ pub(crate) fn setattr(
     let cls = obj.lease_class();
 
     if let Some(attr) = cls.get_attr(attr_name.as_str()) {
-        if let Some(descriptor) = attr.lease_class().get_attr("__set__") {
+        let res = attr.lease_class().get_attr("__set__");
+        if let Some(descriptor) = res {
             return vm
                 .invoke(&descriptor, vec![attr, obj.clone(), value])
                 .map(|_| ());

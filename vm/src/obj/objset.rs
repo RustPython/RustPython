@@ -802,6 +802,7 @@ impl TryFromObject for SetIterable {
         if objtype::issubclass(&class, &vm.ctx.set_type())
             || objtype::issubclass(&class, &vm.ctx.frozenset_type())
         {
+            drop(class);
             Ok(SetIterable {
                 iterable: Args::new(vec![PyIterable::try_from_object(vm, obj)?]),
             })
