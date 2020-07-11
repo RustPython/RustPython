@@ -1403,6 +1403,11 @@ impl<O: OutputStream> Compiler<O> {
             self.compile_store(target)?;
         }
 
+        // Annotations are only evaluated in a module or class.
+        if self.ctx.in_func() {
+            return Ok(())
+        }
+
         // Compile annotation:
         self.compile_expression(annotation)?;
 
