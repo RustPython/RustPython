@@ -799,18 +799,16 @@ struct SetIterable {
 impl TryFromObject for SetIterable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = obj.lease_class();
-        if objtype::issubclass(&class, &vm.ctx.set_type())
-            || objtype::issubclass(&class, &vm.ctx.frozenset_type())
+        if objtype::issubclass(&class, &vm.ctx.types.set_type)
+            || objtype::issubclass(&class, &vm.ctx.types.frozenset_type)
         {
+            // the class lease needs to be drop to be able to return the object
             drop(class);
             Ok(SetIterable {
                 iterable: Args::new(vec![PyIterable::try_from_object(vm, obj)?]),
             })
         } else {
-            Err(vm.new_type_error(format!(
-                "{} is not a subtype of set or frozenset",
-                obj.lease_class()
-            )))
+            Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", class)))
         }
     }
 }

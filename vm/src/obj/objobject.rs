@@ -104,8 +104,7 @@ impl PyBaseObject {
         let cls = obj.lease_class();
 
         if let Some(attr) = cls.get_attr(attr_name.as_str()) {
-            let res = attr.lease_class().get_attr("__delete__");
-            if let Some(descriptor) = res {
+            if let Some(descriptor) = attr.get_class_attr("__delete__") {
                 return vm.invoke(&descriptor, vec![attr, obj.clone()]).map(|_| ());
             }
         }
@@ -242,14 +241,12 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
-        let cls = obj.lease_class();
-        if let Some(reduce) = cls.get_attr("__reduce__") {
+        if let Some(reduce) = obj.get_class_attr("__reduce__") {
             let object_reduce = vm.ctx.types.object_type.get_attr("__reduce__").unwrap();
             if !reduce.is(&object_reduce) {
                 return vm.invoke(&reduce, vec![]);
             }
         }
-        drop(cls);
         common_reduce(obj, proto, vm)
     }
 }
@@ -264,8 +261,7 @@ pub(crate) fn setattr(
     let cls = obj.lease_class();
 
     if let Some(attr) = cls.get_attr(attr_name.as_str()) {
-        let res = attr.lease_class().get_attr("__set__");
-        if let Some(descriptor) = res {
+        if let Some(descriptor) = attr.get_class_attr("__set__") {
             return vm
                 .invoke(&descriptor, vec![attr, obj.clone(), value])
                 .map(|_| ());

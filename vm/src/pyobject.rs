@@ -875,11 +875,8 @@ impl<T: IdProtocol> IdProtocol for &'_ T {
     }
 }
 
-/// A short term reference to a Python object that's held inside an atomic Arc.
-///
-/// This avoids having to clone the underlying Arc, when we just need to inspect the object.
-///
-/// See https://docs.rs/arc-swap/0.4.7/arc_swap/ for more information.
+/// A borrow of a reference to a Python object. This avoids having clone the `PyRef<T>`/
+/// `PyObjectRef`, which isn't that cheap as that increments the atomic reference counter.
 pub struct PyLease<'a, T: PyObjectPayload> {
     inner: RwLockReadGuard<'a, Arc<PyObject<T>>>,
 }
@@ -914,6 +911,10 @@ pub trait TypeProtocol {
 
     fn class(&self) -> PyClassRef {
         PyLease::into_pyref(self.lease_class())
+    }
+
+    fn get_class_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+        self.lease_class().get_attr(attr_name)
     }
 }
 

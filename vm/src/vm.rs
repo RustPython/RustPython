@@ -1019,9 +1019,7 @@ impl VirtualMachine {
         let cls = obj.class();
 
         if let Some(attr) = cls.get_attr(&name) {
-            let attr_class = attr.lease_class();
-            if attr_class.has_attr("__set__") {
-                drop(attr_class);
+            if attr.lease_class().has_attr("__set__") {
                 if let Some(r) = self.call_get_descriptor(attr, obj.clone()) {
                     return r.map(Some);
                 }
@@ -1339,11 +1337,12 @@ impl VirtualMachine {
         // TODO: _Py_EnterRecursiveCall(tstate, " in comparison")
 
         let mut checked_reverse_op = false;
-        let v_class = v.lease_class();
-        let w_class = w.lease_class();
-        if !v_class.is(&w_class) && objtype::issubclass(&w_class, &v_class) {
-            drop(w_class);
-            drop(v_class);
+        let is_strict_subclass = {
+            let v_class = v.lease_class();
+            let w_class = w.lease_class();
+            !v_class.is(&w_class) && objtype::issubclass(&w_class, &v_class)
+        };
+        if is_strict_subclass {
             if let Some(method_or_err) = self.get_method(w.clone(), swap_op) {
                 let method = method_or_err?;
                 checked_reverse_op = true;
@@ -1353,9 +1352,6 @@ impl VirtualMachine {
                     return Ok(result);
                 }
             }
-        } else {
-            drop(w_class);
-            drop(v_class);
         }
         self.call_or_unsupported(v, w, op, |vm, v, w| {
             if !checked_reverse_op {

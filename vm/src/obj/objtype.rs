@@ -138,14 +138,7 @@ impl PyClassRef {
                 if let Some(ref descriptor) = attr_class.get_attr("__get__") {
                     drop(attr_class);
                     let mcl = PyLease::into_pyref(mcl).into_object();
-                    return vm.invoke(
-                        descriptor,
-                        vec![
-                            attr,
-                            self.into_object(),
-                            mcl,
-                        ],
-                    );
+                    return vm.invoke(descriptor, vec![attr, self.into_object(), mcl]);
                 }
             }
         }
@@ -188,10 +181,8 @@ impl PyClassRef {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let res = self.lease_class().get_attr(attr_name.as_str());
-        if let Some(attr) = res {
-            let res = attr.lease_class().get_attr("__set__");
-            if let Some(ref descriptor) = res {
+        if let Some(attr) = self.get_class_attr(attr_name.as_str()) {
+            if let Some(ref descriptor) = attr.get_class_attr("__set__") {
                 vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
                 return Ok(());
             }
@@ -203,10 +194,8 @@ impl PyClassRef {
 
     #[pymethod(magic)]
     fn delattr(self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        let res = self.lease_class().get_attr(attr_name.as_str());
-        if let Some(attr) = res {
-            let res = attr.lease_class().get_attr("__delete__");
-            if let Some(ref descriptor) = res {
+        if let Some(attr) = self.get_class_attr(attr_name.as_str()) {
+            if let Some(ref descriptor) = attr.get_class_attr("__delete__") {
                 return vm
                     .invoke(descriptor, vec![attr, self.into_object()])
                     .map(|_| ());

@@ -331,7 +331,8 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             Arc::into_raw(type_type.clone()) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
 
         ptr::write(
-            &mut (*object_type_ptr).typ as *mut RwLock<Arc<PyClassObj>> as *mut UninitRef<PyClassObj>,
+            &mut (*object_type_ptr).typ as *mut RwLock<Arc<PyClassObj>>
+                as *mut UninitRef<PyClassObj>,
             RwLock::new(type_type.clone()),
         );
         ptr::write(

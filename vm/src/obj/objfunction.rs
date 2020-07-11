@@ -323,8 +323,7 @@ impl PyBoundMethod {
 
     #[pymethod(magic)]
     fn getattribute(zelf: PyRef<Self>, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        let res = zelf.lease_class().get_attr(name.as_str());
-        if let Some(obj) = res {
+        if let Some(obj) = zelf.get_class_attr(name.as_str()) {
             return vm.call_if_get_descriptor(obj, zelf.into_object());
         }
         vm.get_attribute(zelf.function.clone(), name)
