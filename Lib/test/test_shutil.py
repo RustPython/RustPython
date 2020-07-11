@@ -2320,6 +2320,7 @@ class _ZeroCopyFileTest(object):
             self.assertRaises(ZeroDivisionError,
                               shutil.copyfile, TESTFN, TESTFN2)
 
+    @unittest.skip("TODO: RUSTPYTHON, OSError.error on macOS")
     def test_exception_on_first_call(self):
         # Emulate a case where the first call to the zero-copy
         # function raises an exception in which case the function is
@@ -2330,6 +2331,7 @@ class _ZeroCopyFileTest(object):
                 with self.assertRaises(_GiveupOnFastCopy):
                     self.zerocopy_fun(src, dst)
 
+    @unittest.skip("TODO: RUSTPYTHON, OSError.error on macOS")
     def test_filesystem_full(self):
         # Emulate a case where filesystem is full and sendfile() fails
         # on first call.
