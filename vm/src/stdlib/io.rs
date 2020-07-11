@@ -559,12 +559,12 @@ fn buffered_reader_seek(
     vm.invoke(&vm.get_attribute(raw, "seek")?, args)
 }
 
-fn buffered_reader_tell(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+fn buffered_io_base_tell(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let raw = vm.get_attribute(instance, "raw")?;
     vm.invoke(&vm.get_attribute(raw, "tell")?, vec![])
 }
 
-fn buffered_reader_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+fn buffered_io_base_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     let raw = vm.get_attribute(instance, "raw")?;
     vm.invoke(&vm.get_attribute(raw, "close")?, vec![])?;
     Ok(())
@@ -908,6 +908,11 @@ fn text_io_wrapper_name(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult 
     vm.get_attribute(raw, "name")
 }
 
+fn text_io_wrapper_fileno(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let raw = vm.get_attribute(instance, "buffer")?;
+    vm.call_method(&raw, "fileno", vec![])
+}
+
 fn text_io_wrapper_read(
     instance: PyObjectRef,
     size: OptionalOption<PyObjectRef>,
@@ -1218,8 +1223,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "read" => ctx.new_method(buffered_reader_read),
         "seekable" => ctx.new_method(buffered_reader_seekable),
         "seek" => ctx.new_method(buffered_reader_seek),
-        "tell" => ctx.new_method(buffered_reader_tell),
-        "close" => ctx.new_method(buffered_reader_close),
+        "tell" => ctx.new_method(buffered_io_base_tell),
+        "close" => ctx.new_method(buffered_io_base_close),
         "fileno" => ctx.new_method(buffered_io_base_fileno),
         "name" => ctx.new_readonly_getset("name", buffered_io_base_name),
         "mode" => ctx.new_readonly_getset("mode", buffered_io_base_mode),
@@ -1232,6 +1237,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "__init__" => ctx.new_method(buffered_io_base_init),
         "write" => ctx.new_method(buffered_writer_write),
         "seekable" => ctx.new_method(buffered_writer_seekable),
+        "fileno" => ctx.new_method(buffered_io_base_fileno),
+        "tell" => ctx.new_method(buffered_io_base_tell),
+        "close" => ctx.new_method(buffered_io_base_close),
         "name" => ctx.new_readonly_getset("name", buffered_io_base_name),
         "mode" => ctx.new_readonly_getset("mode", buffered_io_base_mode),
     });
@@ -1245,6 +1253,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "read" => ctx.new_method(text_io_wrapper_read),
         "write" => ctx.new_method(text_io_wrapper_write),
         "readline" => ctx.new_method(text_io_wrapper_readline),
+        "fileno" => ctx.new_method(text_io_wrapper_fileno),
         "name" => ctx.new_readonly_getset("name", text_io_wrapper_name),
         "mode" => ctx.new_readonly_getset("mode", text_io_wrapper_mode),
     });

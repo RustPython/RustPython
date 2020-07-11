@@ -2,7 +2,6 @@ use nix::{dir, errno::Errno, fcntl, unistd};
 use std::convert::Infallible as Never;
 use std::ffi::{CStr, CString};
 use std::io::{self, prelude::*};
-use std::os::unix::ffi::OsStringExt;
 
 use crate::pyobject::{PyObjectRef, PyResult, PySequence, TryFromObject};
 use crate::VirtualMachine;
@@ -23,7 +22,7 @@ struct CStrPathLike {
 }
 impl TryFromObject for CStrPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let s = PyPathLike::try_from_object(vm, obj)?.path.into_vec();
+        let s = PyPathLike::try_from_object(vm, obj)?.into_bytes();
         let s = CString::new(s)
             .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
         Ok(CStrPathLike { s })
