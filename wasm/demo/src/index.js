@@ -148,7 +148,7 @@ function onReady() {
     runCodeFromTextarea();
 
     terminalVM = rp.vmStore.init('term_vm');
-    terminalVM.setStdout(data => localEcho.println(data));
+    terminalVM.setStdout(data => localEcho.print(data));
     readPrompts().catch(err => console.error(err));
 
     // so that the test knows that we're ready
