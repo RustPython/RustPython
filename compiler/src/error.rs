@@ -10,28 +10,21 @@ pub struct CompileError {
     pub statement: Option<String>,
     pub error: CompileErrorType,
     pub location: Location,
-    pub source_path: Option<String>,
+    pub source_path: String,
 }
 
 impl CompileError {
+    pub fn from_parse_error(parse_error: ParseError, source_path: String) -> Self {
+        Self {
+            statement: None,
+            error: CompileErrorType::Parse(parse_error.error),
+            location: parse_error.location,
+            source_path,
+        }
+    }
+
     pub fn update_statement_info(&mut self, statement: String) {
         self.statement = Some(statement);
-    }
-
-    pub fn update_source_path(&mut self, source_path: &str) {
-        debug_assert!(self.source_path.is_none());
-        self.source_path = Some(source_path.to_owned());
-    }
-}
-
-impl From<ParseError> for CompileError {
-    fn from(error: ParseError) -> Self {
-        CompileError {
-            statement: None,
-            error: CompileErrorType::Parse(error.error),
-            location: error.location,
-            source_path: None,
-        }
     }
 }
 

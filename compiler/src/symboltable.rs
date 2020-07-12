@@ -149,13 +149,13 @@ pub struct SymbolTableError {
     location: Location,
 }
 
-impl From<SymbolTableError> for CompileError {
-    fn from(error: SymbolTableError) -> Self {
+impl CompileError {
+    pub fn from_symbol_table_error(error: SymbolTableError, source_path: String) -> Self {
         CompileError {
             statement: None,
             error: CompileErrorType::SyntaxError(error.error),
             location: error.location,
-            source_path: None,
+            source_path,
         }
     }
 }

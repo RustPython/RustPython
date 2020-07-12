@@ -26,7 +26,7 @@ struct Compiler<O: OutputStream = BasicOutputStream> {
     output_stack: Vec<O>,
     symbol_table_stack: Vec<SymbolTable>,
     nxt_label: usize,
-    source_path: Option<String>,
+    source_path: String,
     current_source_location: ast::Location,
     current_qualified_path: Option<String>,
     done_with_future_stmts: bool,
@@ -75,17 +75,19 @@ pub fn compile(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
+    let to_compile_error =
+        |parse_error| CompileError::from_parse_error(parse_error, source_path.clone());
     match mode {
         Mode::Exec => {
-            let ast = parser::parse_program(source)?;
+            let ast = parser::parse_program(source).map_err(to_compile_error)?;
             compile_program(ast, source_path, opts)
         }
         Mode::Eval => {
-            let statement = parser::parse_statement(source)?;
+            let statement = parser::parse_statement(source).map_err(to_compile_error)?;
             compile_statement_eval(statement, source_path, opts)
         }
         Mode::Single => {
-            let ast = parser::parse_program(source)?;
+            let ast = parser::parse_program(source).map_err(to_compile_error)?;
             compile_program_single(ast, source_path, opts)
         }
     }
@@ -97,8 +99,7 @@ fn with_compiler(
     opts: CompileOpts,
     f: impl FnOnce(&mut Compiler) -> CompileResult<()>,
 ) -> CompileResult<CodeObject> {
-    let mut compiler = Compiler::new(opts);
-    compiler.source_path = Some(source_path);
+    let mut compiler = Compiler::new(opts, source_path);
     compiler.push_new_code_object("<module>".to_owned());
     f(&mut compiler)?;
     let code = compiler.pop_code_object();
@@ -112,8 +113,9 @@ pub fn compile_program(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
+    let symbol_table = make_symbol_table(&ast)
+        .map_err(|e| CompileError::from_symbol_table_error(e, source_path.clone()))?;
     with_compiler(source_path, opts, |compiler| {
-        let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program(&ast, symbol_table)
     })
 }
@@ -124,8 +126,9 @@ pub fn compile_statement_eval(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
+    let symbol_table = statements_to_symbol_table(&statement)
+        .map_err(|e| CompileError::from_symbol_table_error(e, source_path.clone()))?;
     with_compiler(source_path, opts, |compiler| {
-        let symbol_table = statements_to_symbol_table(&statement)?;
         compiler.compile_statement_eval(&statement, symbol_table)
     })
 }
@@ -136,28 +139,20 @@ pub fn compile_program_single(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
+    let symbol_table = make_symbol_table(&ast)
+        .map_err(|e| CompileError::from_symbol_table_error(e, source_path.clone()))?;
     with_compiler(source_path, opts, |compiler| {
-        let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program_single(&ast, symbol_table)
     })
 }
 
-impl<O> Default for Compiler<O>
-where
-    O: OutputStream,
-{
-    fn default() -> Self {
-        Compiler::new(CompileOpts::default())
-    }
-}
-
 impl<O: OutputStream> Compiler<O> {
-    fn new(opts: CompileOpts) -> Self {
+    fn new(opts: CompileOpts, source_path: String) -> Self {
         Compiler {
             output_stack: Vec::new(),
             symbol_table_stack: Vec::new(),
             nxt_label: 0,
-            source_path: None,
+            source_path,
             current_source_location: ast::Location::default(),
             current_qualified_path: None,
             done_with_future_stmts: false,
@@ -194,7 +189,7 @@ impl<O: OutputStream> Compiler<O> {
             None,
             Vec::new(),
             None,
-            self.source_path.clone().unwrap(),
+            self.source_path.clone(),
             line_number,
             obj_name,
         ));
@@ -733,7 +728,7 @@ impl<O: OutputStream> Compiler<O> {
             varargs_name,
             args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
             varkeywords_name,
-            self.source_path.clone().unwrap(),
+            self.source_path.clone(),
             line_number,
             name.to_owned(),
         ));
@@ -1069,7 +1064,7 @@ impl<O: OutputStream> Compiler<O> {
             None,
             vec![],
             None,
-            self.source_path.clone().unwrap(),
+            self.source_path.clone(),
             line_number,
             name.to_owned(),
         ));
@@ -2032,7 +2027,7 @@ impl<O: OutputStream> Compiler<O> {
             None,
             vec![],
             None,
-            self.source_path.clone().unwrap(),
+            self.source_path.clone(),
             line_number,
             name.clone(),
         ));
@@ -2377,7 +2372,7 @@ fn compile_conversion_flag(conversion_flag: ast::ConversionFlag) -> bytecode::Co
 
 #[cfg(test)]
 mod tests {
-    use super::Compiler;
+    use super::{CompileOpts, Compiler};
     use crate::symboltable::make_symbol_table;
     use rustpython_bytecode::bytecode::Constant::*;
     use rustpython_bytecode::bytecode::Instruction::*;
@@ -2385,8 +2380,8 @@ mod tests {
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {
-        let mut compiler: Compiler = Default::default();
-        compiler.source_path = Some("source_path".to_owned());
+        let mut compiler: Compiler =
+            Compiler::new(CompileOpts::default(), "source_path".to_owned());
         compiler.push_new_code_object("<module>".to_owned());
         let ast = parser::parse_program(source).unwrap();
         let symbol_scope = make_symbol_table(&ast).unwrap();
