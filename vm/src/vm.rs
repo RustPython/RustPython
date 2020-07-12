@@ -671,21 +671,19 @@ impl VirtualMachine {
         Some(
             if let Ok(val) = TryFromObject::try_from_object(self, obj.clone()) {
                 Ok(val)
+            } else if obj.lease_class().has_attr("__index__") {
+                self.call_method(obj, "__index__", vec![]).and_then(|r| {
+                    if let Ok(val) = TryFromObject::try_from_object(self, r) {
+                        Ok(val)
+                    } else {
+                        Err(self.new_type_error(format!(
+                            "__index__ returned non-int (type {})",
+                            obj.lease_class().name
+                        )))
+                    }
+                })
             } else {
-                if obj.lease_class().has_attr("__index__") {
-                    self.call_method(obj, "__index__", vec![]).and_then(|r| {
-                        if let Ok(val) = TryFromObject::try_from_object(self, r) {
-                            Ok(val)
-                        } else {
-                            Err(self.new_type_error(format!(
-                                "__index__ returned non-int (type {})",
-                                obj.lease_class().name
-                            )))
-                        }
-                    })
-                } else {
-                    return None;
-                }
+                return None;
             },
         )
     }
