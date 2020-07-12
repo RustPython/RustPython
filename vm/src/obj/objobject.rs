@@ -101,9 +101,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        let cls = obj.lease_class();
-
-        if let Some(attr) = cls.get_attr(attr_name.as_str()) {
+        if let Some(attr) = obj.get_class_attr(attr_name.as_str()) {
             if let Some(descriptor) = attr.get_class_attr("__delete__") {
                 return vm.invoke(&descriptor, vec![attr, obj.clone()]).map(|_| ());
             }
@@ -258,9 +256,8 @@ pub(crate) fn setattr(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
-    let cls = obj.lease_class();
 
-    if let Some(attr) = cls.get_attr(attr_name.as_str()) {
+    if let Some(attr) = obj.get_class_attr(attr_name.as_str()) {
         if let Some(descriptor) = attr.get_class_attr("__set__") {
             return vm
                 .invoke(&descriptor, vec![attr, obj.clone(), value])

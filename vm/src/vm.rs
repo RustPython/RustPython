@@ -672,15 +672,14 @@ impl VirtualMachine {
             if let Ok(val) = TryFromObject::try_from_object(self, obj.clone()) {
                 Ok(val)
             } else {
-                let cls = obj.lease_class();
-                if cls.has_attr("__index__") {
+                if obj.lease_class().has_attr("__index__") {
                     self.call_method(obj, "__index__", vec![]).and_then(|r| {
                         if let Ok(val) = TryFromObject::try_from_object(self, r) {
                             Ok(val)
                         } else {
                             Err(self.new_type_error(format!(
                                 "__index__ returned non-int (type {})",
-                                cls.name
+                                obj.lease_class().name
                             )))
                         }
                     })
@@ -803,8 +802,7 @@ impl VirtualMachine {
         flame_guard!(format!("call_method({:?})", method_name));
 
         // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
-        let cls = obj.lease_class();
-        match cls.get_attr(method_name) {
+        match obj.get_class_attr(method_name) {
             Some(func) => {
                 vm_trace!(
                     "vm.call_method {:?} {:?} {:?} -> {:?}",
@@ -940,8 +938,7 @@ impl VirtualMachine {
     where
         F: FnOnce() -> String,
     {
-        let cls = obj.lease_class();
-        match cls.get_attr(method_name) {
+        match obj.get_class_attr(method_name) {
             Some(method) => self.call_if_get_descriptor(method, obj.clone()),
             None => Err(self.new_type_error(err_msg())),
         }
@@ -949,8 +946,7 @@ impl VirtualMachine {
 
     /// May return exception, if `__get__` descriptor raises one
     pub fn get_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
-        let cls = obj.lease_class();
-        let method = cls.get_attr(method_name)?;
+        let method = obj.get_class_attr(method_name)?;
         Some(self.call_if_get_descriptor(method, obj.clone()))
     }
 
