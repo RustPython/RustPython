@@ -104,7 +104,7 @@ def get_module_methods(name):
             return None
         except Exception as e:
             print("!!! {} skipped because {}: {}".format(name, type(e).__name__, str(e)))
-
+1
 
 def gen_modules(header, footer, output):
     output.write(header.read())
@@ -124,7 +124,7 @@ def gen_modules(header, footer, output):
     print(
         f"""
 cpymods = {modules!r}
-libdir = {os.path.abspath("../Lib/")!r}
+libdir = {os.path.abspath("../Lib/").encode('utf8')!r}
 """,
         file=output,
     )
