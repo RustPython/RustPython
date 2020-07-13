@@ -104,7 +104,6 @@ def get_module_methods(name):
             return None
         except Exception as e:
             print("!!! {} skipped because {}: {}".format(name, type(e).__name__, str(e)))
-1
 
 def gen_modules(header, footer, output):
     output.write(header.read())
@@ -141,4 +140,3 @@ for name, gen_func in gen_funcs.items():
         footer=open(f"generator/not_impl_{name}_footer.txt"),
         output=open(f"snippets/whats_left_{name}.py", "w"),
     )
-
