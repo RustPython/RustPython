@@ -5,7 +5,6 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
@@ -588,7 +587,7 @@ impl PyContext {
     pub fn new_base_object(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
             typ: RwLock::new(class.into_typed_pyobj()),
-            dict: dict.map(|d| ArcSwap::new(d.into_typed_pyobj())),
+            dict: dict.map(|d| RwLock::new(d.into_typed_pyobj())),
             payload: objobject::PyBaseObject,
         }
         .into_ref()
@@ -645,7 +644,7 @@ where
     T: ?Sized + PyObjectPayload,
 {
     pub(crate) typ: RwLock<Arc<PyObject<PyClass>>>, // __class__ member
-    pub(crate) dict: Option<ArcSwap<PyObject<PyDict>>>, // __dict__ member
+    pub(crate) dict: Option<RwLock<Arc<PyObject<PyDict>>>>, // __dict__ member
     pub payload: T,
 }
 
@@ -1214,7 +1213,7 @@ where
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
             typ: RwLock::new(typ.into_typed_pyobj()),
-            dict: dict.map(|d| ArcSwap::new(d.into_typed_pyobj())),
+            dict: dict.map(|d| RwLock::new(d.into_typed_pyobj())),
             payload,
         }
         .into_ref()
@@ -1238,14 +1237,14 @@ where
     T: ?Sized + PyObjectPayload,
 {
     pub fn dict(&self) -> Option<PyDictRef> {
-        self.dict.as_ref().map(|mu| mu.load_full().into_pyref())
+        self.dict.as_ref().map(|mu| mu.read().clone().into_pyref())
     }
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
     pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
         match self.dict {
             Some(ref mu) => {
-                mu.store(dict.into_typed_pyobj());
+                *mu.write() = dict.into_typed_pyobj();
                 Ok(())
             }
             None => Err(dict),
