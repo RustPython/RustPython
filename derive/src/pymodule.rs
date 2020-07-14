@@ -115,7 +115,10 @@ impl Module {
     }
 }
 
-fn extract_module_items(mut items: Vec<ItemIdent>) -> Result<TokenStream2, Diagnostic> {
+fn extract_module_items(
+    mut items: Vec<ItemIdent>,
+    module_name: &str,
+) -> Result<TokenStream2, Diagnostic> {
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
     let mut module = Module::default();
@@ -132,7 +135,10 @@ fn extract_module_items(mut items: Vec<ItemIdent>) -> Result<TokenStream2, Diagn
             item_ident,
             py_name,
         } => {
-            let new_func = quote_spanned!(item_ident.span() => .new_function(#item_ident));
+            let new_func = quote_spanned!(item_ident.span() =>
+                                                      .new_function_named(#item_ident,
+                                                                          #module_name.to_owned(),
+                                                                          #py_name.to_owned()));
             quote! {
                 vm.__module_set_attr(&module, #py_name, vm.ctx#new_func).unwrap();
             }
@@ -183,7 +189,7 @@ pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Di
         })
         .collect();
 
-    let extend_mod = extract_module_items(items)?;
+    let extend_mod = extract_module_items(items, &module_name)?;
     content.extend(vec![
         parse_quote! {
             const MODULE_NAME: &str = #module_name;
