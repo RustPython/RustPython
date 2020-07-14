@@ -547,14 +547,12 @@ impl VirtualMachine {
             self.set_attr(syntax_error.as_object(), "text", self.new_str(v.to_owned()))
                 .unwrap();
         }
-        if let Some(path) = error.source_path.as_ref() {
-            self.set_attr(
-                syntax_error.as_object(),
-                "filename",
-                self.new_str(path.to_owned()),
-            )
-            .unwrap();
-        }
+        self.set_attr(
+            syntax_error.as_object(),
+            "filename",
+            self.new_str(error.source_path.clone()),
+        )
+        .unwrap();
         syntax_error
     }
 
