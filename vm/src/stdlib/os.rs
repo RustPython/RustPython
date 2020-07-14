@@ -1074,10 +1074,12 @@ fn os_chown(
         return Err(vm.new_os_error(String::from("Specified gid is not valid.")));
     };
 
-    let flag = match follow_symlinks.follow_symlinks {
-        true => nix::unistd::FchownatFlags::FollowSymlink,
-        false => nix::unistd::FchownatFlags::NoFollowSymlink,
+    let flag = if follow_symlinks.follow_symlinks {
+        nix::unistd::FchownatFlags::FollowSymlink
+    } else {
+        nix::unistd::FchownatFlags::NoFollowSymlink
     };
+
     let dir_fd: Option<std::os::unix::io::RawFd> = match dir_fd.dir_fd {
         Some(int_ref) => Some(i32::try_from_object(&vm, int_ref.as_object().clone())?),
         None => None,
