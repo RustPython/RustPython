@@ -33,10 +33,9 @@ fn symtable_symtable(
         .as_str()
         .parse::<compile::Mode>()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
-    let symtable = source_to_symtable(source.as_str(), mode).map_err(|mut err| {
-        err.update_source_path(filename.as_str());
-        vm.new_syntax_error(&err)
-    })?;
+
+    let symtable = source_to_symtable(source.as_str(), mode, filename.as_str())
+        .map_err(|err| vm.new_syntax_error(&err))?;
 
     let py_symbol_table = to_py_symbol_table(symtable);
     Ok(py_symbol_table.into_ref(vm))
@@ -45,17 +44,20 @@ fn symtable_symtable(
 fn source_to_symtable(
     source: &str,
     mode: compile::Mode,
+    filename: &str,
 ) -> Result<symboltable::SymbolTable, CompileError> {
+    let from_parse_error = |e| CompileError::from_parse_error(e, filename.to_owned());
     let symtable = match mode {
         compile::Mode::Exec | compile::Mode::Single => {
-            let ast = parser::parse_program(source)?;
-            symboltable::make_symbol_table(&ast)?
+            let ast = parser::parse_program(source).map_err(from_parse_error)?;
+            symboltable::make_symbol_table(&ast)
         }
         compile::Mode::Eval => {
-            let statement = parser::parse_statement(source)?;
-            symboltable::statements_to_symbol_table(&statement)?
+            let statement = parser::parse_statement(source).map_err(from_parse_error)?;
+            symboltable::statements_to_symbol_table(&statement)
         }
-    };
+    }
+    .map_err(|e| CompileError::from_symbol_table_error(e, filename.to_owned()))?;
 
     Ok(symtable)
 }
