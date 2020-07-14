@@ -2130,7 +2130,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "chmod", os_chmod, Some(false), Some(false), Some(false)),
         #[cfg(not(target_os = "redox"))]
         SupportFunc::new(vm, "chroot", os_chroot, Some(false), None, None),
-        SupportFunc::new(vm, "chown", os_chown, Some(false), Some(false), Some(false)),
+        SupportFunc::new(vm, "chown", os_chown, None, Some(true), Some(true)),
         SupportFunc::new(vm, "umask", os_umask, Some(false), Some(false), Some(false)),
     ]);
     let supports_fd = PySet::default().into_ref(vm);
