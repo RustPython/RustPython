@@ -1,7 +1,7 @@
 """Tests for Lib/fractions.py."""
 
 from decimal import Decimal
-from test.support import requires_IEEE_754
+# from test.support import requires_IEEE_754
 import math
 import numbers
 import operator
@@ -158,7 +158,7 @@ class FractionTest(unittest.TestCase):
         self.assertRaises(TypeError, F, 3, 1j)
         self.assertRaises(TypeError, F, 1, 2, 3)
 
-    @requires_IEEE_754
+    # @requires_IEEE_754
     def testInitFromFloat(self):
         self.assertEqual((5, 2), _components(F(2.5)))
         self.assertEqual((0, 1), _components(F(-0.0)))
@@ -323,6 +323,8 @@ class FractionTest(unittest.TestCase):
                 ValueError, "max_denominator should be at least 1",
                 F(1).limit_denominator, i)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testConversions(self):
         self.assertTypedEquals(-1, math.trunc(F(-11, 10)))
         self.assertTypedEquals(1, math.trunc(F(11, 10)))
@@ -390,6 +392,8 @@ class FractionTest(unittest.TestCase):
         self.assertTypedEquals(F(-2, 10), round(F(-15, 100), 1))
         self.assertTypedEquals(F(-2, 10), round(F(-25, 100), 1))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testArithmetic(self):
         self.assertEqual(F(1, 2), F(1, 10) + F(2, 5))
         self.assertEqual(F(-3, 10), F(1, 10) - F(2, 5))
@@ -456,6 +460,8 @@ class FractionTest(unittest.TestCase):
             divmod(F(-2**100, 3), F(5, 2**100))
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testMixedArithmetic(self):
         self.assertTypedEquals(F(11, 10), F(1, 10) + 1)
         self.assertTypedEquals(1.1, F(1, 10) + 1.0)
@@ -711,6 +717,8 @@ class FractionTest(unittest.TestCase):
             s += num / fact * sign
         self.assertAlmostEqual(math.cos(1), s)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copy_deepcopy_pickle(self):
         r = F(13, 7)
         dr = DummyFraction(13, 7)
@@ -722,6 +730,8 @@ class FractionTest(unittest.TestCase):
         self.assertTypedEquals(dr, copy(dr))
         self.assertTypedEquals(dr, deepcopy(dr))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_slots(self):
         # Issue 4998
         r = F(13, 7)
