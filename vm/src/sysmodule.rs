@@ -5,6 +5,7 @@ use crate::builtins;
 use crate::frame::FrameRef;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
+use crate::obj::objtuple::PyTupleRef;
 use crate::pyhash::PyHashInfo;
 use crate::pyobject::{
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, TypeProtocol,
@@ -229,6 +230,63 @@ fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     builtins::builtin_print(Args::new(vec![repr]), Default::default(), vm)?;
     vm.set_attr(&vm.builtins, "_", obj)?;
     Ok(())
+}
+
+#[pystruct_sequence(name = "sys.getwindowsversion")]
+#[derive(Default, Debug)]
+#[cfg(windows)]
+struct WindowsVersion {
+    major: u32,
+    minor: u32,
+    build: u32,
+    platform: u32,
+    service_pack: String,
+    service_pack_major: u16,
+    service_pack_minor: u16,
+    suite_mask: u16,
+    product_type: u8,
+    platform_version: (u32, u32, u32),
+}
+
+#[cfg(windows)]
+fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    use winapi::um::{sysinfoapi::GetVersionExW, winnt::{OSVERSIONINFOEXW, LPOSVERSIONINFOW, LPOSVERSIONINFOEXW}};
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+
+    let mut version: OSVERSIONINFOEXW = Default::default();
+    version.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
+    let result = unsafe {
+        let osvi = &mut version as LPOSVERSIONINFOEXW as LPOSVERSIONINFOW; 
+        // SAFE: GetVersionExW accepts a pointer of OSVERSIONINFOW, but winapi crate's type currently doesn't allow to do so.
+        // https://docs.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getversionexw#parameters
+        GetVersionExW(osvi) 
+    };
+
+    if result == 0 {
+        Err(vm.new_os_error("failed to get windows version".to_owned()))
+    } else {
+        let service_pack = {
+            let sp = OsString::from_wide(&version.szCSDVersion);
+            if let Ok(string) = sp.into_string() {
+                string
+            } else {
+                Err(vm.new_os_error("service pack is not ASCII".to_owned()))?
+            }
+        };
+        WindowsVersion {
+            major: version.dwMajorVersion,
+            minor: version.dwMinorVersion,
+            build: version.dwBuildNumber,
+            platform: version.dwPlatformId,
+            service_pack,
+            service_pack_major: version.wServicePackMajor,
+            service_pack_minor: version.wServicePackMinor,
+            suite_mask: version.wSuiteMask,
+            product_type: version.wProductType,
+            platform_version: (version.dwMajorVersion, version.dwMinorVersion, version.dwBuildNumber) // TODO Provide accurate version, like CPython impl
+        }.into_struct_sequence(vm, vm.try_class("sys", "windows_version")?)
+    }
 }
 
 const PLATFORM: &str = {
