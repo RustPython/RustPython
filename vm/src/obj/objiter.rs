@@ -23,7 +23,15 @@ use crate::vm::VirtualMachine;
 pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
     if let Some(method_or_err) = vm.get_method(iter_target.clone(), "__iter__") {
         let method = method_or_err?;
-        vm.invoke(&method, vec![])
+        let iter = vm.invoke(&method, vec![])?;
+        if iter.has_class_attr("__next__") {
+            Ok(iter)
+        } else {
+            Err(vm.new_type_error(format!(
+                "iter() returned non-iterator of type '{}'",
+                iter.lease_class().name
+            )))
+        }
     } else {
         vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
             format!(

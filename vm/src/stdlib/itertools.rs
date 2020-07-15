@@ -493,6 +493,7 @@ mod decl {
     struct GroupByState {
         current_value: Option<PyObjectRef>,
         current_key: Option<PyObjectRef>,
+        next_group: bool,
         grouper: Option<PyWeak<PyObject<PyItertoolsGrouper>>>,
     }
 
@@ -501,6 +502,7 @@ mod decl {
             f.debug_struct("PyItertoolsGroupBy")
                 .field("current_value", &self.current_value)
                 .field("current_key", &self.current_key)
+                .field("next_group", &self.next_group)
                 .finish()
         }
     }
@@ -522,7 +524,7 @@ mod decl {
     #[pyclass(name = "groupby")]
     struct PyItertoolsGroupBy {
         iterable: PyObjectRef,
-        key_func: Option<PyCallable>,
+        key_func: Option<PyObjectRef>,
         state: PyMutex<GroupByState>,
     }
 
@@ -542,21 +544,30 @@ mod decl {
         }
     }
 
+    #[derive(FromArgs)]
+    struct GroupByArgs {
+        iterable: PyObjectRef,
+        #[pyarg(positional_or_keyword, optional = true)]
+        key: OptionalOption<PyObjectRef>,
+    }
+
     #[pyimpl]
     impl PyItertoolsGroupBy {
         #[pyslot]
         fn tp_new(
             cls: PyClassRef,
-            iterable: PyObjectRef,
-            key: OptionalOption<PyCallable>,
+            args: GroupByArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
+            let iter = get_iter(vm, &args.iterable)?;
+
             PyItertoolsGroupBy {
-                iterable,
-                key_func: key.flat_option(),
+                iterable: iter,
+                key_func: args.key.flat_option(),
                 state: PyMutex::new(GroupByState {
                     current_key: None,
                     current_value: None,
+                    next_group: false,
                     grouper: None,
                 }),
             }
@@ -570,23 +581,28 @@ mod decl {
         ) -> PyResult<(PyObjectRef, PyItertoolsGrouperRef)> {
             let mut state = zelf.state.lock();
             state.grouper = None;
-            let current_key = state.current_key.clone();
-            drop(state);
 
-            let (value, key) = if let Some(old_key) = current_key {
-                loop {
-                    let (value, new_key) = zelf.advance(vm)?;
-                    if !vm.bool_eq(new_key.clone(), old_key.clone())? {
-                        break (value, new_key);
+            if !state.next_group {
+                let current_key = state.current_key.clone();
+                drop(state);
+
+                let (value, key) = if let Some(old_key) = current_key {
+                    loop {
+                        let (value, new_key) = zelf.advance(vm)?;
+                        if !vm.bool_eq(new_key.clone(), old_key.clone())? {
+                            break (value, new_key);
+                        }
                     }
-                }
-            } else {
-                zelf.advance(vm)?
-            };
+                } else {
+                    zelf.advance(vm)?
+                };
 
-            let mut state = zelf.state.lock();
-            state.current_value = Some(value.clone());
-            state.current_key = Some(key);
+                state = zelf.state.lock();
+                state.current_value = Some(value);
+                state.current_key = Some(key);
+            }
+
+            state.next_group = false;
 
             let grouper = PyItertoolsGrouper {
                 groupby: zelf.clone(),
@@ -594,7 +610,7 @@ mod decl {
             .into_ref(vm);
 
             state.grouper = Some(PyRc::downgrade(&grouper.clone().into_typed_pyobj()));
-            Ok((value, grouper))
+            Ok((state.current_key.clone().unwrap(), grouper))
         }
 
         #[pymethod(name = "__iter__")]
@@ -605,7 +621,7 @@ mod decl {
         pub(super) fn advance(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
             let new_value = call_next(vm, &self.iterable)?;
             let new_key = if let Some(ref kf) = self.key_func {
-                kf.invoke(new_value.clone(), vm)?
+                vm.invoke(kf, new_value.clone())?
             } else {
                 new_value.clone()
             };
@@ -651,6 +667,8 @@ mod decl {
                     let mut state = zelf.groupby.state.lock();
                     state.current_value = Some(value);
                     state.current_key = Some(key);
+                    state.next_group = true;
+                    state.grouper = None;
                     Err(new_stop_iteration(vm))
                 }
             }

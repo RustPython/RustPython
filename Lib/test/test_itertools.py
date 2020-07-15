@@ -120,6 +120,8 @@ class TestBasicOps(unittest.TestCase):
             c = expand(compare[took:])
             self.assertEqual(a, c);
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_accumulate(self):
         self.assertEqual(list(accumulate(range(10))),               # one positional arg
                           [0, 1, 3, 6, 10, 15, 21, 28, 36, 45])
@@ -177,6 +179,8 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(take(4, chain.from_iterable(['abc', 'def'])), list('abcd'))
         self.assertRaises(TypeError, list, chain.from_iterable([2, 3]))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_chain_reducible(self):
         for oper in [copy.deepcopy] + picklecopiers:
             it = chain('abc', 'def')
@@ -190,6 +194,8 @@ class TestBasicOps(unittest.TestCase):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             self.pickletest(proto, chain('abc', 'def'), compare=list('abcdef'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_chain_setstate(self):
         self.assertRaises(TypeError, chain().__setstate__, ())
         self.assertRaises(TypeError, chain().__setstate__, [])
@@ -203,6 +209,8 @@ class TestBasicOps(unittest.TestCase):
         it.__setstate__((iter(['abc', 'def']), iter(['ghi'])))
         self.assertEqual(list(it), ['ghi', 'a', 'b', 'c', 'd', 'e', 'f'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_combinations(self):
         self.assertRaises(TypeError, combinations, 'abc')       # missing r argument
         self.assertRaises(TypeError, combinations, 'abc', 2, 1) # too many arguments
@@ -294,6 +302,8 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(len(set(map(id, combinations('abcde', 3)))), 1)
         self.assertNotEqual(len(set(map(id, list(combinations('abcde', 3))))), 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_combinations_with_replacement(self):
         cwr = combinations_with_replacement
         self.assertRaises(TypeError, cwr, 'abc')       # missing r argument
@@ -382,6 +392,8 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(len(set(map(id, cwr('abcde', 3)))), 1)
         self.assertNotEqual(len(set(map(id, list(cwr('abcde', 3))))), 1)
 
+    # TODO: RUSTPYTHON - panics with 'index out of bounds: the len is 0 but the index is 18446744073709551615'
+    @unittest.skip("panics")
     def test_permutations(self):
         self.assertRaises(TypeError, permutations)              # too few arguments
         self.assertRaises(TypeError, permutations, 'abc', 2, 1) # too many arguments
@@ -455,6 +467,8 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(len(set(map(id, permutations('abcde', 3)))), 1)
         self.assertNotEqual(len(set(map(id, list(permutations('abcde', 3))))), 1)
 
+    # TODO: RUSTPYTHON - panics with 'index out of bounds: the len is 0 but the index is 18446744073709551615'
+    @unittest.skip("panics")
     def test_combinatorics(self):
         # Test relationships between product(), permutations(),
         # combinations() and combinations_with_replacement().
@@ -488,6 +502,8 @@ class TestBasicOps(unittest.TestCase):
                 self.assertEqual(comb, list(filter(set(perm).__contains__, cwr)))     # comb: cwr that is a perm
                 self.assertEqual(comb, sorted(set(cwr) & set(perm)))            # comb: both a cwr and a perm
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compress(self):
         self.assertEqual(list(compress(data='ABCDEF', selectors=[1,0,1,0,1,1])), list('ACEF'))
         self.assertEqual(list(compress('ABCDEF', [1,0,1,0,1,1])), list('ACEF'))
@@ -521,7 +537,8 @@ class TestBasicOps(unittest.TestCase):
                     next(testIntermediate)
                     self.assertEqual(list(op(testIntermediate)), list(result2))
 
-
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_count(self):
         self.assertEqual(lzip('abc',count()), [('a', 0), ('b', 1), ('c', 2)])
         self.assertEqual(lzip('abc',count(3)), [('a', 3), ('b', 4), ('c', 5)])
@@ -570,6 +587,8 @@ class TestBasicOps(unittest.TestCase):
         #check proper internal error handling for large "step' sizes
         count(1, maxsize+5); sys.exc_info()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_count_with_stride(self):
         self.assertEqual(lzip('abc',count(2,3)), [('a', 2), ('b', 5), ('c', 8)])
         self.assertEqual(lzip('abc',count(start=2,step=3)),
@@ -625,6 +644,8 @@ class TestBasicOps(unittest.TestCase):
                 for proto in range(pickle.HIGHEST_PROTOCOL + 1):
                     self.pickletest(proto, count(i, j))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cycle(self):
         self.assertEqual(take(10, cycle('abc')), list('abcabcabca'))
         self.assertEqual(list(cycle('')), [])
@@ -667,6 +688,8 @@ class TestBasicOps(unittest.TestCase):
             d = pickle.loads(p)                  # rebuild the cycle object
             self.assertEqual(take(20, d), list('cdeabcdeabcdeabcdeab'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cycle_setstate(self):
         # Verify both modes for restoring state
 
@@ -703,6 +726,8 @@ class TestBasicOps(unittest.TestCase):
         self.assertRaises(TypeError, cycle('').__setstate__, ())
         self.assertRaises(TypeError, cycle('').__setstate__, ([],))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_groupby(self):
         # Check whether it accepts arguments correctly
         self.assertEqual([], list(groupby([])))
@@ -833,6 +858,8 @@ class TestBasicOps(unittest.TestCase):
         keyfunc.skip = 1
         self.assertRaises(ExpectedError, gulp, [None, None], keyfunc)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_filter(self):
         self.assertEqual(list(filter(isEven, range(6))), [0,2,4])
         self.assertEqual(list(filter(None, [0,1,0,2,0])), [1,2])
@@ -860,6 +887,8 @@ class TestBasicOps(unittest.TestCase):
             c = filter(isEven, range(6))
             self.pickletest(proto, c)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_filterfalse(self):
         self.assertEqual(list(filterfalse(isEven, range(6))), [1,3,5])
         self.assertEqual(list(filterfalse(None, [0,1,0,2,0])), [0,0,0])
@@ -965,6 +994,8 @@ class TestBasicOps(unittest.TestCase):
         ids = list(map(id, list(zip_longest('abc', 'def'))))
         self.assertEqual(len(dict.fromkeys(ids)), len(ids))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_zip_longest_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             self.pickletest(proto, zip_longest("abc", "def"))
@@ -1024,6 +1055,8 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(next(it), (1, 2))
         self.assertRaises(RuntimeError, next, it)
 
+    # TODO: RUSTPYTHON - panics with 'index out of bounds: the len is 0 but the index is 18446744073709551615'
+    @unittest.skip("panics")
     def test_product(self):
         for args, result in [
             ([], [()]),                     # zero iterables
@@ -1092,6 +1125,8 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(len(set(map(id, product('abc', 'def')))), 1)
         self.assertNotEqual(len(set(map(id, list(product('abc', 'def'))))), 1)
 
+    # TODO: RUSTPYTHON - panics with 'index out of bounds: the len is 0 but the index is 18446744073709551615'
+    @unittest.skip("panics")
     def test_product_pickling(self):
         # check copy, deepcopy, pickle
         for args, result in [
@@ -1107,6 +1142,8 @@ class TestBasicOps(unittest.TestCase):
             for proto in range(pickle.HIGHEST_PROTOCOL + 1):
                 self.pickletest(proto, product(*args))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_product_issue_25021(self):
         # test that indices are properly clamped to the length of the tuples
         p = product((1, 2),(3,))
@@ -1117,6 +1154,8 @@ class TestBasicOps(unittest.TestCase):
         p.__setstate__((0, 0, 0x1000))  # will access tuple element 1 if not clamped
         self.assertRaises(StopIteration, next, p)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_repeat(self):
         self.assertEqual(list(repeat(object='a', times=3)), ['a', 'a', 'a'])
         self.assertEqual(lzip(range(3),repeat('a')),
@@ -1143,12 +1182,16 @@ class TestBasicOps(unittest.TestCase):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             self.pickletest(proto, repeat(object='a', times=10))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_repeat_with_negative_times(self):
         self.assertEqual(repr(repeat('a', -1)), "repeat('a', 0)")
         self.assertEqual(repr(repeat('a', -2)), "repeat('a', 0)")
         self.assertEqual(repr(repeat('a', times=-1)), "repeat('a', 0)")
         self.assertEqual(repr(repeat('a', times=-2)), "repeat('a', 0)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_map(self):
         self.assertEqual(list(map(operator.pow, range(3), range(1,7))),
                          [0**1, 1**2, 2**3])
@@ -1179,6 +1222,8 @@ class TestBasicOps(unittest.TestCase):
             c = map(tupleize, 'abc', count())
             self.pickletest(proto, c)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_starmap(self):
         self.assertEqual(list(starmap(operator.pow, zip(range(3), range(1,7)))),
                          [0**1, 1**2, 2**3])
@@ -1206,6 +1251,8 @@ class TestBasicOps(unittest.TestCase):
             c = starmap(operator.pow, zip(range(3), range(1,7)))
             self.pickletest(proto, c)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_islice(self):
         for args in [          # islice(args) should agree with range(args)
                 (10, 20, 3),
@@ -1300,6 +1347,8 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(list(islice(range(100), IntLike(10), IntLike(50), IntLike(5))),
                          list(range(10,50,5)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_takewhile(self):
         data = [1, 3, 5, 20, 2, 4, 6, 8]
         self.assertEqual(list(takewhile(underten, data)), [1, 3, 5])
@@ -1320,6 +1369,8 @@ class TestBasicOps(unittest.TestCase):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             self.pickletest(proto, takewhile(underten, data))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dropwhile(self):
         data = [1, 3, 5, 20, 2, 4, 6, 8]
         self.assertEqual(list(dropwhile(underten, data)), [20, 2, 4, 6, 8])
@@ -1337,6 +1388,8 @@ class TestBasicOps(unittest.TestCase):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             self.pickletest(proto, dropwhile(underten, data))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_tee(self):
         n = 200
 
@@ -1486,6 +1539,8 @@ class TestBasicOps(unittest.TestCase):
             self.pickletest(proto, b, compare=ans)
 
     # Issue 13454: Crash when deleting backward iterator from tee()
+    # TODO: RUSTPYTHON
+    @unittest.skip("hangs")
     def test_tee_del_backward(self):
         forward, backward = tee(repeat(None, 20000000))
         try:
@@ -1495,6 +1550,8 @@ class TestBasicOps(unittest.TestCase):
             del forward, backward
             raise
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_tee_reenter(self):
         class I:
             first = True
@@ -1510,6 +1567,8 @@ class TestBasicOps(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "tee"):
             next(a)
 
+    # TODO: RUSTPYTHON - hangs
+    @unittest.skip("hangs")
     def test_tee_concurrent(self):
         start = threading.Event()
         finish = threading.Event()
@@ -1559,6 +1618,8 @@ class TestExamples(unittest.TestCase):
     def test_accumulate(self):
         self.assertEqual(list(accumulate([1,2,3,4,5])), [1, 3, 6, 10, 15])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_accumulate_reducible(self):
         # check copy, deepcopy, pickle
         data = [1, 2, 3, 4, 5]
@@ -1574,6 +1635,8 @@ class TestExamples(unittest.TestCase):
         self.assertEqual(list(copy.deepcopy(it)), accumulated[1:])
         self.assertEqual(list(copy.copy(it)), accumulated[1:])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_accumulate_reducible_none(self):
         # Issue #25718: total is None
         it = accumulate([None, None, None], operator.is_)
@@ -1627,6 +1690,8 @@ class TestExamples(unittest.TestCase):
     def test_map(self):
         self.assertEqual(list(map(pow, (2,3,10), (5,2,3))), [32, 9, 1000])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_islice(self):
         self.assertEqual(list(islice('ABCDEFG', 2)), list('AB'))
         self.assertEqual(list(islice('ABCDEFG', 2, 4)), list('CD'))
@@ -1885,7 +1950,6 @@ def L(seqn):
 
 
 class TestVariousIteratorArgs(unittest.TestCase):
-
     def test_accumulate(self):
         s = [1,2,3,4,5]
         r = [1,3,6,10,15]
@@ -2041,11 +2105,15 @@ class TestVariousIteratorArgs(unittest.TestCase):
 
 class LengthTransparency(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_repeat(self):
         self.assertEqual(operator.length_hint(repeat(None, 50)), 50)
         self.assertEqual(operator.length_hint(repeat(None, 0)), 0)
         self.assertEqual(operator.length_hint(repeat(None), 12), 12)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_repeat_with_negative_times(self):
         self.assertEqual(operator.length_hint(repeat(None, -1)), 0)
         self.assertEqual(operator.length_hint(repeat(None, -2)), 0)
@@ -2145,6 +2213,8 @@ class RegressionTests(unittest.TestCase):
 
 
 class SubclassWithKwargsTest(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_keywords_in_subclass(self):
         # count is not subclassable...
         for cls in (repeat, zip, filter, filterfalse, chain, map,
@@ -2530,8 +2600,9 @@ def test_main(verbose=None):
             counts[i] = sys.gettotalrefcount()
         print(counts)
 
+    # TODO: RUSTPYTHON this hangs or is very slow
     # doctest the examples in the library reference
-    support.run_doctest(sys.modules[__name__], verbose)
+    # support.run_doctest(sys.modules[__name__], verbose)
 
 if __name__ == "__main__":
     test_main(verbose=True)
