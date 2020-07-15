@@ -23,7 +23,7 @@ jobs:
           powershell.exe scripts/symlinks-to-hardlinks.ps1
         if: runner.os == 'Windows'
       - name: Cache cargo dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           key: ${{ runner.os }}-rust_tests-${{ hashFiles('Cargo.lock') }}
           path: target
@@ -49,7 +49,7 @@ jobs:
           powershell.exe scripts/symlinks-to-hardlinks.ps1
         if: runner.os == 'Windows'
       - name: Cache cargo dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           key: ${{ runner.os }}-snippets-${{ hashFiles('Cargo.lock') }}
           path: target
@@ -120,7 +120,7 @@ jobs:
     steps:
       - uses: actions/checkout@master
       - name: Cache cargo dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           key: ${{ runner.os }}-wasm-${{ hashFiles('**/Cargo.lock') }}
           path: target
