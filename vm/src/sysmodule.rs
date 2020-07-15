@@ -267,7 +267,8 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         Err(vm.new_os_error("failed to get windows version".to_owned()))
     } else {
         let service_pack = {
-            let sp = OsString::from_wide(&version.szCSDVersion);
+            let (last, _) = version.szCSDVersion.iter().take_while(|&x| x != &0).enumerate().last().unwrap_or((0, &0));
+            let sp = OsString::from_wide(&version.szCSDVersion[..last]);
             if let Ok(string) = sp.into_string() {
                 string
             } else {
