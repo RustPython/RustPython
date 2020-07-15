@@ -284,7 +284,7 @@ pub fn opt_len(obj: &PyObjectRef, vm: &VirtualMachine) -> Option<PyResult<usize>
             .ok_or_else(|| {
                 vm.new_type_error(format!(
                     "'{}' object cannot be interpreted as an integer",
-                    len.class().name
+                    len.lease_class().name
                 ))
             })?
             .as_bigint();
@@ -301,7 +301,7 @@ pub fn len(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
     opt_len(obj, vm).unwrap_or_else(|| {
         Err(vm.new_type_error(format!(
             "object of type '{}' has no len()",
-            obj.class().name
+            obj.lease_class().name
         )))
     })
 }

@@ -294,9 +294,9 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
     // (and yes, this will never get dropped. TODO?)
     let (type_type, object_type) = unsafe {
         type PyClassObj = PyObject<PyClass>;
-        type UninitRef<T> = Arc<MaybeUninit<T>>;
+        type UninitRef<T> = RwLock<Arc<MaybeUninit<T>>>;
 
-        let type_type: UninitRef<PyClassObj> = Arc::new(partially_init!(
+        let type_type: Arc<MaybeUninit<PyClassObj>> = Arc::new(partially_init!(
             PyObject::<PyClass> {
                 dict: None,
                 payload: PyClass {
@@ -310,7 +310,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             },
             Uninit { typ }
         ));
-        let object_type: UninitRef<PyClassObj> = Arc::new(partially_init!(
+        let object_type: Arc<MaybeUninit<PyClassObj>> = Arc::new(partially_init!(
             PyObject::<PyClass> {
                 dict: None,
                 payload: PyClass {
@@ -331,12 +331,13 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             Arc::into_raw(type_type.clone()) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
 
         ptr::write(
-            &mut (*object_type_ptr).typ as *mut Arc<PyClassObj> as *mut UninitRef<PyClassObj>,
-            type_type.clone(),
+            &mut (*object_type_ptr).typ as *mut RwLock<Arc<PyClassObj>>
+                as *mut UninitRef<PyClassObj>,
+            RwLock::new(type_type.clone()),
         );
         ptr::write(
-            &mut (*type_type_ptr).typ as *mut Arc<PyClassObj> as *mut UninitRef<PyClassObj>,
-            type_type,
+            &mut (*type_type_ptr).typ as *mut RwLock<Arc<PyClassObj>> as *mut UninitRef<PyClassObj>,
+            RwLock::new(type_type),
         );
 
         let type_type = PyClassRef::from_obj_unchecked(Arc::from_raw(type_type_ptr));

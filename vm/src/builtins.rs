@@ -44,7 +44,7 @@ mod decl {
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let method = vm.get_method_or_type_error(x.clone(), "__abs__", || {
-            format!("bad operand type for abs(): '{}'", x.class().name)
+            format!("bad operand type for abs(): '{}'", x.lease_class().name)
         })?;
         vm.invoke(&method, PyFuncArgs::new(vec![], vec![]))
     }
@@ -285,7 +285,7 @@ mod decl {
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "__format__ must return a str, not {}",
-                    obj.class().name
+                    obj.lease_class().name
                 ))
             })
     }
@@ -381,7 +381,7 @@ mod decl {
             |o| {
                 format!(
                     "isinstance() arg 2 must be a type or tuple of types, not {}",
-                    o.class()
+                    o.lease_class()
                 )
             },
             vm,
@@ -396,7 +396,7 @@ mod decl {
             |o| {
                 format!(
                     "issubclass() arg 2 must be a class or tuple of classes, not {}",
-                    o.class()
+                    o.lease_class()
                 )
             },
             vm,
@@ -603,8 +603,8 @@ mod decl {
             }
             OptionalArg::Present(m) => {
                 // Check if the 3rd argument is defined and perform modulus on the result
-                if !(objtype::isinstance(&x, &vm.ctx.int_type())
-                    && objtype::isinstance(&y, &vm.ctx.int_type()))
+                if !(objtype::isinstance(&x, &vm.ctx.types.int_type)
+                    && objtype::isinstance(&y, &vm.ctx.types.int_type))
                 {
                     return Err(vm.new_type_error(
                         "pow() 3rd argument not allowed unless all arguments are integers"
@@ -791,9 +791,10 @@ mod decl {
         };
 
         for base in bases.clone() {
-            if objtype::issubclass(&base.class(), &metaclass) {
+            let base_class = base.lease_class();
+            if objtype::issubclass(&base_class, &metaclass) {
                 metaclass = base.class();
-            } else if !objtype::issubclass(&metaclass, &base.class()) {
+            } else if !objtype::issubclass(&metaclass, &base_class) {
                 return Err(vm.new_type_error(
                     "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
                  subclass of the metaclasses of all its bases"

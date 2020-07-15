@@ -4,6 +4,7 @@ use super::objlist::PyList;
 use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
+use crate::obj::objtype::PyClass;
 use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassImpl, PyComparisonValue,
@@ -100,10 +101,8 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        let cls = obj.class();
-
-        if let Some(attr) = cls.get_attr(attr_name.as_str()) {
-            if let Some(descriptor) = attr.class().get_attr("__delete__") {
+        if let Some(attr) = obj.get_class_attr(attr_name.as_str()) {
+            if let Some(descriptor) = attr.get_class_attr("__delete__") {
                 return vm.invoke(&descriptor, vec![attr, obj.clone()]).map(|_| ());
             }
         }
@@ -114,7 +113,7 @@ impl PyBaseObject {
         } else {
             Err(vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
-                obj.class().name,
+                obj.lease_class().name,
                 attr_name.as_str()
             )))
         }
@@ -127,7 +126,11 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn repr(zelf: PyObjectRef) -> String {
-        format!("<{} object at 0x{:x}>", zelf.class().name, zelf.get_id())
+        format!(
+            "<{} object at 0x{:x}>",
+            zelf.lease_class().name,
+            zelf.get_id()
+        )
     }
 
     #[pyclassmethod(magic)]
@@ -180,9 +183,27 @@ impl PyBaseObject {
     }
 
     #[pyproperty(name = "__class__", setter)]
-    fn set_class(instance: PyObjectRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let type_repr = vm.to_pystr(&instance.class())?;
-        Err(vm.new_type_error(format!("can't change class of type '{}'", type_repr)))
+    fn set_class(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if instance.payload_is::<PyBaseObject>() {
+            match value.downcast_generic::<PyClass>() {
+                Ok(cls) => {
+                    // FIXME(#1979) cls instances might have a payload
+                    *instance.typ.write() = cls;
+                    Ok(())
+                }
+                Err(value) => {
+                    let type_repr = vm.to_pystr(&value.class())?;
+                    Err(vm.new_type_error(format!(
+                        "__class__ must be set to a class, not '{}' object",
+                        type_repr
+                    )))
+                }
+            }
+        } else {
+            Err(vm.new_type_error(
+                "__class__ assignment only supported for types without a payload".to_owned(),
+            ))
+        }
     }
 
     #[pyproperty(magic)]
@@ -190,7 +211,7 @@ impl PyBaseObject {
         object.dict().ok_or_else(|| {
             vm.new_attribute_error(format!(
                 "'{}' object has no attribute '__dict__'",
-                object.class().name
+                object.lease_class().name
             ))
         })
     }
@@ -200,7 +221,7 @@ impl PyBaseObject {
         instance.set_dict(value).map_err(|_| {
             vm.new_attribute_error(format!(
                 "'{}' object has no attribute '__dict__'",
-                instance.class().name
+                instance.lease_class().name
             ))
         })
     }
@@ -218,8 +239,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
-        let cls = obj.class();
-        if let Some(reduce) = cls.get_attr("__reduce__") {
+        if let Some(reduce) = obj.get_class_attr("__reduce__") {
             let object_reduce = vm.ctx.types.object_type.get_attr("__reduce__").unwrap();
             if !reduce.is(&object_reduce) {
                 return vm.invoke(&reduce, vec![]);
@@ -236,10 +256,9 @@ pub(crate) fn setattr(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
-    let cls = obj.class();
 
-    if let Some(attr) = cls.get_attr(attr_name.as_str()) {
-        if let Some(descriptor) = attr.class().get_attr("__set__") {
+    if let Some(attr) = obj.get_class_attr(attr_name.as_str()) {
+        if let Some(descriptor) = attr.get_class_attr("__set__") {
             return vm
                 .invoke(&descriptor, vec![attr, obj.clone(), value])
                 .map(|_| ());
@@ -252,7 +271,7 @@ pub(crate) fn setattr(
     } else {
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
-            obj.class().name,
+            obj.lease_class().name,
             attr_name.as_str()
         )))
     }

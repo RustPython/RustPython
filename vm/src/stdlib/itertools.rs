@@ -505,7 +505,7 @@ mod decl {
     }
 
     fn pyobject_to_opt_usize(obj: PyObjectRef, vm: &VirtualMachine) -> Option<usize> {
-        let is_int = objtype::isinstance(&obj, &vm.ctx.int_type());
+        let is_int = objtype::isinstance(&obj, &vm.ctx.types.int_type);
         if is_int {
             objint::get_value(&obj).to_usize()
         } else {
@@ -794,7 +794,7 @@ mod decl {
         ) -> PyResult<PyRef<PyTuple>> {
             let n = n.unwrap_or(2);
 
-            let copyable = if iterable.class().has_attr("__copy__") {
+            let copyable = if iterable.lease_class().has_attr("__copy__") {
                 vm.call_method(&iterable, "__copy__", PyFuncArgs::from(vec![]))?
             } else {
                 PyItertoolsTee::from_iter(iterable, vm)?

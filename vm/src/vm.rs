@@ -470,8 +470,8 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "Unsupported operand types for '{}': '{}' and '{}'",
             op,
-            a.class().name,
-            b.class().name
+            a.lease_class().name,
+            b.lease_class().name
         ))
     }
 
@@ -640,7 +640,7 @@ impl VirtualMachine {
 
     // Container of the virtual machine state:
     pub fn to_str(&self, obj: &PyObjectRef) -> PyResult<PyStringRef> {
-        if obj.class().is(&self.ctx.types.str_type) {
+        if obj.lease_class().is(&self.ctx.types.str_type) {
             Ok(obj.clone().downcast().unwrap())
         } else {
             let s = self.call_method(&obj, "__str__", vec![])?;
@@ -669,22 +669,19 @@ impl VirtualMachine {
         Some(
             if let Ok(val) = TryFromObject::try_from_object(self, obj.clone()) {
                 Ok(val)
+            } else if obj.lease_class().has_attr("__index__") {
+                self.call_method(obj, "__index__", vec![]).and_then(|r| {
+                    if let Ok(val) = TryFromObject::try_from_object(self, r) {
+                        Ok(val)
+                    } else {
+                        Err(self.new_type_error(format!(
+                            "__index__ returned non-int (type {})",
+                            obj.lease_class().name
+                        )))
+                    }
+                })
             } else {
-                let cls = obj.class();
-                if cls.has_attr("__index__") {
-                    self.call_method(obj, "__index__", vec![]).and_then(|r| {
-                        if let Ok(val) = TryFromObject::try_from_object(self, r) {
-                            Ok(val)
-                        } else {
-                            Err(self.new_type_error(format!(
-                                "__index__ returned non-int (type {})",
-                                cls.name
-                            )))
-                        }
-                    })
-                } else {
-                    return None;
-                }
+                return None;
             },
         )
     }
@@ -801,8 +798,7 @@ impl VirtualMachine {
         flame_guard!(format!("call_method({:?})", method_name));
 
         // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
-        let cls = obj.class();
-        match cls.get_attr(method_name) {
+        match obj.get_class_attr(method_name) {
             Some(func) => {
                 vm_trace!(
                     "vm.call_method {:?} {:?} {:?} -> {:?}",
@@ -820,18 +816,18 @@ impl VirtualMachine {
 
     fn _invoke(&self, callable: &PyObjectRef, args: PyFuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
-        if let Some(slot_call) = callable.class().slots.read().call.as_ref() {
+        if let Some(slot_call) = callable.lease_class().slots.read().call.as_ref() {
             self.trace_event(TraceEvent::Call)?;
             let args = args.insert(callable.clone());
             let result = slot_call(self, args);
             self.trace_event(TraceEvent::Return)?;
             result
-        } else if callable.class().has_attr("__call__") {
+        } else if callable.lease_class().has_attr("__call__") {
             self.call_method(&callable, "__call__", args)
         } else {
             Err(self.new_type_error(format!(
                 "'{}' object is not callable",
-                callable.class().name
+                callable.lease_class().name
             )))
         }
     }
@@ -938,8 +934,7 @@ impl VirtualMachine {
     where
         F: FnOnce() -> String,
     {
-        let cls = obj.class();
-        match cls.get_attr(method_name) {
+        match obj.get_class_attr(method_name) {
             Some(method) => self.call_if_get_descriptor(method, obj.clone()),
             None => Err(self.new_type_error(err_msg())),
         }
@@ -947,8 +942,7 @@ impl VirtualMachine {
 
     /// May return exception, if `__get__` descriptor raises one
     pub fn get_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
-        let cls = obj.class();
-        let method = cls.get_attr(method_name)?;
+        let method = obj.get_class_attr(method_name)?;
         Some(self.call_if_get_descriptor(method, obj.clone()))
     }
 
@@ -1017,8 +1011,7 @@ impl VirtualMachine {
         let cls = obj.class();
 
         if let Some(attr) = cls.get_attr(&name) {
-            let attr_class = attr.class();
-            if attr_class.has_attr("__set__") {
+            if attr.lease_class().has_attr("__set__") {
                 if let Some(r) = self.call_get_descriptor(attr, obj.clone()) {
                     return r.map(Some);
                 }
@@ -1046,7 +1039,9 @@ impl VirtualMachine {
     }
 
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
-        obj.class().slots.read().call.is_some() || obj.class().has_attr("__call__")
+        let class = obj.lease_class();
+        let lock = class.slots.read();
+        lock.call.is_some() || class.has_attr("__call__")
     }
 
     #[inline]
@@ -1334,7 +1329,12 @@ impl VirtualMachine {
         // TODO: _Py_EnterRecursiveCall(tstate, " in comparison")
 
         let mut checked_reverse_op = false;
-        if !v.typ.is(&w.typ) && objtype::issubclass(&w.class(), &v.class()) {
+        let is_strict_subclass = {
+            let v_class = v.lease_class();
+            let w_class = w.lease_class();
+            !v_class.is(&w_class) && objtype::issubclass(&w_class, &v_class)
+        };
+        if is_strict_subclass {
             if let Some(method_or_err) = self.get_method(w.clone(), swap_op) {
                 let method = method_or_err?;
                 checked_reverse_op = true;
@@ -1345,7 +1345,6 @@ impl VirtualMachine {
                 }
             }
         }
-
         self.call_or_unsupported(v, w, op, |vm, v, w| {
             if !checked_reverse_op {
                 self.call_or_unsupported(w, v, swap_op, |vm, v, w| default(vm, v, w))

@@ -11,12 +11,13 @@ use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
+    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
+use std::ops::Deref;
 
 /// type(object_or_name, bases, dict)
 /// type(object) -> the object's type
@@ -129,16 +130,15 @@ impl PyClassRef {
     fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let name = name_ref.as_str();
         vm_trace!("type.__getattribute__({:?}, {:?})", self, name);
-        let mcl = self.class();
+        let mcl = self.lease_class();
 
         if let Some(attr) = mcl.get_attr(&name) {
-            let attr_class = attr.class();
+            let attr_class = attr.lease_class();
             if attr_class.has_attr("__set__") {
                 if let Some(ref descriptor) = attr_class.get_attr("__get__") {
-                    return vm.invoke(
-                        descriptor,
-                        vec![attr, self.into_object(), mcl.into_object()],
-                    );
+                    drop(attr_class);
+                    let mcl = PyLease::into_pyref(mcl).into_object();
+                    return vm.invoke(descriptor, vec![attr, self.into_object(), mcl]);
                 }
             }
         }
@@ -147,8 +147,10 @@ impl PyClassRef {
             let attr_class = attr.class();
             let slots = attr_class.slots.read();
             if let Some(ref descr_get) = slots.descr_get {
+                drop(mcl);
                 return descr_get(vm, attr, None, OptionalArg::Present(self.into_object()));
             } else if let Some(ref descriptor) = attr_class.get_attr("__get__") {
+                drop(mcl);
                 // TODO: is this nessessary?
                 return vm.invoke(descriptor, vec![attr, vm.get_none(), self.into_object()]);
             }
@@ -157,9 +159,16 @@ impl PyClassRef {
         if let Some(cls_attr) = self.get_attr(&name) {
             Ok(cls_attr)
         } else if let Some(attr) = mcl.get_attr(&name) {
+            drop(mcl);
             vm.call_if_get_descriptor(attr, self.into_object())
         } else if let Some(ref getter) = self.get_attr("__getattr__") {
-            vm.invoke(getter, vec![mcl.into_object(), name_ref.into_object()])
+            vm.invoke(
+                getter,
+                vec![
+                    PyLease::into_pyref(mcl).into_object(),
+                    name_ref.into_object(),
+                ],
+            )
         } else {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
         }
@@ -172,8 +181,8 @@ impl PyClassRef {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(attr) = self.class().get_attr(attr_name.as_str()) {
-            if let Some(ref descriptor) = attr.class().get_attr("__set__") {
+        if let Some(attr) = self.get_class_attr(attr_name.as_str()) {
+            if let Some(ref descriptor) = attr.get_class_attr("__set__") {
                 vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
                 return Ok(());
             }
@@ -185,8 +194,8 @@ impl PyClassRef {
 
     #[pymethod(magic)]
     fn delattr(self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(attr) = self.class().get_attr(attr_name.as_str()) {
-            if let Some(ref descriptor) = attr.class().get_attr("__delete__") {
+        if let Some(attr) = self.get_class_attr(attr_name.as_str()) {
+            if let Some(ref descriptor) = attr.get_class_attr("__delete__") {
                 return vm
                     .invoke(descriptor, vec![attr, self.into_object()])
                     .map(|_| ());
@@ -308,7 +317,7 @@ impl PyClassRef {
                 .map_err(|e| {
                     let err = vm.new_runtime_error(format!(
                         "Error calling __set_name__ on '{}' instance {} in '{}'",
-                        obj.class().name,
+                        obj.lease_class().name,
                         name,
                         typ.name
                     ));
@@ -363,18 +372,40 @@ pub(crate) fn init(ctx: &PyContext) {
     PyClassRef::extend_class(ctx, &ctx.types.type_type);
 }
 
+pub trait DerefToPyClass {
+    fn deref_to_class(&self) -> &PyClass;
+}
+
+impl DerefToPyClass for PyClassRef {
+    fn deref_to_class(&self) -> &PyClass {
+        self.deref()
+    }
+}
+
+impl<'a> DerefToPyClass for PyLease<'a, PyClass> {
+    fn deref_to_class(&self) -> &PyClass {
+        self.deref()
+    }
+}
+
+impl<T: DerefToPyClass> DerefToPyClass for &'_ T {
+    fn deref_to_class(&self) -> &PyClass {
+        (&**self).deref_to_class()
+    }
+}
+
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
 #[inline]
 pub fn isinstance<T: TypeProtocol>(obj: &T, cls: &PyClassRef) -> bool {
-    issubclass(&obj.class(), &cls)
+    issubclass(obj.lease_class(), &cls)
 }
 
 /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
 /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
 /// method.
-pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
-    subclass.iter_mro().any(|c| c.is(cls))
+pub fn issubclass<T: DerefToPyClass + IdProtocol, R: IdProtocol>(subclass: T, cls: R) -> bool {
+    subclass.is(&cls) || subclass.deref_to_class().mro.iter().any(|c| c.is(&cls))
 }
 
 fn call_tp_new(
@@ -417,7 +448,7 @@ pub fn tp_new_wrapper(
     call_tp_new(zelf, cls, args, vm)
 }
 
-impl PyClassRef {
+impl PyClass {
     /// This is the internal get_attr implementation for fast lookup on a class.
     pub fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
         flame_guard!(format!("class_get_attr({:?})", attr_name));
@@ -437,10 +468,15 @@ impl PyClassRef {
 
     // This is the internal has_attr implementation for fast lookup on a class.
     pub fn has_attr(&self, attr_name: &str) -> bool {
-        self.iter_mro()
-            .any(|c| c.attributes.read().contains_key(attr_name))
+        self.attributes.read().contains_key(attr_name)
+            || self
+                .mro
+                .iter()
+                .any(|c| c.attributes.read().contains_key(attr_name))
     }
+}
 
+impl PyClassRef {
     pub fn get_attributes(self) -> PyAttributes {
         // Gather all members here:
         let mut attributes = PyAttributes::new();
@@ -546,7 +582,7 @@ pub fn new(
             slots: RwLock::default(),
         },
         dict: None,
-        typ: typ.into_typed_pyobj(),
+        typ: RwLock::new(typ.into_typed_pyobj()),
     }
     .into_ref();
 
@@ -569,11 +605,11 @@ fn calculate_meta_class(
     // = _PyType_CalculateMetaclass
     let mut winner = metatype;
     for base in bases {
-        let base_type = base.class();
+        let base_type = base.lease_class();
         if issubclass(&winner, &base_type) {
             continue;
         } else if issubclass(&base_type, &winner) {
-            winner = base_type.clone();
+            winner = PyLease::into_pyref(base_type);
             continue;
         }
 

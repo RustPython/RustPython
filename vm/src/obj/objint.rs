@@ -443,13 +443,13 @@ impl PyInt {
                     } else {
                         return Err(vm.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",
-                            value.class().name
+                            value.lease_class().name
                         )));
                     }
                 } else {
                     return Err(vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
-                        value.class().name
+                        value.lease_class().name
                     )));
                 }
             }
@@ -681,9 +681,9 @@ impl IntOptions {
             // FIXME: unnessessary bigint clone/creation
             let base = if let OptionalArg::Present(base) = self.base {
                 if ![
-                    &vm.ctx.str_type(),
-                    &vm.ctx.bytes_type(),
-                    &vm.ctx.bytearray_type(),
+                    &vm.ctx.types.str_type,
+                    &vm.ctx.types.bytes_type,
+                    &vm.ctx.types.bytearray_type,
                 ]
                 .iter()
                 .any(|&typ| objtype::isinstance(&val, typ))
@@ -695,7 +695,7 @@ impl IntOptions {
                 let base = vm.to_index(&base).unwrap_or_else(|| {
                     Err(vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer missing string argument",
-                        base.class().name
+                        base.lease_class().name
                     )))
                 })?;
                 base.as_bigint().clone()

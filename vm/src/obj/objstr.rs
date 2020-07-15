@@ -186,7 +186,7 @@ impl PyString {
                                 "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
                                  encode arbitrary types",
                                 enc,
-                                obj.class().name,
+                                obj.lease_class().name,
                             ))
                         })?
                 } else {
@@ -205,7 +205,7 @@ impl PyString {
     }
     #[pymethod(name = "__add__")]
     fn add(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
+        if objtype::isinstance(&rhs, &vm.ctx.types.str_type) {
             Ok(format!("{}{}", self.value, borrow_value(&rhs)))
         } else {
             Err(vm.new_type_error(format!("Cannot add {} and {}", self, rhs)))
@@ -219,7 +219,7 @@ impl PyString {
 
     #[pymethod(name = "__eq__")]
     fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
+        if objtype::isinstance(&rhs, &vm.ctx.types.str_type) {
             vm.new_bool(self.value == borrow_value(&rhs))
         } else {
             vm.ctx.not_implemented()
@@ -228,7 +228,7 @@ impl PyString {
 
     #[pymethod(name = "__ne__")]
     fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
+        if objtype::isinstance(&rhs, &vm.ctx.types.str_type) {
             vm.new_bool(self.value != borrow_value(&rhs))
         } else {
             vm.ctx.not_implemented()
@@ -609,7 +609,7 @@ impl PyString {
         }
 
         let zelf = &args.args[0];
-        if !objtype::isinstance(&zelf, &vm.ctx.str_type()) {
+        if !objtype::isinstance(&zelf, &vm.ctx.types.str_type) {
             let zelf_typ = zelf.class();
             let actual_type = vm.to_pystr(&zelf_typ)?;
             return Err(vm.new_type_error(format!(
@@ -1060,7 +1060,7 @@ impl PyString {
     #[pymethod]
     fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         vm.get_method_or_type_error(table.clone(), "__getitem__", || {
-            format!("'{}' object is not subscriptable", table.class().name)
+            format!("'{}' object is not subscriptable", table.lease_class().name)
         })?;
 
         let mut translated = String::new();
@@ -1200,7 +1200,7 @@ pub(crate) fn encode_string(
                 "'{}' encoder returned '{}' instead of 'bytes'; use codecs.encode() to \
                  encode arbitrary types",
                 encoding.as_ref().map_or("utf-8", |s| s.as_str()),
-                obj.class().name,
+                obj.lease_class().name,
             ))
         })
 }
@@ -1287,7 +1287,7 @@ fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &
     let returned_type = vm.ctx.new_str(new_format_spec.to_owned());
 
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
-    if !objtype::isinstance(&result, &vm.ctx.str_type()) {
+    if !objtype::isinstance(&result, &vm.ctx.types.str_type) {
         let result_type = result.class();
         let actual_type = vm.to_pystr(&result_type)?;
         return Err(vm.new_type_error(format!("__format__ must return a str, not {}", actual_type)));
@@ -1315,7 +1315,7 @@ fn do_cformat_specifier(
             Ok(format_spec.format_string(clone_value(&result)))
         }
         CFormatType::Number(_) => {
-            if !objtype::isinstance(&obj, &vm.ctx.int_type()) {
+            if !objtype::isinstance(&obj, &vm.ctx.types.int_type) {
                 let required_type_string = match format_type {
                     CFormatType::Number(Decimal) => "a number",
                     CFormatType::Number(_) => "an integer",
@@ -1325,14 +1325,14 @@ fn do_cformat_specifier(
                     "%{} format: {} is required, not {}",
                     format_spec.format_char,
                     required_type_string,
-                    obj.class()
+                    obj.lease_class()
                 )));
             }
             Ok(format_spec.format_number(objint::get_value(&obj)))
         }
-        CFormatType::Float(_) => if objtype::isinstance(&obj, &vm.ctx.float_type()) {
+        CFormatType::Float(_) => if objtype::isinstance(&obj, &vm.ctx.types.float_type) {
             format_spec.format_float(objfloat::get_value(&obj))
-        } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
+        } else if objtype::isinstance(&obj, &vm.ctx.types.int_type) {
             format_spec.format_float(objint::get_value(&obj).to_f64().unwrap())
         } else {
             let required_type_string = "an floating point or integer";
@@ -1340,13 +1340,13 @@ fn do_cformat_specifier(
                 "%{} format: {} is required, not {}",
                 format_spec.format_char,
                 required_type_string,
-                obj.class()
+                obj.lease_class()
             )));
         }
         .map_err(|e| vm.new_not_implemented_error(e)),
         CFormatType::Character => {
             let char_string = {
-                if objtype::isinstance(&obj, &vm.ctx.int_type()) {
+                if objtype::isinstance(&obj, &vm.ctx.types.int_type) {
                     // BigInt truncation is fine in this case because only the unicode range is relevant
                     match objint::get_value(&obj).to_u32().and_then(char::from_u32) {
                         Some(value) => Ok(value.to_string()),
@@ -1354,7 +1354,7 @@ fn do_cformat_specifier(
                             Err(vm.new_overflow_error("%c arg not in range(0x110000)".to_owned()))
                         }
                     }
-                } else if objtype::isinstance(&obj, &vm.ctx.str_type()) {
+                } else if objtype::isinstance(&obj, &vm.ctx.types.str_type) {
                     let s = borrow_value(&obj);
                     let num_chars = s.chars().count();
                     if num_chars != 1 {
@@ -1384,7 +1384,7 @@ fn try_update_quantity_from_tuple(
             match elements.next() {
                 Some(width_obj) => {
                     tuple_index += 1;
-                    if !objtype::isinstance(&width_obj, &vm.ctx.int_type()) {
+                    if !objtype::isinstance(&width_obj, &vm.ctx.types.int_type) {
                         Err(vm.new_type_error("* wants int".to_owned()))
                     } else {
                         // TODO: handle errors when truncating BigInt to usize
@@ -1423,7 +1423,7 @@ pub fn do_cformat_string(
             .all(|(_, part)| CFormatPart::has_key(part));
 
     let values = if mapping_required {
-        if !objtype::isinstance(&values_obj, &vm.ctx.dict_type()) {
+        if !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type) {
             return Err(vm.new_type_error("format requires a mapping".to_owned()));
         }
         values_obj.clone()
@@ -1440,7 +1440,7 @@ pub fn do_cformat_string(
         }
 
         // convert `values_obj` to a new tuple if it's not a tuple
-        if !objtype::isinstance(&values_obj, &vm.ctx.tuple_type()) {
+        if !objtype::isinstance(&values_obj, &vm.ctx.types.tuple_type) {
             vm.ctx.new_tuple(vec![values_obj.clone()])
         } else {
             values_obj.clone()
@@ -1730,7 +1730,10 @@ mod tests {
         let translated = text.translate(translated, &vm).unwrap();
         assert_eq!(translated, "🎅xda".to_owned());
         let translated = text.translate(vm.new_int(3), &vm);
-        assert_eq!(translated.unwrap_err().class().name, "TypeError".to_owned());
+        assert_eq!(
+            translated.unwrap_err().lease_class().name,
+            "TypeError".to_owned()
+        );
     }
 }
 

@@ -141,7 +141,7 @@ impl PyBaseException {
     #[pymethod(name = "__repr__")]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
         let repr_args = exception_args_as_string(vm, zelf.args(), false);
-        let cls = zelf.class();
+        let cls = zelf.lease_class();
         format!("{}({})", cls.name, repr_args.iter().format(", "))
     }
 }
@@ -226,7 +226,7 @@ pub fn write_exception_inner<W: Write>(
     let varargs = exc.args();
     let args_repr = exception_args_as_string(vm, varargs, true);
 
-    let exc_name = exc.class().name.clone();
+    let exc_name = exc.lease_class().name.clone();
     match args_repr.len() {
         0 => writeln!(output, "{}", exc_name),
         1 => writeln!(output, "{}: {}", exc_name, args_repr[0]),
@@ -287,7 +287,7 @@ impl TryFromObject for ExceptionCtor {
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "exceptions must be classes or instances deriving from BaseException, not {}",
-                    obj.class().name
+                    obj.lease_class().name
                 ))
             })
     }
@@ -700,7 +700,7 @@ impl serde::Serialize for SerializeException<'_> {
         use serde::ser::*;
 
         let mut struc = s.serialize_struct("PyBaseException", 7)?;
-        struc.serialize_field("exc_type", &self.exc.class().name)?;
+        struc.serialize_field("exc_type", &self.exc.lease_class().name)?;
         let tbs = {
             struct Tracebacks(PyTracebackRef);
             impl serde::Serialize for Tracebacks {

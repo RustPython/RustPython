@@ -9,7 +9,6 @@ use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::{One, ToPrimitive, Zero};
-use parking_lot::Mutex;
 
 use crate::bytecode;
 use crate::dictdatatype::DictKey;
@@ -41,6 +40,7 @@ use crate::scope::Scope;
 use crate::slots::PyTpFlags;
 use crate::types::{create_type, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
+use parking_lot::{RwLock, RwLockReadGuard};
 
 /* Python objects and references.
 
@@ -76,7 +76,7 @@ pub type PyAttributes = HashMap<String, PyObjectRef>;
 impl fmt::Display for PyObject<dyn PyObjectPayload> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(PyClass { ref name, .. }) = self.payload::<PyClass>() {
-            let type_name = self.class().name.clone();
+            let type_name = self.lease_class().name.clone();
             // We don't have access to a vm, so just assume that if its parent's name
             // is type, it's a type
             if type_name == "type" {
@@ -86,7 +86,7 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
             }
         }
 
-        write!(f, "'{}' object", self.class().name)
+        write!(f, "'{}' object", self.lease_class().name)
     }
 }
 
@@ -586,8 +586,8 @@ impl PyContext {
 
     pub fn new_base_object(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: class.into_typed_pyobj(),
-            dict: dict.map(Mutex::new),
+            typ: RwLock::new(class.into_typed_pyobj()),
+            dict: dict.map(|d| RwLock::new(d.into_typed_pyobj())),
             payload: objobject::PyBaseObject,
         }
         .into_ref()
@@ -643,9 +643,8 @@ pub struct PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    pub typ: Arc<PyObject<PyClass>>,
-    // TODO: make this RwLock once PyObjectRef is Send + Sync
-    pub(crate) dict: Option<Mutex<PyDictRef>>, // __dict__ member
+    pub(crate) typ: RwLock<Arc<PyObject<PyClass>>>, // __class__ member
+    pub(crate) dict: Option<RwLock<Arc<PyObject<PyDict>>>>, // __dict__ member
     pub payload: T,
 }
 
@@ -719,7 +718,7 @@ impl<T: PyValue> PyRef<T> {
         } else {
             Err(vm.new_runtime_error(format!(
                 "Unexpected payload for type {:?}",
-                obj.class().name
+                obj.lease_class().name
             )))
         }
     }
@@ -737,10 +736,6 @@ impl<T: PyValue> PyRef<T> {
 
     pub fn into_object(self) -> PyObjectRef {
         self.obj
-    }
-
-    pub fn typ(&self) -> PyClassRef {
-        self.obj.class()
     }
 
     pub fn into_typed_pyobj(self) -> Arc<PyObject<T>> {
@@ -822,7 +817,10 @@ impl TryFromObject for PyCallable {
         if vm.is_callable(&obj) {
             Ok(PyCallable { obj })
         } else {
-            Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name)))
+            Err(vm.new_type_error(format!(
+                "'{}' object is not callable",
+                obj.lease_class().name
+            )))
         }
     }
 }
@@ -864,13 +862,64 @@ impl<T: PyObjectPayload> IdProtocol for PyRef<T> {
     }
 }
 
+impl<'a, T: PyObjectPayload> IdProtocol for PyLease<'a, T> {
+    fn get_id(&self) -> usize {
+        self.inner.get_id()
+    }
+}
+
+impl<T: IdProtocol> IdProtocol for &'_ T {
+    fn get_id(&self) -> usize {
+        (&**self).get_id()
+    }
+}
+
+/// A borrow of a reference to a Python object. This avoids having clone the `PyRef<T>`/
+/// `PyObjectRef`, which isn't that cheap as that increments the atomic reference counter.
+pub struct PyLease<'a, T: PyObjectPayload> {
+    inner: RwLockReadGuard<'a, Arc<PyObject<T>>>,
+}
+
+impl<'a, T: PyObjectPayload + PyValue> PyLease<'a, T> {
+    // Associated function on purpose, because of deref
+    #[allow(clippy::wrong_self_convention)]
+    pub fn into_pyref(zelf: Self) -> PyRef<T> {
+        PyRef::from_obj_unchecked(zelf.inner.clone() as PyObjectRef)
+    }
+}
+
+impl<'a, T: PyObjectPayload + PyValue> Deref for PyLease<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner.payload
+    }
+}
+
+impl<'a, T> fmt::Display for PyLease<'a, T>
+where
+    T: PyValue + fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.inner.payload, f)
+    }
+}
+
 pub trait TypeProtocol {
-    fn class(&self) -> PyClassRef;
+    fn lease_class(&self) -> PyLease<'_, PyClass>;
+
+    fn class(&self) -> PyClassRef {
+        PyLease::into_pyref(self.lease_class())
+    }
+
+    fn get_class_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+        self.lease_class().get_attr(attr_name)
+    }
 }
 
 impl TypeProtocol for PyObjectRef {
-    fn class(&self) -> PyClassRef {
-        (**self).class()
+    fn lease_class(&self) -> PyLease<'_, PyClass> {
+        (**self).lease_class()
     }
 }
 
@@ -878,20 +927,22 @@ impl<T> TypeProtocol for PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    fn class(&self) -> PyClassRef {
-        self.typ.clone().into_pyref()
+    fn lease_class(&self) -> PyLease<'_, PyClass> {
+        PyLease {
+            inner: self.typ.read(),
+        }
     }
 }
 
 impl<T> TypeProtocol for PyRef<T> {
-    fn class(&self) -> PyClassRef {
-        self.obj.class()
+    fn lease_class(&self) -> PyLease<'_, PyClass> {
+        self.obj.lease_class()
     }
 }
 
 impl<T: TypeProtocol> TypeProtocol for &'_ T {
-    fn class(&self) -> PyClassRef {
-        (&**self).class()
+    fn lease_class(&self) -> PyLease<'_, PyClass> {
+        (&**self).lease_class()
     }
 }
 
@@ -933,7 +984,7 @@ pub trait BufferProtocol {
 
 impl BufferProtocol for PyObjectRef {
     fn readonly(&self) -> bool {
-        match self.class().name.as_str() {
+        match self.lease_class().name.as_str() {
             "bytes" => false,
             "bytearray" | "memoryview" => true,
             _ => panic!("Bytes-Like type expected not {:?}", self),
@@ -1036,7 +1087,7 @@ where
             })
         } else {
             vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
-                format!("'{}' object is not iterable", obj.class().name)
+                format!("'{}' object is not iterable", obj.lease_class().name)
             })?;
             Self::try_from_object(
                 vm,
@@ -1161,8 +1212,8 @@ where
     #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: typ.into_typed_pyobj(),
-            dict: dict.map(Mutex::new),
+            typ: RwLock::new(typ.into_typed_pyobj()),
+            dict: dict.map(|d| RwLock::new(d.into_typed_pyobj())),
             payload,
         }
         .into_ref()
@@ -1186,14 +1237,14 @@ where
     T: ?Sized + PyObjectPayload,
 {
     pub fn dict(&self) -> Option<PyDictRef> {
-        self.dict.as_ref().map(|mu| mu.lock().clone())
+        self.dict.as_ref().map(|mu| mu.read().clone().into_pyref())
     }
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
     pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
         match self.dict {
             Some(ref mu) => {
-                *mu.lock() = dict;
+                *mu.write() = dict.into_typed_pyobj();
                 Ok(())
             }
             None => Err(dict),
@@ -1217,7 +1268,7 @@ impl PyObject<dyn PyObjectPayload> {
         &self,
         vm: &VirtualMachine,
     ) -> Option<&T> {
-        if objtype::issubclass(&self.class(), &T::class(vm)) {
+        if objtype::issubclass(self.lease_class(), &T::class(vm)) {
             self.payload()
         } else {
             None
@@ -1310,7 +1361,7 @@ where
         A::try_from_object(vm, obj.clone())
             .map(Either::A)
             .or_else(|_| B::try_from_object(vm, obj.clone()).map(Either::B))
-            .map_err(|_| vm.new_type_error(format!("unexpected type {}", obj.class())))
+            .map_err(|_| vm.new_type_error(format!("unexpected type {}", obj.lease_class())))
     }
 }
 
@@ -1362,7 +1413,7 @@ impl TryFromObject for std::time::Duration {
             .map_err(|_| {
                 vm.new_type_error(format!(
                     "expected an int or float for duration, got {}",
-                    obj.class()
+                    obj.lease_class()
                 ))
             })
     }
