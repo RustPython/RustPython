@@ -262,6 +262,71 @@ with TestWithTempDir() as tmpdir:
         os.chmod(fname, 0o666)
         assert oct(os.stat(fname).st_mode) == '0o100666'
 
+# os.chown
+    if os.name != "nt":
+        # setup
+        root_in_posix = False
+        if hasattr(os, 'geteuid'):
+            root_in_posix = (os.geteuid() == 0)
+        try:
+            import pwd
+            all_users = [u.pw_uid for u in pwd.getpwall()]
+        except (ImportError, AttributeError):
+            all_users = []
+
+        fname1 = os.path.join(tmpdir, FILE_NAME)
+        fname2 = os.path.join(tmpdir, FILE_NAME2)
+        fd = os.open(fname2, os.O_RDONLY)
+
+        # test chown without root permissions
+        if not root_in_posix and len(all_users) > 1:
+            uid_1, uid_2 = all_users[:2]
+            gid = os.stat(fname1).st_gid
+            assert_raises(PermissionError,
+                          lambda: os.chown(fname1, uid_1, gid))
+            assert_raises(PermissionError,
+                          lambda: os.chown(fname1, uid_2, gid))
+
+        # test chown with root perm and file name
+        if root_in_posix and len(all_users) > 1:
+            uid_1, uid_2 = all_users[:2]
+            gid = os.stat(fname1).st_gid
+            os.chown(fname1, uid_1, gid)
+            uid = os.stat(fname1).st_uid
+            assert uid == uid_1
+            os.chown(fname1, uid_2, gid)
+            uid = os.stat(fname1).st_uid
+            assert uid == uid_2
+
+        # test chown with root perm and file descriptor
+        if root_in_posix and len(all_users) > 1:
+            uid_1, uid_2 = all_users[:2]
+            gid = os.stat(fd).st_gid
+            os.chown(fd, uid_1, gid)
+            uid = os.stat(fd).st_uid
+            assert uid == uid_1
+            os.chown(fd, uid_2, gid)
+            uid = os.stat(fd).st_uid
+            assert uid == uid_2
+
+        # test gid change
+        if hasattr(os, 'getgroups'):
+            groups = os.getgroups()
+            if len(groups) > 1:
+                gid_1, gid_2 = groups[:2]
+                uid = os.stat(fname1).st_uid
+
+                os.chown(fname1, uid, gid_1)
+                gid = os.stat(fname1).st_gid
+                assert gid == gid_1
+
+                os.chown(fname1, uid, gid_2)
+                gid = os.stat(fname1).st_gid
+                assert gid == gid_2
+
+        # teardown
+        os.close(fd)
+
     # os.path
     assert os.path.exists(fname) is True
     assert os.path.exists("NO_SUCH_FILE") is False
