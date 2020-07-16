@@ -232,7 +232,7 @@ fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
-#[pystruct_sequence(name = "sys.getwindowsversion")]
+#[pystruct_sequence(name = "sys.getwindowsversion_type")]
 #[derive(Default, Debug)]
 #[cfg(windows)]
 struct WindowsVersion {
@@ -286,7 +286,7 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             suite_mask: version.wSuiteMask,
             product_type: version.wProductType,
             platform_version: (version.dwMajorVersion, version.dwMinorVersion, version.dwBuildNumber) // TODO Provide accurate version, like CPython impl
-        }.into_struct_sequence(vm, vm.try_class("sys", "windows_version")?)
+        }.into_struct_sequence(vm, vm.try_class("sys", "getwindowsversion_type")?)
     }
 }
 
@@ -504,6 +504,15 @@ settrace() -- set the global debug tracing function
       "displayhook" => ctx.new_function(sys_displayhook),
       "__displayhook__" => ctx.new_function(sys_displayhook),
     });
+
+    #[cfg(windows)]
+    {
+        let getwindowsversion = WindowsVersion::make_class(ctx);
+        extend_module!(vm, module, {
+            "getwindowsversion" => ctx.new_function(sys_getwindowsversion),
+            "getwindowsversion_type" => getwindowsversion, 
+        })
+    }
 
     modules.set_item("sys", module.clone(), vm).unwrap();
     modules.set_item("builtins", builtins.clone(), vm).unwrap();
