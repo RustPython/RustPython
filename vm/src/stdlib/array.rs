@@ -412,6 +412,78 @@ impl PyArray {
         }
     }
 
+    #[pymethod(name = "__lt__")]
+    fn lt(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let lhs = class_or_notimplemented!(vm, Self, lhs);
+        let rhs = class_or_notimplemented!(vm, Self, rhs);
+        let lhs = lhs.borrow_value();
+        let rhs = rhs.borrow_value();
+
+        for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
+            let lt = objbool::boolval(vm, vm._lt(a?, b?)?)?;
+
+            if lt {
+                return Ok(vm.new_bool(true));
+            }
+        }
+
+        Ok(vm.new_bool(lhs.len() < rhs.len()))
+    }
+
+    #[pymethod(name = "__le__")]
+    fn le(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let lhs = class_or_notimplemented!(vm, Self, lhs);
+        let rhs = class_or_notimplemented!(vm, Self, rhs);
+        let lhs = lhs.borrow_value();
+        let rhs = rhs.borrow_value();
+
+        for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
+            let le = objbool::boolval(vm, vm._le(a?, b?)?)?;
+
+            if le {
+                return Ok(vm.new_bool(true));
+            }
+        }
+
+        Ok(vm.new_bool(lhs.len() <= rhs.len()))
+    }
+
+    #[pymethod(name = "__gt__")]
+    fn gt(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let lhs = class_or_notimplemented!(vm, Self, lhs);
+        let rhs = class_or_notimplemented!(vm, Self, rhs);
+        let lhs = lhs.borrow_value();
+        let rhs = rhs.borrow_value();
+
+        for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
+            let gt = objbool::boolval(vm, vm._gt(a?, b?)?)?;
+
+            if gt {
+                return Ok(vm.new_bool(true));
+            }
+        }
+
+        Ok(vm.new_bool(lhs.len() > rhs.len()))
+    }
+
+    #[pymethod(name = "__ge__")]
+    fn ge(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let lhs = class_or_notimplemented!(vm, Self, lhs);
+        let rhs = class_or_notimplemented!(vm, Self, rhs);
+        let lhs = lhs.borrow_value();
+        let rhs = rhs.borrow_value();
+
+        for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
+            let ge = objbool::boolval(vm, vm._ge(a?, b?)?)?;
+
+            if ge {
+                return Ok(vm.new_bool(true));
+            }
+        }
+
+        Ok(vm.new_bool(lhs.len() >= rhs.len()))
+    }
+
     #[pymethod(name = "__len__")]
     fn len(&self) -> usize {
         self.borrow_value().len()
