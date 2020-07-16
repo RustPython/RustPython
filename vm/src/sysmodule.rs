@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::{env, mem};
 
 use crate::builtins;
@@ -11,6 +10,7 @@ use crate::pyobject::{
 use crate::version;
 use crate::vm::{PySettings, VirtualMachine};
 use rustpython_common::hash::{PyHash, PyUHash};
+use rustpython_common::rc::PyRc;
 
 /*
  * The magic sys module.
@@ -109,7 +109,7 @@ impl SysFlags {
 }
 
 fn sys_getrefcount(obj: PyObjectRef) -> usize {
-    Arc::strong_count(&obj)
+    PyRc::strong_count(&obj)
 }
 
 fn sys_getsizeof(obj: PyObjectRef) -> usize {

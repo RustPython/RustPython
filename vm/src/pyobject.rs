@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::sync::Arc;
 
 use indexmap::IndexMap;
 use num_bigint::BigInt;
@@ -40,7 +39,8 @@ use crate::scope::Scope;
 use crate::slots::PyTpFlags;
 use crate::types::{create_type, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
-use parking_lot::{RwLock, RwLockReadGuard};
+use rustpython_common::cell::{PyRwLock, PyRwLockReadGuard};
+use rustpython_common::rc::PyRc;
 
 /* Python objects and references.
 
@@ -61,7 +61,7 @@ Basically reference counting, but then done by rust.
 /// this reference counting is accounted for by this type. Use the `.clone()`
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
-pub type PyObjectRef = Arc<PyObject<dyn PyObjectPayload>>;
+pub type PyObjectRef = PyRc<PyObject<dyn PyObjectPayload>>;
 
 /// Use this type for functions which return a python object or an exception.
 /// Both the python object and the python exception are `PyObjectRef` types
@@ -586,8 +586,8 @@ impl PyContext {
 
     pub fn new_base_object(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: RwLock::new(class.into_typed_pyobj()),
-            dict: dict.map(|d| RwLock::new(d.into_typed_pyobj())),
+            typ: PyRwLock::new(class.into_typed_pyobj()),
+            dict: dict.map(|d| PyRwLock::new(d.into_typed_pyobj())),
             payload: objobject::PyBaseObject,
         }
         .into_ref()
@@ -643,8 +643,8 @@ pub struct PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    pub(crate) typ: RwLock<Arc<PyObject<PyClass>>>, // __class__ member
-    pub(crate) dict: Option<RwLock<Arc<PyObject<PyDict>>>>, // __dict__ member
+    pub(crate) typ: PyRwLock<PyRc<PyObject<PyClass>>>, // __class__ member
+    pub(crate) dict: Option<PyRwLock<PyRc<PyObject<PyDict>>>>, // __dict__ member
     pub payload: T,
 }
 
@@ -653,7 +653,7 @@ impl PyObject<dyn PyObjectPayload> {
     ///
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
-    pub fn downcast<T: PyObjectPayload>(self: Arc<Self>) -> Result<PyRef<T>, PyObjectRef> {
+    pub fn downcast<T: PyObjectPayload>(self: PyRc<Self>) -> Result<PyRef<T>, PyObjectRef> {
         if self.payload_is::<T>() {
             Ok(PyRef {
                 obj: self,
@@ -664,15 +664,15 @@ impl PyObject<dyn PyObjectPayload> {
         }
     }
 
-    /// Downcast this PyObjectRef to an `Arc<PyObject<T>>`. The [`downcast`](#method.downcast) method
+    /// Downcast this PyObjectRef to an `PyRc<PyObject<T>>`. The [`downcast`](#method.downcast) method
     /// is generally preferred, as the `PyRef<T>` it returns implements `Deref<Target=T>`, and
     /// therefore can be used similarly to an `&T`.
     pub fn downcast_generic<T: PyObjectPayload>(
-        self: Arc<Self>,
-    ) -> Result<Arc<PyObject<T>>, PyObjectRef> {
+        self: PyRc<Self>,
+    ) -> Result<PyRc<PyObject<T>>, PyObjectRef> {
         if self.payload_is::<T>() {
-            let ptr = Arc::into_raw(self) as *const PyObject<T>;
-            let ret = unsafe { Arc::from_raw(ptr) };
+            let ptr = PyRc::into_raw(self) as *const PyObject<T>;
+            let ret = unsafe { PyRc::from_raw(ptr) };
             Ok(ret)
         } else {
             Err(self)
@@ -738,7 +738,7 @@ impl<T: PyValue> PyRef<T> {
         self.obj
     }
 
-    pub fn into_typed_pyobj(self) -> Arc<PyObject<T>> {
+    pub fn into_typed_pyobj(self) -> PyRc<PyObject<T>> {
         self.into_object().downcast_generic().unwrap()
     }
 }
@@ -850,7 +850,7 @@ impl<T: ?Sized + PyObjectPayload> IdProtocol for PyObject<T> {
     }
 }
 
-impl<T: ?Sized + IdProtocol> IdProtocol for Arc<T> {
+impl<T: ?Sized + IdProtocol> IdProtocol for PyRc<T> {
     fn get_id(&self) -> usize {
         (**self).get_id()
     }
@@ -877,7 +877,7 @@ impl<T: IdProtocol> IdProtocol for &'_ T {
 /// A borrow of a reference to a Python object. This avoids having clone the `PyRef<T>`/
 /// `PyObjectRef`, which isn't that cheap as that increments the atomic reference counter.
 pub struct PyLease<'a, T: PyObjectPayload> {
-    inner: RwLockReadGuard<'a, Arc<PyObject<T>>>,
+    inner: PyRwLockReadGuard<'a, PyRc<PyObject<T>>>,
 }
 
 impl<'a, T: PyObjectPayload + PyValue> PyLease<'a, T> {
@@ -1212,8 +1212,8 @@ where
     #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
-            typ: RwLock::new(typ.into_typed_pyobj()),
-            dict: dict.map(|d| RwLock::new(d.into_typed_pyobj())),
+            typ: PyRwLock::new(typ.into_typed_pyobj()),
+            dict: dict.map(|d| PyRwLock::new(d.into_typed_pyobj())),
             payload,
         }
         .into_ref()
@@ -1221,10 +1221,10 @@ where
 
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
-        Arc::new(self)
+        PyRc::new(self)
     }
 
-    pub fn into_pyref(self: Arc<Self>) -> PyRef<T>
+    pub fn into_pyref(self: PyRc<Self>) -> PyRef<T>
     where
         T: PyValue,
     {

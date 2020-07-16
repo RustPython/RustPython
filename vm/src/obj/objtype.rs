@@ -1,4 +1,4 @@
-use parking_lot::RwLock;
+use rustpython_common::cell::PyRwLock;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -29,9 +29,9 @@ pub struct PyClass {
     pub name: String,
     pub bases: Vec<PyClassRef>,
     pub mro: Vec<PyClassRef>,
-    pub subclasses: RwLock<Vec<PyWeak>>,
-    pub attributes: RwLock<PyAttributes>,
-    pub slots: RwLock<PyClassSlots>,
+    pub subclasses: PyRwLock<Vec<PyWeak>>,
+    pub attributes: PyRwLock<PyAttributes>,
+    pub slots: PyRwLock<PyClassSlots>,
 }
 
 impl fmt::Display for PyClass {
@@ -595,12 +595,12 @@ pub fn new(
             name: String::from(name),
             bases,
             mro,
-            subclasses: RwLock::default(),
-            attributes: RwLock::new(dict),
-            slots: RwLock::default(),
+            subclasses: PyRwLock::default(),
+            attributes: PyRwLock::new(dict),
+            slots: PyRwLock::default(),
         },
         dict: None,
-        typ: RwLock::new(typ.into_typed_pyobj()),
+        typ: PyRwLock::new(typ.into_typed_pyobj()),
     }
     .into_ref();
 

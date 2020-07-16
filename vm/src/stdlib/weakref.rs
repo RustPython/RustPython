@@ -7,10 +7,10 @@
 
 use crate::pyobject::PyObjectRef;
 use crate::vm::VirtualMachine;
-use std::sync::Arc;
+use rustpython_common::rc::PyRc;
 
 fn weakref_getweakrefcount(obj: PyObjectRef) -> usize {
-    Arc::weak_count(&obj)
+    PyRc::weak_count(&obj)
 }
 
 fn weakref_getweakrefs(_obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {

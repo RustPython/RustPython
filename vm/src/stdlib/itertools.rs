@@ -7,7 +7,6 @@ mod decl {
     use num_traits::{One, Signed, ToPrimitive, Zero};
     use parking_lot::{RwLock, RwLockWriteGuard};
     use std::iter;
-    use std::sync::Arc;
 
     use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;
@@ -19,6 +18,7 @@ mod decl {
         IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     };
     use crate::vm::VirtualMachine;
+    use rustpython_common::rc::PyRc;
 
     #[pyclass(name = "chain")]
     #[derive(Debug)]
@@ -738,8 +738,8 @@ mod decl {
     }
 
     impl PyItertoolsTeeData {
-        fn new(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Arc<PyItertoolsTeeData>> {
-            Ok(Arc::new(PyItertoolsTeeData {
+        fn new(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRc<PyItertoolsTeeData>> {
+            Ok(PyRc::new(PyItertoolsTeeData {
                 iterable: get_iter(vm, &iterable)?,
                 values: RwLock::new(vec![]),
             }))
@@ -757,7 +757,7 @@ mod decl {
     #[pyclass(name = "tee")]
     #[derive(Debug)]
     struct PyItertoolsTee {
-        tee_data: Arc<PyItertoolsTeeData>,
+        tee_data: PyRc<PyItertoolsTeeData>,
         index: AtomicCell<usize>,
     }
 
@@ -812,7 +812,7 @@ mod decl {
         #[pymethod(name = "__copy__")]
         fn copy(&self, vm: &VirtualMachine) -> PyResult {
             Ok(PyItertoolsTee {
-                tee_data: Arc::clone(&self.tee_data),
+                tee_data: PyRc::clone(&self.tee_data),
                 index: AtomicCell::new(self.index.load()),
             }
             .into_ref_with_type(vm, Self::class(vm))?
