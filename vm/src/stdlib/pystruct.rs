@@ -436,8 +436,18 @@ mod _struct {
     }
 
     #[pyfunction]
-    fn pack(fmt: PyStringRef, args: Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let format_spec = FormatSpec::parse(fmt.as_str()).map_err(|e| new_struct_error(vm, e))?;
+    fn pack(
+        fmt: Either<PyStringRef, PyBytesRef>,
+        args: Args,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        // FIXME: the given fmt must be parsed as ascii string
+        // https://github.com/RustPython/RustPython/pull/1792#discussion_r387340905
+        let parsed = match fmt {
+            Either::A(string) => FormatSpec::parse(string.as_str()),
+            Either::B(bytes) => FormatSpec::parse(std::str::from_utf8(&bytes).unwrap()),
+        };
+        let format_spec = parsed.map_err(|e| new_struct_error(vm, e))?;
         format_spec.pack(args.as_ref(), vm)
     }
 

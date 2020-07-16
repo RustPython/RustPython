@@ -85,7 +85,7 @@ impl BufferedIO {
         let mut buffer = Vec::new();
 
         //for a defined number of bytes, i.e. bytes != -1
-        if bytes > 0 {
+        if bytes >= 0 {
             let mut handle = self.cursor.clone().take(bytes as u64);
             //read handle into buffer
 
