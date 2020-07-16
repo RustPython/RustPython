@@ -138,6 +138,11 @@ impl OutputMode {
                         use std::os::unix::ffi::OsStringExt;
                         Ok(vm.ctx.new_bytes(path.into_os_string().into_vec()))
                     }
+                    #[cfg(target_os = "wasi")]
+                    {
+                        use std::os::wasi::ffi::OsStringExt;
+                        Ok(vm.ctx.new_bytes(path.into_os_string().into_vec()))
+                    }
                     #[cfg(windows)]
                     {
                         path_as_string(path).map(|s| vm.ctx.new_bytes(s.into_bytes()))
@@ -1504,6 +1509,7 @@ struct UtimeArgs {
     _follow_symlinks: FollowSymlinks,
 }
 
+#[cfg(not(target_os = "wasi"))]
 fn os_utime(args: UtimeArgs, vm: &VirtualMachine) -> PyResult<()> {
     let parse_tup = |tup: PyTupleRef| -> Option<(i64, i64)> {
         let tup = tup.as_slice();
@@ -1931,6 +1937,7 @@ struct PyTerminalSize {
     lines: usize,
 }
 
+#[cfg(not(target_os = "wasi"))]
 fn os_get_terminal_size(fd: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
     let (columns, lines) = {
         #[cfg(unix)]
@@ -2073,6 +2080,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "symlink", os_symlink, None, Some(false), None),
         // truncate Some None None
         SupportFunc::new(vm, "unlink", os_remove, Some(false), Some(false), None),
+        #[cfg(not(target_os = "wasi"))]
         SupportFunc::new(vm, "utime", os_utime, Some(false), Some(false), Some(false)),
     ];
     #[cfg(unix)]
@@ -2114,7 +2122,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "link" => ctx.new_function(os_link),
         "kill" => ctx.new_function(os_kill),
         "strerror" => ctx.new_function(os_strerror),
-        "get_terminal_size" => ctx.new_function(os_get_terminal_size),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
@@ -2159,6 +2166,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "supports_fd" => supports_fd.into_object(),
         "supports_dir_fd" => supports_dir_fd.into_object(),
         "supports_follow_symlinks" => supports_follow_symlinks.into_object(),
+    });
+
+    #[cfg(not(target_os = "wasi"))]
+    extend_module!(vm, module, {
+        "get_terminal_size" => ctx.new_function(os_get_terminal_size),
     });
 
     extend_module_platform_specific(&vm, &module);
