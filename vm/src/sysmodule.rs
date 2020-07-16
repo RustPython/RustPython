@@ -5,7 +5,6 @@ use crate::builtins;
 use crate::frame::FrameRef;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
-use crate::obj::objtuple::PyTupleRef;
 use crate::pyhash::PyHashInfo;
 use crate::pyobject::{
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, TypeProtocol,
@@ -249,30 +248,39 @@ struct WindowsVersion {
 }
 
 #[cfg(windows)]
-fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-    use winapi::um::{sysinfoapi::GetVersionExW, winnt::{OSVERSIONINFOEXW, LPOSVERSIONINFOW, LPOSVERSIONINFOEXW}};
+fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::obj::objtuple::PyTupleRef> {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
+    use winapi::um::{
+        sysinfoapi::GetVersionExW,
+        winnt::{LPOSVERSIONINFOEXW, LPOSVERSIONINFOW, OSVERSIONINFOEXW},
+    };
 
-    let mut version: OSVERSIONINFOEXW = Default::default();
+    let mut version = OSVERSIONINFOEXW::default();
     version.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
     let result = unsafe {
-        let osvi = &mut version as LPOSVERSIONINFOEXW as LPOSVERSIONINFOW; 
+        let osvi = &mut version as LPOSVERSIONINFOEXW as LPOSVERSIONINFOW;
         // SAFE: GetVersionExW accepts a pointer of OSVERSIONINFOW, but winapi crate's type currently doesn't allow to do so.
         // https://docs.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getversionexw#parameters
-        GetVersionExW(osvi) 
+        GetVersionExW(osvi)
     };
 
     if result == 0 {
         Err(vm.new_os_error("failed to get windows version".to_owned()))
     } else {
         let service_pack = {
-            let (last, _) = version.szCSDVersion.iter().take_while(|&x| x != &0).enumerate().last().unwrap_or((0, &0));
+            let (last, _) = version
+                .szCSDVersion
+                .iter()
+                .take_while(|&x| x != &0)
+                .enumerate()
+                .last()
+                .unwrap_or((0, &0));
             let sp = OsString::from_wide(&version.szCSDVersion[..last]);
             if let Ok(string) = sp.into_string() {
                 string
             } else {
-                Err(vm.new_os_error("service pack is not ASCII".to_owned()))?
+                return Err(vm.new_os_error("service pack is not ASCII".to_owned()));
             }
         };
         WindowsVersion {
@@ -285,8 +293,13 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             service_pack_minor: version.wServicePackMinor,
             suite_mask: version.wSuiteMask,
             product_type: version.wProductType,
-            platform_version: (version.dwMajorVersion, version.dwMinorVersion, version.dwBuildNumber) // TODO Provide accurate version, like CPython impl
-        }.into_struct_sequence(vm, vm.try_class("sys", "getwindowsversion_type")?)
+            platform_version: (
+                version.dwMajorVersion,
+                version.dwMinorVersion,
+                version.dwBuildNumber,
+            ), // TODO Provide accurate version, like CPython impl
+        }
+        .into_struct_sequence(vm, vm.try_class("sys", "getwindowsversion_type")?)
     }
 }
 
@@ -510,7 +523,7 @@ settrace() -- set the global debug tracing function
         let getwindowsversion = WindowsVersion::make_class(ctx);
         extend_module!(vm, module, {
             "getwindowsversion" => ctx.new_function(sys_getwindowsversion),
-            "getwindowsversion_type" => getwindowsversion, 
+            "getwindowsversion_type" => getwindowsversion,
         })
     }
 
