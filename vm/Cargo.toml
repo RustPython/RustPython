@@ -27,10 +27,10 @@ blake2 = "0.8"
 volatile = "0.2"
 
 num-complex = { version = "0.2.2", features = ["serde"] }
-num-bigint = { version = "0.2.4", features = ["serde"] }
+num-bigint = { version = "0.3", features = ["serde"] }
 num-traits = "0.2.8"
 num-integer = "0.1.41"
-num-rational = "0.2.2"
+num-rational = "0.3"
 num-iter = "0.1.39"
 rand = { version = "0.7", features = ["wasm-bindgen"] }
 rand_core = "0.5"
@@ -91,9 +91,6 @@ unic-ucd-ident     = "0.9"
 
 flame = { version = "0.2", optional = true }
 flamer = { version = "0.3", optional = true }
-
-[target.'cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))'.dependencies]
-pwd = "1"
 
 [target.'cfg(unix)'.dependencies]
 exitcode = "1.1.2"

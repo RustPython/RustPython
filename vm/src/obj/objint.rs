@@ -124,7 +124,7 @@ fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
         objfloat::float_pow(v1, v2, vm).into_pyobject(vm)
     } else {
         Ok(if let Some(v2) = int2.to_u64() {
-            vm.ctx.new_int(int1.pow(v2))
+            vm.ctx.new_int(Pow::pow(int1, v2))
         } else if int1.is_one() {
             vm.ctx.new_int(1)
         } else if int1.is_zero() {
@@ -519,7 +519,7 @@ impl PyInt {
 
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self) -> usize {
-        size_of::<Self>() + ((self.value.bits() + 7) & !7) / 8
+        size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
     }
 
     #[pymethod(name = "as_integer_ratio")]
@@ -531,7 +531,7 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn bit_length(&self) -> usize {
+    fn bit_length(&self) -> u64 {
         self.value.bits()
     }
 
