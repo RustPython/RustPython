@@ -276,6 +276,8 @@ impl<'a> SymbolTableAnalyzer<'a> {
     fn analyze_unknown_symbol(&self, symbol: &mut Symbol) {
         if symbol.is_assigned || symbol.is_parameter {
             symbol.scope = SymbolScope::Local;
+        } else if symbol.is_referenced {
+            symbol.scope = SymbolScope::Unknown;
         } else {
             // Interesting stuff about the __class__ variable:
             // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
@@ -680,11 +682,11 @@ impl SymbolTableBuilder {
                 self.scan_expressions(vals, context)?;
             }
             Subscript { a, b } => {
-                self.scan_expression(a, context)?;
+                self.scan_expression(a, &ExpressionContext::Load)?;
                 self.scan_expression(b, context)?;
             }
             Attribute { value, .. } => {
-                self.scan_expression(value, context)?;
+                self.scan_expression(value, &ExpressionContext::Load)?;
             }
             Dict { elements } => {
                 for (key, value) in elements {

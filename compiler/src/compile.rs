@@ -298,7 +298,7 @@ impl<O: OutputStream> Compiler<O> {
             SymbolScope::Global => bytecode::NameScope::Global,
             SymbolScope::Nonlocal => bytecode::NameScope::NonLocal,
             SymbolScope::Unknown => bytecode::NameScope::Free,
-            SymbolScope::Local => bytecode::NameScope::Free,
+            SymbolScope::Local => bytecode::NameScope::Local,
         }
     }
 
