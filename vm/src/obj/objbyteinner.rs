@@ -115,11 +115,11 @@ impl ByteInnerNewOptions {
                             let bytes = vm.invoke(&bytes_method?, vec![])?;
                             return PyByteInner::try_from_object(vm, bytes);
                         }
-                        let elements = vm.extract_elements(&obj).or_else(|_| {
-                            Err(vm.new_type_error(format!(
+                        let elements = vm.extract_elements(&obj).map_err(|_| {
+                            vm.new_type_error(format!(
                                 "cannot convert '{}' object to bytes",
                                 obj.class().name
-                            )))
+                            ))
                         })?;
 
                         let mut data_bytes = vec![];

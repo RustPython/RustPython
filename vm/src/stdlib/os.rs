@@ -1118,7 +1118,7 @@ fn os_set_blocking(fd: RawFd, blocking: bool, vm: &VirtualMachine) -> PyResult<(
         }
         Ok(())
     };
-    _set_flag().or_else(|err| Err(convert_nix_error(vm, err)))
+    _set_flag().map_err(|err| convert_nix_error(vm, err))
 }
 
 #[cfg(unix)]
@@ -1128,10 +1128,10 @@ fn os_pipe(vm: &VirtualMachine) -> PyResult<(RawFd, RawFd)> {
     let (rfd, wfd) = pipe().map_err(|err| convert_nix_error(vm, err))?;
     os_set_inheritable(rfd.into(), false, vm)
         .and_then(|_| os_set_inheritable(wfd.into(), false, vm))
-        .or_else(|err| {
+        .map_err(|err| {
             let _ = close(rfd);
             let _ = close(wfd);
-            Err(err)
+            err
         })?;
     Ok((rfd, wfd))
 }
