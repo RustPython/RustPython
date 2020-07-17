@@ -397,12 +397,13 @@ impl PyCompress {
         self.inner.lock().flush(vm)
     }
 
-    #[pymethod]
-    #[pymethod(magic)]
-    #[pymethod(name = "__deepcopy__")]
-    fn copy(&self) -> Self {
-        todo!("<flate2::Compress as Clone>")
-    }
+    // TODO: This is optional feature of Compress
+    // #[pymethod]
+    // #[pymethod(magic)]
+    // #[pymethod(name = "__deepcopy__")]
+    // fn copy(&self) -> Self {
+    //     todo!("<flate2::Compress as Clone>")
+    // }
 }
 
 const CHUNKSIZE: usize = libc::c_uint::MAX as usize;

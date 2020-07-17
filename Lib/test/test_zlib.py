@@ -19,6 +19,8 @@ requires_Decompress_copy = unittest.skipUnless(
 
 class VersionTestCase(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_library_version(self):
         # Test that the major version of the actual library in use matches the
         # major version that we were compiled against. We can't guarantee that
@@ -29,6 +31,8 @@ class VersionTestCase(unittest.TestCase):
 
 
 class ChecksumTestCase(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     # checksum test cases
     def test_crc32start(self):
         self.assertEqual(zlib.crc32(b""), zlib.crc32(b"", 0))
@@ -39,6 +43,8 @@ class ChecksumTestCase(unittest.TestCase):
         self.assertEqual(zlib.crc32(b"", 1), 1)
         self.assertEqual(zlib.crc32(b"", 432), 432)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_adler32start(self):
         self.assertEqual(zlib.adler32(b""), zlib.adler32(b"", 1))
         self.assertTrue(zlib.adler32(b"abc", 0xffffffff))
@@ -102,6 +108,7 @@ class ExceptionTestCase(unittest.TestCase):
             self.assertRaises(TypeError, zlib.compress, arg)
             self.assertRaises(TypeError, zlib.decompress, arg)
 
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_badcompressobj(self):
         # verify failure on building compress object with bad params
         self.assertRaises(ValueError, zlib.compressobj, 1, zlib.DEFLATED, 0)
@@ -109,6 +116,7 @@ class ExceptionTestCase(unittest.TestCase):
         self.assertRaises(ValueError,
                 zlib.compressobj, 1, zlib.DEFLATED, zlib.MAX_WBITS + 1)
 
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_baddecompressobj(self):
         # verify failure on building decompress object with bad params
         self.assertRaises(ValueError, zlib.decompressobj, -1)
@@ -165,6 +173,8 @@ class CompressTestCase(BaseCompressTestCase, unittest.TestCase):
         x = zlib.compress(HAMLET_SCENE)
         self.assertEqual(zlib.decompress(x), HAMLET_SCENE)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_keywords(self):
         x = zlib.compress(HAMLET_SCENE, level=3)
         self.assertEqual(zlib.decompress(x), HAMLET_SCENE)
@@ -175,6 +185,8 @@ class CompressTestCase(BaseCompressTestCase, unittest.TestCase):
                                          bufsize=zlib.DEF_BUF_SIZE),
                          HAMLET_SCENE)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_speech128(self):
         # compress more data
         data = HAMLET_SCENE * 128
@@ -183,6 +195,8 @@ class CompressTestCase(BaseCompressTestCase, unittest.TestCase):
         for ob in x, bytearray(x):
             self.assertEqual(zlib.decompress(ob), data)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_incomplete_stream(self):
         # A useful error message is given
         x = zlib.compress(HAMLET_SCENE)
@@ -201,6 +215,8 @@ class CompressTestCase(BaseCompressTestCase, unittest.TestCase):
     def test_big_decompress_buffer(self, size):
         self.check_big_decompress_buffer(size, zlib.decompress)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @bigmemtest(size=_4G, memuse=1)
     def test_large_bufsize(self, size):
         # Test decompress(bufsize) parameter greater than the internal limit
@@ -208,6 +224,8 @@ class CompressTestCase(BaseCompressTestCase, unittest.TestCase):
         compressed = zlib.compress(data, 1)
         self.assertEqual(zlib.decompress(compressed, 15, size), data)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_custom_bufsize(self):
         data = HAMLET_SCENE * 10
         compressed = zlib.compress(data, 1)
@@ -225,6 +243,8 @@ class CompressTestCase(BaseCompressTestCase, unittest.TestCase):
 
 
 class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     # Test compression object
     def test_pair(self):
         # straightforward compress/decompress objects
@@ -245,6 +265,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
             self.assertIsInstance(dco.unconsumed_tail, bytes)
             self.assertIsInstance(dco.unused_data, bytes)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_keywords(self):
         level = 2
         method = zlib.DEFLATED
@@ -266,6 +288,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         y = do.decompress(x, max_length=len(HAMLET_SCENE)) + do.flush()
         self.assertEqual(HAMLET_SCENE, y)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compressoptions(self):
         # specify lots of options to compressobj()
         level = 2
@@ -281,6 +305,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         y2 = dco.flush()
         self.assertEqual(HAMLET_SCENE, y1 + y2)
 
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_compressincremental(self):
         # compress object in steps, decompress object as one-shot
         data = HAMLET_SCENE * 128
@@ -296,6 +321,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         y2 = dco.flush()
         self.assertEqual(data, y1 + y2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompinc(self, flush=False, source=None, cx=256, dcx=64):
         # compress object in steps, decompress object in steps
         source = source or HAMLET_SCENE
@@ -337,9 +364,13 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         self.assertEqual(data, b''.join(bufs))
         # Failure means: "decompressobj with init options failed"
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompincflush(self):
         self.test_decompinc(flush=True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompimax(self, source=None, cx=256, dcx=64):
         # compress in steps, decompress in length-restricted steps
         source = source or HAMLET_SCENE
@@ -367,6 +398,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         bufs.append(dco.flush())
         self.assertEqual(data, b''.join(bufs), 'Wrong data retrieved')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompressmaxlen(self, flush=False):
         # Check a decompression object with max_length specified
         data = HAMLET_SCENE * 128
@@ -399,15 +432,20 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
                 bufs.append(chunk)
         self.assertEqual(data, b''.join(bufs), 'Wrong data retrieved')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompressmaxlenflush(self):
         self.test_decompressmaxlen(flush=True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_maxlenmisc(self):
         # Misc tests of max_length
         dco = zlib.decompressobj()
         self.assertRaises(ValueError, dco.decompress, b"", -1)
         self.assertEqual(b'', dco.unconsumed_tail)
 
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_maxlen_large(self):
         # Sizes up to sys.maxsize should be accepted, although zlib is
         # internally limited to expressing sizes with unsigned int
@@ -417,6 +455,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco = zlib.decompressobj()
         self.assertEqual(dco.decompress(compressed, sys.maxsize), data)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_maxlen_custom(self):
         data = HAMLET_SCENE * 10
         compressed = zlib.compress(data, 1)
@@ -432,6 +472,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         ddata += dco.decompress(dco.unconsumed_tail)
         self.assertEqual(dco.unconsumed_tail, b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_flushes(self):
         # Test flush() with the various options, using all the
         # different levels in order to provide more variations.
@@ -498,6 +540,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         # if decompressed data is different from the input data, choke.
         self.assertEqual(expanded, data, "17K random source doesn't match")
 
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_empty_flush(self):
         # Test that calling .flush() on unused objects works.
         # (Bug #1083110 -- calling .flush() on decompress objects
@@ -508,6 +551,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco = zlib.decompressobj()
         self.assertEqual(dco.flush(), b"") # Returns nothing
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dictionary(self):
         h = HAMLET_SCENE
         # Build a simulated dictionary out of the words in HAMLET.
@@ -524,6 +569,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco = zlib.decompressobj()
         self.assertRaises(zlib.error, dco.decompress, cd)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dictionary_streaming(self):
         # This simulates the reuse of a compressor object for compressing
         # several separate data streams.
@@ -537,6 +584,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         self.assertEqual(do.decompress(d1), piece[100:])
         self.assertEqual(do.decompress(d2), piece[:-100])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompress_incomplete_stream(self):
         # This is 'foo', deflated
         x = b'x\x9cK\xcb\xcf\x07\x00\x02\x82\x01E'
@@ -550,6 +599,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         y += dco.flush()
         self.assertEqual(y, b'foo')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompress_eof(self):
         x = b'x\x9cK\xcb\xcf\x07\x00\x02\x82\x01E'  # 'foo'
         dco = zlib.decompressobj()
@@ -561,6 +612,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco.flush()
         self.assertTrue(dco.eof)
 
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_decompress_eof_incomplete_stream(self):
         x = b'x\x9cK\xcb\xcf\x07\x00\x02\x82\x01E'  # 'foo'
         dco = zlib.decompressobj()
@@ -570,6 +622,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco.flush()
         self.assertFalse(dco.eof)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompress_unused_data(self):
         # Repeated calls to decompress() after EOF should accumulate data in
         # dco.unused_data, instead of just storing the arg to the last call.
@@ -596,6 +650,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
                 self.assertEqual(dco.unconsumed_tail, b'')
                 self.assertEqual(dco.unused_data, remainder)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     # issue27164
     def test_decompress_raw_with_dictionary(self):
         zdict = b'abcdefghijklmnopqrstuvwxyz'
@@ -605,6 +661,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         uncomp = dco.decompress(comp) + dco.flush()
         self.assertEqual(zdict, uncomp)
 
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_flush_with_freed_input(self):
         # Issue #16411: decompressor accesses input to last decompress() call
         # in flush(), even if this object has been freed in the meanwhile.
@@ -617,6 +674,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         data = zlib.compress(input2)
         self.assertEqual(dco.flush(), input1[1:])
 
+    @unittest.skip('TODO: RUSTPYTHON')
     @bigmemtest(size=_4G, memuse=1)
     def test_flush_large_length(self, size):
         # Test flush(length) parameter greater than internal limit UINT_MAX
@@ -626,6 +684,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco.decompress(data, 1)
         self.assertEqual(dco.flush(size), input[1:])
 
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_flush_custom_length(self):
         input = HAMLET_SCENE * 10
         data = zlib.compress(input, 1)
@@ -715,18 +774,21 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
 
     # Memory use of the following functions takes into account overallocation
 
+    @unittest.skip('TODO: RUSTPYTHON')
     @bigmemtest(size=_1G + 1024 * 1024, memuse=3)
     def test_big_compress_buffer(self, size):
         c = zlib.compressobj(1)
         compress = lambda s: c.compress(s) + c.flush()
         self.check_big_compress_buffer(size, compress)
 
+    @unittest.skip('TODO: RUSTPYTHON')
     @bigmemtest(size=_1G + 1024 * 1024, memuse=2)
     def test_big_decompress_buffer(self, size):
         d = zlib.decompressobj()
         decompress = lambda s: d.decompress(s) + d.flush()
         self.check_big_decompress_buffer(size, decompress)
 
+    @unittest.skip('TODO: RUSTPYTHON')
     @unittest.skipUnless(sys.maxsize > 2**32, 'requires 64bit platform')
     @bigmemtest(size=_4G + 100, memuse=4)
     def test_64bit_compress(self, size):
@@ -740,6 +802,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         finally:
             comp = uncomp = data = None
 
+    @unittest.skip('TODO: RUSTPYTHON')
     @unittest.skipUnless(sys.maxsize > 2**32, 'requires 64bit platform')
     @bigmemtest(size=_4G + 100, memuse=3)
     def test_large_unused_data(self, size):
@@ -754,6 +817,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         finally:
             unused = comp = do = None
 
+    @unittest.skip('TODO: RUSTPYTHON')
     @unittest.skipUnless(sys.maxsize > 2**32, 'requires 64bit platform')
     @bigmemtest(size=_4G + 100, memuse=5)
     def test_large_unconsumed_tail(self, size):
@@ -767,6 +831,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         finally:
             comp = uncomp = data = None
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_wbits(self):
         # wbits=0 only supported since zlib v1.2.3.5
         # Register "1.2.3" as "1.2.3.0"
