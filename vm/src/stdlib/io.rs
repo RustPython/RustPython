@@ -1,13 +1,13 @@
 /*
  * I/O core tools.
  */
-use parking_lot::{RwLock, RwLockWriteGuard};
 use std::fs;
 use std::io::{self, prelude::*, Cursor, SeekFrom};
 
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 
+use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{Args, KwArgs, OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbool;
@@ -121,7 +121,7 @@ impl BufferedIO {
 
 #[derive(Debug)]
 struct PyStringIO {
-    buffer: RwLock<BufferedIO>,
+    buffer: PyRwLock<BufferedIO>,
     closed: AtomicCell<bool>,
 }
 
@@ -134,7 +134,7 @@ impl PyValue for PyStringIO {
 }
 
 impl PyStringIORef {
-    fn buffer(&self, vm: &VirtualMachine) -> PyResult<RwLockWriteGuard<'_, BufferedIO>> {
+    fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
         if !self.closed.load() {
             Ok(self.buffer.write())
         } else {
@@ -236,7 +236,7 @@ fn string_io_new(
     let input = flatten.map_or_else(Vec::new, |v| objstr::borrow_value(&v).as_bytes().to_vec());
 
     PyStringIO {
-        buffer: RwLock::new(BufferedIO::new(Cursor::new(input))),
+        buffer: PyRwLock::new(BufferedIO::new(Cursor::new(input))),
         closed: AtomicCell::new(false),
     }
     .into_ref_with_type(vm, cls)
@@ -244,7 +244,7 @@ fn string_io_new(
 
 #[derive(Debug)]
 struct PyBytesIO {
-    buffer: RwLock<BufferedIO>,
+    buffer: PyRwLock<BufferedIO>,
     closed: AtomicCell<bool>,
 }
 
@@ -257,7 +257,7 @@ impl PyValue for PyBytesIO {
 }
 
 impl PyBytesIORef {
-    fn buffer(&self, vm: &VirtualMachine) -> PyResult<RwLockWriteGuard<'_, BufferedIO>> {
+    fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
         if !self.closed.load() {
             Ok(self.buffer.write())
         } else {
@@ -341,7 +341,7 @@ fn bytes_io_new(
     };
 
     PyBytesIO {
-        buffer: RwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
+        buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
         closed: AtomicCell::new(false),
     }
     .into_ref_with_type(vm, cls)

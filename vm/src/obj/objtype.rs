@@ -1,4 +1,4 @@
-use rustpython_common::cell::PyRwLock;
+use crate::common::cell::PyRwLock;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 

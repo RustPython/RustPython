@@ -26,6 +26,11 @@ impl<T: ?Sized> Deref for PyMutexGuard<'_, T> {
         self.0.deref()
     }
 }
+impl<T: ?Sized> DerefMut for PyMutexGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.0.deref_mut()
+    }
+}
 
 #[derive(Debug, Default)]
 #[repr(transparent)]

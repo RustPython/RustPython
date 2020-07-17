@@ -4,8 +4,8 @@ use crate::frame::{ExecutionResult, FrameRef};
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
+use crate::common::cell::PyRwLock;
 use crossbeam_utils::atomic::AtomicCell;
-use parking_lot::RwLock;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Variant {
@@ -37,7 +37,7 @@ pub struct Coro {
     frame: FrameRef,
     pub closed: AtomicCell<bool>,
     running: AtomicCell<bool>,
-    exceptions: RwLock<Vec<PyBaseExceptionRef>>,
+    exceptions: PyRwLock<Vec<PyBaseExceptionRef>>,
     started: AtomicCell<bool>,
     variant: Variant,
 }
@@ -48,7 +48,7 @@ impl Coro {
             frame,
             closed: AtomicCell::new(false),
             running: AtomicCell::new(false),
-            exceptions: RwLock::new(vec![]),
+            exceptions: PyRwLock::new(vec![]),
             started: AtomicCell::new(false),
             variant,
         }

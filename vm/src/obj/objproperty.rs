@@ -1,7 +1,7 @@
 /*! Python `property` descriptor class.
 
 */
-use parking_lot::RwLock;
+use crate::common::cell::PyRwLock;
 
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
@@ -49,7 +49,7 @@ pub struct PyProperty {
     getter: Option<PyObjectRef>,
     setter: Option<PyObjectRef>,
     deleter: Option<PyObjectRef>,
-    doc: RwLock<Option<PyObjectRef>>,
+    doc: PyRwLock<Option<PyObjectRef>>,
 }
 
 impl PyValue for PyProperty {
@@ -98,7 +98,7 @@ impl PyProperty {
             getter: args.fget,
             setter: args.fset,
             deleter: args.fdel,
-            doc: RwLock::new(args.doc),
+            doc: PyRwLock::new(args.doc),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -160,7 +160,7 @@ impl PyProperty {
             getter: getter.or_else(|| zelf.getter.clone()),
             setter: zelf.setter.clone(),
             deleter: zelf.deleter.clone(),
-            doc: RwLock::new(None),
+            doc: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }
@@ -175,7 +175,7 @@ impl PyProperty {
             getter: zelf.getter.clone(),
             setter: setter.or_else(|| zelf.setter.clone()),
             deleter: zelf.deleter.clone(),
-            doc: RwLock::new(None),
+            doc: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }
@@ -190,7 +190,7 @@ impl PyProperty {
             getter: zelf.getter.clone(),
             setter: zelf.setter.clone(),
             deleter: deleter.or_else(|| zelf.deleter.clone()),
-            doc: RwLock::new(None),
+            doc: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }

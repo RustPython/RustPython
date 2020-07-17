@@ -2,10 +2,10 @@ use std::fmt;
 use std::mem::size_of;
 use std::ops::{DerefMut, Range};
 
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::objbool;
 use super::objbyteinner;
@@ -29,7 +29,7 @@ use crate::vm::{ReprGuard, VirtualMachine};
 #[pyclass]
 #[derive(Default)]
 pub struct PyList {
-    elements: RwLock<Vec<PyObjectRef>>,
+    elements: PyRwLock<Vec<PyObjectRef>>,
 }
 
 impl fmt::Debug for PyList {
@@ -42,7 +42,7 @@ impl fmt::Debug for PyList {
 impl From<Vec<PyObjectRef>> for PyList {
     fn from(elements: Vec<PyObjectRef>) -> Self {
         PyList {
-            elements: RwLock::new(elements),
+            elements: PyRwLock::new(elements),
         }
     }
 }
@@ -54,11 +54,11 @@ impl PyValue for PyList {
 }
 
 impl PyList {
-    pub fn borrow_elements(&self) -> RwLockReadGuard<'_, Vec<PyObjectRef>> {
+    pub fn borrow_elements(&self) -> PyRwLockReadGuard<'_, Vec<PyObjectRef>> {
         self.elements.read()
     }
 
-    pub fn borrow_elements_mut(&self) -> RwLockWriteGuard<'_, Vec<PyObjectRef>> {
+    pub fn borrow_elements_mut(&self) -> PyRwLockWriteGuard<'_, Vec<PyObjectRef>> {
         self.elements.write()
     }
 
@@ -315,7 +315,7 @@ impl PyList {
     }
 
     fn _set_slice(
-        mut elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
+        mut elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>,
         range: Range<usize>,
         items: Vec<PyObjectRef>,
         vm: &VirtualMachine,
@@ -327,7 +327,7 @@ impl PyList {
     }
 
     fn _set_stepped_slice(
-        elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
+        elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>,
         range: Range<usize>,
         step: usize,
         items: Vec<PyObjectRef>,
@@ -365,7 +365,7 @@ impl PyList {
     }
 
     fn _set_stepped_slice_reverse(
-        elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
+        elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>,
         range: Range<usize>,
         step: usize,
         items: Vec<PyObjectRef>,
@@ -403,7 +403,7 @@ impl PyList {
     }
 
     fn _replace_indexes<I>(
-        mut elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
+        mut elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>,
         indexes: I,
         items: &[PyObjectRef],
     ) where
@@ -673,12 +673,12 @@ impl PyList {
         }
     }
 
-    fn _del_slice(mut elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>, range: Range<usize>) {
+    fn _del_slice(mut elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>, range: Range<usize>) {
         elements.drain(range);
     }
 
     fn _del_stepped_slice(
-        mut elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
+        mut elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>,
         range: Range<usize>,
         step: usize,
     ) {
@@ -702,7 +702,7 @@ impl PyList {
     }
 
     fn _del_stepped_slice_reverse(
-        mut elements: RwLockWriteGuard<'_, Vec<PyObjectRef>>,
+        mut elements: PyRwLockWriteGuard<'_, Vec<PyObjectRef>>,
         range: Range<usize>,
         step: usize,
     ) {

@@ -1,8 +1,8 @@
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rustpython_common::hash;
 /// Ordered dictionary implementation.
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
@@ -20,7 +20,7 @@ type HashIndex = hash::PyHash;
 type EntryIndex = usize;
 
 pub struct Dict<T = PyObjectRef> {
-    inner: RwLock<InnerDict<T>>,
+    inner: PyRwLock<InnerDict<T>>,
 }
 
 struct InnerDict<T> {
@@ -42,7 +42,7 @@ impl<T: Clone> Clone for InnerDict<T> {
 impl<T: Clone> Clone for Dict<T> {
     fn clone(&self) -> Self {
         Dict {
-            inner: RwLock::new(self.inner.read().clone()),
+            inner: PyRwLock::new(self.inner.read().clone()),
         }
     }
 }
@@ -50,7 +50,7 @@ impl<T: Clone> Clone for Dict<T> {
 impl<T> Default for Dict<T> {
     fn default() -> Self {
         Dict {
-            inner: RwLock::new(InnerDict {
+            inner: PyRwLock::new(InnerDict {
                 size: 0,
                 indices: HashMap::new(),
                 entries: Vec::new(),
@@ -82,11 +82,11 @@ pub struct DictSize {
 }
 
 impl<T: Clone> Dict<T> {
-    fn borrow_value(&self) -> RwLockReadGuard<'_, InnerDict<T>> {
+    fn borrow_value(&self) -> PyRwLockReadGuard<'_, InnerDict<T>> {
         self.inner.read()
     }
 
-    fn borrow_value_mut(&self) -> RwLockWriteGuard<'_, InnerDict<T>> {
+    fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, InnerDict<T>> {
         self.inner.write()
     }
 

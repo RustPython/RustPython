@@ -5,9 +5,9 @@ mod decl {
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
     use num_traits::{One, Signed, ToPrimitive, Zero};
-    use parking_lot::{RwLock, RwLockWriteGuard};
     use std::iter;
 
+    use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
     use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;
     use crate::obj::objint::{self, PyInt, PyIntRef};
@@ -25,7 +25,7 @@ mod decl {
     struct PyItertoolsChain {
         iterables: Vec<PyObjectRef>,
         cur_idx: AtomicCell<usize>,
-        cached_iter: RwLock<Option<PyObjectRef>>,
+        cached_iter: PyRwLock<Option<PyObjectRef>>,
     }
 
     impl PyValue for PyItertoolsChain {
@@ -41,7 +41,7 @@ mod decl {
             PyItertoolsChain {
                 iterables: args.args,
                 cur_idx: AtomicCell::new(0),
-                cached_iter: RwLock::new(None),
+                cached_iter: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -99,7 +99,7 @@ mod decl {
             PyItertoolsChain {
                 iterables,
                 cur_idx: AtomicCell::new(0),
-                cached_iter: RwLock::new(None),
+                cached_iter: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -159,7 +159,7 @@ mod decl {
     #[pyclass(name = "count")]
     #[derive(Debug)]
     struct PyItertoolsCount {
-        cur: RwLock<BigInt>,
+        cur: PyRwLock<BigInt>,
         step: BigInt,
     }
 
@@ -188,7 +188,7 @@ mod decl {
             };
 
             PyItertoolsCount {
-                cur: RwLock::new(start),
+                cur: PyRwLock::new(start),
                 step,
             }
             .into_ref_with_type(vm, cls)
@@ -212,7 +212,7 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsCycle {
         iter: PyObjectRef,
-        saved: RwLock<Vec<PyObjectRef>>,
+        saved: PyRwLock<Vec<PyObjectRef>>,
         index: AtomicCell<usize>,
     }
 
@@ -234,7 +234,7 @@ mod decl {
 
             PyItertoolsCycle {
                 iter: iter.clone(),
-                saved: RwLock::new(Vec::new()),
+                saved: PyRwLock::new(Vec::new()),
                 index: AtomicCell::new(0),
             }
             .into_ref_with_type(vm, cls)
@@ -273,7 +273,7 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsRepeat {
         object: PyObjectRef,
-        times: Option<RwLock<BigInt>>,
+        times: Option<PyRwLock<BigInt>>,
     }
 
     impl PyValue for PyItertoolsRepeat {
@@ -292,7 +292,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let times = match times.into_option() {
-                Some(int) => Some(RwLock::new(int.as_bigint().clone())),
+                Some(int) => Some(PyRwLock::new(int.as_bigint().clone())),
                 None => None,
             };
 
@@ -675,7 +675,7 @@ mod decl {
     struct PyItertoolsAccumulate {
         iterable: PyObjectRef,
         binop: PyObjectRef,
-        acc_value: RwLock<Option<PyObjectRef>>,
+        acc_value: PyRwLock<Option<PyObjectRef>>,
     }
 
     impl PyValue for PyItertoolsAccumulate {
@@ -698,7 +698,7 @@ mod decl {
             PyItertoolsAccumulate {
                 iterable: iter,
                 binop: binop.unwrap_or_else(|| vm.get_none()),
-                acc_value: RwLock::new(None),
+                acc_value: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -734,14 +734,14 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsTeeData {
         iterable: PyObjectRef,
-        values: RwLock<Vec<PyObjectRef>>,
+        values: PyRwLock<Vec<PyObjectRef>>,
     }
 
     impl PyItertoolsTeeData {
         fn new(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRc<PyItertoolsTeeData>> {
             Ok(PyRc::new(PyItertoolsTeeData {
                 iterable: get_iter(vm, &iterable)?,
-                values: RwLock::new(vec![]),
+                values: PyRwLock::new(vec![]),
             }))
         }
 
@@ -836,7 +836,7 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsProduct {
         pools: Vec<Vec<PyObjectRef>>,
-        idxs: RwLock<Vec<usize>>,
+        idxs: PyRwLock<Vec<usize>>,
         cur: AtomicCell<usize>,
         stop: AtomicCell<bool>,
     }
@@ -883,7 +883,7 @@ mod decl {
 
             PyItertoolsProduct {
                 pools,
-                idxs: RwLock::new(vec![0; l]),
+                idxs: PyRwLock::new(vec![0; l]),
                 cur: AtomicCell::new(l - 1),
                 stop: AtomicCell::new(false),
             }
@@ -920,7 +920,7 @@ mod decl {
             Ok(res.into_ref(vm).into_object())
         }
 
-        fn update_idxs(&self, mut idxs: RwLockWriteGuard<'_, Vec<usize>>) {
+        fn update_idxs(&self, mut idxs: PyRwLockWriteGuard<'_, Vec<usize>>) {
             let cur = self.cur.load();
             let lst_idx = &self.pools[cur].len() - 1;
 
@@ -948,7 +948,7 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsCombinations {
         pool: Vec<PyObjectRef>,
-        indices: RwLock<Vec<usize>>,
+        indices: PyRwLock<Vec<usize>>,
         r: AtomicCell<usize>,
         exhausted: AtomicCell<bool>,
     }
@@ -981,7 +981,7 @@ mod decl {
 
             PyItertoolsCombinations {
                 pool,
-                indices: RwLock::new((0..r).collect()),
+                indices: PyRwLock::new((0..r).collect()),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(r > n),
             }
@@ -1047,7 +1047,7 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsCombinationsWithReplacement {
         pool: Vec<PyObjectRef>,
-        indices: RwLock<Vec<usize>>,
+        indices: PyRwLock<Vec<usize>>,
         r: AtomicCell<usize>,
         exhausted: AtomicCell<bool>,
     }
@@ -1080,7 +1080,7 @@ mod decl {
 
             PyItertoolsCombinationsWithReplacement {
                 pool,
-                indices: RwLock::new(vec![0; r]),
+                indices: PyRwLock::new(vec![0; r]),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(n == 0 && r > 0),
             }
@@ -1140,12 +1140,12 @@ mod decl {
     #[pyclass(name = "permutations")]
     #[derive(Debug)]
     struct PyItertoolsPermutations {
-        pool: Vec<PyObjectRef>,             // Collected input iterable
-        indices: RwLock<Vec<usize>>,        // One index per element in pool
-        cycles: RwLock<Vec<usize>>,         // One rollover counter per element in the result
-        result: RwLock<Option<Vec<usize>>>, // Indexes of the most recently returned result
-        r: AtomicCell<usize>,               // Size of result tuple
-        exhausted: AtomicCell<bool>,        // Set when the iterator is exhausted
+        pool: Vec<PyObjectRef>,               // Collected input iterable
+        indices: PyRwLock<Vec<usize>>,        // One index per element in pool
+        cycles: PyRwLock<Vec<usize>>,         // One rollover counter per element in the result
+        result: PyRwLock<Option<Vec<usize>>>, // Indexes of the most recently returned result
+        r: AtomicCell<usize>,                 // Size of result tuple
+        exhausted: AtomicCell<bool>,          // Set when the iterator is exhausted
     }
 
     impl PyValue for PyItertoolsPermutations {
@@ -1186,9 +1186,9 @@ mod decl {
 
             PyItertoolsPermutations {
                 pool,
-                indices: RwLock::new((0..n).collect()),
-                cycles: RwLock::new((0..r).map(|i| n - i).collect()),
-                result: RwLock::new(None),
+                indices: PyRwLock::new((0..n).collect()),
+                cycles: PyRwLock::new((0..r).map(|i| n - i).collect()),
+                result: PyRwLock::new(None),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(r > n),
             }

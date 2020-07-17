@@ -1,3 +1,4 @@
+use crate::common::cell::PyMutex;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::OptionalArg;
 use crate::obj::objbyteinner::PyBytesLike;
@@ -15,7 +16,6 @@ use flate2::{
 };
 use libz_sys as libz;
 
-use parking_lot::Mutex;
 use std::io::Write;
 
 // copied from zlibmodule.c (commit 530f506ac91338)
@@ -159,19 +159,19 @@ fn zlib_decompressobj(
         dict.with_ref(|d| decompress.set_dictionary(d).unwrap());
     }
     PyDecompress {
-        decompress: Mutex::new(decompress),
+        decompress: PyMutex::new(decompress),
         eof: AtomicCell::new(false),
-        unused_data: Mutex::new(PyBytes::new(vec![]).into_ref(vm)),
-        unconsumed_tail: Mutex::new(PyBytes::new(vec![]).into_ref(vm)),
+        unused_data: PyMutex::new(PyBytes::new(vec![]).into_ref(vm)),
+        unconsumed_tail: PyMutex::new(PyBytes::new(vec![]).into_ref(vm)),
     }
 }
 #[pyclass(name = "Decompress")]
 #[derive(Debug)]
 struct PyDecompress {
-    decompress: Mutex<Decompress>,
+    decompress: PyMutex<Decompress>,
     eof: AtomicCell<bool>,
-    unused_data: Mutex<PyBytesRef>,
-    unconsumed_tail: Mutex<PyBytesRef>,
+    unused_data: PyMutex<PyBytesRef>,
+    unconsumed_tail: PyMutex<PyBytesRef>,
 }
 impl PyValue for PyDecompress {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -359,7 +359,7 @@ fn zlib_compressobj(
     };
     let compress = Compress::new_with_window_bits(Compression::new(level), header, wbits);
     Ok(PyCompress {
-        inner: Mutex::new(CompressInner {
+        inner: PyMutex::new(CompressInner {
             compress,
             unconsumed: Vec::new(),
         }),
@@ -375,7 +375,7 @@ struct CompressInner {
 #[pyclass]
 #[derive(Debug)]
 struct PyCompress {
-    inner: Mutex<CompressInner>,
+    inner: PyMutex<CompressInner>,
 }
 
 impl PyValue for PyCompress {

@@ -4,6 +4,7 @@ pub(crate) use _random::make_module;
 
 #[pymodule]
 mod _random {
+    use crate::common::cell::PyMutex;
     use crate::function::OptionalOption;
     use crate::obj::objint::PyIntRef;
     use crate::obj::objtype::PyClassRef;
@@ -12,8 +13,6 @@ mod _random {
     use num_bigint::{BigInt, Sign};
     use num_traits::Signed;
     use rand::{rngs::StdRng, RngCore, SeedableRng};
-
-    use parking_lot::Mutex;
 
     #[derive(Debug)]
     enum PyRng {
@@ -57,7 +56,7 @@ mod _random {
     #[pyclass(name = "Random")]
     #[derive(Debug)]
     struct PyRandom {
-        rng: Mutex<PyRng>,
+        rng: PyMutex<PyRng>,
     }
 
     impl PyValue for PyRandom {
@@ -71,7 +70,7 @@ mod _random {
         #[pyslot(new)]
         fn new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             PyRandom {
-                rng: Mutex::default(),
+                rng: PyMutex::default(),
             }
             .into_ref_with_type(vm, cls)
         }

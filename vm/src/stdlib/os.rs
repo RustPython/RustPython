@@ -1,4 +1,3 @@
-use parking_lot::RwLock;
 use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -26,6 +25,7 @@ use std::os::unix::io::RawFd;
 use std::os::windows::io::RawHandle;
 
 use super::errno::errors;
+use crate::common::cell::PyRwLock;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbyteinner::PyBytesLike;
@@ -726,7 +726,7 @@ impl DirEntryRef {
 #[pyclass]
 #[derive(Debug)]
 struct ScandirIterator {
-    entries: RwLock<fs::ReadDir>,
+    entries: PyRwLock<fs::ReadDir>,
     exhausted: AtomicCell<bool>,
     mode: OutputMode,
 }
@@ -791,7 +791,7 @@ fn os_scandir(path: OptionalArg<PyPathLike>, vm: &VirtualMachine) -> PyResult {
 
     match fs::read_dir(path.path) {
         Ok(iter) => Ok(ScandirIterator {
-            entries: RwLock::new(iter),
+            entries: PyRwLock::new(iter),
             exhausted: AtomicCell::new(false),
             mode: path.mode,
         }
