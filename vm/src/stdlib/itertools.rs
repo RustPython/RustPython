@@ -499,7 +499,7 @@ mod decl {
 
     impl fmt::Debug for GroupByState {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.debug_struct("PyItertoolsGroupBy")
+            f.debug_struct("GroupByState")
                 .field("current_value", &self.current_value)
                 .field("current_key", &self.current_key)
                 .field("next_group", &self.next_group)
@@ -509,15 +509,10 @@ mod decl {
 
     impl GroupByState {
         fn is_current(&self, grouper: &PyItertoolsGrouperRef) -> bool {
-            if let Some(ref current_weak_grouper) = self.grouper {
-                if let Some(current_grouper) = current_weak_grouper.upgrade() {
-                    grouper.is(&current_grouper)
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
+            self.grouper
+                .as_ref()
+                .and_then(|g| g.upgrade())
+                .map_or(false, |ref current_grouper| grouper.is(current_grouper))
         }
     }
 
@@ -610,7 +605,7 @@ mod decl {
             .into_ref(vm);
 
             state.grouper = Some(PyRc::downgrade(&grouper.clone().into_typed_pyobj()));
-            Ok((state.current_key.clone().unwrap(), grouper))
+            Ok((state.current_key.as_ref().unwrap().clone(), grouper))
         }
 
         #[pymethod(name = "__iter__")]
@@ -647,30 +642,30 @@ mod decl {
     impl PyItertoolsGrouper {
         #[pymethod(name = "__next__")]
         fn next(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            let mut state = zelf.groupby.state.lock();
+            let old_key = {
+                let mut state = zelf.groupby.state.lock();
 
-            if !state.is_current(&zelf) {
-                return Err(new_stop_iteration(vm));
-            }
-
-            if let Some(val) = state.current_value.clone() {
-                state.current_value = None;
-                Ok(val)
-            } else {
-                let old_key = state.current_key.clone().unwrap();
-                // Shouldn't mutex over call to advance as that executes arbitrary Python code
-                drop(state);
-                let (value, key) = zelf.groupby.advance(vm)?;
-                if vm.bool_eq(key.clone(), old_key)? {
-                    Ok(value)
-                } else {
-                    let mut state = zelf.groupby.state.lock();
-                    state.current_value = Some(value);
-                    state.current_key = Some(key);
-                    state.next_group = true;
-                    state.grouper = None;
-                    Err(new_stop_iteration(vm))
+                if !state.is_current(&zelf) {
+                    return Err(new_stop_iteration(vm));
                 }
+
+                // check to see if the value has already been retrieved from the iterator
+                if let Some(val) = state.current_value.take() {
+                    return Ok(val);
+                }
+
+                state.current_key.as_ref().unwrap().clone()
+            };
+            let (value, key) = zelf.groupby.advance(vm)?;
+            if vm.bool_eq(key.clone(), old_key)? {
+                Ok(value)
+            } else {
+                let mut state = zelf.groupby.state.lock();
+                state.current_value = Some(value);
+                state.current_key = Some(key);
+                state.next_group = true;
+                state.grouper = None;
+                Err(new_stop_iteration(vm))
             }
         }
 
