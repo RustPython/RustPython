@@ -79,7 +79,12 @@ jobs:
         run: target/release/rustpython -m test -v
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
+      - name: run cpython tests (macOS lightweight)
+        run: target/release/rustpython -m test -x test_argparse -x test_json -x test_bytes -x test_long -v
+        env:
+          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
+        if: runner.os == 'macOS'
 
   format:
     name: Check Rust code with rustfmt and clippy
@@ -131,6 +136,7 @@ jobs:
           key: ${{ runner.os }}-wasm-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
                ${{ runner.os }}-debug-${{ hashFiles('Cargo.lock') }}
+               ${{ runner.os }}-debug-
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver
