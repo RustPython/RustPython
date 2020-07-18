@@ -881,13 +881,16 @@ mod tests {
             ],
         });
 
-        assert_eq!(FormatString::from_str("abcd{1}:{key}"), expected);
+        assert_eq!(
+            FormatString::from_str("abcd{1}:{key}", &PyFuncArgs::default()),
+            expected
+        );
     }
 
     #[test]
     fn test_format_parse_fail() {
         assert_eq!(
-            FormatString::from_str("{s"),
+            FormatString::from_str("{s", &PyFuncArgs::default()),
             Err(FormatParseError::UnmatchedBracket)
         );
     }
@@ -902,7 +905,10 @@ mod tests {
             ],
         });
 
-        assert_eq!(FormatString::from_str("{{{key}}}ddfe"), expected);
+        assert_eq!(
+            FormatString::from_str("{{{key}}}ddfe", &PyFuncArgs::default()),
+            expected
+        );
     }
 
     #[test]
