@@ -1,3 +1,6 @@
+use crate::function::PyFuncArgs;
+use crate::obj::objint::PyInt;
+use crate::obj::objstr::PyString;
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;
 use num_traits::Signed;
@@ -549,6 +552,7 @@ pub enum FormatParseError {
     UnmatchedBracket,
     MissingStartBracket,
     UnescapedStartBracketInLiteral,
+    InvalidFormatSpecifier,
 }
 
 impl FromStr for FormatSpec {
@@ -659,37 +663,80 @@ impl FormatString {
         }
     }
 
-    fn parse_spec(text: &str) -> Result<(FormatPart, &str), FormatParseError> {
-        let mut chars = text.chars();
-        if chars.next() != Some('{') {
-            return Err(FormatParseError::MissingStartBracket);
-        }
+    fn parse_spec<'a>(
+        text: &'a str,
+        args: &'a PyFuncArgs,
+    ) -> Result<(FormatPart, &'a str), FormatParseError> {
+        let mut nested = false;
+        let mut end_bracket_pos = None;
+        let mut spec_template = String::new();
+        let mut left = String::new();
 
-        // Get remaining characters after opening bracket.
-        let cur_text = chars.as_str();
-        // Find the matching bracket and parse the text within for a spec
-        match cur_text.find('}') {
-            Some(position) => {
-                let (left, right) = cur_text.split_at(position);
-                let format_part = FormatString::parse_part_in_brackets(left)?;
-                Ok((format_part, &right[1..]))
+        // There may be one layer nesting brackets in spec
+        for (idx, c) in text.chars().enumerate() {
+            if idx == 0 {
+                if c != '{' {
+                    return Err(FormatParseError::MissingStartBracket);
+                }
+            } else if c == '{' {
+                if nested {
+                    return Err(FormatParseError::InvalidFormatSpecifier);
+                } else {
+                    nested = true;
+                    continue;
+                }
+            } else if c == '}' {
+                if nested {
+                    nested = false;
+                    if let Some(obj) = args.kwargs.get(&spec_template) {
+                        if let Some(s) = (*obj).clone().payload::<PyString>() {
+                            left.push_str(s.as_str());
+                        } else if let Some(i) = (*obj).clone().payload::<PyInt>() {
+                            left.push_str(&PyInt::repr(i));
+                        } else {
+                            return Err(FormatParseError::InvalidFormatSpecifier);
+                        }
+                    } else {
+                        // CPython return KeyError here
+                        return Err(FormatParseError::InvalidFormatSpecifier);
+                    }
+                    continue;
+                } else {
+                    end_bracket_pos = Some(idx);
+                    break;
+                }
+            } else if nested {
+                spec_template.push(c);
+            } else {
+                left.push(c);
             }
-            None => Err(FormatParseError::UnmatchedBracket),
+        }
+        if let Some(pos) = end_bracket_pos {
+            let (_, right) = text.split_at(pos);
+            let format_part = FormatString::parse_part_in_brackets(&left)?;
+            Ok((format_part, &right[1..]))
+        } else {
+            Err(FormatParseError::UnmatchedBracket)
         }
     }
 }
 
-impl FromStr for FormatString {
+pub trait FromTemplate<'a>: Sized {
+    type Err;
+    fn from_str(s: &'a str, arg: &'a PyFuncArgs) -> Result<Self, Self::Err>;
+}
+
+impl<'a> FromTemplate<'a> for FormatString {
     type Err = FormatParseError;
 
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
+    fn from_str(text: &'a str, args: &'a PyFuncArgs) -> Result<Self, Self::Err> {
         let mut cur_text: &str = text;
         let mut parts: Vec<FormatPart> = Vec::new();
         while !cur_text.is_empty() {
             // Try to parse both literals and bracketed format parts util we
             // run out of text
             cur_text = FormatString::parse_literal(cur_text)
-                .or_else(|_| FormatString::parse_spec(cur_text))
+                .or_else(|_| FormatString::parse_spec(cur_text, &args))
                 .map(|(part, new_text)| {
                     parts.push(part);
                     new_text
@@ -834,13 +881,16 @@ mod tests {
             ],
         });
 
-        assert_eq!(FormatString::from_str("abcd{1}:{key}"), expected);
+        assert_eq!(
+            FormatString::from_str("abcd{1}:{key}", &PyFuncArgs::default()),
+            expected
+        );
     }
 
     #[test]
     fn test_format_parse_fail() {
         assert_eq!(
-            FormatString::from_str("{s"),
+            FormatString::from_str("{s", &PyFuncArgs::default()),
             Err(FormatParseError::UnmatchedBracket)
         );
     }
@@ -855,7 +905,10 @@ mod tests {
             ],
         });
 
-        assert_eq!(FormatString::from_str("{{{key}}}ddfe"), expected);
+        assert_eq!(
+            FormatString::from_str("{{{key}}}ddfe", &PyFuncArgs::default()),
+            expected
+        );
     }
 
     #[test]

@@ -498,7 +498,7 @@ impl PyInt {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self) -> String {
+    pub(crate) fn repr(&self) -> String {
         self.value.to_string()
     }
 

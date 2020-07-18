@@ -27,7 +27,9 @@ use crate::cformat::{
     CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
     CNumberType,
 };
-use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatSpec, FormatString};
+use crate::format::{
+    FormatParseError, FormatPart, FormatPreconversor, FormatSpec, FormatString, FromTemplate,
+};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
@@ -618,7 +620,7 @@ impl PyString {
             )));
         }
         let format_string_text = borrow_value(zelf);
-        match FormatString::from_str(format_string_text) {
+        match FormatString::from_str(format_string_text, &args) {
             Ok(format_string) => perform_format(vm, &format_string, &args),
             Err(err) => match err {
                 FormatParseError::UnmatchedBracket => {
@@ -644,7 +646,7 @@ impl PyString {
 
         let zelf = &args.args[0];
         let format_string_text = borrow_value(zelf);
-        match FormatString::from_str(format_string_text) {
+        match FormatString::from_str(format_string_text, &args) {
             Ok(format_string) => perform_format_map(vm, &format_string, &args.args[1]),
             Err(err) => match err {
                 FormatParseError::UnmatchedBracket => {
