@@ -129,6 +129,7 @@ pub trait PyCommonString<E> {
     type Container;
 
     fn with_capacity(capacity: usize) -> Self::Container;
+    fn as_bytes(&self) -> &[u8];
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
     // FIXME: get_chars is expensive for str
     fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
@@ -296,5 +297,39 @@ pub trait PyCommonString<E> {
         } else {
             &self
         }
+    }
+
+    fn py_splitlines<FW, W>(&self, options: SplitLinesArgs, into_wrapper: FW) -> Vec<W>
+    where
+        FW: Fn(&Self) -> W,
+    {
+        let keep = if options.keepends { 1 } else { 0 };
+        let mut elements = Vec::new();
+        let mut last_i = 0;
+        let mut enumerated = self.as_bytes().iter().enumerate().peekable();
+        while let Some((i, ch)) = enumerated.next() {
+            let (end_len, i_diff) = match *ch {
+                b'\n' => (keep, 1),
+                b'\r' => {
+                    let is_rn = enumerated.peek().map_or(false, |(_, ch)| **ch == b'\n');
+                    if is_rn {
+                        let _ = enumerated.next();
+                        (keep + keep, 2)
+                    } else {
+                        (keep, 1)
+                    }
+                }
+                _ => {
+                    continue;
+                }
+            };
+            let range = last_i..i + end_len;
+            last_i = i + i_diff;
+            elements.push(into_wrapper(self.get_bytes(range)));
+        }
+        if last_i != self.bytes_len() {
+            elements.push(into_wrapper(self.get_bytes(last_i..self.bytes_len())));
+        }
+        elements
     }
 }

@@ -961,36 +961,11 @@ impl PyByteInner {
         res
     }
 
-    pub fn splitlines(&self, options: pystr::SplitLinesArgs) -> Vec<&[u8]> {
-        let keep = if options.keepends { 1 } else { 0 };
-        let value = &self.elements;
-        let mut elements = Vec::new();
-        let mut last_i = 0;
-        let mut chars = value.iter().enumerate().peekable();
-        while let Some((i, ch)) = chars.next() {
-            let (end_len, i_diff) = match ch {
-                b'\n' => (keep, 1),
-                b'\r' => {
-                    let is_rn = chars.peek().map_or(false, |(_, ch)| *ch == &b'\n');
-                    if is_rn {
-                        let _ = chars.next();
-                        (keep + keep, 2)
-                    } else {
-                        (keep, 1)
-                    }
-                }
-                _ => {
-                    continue;
-                }
-            };
-            let range = last_i..i + end_len;
-            last_i = i + i_diff;
-            elements.push(&value[range]);
-        }
-        if last_i != value.len() {
-            elements.push(&value[last_i..]);
-        }
-        elements
+    pub fn splitlines<FW, W>(&self, options: pystr::SplitLinesArgs, into_wrapper: FW) -> Vec<W>
+    where
+        FW: Fn(&[u8]) -> W,
+    {
+        self.elements.py_splitlines(options, into_wrapper)
     }
 
     pub fn zfill(&self, width: isize) -> Vec<u8> {
@@ -1317,6 +1292,10 @@ impl PyCommonString<u8> for [u8] {
 
     fn with_capacity(capacity: usize) -> Self::Container {
         Vec::with_capacity(capacity)
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        self
     }
 
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {

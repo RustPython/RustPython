@@ -451,13 +451,10 @@ impl PyByteArray {
 
     #[pymethod(name = "splitlines")]
     fn splitlines(&self, options: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyResult {
-        let as_bytes = self
+        let lines = self
             .borrow_value()
-            .splitlines(options)
-            .iter()
-            .map(|x| vm.ctx.new_bytearray(x.to_vec()))
-            .collect::<Vec<PyObjectRef>>();
-        Ok(vm.ctx.new_list(as_bytes))
+            .splitlines(options, |x| vm.ctx.new_bytearray(x.to_vec()));
+        Ok(vm.ctx.new_list(lines))
     }
 
     #[pymethod(name = "zfill")]
