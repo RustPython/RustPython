@@ -780,7 +780,7 @@ impl ExecutingFrame<'_> {
         // Load attribute, and transform any error into import error.
         let obj = vm
             .get_attribute(module, name)
-            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name)))?;
+            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name), name))?;
         self.push_value(obj);
         Ok(None)
     }
