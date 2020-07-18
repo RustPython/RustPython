@@ -25,10 +25,11 @@ jobs:
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
-          key: ${{ runner.os }}-rust_tests-${{ hashFiles('Cargo.lock') }}
-          path: target
-          restore-keys: |
-            ${{ runner.os }}-rust_tests-
+          path: |
+              ~/.cargo/registry
+              ~/.cargo/git
+              target
+          key: ${{ runner.os }}-debug-${{ hashFiles('Cargo.lock') }}
       - name: run rust tests
         uses: actions-rs/cargo@v1
         with:
@@ -51,10 +52,11 @@ jobs:
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
-          key: ${{ runner.os }}-snippets-${{ hashFiles('Cargo.lock') }}
-          path: target
-          restore-keys: |
-            ${{ runner.os }}-snippets-
+          path: |
+              ~/.cargo/registry
+              ~/.cargo/git
+              target
+          key: ${{ runner.os }}-release-${{ hashFiles('Cargo.lock') }}
       - name: build rustpython
         uses: actions-rs/cargo@v1
         with:
@@ -77,7 +79,12 @@ jobs:
         run: target/release/rustpython -m test -v
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
+      - name: run cpython tests (macOS lightweight)
+        run: target/release/rustpython -m test -x test_argparse -x test_json -x test_bytes -x test_long -v
+        env:
+          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
+        if: runner.os == 'macOS'
 
   format:
     name: Check Rust code with rustfmt and clippy
@@ -122,10 +129,14 @@ jobs:
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
+          path: |
+              ~/.cargo/registry
+              ~/.cargo/git
+              target
           key: ${{ runner.os }}-wasm-${{ hashFiles('**/Cargo.lock') }}
-          path: target
           restore-keys: |
-            ${{ runner.os }}-wasm-
+               ${{ runner.os }}-debug-${{ hashFiles('Cargo.lock') }}
+               ${{ runner.os }}-debug-
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver
