@@ -105,6 +105,20 @@ macro_rules! def_array_enum {
                 }
             }
 
+            fn remove(&mut self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()>{
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        let val = $t::try_from_object(vm, obj)?;
+                        if let Some(pos) = v.iter().position(|&a| a == val) {
+                            v.remove(pos);
+                        } else {
+                            return Err(vm.new_value_error("array.remove(x): x not in array".to_owned()));
+                        }
+                    })*
+                }
+                Ok(())
+            }
+
             fn frombytes(&mut self, b: &[u8]) {
                 match self {
                     $(ArrayContentType::$n(v) => {
@@ -296,6 +310,11 @@ impl PyArray {
     #[pymethod]
     fn count(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         self.borrow_value().count(x, vm)
+    }
+
+    #[pymethod]
+    fn remove(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.borrow_value_mut().remove(x, vm)
     }
 
     #[pymethod]
