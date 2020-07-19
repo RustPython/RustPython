@@ -13,7 +13,7 @@ use super::objnone::PyNoneRef;
 use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objslice::PySliceRef;
 use super::objstr::{self, PyString, PyStringRef};
-use super::pystr::{self, PyCommonString, PyCommonStringWrapper};
+use super::pystr::{self, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
@@ -739,17 +739,13 @@ impl PyByteInner {
             .py_count(needle.as_slice(), range, |h, n| h.find_iter(n).count()))
     }
 
-    pub fn join(&self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let mut refs = Vec::new();
-        for v in iter.iter(vm)? {
-            let v = v?;
-            if !refs.is_empty() {
-                refs.extend(&self.elements);
-            }
-            refs.extend(v.elements);
-        }
-
-        Ok(refs)
+    pub fn join(
+        &self,
+        iterable: PyIterable<PyByteInner>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let iter = iterable.iter(vm)?;
+        self.elements.py_join(iter)
     }
 
     #[inline]
@@ -1285,13 +1281,27 @@ impl PyCommonStringWrapper<[u8]> for PyByteInner {
     }
 }
 
+impl PyCommonStringContainer<[u8]> for Vec<u8> {
+    fn new() -> Self {
+        Vec::new()
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        Vec::with_capacity(capacity)
+    }
+
+    fn push_str(&mut self, other: &[u8]) {
+        self.extend(other)
+    }
+}
+
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
 impl PyCommonString<u8> for [u8] {
     type Container = Vec<u8>;
 
-    fn with_capacity(capacity: usize) -> Self::Container {
-        Vec::with_capacity(capacity)
+    fn to_container(&self) -> Self::Container {
+        self.to_vec()
     }
 
     fn as_bytes(&self) -> &[u8] {

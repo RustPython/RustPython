@@ -1,6 +1,6 @@
 use crate::function::{single_or_tuple_any, OptionalOption};
 use crate::obj::objint::PyIntRef;
-use crate::pyobject::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::pyobject::{PyIterator, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 use num_traits::{cast::ToPrimitive, sign::Signed};
 
@@ -125,10 +125,22 @@ where
     fn as_ref(&self) -> &S;
 }
 
-pub trait PyCommonString<E> {
+pub trait PyCommonStringContainer<S>
+where
+    S: ?Sized,
+{
+    fn new() -> Self;
+    fn with_capacity(capacity: usize) -> Self;
+    fn push_str(&mut self, s: &S);
+}
+
+pub trait PyCommonString<E>
+where
+    Self::Container: PyCommonStringContainer<Self>,
+{
     type Container;
 
-    fn with_capacity(capacity: usize) -> Self::Container;
+    fn to_container(&self) -> Self::Container;
     fn as_bytes(&self) -> &[u8];
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
     // FIXME: get_chars is expensive for str
@@ -264,6 +276,23 @@ pub trait PyCommonString<E> {
 
     fn py_rjust(&self, width: usize, fillchar: E) -> Self::Container {
         self.py_pad(width - self.chars_len(), 0, fillchar)
+    }
+
+    fn py_join<'a>(
+        &self,
+        mut iter: PyIterator<'a, impl PyCommonStringWrapper<Self> + TryFromObject>,
+    ) -> PyResult<Self::Container> {
+        let mut joined = if let Some(elem) = iter.next() {
+            elem?.as_ref().to_container()
+        } else {
+            return Ok(Self::Container::new());
+        };
+        for elem in iter {
+            let elem = elem?;
+            joined.push_str(self);
+            joined.push_str(elem.as_ref());
+        }
+        Ok(joined)
     }
 
     fn py_removeprefix<FC>(

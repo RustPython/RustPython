@@ -22,7 +22,9 @@ use super::objnone::PyNone;
 use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtuple;
 use super::objtype::{self, PyClassRef};
-use super::pystr::{self, adjust_indices, PyCommonString, PyCommonStringWrapper};
+use super::pystr::{
+    self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
+};
 use crate::cformat::{
     CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
     CNumberType,
@@ -809,17 +811,8 @@ impl PyString {
 
     #[pymethod]
     fn join(&self, iterable: PyIterable<PyStringRef>, vm: &VirtualMachine) -> PyResult<String> {
-        let mut joined = String::new();
-
-        for (idx, elem) in iterable.iter(vm)?.enumerate() {
-            let elem = elem?;
-            if idx != 0 {
-                joined.push_str(&self.value);
-            }
-            joined.push_str(&elem.value)
-        }
-
-        Ok(joined)
+        let iter = iterable.iter(vm)?;
+        self.value.py_join(iter)
     }
 
     #[inline]
@@ -1726,11 +1719,25 @@ impl PyCommonStringWrapper<str> for PyStringRef {
     }
 }
 
+impl PyCommonStringContainer<str> for String {
+    fn new() -> Self {
+        String::new()
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        String::with_capacity(capacity)
+    }
+
+    fn push_str(&mut self, other: &str) {
+        String::push_str(self, other)
+    }
+}
+
 impl PyCommonString<char> for str {
     type Container = String;
 
-    fn with_capacity(capacity: usize) -> Self::Container {
-        String::with_capacity(capacity)
+    fn to_container(&self) -> Self::Container {
+        self.to_owned()
     }
 
     fn as_bytes(&self) -> &[u8] {
