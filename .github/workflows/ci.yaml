@@ -29,7 +29,7 @@ jobs:
               ~/.cargo/registry
               ~/.cargo/git
               target
-          key: ${{ runner.os }}-debug-opt3-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
       - name: run rust tests
         uses: actions-rs/cargo@v1
         with:
@@ -56,7 +56,7 @@ jobs:
               ~/.cargo/registry
               ~/.cargo/git
               target
-          key: ${{ runner.os }}-release-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-release-${{ hashFiles('**/Cargo.lock') }}
       - name: build rustpython
         uses: actions-rs/cargo@v1
         with:
@@ -123,6 +123,7 @@ jobs:
 
   wasm:
     name: Check the WASM package and demo
+    needs: rust_tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
@@ -133,10 +134,9 @@ jobs:
               ~/.cargo/registry
               ~/.cargo/git
               target
-          key: ${{ runner.os }}-wasm-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-wasm_opt3-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-               ${{ runner.os }}-debug-opt3-${{ hashFiles('Cargo.lock') }}
-               ${{ runner.os }}-debug-opt3
+               ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver
