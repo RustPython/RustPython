@@ -447,7 +447,7 @@ impl PyBytes {
 
     #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
-    fn repeat(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyBytes> {
         if value > 0 && self.inner.len() as isize > std::isize::MAX / value {
             return Err(vm.new_overflow_error("repeated bytes are too long".to_owned()));
         }

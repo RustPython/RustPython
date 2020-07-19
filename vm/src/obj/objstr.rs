@@ -314,7 +314,7 @@ impl PyString {
     #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
     fn mul(&self, value: isize) -> String {
-        self.value.repeat(value.max(0) as usize)
+        self.value.repeat(value.to_usize().unwrap_or(0))
     }
 
     #[pymethod(name = "__str__")]

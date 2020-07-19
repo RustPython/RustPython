@@ -1,8 +1,8 @@
 //! Implementation of the python bytearray object.
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
+use num_traits::cast::ToPrimitive;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::convert::TryFrom;
 use std::mem::size_of;
 use std::str::FromStr;
 
@@ -506,8 +506,10 @@ impl PyByteArray {
     #[pymethod(name = "insert")]
     fn insert(&self, mut index: isize, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
         let bytes = &mut self.borrow_value_mut().elements;
-        let len = isize::try_from(bytes.len())
-            .map_err(|_e| vm.new_overflow_error("bytearray too big".to_owned()))?;
+        let len = bytes
+            .len()
+            .to_isize()
+            .ok_or_else(|| vm.new_overflow_error("bytearray too big".to_owned()))?;
 
         let x = x.as_bigint().byte_or(vm)?;
 
@@ -521,8 +523,9 @@ impl PyByteArray {
             index = index.max(0);
         }
 
-        let index = usize::try_from(index)
-            .map_err(|_e| vm.new_overflow_error("overflow in index calculation".to_owned()))?;
+        let index = index
+            .to_usize()
+            .ok_or_else(|| vm.new_overflow_error("overflow in index calculation".to_owned()))?;
 
         bytes.insert(index, x);
 
@@ -543,17 +546,13 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__mul__")]
-    fn repeat(&self, n: isize) -> PyByteArray {
+    #[pymethod(name = "__rmul__")]
+    fn mul(&self, n: isize) -> PyByteArray {
         self.borrow_value().repeat(n).into()
     }
 
-    #[pymethod(name = "__rmul__")]
-    fn rmul(&self, n: isize) -> PyByteArray {
-        self.repeat(n)
-    }
-
     #[pymethod(name = "__imul__")]
-    fn irepeat(&self, n: isize) {
+    fn imul(&self, n: isize) {
         self.borrow_value_mut().irepeat(n)
     }
 

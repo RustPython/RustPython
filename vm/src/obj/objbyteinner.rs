@@ -1,7 +1,6 @@
 use bstr::ByteSlice;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::convert::TryFrom;
 use std::ops::Range;
 
 use super::objbytearray::{PyByteArray, PyByteArrayRef};
@@ -1157,19 +1156,7 @@ impl PyByteInner {
     }
 
     pub fn repeat(&self, n: isize) -> Vec<u8> {
-        if self.elements.is_empty() || n <= 0 {
-            // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
-            Vec::new()
-        } else {
-            let n = usize::try_from(n).unwrap();
-
-            let mut new_value = Vec::with_capacity(n * self.elements.len());
-            for _ in 0..n {
-                new_value.extend(&self.elements);
-            }
-
-            new_value
-        }
+        self.elements.repeat(n.to_usize().unwrap_or(0))
     }
 
     pub fn irepeat(&mut self, n: isize) {
@@ -1181,7 +1168,7 @@ impl PyByteInner {
         if n <= 0 {
             self.elements.clear();
         } else {
-            let n = usize::try_from(n).unwrap();
+            let n = n.to_usize().unwrap(); // always positive by outer if condition
 
             let old = self.elements.clone();
 
