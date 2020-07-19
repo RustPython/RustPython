@@ -965,7 +965,7 @@ impl PyByteInner {
     }
 
     pub fn zfill(&self, width: isize) -> Vec<u8> {
-        bytes_zfill(&self.elements, width.to_usize().unwrap_or(0))
+        self.elements.py_zfill(width)
     }
 
     // len(self)>=1, from="", len(to)>=1, maxcount>=1
@@ -1254,24 +1254,6 @@ impl PyBytesLike {
             PyBytesLike::Bytes(b) => f(b.get_value()),
             PyBytesLike::Bytearray(b) => f(&b.borrow_value().elements),
         }
-    }
-}
-
-pub fn bytes_zfill(bytes: &[u8], width: usize) -> Vec<u8> {
-    if width <= bytes.len() {
-        bytes.to_vec()
-    } else {
-        let (sign, s) = match bytes.first() {
-            Some(_sign @ b'+') | Some(_sign @ b'-') => {
-                (unsafe { bytes.get_unchecked(..1) }, &bytes[1..])
-            }
-            _ => (&b""[..], bytes),
-        };
-        let mut filled = Vec::new();
-        filled.extend_from_slice(sign);
-        filled.extend(std::iter::repeat(b'0').take(width - bytes.len()));
-        filled.extend_from_slice(s);
-        filled
     }
 }
 

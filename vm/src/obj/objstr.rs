@@ -927,13 +927,8 @@ impl PyString {
 
     #[pymethod]
     fn zfill(&self, width: isize) -> String {
-        use super::objbyteinner::bytes_zfill;
-        unsafe {
-            String::from_utf8_unchecked(bytes_zfill(
-                self.value.as_bytes(),
-                width.to_usize().unwrap_or(0),
-            ))
-        }
+        // this is safe-guaranteed because the original self.value is valid utf8
+        unsafe { String::from_utf8_unchecked(self.value.py_zfill(width)) }
     }
 
     fn get_fill_char(fillchar: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult<char> {
