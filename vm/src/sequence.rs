@@ -108,9 +108,6 @@ impl ExactSizeIterator for SeqMul<'_> {}
 impl<'a> Iterator for SeqMul<'a> {
     type Item = &'a PyObjectRef;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.seq.len() == 0 {
-            return None;
-        }
         match self.iter.as_mut().and_then(Iterator::next) {
             Some(item) => Some(item),
             None => {
@@ -132,9 +129,14 @@ impl<'a> Iterator for SeqMul<'a> {
 }
 
 pub(crate) fn seq_mul(seq: &impl SimpleSeq, repetitions: isize) -> SeqMul {
+    let repetitions = if seq.len() > 0 {
+        repetitions.to_usize().unwrap_or(0)
+    } else {
+        0
+    };
     SeqMul {
         seq,
-        repetitions: repetitions.to_usize().unwrap_or(0),
+        repetitions,
         iter: None,
     }
 }
