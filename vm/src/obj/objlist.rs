@@ -438,7 +438,7 @@ impl PyList {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = sequence::seq_mul(&self.borrow_elements(), counter)
+        let new_elements = sequence::seq_mul(&*self.borrow_elements(), counter)
             .cloned()
             .collect();
         vm.ctx.new_list(new_elements)
@@ -453,7 +453,7 @@ impl PyList {
     fn imul(zelf: PyRef<Self>, counter: isize) -> PyRef<Self> {
         let mut elements = zelf.borrow_elements_mut();
         let mut new_elements: Vec<PyObjectRef> =
-            sequence::seq_mul(&elements, counter).cloned().collect();
+            sequence::seq_mul(&*elements, counter).cloned().collect();
         std::mem::swap(elements.deref_mut(), &mut new_elements);
         zelf.clone()
     }

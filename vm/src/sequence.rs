@@ -1,81 +1,27 @@
 use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use num_traits::cast::ToPrimitive;
-use parking_lot::{RwLockReadGuard, RwLockWriteGuard};
-use std::ops::Deref;
 
-type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef> + 'a>;
+pub(super) type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef> + 'a>;
 
 #[allow(clippy::len_without_is_empty)]
-pub trait SimpleSeq {
+pub(crate) trait SimpleSeq {
     fn len(&self) -> usize;
     fn iter(&self) -> DynPyIter;
 }
 
-// impl SimpleSeq for &[PyObjectRef] {
-//     fn len(&self) -> usize {
-//         (&**self).len()
-//     }
-//     fn iter(&self) -> DynPyIter {
-//         Box::new((&**self).iter())
-//     }
-// }
-
-impl SimpleSeq for Vec<PyObjectRef> {
-    fn len(&self) -> usize {
-        self.len()
-    }
-    fn iter(&self) -> DynPyIter {
-        Box::new(self.as_slice().iter())
-    }
-}
-
-impl SimpleSeq for std::collections::VecDeque<PyObjectRef> {
-    fn len(&self) -> usize {
-        self.len()
-    }
-    fn iter(&self) -> DynPyIter {
-        Box::new(self.iter())
-    }
-}
-
-impl<T> SimpleSeq for std::cell::Ref<'_, T>
+impl<'a, D> SimpleSeq for D
 where
-    T: SimpleSeq,
+    D: 'a + std::ops::Deref<Target = [PyObjectRef]>,
 {
     fn len(&self) -> usize {
         self.deref().len()
     }
+
     fn iter(&self) -> DynPyIter {
-        self.deref().iter()
+        Box::new(self.deref().iter())
     }
 }
-
-impl<T> SimpleSeq for RwLockReadGuard<'_, T>
-where
-    T: SimpleSeq,
-{
-    fn len(&self) -> usize {
-        self.deref().len()
-    }
-    fn iter(&self) -> DynPyIter {
-        self.deref().iter()
-    }
-}
-
-impl<T> SimpleSeq for RwLockWriteGuard<'_, T>
-where
-    T: SimpleSeq,
-{
-    fn len(&self) -> usize {
-        self.deref().len()
-    }
-    fn iter(&self) -> DynPyIter {
-        self.deref().iter()
-    }
-}
-
-// impl<'a, I>
 
 pub(crate) fn eq(
     vm: &VirtualMachine,

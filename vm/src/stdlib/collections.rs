@@ -47,6 +47,24 @@ mod _collections {
         }
     }
 
+    struct SimpleSeqDeque<'a>(RwLockReadGuard<'a, VecDeque<PyObjectRef>>);
+
+    impl sequence::SimpleSeq for SimpleSeqDeque<'_> {
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+
+        fn iter(&self) -> sequence::DynPyIter {
+            Box::new(self.0.iter())
+        }
+    }
+
+    impl<'a> From<RwLockReadGuard<'a, VecDeque<PyObjectRef>>> for SimpleSeqDeque<'a> {
+        fn from(from: RwLockReadGuard<'a, VecDeque<PyObjectRef>>) -> Self {
+            Self { 0: from }
+        }
+    }
+
     #[pyimpl(flags(BASETYPE))]
     impl PyDeque {
         #[pyslot]
@@ -267,10 +285,13 @@ mod _collections {
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue>
         where
-            F: Fn(&VecDeque<PyObjectRef>, &VecDeque<PyObjectRef>) -> PyResult<bool>,
+            F: Fn(&SimpleSeqDeque, &SimpleSeqDeque) -> PyResult<bool>,
         {
             let r = if let Some(other) = other.payload_if_subclass::<PyDeque>(vm) {
-                Implemented(op(&*self.borrow_deque(), &*other.borrow_deque())?)
+                Implemented(op(
+                    &self.borrow_deque().into(),
+                    &other.borrow_deque().into(),
+                )?)
             } else {
                 NotImplemented
             };
@@ -353,8 +374,8 @@ mod _collections {
 
         #[pymethod(name = "__mul__")]
         fn mul(&self, n: isize) -> Self {
-            let deque: &VecDeque<_> = &self.borrow_deque();
-            let mul = sequence::seq_mul(deque, n);
+            let deque: SimpleSeqDeque = self.borrow_deque().into();
+            let mul = sequence::seq_mul(&deque, n);
             let skipped = if let Some(maxlen) = self.maxlen.load() {
                 mul.len() - maxlen
             } else {
