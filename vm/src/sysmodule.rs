@@ -231,7 +231,7 @@ fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
-#[pystruct_sequence(name = "sys.getwindowsversion_type")]
+#[pystruct_sequence(name = "sys.getwindowsversion")]
 #[derive(Default, Debug)]
 #[cfg(windows)]
 struct WindowsVersion {
@@ -299,7 +299,7 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::obj::objtuple::
                 version.dwBuildNumber,
             ), // TODO Provide accurate version, like CPython impl
         }
-        .into_struct_sequence(vm, vm.try_class("sys", "getwindowsversion_type")?)
+        .into_struct_sequence(vm, vm.try_class("sys", "_getwindowsversion_type")?)
     }
 }
 
@@ -523,7 +523,7 @@ settrace() -- set the global debug tracing function
         let getwindowsversion = WindowsVersion::make_class(ctx);
         extend_module!(vm, module, {
             "getwindowsversion" => ctx.new_function(sys_getwindowsversion),
-            "getwindowsversion_type" => getwindowsversion,
+            "_getwindowsversion_type" => getwindowsversion, // XXX: This is not a python spec but required by current RustPython implementation
         })
     }
 
