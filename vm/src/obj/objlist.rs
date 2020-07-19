@@ -122,7 +122,7 @@ impl PyList {
             position
         };
         // Bound it by [0, vec.len()]
-        let position = unbounded_position.max(0).min(vec_len).to_usize().unwrap();
+        let position = unbounded_position.min(vec_len).to_usize().unwrap_or(0);
         elements.insert(position, element.clone());
     }
 

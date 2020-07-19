@@ -1,5 +1,6 @@
 use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
+use num_traits::cast::ToPrimitive;
 use parking_lot::{RwLockReadGuard, RwLockWriteGuard};
 use std::ops::Deref;
 
@@ -187,7 +188,7 @@ impl<'a> Iterator for SeqMul<'a> {
 pub(crate) fn seq_mul(seq: &impl SimpleSeq, repetitions: isize) -> SeqMul {
     SeqMul {
         seq,
-        repetitions: repetitions.max(0) as usize,
+        repetitions: repetitions.to_usize().unwrap_or(0),
         iter: None,
     }
 }
