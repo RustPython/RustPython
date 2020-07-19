@@ -537,7 +537,7 @@ impl PyString {
         self.value
             .as_str()
             .py_removeprefix(&pref.value, pref.value.len(), |s, p| s.starts_with(p))
-            .to_string()
+            .to_owned()
     }
 
     /// removesuffix(self, prefix, /)
@@ -552,7 +552,7 @@ impl PyString {
         self.value
             .as_str()
             .py_removesuffix(&suff.value, suff.value.len(), |s, p| s.ends_with(p))
-            .to_string()
+            .to_owned()
     }
 
     #[pymethod]
