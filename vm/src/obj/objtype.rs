@@ -10,7 +10,7 @@ use super::objstaticmethod::PyStaticMethod;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease, PyObject, PyObjectRef,
     PyRef, PyResult, PyValue, TypeProtocol,
@@ -258,7 +258,7 @@ impl PyClassRef {
             }));
         }
 
-        let (name, bases, dict): (PyStringRef, PyIterable<PyClassRef>, PyDictRef) =
+        let (name, bases, dict, kwargs): (PyStringRef, PyIterable<PyClassRef>, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
         let bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
@@ -341,10 +341,7 @@ impl PyClassRef {
                 None,
                 OptionalArg::Present(typ.clone().into_object()),
             )?;
-            let init_args = PyFuncArgs {
-                args: Vec::new(),
-                kwargs: args.kwargs,
-            };
+            let init_args = PyFuncArgs::from(kwargs);
             vm.invoke(&initter, init_args)?;
         };
 
