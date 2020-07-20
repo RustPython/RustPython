@@ -7,7 +7,7 @@ pub(super) type DynPyIter<'a> = Box<dyn ExactSizeIterator<Item = &'a PyObjectRef
 #[allow(clippy::len_without_is_empty)]
 pub(crate) trait SimpleSeq {
     fn len(&self) -> usize;
-    fn iter(&self) -> DynPyIter;
+    fn boxed_iter(&self) -> DynPyIter;
 }
 
 impl<'a, D> SimpleSeq for D
@@ -18,18 +18,14 @@ where
         self.deref().len()
     }
 
-    fn iter(&self) -> DynPyIter {
+    fn boxed_iter(&self) -> DynPyIter {
         Box::new(self.deref().iter())
     }
 }
 
-pub(crate) fn eq(
-    vm: &VirtualMachine,
-    zelf: &impl SimpleSeq,
-    other: &impl SimpleSeq,
-) -> PyResult<bool> {
+pub(crate) fn eq(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
     if zelf.len() == other.len() {
-        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+        for (a, b) in Iterator::zip(zelf, other) {
             if a.is(b) {
                 continue;
             }
@@ -43,58 +39,44 @@ pub(crate) fn eq(
     }
 }
 
-pub(crate) fn lt(
-    vm: &VirtualMachine,
-    zelf: &impl SimpleSeq,
-    other: &impl SimpleSeq,
-) -> PyResult<bool> {
-    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+pub(crate) fn lt(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
+    let fallback = zelf.len() < other.len();
+    for (a, b) in Iterator::zip(zelf, other) {
         if let Some(v) = vm.bool_seq_lt(a.clone(), b.clone())? {
             return Ok(v);
         }
     }
-    Ok(zelf.len() < other.len())
+    Ok(fallback)
 }
 
-pub(crate) fn gt(
-    vm: &VirtualMachine,
-    zelf: &impl SimpleSeq,
-    other: &impl SimpleSeq,
-) -> PyResult<bool> {
-    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+pub(crate) fn gt(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
+    let fallback = zelf.len() > other.len();
+    for (a, b) in Iterator::zip(zelf, other) {
         if let Some(v) = vm.bool_seq_gt(a.clone(), b.clone())? {
             return Ok(v);
         }
     }
-    Ok(zelf.len() > other.len())
+    Ok(fallback)
 }
 
-pub(crate) fn ge(
-    vm: &VirtualMachine,
-    zelf: &impl SimpleSeq,
-    other: &impl SimpleSeq,
-) -> PyResult<bool> {
-    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+pub(crate) fn ge(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
+    let fallback = zelf.len() >= other.len();
+    for (a, b) in Iterator::zip(zelf, other) {
         if let Some(v) = vm.bool_seq_gt(a.clone(), b.clone())? {
             return Ok(v);
         }
     }
-
-    Ok(zelf.len() >= other.len())
+    Ok(fallback)
 }
 
-pub(crate) fn le(
-    vm: &VirtualMachine,
-    zelf: &impl SimpleSeq,
-    other: &impl SimpleSeq,
-) -> PyResult<bool> {
-    for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+pub(crate) fn le(vm: &VirtualMachine, zelf: DynPyIter, other: DynPyIter) -> PyResult<bool> {
+    let fallback = zelf.len() <= other.len();
+    for (a, b) in Iterator::zip(zelf, other) {
         if let Some(v) = vm.bool_seq_lt(a.clone(), b.clone())? {
             return Ok(v);
         }
     }
-
-    Ok(zelf.len() <= other.len())
+    Ok(fallback)
 }
 
 pub(crate) struct SeqMul<'a> {
@@ -115,7 +97,7 @@ impl<'a> Iterator for SeqMul<'a> {
                     None
                 } else {
                     self.repetitions -= 1;
-                    self.iter = Some(self.seq.iter());
+                    self.iter = Some(self.seq.boxed_iter());
                     self.next()
                 }
             }

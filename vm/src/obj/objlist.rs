@@ -530,12 +530,12 @@ impl PyList {
     #[inline]
     fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>
     where
-        F: Fn(&Vec<PyObjectRef>, &Vec<PyObjectRef>) -> PyResult<bool>,
+        F: Fn(sequence::DynPyIter, sequence::DynPyIter) -> PyResult<bool>,
     {
         let r = if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
             Implemented(op(
-                &self.borrow_elements().clone(),
-                &other.borrow_elements().clone(),
+                self.borrow_elements().boxed_iter(),
+                other.borrow_elements().boxed_iter(),
             )?)
         } else {
             NotImplemented

@@ -8,7 +8,7 @@ mod _collections {
         IdProtocol, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyIterable, PyObjectRef,
         PyRef, PyResult, PyValue,
     };
-    use crate::sequence;
+    use crate::sequence::{self, SimpleSeq};
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
     use itertools::Itertools;
@@ -54,7 +54,7 @@ mod _collections {
             self.0.len()
         }
 
-        fn iter(&self) -> sequence::DynPyIter {
+        fn boxed_iter(&self) -> sequence::DynPyIter {
             Box::new(self.0.iter())
         }
     }
@@ -285,12 +285,12 @@ mod _collections {
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue>
         where
-            F: Fn(&SimpleSeqDeque, &SimpleSeqDeque) -> PyResult<bool>,
+            F: Fn(sequence::DynPyIter, sequence::DynPyIter) -> PyResult<bool>,
         {
             let r = if let Some(other) = other.payload_if_subclass::<PyDeque>(vm) {
                 Implemented(op(
-                    &self.borrow_deque().into(),
-                    &other.borrow_deque().into(),
+                    SimpleSeqDeque::from(self.borrow_deque()).boxed_iter(),
+                    SimpleSeqDeque::from(other.borrow_deque()).boxed_iter(),
                 )?)
             } else {
                 NotImplemented
