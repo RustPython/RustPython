@@ -138,6 +138,11 @@ impl PyBaseObject {
         Ok(vm.ctx.not_implemented())
     }
 
+    #[pyclassmethod(magic)]
+    fn init_subclass(_cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.none())
+    }
+
     #[pymethod(magic)]
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let attributes: PyAttributes = obj.class().get_attributes();

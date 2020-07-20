@@ -2,6 +2,7 @@ use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
+use super::objclassmethod::PyClassMethod;
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objmappingproxy::PyMappingProxy;
@@ -14,7 +15,7 @@ use crate::pyobject::{
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease, PyObject, PyObjectRef,
     PyRef, PyResult, PyValue, TypeProtocol,
 };
-use crate::slots::{PyClassSlots, PyTpFlags};
+use crate::slots::{PyClassSlots, PyTpFlags, SlotDescriptor};
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::ops::Deref;
@@ -301,6 +302,12 @@ impl PyClassRef {
             }
         }
 
+        if let Some(f) = attributes.get_mut("__init_subclass__") {
+            if f.class().is(&vm.ctx.function_type()) {
+                *f = PyClassMethod::new(f.clone()).into_ref(vm).into_object();
+            }
+        }
+
         let typ = new(metatype, name.as_str(), base.clone(), bases, attributes)
             .map_err(|e| vm.new_type_error(e))?;
 
@@ -326,6 +333,20 @@ impl PyClassRef {
                 })?;
             }
         }
+
+        if let Some(initter) = typ.get_super_attr("__init_subclass__") {
+            let initter = PyClassMethod::descr_get(
+                vm,
+                initter,
+                None,
+                OptionalArg::Present(typ.clone().into_object()),
+            )?;
+            let init_args = PyFuncArgs {
+                args: Vec::new(),
+                kwargs: args.kwargs,
+            };
+            vm.invoke(&initter, init_args)?;
+        };
 
         Ok(typ.into_object())
     }
