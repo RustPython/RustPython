@@ -5,23 +5,23 @@ use crate::vm::VirtualMachine;
 use num_traits::{cast::ToPrimitive, sign::Signed};
 
 #[derive(FromArgs)]
-pub struct SplitArgs<T, S, E>
+pub struct SplitArgs<'a, T, S, E>
 where
     T: TryFromObject + PyCommonStringWrapper<S>,
-    S: ?Sized + PyCommonString<E>,
+    S: ?Sized + PyCommonString<'a, E>,
 {
     #[pyarg(positional_or_keyword, default = "None")]
     sep: Option<T>,
     #[pyarg(positional_or_keyword, default = "-1")]
     maxsplit: isize,
-    _phantom1: std::marker::PhantomData<S>,
+    _phantom1: std::marker::PhantomData<&'a S>,
     _phantom2: std::marker::PhantomData<E>,
 }
 
-impl<T, S, E> SplitArgs<T, S, E>
+impl<'a, T, S, E> SplitArgs<'a, T, S, E>
 where
     T: TryFromObject + PyCommonStringWrapper<S>,
-    S: ?Sized + PyCommonString<E>,
+    S: ?Sized + PyCommonString<'a, E>,
 {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Option<T>, isize)> {
         let sep = if let Some(s) = self.sep {
@@ -134,14 +134,18 @@ where
     fn push_str(&mut self, s: &S);
 }
 
-pub trait PyCommonString<E>
+pub trait PyCommonString<'s, E>
 where
+    Self: 's,
     Self::Container: PyCommonStringContainer<Self>,
+    Self::CharIter: 's + std::iter::Iterator<Item = char>,
 {
     type Container;
+    type CharIter;
 
     fn to_container(&self) -> Self::Container;
     fn as_bytes(&self) -> &[u8];
+    fn chars(&'s self) -> Self::CharIter;
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
     // FIXME: get_chars is expensive for str
     fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
@@ -151,7 +155,7 @@ where
 
     fn py_split<T, SP, SN, SW, R>(
         &self,
-        args: SplitArgs<T, Self, E>,
+        args: SplitArgs<'s, T, Self, E>,
         vm: &VirtualMachine,
         split: SP,
         splitn: SN,
@@ -380,5 +384,26 @@ where
             filled.extend_from_slice(s);
             filled
         }
+    }
+
+    fn py_iscase<F, G>(&'s self, is_case: F, is_opposite: G) -> bool
+    where
+        F: Fn(char) -> bool,
+        G: Fn(char) -> bool,
+    {
+        // Unified form of CPython functions:
+        //  _Py_bytes_islower
+        //   Py_bytes_isupper
+        //  unicode_islower_impl
+        //  unicode_isupper_impl
+        let mut cased = false;
+        for c in self.chars() {
+            if is_opposite(c) {
+                return false;
+            } else if !cased && is_case(c) {
+                cased = true
+            }
+        }
+        cased
     }
 }

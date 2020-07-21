@@ -771,31 +771,13 @@ impl PyString {
     // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.
     #[pymethod]
     fn islower(&self) -> bool {
-        // CPython unicode_islower_impl
-        let mut cased = false;
-        for c in self.value.chars() {
-            if c.is_uppercase() {
-                return false;
-            } else if !cased && c.is_lowercase() {
-                cased = true
-            }
-        }
-        cased
+        self.value.py_iscase(char::is_lowercase, char::is_uppercase)
     }
 
     // Return true if all cased characters in the string are uppercase and there is at least one cased character, false otherwise.
     #[pymethod]
     fn isupper(&self) -> bool {
-        // CPython unicode_isupper_impl
-        let mut cased = false;
-        for c in self.value.chars() {
-            if c.is_lowercase() {
-                return false;
-            } else if !cased && c.is_uppercase() {
-                cased = true
-            }
-        }
-        cased
+        self.value.py_iscase(char::is_uppercase, char::is_lowercase)
     }
 
     #[pymethod]
@@ -1208,7 +1190,7 @@ impl TryFromObject for std::ffi::CString {
     }
 }
 
-type SplitArgs = pystr::SplitArgs<PyStringRef, str, char>;
+type SplitArgs<'a> = pystr::SplitArgs<'a, PyStringRef, str, char>;
 
 #[derive(FromArgs)]
 pub struct FindArgs {
@@ -1728,8 +1710,9 @@ impl PyCommonStringContainer<str> for String {
     }
 }
 
-impl PyCommonString<char> for str {
+impl<'s> PyCommonString<'s, char> for str {
     type Container = String;
+    type CharIter = std::str::Chars<'s>;
 
     fn to_container(&self) -> Self::Container {
         self.to_owned()
@@ -1737,6 +1720,10 @@ impl PyCommonString<char> for str {
 
     fn as_bytes(&self) -> &[u8] {
         self.as_bytes()
+    }
+
+    fn chars(&'s self) -> Self::CharIter {
+        str::chars(self)
     }
 
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {

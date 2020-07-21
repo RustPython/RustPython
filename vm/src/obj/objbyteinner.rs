@@ -229,7 +229,7 @@ impl ByteInnerTranslateOptions {
     }
 }
 
-pub type ByteInnerSplitOptions = pystr::SplitArgs<PyByteInner, [u8], u8>;
+pub type ByteInnerSplitOptions<'a> = pystr::SplitArgs<'a, PyByteInner, [u8], u8>;
 
 #[derive(FromArgs)]
 pub struct ByteInnerSplitlinesOptions {
@@ -557,31 +557,13 @@ impl PyByteInner {
     }
 
     pub fn islower(&self) -> bool {
-        // CPython _Py_bytes_islower
-        let mut cased = false;
-        for b in self.elements.iter() {
-            let c = *b as char;
-            if c.is_uppercase() {
-                return false;
-            } else if !cased && c.is_lowercase() {
-                cased = true
-            }
-        }
-        cased
+        self.elements
+            .py_iscase(char::is_lowercase, char::is_uppercase)
     }
 
     pub fn isupper(&self) -> bool {
-        // CPython _Py_bytes_isupper
-        let mut cased = false;
-        for b in self.elements.iter() {
-            let c = *b as char;
-            if c.is_lowercase() {
-                return false;
-            } else if !cased && c.is_uppercase() {
-                cased = true
-            }
-        }
-        cased
+        self.elements
+            .py_iscase(char::is_uppercase, char::is_lowercase)
     }
 
     pub fn isspace(&self) -> bool {
@@ -1266,8 +1248,9 @@ impl PyCommonStringContainer<[u8]> for Vec<u8> {
 
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
-impl PyCommonString<u8> for [u8] {
+impl<'s> PyCommonString<'s, u8> for [u8] {
     type Container = Vec<u8>;
+    type CharIter = std::iter::Map<std::slice::Iter<'s, u8>, fn(&u8) -> char>;
 
     fn to_container(&self) -> Self::Container {
         self.to_vec()
@@ -1275,6 +1258,10 @@ impl PyCommonString<u8> for [u8] {
 
     fn as_bytes(&self) -> &[u8] {
         self
+    }
+
+    fn chars(&'s self) -> Self::CharIter {
+        self.iter().map(|c| *c as char)
     }
 
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
