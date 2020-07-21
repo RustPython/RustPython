@@ -28,7 +28,7 @@ env_logger = "0.7"
 clap = "2.33"
 rustpython-compiler = { path = "compiler", version = "0.1.1" }
 rustpython-parser = { path = "parser", version = "0.1.1" }
-rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["rustpython-parser", "rustpython-compiler"] }
+rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["compile-parse"] }
 dirs = { package = "dirs-next", version = "1.0" }
 num-traits = "0.2.8"
 cfg-if = "0.1"

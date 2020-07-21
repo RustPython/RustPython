@@ -17,7 +17,8 @@ freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 [dependencies]
 rustpython-compiler = { path = "../../compiler" }
 rustpython-parser = { path = "../../parser" }
-rustpython-vm = { path = "../../vm" }
+# no threading feature for rustpython-vm -- doesn't much matter anyway, but it might be more optimized
+rustpython-vm = { path = "../../vm", default-features = false, features = ["compile-parse"]  }
 cfg-if = "0.1.2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.3"
