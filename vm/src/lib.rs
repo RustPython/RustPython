@@ -20,7 +20,6 @@ extern crate flamer;
 
 #[macro_use]
 extern crate bitflags;
-extern crate lexical;
 #[macro_use]
 extern crate log;
 #[macro_use]

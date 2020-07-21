@@ -72,7 +72,7 @@ pub fn parse_str(literal: &str) -> Option<f64> {
         last_tok = Some(c);
     }
 
-    if let Ok(f) = lexical::parse(buf.as_str()) {
+    if let Ok(f) = lexical_core::parse(buf.as_bytes()) {
         Some(f)
     } else {
         None

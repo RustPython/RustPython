@@ -513,7 +513,7 @@ fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
             vm.new_value_error(format!("could not convert string to float: '{}'", s))
         })?
     } else if let Some(bytes) = obj.payload_if_subclass::<PyBytes>(vm) {
-        lexical::parse(bytes.get_value()).map_err(|_| {
+        lexical_core::parse(bytes.get_value()).map_err(|_| {
             vm.new_value_error(format!(
                 "could not convert string to float: '{}'",
                 bytes.repr()
