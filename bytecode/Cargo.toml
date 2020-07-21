@@ -15,4 +15,4 @@ lz4-compression = "0.7"
 num-bigint = { version = "0.3", features = ["serde"] }
 num-complex = { version = "0.2", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
-itertools = "0.8"
+itertools = "0.9"
