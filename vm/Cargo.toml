@@ -92,7 +92,8 @@ unic-ucd-age       = "0.9"
 unic-ucd-ident     = "0.9"
 
 flame = { version = "0.2", optional = true }
-flamer = { version = "0.3", optional = true }
+flamer = { version = "0.4", optional = true }
+
 rustpython-common = { path = "../common" }
 
 [target.'cfg(unix)'.dependencies]
