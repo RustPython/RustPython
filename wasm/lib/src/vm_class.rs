@@ -1,12 +1,12 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
-use std::sync::Arc;
 
 use js_sys::{Object, TypeError};
 use wasm_bindgen::prelude::*;
 
 use rustpython_compiler::compile;
+use rustpython_vm::common::rc::{PyRc, PyWeak};
 use rustpython_vm::pyobject::{ItemProtocol, PyObject, PyObjectPayload, PyObjectRef, PyValue};
 use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::{InitParameter, PySettings, VirtualMachine};
@@ -39,7 +39,7 @@ impl StoredVirtualMachine {
 
         js_module::setup_js_module(&mut vm);
         if inject_browser_module {
-            Arc::get_mut(&mut vm.state).unwrap().stdlib_inits.insert(
+            PyRc::get_mut(&mut vm.state).unwrap().stdlib_inits.insert(
                 "_window".to_owned(),
                 Box::new(|vm| {
                     py_module!(vm, "_window", {
@@ -177,9 +177,9 @@ impl WASMVirtualMachine {
     pub(crate) fn push_held_rc(
         &self,
         obj: PyObjectRef,
-    ) -> Result<std::sync::Weak<PyObject<dyn PyObjectPayload>>, JsValue> {
+    ) -> Result<PyWeak<PyObject<dyn PyObjectPayload>>, JsValue> {
         self.with(|stored_vm| {
-            let weak = std::sync::Arc::downgrade(&obj);
+            let weak = PyRc::downgrade(&obj);
             stored_vm.held_objects.borrow_mut().push(obj);
             weak
         })

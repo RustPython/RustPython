@@ -1,11 +1,11 @@
 use js_sys::{Array, Object, Reflect};
+use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::Args;
 use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStringRef, objtype::PyClassRef};
 use rustpython_vm::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use rustpython_vm::types::create_type;
 use rustpython_vm::VirtualMachine;
-use std::sync::Arc;
 use wasm_bindgen::{prelude::*, JsCast};
 
 #[wasm_bindgen(inline_js = "
@@ -259,7 +259,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 pub fn setup_js_module(vm: &mut VirtualMachine) {
-    let state = Arc::get_mut(&mut vm.state).unwrap();
+    let state = PyRc::get_mut(&mut vm.state).unwrap();
     state
         .stdlib_inits
         .insert("_js".to_owned(), Box::new(make_module));
