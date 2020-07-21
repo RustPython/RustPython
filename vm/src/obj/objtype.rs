@@ -15,7 +15,7 @@ use crate::pyobject::{
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease, PyObject, PyObjectRef,
     PyRef, PyResult, PyValue, TypeProtocol,
 };
-use crate::slots::{PyClassSlots, PyTpFlags, SlotDescriptor};
+use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
 use std::ops::Deref;
@@ -335,14 +335,10 @@ impl PyClassRef {
         }
 
         if let Some(initter) = typ.get_super_attr("__init_subclass__") {
-            let initter = PyClassMethod::descr_get(
-                vm,
-                initter,
-                None,
-                OptionalArg::Present(typ.clone().into_object()),
-            )?;
-            let init_args = PyFuncArgs::from(kwargs);
-            vm.invoke(&initter, init_args)?;
+            let initter = vm
+                .call_get_descriptor_specific(initter, None, Some(typ.clone().into_object()))
+                .unwrap()?;
+            vm.invoke(&initter, kwargs)?;
         };
 
         Ok(typ.into_object())
