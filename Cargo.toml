@@ -15,8 +15,10 @@ name = "bench"
 path = "./benchmarks/bench.rs"
 
 [features]
+default = ["threading"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
+threading = ["rustpython-vm/threading"]
 
 ssl = ["rustpython-vm/ssl"]
 
@@ -24,9 +26,9 @@ ssl = ["rustpython-vm/ssl"]
 log = "0.4"
 env_logger = "0.7"
 clap = "2.33"
-rustpython-compiler = {path = "compiler", version = "0.1.1"}
-rustpython-parser = {path = "parser", version = "0.1.1"}
-rustpython-vm = {path = "vm", version = "0.1.1"}
+rustpython-compiler = { path = "compiler", version = "0.1.1" }
+rustpython-parser = { path = "parser", version = "0.1.1" }
+rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["rustpython-parser", "rustpython-compiler"] }
 dirs = { package = "dirs-next", version = "1.0" }
 num-traits = "0.2.8"
 cfg-if = "0.1"

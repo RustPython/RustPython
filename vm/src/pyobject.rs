@@ -1276,7 +1276,17 @@ impl PyObject<dyn PyObjectPayload> {
     }
 }
 
-pub trait PyValue: fmt::Debug + Send + Sync + Sized + 'static {
+cfg_if::cfg_if! {
+    if #[cfg(feature = "threading")] {
+        pub trait PyThreadingConstraint: Send + Sync {}
+        impl<T: Send + Sync> PyThreadingConstraint for T {}
+    } else {
+        pub trait PyThreadingConstraint {}
+        impl<T> PyThreadingConstraint for T {}
+    }
+}
+
+pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     const HAVE_DICT: bool = false;
 
     fn class(vm: &VirtualMachine) -> PyClassRef;
@@ -1306,7 +1316,7 @@ pub trait PyValue: fmt::Debug + Send + Sync + Sized + 'static {
     }
 }
 
-pub trait PyObjectPayload: Any + fmt::Debug + Send + Sync + 'static {
+pub trait PyObjectPayload: Any + fmt::Debug + PyThreadingConstraint + 'static {
     fn as_any(&self) -> &dyn Any;
 }
 

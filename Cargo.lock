@@ -1525,6 +1525,7 @@ dependencies = [
 name = "rustpython-common"
 version = "0.0.0"
 dependencies = [
+ "cfg-if",
  "hexf-parse",
  "lexical",
  "num-bigint",

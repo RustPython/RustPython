@@ -287,6 +287,7 @@ impl VirtualMachine {
         }
     }
 
+    #[cfg(feature = "threading")]
     pub(crate) fn new_thread(&self) -> VirtualMachine {
         VirtualMachine {
             builtins: self.builtins.clone(),

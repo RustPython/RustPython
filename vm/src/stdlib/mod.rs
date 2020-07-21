@@ -32,6 +32,7 @@ mod string;
 mod symtable;
 mod sysconfigdata;
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "threading")]
 mod thread;
 mod time_module;
 #[cfg(feature = "rustpython-parser")]
@@ -131,6 +132,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("select".to_owned(), Box::new(select::make_module));
         #[cfg(feature = "ssl")]
         modules.insert("_ssl".to_owned(), Box::new(ssl::make_module));
+        #[cfg(feature = "threading")]
         modules.insert("_thread".to_owned(), Box::new(thread::make_module));
         #[cfg(not(target_os = "redox"))]
         modules.insert("zlib".to_owned(), Box::new(zlib::make_module));

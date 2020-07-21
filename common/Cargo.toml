@@ -4,12 +4,16 @@ version = "0.0.0"
 authors = ["RustPython Team"]
 edition = "2018"
 
+[features]
+threading = ["parking_lot"]
+
 [dependencies]
-parking_lot = "0.11.0"
+parking_lot = { version = "0.11.0", optional = true }
 num-traits = "0.2"
 num-bigint = "0.3"
 lexical = "4"
 hexf-parse = "0.1.0"
+cfg-if = "0.1"
 
 [dev-dependencies]
 rand = "0.7.3"
