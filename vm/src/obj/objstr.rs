@@ -782,7 +782,7 @@ impl PyString {
 
     #[pymethod]
     fn isascii(&self) -> bool {
-        self.value.chars().all(|c| c.is_ascii())
+        self.value.is_ascii()
     }
 
     #[pymethod]
