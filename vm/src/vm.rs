@@ -1469,7 +1469,7 @@ impl VirtualMachine {
     pub fn bool_seq_lt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
         let value = if objbool::boolval(self, self._lt(a.clone(), b.clone())?)? {
             Some(true)
-        } else if !objbool::boolval(self, self._eq(a.clone(), b.clone())?)? {
+        } else if !objbool::boolval(self, self._eq(a, b)?)? {
             Some(false)
         } else {
             None
@@ -1480,7 +1480,7 @@ impl VirtualMachine {
     pub fn bool_seq_gt(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult<Option<bool>> {
         let value = if objbool::boolval(self, self._gt(a.clone(), b.clone())?)? {
             Some(true)
-        } else if !objbool::boolval(self, self._eq(a.clone(), b.clone())?)? {
+        } else if !objbool::boolval(self, self._eq(a, b)?)? {
             Some(false)
         } else {
             None
