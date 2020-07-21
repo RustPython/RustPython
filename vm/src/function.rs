@@ -66,6 +66,15 @@ impl From<(&Args, &KwArgs)> for PyFuncArgs {
     }
 }
 
+impl From<KwArgs> for PyFuncArgs {
+    fn from(kwargs: KwArgs) -> Self {
+        PyFuncArgs {
+            args: Vec::new(),
+            kwargs: kwargs.into_iter().collect(),
+        }
+    }
+}
+
 impl FromArgs for PyFuncArgs {
     fn from_args(_vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         Ok(mem::take(args))
