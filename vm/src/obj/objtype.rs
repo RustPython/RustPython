@@ -336,8 +336,8 @@ impl PyClassRef {
 
         if let Some(initter) = typ.get_super_attr("__init_subclass__") {
             let initter = vm
-                .call_get_descriptor_specific(initter, None, Some(typ.clone().into_object()))
-                .unwrap()?;
+                .call_get_descriptor_specific(initter.clone(), None, Some(typ.clone().into_object()))
+                .unwrap_or(Ok(initter))?;
             vm.invoke(&initter, kwargs)?;
         };
 
