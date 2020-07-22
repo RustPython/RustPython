@@ -227,6 +227,7 @@ fn parse_grouping_option(text: &str) -> (Option<FormatGrouping>, &str) {
 fn parse_format_type(text: &str) -> (Option<FormatType>, &str) {
     let mut chars = text.chars();
     match chars.next() {
+        Some('s') => (Some(FormatType::String), chars.as_str()),
         Some('b') => (Some(FormatType::Binary), chars.as_str()),
         Some('c') => (Some(FormatType::Character), chars.as_str()),
         Some('d') => (Some(FormatType::Decimal), chars.as_str()),
