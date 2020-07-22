@@ -24,9 +24,7 @@ use super::pystr::{
     self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
 };
 use crate::cformat::CFormatString;
-use crate::format::{
-    FormatParseError, FormatPart, FormatPreconversor, FormatSpec, FormatString, FromTemplate,
-};
+use crate::format::{FormatParseError, FormatSpec, FormatString, FromTemplate};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
@@ -611,7 +609,7 @@ impl PyString {
         }
         let format_string_text = borrow_value(zelf);
         match FormatString::from_str(format_string_text, &args) {
-            Ok(format_string) => perform_format(vm, &format_string, &args),
+            Ok(format_string) => format_string.format(&args, vm),
             Err(err) => match err {
                 FormatParseError::UnmatchedBracket => {
                     Err(vm.new_value_error("expected '}' before end of string".to_owned()))
@@ -637,7 +635,7 @@ impl PyString {
         let zelf = &args.args[0];
         let format_string_text = borrow_value(zelf);
         match FormatString::from_str(format_string_text, &args) {
-            Ok(format_string) => perform_format_map(vm, &format_string, &args.args[1]),
+            Ok(format_string) => format_string.format_map(&args.args[1], vm),
             Err(err) => match err {
                 FormatParseError::UnmatchedBracket => {
                     Err(vm.new_value_error("expected '}' before end of string".to_owned()))
@@ -1210,102 +1208,6 @@ pub fn clone_value(obj: &PyObjectRef) -> String {
 
 pub fn borrow_value(obj: &PyObjectRef) -> &str {
     &obj.payload::<PyString>().unwrap().value
-}
-
-fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &str) -> PyResult {
-    let (preconversor, new_format_spec) = FormatPreconversor::parse_and_consume(format_spec);
-    let argument = match preconversor {
-        Some(FormatPreconversor::Str) => vm.call_method(&argument, "__str__", vec![])?,
-        Some(FormatPreconversor::Repr) => vm.call_method(&argument, "__repr__", vec![])?,
-        Some(FormatPreconversor::Ascii) => vm.call_method(&argument, "__repr__", vec![])?,
-        Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", vec![])?,
-        None => argument,
-    };
-    let returned_type = vm.ctx.new_str(new_format_spec.to_owned());
-
-    let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
-    if !objtype::isinstance(&result, &vm.ctx.types.str_type) {
-        let result_type = result.class();
-        let actual_type = vm.to_pystr(&result_type)?;
-        return Err(vm.new_type_error(format!("__format__ must return a str, not {}", actual_type)));
-    }
-    Ok(result)
-}
-
-fn perform_format(
-    vm: &VirtualMachine,
-    format_string: &FormatString,
-    arguments: &PyFuncArgs,
-) -> PyResult {
-    let mut final_string = String::new();
-    if format_string.format_parts.iter().any(FormatPart::is_auto)
-        && format_string.format_parts.iter().any(FormatPart::is_index)
-    {
-        return Err(vm.new_value_error(
-            "cannot switch from automatic field numbering to manual field specification".to_owned(),
-        ));
-    }
-    let mut auto_argument_index: usize = 1;
-    for part in &format_string.format_parts {
-        let result_string: String = match part {
-            FormatPart::AutoSpec(format_spec) => {
-                let result = match arguments.args.get(auto_argument_index) {
-                    Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
-                    None => {
-                        return Err(vm.new_index_error("tuple index out of range".to_owned()));
-                    }
-                };
-                auto_argument_index += 1;
-                clone_value(&result)
-            }
-            FormatPart::IndexSpec(index, format_spec) => {
-                let result = match arguments.args.get(*index + 1) {
-                    Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
-                    None => {
-                        return Err(vm.new_index_error("tuple index out of range".to_owned()));
-                    }
-                };
-                clone_value(&result)
-            }
-            FormatPart::KeywordSpec(keyword, format_spec) => {
-                let result = match arguments.get_optional_kwarg(&keyword) {
-                    Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
-                    None => {
-                        return Err(vm.new_key_error(vm.new_str(keyword.to_owned())));
-                    }
-                };
-                clone_value(&result)
-            }
-            FormatPart::Literal(literal) => literal.clone(),
-        };
-        final_string.push_str(&result_string);
-    }
-    Ok(vm.ctx.new_str(final_string))
-}
-
-fn perform_format_map(
-    vm: &VirtualMachine,
-    format_string: &FormatString,
-    dict: &PyObjectRef,
-) -> PyResult {
-    let mut final_string = String::new();
-    for part in &format_string.format_parts {
-        let result_string: String = match part {
-            FormatPart::AutoSpec(_) | FormatPart::IndexSpec(_, _) => {
-                return Err(
-                    vm.new_value_error("Format string contains positional fields".to_owned())
-                );
-            }
-            FormatPart::KeywordSpec(keyword, format_spec) => {
-                let argument = dict.get_item(keyword, &vm)?;
-                let result = call_object_format(vm, argument.clone(), &format_spec)?;
-                clone_value(&result)
-            }
-            FormatPart::Literal(literal) => literal.clone(),
-        };
-        final_string.push_str(&result_string);
-    }
-    Ok(vm.ctx.new_str(final_string))
 }
 
 impl PySliceableSequence for str {

@@ -1,6 +1,9 @@
 use crate::function::PyFuncArgs;
 use crate::obj::objint::PyInt;
 use crate::obj::objstr::PyString;
+use crate::obj::{objstr, objtype};
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;
 use num_traits::Signed;
@@ -8,7 +11,7 @@ use std::cmp;
 use std::str::FromStr;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum FormatPreconversor {
+enum FormatPreconversor {
     Str,
     Repr,
     Ascii,
@@ -16,7 +19,7 @@ pub enum FormatPreconversor {
 }
 
 impl FormatPreconversor {
-    pub fn from_char(c: char) -> Option<FormatPreconversor> {
+    fn from_char(c: char) -> Option<FormatPreconversor> {
         match c {
             's' => Some(FormatPreconversor::Str),
             'r' => Some(FormatPreconversor::Repr),
@@ -26,7 +29,7 @@ impl FormatPreconversor {
         }
     }
 
-    pub fn from_string(text: &str) -> Option<FormatPreconversor> {
+    fn from_string(text: &str) -> Option<FormatPreconversor> {
         let mut chars = text.chars();
         if chars.next() != Some('!') {
             return None;
@@ -38,7 +41,7 @@ impl FormatPreconversor {
         }
     }
 
-    pub fn parse_and_consume(text: &str) -> (Option<FormatPreconversor>, &str) {
+    fn parse_and_consume(text: &str) -> (Option<FormatPreconversor>, &str) {
         let preconversor = FormatPreconversor::from_string(text);
         match preconversor {
             None => (None, text),
@@ -53,7 +56,7 @@ impl FormatPreconversor {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum FormatAlign {
+enum FormatAlign {
     Left,
     Right,
     AfterSign,
@@ -73,20 +76,20 @@ impl FormatAlign {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum FormatSign {
+enum FormatSign {
     Plus,
     Minus,
     MinusOrSpace,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum FormatGrouping {
+enum FormatGrouping {
     Comma,
     Underscore,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum FormatType {
+enum FormatType {
     String,
     Binary,
     Character,
@@ -105,7 +108,7 @@ pub enum FormatType {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct FormatSpec {
+pub(crate) struct FormatSpec {
     preconversor: Option<FormatPreconversor>,
     fill: Option<char>,
     align: Option<FormatAlign>,
@@ -117,7 +120,7 @@ pub struct FormatSpec {
     format_type: Option<FormatType>,
 }
 
-pub fn get_num_digits(text: &str) -> usize {
+pub(crate) fn get_num_digits(text: &str) -> usize {
     for (index, character) in text.char_indices() {
         if !character.is_digit(10) {
             return index;
@@ -286,7 +289,7 @@ fn format_float_as_exponent(precision: usize, magnitude: f64, separator: &str) -
 }
 
 impl FormatSpec {
-    pub fn parse(text: &str) -> Result<FormatSpec, &'static str> {
+    pub(crate) fn parse(text: &str) -> Result<FormatSpec, &'static str> {
         parse_format_spec(text)
     }
 
@@ -351,7 +354,7 @@ impl FormatSpec {
         }
     }
 
-    pub fn format_float(&self, num: f64) -> Result<String, &'static str> {
+    pub(crate) fn format_float(&self, num: f64) -> Result<String, &'static str> {
         let precision = self.precision.unwrap_or(6);
         let magnitude = num.abs();
         let raw_magnitude_string_result: Result<String, &'static str> = match self.format_type {
@@ -428,7 +431,7 @@ impl FormatSpec {
         self.format_sign_and_align(&magnitude_string, sign_str)
     }
 
-    pub fn format_int(&self, num: &BigInt) -> Result<String, &'static str> {
+    pub(crate) fn format_int(&self, num: &BigInt) -> Result<String, &'static str> {
         let magnitude = num.abs();
         let prefix = if self.alternate_form {
             match self.format_type {
@@ -492,7 +495,7 @@ impl FormatSpec {
         self.format_sign_and_align(&magnitude_string, sign_str)
     }
 
-    pub fn format_string(&self, s: &str) -> Result<String, &'static str> {
+    pub(crate) fn format_string(&self, s: &str) -> Result<String, &'static str> {
         match self.format_type {
             Some(FormatType::String) | None => self.format_sign_and_align(s, ""),
             _ => Err("Unknown format code for object of type 'str'"),
@@ -548,7 +551,7 @@ impl FormatSpec {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum FormatParseError {
+pub(crate) enum FormatParseError {
     UnmatchedBracket,
     MissingStartBracket,
     UnescapedStartBracketInLiteral,
@@ -563,7 +566,7 @@ impl FromStr for FormatSpec {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum FormatPart {
+enum FormatPart {
     AutoSpec(String),
     IndexSpec(usize, String),
     KeywordSpec(String, String),
@@ -571,14 +574,14 @@ pub enum FormatPart {
 }
 
 impl FormatPart {
-    pub fn is_auto(&self) -> bool {
+    fn is_auto(&self) -> bool {
         match self {
             FormatPart::AutoSpec(_) => true,
             _ => false,
         }
     }
 
-    pub fn is_index(&self) -> bool {
+    fn is_index(&self) -> bool {
         match self {
             FormatPart::IndexSpec(_, _) => true,
             _ => false,
@@ -587,8 +590,8 @@ impl FormatPart {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct FormatString {
-    pub format_parts: Vec<FormatPart>,
+pub(crate) struct FormatString {
+    format_parts: Vec<FormatPart>,
 }
 
 impl FormatString {
@@ -719,9 +722,98 @@ impl FormatString {
             Err(FormatParseError::UnmatchedBracket)
         }
     }
+
+    pub(crate) fn format(&self, arguments: &PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        let mut final_string = String::new();
+        if self.format_parts.iter().any(FormatPart::is_auto)
+            && self.format_parts.iter().any(FormatPart::is_index)
+        {
+            return Err(vm.new_value_error(
+                "cannot switch from automatic field numbering to manual field specification"
+                    .to_owned(),
+            ));
+        }
+        let mut auto_argument_index: usize = 1;
+        for part in &self.format_parts {
+            let result_string: String = match part {
+                FormatPart::AutoSpec(format_spec) => {
+                    let result = match arguments.args.get(auto_argument_index) {
+                        Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
+                        None => {
+                            return Err(vm.new_index_error("tuple index out of range".to_owned()));
+                        }
+                    };
+                    auto_argument_index += 1;
+                    objstr::clone_value(&result)
+                }
+                FormatPart::IndexSpec(index, format_spec) => {
+                    let result = match arguments.args.get(*index + 1) {
+                        Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
+                        None => {
+                            return Err(vm.new_index_error("tuple index out of range".to_owned()));
+                        }
+                    };
+                    objstr::clone_value(&result)
+                }
+                FormatPart::KeywordSpec(keyword, format_spec) => {
+                    let result = match arguments.get_optional_kwarg(&keyword) {
+                        Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
+                        None => {
+                            return Err(vm.new_key_error(vm.new_str(keyword.to_owned())));
+                        }
+                    };
+                    objstr::clone_value(&result)
+                }
+                FormatPart::Literal(literal) => literal.clone(),
+            };
+            final_string.push_str(&result_string);
+        }
+        Ok(vm.ctx.new_str(final_string))
+    }
+
+    pub(crate) fn format_map(&self, dict: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let mut final_string = String::new();
+        for part in &self.format_parts {
+            let result_string: String = match part {
+                FormatPart::AutoSpec(_) | FormatPart::IndexSpec(_, _) => {
+                    return Err(
+                        vm.new_value_error("Format string contains positional fields".to_owned())
+                    );
+                }
+                FormatPart::KeywordSpec(keyword, format_spec) => {
+                    let argument = dict.get_item(keyword, &vm)?;
+                    let result = call_object_format(vm, argument.clone(), &format_spec)?;
+                    objstr::clone_value(&result)
+                }
+                FormatPart::Literal(literal) => literal.clone(),
+            };
+            final_string.push_str(&result_string);
+        }
+        Ok(vm.ctx.new_str(final_string))
+    }
 }
 
-pub trait FromTemplate<'a>: Sized {
+fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &str) -> PyResult {
+    let (preconversor, new_format_spec) = FormatPreconversor::parse_and_consume(format_spec);
+    let argument = match preconversor {
+        Some(FormatPreconversor::Str) => vm.call_method(&argument, "__str__", vec![])?,
+        Some(FormatPreconversor::Repr) => vm.call_method(&argument, "__repr__", vec![])?,
+        Some(FormatPreconversor::Ascii) => vm.call_method(&argument, "__repr__", vec![])?,
+        Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", vec![])?,
+        None => argument,
+    };
+    let returned_type = vm.ctx.new_str(new_format_spec.to_owned());
+
+    let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
+    if !objtype::isinstance(&result, &vm.ctx.types.str_type) {
+        let result_type = result.class();
+        let actual_type = vm.to_pystr(&result_type)?;
+        return Err(vm.new_type_error(format!("__format__ must return a str, not {}", actual_type)));
+    }
+    Ok(result)
+}
+
+pub(crate) trait FromTemplate<'a>: Sized {
     type Err;
     fn from_str(s: &'a str, arg: &'a PyFuncArgs) -> Result<Self, Self::Err>;
 }
