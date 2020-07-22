@@ -506,7 +506,7 @@ impl PyString {
 
     #[pymethod]
     fn endswith(&self, args: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        self.value.as_str().py_startsendswith(
+        self.value.py_startsendswith(
             args,
             "endswith",
             "str",
@@ -517,7 +517,7 @@ impl PyString {
 
     #[pymethod]
     fn startswith(&self, args: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        self.value.as_str().py_startsendswith(
+        self.value.py_startsendswith(
             args,
             "startswith",
             "str",
@@ -536,7 +536,6 @@ impl PyString {
     #[pymethod]
     fn removeprefix(&self, pref: PyStringRef) -> String {
         self.value
-            .as_str()
             .py_removeprefix(&pref.value, pref.value.len(), |s, p| s.starts_with(p))
             .to_owned()
     }
@@ -551,7 +550,6 @@ impl PyString {
     #[pymethod]
     fn removesuffix(&self, suff: PyStringRef) -> String {
         self.value
-            .as_str()
             .py_removesuffix(&suff.value, suff.value.len(), |s, p| s.ends_with(p))
             .to_owned()
     }
@@ -573,23 +571,17 @@ impl PyString {
             0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
         ];
 
-        if self.value.is_empty() {
-            false
-        } else {
-            self.value
+        !self.value.is_empty()
+            && self
+                .value
                 .chars()
                 .filter(|c| !c.is_digit(10))
                 .all(|c| valid_unicodes.contains(&(c as u16)))
-        }
     }
 
     #[pymethod]
     fn isdecimal(&self) -> bool {
-        if self.value.is_empty() {
-            false
-        } else {
-            self.value.chars().all(|c| c.is_ascii_digit())
-        }
+        !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii_digit())
     }
 
     #[pymethod(name = "__mod__")]

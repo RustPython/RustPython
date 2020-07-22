@@ -6,9 +6,6 @@ use crate::vm::VirtualMachine;
 
 #[pymodule(name = "builtins")]
 mod decl {
-    use std::char;
-    use std::str;
-
     use num_bigint::Sign;
     use num_traits::{Signed, ToPrimitive, Zero};
     #[cfg(feature = "rustpython-compiler")]
@@ -95,7 +92,7 @@ mod decl {
 
     #[pyfunction]
     fn chr(i: u32, vm: &VirtualMachine) -> PyResult<String> {
-        match char::from_u32(i) {
+        match std::char::from_u32(i) {
             Some(value) => Ok(value.to_string()),
             None => Err(vm.new_value_error("chr() arg not in range(0x110000)".to_owned())),
         }
@@ -124,7 +121,7 @@ mod decl {
         // TODO: compile::compile should probably get bytes
         let source = match &args.source {
             Either::A(string) => string.as_str(),
-            Either::B(bytes) => str::from_utf8(bytes).unwrap(),
+            Either::B(bytes) => std::str::from_utf8(bytes).unwrap(),
         };
 
         let mode_str = args.mode.as_str();
