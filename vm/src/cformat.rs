@@ -1,9 +1,8 @@
 /// Implementation of Printf-Style string formatting
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
-
 use crate::format::get_num_digits;
 use crate::obj::{objfloat, objint, objstr, objtuple, objtype};
-use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;
@@ -13,22 +12,22 @@ use std::fmt;
 use std::str::FromStr;
 
 #[derive(Debug, PartialEq)]
-pub enum CFormatErrorType {
+enum CFormatErrorType {
     UnmatchedKeyParentheses,
     MissingModuloSign,
     UnescapedModuloSignInLiteral,
     UnsupportedFormatChar(char),
     IncompleteFormat,
-    Unimplemented,
+    // Unimplemented,
 }
 
 // also contains how many chars the parsing function consumed
 type ParsingError = (CFormatErrorType, usize);
 
 #[derive(Debug, PartialEq)]
-pub struct CFormatError {
-    pub typ: CFormatErrorType,
-    pub index: usize,
+pub(crate) struct CFormatError {
+    typ: CFormatErrorType,
+    index: usize,
 }
 
 impl fmt::Display for CFormatError {
@@ -48,7 +47,7 @@ impl fmt::Display for CFormatError {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CFormatPreconversor {
+enum CFormatPreconversor {
     Repr,
     Str,
     Ascii,
@@ -56,27 +55,27 @@ pub enum CFormatPreconversor {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CFormatCase {
+enum CFormatCase {
     Lowercase,
     Uppercase,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CNumberType {
+enum CNumberType {
     Decimal,
     Octal,
     Hex(CFormatCase),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CFloatType {
+enum CFloatType {
     Exponent(CFormatCase),
     PointDecimal,
     General(CFormatCase),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CFormatType {
+enum CFormatType {
     Number(CNumberType),
     Float(CFloatType),
     Character,
@@ -84,7 +83,7 @@ pub enum CFormatType {
 }
 
 bitflags! {
-    pub struct CConversionFlags: u32 {
+    struct CConversionFlags: u32 {
         const ALTERNATE_FORM = 0b0000_0001;
         const ZERO_PAD = 0b0000_0010;
         const LEFT_ADJUST = 0b0000_0100;
@@ -94,19 +93,19 @@ bitflags! {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CFormatQuantity {
+enum CFormatQuantity {
     Amount(usize),
     FromValuesTuple,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct CFormatSpec {
-    pub mapping_key: Option<String>,
-    pub flags: CConversionFlags,
-    pub min_field_width: Option<CFormatQuantity>,
-    pub precision: Option<CFormatQuantity>,
-    pub format_type: CFormatType,
-    pub format_char: char,
+struct CFormatSpec {
+    mapping_key: Option<String>,
+    flags: CConversionFlags,
+    min_field_width: Option<CFormatQuantity>,
+    precision: Option<CFormatQuantity>,
+    format_type: CFormatType,
+    format_char: char,
     chars_consumed: usize,
 }
 
@@ -147,7 +146,7 @@ impl CFormatSpec {
         }
     }
 
-    pub fn format_string(&self, string: String) -> String {
+    pub(crate) fn format_string(&self, string: String) -> String {
         let mut string = string;
         // truncate if needed
         if let Some(CFormatQuantity::Amount(precision)) = self.precision {
@@ -216,7 +215,7 @@ impl CFormatSpec {
         }
     }
 
-    pub fn format_float(&self, num: f64) -> Result<String, String> {
+    pub(crate) fn format_float(&self, num: f64) -> Result<String, String> {
         let magnitude = num.abs();
 
         let sign_string = if num.is_sign_positive() {
@@ -277,16 +276,14 @@ impl CFormatSpec {
         match format_type {
             CFormatType::String(preconversor) => {
                 let result = match preconversor {
-                    CFormatPreconversor::Str => vm.call_method(&obj.clone(), "__str__", vec![])?,
-                    CFormatPreconversor::Repr => {
-                        vm.call_method(&obj.clone(), "__repr__", vec![])?
-                    }
-                    CFormatPreconversor::Ascii => {
-                        vm.call_method(&obj.clone(), "__repr__", vec![])?
-                    }
-                    CFormatPreconversor::Bytes => vm.call_method(&obj.clone(), "decode", vec![])?,
+                    CFormatPreconversor::Str => vm.to_str(&obj)?,
+                    CFormatPreconversor::Repr | CFormatPreconversor::Ascii => vm.to_repr(&obj)?,
+                    CFormatPreconversor::Bytes => TryFromObject::try_from_object(
+                        vm,
+                        vm.call_method(&obj.clone(), "decode", vec![])?,
+                    )?,
                 };
-                Ok(self.format_string(objstr::clone_value(&result)))
+                Ok(self.format_string(result.as_str().to_owned()))
             }
             CFormatType::Number(_) => {
                 if !objtype::isinstance(&obj, &vm.ctx.types.int_type) {
@@ -353,20 +350,20 @@ impl CFormatSpec {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CFormatPart {
+enum CFormatPart {
     Literal(String),
     Spec(CFormatSpec),
 }
 
 impl CFormatPart {
-    pub fn is_specifier(&self) -> bool {
+    fn is_specifier(&self) -> bool {
         match self {
             CFormatPart::Spec(_) => true,
             _ => false,
         }
     }
 
-    pub fn has_key(&self) -> bool {
+    fn has_key(&self) -> bool {
         match self {
             CFormatPart::Spec(s) => s.mapping_key.is_some(),
             _ => false,
@@ -375,8 +372,8 @@ impl CFormatPart {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct CFormatString {
-    pub format_parts: Vec<(usize, CFormatPart)>,
+pub(crate) struct CFormatString {
+    parts: Vec<(usize, CFormatPart)>,
 }
 
 impl FromStr for CFormatString {
@@ -400,14 +397,16 @@ impl FromStr for CFormatString {
                 })?;
         }
 
-        Ok(CFormatString {
-            format_parts: parts,
-        })
+        Ok(CFormatString { parts })
     }
 }
 
 impl CFormatString {
-    pub fn format(&mut self, vm: &VirtualMachine, values_obj: PyObjectRef) -> PyResult<String> {
+    pub(crate) fn format(
+        &mut self,
+        vm: &VirtualMachine,
+        values_obj: PyObjectRef,
+    ) -> PyResult<String> {
         fn call_getitem(
             vm: &VirtualMachine,
             container: &PyObjectRef,
@@ -448,16 +447,16 @@ impl CFormatString {
 
         let mut final_string = String::new();
         let num_specifiers = self
-            .format_parts
+            .parts
             .iter()
             .filter(|(_, part)| CFormatPart::is_specifier(part))
             .count();
         let mapping_required = self
-            .format_parts
+            .parts
             .iter()
             .any(|(_, part)| CFormatPart::has_key(part))
             && self
-                .format_parts
+                .parts
                 .iter()
                 .filter(|(_, part)| CFormatPart::is_specifier(part))
                 .all(|(_, part)| CFormatPart::has_key(part));
@@ -488,7 +487,7 @@ impl CFormatString {
         };
 
         let mut tuple_index: usize = 0;
-        for (_, part) in &mut self.format_parts {
+        for (_, part) in &mut self.parts {
             let result_string: String = match part {
                 CFormatPart::Spec(format_spec) => {
                     // try to get the object
