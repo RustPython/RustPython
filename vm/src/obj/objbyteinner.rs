@@ -1246,7 +1246,12 @@ const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
 impl<'s> PyCommonString<'s, u8> for [u8] {
     type Container = Vec<u8>;
-    type CharIter = std::iter::Map<std::slice::Iter<'s, u8>, fn(&u8) -> char>;
+    type CharIter = bstr::Chars<'s>;
+    type ElementIter = std::iter::Copied<std::slice::Iter<'s, u8>>;
+
+    fn element_bytes_len(_: u8) -> usize {
+        1
+    }
 
     fn to_container(&self) -> Self::Container {
         self.to_vec()
@@ -1257,7 +1262,11 @@ impl<'s> PyCommonString<'s, u8> for [u8] {
     }
 
     fn chars(&'s self) -> Self::CharIter {
-        self.iter().map(|c| *c as char)
+        bstr::ByteSlice::chars(self)
+    }
+
+    fn elements(&'s self) -> Self::ElementIter {
+        self.iter().copied()
     }
 
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
@@ -1324,13 +1333,5 @@ impl<'s> PyCommonString<'s, u8> for [u8] {
             splited.push(convert(haystack));
         }
         splited
-    }
-
-    fn py_pad(&self, left: usize, right: usize, fill: u8) -> Self::Container {
-        let mut u = Vec::with_capacity(left + self.len() + right);
-        u.extend(std::iter::repeat(fill).take(left));
-        u.extend_from_slice(self);
-        u.extend(std::iter::repeat(fill).take(right));
-        u
     }
 }

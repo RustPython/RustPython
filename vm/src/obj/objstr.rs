@@ -1714,6 +1714,11 @@ impl PyCommonStringContainer<str> for String {
 impl<'s> PyCommonString<'s, char> for str {
     type Container = String;
     type CharIter = std::str::Chars<'s>;
+    type ElementIter = std::str::Chars<'s>;
+
+    fn element_bytes_len(c: char) -> usize {
+        c.len_utf8()
+    }
 
     fn to_container(&self) -> Self::Container {
         self.to_owned()
@@ -1724,6 +1729,10 @@ impl<'s> PyCommonString<'s, char> for str {
     }
 
     fn chars(&'s self) -> Self::CharIter {
+        str::chars(self)
+    }
+
+    fn elements(&'s self) -> Self::ElementIter {
         str::chars(self)
     }
 
@@ -1806,13 +1815,5 @@ impl<'s> PyCommonString<'s, char> for str {
             splited.push(convert(&self[..last_offset]));
         }
         splited
-    }
-
-    fn py_pad(&self, left: usize, right: usize, fill: char) -> Self::Container {
-        let mut u = String::with_capacity((left + right) * fill.len_utf8() + self.len());
-        u.extend(std::iter::repeat(fill).take(left));
-        u.push_str(self);
-        u.extend(std::iter::repeat(fill).take(right));
-        u
     }
 }

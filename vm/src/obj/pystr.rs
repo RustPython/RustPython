@@ -9,6 +9,7 @@ pub struct SplitArgs<'a, T, S, E>
 where
     T: TryFromObject + PyCommonStringWrapper<S>,
     S: ?Sized + PyCommonString<'a, E>,
+    E: Copy,
 {
     #[pyarg(positional_or_keyword, default = "None")]
     sep: Option<T>,
@@ -22,6 +23,7 @@ impl<'a, T, S, E> SplitArgs<'a, T, S, E>
 where
     T: TryFromObject + PyCommonStringWrapper<S>,
     S: ?Sized + PyCommonString<'a, E>,
+    E: Copy,
 {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Option<T>, isize)> {
         let sep = if let Some(s) = self.sep {
@@ -136,16 +138,22 @@ where
 
 pub trait PyCommonString<'s, E>
 where
+    E: Copy,
     Self: 's,
-    Self::Container: PyCommonStringContainer<Self>,
+    Self::Container: PyCommonStringContainer<Self> + std::iter::Extend<E>,
     Self::CharIter: 's + std::iter::Iterator<Item = char>,
+    Self::ElementIter: 's + std::iter::Iterator<Item = E>,
 {
     type Container;
     type CharIter;
+    type ElementIter;
+
+    fn element_bytes_len(c: E) -> usize;
 
     fn to_container(&self) -> Self::Container;
     fn as_bytes(&self) -> &[u8];
     fn chars(&'s self) -> Self::CharIter;
+    fn elements(&'s self) -> Self::ElementIter;
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
     // FIXME: get_chars is expensive for str
     fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
@@ -273,7 +281,15 @@ where
         }
     }
 
-    fn py_pad(&self, left: usize, right: usize, fillchar: E) -> Self::Container;
+    fn py_pad(&self, left: usize, right: usize, fillchar: E) -> Self::Container {
+        let mut u = Self::Container::with_capacity(
+            (left + right) * Self::element_bytes_len(fillchar) + self.bytes_len(),
+        );
+        u.extend(std::iter::repeat(fillchar).take(left));
+        u.push_str(self);
+        u.extend(std::iter::repeat(fillchar).take(right));
+        u
+    }
 
     fn py_center(&self, width: usize, fillchar: E) -> Self::Container {
         let marg = width - self.chars_len();
