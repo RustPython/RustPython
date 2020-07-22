@@ -1133,6 +1133,10 @@ impl PyByteInner {
         res
     }
 
+    pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        self.elements.py_cformat(values, vm)
+    }
+
     pub fn repeat(&self, n: isize) -> Vec<u8> {
         self.elements.repeat(n.to_usize().unwrap_or(0))
     }
@@ -1259,6 +1263,10 @@ impl<'s> PyCommonString<'s, u8> for [u8] {
 
     fn as_bytes(&self) -> &[u8] {
         self
+    }
+
+    fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error> {
+        std::str::from_utf8(self)
     }
 
     fn chars(&'s self) -> Self::CharIter {

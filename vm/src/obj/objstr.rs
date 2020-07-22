@@ -2,7 +2,6 @@ use std::char;
 use std::fmt;
 use std::mem::size_of;
 use std::ops::Range;
-use std::str::FromStr;
 use std::string::ToString;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -23,7 +22,6 @@ use super::objtype::{self, PyClassRef};
 use super::pystr::{
     self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
 };
-use crate::cformat::CFormatString;
 use crate::format::{FormatParseError, FormatSpec, FormatString, FromTemplate};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyhash;
@@ -578,11 +576,9 @@ impl PyString {
     }
 
     #[pymethod(name = "__mod__")]
-    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let format_string_text = &self.value;
-        let mut format_string = CFormatString::from_str(format_string_text)
-            .map_err(|err| vm.new_value_error(err.to_string()))?;
-        Ok(vm.ctx.new_str(format_string.format(vm, values)?))
+    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        let formatted = self.value.py_cformat(values, vm)?;
+        Ok(formatted)
     }
 
     #[pymethod(name = "__rmod__")]
@@ -1391,6 +1387,10 @@ impl<'s> PyCommonString<'s, char> for str {
 
     fn as_bytes(&self) -> &[u8] {
         self.as_bytes()
+    }
+
+    fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error> {
+        Ok(self)
     }
 
     fn chars(&'s self) -> Self::CharIter {

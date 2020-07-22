@@ -1,8 +1,10 @@
+use crate::cformat::CFormatString;
 use crate::function::{single_or_tuple_any, OptionalOption};
 use crate::obj::objint::PyIntRef;
 use crate::pyobject::{PyIterator, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 use num_traits::{cast::ToPrimitive, sign::Signed};
+use std::str::FromStr;
 
 #[derive(FromArgs)]
 pub struct SplitArgs<'a, T, S, E>
@@ -152,6 +154,7 @@ where
 
     fn to_container(&self) -> Self::Container;
     fn as_bytes(&self) -> &[u8];
+    fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error>;
     fn chars(&'s self) -> Self::CharIter;
     fn elements(&'s self) -> Self::ElementIter;
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
@@ -428,5 +431,12 @@ where
             }
         }
         cased
+    }
+
+    fn py_cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        let format_string = self.as_utf8_str().unwrap();
+        CFormatString::from_str(format_string)
+            .map_err(|err| vm.new_value_error(err.to_string()))?
+            .format(vm, values)
     }
 }

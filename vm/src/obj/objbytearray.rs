@@ -4,7 +4,6 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_traits::cast::ToPrimitive;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::mem::size_of;
-use std::str::FromStr;
 
 use super::objbyteinner::{
     ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
@@ -16,7 +15,6 @@ use super::objsequence::SequenceIndex;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
 use super::pystr::{self, PyCommonString};
-use crate::cformat::CFormatString;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
     Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
@@ -557,11 +555,8 @@ impl PyByteArray {
 
     #[pymethod(name = "__mod__")]
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
-        let mut format_string =
-            CFormatString::from_str(std::str::from_utf8(&self.borrow_value().elements).unwrap())
-                .map_err(|err| vm.new_value_error(err.to_string()))?;
-        let final_string = format_string.format(vm, values)?;
-        Ok(final_string.as_str().as_bytes().to_owned().into())
+        let formatted = self.borrow_value().cformat(values, vm)?;
+        Ok(formatted.as_str().as_bytes().to_owned().into())
     }
 
     #[pymethod(name = "__rmod__")]

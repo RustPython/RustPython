@@ -2,7 +2,6 @@ use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
 use std::mem::size_of;
 use std::ops::Deref;
-use std::str::FromStr;
 
 use super::objbyteinner::{
     ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
@@ -14,7 +13,6 @@ use super::objsequence::SequenceIndex;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
 use super::pystr::{self, PyCommonString};
-use crate::cformat::CFormatString;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
@@ -455,13 +453,8 @@ impl PyBytes {
 
     #[pymethod(name = "__mod__")]
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let format_string_text = std::str::from_utf8(&self.inner.elements).unwrap();
-        let mut format_string = CFormatString::from_str(format_string_text)
-            .map_err(|err| vm.new_value_error(err.to_string()))?;
-        let final_string = format_string.format(vm, values)?;
-        Ok(vm
-            .ctx
-            .new_bytes(final_string.as_str().as_bytes().to_owned()))
+        let formatted = self.inner.cformat(values, vm)?;
+        Ok(vm.ctx.new_bytes(formatted.as_bytes().to_owned()))
     }
 
     #[pymethod(name = "__rmod__")]
