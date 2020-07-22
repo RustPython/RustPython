@@ -158,7 +158,7 @@ where
     // FIXME: get_chars is expensive for str
     fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self;
     fn bytes_len(&self) -> usize;
-    fn chars_len(&self) -> usize;
+    // fn chars_len(&self) -> usize;  // cannot access to cache here
     fn is_empty(&self) -> bool;
 
     fn py_add(&self, other: &Self) -> Self::Container {
@@ -291,18 +291,18 @@ where
         u
     }
 
-    fn py_center(&self, width: usize, fillchar: E) -> Self::Container {
-        let marg = width - self.chars_len();
+    fn py_center(&self, width: usize, fillchar: E, len: usize) -> Self::Container {
+        let marg = width - len;
         let left = marg / 2 + (marg & width & 1);
         self.py_pad(left, marg - left, fillchar)
     }
 
-    fn py_ljust(&self, width: usize, fillchar: E) -> Self::Container {
-        self.py_pad(0, width - self.chars_len(), fillchar)
+    fn py_ljust(&self, width: usize, fillchar: E, len: usize) -> Self::Container {
+        self.py_pad(0, width - len, fillchar)
     }
 
-    fn py_rjust(&self, width: usize, fillchar: E) -> Self::Container {
-        self.py_pad(width - self.chars_len(), 0, fillchar)
+    fn py_rjust(&self, width: usize, fillchar: E, len: usize) -> Self::Container {
+        self.py_pad(width - len, 0, fillchar)
     }
 
     fn py_join<'a>(

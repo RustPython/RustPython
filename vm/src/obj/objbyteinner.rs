@@ -674,14 +674,14 @@ impl PyByteInner {
     fn pad(
         &self,
         options: ByteInnerPaddingOptions,
-        pad: fn(&[u8], usize, u8) -> Vec<u8>,
+        pad: fn(&[u8], usize, u8, usize) -> Vec<u8>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let (width, fillchar) = options.get_value("center", vm)?;
         Ok(if self.len() as isize >= width {
             Vec::from(&self.elements[..])
         } else {
-            pad(&self.elements, width as usize, fillchar)
+            pad(&self.elements, width as usize, fillchar, self.len())
         })
     }
 
@@ -1282,10 +1282,6 @@ impl<'s> PyCommonString<'s, u8> for [u8] {
     }
 
     fn bytes_len(&self) -> usize {
-        Self::len(self)
-    }
-
-    fn chars_len(&self) -> usize {
         Self::len(self)
     }
 

@@ -930,14 +930,14 @@ impl PyString {
         &self,
         width: isize,
         fillchar: OptionalArg<PyStringRef>,
-        pad: fn(&str, usize, char) -> String,
+        pad: fn(&str, usize, char, usize) -> String,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
         let fillchar = Self::get_fill_char(fillchar, vm)?;
         Ok(if self.len() as isize >= width {
             String::from(&self.value)
         } else {
-            pad(&self.value, width as usize, fillchar)
+            pad(&self.value, width as usize, fillchar, self.len())
         })
     }
 
@@ -1759,10 +1759,6 @@ impl<'s> PyCommonString<'s, char> for str {
 
     fn bytes_len(&self) -> usize {
         Self::len(self)
-    }
-
-    fn chars_len(&self) -> usize {
-        self.chars().count()
     }
 
     fn py_split_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
