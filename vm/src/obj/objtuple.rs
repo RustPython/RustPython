@@ -11,7 +11,7 @@ use crate::pyobject::{
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
-use crate::sequence;
+use crate::sequence::{self, SimpleSeq};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 /// tuple() -> empty tuple
@@ -81,10 +81,13 @@ impl PyTuple {
     #[inline]
     fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>
     where
-        F: Fn(&Vec<PyObjectRef>, &Vec<PyObjectRef>) -> PyResult<bool>,
+        F: Fn(sequence::DynPyIter, sequence::DynPyIter) -> PyResult<bool>,
     {
         let r = if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            Implemented(op(&self.elements, &other.elements)?)
+            Implemented(op(
+                self.as_slice().boxed_iter(),
+                other.as_slice().boxed_iter(),
+            )?)
         } else {
             NotImplemented
         };
@@ -116,8 +119,8 @@ impl PyTuple {
         if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
             let elements: Vec<_> = self
                 .elements
-                .iter()
-                .chain(other.as_slice().iter())
+                .boxed_iter()
+                .chain(other.as_slice().boxed_iter())
                 .cloned()
                 .collect();
             Implemented(elements.into())

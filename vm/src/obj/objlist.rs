@@ -122,7 +122,7 @@ impl PyList {
             position
         };
         // Bound it by [0, vec.len()]
-        let position = unbounded_position.max(0).min(vec_len).to_usize().unwrap();
+        let position = unbounded_position.min(vec_len).to_usize().unwrap_or(0);
         elements.insert(position, element.clone());
     }
 
@@ -438,7 +438,7 @@ impl PyList {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = sequence::seq_mul(&self.borrow_elements(), counter)
+        let new_elements = sequence::seq_mul(&*self.borrow_elements(), counter)
             .cloned()
             .collect();
         vm.ctx.new_list(new_elements)
@@ -453,7 +453,7 @@ impl PyList {
     fn imul(zelf: PyRef<Self>, counter: isize) -> PyRef<Self> {
         let mut elements = zelf.borrow_elements_mut();
         let mut new_elements: Vec<PyObjectRef> =
-            sequence::seq_mul(&elements, counter).cloned().collect();
+            sequence::seq_mul(&*elements, counter).cloned().collect();
         std::mem::swap(elements.deref_mut(), &mut new_elements);
         zelf.clone()
     }
@@ -530,12 +530,12 @@ impl PyList {
     #[inline]
     fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>
     where
-        F: Fn(&Vec<PyObjectRef>, &Vec<PyObjectRef>) -> PyResult<bool>,
+        F: Fn(sequence::DynPyIter, sequence::DynPyIter) -> PyResult<bool>,
     {
         let r = if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
             Implemented(op(
-                &self.borrow_elements().clone(),
-                &other.borrow_elements().clone(),
+                self.borrow_elements().boxed_iter(),
+                other.borrow_elements().boxed_iter(),
             )?)
         } else {
             NotImplemented
