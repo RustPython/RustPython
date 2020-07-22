@@ -2,7 +2,7 @@
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 use crate::format::get_num_digits;
 use crate::obj::{objfloat, objint, objstr, objtuple, objtype};
-use crate::pyobject::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;
@@ -407,14 +407,6 @@ impl CFormatString {
         vm: &VirtualMachine,
         values_obj: PyObjectRef,
     ) -> PyResult<String> {
-        fn call_getitem(
-            vm: &VirtualMachine,
-            container: &PyObjectRef,
-            key: &PyObjectRef,
-        ) -> PyResult {
-            vm.call_method(container, "__getitem__", vec![key.clone()])
-        }
-
         fn try_update_quantity_from_tuple(
             vm: &VirtualMachine,
             elements: &mut dyn Iterator<Item = PyObjectRef>,
@@ -494,7 +486,7 @@ impl CFormatString {
                     let obj: PyObjectRef = match &format_spec.mapping_key {
                         Some(key) => {
                             // TODO: change the KeyError message to match the one in cpython
-                            call_getitem(vm, &values, &vm.ctx.new_str(key.to_owned()))?
+                            values.get_item(key, vm)?
                         }
                         None => {
                             let mut elements = objtuple::get_value(&values)
