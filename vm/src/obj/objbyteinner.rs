@@ -308,11 +308,7 @@ impl PyByteInner {
     }
 
     pub fn add(&self, other: PyByteInner) -> Vec<u8> {
-        self.elements
-            .iter()
-            .chain(other.elements.iter())
-            .cloned()
-            .collect::<Vec<u8>>()
+        self.elements.py_add(&other.elements)
     }
 
     pub fn contains(

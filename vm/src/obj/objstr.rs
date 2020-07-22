@@ -207,12 +207,13 @@ impl PyString {
             PyString::from(string.as_str()).into_ref_with_type(vm, cls)
         }
     }
+
     #[pymethod(name = "__add__")]
-    fn add(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        if objtype::isinstance(&rhs, &vm.ctx.types.str_type) {
-            Ok(format!("{}{}", self.value, borrow_value(&rhs)))
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        if objtype::isinstance(&other, &vm.ctx.types.str_type) {
+            Ok(self.value.py_add(borrow_value(&other)))
         } else {
-            Err(vm.new_type_error(format!("Cannot add {} and {}", self, rhs)))
+            Err(vm.new_type_error(format!("Cannot add {} and {}", self, other)))
         }
     }
 

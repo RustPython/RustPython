@@ -153,6 +153,13 @@ where
     fn chars_len(&self) -> usize;
     fn is_empty(&self) -> bool;
 
+    fn py_add(&self, other: &Self) -> Self::Container {
+        let mut new = Self::Container::with_capacity(self.bytes_len() + other.bytes_len());
+        new.push_str(self);
+        new.push_str(other);
+        new
+    }
+
     fn py_split<T, SP, SN, SW, R>(
         &self,
         args: SplitArgs<'s, T, Self, E>,
