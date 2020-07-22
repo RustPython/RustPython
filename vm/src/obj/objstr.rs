@@ -803,27 +803,8 @@ impl PyString {
 
     #[pymethod]
     fn splitlines(&self, args: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
-        let mut elements = vec![];
-        let mut curr = "".to_owned();
-        let mut chars = self.value.chars().peekable();
-        while let Some(ch) = chars.next() {
-            if ch == '\n' || ch == '\r' {
-                if args.keepends {
-                    curr.push(ch);
-                }
-                if ch == '\r' && chars.peek() == Some(&'\n') {
-                    continue;
-                }
-                elements.push(vm.ctx.new_str(curr.clone()));
-                curr.clear();
-            } else {
-                curr.push(ch);
-            }
-        }
-        if !curr.is_empty() {
-            elements.push(vm.ctx.new_str(curr));
-        }
-        vm.ctx.new_list(elements)
+        vm.ctx
+            .new_list(self.value.py_splitlines(args, |s| vm.new_str(s.to_owned())))
     }
 
     #[pymethod]
@@ -1750,6 +1731,10 @@ impl PyCommonString<char> for str {
 
     fn with_capacity(capacity: usize) -> Self::Container {
         String::with_capacity(capacity)
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        self.as_bytes()
     }
 
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
