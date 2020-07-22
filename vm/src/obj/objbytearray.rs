@@ -18,7 +18,6 @@ use super::objtype::PyClassRef;
 use super::pystr::{self, PyCommonString};
 use crate::cformat::CFormatString;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::obj::objstr::do_cformat_string;
 use crate::pyobject::{
     Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol,
@@ -556,22 +555,13 @@ impl PyByteArray {
         self.borrow_value_mut().irepeat(n)
     }
 
-    fn do_cformat(
-        &self,
-        vm: &VirtualMachine,
-        format_string: CFormatString,
-        values_obj: PyObjectRef,
-    ) -> PyResult<PyByteArray> {
-        let final_string = do_cformat_string(vm, format_string, values_obj)?;
-        Ok(final_string.as_str().as_bytes().to_owned().into())
-    }
-
     #[pymethod(name = "__mod__")]
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
-        let format_string =
+        let mut format_string =
             CFormatString::from_str(std::str::from_utf8(&self.borrow_value().elements).unwrap())
                 .map_err(|err| vm.new_value_error(err.to_string()))?;
-        self.do_cformat(vm, format_string, values.clone())
+        let final_string = format_string.format(vm, values)?;
+        Ok(final_string.as_str().as_bytes().to_owned().into())
     }
 
     #[pymethod(name = "__rmod__")]

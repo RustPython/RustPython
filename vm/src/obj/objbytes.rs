@@ -16,7 +16,6 @@ use super::objtype::PyClassRef;
 use super::pystr::{self, PyCommonString};
 use crate::cformat::CFormatString;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::obj::objstr::do_cformat_string;
 use crate::pyhash;
 use crate::pyobject::{
     Either, IntoPyObject,
@@ -454,24 +453,15 @@ impl PyBytes {
         Ok(self.inner.repeat(value).into())
     }
 
-    fn do_cformat(
-        &self,
-        vm: &VirtualMachine,
-        format_string: CFormatString,
-        values_obj: PyObjectRef,
-    ) -> PyResult {
-        let final_string = do_cformat_string(vm, format_string, values_obj)?;
-        Ok(vm
-            .ctx
-            .new_bytes(final_string.as_str().as_bytes().to_owned()))
-    }
-
     #[pymethod(name = "__mod__")]
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let format_string_text = std::str::from_utf8(&self.inner.elements).unwrap();
-        let format_string = CFormatString::from_str(format_string_text)
+        let mut format_string = CFormatString::from_str(format_string_text)
             .map_err(|err| vm.new_value_error(err.to_string()))?;
-        self.do_cformat(vm, format_string, values.clone())
+        let final_string = format_string.format(vm, values)?;
+        Ok(vm
+            .ctx
+            .new_bytes(final_string.as_str().as_bytes().to_owned()))
     }
 
     #[pymethod(name = "__rmod__")]
