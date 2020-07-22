@@ -1413,7 +1413,7 @@ pub type Offset = libc::off_t;
 #[cfg(windows)]
 pub type Offset = libc::c_longlong;
 
-#[cfg(windows)]
+#[cfg(all(windows, target_env = "msvc"))]
 type InvalidParamHandler = extern "C" fn(
     *const libc::wchar_t,
     *const libc::wchar_t,
@@ -1421,7 +1421,7 @@ type InvalidParamHandler = extern "C" fn(
     libc::c_uint,
     libc::uintptr_t,
 );
-#[cfg(windows)]
+#[cfg(all(windows, target_env = "msvc"))]
 extern "C" {
     #[doc(hidden)]
     pub fn _set_thread_local_invalid_parameter_handler(
@@ -1429,7 +1429,7 @@ extern "C" {
     ) -> InvalidParamHandler;
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, target_env = "msvc"))]
 #[doc(hidden)]
 pub extern "C" fn silent_iph_handler(
     _: *const libc::wchar_t,
@@ -1443,7 +1443,7 @@ pub extern "C" fn silent_iph_handler(
 #[macro_export]
 macro_rules! suppress_iph {
     ($e:expr) => {{
-        #[cfg(windows)]
+        #[cfg(all(windows, target_env = "msvc"))]
         {
             let old = $crate::stdlib::os::_set_thread_local_invalid_parameter_handler(
                 $crate::stdlib::os::silent_iph_handler,
@@ -1452,7 +1452,7 @@ macro_rules! suppress_iph {
             $crate::stdlib::os::_set_thread_local_invalid_parameter_handler(old);
             ret
         }
-        #[cfg(not(windows))]
+        #[cfg(not(all(windows, target_env = "msvc")))]
         {
             $e
         }
