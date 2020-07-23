@@ -35,6 +35,14 @@ fn executable(ctx: &PyContext) -> PyObjectRef {
     }
 }
 
+fn _base_executable(ctx: &PyContext) -> PyObjectRef {
+    if let Ok(var) = env::var("__PYVENV_LAUNCHER__") {
+        ctx.new_str(var)
+    } else {
+        executable(ctx)
+    }
+}
+
 fn getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
     let offset = offset.into_option().unwrap_or(0);
     if offset > vm.frames.borrow().len() - 1 {
@@ -340,6 +348,7 @@ prefix -- prefix used to find the Python library
 thread_info -- a struct sequence with information about the thread implementation.
 version -- the version of this interpreter as a string
 version_info -- version information as a named tuple
+_base_executable -- __PYVENV_LAUNCHER__ enviroment variable if defined, else sys.executable.
 __stdin__ -- the original stdin; don't touch!
 __stdout__ -- the original stdout; don't touch!
 __stderr__ -- the original stderr; don't touch!
@@ -387,6 +396,7 @@ settrace() -- set the global debug tracing function
       "builtin_module_names" => builtin_module_names,
       "byteorder" => ctx.new_str(bytorder),
       "copyright" => ctx.new_str(copyright.to_owned()),
+      "_base_executable" => _base_executable(ctx),
       "executable" => executable(ctx),
       "flags" => flags,
       "getrefcount" => ctx.new_function(sys_getrefcount),
