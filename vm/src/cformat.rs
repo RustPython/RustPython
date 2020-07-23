@@ -92,6 +92,18 @@ bitflags! {
     }
 }
 
+impl CConversionFlags {
+    fn sign_string(&self) -> &'static str {
+        if self.contains(CConversionFlags::SIGN_CHAR) {
+            "+"
+        } else if self.contains(CConversionFlags::BLANK_SIGN) {
+            " "
+        } else {
+            ""
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 enum CFormatQuantity {
     Amount(usize),
@@ -198,18 +210,8 @@ impl CFormatSpec {
 
         let sign_string = match num.sign() {
             Sign::Minus => "-",
-            _ => {
-                if self.flags.contains(CConversionFlags::SIGN_CHAR) {
-                    "+"
-                } else if self.flags.contains(CConversionFlags::BLANK_SIGN) {
-                    " "
-                } else {
-                    ""
-                }
-            }
+            _ => self.flags.sign_string(),
         };
-
-        let prefix = format!("{}{}", sign_string, prefix);
 
         if self.flags.contains(CConversionFlags::ZERO_PAD) {
             let fill_char = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
@@ -217,27 +219,28 @@ impl CFormatSpec {
             } else {
                 ' ' // '-' overrides the '0' conversion if both are given
             };
+            let signed_prefix = format!("{}{}", sign_string, prefix);
             format!(
                 "{}{}",
-                prefix,
-                self.fill_string(magnitude_string, fill_char, Some(prefix.chars().count()))
+                signed_prefix,
+                self.fill_string(
+                    magnitude_string,
+                    fill_char,
+                    Some(signed_prefix.chars().count())
+                )
             )
         } else {
-            self.fill_string(format!("{}{}", prefix, magnitude_string), ' ', None)
+            self.fill_string(
+                format!("{}{}{}", sign_string, prefix, magnitude_string),
+                ' ',
+                None,
+            )
         }
     }
 
     pub(crate) fn format_float(&self, num: f64) -> Result<String, String> {
-        let magnitude = num.abs();
-
         let sign_string = if num.is_sign_positive() {
-            if self.flags.contains(CConversionFlags::SIGN_CHAR) {
-                "+"
-            } else if self.flags.contains(CConversionFlags::BLANK_SIGN) {
-                " "
-            } else {
-                ""
-            }
+            self.flags.sign_string()
         } else {
             "-"
         };
@@ -248,6 +251,7 @@ impl CFormatSpec {
                     Some(CFormatQuantity::Amount(p)) => p,
                     _ => 6,
                 };
+                let magnitude = num.abs();
                 format!("{:.*}", precision, magnitude)
             }
             CFormatType::Float(CFloatType::Exponent(_)) => {
@@ -308,10 +312,8 @@ impl CFormatSpec {
                 }
                 Ok(self.format_number(objint::get_value(&obj)))
             }
-            CFormatType::Float(_) => if objtype::isinstance(&obj, &vm.ctx.types.float_type) {
-                self.format_float(objfloat::get_value(&obj))
-            } else if objtype::isinstance(&obj, &vm.ctx.types.int_type) {
-                self.format_float(objint::get_value(&obj).to_f64().unwrap())
+            CFormatType::Float(_) => if let Some(value) = objfloat::try_float(&obj, vm)? {
+                self.format_float(value)
             } else {
                 let required_type_string = "an floating point or integer";
                 return Err(vm.new_type_error(format!(
@@ -326,16 +328,12 @@ impl CFormatSpec {
                 let ch = {
                     if objtype::isinstance(&obj, &vm.ctx.types.int_type) {
                         // BigInt truncation is fine in this case because only the unicode range is relevant
-                        match objint::get_value(&obj)
+                        objint::get_value(&obj)
                             .to_u32()
                             .and_then(std::char::from_u32)
-                        {
-                            Some(value) => Ok(value),
-                            None => {
-                                Err(vm
-                                    .new_overflow_error("%c arg not in range(0x110000)".to_owned()))
-                            }
-                        }
+                            .ok_or_else(|| {
+                                vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
+                            })
                     } else if objtype::isinstance(&obj, &vm.ctx.types.str_type) {
                         let s = objstr::borrow_value(&obj);
                         let num_chars = s.chars().count();
