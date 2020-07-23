@@ -146,15 +146,27 @@ impl CFormatSpec {
         }
     }
 
-    pub(crate) fn format_string(&self, string: String) -> String {
-        let mut string = string;
+    fn format_string_with_precision(
+        &self,
+        string: String,
+        precision: Option<&CFormatQuantity>,
+    ) -> String {
         // truncate if needed
-        if let Some(CFormatQuantity::Amount(precision)) = self.precision {
-            if string.chars().count() > precision {
-                string = string.chars().take(precision).collect::<String>();
+        let string = match precision {
+            Some(CFormatQuantity::Amount(precision)) if string.chars().count() > *precision => {
+                string.chars().take(*precision).collect::<String>()
             }
-        }
+            _ => string,
+        };
         self.fill_string(string, ' ', None)
+    }
+
+    pub(crate) fn format_string(&self, string: String) -> String {
+        self.format_string_with_precision(string, self.precision.as_ref())
+    }
+
+    fn format_char(&self, ch: char) -> String {
+        self.format_string_with_precision(ch.to_string(), Some(&CFormatQuantity::Amount(1)))
     }
 
     fn format_number(&self, num: &BigInt) -> String {
@@ -267,13 +279,9 @@ impl CFormatSpec {
         }
     }
 
-    fn format(&mut self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<String> {
-        use CNumberType::*;
-
+    fn format(&self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<String> {
         // do the formatting by type
-        let format_type = &self.format_type;
-
-        match format_type {
+        match &self.format_type {
             CFormatType::String(preconversor) => {
                 let result = match preconversor {
                     CFormatPreconversor::Str => vm.to_str(&obj)?,
@@ -285,12 +293,11 @@ impl CFormatSpec {
                 };
                 Ok(self.format_string(result.as_str().to_owned()))
             }
-            CFormatType::Number(_) => {
+            CFormatType::Number(number_type) => {
                 if !objtype::isinstance(&obj, &vm.ctx.types.int_type) {
-                    let required_type_string = match format_type {
-                        CFormatType::Number(Decimal) => "a number",
-                        CFormatType::Number(_) => "an integer",
-                        _ => unreachable!(),
+                    let required_type_string = match number_type {
+                        CNumberType::Decimal => "a number",
+                        _ => "an integer",
                     };
                     return Err(vm.new_type_error(format!(
                         "%{} format: {} is required, not {}",
@@ -316,14 +323,14 @@ impl CFormatSpec {
             }
             .map_err(|e| vm.new_not_implemented_error(e)),
             CFormatType::Character => {
-                let char_string = {
+                let ch = {
                     if objtype::isinstance(&obj, &vm.ctx.types.int_type) {
                         // BigInt truncation is fine in this case because only the unicode range is relevant
                         match objint::get_value(&obj)
                             .to_u32()
                             .and_then(std::char::from_u32)
                         {
-                            Some(value) => Ok(value.to_string()),
+                            Some(value) => Ok(value),
                             None => {
                                 Err(vm
                                     .new_overflow_error("%c arg not in range(0x110000)".to_owned()))
@@ -335,15 +342,14 @@ impl CFormatSpec {
                         if num_chars != 1 {
                             Err(vm.new_type_error("%c requires int or char".to_owned()))
                         } else {
-                            Ok(s.chars().next().unwrap().to_string())
+                            Ok(s.chars().next().unwrap())
                         }
                     } else {
                         // TODO re-arrange this block so this error is only created once
                         Err(vm.new_type_error("%c requires int or char".to_owned()))
                     }
                 }?;
-                self.precision = Some(CFormatQuantity::Amount(1));
-                Ok(self.format_string(char_string))
+                Ok(self.format_char(ch))
             }
         }
     }
