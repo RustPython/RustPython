@@ -1088,6 +1088,20 @@ fn os_chown(
         .map_err(|err| convert_nix_error(vm, err))
 }
 
+#[cfg(all(unix, not(target_os = "redox")))]
+fn os_lchown(path: PyPathLike, uid: PyIntRef, gid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    os_chown(
+        path,
+        uid,
+        gid,
+        DirFd { dir_fd: None },
+        FollowSymlinks {
+            follow_symlinks: false,
+        },
+        vm,
+    )
+}
+
 #[cfg(unix)]
 fn os_get_inheritable(fd: RawFd, vm: &VirtualMachine) -> PyResult<bool> {
     use nix::fcntl::fcntl;
@@ -2131,6 +2145,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         #[cfg(not(target_os = "redox"))]
         SupportFunc::new(vm, "chroot", os_chroot, Some(false), None, None),
         SupportFunc::new(vm, "chown", os_chown, None, Some(true), Some(true)),
+        SupportFunc::new(vm, "lchown", os_lchown, None, None, None),
         SupportFunc::new(vm, "umask", os_umask, Some(false), Some(false), Some(false)),
     ]);
     let supports_fd = PySet::default().into_ref(vm);
@@ -2280,6 +2295,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
         "chown" => ctx.new_function(os_chown),
+        "lchown" => ctx.new_function(os_lchown),
         "chroot" => ctx.new_function(os_chroot),
         "getsid" => ctx.new_function(os_getsid),
         "setsid" => ctx.new_function(os_setsid),
