@@ -1406,16 +1406,7 @@ impl<'s> PyCommonString<'s, char> for str {
     }
 
     fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
-        let mut chars = self.chars();
-        for _ in 0..range.start {
-            let _ = chars.next();
-        }
-        let start = chars.as_str();
-        for _ in range {
-            let _ = chars.next();
-        }
-        let end = chars.as_str();
-        &start[..start.len() - end.len()]
+        rustpython_common::str::get_chars(self, range)
     }
 
     fn is_empty(&self) -> bool {
