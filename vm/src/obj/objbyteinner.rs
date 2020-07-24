@@ -869,18 +869,11 @@ impl PyByteInner {
         sub: &PyByteInner,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, bool, Vec<u8>)> {
-        if sub.elements.is_empty() {
-            return Err(vm.new_value_error("empty separator".to_owned()));
-        }
-
-        let mut sp = self.elements.splitn_str(2, &sub.elements);
-        let front = sp.next().unwrap().to_vec();
-        let (has_mid, back) = if let Some(back) = sp.next() {
-            (true, back.to_vec())
-        } else {
-            (false, Vec::new())
-        };
-        Ok((front, has_mid, back))
+        self.elements.py_partition(
+            &sub.elements,
+            || self.elements.splitn_str(2, &sub.elements),
+            vm,
+        )
     }
 
     pub fn rpartition(
@@ -888,18 +881,11 @@ impl PyByteInner {
         sub: &PyByteInner,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, bool, Vec<u8>)> {
-        if sub.elements.is_empty() {
-            return Err(vm.new_value_error("empty separator".to_owned()));
-        }
-
-        let mut sp = self.elements.rsplitn_str(2, &sub.elements);
-        let back = sp.next().unwrap().to_vec();
-        let (has_mid, front) = if let Some(front) = sp.next() {
-            (true, front.to_vec())
-        } else {
-            (false, Vec::new())
-        };
-        Ok((front, has_mid, back))
+        self.elements.py_partition(
+            &sub.elements,
+            || self.elements.rsplitn_str(2, &sub.elements),
+            vm,
+        )
     }
 
     pub fn expandtabs(&self, options: pystr::ExpandTabsArgs) -> Vec<u8> {

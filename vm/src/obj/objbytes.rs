@@ -396,7 +396,7 @@ impl PyBytes {
     #[pymethod(name = "rpartition")]
     fn rpartition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let sub = PyByteInner::try_from_object(vm, sep.clone())?;
-        let (front, has_mid, back) = self.inner.rpartition(&sub, vm)?;
+        let (back, has_mid, front) = self.inner.rpartition(&sub, vm)?;
         Ok(vm.ctx.new_tuple(vec![
             vm.ctx.new_bytes(front),
             if has_mid {

@@ -813,43 +813,35 @@ impl PyString {
     }
 
     #[pymethod]
-    fn partition(&self, sub: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        if sub.value.is_empty() {
-            return Err(vm.new_value_error("empty separator".to_owned()));
-        }
-        let mut sp = self.value.splitn(2, &sub.value);
-        let front = sp.next().unwrap();
-        let elems = if let Some(back) = sp.next() {
-            [front, &sub.value, back]
-        } else {
-            [front, "", ""]
-        };
-        Ok(vm.ctx.new_tuple(
-            elems
-                .iter()
-                .map(|&s| vm.ctx.new_str(s.to_owned()))
-                .collect(),
-        ))
+    fn partition(&self, sep: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let (front, has_mid, back) =
+            self.value
+                .py_partition(&sep.value, || self.value.splitn(2, &sep.value), vm)?;
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_str(front),
+            if has_mid {
+                sep.into_object()
+            } else {
+                vm.ctx.new_str("")
+            },
+            vm.ctx.new_str(back),
+        ]))
     }
 
     #[pymethod]
-    fn rpartition(&self, sub: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        if sub.value.is_empty() {
-            return Err(vm.new_value_error("empty separator".to_owned()));
-        }
-        let mut sp = self.value.rsplitn(2, &sub.value);
-        let back = sp.next().unwrap();
-        let elems = if let Some(front) = sp.next() {
-            [front, &sub.value, back]
-        } else {
-            ["", "", back]
-        };
-        Ok(vm.ctx.new_tuple(
-            elems
-                .iter()
-                .map(|&s| vm.ctx.new_str(s.to_owned()))
-                .collect(),
-        ))
+    fn rpartition(&self, sep: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let (back, has_mid, front) =
+            self.value
+                .py_partition(&sep.value, || self.value.rsplitn(2, &sep.value), vm)?;
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_str(front),
+            if has_mid {
+                sep.into_object()
+            } else {
+                vm.ctx.new_str("")
+            },
+            vm.ctx.new_str(back),
+        ]))
     }
 
     /// Return `true` if the sequence is ASCII titlecase and the sequence is not

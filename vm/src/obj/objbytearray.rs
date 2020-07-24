@@ -432,7 +432,7 @@ impl PyByteArray {
     #[pymethod(name = "rpartition")]
     fn rpartition(&self, sep: PyByteInner, vm: &VirtualMachine) -> PyResult {
         let value = self.borrow_value();
-        let (front, has_mid, back) = value.rpartition(&sep, vm)?;
+        let (back, has_mid, front) = value.rpartition(&sep, vm)?;
         Ok(vm.ctx.new_tuple(vec![
             vm.ctx.new_bytearray(front.to_vec()),
             vm.ctx

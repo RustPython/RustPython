@@ -325,6 +325,30 @@ where
         Ok(joined)
     }
 
+    fn py_partition<'a, F, S>(
+        &'a self,
+        sub: &Self,
+        split: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Self::Container, bool, Self::Container)>
+    where
+        F: Fn() -> S,
+        S: std::iter::Iterator<Item = &'a Self>,
+    {
+        if sub.is_empty() {
+            return Err(vm.new_value_error("empty separator".to_owned()));
+        }
+
+        let mut sp = split();
+        let front = sp.next().unwrap().to_container();
+        let (has_mid, back) = if let Some(back) = sp.next() {
+            (true, back.to_container())
+        } else {
+            (false, Self::Container::new())
+        };
+        Ok((front, has_mid, back))
+    }
+
     fn py_removeprefix<FC>(
         &self,
         prefix: &Self::Container,
