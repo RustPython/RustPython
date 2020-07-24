@@ -1048,7 +1048,7 @@ fn os_chroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
 // As of now, redox does not seems to support chown command (cf. https://gitlab.redox-os.org/redox-os/coreutils , last checked on 05/07/2020)
 #[cfg(all(unix, not(target_os = "redox")))]
 fn os_chown(
-    path: PyPathLike,
+    path: Either<PyPathLike, i64>,
     uid: PyIntRef,
     gid: PyIntRef,
     dir_fd: DirFd,
@@ -1084,14 +1084,23 @@ fn os_chown(
         Some(int_ref) => Some(i32::try_from_object(&vm, int_ref.as_object().clone())?),
         None => None,
     };
-    nix::unistd::fchownat(dir_fd, path.path.as_os_str(), uid, gid, flag)
-        .map_err(|err| convert_nix_error(vm, err))
+
+    match path {
+        Either::A(p) => nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag)
+            .map_err(|err| convert_nix_error(vm, err)),
+        Either::B(fd) => {
+            let path = fs::read_link(format!("/proc/self/fd/{}", fd))
+                .map_err(|_| vm.new_os_error(String::from("Cannot find path for specified fd")))?;
+            nix::unistd::fchownat(dir_fd, &path, uid, gid, flag)
+                .map_err(|err| convert_nix_error(vm, err))
+        }
+    }
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
 fn os_lchown(path: PyPathLike, uid: PyIntRef, gid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
     os_chown(
-        path,
+        Either::A(path),
         uid,
         gid,
         DirFd { dir_fd: None },
@@ -2144,7 +2153,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "chmod", os_chmod, Some(false), Some(false), Some(false)),
         #[cfg(not(target_os = "redox"))]
         SupportFunc::new(vm, "chroot", os_chroot, Some(false), None, None),
-        SupportFunc::new(vm, "chown", os_chown, None, Some(true), Some(true)),
+        SupportFunc::new(vm, "chown", os_chown, Some(true), Some(true), Some(true)),
         SupportFunc::new(vm, "lchown", os_lchown, None, None, None),
         SupportFunc::new(vm, "umask", os_umask, Some(false), Some(false), Some(false)),
     ]);
