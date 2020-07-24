@@ -104,7 +104,7 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
     }
 }
 
-#[pystruct_sequence(name = "sys.hash_info")]
+#[pystruct_sequence(module = "sys", name = "hash_info")]
 #[derive(Debug)]
 pub(crate) struct PyHashInfo {
     width: usize,
