@@ -671,7 +671,7 @@ impl PyByteInner {
     }
 
     #[inline]
-    fn pad(
+    fn _pad(
         &self,
         options: ByteInnerPaddingOptions,
         pad: fn(&[u8], usize, u8, usize) -> Vec<u8>,
@@ -690,7 +690,7 @@ impl PyByteInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self.pad(options, PyCommonString::<u8>::py_center, vm)
+        self._pad(options, PyCommonString::<u8>::py_center, vm)
     }
 
     pub fn ljust(
@@ -698,7 +698,7 @@ impl PyByteInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self.pad(options, PyCommonString::<u8>::py_ljust, vm)
+        self._pad(options, PyCommonString::<u8>::py_ljust, vm)
     }
 
     pub fn rjust(
@@ -706,7 +706,7 @@ impl PyByteInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self.pad(options, PyCommonString::<u8>::py_rjust, vm)
+        self._pad(options, PyCommonString::<u8>::py_rjust, vm)
     }
 
     pub fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {

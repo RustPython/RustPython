@@ -895,26 +895,22 @@ impl PyString {
         unsafe { String::from_utf8_unchecked(self.value.py_zfill(width)) }
     }
 
-    fn get_fill_char(fillchar: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult<char> {
-        match fillchar {
-            OptionalArg::Present(ref s) => s.value.chars().exactly_one().map_err(|_| {
-                vm.new_type_error(
-                    "The fill character must be exactly one character long".to_owned(),
-                )
-            }),
-            OptionalArg::Missing => Ok(' '),
-        }
-    }
-
     #[inline]
-    fn pad(
+    fn _pad(
         &self,
         width: isize,
         fillchar: OptionalArg<PyStringRef>,
         pad: fn(&str, usize, char, usize) -> String,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        let fillchar = Self::get_fill_char(fillchar, vm)?;
+        let fillchar = match fillchar {
+            OptionalArg::Present(ref s) => s.value.chars().exactly_one().map_err(|_| {
+                vm.new_type_error(
+                    "The fill character must be exactly one character long".to_owned(),
+                )
+            }),
+            OptionalArg::Missing => Ok(' '),
+        }?;
         Ok(if self.len() as isize >= width {
             String::from(&self.value)
         } else {
@@ -929,7 +925,7 @@ impl PyString {
         fillchar: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        self.pad(width, fillchar, PyCommonString::<char>::py_center, vm)
+        self._pad(width, fillchar, PyCommonString::<char>::py_center, vm)
     }
 
     #[pymethod]
@@ -939,7 +935,7 @@ impl PyString {
         fillchar: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        self.pad(width, fillchar, PyCommonString::<char>::py_ljust, vm)
+        self._pad(width, fillchar, PyCommonString::<char>::py_ljust, vm)
     }
 
     #[pymethod]
@@ -949,7 +945,7 @@ impl PyString {
         fillchar: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        self.pad(width, fillchar, PyCommonString::<char>::py_rjust, vm)
+        self._pad(width, fillchar, PyCommonString::<char>::py_rjust, vm)
     }
 
     #[pymethod]
