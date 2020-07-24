@@ -462,7 +462,7 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
         ),
     };
 
-    let class_name = def_to_name(&ident, "pyclass", &attr)?;
+    let class_name = def_to_name(&ident, "pyclass", attr)?;
     let class_def = generate_class_def(&ident, &class_name, &attrs)?;
 
     let ret = quote! {
@@ -481,8 +481,8 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             "#[pystruct_sequence] can only be on a struct declaration"
         )
     };
-    let class_name = def_to_name(&struc.ident, "pystruct_sequence", &attr)?;
-    let module_name = optional_attribute_arg("pystruct_sequence", "module", &attr)?;
+    let class_name = def_to_name(&struc.ident, "pystruct_sequence", attr.clone())?;
+    let module_name = optional_attribute_arg("pystruct_sequence", "module", attr)?;
     let py_class_name = module_class_name(module_name, &class_name);
     let class_def = generate_class_def(&struc.ident, &class_name, &struc.attrs)?;
     let mut properties = Vec::new();
