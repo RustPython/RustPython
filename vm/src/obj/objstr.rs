@@ -253,7 +253,7 @@ impl PyString {
                 }
             }
             SequenceIndex::Slice(slice) => {
-                let string = self.value.get_slice_items(vm, &slice)?;
+                let string = self.get_slice_items(vm, &slice)?;
                 Ok(vm.new_str(string))
             }
         }
@@ -1206,20 +1206,21 @@ pub fn borrow_value(obj: &PyObjectRef) -> &str {
     &obj.payload::<PyString>().unwrap().value
 }
 
-impl PySliceableSequence for str {
+impl PySliceableSequence for PyString {
     type Sliced = String;
 
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
-        self.chars()
+        self.value
+            .chars()
             .skip(range.start)
             .take(range.end - range.start)
             .collect()
     }
 
     fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
-        let count = self.chars().count();
-
-        self.chars()
+        let count = self.len();
+        self.value
+            .chars()
             .rev()
             .skip(count - range.end)
             .take(range.end - range.start)
@@ -1227,7 +1228,8 @@ impl PySliceableSequence for str {
     }
 
     fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        self.chars()
+        self.value
+            .chars()
             .skip(range.start)
             .take(range.end - range.start)
             .step_by(step)
@@ -1235,9 +1237,9 @@ impl PySliceableSequence for str {
     }
 
     fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        let count = self.chars().count();
-
-        self.chars()
+        let count = self.len();
+        self.value
+            .chars()
             .rev()
             .skip(count - range.end)
             .take(range.end - range.start)
@@ -1246,15 +1248,15 @@ impl PySliceableSequence for str {
     }
 
     fn empty() -> Self::Sliced {
-        String::default()
+        String::new()
     }
 
     fn len(&self) -> usize {
-        self.chars().count()
+        self.len()
     }
 
     fn is_empty(&self) -> bool {
-        self.is_empty()
+        self.value.is_empty()
     }
 }
 
