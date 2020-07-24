@@ -1,7 +1,6 @@
 use bstr::ByteSlice;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::convert::TryFrom;
 use std::ops::Range;
 
 use super::objbytearray::{PyByteArray, PyByteArrayRef};
@@ -13,7 +12,7 @@ use super::objnone::PyNoneRef;
 use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objslice::PySliceRef;
 use super::objstr::{self, PyString, PyStringRef};
-use super::pystr::{self, PyCommonString, PyCommonStringWrapper};
+use super::pystr::{self, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyhash;
 use crate::pyobject::{
@@ -230,7 +229,7 @@ impl ByteInnerTranslateOptions {
     }
 }
 
-pub type ByteInnerSplitOptions = pystr::SplitArgs<PyByteInner, [u8], u8>;
+pub type ByteInnerSplitOptions<'a> = pystr::SplitArgs<'a, PyByteInner, [u8], u8>;
 
 #[derive(FromArgs)]
 pub struct ByteInnerSplitlinesOptions {
@@ -309,11 +308,7 @@ impl PyByteInner {
     }
 
     pub fn add(&self, other: PyByteInner) -> Vec<u8> {
-        self.elements
-            .iter()
-            .chain(other.elements.iter())
-            .cloned()
-            .collect::<Vec<u8>>()
+        self.elements.py_add(&other.elements)
     }
 
     pub fn contains(
@@ -558,31 +553,13 @@ impl PyByteInner {
     }
 
     pub fn islower(&self) -> bool {
-        // CPython _Py_bytes_islower
-        let mut cased = false;
-        for b in self.elements.iter() {
-            let c = *b as char;
-            if c.is_uppercase() {
-                return false;
-            } else if !cased && c.is_lowercase() {
-                cased = true
-            }
-        }
-        cased
+        self.elements
+            .py_iscase(char::is_lowercase, char::is_uppercase)
     }
 
     pub fn isupper(&self) -> bool {
-        // CPython _Py_bytes_isupper
-        let mut cased = false;
-        for b in self.elements.iter() {
-            let c = *b as char;
-            if c.is_lowercase() {
-                return false;
-            } else if !cased && c.is_uppercase() {
-                cased = true
-            }
-        }
-        cased
+        self.elements
+            .py_iscase(char::is_uppercase, char::is_lowercase)
     }
 
     pub fn isspace(&self) -> bool {
@@ -697,14 +674,14 @@ impl PyByteInner {
     fn pad(
         &self,
         options: ByteInnerPaddingOptions,
-        pad: fn(&[u8], usize, u8) -> Vec<u8>,
+        pad: fn(&[u8], usize, u8, usize) -> Vec<u8>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let (width, fillchar) = options.get_value("center", vm)?;
         Ok(if self.len() as isize >= width {
             Vec::from(&self.elements[..])
         } else {
-            pad(&self.elements, width as usize, fillchar)
+            pad(&self.elements, width as usize, fillchar, self.len())
         })
     }
 
@@ -739,17 +716,13 @@ impl PyByteInner {
             .py_count(needle.as_slice(), range, |h, n| h.find_iter(n).count()))
     }
 
-    pub fn join(&self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let mut refs = Vec::new();
-        for v in iter.iter(vm)? {
-            let v = v?;
-            if !refs.is_empty() {
-                refs.extend(&self.elements);
-            }
-            refs.extend(v.elements);
-        }
-
-        Ok(refs)
+    pub fn join(
+        &self,
+        iterable: PyIterable<PyByteInner>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let iter = iterable.iter(vm)?;
+        self.elements.py_join(iter)
     }
 
     #[inline]
@@ -969,7 +942,7 @@ impl PyByteInner {
     }
 
     pub fn zfill(&self, width: isize) -> Vec<u8> {
-        bytes_zfill(&self.elements, width.to_usize().unwrap_or(0))
+        self.elements.py_zfill(width)
     }
 
     // len(self)>=1, from="", len(to)>=1, maxcount>=1
@@ -1160,20 +1133,12 @@ impl PyByteInner {
         res
     }
 
+    pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        self.elements.py_cformat(values, vm)
+    }
+
     pub fn repeat(&self, n: isize) -> Vec<u8> {
-        if self.elements.is_empty() || n <= 0 {
-            // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
-            Vec::new()
-        } else {
-            let n = usize::try_from(n).unwrap();
-
-            let mut new_value = Vec::with_capacity(n * self.elements.len());
-            for _ in 0..n {
-                new_value.extend(&self.elements);
-            }
-
-            new_value
-        }
+        self.elements.repeat(n.to_usize().unwrap_or(0))
     }
 
     pub fn irepeat(&mut self, n: isize) {
@@ -1185,7 +1150,7 @@ impl PyByteInner {
         if n <= 0 {
             self.elements.clear();
         } else {
-            let n = usize::try_from(n).unwrap();
+            let n = n.to_usize().unwrap(); // always positive by outer if condition
 
             let old = self.elements.clone();
 
@@ -1261,41 +1226,55 @@ impl PyBytesLike {
     }
 }
 
-pub fn bytes_zfill(bytes: &[u8], width: usize) -> Vec<u8> {
-    if width <= bytes.len() {
-        bytes.to_vec()
-    } else {
-        let (sign, s) = match bytes.first() {
-            Some(_sign @ b'+') | Some(_sign @ b'-') => {
-                (unsafe { bytes.get_unchecked(..1) }, &bytes[1..])
-            }
-            _ => (&b""[..], bytes),
-        };
-        let mut filled = Vec::new();
-        filled.extend_from_slice(sign);
-        filled.extend(std::iter::repeat(b'0').take(width - bytes.len()));
-        filled.extend_from_slice(s);
-        filled
-    }
-}
-
 impl PyCommonStringWrapper<[u8]> for PyByteInner {
     fn as_ref(&self) -> &[u8] {
         &self.elements
     }
 }
 
+impl PyCommonStringContainer<[u8]> for Vec<u8> {
+    fn new() -> Self {
+        Vec::new()
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        Vec::with_capacity(capacity)
+    }
+
+    fn push_str(&mut self, other: &[u8]) {
+        self.extend(other)
+    }
+}
+
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
-impl PyCommonString<u8> for [u8] {
+impl<'s> PyCommonString<'s, u8> for [u8] {
     type Container = Vec<u8>;
+    type CharIter = bstr::Chars<'s>;
+    type ElementIter = std::iter::Copied<std::slice::Iter<'s, u8>>;
 
-    fn with_capacity(capacity: usize) -> Self::Container {
-        Vec::with_capacity(capacity)
+    fn element_bytes_len(_: u8) -> usize {
+        1
+    }
+
+    fn to_container(&self) -> Self::Container {
+        self.to_vec()
     }
 
     fn as_bytes(&self) -> &[u8] {
         self
+    }
+
+    fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error> {
+        std::str::from_utf8(self)
+    }
+
+    fn chars(&'s self) -> Self::CharIter {
+        bstr::ByteSlice::chars(self)
+    }
+
+    fn elements(&'s self) -> Self::ElementIter {
+        self.iter().copied()
     }
 
     fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
@@ -1311,10 +1290,6 @@ impl PyCommonString<u8> for [u8] {
     }
 
     fn bytes_len(&self) -> usize {
-        Self::len(self)
-    }
-
-    fn chars_len(&self) -> usize {
         Self::len(self)
     }
 
@@ -1362,13 +1337,5 @@ impl PyCommonString<u8> for [u8] {
             splited.push(convert(haystack));
         }
         splited
-    }
-
-    fn py_pad(&self, left: usize, right: usize, fill: u8) -> Self::Container {
-        let mut u = Vec::with_capacity(left + self.len() + right);
-        u.extend(std::iter::repeat(fill).take(left));
-        u.extend_from_slice(self);
-        u.extend(std::iter::repeat(fill).take(right));
-        u
     }
 }

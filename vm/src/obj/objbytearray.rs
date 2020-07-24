@@ -1,10 +1,9 @@
 //! Implementation of the python bytearray object.
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
+use num_traits::cast::ToPrimitive;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::convert::TryFrom;
 use std::mem::size_of;
-use std::str::FromStr;
 
 use super::objbyteinner::{
     ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
@@ -16,9 +15,7 @@ use super::objsequence::SequenceIndex;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
 use super::pystr::{self, PyCommonString};
-use crate::cformat::CFormatString;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::obj::objstr::do_cformat_string;
 use crate::pyobject::{
     Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol,
@@ -506,8 +503,10 @@ impl PyByteArray {
     #[pymethod(name = "insert")]
     fn insert(&self, mut index: isize, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
         let bytes = &mut self.borrow_value_mut().elements;
-        let len = isize::try_from(bytes.len())
-            .map_err(|_e| vm.new_overflow_error("bytearray too big".to_owned()))?;
+        let len = bytes
+            .len()
+            .to_isize()
+            .ok_or_else(|| vm.new_overflow_error("bytearray too big".to_owned()))?;
 
         let x = x.as_bigint().byte_or(vm)?;
 
@@ -521,8 +520,9 @@ impl PyByteArray {
             index = index.max(0);
         }
 
-        let index = usize::try_from(index)
-            .map_err(|_e| vm.new_overflow_error("overflow in index calculation".to_owned()))?;
+        let index = index
+            .to_usize()
+            .ok_or_else(|| vm.new_overflow_error("overflow in index calculation".to_owned()))?;
 
         bytes.insert(index, x);
 
@@ -543,36 +543,20 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__mul__")]
-    fn repeat(&self, n: isize) -> PyByteArray {
+    #[pymethod(name = "__rmul__")]
+    fn mul(&self, n: isize) -> PyByteArray {
         self.borrow_value().repeat(n).into()
     }
 
-    #[pymethod(name = "__rmul__")]
-    fn rmul(&self, n: isize) -> PyByteArray {
-        self.repeat(n)
-    }
-
     #[pymethod(name = "__imul__")]
-    fn irepeat(&self, n: isize) {
+    fn imul(&self, n: isize) {
         self.borrow_value_mut().irepeat(n)
-    }
-
-    fn do_cformat(
-        &self,
-        vm: &VirtualMachine,
-        format_string: CFormatString,
-        values_obj: PyObjectRef,
-    ) -> PyResult<PyByteArray> {
-        let final_string = do_cformat_string(vm, format_string, values_obj)?;
-        Ok(final_string.as_str().as_bytes().to_owned().into())
     }
 
     #[pymethod(name = "__mod__")]
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
-        let format_string =
-            CFormatString::from_str(std::str::from_utf8(&self.borrow_value().elements).unwrap())
-                .map_err(|err| vm.new_value_error(err.to_string()))?;
-        self.do_cformat(vm, format_string, values.clone())
+        let formatted = self.borrow_value().cformat(values, vm)?;
+        Ok(formatted.as_str().as_bytes().to_owned().into())
     }
 
     #[pymethod(name = "__rmod__")]

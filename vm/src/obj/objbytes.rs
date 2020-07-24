@@ -2,7 +2,6 @@ use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
 use std::mem::size_of;
 use std::ops::Deref;
-use std::str::FromStr;
 
 use super::objbyteinner::{
     ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
@@ -14,9 +13,7 @@ use super::objsequence::SequenceIndex;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
 use super::pystr::{self, PyCommonString};
-use crate::cformat::CFormatString;
 use crate::function::{OptionalArg, OptionalOption};
-use crate::obj::objstr::do_cformat_string;
 use crate::pyhash;
 use crate::pyobject::{
     Either, IntoPyObject,
@@ -447,31 +444,17 @@ impl PyBytes {
 
     #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
-    fn repeat(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyBytes> {
         if value > 0 && self.inner.len() as isize > std::isize::MAX / value {
             return Err(vm.new_overflow_error("repeated bytes are too long".to_owned()));
         }
         Ok(self.inner.repeat(value).into())
     }
 
-    fn do_cformat(
-        &self,
-        vm: &VirtualMachine,
-        format_string: CFormatString,
-        values_obj: PyObjectRef,
-    ) -> PyResult {
-        let final_string = do_cformat_string(vm, format_string, values_obj)?;
-        Ok(vm
-            .ctx
-            .new_bytes(final_string.as_str().as_bytes().to_owned()))
-    }
-
     #[pymethod(name = "__mod__")]
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let format_string_text = std::str::from_utf8(&self.inner.elements).unwrap();
-        let format_string = CFormatString::from_str(format_string_text)
-            .map_err(|err| vm.new_value_error(err.to_string()))?;
-        self.do_cformat(vm, format_string, values.clone())
+        let formatted = self.inner.cformat(values, vm)?;
+        Ok(vm.ctx.new_bytes(formatted.as_bytes().to_owned()))
     }
 
     #[pymethod(name = "__rmod__")]

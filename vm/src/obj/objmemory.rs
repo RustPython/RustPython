@@ -1,7 +1,7 @@
 use super::objbyteinner::try_as_byte;
 use super::objtype::{issubclass, PyClassRef};
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
@@ -57,7 +57,7 @@ impl PyMemoryView {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(&self.obj_ref, "__getitem__", vec![needle])
+        self.obj_ref.get_item(&needle, vm)
     }
 
     #[pymethod(magic)]

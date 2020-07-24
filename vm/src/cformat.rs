@@ -1,30 +1,33 @@
 /// Implementation of Printf-Style string formatting
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
+use crate::format::get_num_digits;
+use crate::obj::{objfloat, objint, objstr, objtuple, objtype};
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, Sign};
+use num_traits::cast::ToPrimitive;
 use num_traits::Signed;
 use std::cmp;
 use std::fmt;
 use std::str::FromStr;
 
-use crate::format::get_num_digits;
-
 #[derive(Debug, PartialEq)]
-pub enum CFormatErrorType {
+enum CFormatErrorType {
     UnmatchedKeyParentheses,
     MissingModuloSign,
     UnescapedModuloSignInLiteral,
     UnsupportedFormatChar(char),
     IncompleteFormat,
-    Unimplemented,
+    // Unimplemented,
 }
 
 // also contains how many chars the parsing function consumed
 type ParsingError = (CFormatErrorType, usize);
 
 #[derive(Debug, PartialEq)]
-pub struct CFormatError {
-    pub typ: CFormatErrorType,
-    pub index: usize,
+pub(crate) struct CFormatError {
+    typ: CFormatErrorType,
+    index: usize,
 }
 
 impl fmt::Display for CFormatError {
@@ -44,7 +47,7 @@ impl fmt::Display for CFormatError {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CFormatPreconversor {
+enum CFormatPreconversor {
     Repr,
     Str,
     Ascii,
@@ -52,27 +55,27 @@ pub enum CFormatPreconversor {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CFormatCase {
+enum CFormatCase {
     Lowercase,
     Uppercase,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CNumberType {
+enum CNumberType {
     Decimal,
     Octal,
     Hex(CFormatCase),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CFloatType {
+enum CFloatType {
     Exponent(CFormatCase),
     PointDecimal,
     General(CFormatCase),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CFormatType {
+enum CFormatType {
     Number(CNumberType),
     Float(CFloatType),
     Character,
@@ -80,7 +83,7 @@ pub enum CFormatType {
 }
 
 bitflags! {
-    pub struct CConversionFlags: u32 {
+    struct CConversionFlags: u32 {
         const ALTERNATE_FORM = 0b0000_0001;
         const ZERO_PAD = 0b0000_0010;
         const LEFT_ADJUST = 0b0000_0100;
@@ -89,20 +92,32 @@ bitflags! {
     }
 }
 
+impl CConversionFlags {
+    fn sign_string(&self) -> &'static str {
+        if self.contains(CConversionFlags::SIGN_CHAR) {
+            "+"
+        } else if self.contains(CConversionFlags::BLANK_SIGN) {
+            " "
+        } else {
+            ""
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
-pub enum CFormatQuantity {
+enum CFormatQuantity {
     Amount(usize),
     FromValuesTuple,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct CFormatSpec {
-    pub mapping_key: Option<String>,
-    pub flags: CConversionFlags,
-    pub min_field_width: Option<CFormatQuantity>,
-    pub precision: Option<CFormatQuantity>,
-    pub format_type: CFormatType,
-    pub format_char: char,
+struct CFormatSpec {
+    mapping_key: Option<String>,
+    flags: CConversionFlags,
+    min_field_width: Option<CFormatQuantity>,
+    precision: Option<CFormatQuantity>,
+    format_type: CFormatType,
+    format_char: char,
     chars_consumed: usize,
 }
 
@@ -113,7 +128,7 @@ impl CFormatSpec {
             .collect::<String>()
     }
 
-    pub fn fill_string(
+    fn fill_string(
         &self,
         string: String,
         fill_char: char,
@@ -143,18 +158,30 @@ impl CFormatSpec {
         }
     }
 
-    pub fn format_string(&self, string: String) -> String {
-        let mut string = string;
+    fn format_string_with_precision(
+        &self,
+        string: String,
+        precision: Option<&CFormatQuantity>,
+    ) -> String {
         // truncate if needed
-        if let Some(CFormatQuantity::Amount(precision)) = self.precision {
-            if string.chars().count() > precision {
-                string = string.chars().take(precision).collect::<String>();
+        let string = match precision {
+            Some(CFormatQuantity::Amount(precision)) if string.chars().count() > *precision => {
+                string.chars().take(*precision).collect::<String>()
             }
-        }
+            _ => string,
+        };
         self.fill_string(string, ' ', None)
     }
 
-    pub fn format_number(&self, num: &BigInt) -> String {
+    pub(crate) fn format_string(&self, string: String) -> String {
+        self.format_string_with_precision(string, self.precision.as_ref())
+    }
+
+    fn format_char(&self, ch: char) -> String {
+        self.format_string_with_precision(ch.to_string(), Some(&CFormatQuantity::Amount(1)))
+    }
+
+    fn format_number(&self, num: &BigInt) -> String {
         use CFormatCase::{Lowercase, Uppercase};
         use CNumberType::*;
         let magnitude = num.abs();
@@ -183,18 +210,8 @@ impl CFormatSpec {
 
         let sign_string = match num.sign() {
             Sign::Minus => "-",
-            _ => {
-                if self.flags.contains(CConversionFlags::SIGN_CHAR) {
-                    "+"
-                } else if self.flags.contains(CConversionFlags::BLANK_SIGN) {
-                    " "
-                } else {
-                    ""
-                }
-            }
+            _ => self.flags.sign_string(),
         };
-
-        let prefix = format!("{}{}", sign_string, prefix);
 
         if self.flags.contains(CConversionFlags::ZERO_PAD) {
             let fill_char = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
@@ -202,27 +219,28 @@ impl CFormatSpec {
             } else {
                 ' ' // '-' overrides the '0' conversion if both are given
             };
+            let signed_prefix = format!("{}{}", sign_string, prefix);
             format!(
                 "{}{}",
-                prefix,
-                self.fill_string(magnitude_string, fill_char, Some(prefix.chars().count()))
+                signed_prefix,
+                self.fill_string(
+                    magnitude_string,
+                    fill_char,
+                    Some(signed_prefix.chars().count())
+                )
             )
         } else {
-            self.fill_string(format!("{}{}", prefix, magnitude_string), ' ', None)
+            self.fill_string(
+                format!("{}{}{}", sign_string, prefix, magnitude_string),
+                ' ',
+                None,
+            )
         }
     }
 
-    pub fn format_float(&self, num: f64) -> Result<String, String> {
-        let magnitude = num.abs();
-
+    pub(crate) fn format_float(&self, num: f64) -> Result<String, String> {
         let sign_string = if num.is_sign_positive() {
-            if self.flags.contains(CConversionFlags::SIGN_CHAR) {
-                "+"
-            } else if self.flags.contains(CConversionFlags::BLANK_SIGN) {
-                " "
-            } else {
-                ""
-            }
+            self.flags.sign_string()
         } else {
             "-"
         };
@@ -233,6 +251,7 @@ impl CFormatSpec {
                     Some(CFormatQuantity::Amount(p)) => p,
                     _ => 6,
                 };
+                let magnitude = num.abs();
                 format!("{:.*}", precision, magnitude)
             }
             CFormatType::Float(CFloatType::Exponent(_)) => {
@@ -263,23 +282,92 @@ impl CFormatSpec {
             Ok(self.fill_string(format!("{}{}", sign_string, magnitude_string), ' ', None))
         }
     }
+
+    fn format(&self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<String> {
+        // do the formatting by type
+        match &self.format_type {
+            CFormatType::String(preconversor) => {
+                let result = match preconversor {
+                    CFormatPreconversor::Str => vm.to_str(&obj)?,
+                    CFormatPreconversor::Repr | CFormatPreconversor::Ascii => vm.to_repr(&obj)?,
+                    CFormatPreconversor::Bytes => TryFromObject::try_from_object(
+                        vm,
+                        vm.call_method(&obj.clone(), "decode", vec![])?,
+                    )?,
+                };
+                Ok(self.format_string(result.as_str().to_owned()))
+            }
+            CFormatType::Number(number_type) => {
+                if !objtype::isinstance(&obj, &vm.ctx.types.int_type) {
+                    let required_type_string = match number_type {
+                        CNumberType::Decimal => "a number",
+                        _ => "an integer",
+                    };
+                    return Err(vm.new_type_error(format!(
+                        "%{} format: {} is required, not {}",
+                        self.format_char,
+                        required_type_string,
+                        obj.lease_class()
+                    )));
+                }
+                Ok(self.format_number(objint::get_value(&obj)))
+            }
+            CFormatType::Float(_) => if let Some(value) = objfloat::try_float(&obj, vm)? {
+                self.format_float(value)
+            } else {
+                let required_type_string = "an floating point or integer";
+                return Err(vm.new_type_error(format!(
+                    "%{} format: {} is required, not {}",
+                    self.format_char,
+                    required_type_string,
+                    obj.lease_class()
+                )));
+            }
+            .map_err(|e| vm.new_not_implemented_error(e)),
+            CFormatType::Character => {
+                let ch = {
+                    if objtype::isinstance(&obj, &vm.ctx.types.int_type) {
+                        // BigInt truncation is fine in this case because only the unicode range is relevant
+                        objint::get_value(&obj)
+                            .to_u32()
+                            .and_then(std::char::from_u32)
+                            .ok_or_else(|| {
+                                vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
+                            })
+                    } else if objtype::isinstance(&obj, &vm.ctx.types.str_type) {
+                        let s = objstr::borrow_value(&obj);
+                        let num_chars = s.chars().count();
+                        if num_chars != 1 {
+                            Err(vm.new_type_error("%c requires int or char".to_owned()))
+                        } else {
+                            Ok(s.chars().next().unwrap())
+                        }
+                    } else {
+                        // TODO re-arrange this block so this error is only created once
+                        Err(vm.new_type_error("%c requires int or char".to_owned()))
+                    }
+                }?;
+                Ok(self.format_char(ch))
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CFormatPart {
+enum CFormatPart {
     Literal(String),
     Spec(CFormatSpec),
 }
 
 impl CFormatPart {
-    pub fn is_specifier(&self) -> bool {
+    fn is_specifier(&self) -> bool {
         match self {
             CFormatPart::Spec(_) => true,
             _ => false,
         }
     }
 
-    pub fn has_key(&self) -> bool {
+    fn has_key(&self) -> bool {
         match self {
             CFormatPart::Spec(s) => s.mapping_key.is_some(),
             _ => false,
@@ -288,8 +376,8 @@ impl CFormatPart {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct CFormatString {
-    pub format_parts: Vec<(usize, CFormatPart)>,
+pub(crate) struct CFormatString {
+    parts: Vec<(usize, CFormatPart)>,
 }
 
 impl FromStr for CFormatString {
@@ -313,9 +401,143 @@ impl FromStr for CFormatString {
                 })?;
         }
 
-        Ok(CFormatString {
-            format_parts: parts,
-        })
+        Ok(CFormatString { parts })
+    }
+}
+
+impl CFormatString {
+    pub(crate) fn format(
+        &mut self,
+        vm: &VirtualMachine,
+        values_obj: PyObjectRef,
+    ) -> PyResult<String> {
+        fn try_update_quantity_from_tuple(
+            vm: &VirtualMachine,
+            elements: &mut dyn Iterator<Item = PyObjectRef>,
+            q: &mut Option<CFormatQuantity>,
+            mut tuple_index: usize,
+        ) -> PyResult<usize> {
+            match q {
+                Some(CFormatQuantity::FromValuesTuple) => {
+                    match elements.next() {
+                        Some(width_obj) => {
+                            tuple_index += 1;
+                            if !objtype::isinstance(&width_obj, &vm.ctx.types.int_type) {
+                                Err(vm.new_type_error("* wants int".to_owned()))
+                            } else {
+                                // TODO: handle errors when truncating BigInt to usize
+                                *q = Some(CFormatQuantity::Amount(
+                                    objint::get_value(&width_obj).to_usize().unwrap(),
+                                ));
+                                Ok(tuple_index)
+                            }
+                        }
+                        None => Err(
+                            vm.new_type_error("not enough arguments for format string".to_owned())
+                        ),
+                    }
+                }
+                _ => Ok(tuple_index),
+            }
+        }
+
+        let mut final_string = String::new();
+        let num_specifiers = self
+            .parts
+            .iter()
+            .filter(|(_, part)| CFormatPart::is_specifier(part))
+            .count();
+        let mapping_required = self
+            .parts
+            .iter()
+            .any(|(_, part)| CFormatPart::has_key(part))
+            && self
+                .parts
+                .iter()
+                .filter(|(_, part)| CFormatPart::is_specifier(part))
+                .all(|(_, part)| CFormatPart::has_key(part));
+
+        let values = if mapping_required {
+            if !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type) {
+                return Err(vm.new_type_error("format requires a mapping".to_owned()));
+            }
+            values_obj.clone()
+        } else {
+            // check for only literal parts, in which case only dict or empty tuple is allowed
+            if num_specifiers == 0
+                && !(objtype::isinstance(&values_obj, &vm.ctx.types.tuple_type)
+                    && objtuple::get_value(&values_obj).is_empty())
+                && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
+            {
+                return Err(vm.new_type_error(
+                    "not all arguments converted during string formatting".to_owned(),
+                ));
+            }
+
+            // convert `values_obj` to a new tuple if it's not a tuple
+            if !objtype::isinstance(&values_obj, &vm.ctx.types.tuple_type) {
+                vm.ctx.new_tuple(vec![values_obj.clone()])
+            } else {
+                values_obj.clone()
+            }
+        };
+
+        let mut tuple_index: usize = 0;
+        for (_, part) in &mut self.parts {
+            let result_string: String = match part {
+                CFormatPart::Spec(format_spec) => {
+                    // try to get the object
+                    let obj: PyObjectRef = match &format_spec.mapping_key {
+                        Some(key) => {
+                            // TODO: change the KeyError message to match the one in cpython
+                            values.get_item(key, vm)?
+                        }
+                        None => {
+                            let mut elements = objtuple::get_value(&values)
+                                .to_vec()
+                                .into_iter()
+                                .skip(tuple_index);
+
+                            tuple_index = try_update_quantity_from_tuple(
+                                vm,
+                                &mut elements,
+                                &mut format_spec.min_field_width,
+                                tuple_index,
+                            )?;
+                            tuple_index = try_update_quantity_from_tuple(
+                                vm,
+                                &mut elements,
+                                &mut format_spec.precision,
+                                tuple_index,
+                            )?;
+
+                            let obj = match elements.next() {
+                                Some(obj) => Ok(obj),
+                                None => Err(vm.new_type_error(
+                                    "not enough arguments for format string".to_owned(),
+                                )),
+                            }?;
+                            tuple_index += 1;
+
+                            obj
+                        }
+                    };
+                    format_spec.format(vm, obj)
+                }
+                CFormatPart::Literal(literal) => Ok(literal.clone()),
+            }?;
+            final_string.push_str(&result_string);
+        }
+
+        // check that all arguments were converted
+        if (!mapping_required && objtuple::get_value(&values).get(tuple_index).is_some())
+            && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
+        {
+            return Err(vm.new_type_error(
+                "not all arguments converted during string formatting".to_owned(),
+            ));
+        }
+        Ok(final_string)
     }
 }
 
@@ -863,7 +1085,7 @@ mod tests {
     fn test_format_parse() {
         let fmt = "Hello, my name is %s and I'm %d years old";
         let expected = Ok(CFormatString {
-            format_parts: vec![
+            parts: vec![
                 (0, CFormatPart::Literal("Hello, my name is ".to_owned())),
                 (
                     18,
