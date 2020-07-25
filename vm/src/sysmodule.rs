@@ -28,11 +28,12 @@ fn argv(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 fn executable(ctx: &PyContext) -> PyObjectRef {
-    if let Some(arg) = env::args().next() {
-        ctx.new_str(arg)
-    } else {
-        ctx.none()
+    if let Ok(path) = env::current_exe() {
+        if let Some(path) = path.to_str() {
+            return ctx.new_str(path);
+        }
     }
+    ctx.none()
 }
 
 fn _base_executable(ctx: &PyContext) -> PyObjectRef {
