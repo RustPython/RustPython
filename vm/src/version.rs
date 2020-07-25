@@ -7,7 +7,7 @@ const MICRO: usize = 0;
 const RELEASELEVEL: &str = "alpha";
 const SERIAL: usize = 0;
 
-#[pystruct_sequence(name = "version_info")]
+#[pystruct_sequence(module = "sys", name = "version_info")]
 #[derive(Default, Debug)]
 pub struct VersionInfo {
     major: usize,

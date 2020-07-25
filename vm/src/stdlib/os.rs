@@ -801,7 +801,7 @@ fn os_scandir(path: OptionalArg<PyPathLike>, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-#[pystruct_sequence(name = "os.stat_result")]
+#[pystruct_sequence(module = "os", name = "stat_result")]
 #[derive(Debug)]
 struct StatResult {
     st_mode: u32,
@@ -1453,7 +1453,7 @@ fn os_umask(mask: ModeT, _vm: &VirtualMachine) -> PyResult<ModeT> {
     Ok(ret_mask)
 }
 
-#[pystruct_sequence(name = "os.uname_result")]
+#[pystruct_sequence(module = "os", name = "uname_result")]
 #[derive(Debug)]
 #[cfg(unix)]
 struct UnameResult {
@@ -2010,7 +2010,7 @@ fn os_strerror(e: i32) -> String {
         .into_owned()
 }
 
-#[pystruct_sequence(name = "os.terminal_size")]
+#[pystruct_sequence(module = "os", name = "terminal_size")]
 #[allow(dead_code)]
 struct PyTerminalSize {
     columns: usize,

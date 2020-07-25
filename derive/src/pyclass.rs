@@ -1,5 +1,8 @@
 use super::Diagnostic;
-use crate::util::{def_to_name, path_eq, strip_prefix, ItemIdent, ItemMeta};
+use crate::util::{
+    def_to_name, module_class_name, optional_attribute_arg, path_eq, strip_prefix, ItemIdent,
+    ItemMeta,
+};
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::{HashMap, HashSet};
@@ -478,7 +481,9 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             "#[pystruct_sequence] can only be on a struct declaration"
         )
     };
-    let class_name = def_to_name(&struc.ident, "pystruct_sequence", attr)?;
+    let class_name = def_to_name(&struc.ident, "pystruct_sequence", attr.clone())?;
+    let module_name = optional_attribute_arg("pystruct_sequence", "module", attr)?;
+    let py_class_name = module_class_name(module_name, &class_name);
     let class_def = generate_class_def(&struc.ident, &class_name, &struc.attrs)?;
     let mut properties = Vec::new();
     let mut field_names = Vec::new();
@@ -523,13 +528,35 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
                 );
                 ::rustpython_vm::pyobject::PyValue::into_ref_with_type(tuple, vm, cls)
             }
+
+            fn repr(zelf: rustpython_vm::pyobject::PyRef<rustpython_vm::obj::objtuple::PyTuple>, vm: &rustpython_vm::VirtualMachine) -> ::rustpython_vm::pyobject::PyResult<String> {
+                let s = if let Some(_guard) = rustpython_vm::vm::ReprGuard::enter(zelf.as_object()) {
+                        let field_names = vec![#(stringify!(#field_names)),*];
+                        let mut fields = Vec::new();
+                        for (value, field_name) in zelf.as_slice().iter().zip(field_names.iter()) {
+                                let s = vm.to_repr(value)?;
+                                fields.push(format!("{}: {}", field_name, s));
+                        }
+
+                        if fields.len() == 1 {
+                                format!("{}({},)", #py_class_name, fields[0])
+                        } else {
+                                format!("{}({})", #py_class_name, fields.join(", "))
+                        }
+                } else {
+                        concat!(#class_name, "(...)").to_string()
+                };
+                Ok(s)
+            }
         }
+
         impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
             fn impl_extend_class(
                 ctx: &::rustpython_vm::pyobject::PyContext,
                 class: &::rustpython_vm::obj::objtype::PyClassRef,
             ) {
                 #(#properties)*
+                                class.set_str_attr("__repr__", ctx.new_method(Self::repr));
             }
 
             fn make_class(
