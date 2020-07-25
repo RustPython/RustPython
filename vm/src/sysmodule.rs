@@ -349,6 +349,7 @@ thread_info -- a struct sequence with information about the thread implementatio
 version -- the version of this interpreter as a string
 version_info -- version information as a named tuple
 _base_executable -- __PYVENV_LAUNCHER__ enviroment variable if defined, else sys.executable.
+
 __stdin__ -- the original stdin; don't touch!
 __stdout__ -- the original stdout; don't touch!
 __stderr__ -- the original stderr; don't touch!
