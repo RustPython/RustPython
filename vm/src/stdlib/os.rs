@@ -1045,6 +1045,86 @@ fn os_chroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
     nix::unistd::chroot(&*path.path).map_err(|err| convert_nix_error(vm, err))
 }
 
+// As of now, redox does not seems to support chown command (cf. https://gitlab.redox-os.org/redox-os/coreutils , last checked on 05/07/2020)
+#[cfg(all(unix, not(target_os = "redox")))]
+fn os_chown(
+    path: Either<PyPathLike, i64>,
+    uid: PyIntRef,
+    gid: PyIntRef,
+    dir_fd: DirFd,
+    follow_symlinks: FollowSymlinks,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let uid = isize::try_from_object(&vm, uid.as_object().clone())?;
+    let gid = isize::try_from_object(&vm, gid.as_object().clone())?;
+
+    let uid = if uid >= 0 {
+        Some(nix::unistd::Uid::from_raw(uid as u32))
+    } else if uid == -1 {
+        None
+    } else {
+        return Err(vm.new_os_error(String::from("Specified uid is not valid.")));
+    };
+
+    let gid = if gid >= 0 {
+        Some(nix::unistd::Gid::from_raw(gid as u32))
+    } else if gid == -1 {
+        None
+    } else {
+        return Err(vm.new_os_error(String::from("Specified gid is not valid.")));
+    };
+
+    let flag = if follow_symlinks.follow_symlinks {
+        nix::unistd::FchownatFlags::FollowSymlink
+    } else {
+        nix::unistd::FchownatFlags::NoFollowSymlink
+    };
+
+    let dir_fd: Option<std::os::unix::io::RawFd> = match dir_fd.dir_fd {
+        Some(int_ref) => Some(i32::try_from_object(&vm, int_ref.as_object().clone())?),
+        None => None,
+    };
+
+    match path {
+        Either::A(p) => nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag)
+            .map_err(|err| convert_nix_error(vm, err)),
+        Either::B(fd) => {
+            let path = fs::read_link(format!("/proc/self/fd/{}", fd))
+                .map_err(|_| vm.new_os_error(String::from("Cannot find path for specified fd")))?;
+            nix::unistd::fchownat(dir_fd, &path, uid, gid, flag)
+                .map_err(|err| convert_nix_error(vm, err))
+        }
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+fn os_lchown(path: PyPathLike, uid: PyIntRef, gid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    os_chown(
+        Either::A(path),
+        uid,
+        gid,
+        DirFd { dir_fd: None },
+        FollowSymlinks {
+            follow_symlinks: false,
+        },
+        vm,
+    )
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+fn os_fchown(fd: i64, uid: PyIntRef, gid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    os_chown(
+        Either::B(fd),
+        uid,
+        gid,
+        DirFd { dir_fd: None },
+        FollowSymlinks {
+            follow_symlinks: true,
+        },
+        vm,
+    )
+}
+
 #[cfg(unix)]
 fn os_get_inheritable(fd: RawFd, vm: &VirtualMachine) -> PyResult<bool> {
     use nix::fcntl::fcntl;
@@ -2063,7 +2143,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "access", os_access, Some(false), Some(false), None),
         SupportFunc::new(vm, "chdir", os_chdir, Some(false), None, None),
         // chflags Some, None Some
-        // chown Some Some Some
         SupportFunc::new(vm, "listdir", os_listdir, Some(false), None, None),
         SupportFunc::new(vm, "mkdir", os_mkdir, Some(false), Some(false), None),
         // mkfifo Some Some None
@@ -2088,6 +2167,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "chmod", os_chmod, Some(false), Some(false), Some(false)),
         #[cfg(not(target_os = "redox"))]
         SupportFunc::new(vm, "chroot", os_chroot, Some(false), None, None),
+        SupportFunc::new(vm, "chown", os_chown, Some(true), Some(true), Some(true)),
+        SupportFunc::new(vm, "lchown", os_lchown, None, None, None),
+        SupportFunc::new(vm, "fchown", os_fchown, Some(true), None, Some(true)),
         SupportFunc::new(vm, "umask", os_umask, Some(false), Some(false), Some(false)),
     ]);
     let supports_fd = PySet::default().into_ref(vm);
@@ -2236,6 +2318,9 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
 
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
+        "chown" => ctx.new_function(os_chown),
+        "lchown" => ctx.new_function(os_lchown),
+        "fchown" => ctx.new_function(os_fchown),
         "chroot" => ctx.new_function(os_chroot),
         "getsid" => ctx.new_function(os_getsid),
         "setsid" => ctx.new_function(os_setsid),
