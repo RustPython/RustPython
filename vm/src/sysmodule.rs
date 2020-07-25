@@ -29,7 +29,7 @@ fn argv(vm: &VirtualMachine) -> PyObjectRef {
 
 fn executable(ctx: &PyContext) -> PyObjectRef {
     if let Ok(path) = env::current_exe() {
-        if let Some(path) = path.to_str() {
+        if let Ok(path) = path.into_os_string().into_string() {
             return ctx.new_str(path);
         }
     }
