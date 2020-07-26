@@ -44,7 +44,7 @@ impl TryFromObject for PyBytesInner {
             k @ PyMemoryView => Ok(PyBytesInner {
                 elements: k.try_value().unwrap()
             }),
-            l @ PyList => l.get_byte_inner(vm),
+            l @ PyList => l.to_byte_inner(vm),
             obj => {
                 let iter = vm.get_method_or_type_error(obj.clone(), "__iter__", || {
                     format!("a bytes-like object is required, not {}", obj.class())

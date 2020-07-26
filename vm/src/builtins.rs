@@ -14,7 +14,7 @@ mod decl {
     use rustpython_parser::parser;
 
     use super::to_ascii;
-    use crate::bytesinner::PyBytesInner;
+    use crate::byteslike::PyBytesLike;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
     use crate::obj::objbool::{self, IntoPyBool};
@@ -554,18 +554,18 @@ mod decl {
     }
 
     #[pyfunction]
-    fn ord(string: Either<PyBytesInner, PyStringRef>, vm: &VirtualMachine) -> PyResult<u32> {
+    fn ord(string: Either<PyBytesLike, PyStringRef>, vm: &VirtualMachine) -> PyResult<u32> {
         match string {
-            Either::A(bytes) => {
-                let bytes_len = bytes.elements.len();
+            Either::A(bytes) => bytes.with_ref(|bytes| {
+                let bytes_len = bytes.len();
                 if bytes_len != 1 {
                     return Err(vm.new_type_error(format!(
                         "ord() expected a character, but string of length {} found",
                         bytes_len
                     )));
                 }
-                Ok(u32::from(bytes.elements[0]))
-            }
+                Ok(u32::from(bytes[0]))
+            }),
             Either::B(string) => {
                 let string = string.as_str();
                 let string_len = string.chars().count();

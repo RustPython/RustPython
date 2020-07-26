@@ -62,7 +62,7 @@ impl PyList {
         self.elements.write()
     }
 
-    pub(crate) fn get_byte_inner(&self, vm: &VirtualMachine) -> PyResult<bytesinner::PyBytesInner> {
+    pub(crate) fn to_byte_inner(&self, vm: &VirtualMachine) -> PyResult<bytesinner::PyBytesInner> {
         let mut elements = Vec::<u8>::with_capacity(self.borrow_elements().len());
         for elem in self.borrow_elements().iter() {
             match PyIntRef::try_from_object(vm, elem.clone()) {
