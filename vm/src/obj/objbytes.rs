@@ -14,7 +14,6 @@ use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
 use super::pystr::{self, PyCommonString};
 use crate::function::{OptionalArg, OptionalOption};
-use crate::pyhash;
 use crate::pyobject::{
     Either, IntoPyObject,
     PyArithmaticValue::{self, *},
@@ -22,6 +21,7 @@ use crate::pyobject::{
     TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use rustpython_common::hash::PyHash;
 
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
@@ -102,8 +102,8 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_str(format!("b'{}'", self.inner.repr()?)))
+    pub(crate) fn repr(&self) -> String {
+        format!("b'{}'", self.inner.repr())
     }
 
     #[pymethod(name = "__len__")]
@@ -133,7 +133,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self) -> pyhash::PyHash {
+    fn hash(&self) -> PyHash {
         self.inner.hash()
     }
 

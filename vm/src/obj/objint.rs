@@ -15,13 +15,13 @@ use super::objstr::{PyString, PyStringRef};
 use super::objtype::{self, PyClassRef};
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
+use rustpython_common::hash;
 
 /// int(x=0) -> integer
 /// int(x, base=10) -> integer
@@ -419,8 +419,8 @@ impl PyInt {
     }
 
     #[pymethod(name = "__hash__")]
-    pub fn hash(&self) -> pyhash::PyHash {
-        pyhash::hash_bigint(&self.value)
+    pub fn hash(&self) -> hash::PyHash {
+        hash::hash_bigint(&self.value)
     }
 
     #[pymethod(name = "__abs__")]

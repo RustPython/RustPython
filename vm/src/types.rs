@@ -40,10 +40,9 @@ use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::pyobject::{PyAttributes, PyContext, PyObject};
-use parking_lot::RwLock;
+use rustpython_common::{cell::PyRwLock, rc::PyRc};
 use std::mem::MaybeUninit;
 use std::ptr;
-use std::sync::Arc;
 
 /// Holder of references to builtin types.
 #[derive(Debug)]
@@ -275,14 +274,16 @@ macro_rules! partially_init {
     ) => {{
         // check all the fields are there but *don't* actually run it
         if false {
-            #[allow(invalid_value)]
+            #[allow(invalid_value, dead_code, unreachable_code)]
             let _ = {$ty {
                 $($init_field: $init_value,)*
-                $($uninit_field: ::std::mem::MaybeUninit::uninit().assume_init(),)*
+                $($uninit_field: unreachable!(),)*
             }};
         }
         let mut m = ::std::mem::MaybeUninit::<$ty>::uninit();
-        $(::std::ptr::write(&mut (*m.as_mut_ptr()).$init_field, $init_value);)*
+        unsafe {
+            $(::std::ptr::write(&mut (*m.as_mut_ptr()).$init_field, $init_value);)*
+        }
         m
     }};
 }
@@ -292,61 +293,64 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
     // and both `type` and `object are instances of `type`.
     // to produce this circular dependency, we need an unsafe block.
     // (and yes, this will never get dropped. TODO?)
-    let (type_type, object_type) = unsafe {
+    let (type_type, object_type) = {
         type PyClassObj = PyObject<PyClass>;
-        type UninitRef<T> = RwLock<Arc<MaybeUninit<T>>>;
+        type UninitRef<T> = PyRwLock<PyRc<MaybeUninit<T>>>;
 
-        let type_type: Arc<MaybeUninit<PyClassObj>> = Arc::new(partially_init!(
+        let type_type: PyRc<MaybeUninit<PyClassObj>> = PyRc::new(partially_init!(
             PyObject::<PyClass> {
                 dict: None,
                 payload: PyClass {
                     name: String::from("type"),
                     bases: vec![],
                     mro: vec![],
-                    subclasses: RwLock::default(),
-                    attributes: RwLock::new(PyAttributes::new()),
-                    slots: RwLock::default(),
+                    subclasses: PyRwLock::default(),
+                    attributes: PyRwLock::new(PyAttributes::new()),
+                    slots: PyRwLock::default(),
                 },
             },
             Uninit { typ }
         ));
-        let object_type: Arc<MaybeUninit<PyClassObj>> = Arc::new(partially_init!(
+        let object_type: PyRc<MaybeUninit<PyClassObj>> = PyRc::new(partially_init!(
             PyObject::<PyClass> {
                 dict: None,
                 payload: PyClass {
                     name: String::from("object"),
                     bases: vec![],
                     mro: vec![],
-                    subclasses: RwLock::default(),
-                    attributes: RwLock::new(PyAttributes::new()),
-                    slots: RwLock::default(),
+                    subclasses: PyRwLock::default(),
+                    attributes: PyRwLock::new(PyAttributes::new()),
+                    slots: PyRwLock::default(),
                 },
             },
             Uninit { typ },
         ));
 
         let object_type_ptr =
-            Arc::into_raw(object_type) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
+            PyRc::into_raw(object_type) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
         let type_type_ptr =
-            Arc::into_raw(type_type.clone()) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
+            PyRc::into_raw(type_type.clone()) as *mut MaybeUninit<PyClassObj> as *mut PyClassObj;
 
-        ptr::write(
-            &mut (*object_type_ptr).typ as *mut RwLock<Arc<PyClassObj>>
-                as *mut UninitRef<PyClassObj>,
-            RwLock::new(type_type.clone()),
-        );
-        ptr::write(
-            &mut (*type_type_ptr).typ as *mut RwLock<Arc<PyClassObj>> as *mut UninitRef<PyClassObj>,
-            RwLock::new(type_type),
-        );
+        unsafe {
+            ptr::write(
+                &mut (*object_type_ptr).typ as *mut PyRwLock<PyRc<PyClassObj>>
+                    as *mut UninitRef<PyClassObj>,
+                PyRwLock::new(type_type.clone()),
+            );
+            ptr::write(
+                &mut (*type_type_ptr).typ as *mut PyRwLock<PyRc<PyClassObj>>
+                    as *mut UninitRef<PyClassObj>,
+                PyRwLock::new(type_type),
+            );
 
-        let type_type = PyClassRef::from_obj_unchecked(Arc::from_raw(type_type_ptr));
-        let object_type = PyClassRef::from_obj_unchecked(Arc::from_raw(object_type_ptr));
+            let type_type = PyClassRef::from_obj_unchecked(PyRc::from_raw(type_type_ptr));
+            let object_type = PyClassRef::from_obj_unchecked(PyRc::from_raw(object_type_ptr));
 
-        (*type_type_ptr).payload.mro = vec![object_type.clone()];
-        (*type_type_ptr).payload.bases = vec![object_type.clone()];
+            (*type_type_ptr).payload.mro = vec![object_type.clone()];
+            (*type_type_ptr).payload.bases = vec![object_type.clone()];
 
-        (type_type, object_type)
+            (type_type, object_type)
+        }
     };
 
     object_type

@@ -1,8 +1,8 @@
 //! Implementation of the python bytearray object.
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::cast::ToPrimitive;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::mem::size_of;
 
 use super::objbyteinner::{
@@ -36,7 +36,7 @@ use crate::vm::VirtualMachine;
 #[pyclass(name = "bytearray")]
 #[derive(Debug)]
 pub struct PyByteArray {
-    inner: RwLock<PyByteInner>,
+    inner: PyRwLock<PyByteInner>,
 }
 
 pub type PyByteArrayRef = PyRef<PyByteArray>;
@@ -44,21 +44,21 @@ pub type PyByteArrayRef = PyRef<PyByteArray>;
 impl PyByteArray {
     pub fn new(data: Vec<u8>) -> Self {
         PyByteArray {
-            inner: RwLock::new(PyByteInner { elements: data }),
+            inner: PyRwLock::new(PyByteInner { elements: data }),
         }
     }
 
     fn from_inner(inner: PyByteInner) -> Self {
         PyByteArray {
-            inner: RwLock::new(inner),
+            inner: PyRwLock::new(inner),
         }
     }
 
-    pub fn borrow_value(&self) -> RwLockReadGuard<'_, PyByteInner> {
+    pub fn borrow_value(&self) -> PyRwLockReadGuard<'_, PyByteInner> {
         self.inner.read()
     }
 
-    pub fn borrow_value_mut(&self) -> RwLockWriteGuard<'_, PyByteInner> {
+    pub fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, PyByteInner> {
         self.inner.write()
     }
 }
@@ -98,8 +98,8 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self) -> PyResult<String> {
-        Ok(format!("bytearray(b'{}')", self.borrow_value().repr()?))
+    fn repr(&self) -> String {
+        format!("bytearray(b'{}')", self.borrow_value().repr())
     }
 
     #[pymethod(name = "__len__")]

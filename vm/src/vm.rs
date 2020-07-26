@@ -7,7 +7,6 @@
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
-use std::sync::Arc;
 use std::{env, fmt};
 
 use arr_macro::arr;
@@ -40,7 +39,6 @@ use crate::obj::objobject;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
-use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
     TryIntoRef, TypeProtocol,
@@ -48,6 +46,7 @@ use crate::pyobject::{
 use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
+use rustpython_common::rc::PyRc;
 
 // use objects::objects;
 
@@ -58,7 +57,7 @@ use crate::sysmodule;
 pub struct VirtualMachine {
     pub builtins: PyObjectRef,
     pub sys_module: PyObjectRef,
-    pub ctx: Arc<PyContext>,
+    pub ctx: PyRc<PyContext>,
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
     pub exceptions: RefCell<Vec<PyBaseExceptionRef>>,
@@ -68,7 +67,7 @@ pub struct VirtualMachine {
     pub use_tracing: Cell<bool>,
     pub recursion_limit: Cell<usize>,
     pub signal_handlers: Option<Box<RefCell<[PyObjectRef; NSIG]>>>,
-    pub state: Arc<PyGlobalState>,
+    pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
 }
 
@@ -194,7 +193,7 @@ impl VirtualMachine {
         let mut vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
-            ctx: Arc::new(ctx),
+            ctx: PyRc::new(ctx),
             frames: RefCell::new(vec![]),
             wasm_id: None,
             exceptions: RefCell::new(vec![]),
@@ -204,7 +203,7 @@ impl VirtualMachine {
             use_tracing: Cell::new(false),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
             signal_handlers: Some(Box::new(signal_handlers)),
-            state: Arc::new(PyGlobalState {
+            state: PyRc::new(PyGlobalState {
                 settings,
                 stdlib_inits,
                 frozen,
@@ -288,6 +287,7 @@ impl VirtualMachine {
         }
     }
 
+    #[cfg(feature = "threading")]
     pub(crate) fn new_thread(&self) -> VirtualMachine {
         VirtualMachine {
             builtins: self.builtins.clone(),
@@ -753,7 +753,7 @@ impl VirtualMachine {
     pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyClassRef) -> PyResult<bool> {
         // cpython first does an exact check on the type, although documentation doesn't state that
         // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
-        if Arc::ptr_eq(&obj.class().into_object(), cls.as_object()) {
+        if PyRc::ptr_eq(&obj.class().into_object(), cls.as_object()) {
             Ok(true)
         } else {
             let ret = self.call_method(cls.as_object(), "__instancecheck__", vec![obj.clone()])?;
@@ -1406,7 +1406,7 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<pyhash::PyHash> {
+    pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<rustpython_common::hash::PyHash> {
         let hash_obj = self.call_method(obj, "__hash__", vec![])?;
         if let Some(hash_value) = hash_obj.payload_if_subclass::<PyInt>(self) {
             Ok(hash_value.hash())

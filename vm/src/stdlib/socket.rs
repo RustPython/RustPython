@@ -1,4 +1,4 @@
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use std::io::{self, prelude::*};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
@@ -62,7 +62,7 @@ pub struct PySocket {
     kind: AtomicCell<i32>,
     family: AtomicCell<i32>,
     proto: AtomicCell<i32>,
-    sock: RwLock<Socket>,
+    sock: PyRwLock<Socket>,
 }
 
 impl PyValue for PySocket {
@@ -75,11 +75,11 @@ pub type PySocketRef = PyRef<PySocket>;
 
 #[pyimpl(flags(BASETYPE))]
 impl PySocket {
-    fn sock(&self) -> RwLockReadGuard<'_, Socket> {
+    fn sock(&self) -> PyRwLockReadGuard<'_, Socket> {
         self.sock.read()
     }
 
-    fn sock_mut(&self) -> RwLockWriteGuard<'_, Socket> {
+    fn sock_mut(&self) -> PyRwLockWriteGuard<'_, Socket> {
         self.sock.write()
     }
 
@@ -89,7 +89,7 @@ impl PySocket {
             kind: AtomicCell::default(),
             family: AtomicCell::default(),
             proto: AtomicCell::default(),
-            sock: RwLock::new(invalid_sock()),
+            sock: PyRwLock::new(invalid_sock()),
         }
         .into_ref_with_type(vm, cls)
     }

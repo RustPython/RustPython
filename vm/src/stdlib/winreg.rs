@@ -1,5 +1,5 @@
 #![allow(non_snake_case)]
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use std::convert::TryInto;
 use std::io;
 
@@ -16,7 +16,7 @@ use winreg::{enums::RegType, RegKey, RegValue};
 #[pyclass]
 #[derive(Debug)]
 struct PyHKEY {
-    key: RwLock<RegKey>,
+    key: PyRwLock<RegKey>,
 }
 type PyHKEYRef = PyRef<PyHKEY>;
 
@@ -33,15 +33,15 @@ impl PyValue for PyHKEY {
 impl PyHKEY {
     fn new(key: RegKey) -> Self {
         Self {
-            key: RwLock::new(key),
+            key: PyRwLock::new(key),
         }
     }
 
-    fn key(&self) -> RwLockReadGuard<'_, RegKey> {
+    fn key(&self) -> PyRwLockReadGuard<'_, RegKey> {
         self.key.read()
     }
 
-    fn key_mut(&self) -> RwLockWriteGuard<'_, RegKey> {
+    fn key_mut(&self) -> PyRwLockWriteGuard<'_, RegKey> {
         self.key.write()
     }
 

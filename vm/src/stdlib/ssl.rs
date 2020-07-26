@@ -11,7 +11,7 @@ use crate::pyobject::{
 use crate::types::create_type;
 use crate::VirtualMachine;
 
-use parking_lot::{RwLock, RwLockWriteGuard};
+use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
 use std::convert::TryFrom;
 use std::ffi::{CStr, CString};
 use std::fmt;
@@ -230,7 +230,7 @@ fn ssl_rand_pseudo_bytes(n: i32, vm: &VirtualMachine) -> PyResult<(Vec<u8>, bool
 
 #[pyclass(name = "_SSLContext")]
 struct PySslContext {
-    ctx: RwLock<SslContextBuilder>,
+    ctx: PyRwLock<SslContextBuilder>,
     check_hostname: bool,
 }
 
@@ -248,7 +248,7 @@ impl PyValue for PySslContext {
 
 #[pyimpl(flags(BASETYPE))]
 impl PySslContext {
-    fn builder(&self) -> RwLockWriteGuard<'_, SslContextBuilder> {
+    fn builder(&self) -> PyRwLockWriteGuard<'_, SslContextBuilder> {
         self.ctx.write()
     }
     fn exec_ctx<F, R>(&self, func: F) -> R
@@ -308,7 +308,7 @@ impl PySslContext {
             .map_err(|e| convert_openssl_error(vm, e))?;
 
         PySslContext {
-            ctx: RwLock::new(builder),
+            ctx: PyRwLock::new(builder),
             check_hostname,
         }
         .into_ref_with_type(vm, cls)
@@ -471,10 +471,10 @@ impl PySslContext {
 
         Ok(PySslSocket {
             ctx: zelf,
-            stream: RwLock::new(Some(stream)),
+            stream: PyRwLock::new(Some(stream)),
             socket_type,
             server_hostname: args.server_hostname,
-            owner: RwLock::new(args.owner.as_ref().map(PyWeak::downgrade)),
+            owner: PyRwLock::new(args.owner.as_ref().map(PyWeak::downgrade)),
         })
     }
 }
@@ -507,10 +507,10 @@ struct LoadVerifyLocationsArgs {
 #[pyclass(name = "_SSLSocket")]
 struct PySslSocket {
     ctx: PyRef<PySslContext>,
-    stream: RwLock<Option<ssl::SslStreamBuilder<PySocketRef>>>,
+    stream: PyRwLock<Option<ssl::SslStreamBuilder<PySocketRef>>>,
     socket_type: SslServerOrClient,
     server_hostname: Option<PyStringRef>,
-    owner: RwLock<Option<PyWeak>>,
+    owner: PyRwLock<Option<PyWeak>>,
 }
 
 impl fmt::Debug for PySslSocket {

@@ -1587,7 +1587,10 @@ def _setup(_bootstrap_module):
     setattr(self_module, '_pathseps_with_colon', {f':{s}' for s in path_separators})
 
     # Directly load the _thread module (needed during bootstrap).
-    thread_module = _bootstrap._builtin_from_name('_thread')
+    try:
+        thread_module = _bootstrap._builtin_from_name('_thread')
+    except ImportError:
+        thread_module = None
     setattr(self_module, '_thread', thread_module)
 
     # Directly load the _weakref module (needed during bootstrap).

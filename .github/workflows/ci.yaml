@@ -35,6 +35,11 @@ jobs:
         with:
           command: test
           args: --verbose ${{ env.CARGO_ARGS }}
+      - name: check compilation without threading
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: ${{ env.CARGO_ARGS }} --no-default-features
 
   snippets_cpython:
     name: Run snippets and cpython tests

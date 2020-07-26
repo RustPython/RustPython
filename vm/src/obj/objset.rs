@@ -7,12 +7,12 @@ use super::objlist::PyListIterator;
 use super::objtype::{self, PyClassRef};
 use crate::dictdatatype;
 use crate::function::{Args, OptionalArg};
-use crate::pyhash;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    self, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
+use rustpython_common::hash::PyHash;
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
@@ -329,8 +329,8 @@ impl PySetInner {
         Ok(())
     }
 
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
-        pyhash::hash_iter_unordered(self.content.keys().iter(), vm)
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
+        pyobject::hash_iter_unordered(self.content.keys().iter(), vm)
     }
 }
 
@@ -787,7 +787,7 @@ impl PyFrozenSet {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
         self.inner.hash(vm)
     }
 }

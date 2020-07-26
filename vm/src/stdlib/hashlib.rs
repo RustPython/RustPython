@@ -1,10 +1,10 @@
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::fmt;
 
 use blake2::{Blake2b, Blake2s};
@@ -17,7 +17,7 @@ use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512}; // TODO: , Shake128, Shake25
 #[pyclass(name = "hasher")]
 struct PyHasher {
     name: String,
-    buffer: RwLock<HashWrapper>,
+    buffer: PyRwLock<HashWrapper>,
 }
 
 impl fmt::Debug for PyHasher {
@@ -37,15 +37,15 @@ impl PyHasher {
     fn new(name: &str, d: HashWrapper) -> Self {
         PyHasher {
             name: name.to_owned(),
-            buffer: RwLock::new(d),
+            buffer: PyRwLock::new(d),
         }
     }
 
-    fn borrow_value(&self) -> RwLockReadGuard<'_, HashWrapper> {
+    fn borrow_value(&self) -> PyRwLockReadGuard<'_, HashWrapper> {
         self.buffer.read()
     }
 
-    fn borrow_value_mut(&self) -> RwLockWriteGuard<'_, HashWrapper> {
+    fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, HashWrapper> {
         self.buffer.write()
     }
 

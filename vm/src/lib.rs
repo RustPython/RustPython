@@ -68,7 +68,6 @@ pub mod function;
 pub mod import;
 pub mod obj;
 pub mod py_serde;
-mod pyhash;
 pub mod pyobject;
 pub mod readline;
 pub mod scope;
@@ -84,6 +83,7 @@ mod vm;
 // pub use self::pyobject::Executor;
 pub use self::vm::{InitParameter, PySettings, VirtualMachine};
 pub use rustpython_bytecode::*;
+pub use rustpython_common as common;
 
 #[doc(hidden)]
 pub mod __exports {

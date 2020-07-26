@@ -2,6 +2,7 @@ pub(crate) use _collections::make_module;
 
 #[pymodule]
 mod _collections {
+    use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::function::OptionalArg;
     use crate::obj::{objiter, objtype::PyClassRef};
     use crate::pyobject::{
@@ -12,7 +13,6 @@ mod _collections {
     use crate::vm::ReprGuard;
     use crate::VirtualMachine;
     use itertools::Itertools;
-    use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
     use std::collections::VecDeque;
 
     use crossbeam_utils::atomic::AtomicCell;
@@ -20,7 +20,7 @@ mod _collections {
     #[pyclass(name = "deque")]
     #[derive(Debug)]
     struct PyDeque {
-        deque: RwLock<VecDeque<PyObjectRef>>,
+        deque: PyRwLock<VecDeque<PyObjectRef>>,
         maxlen: AtomicCell<Option<usize>>,
     }
     type PyDequeRef = PyRef<PyDeque>;
@@ -38,16 +38,16 @@ mod _collections {
     }
 
     impl PyDeque {
-        fn borrow_deque(&self) -> RwLockReadGuard<'_, VecDeque<PyObjectRef>> {
+        fn borrow_deque(&self) -> PyRwLockReadGuard<'_, VecDeque<PyObjectRef>> {
             self.deque.read()
         }
 
-        fn borrow_deque_mut(&self) -> RwLockWriteGuard<'_, VecDeque<PyObjectRef>> {
+        fn borrow_deque_mut(&self) -> PyRwLockWriteGuard<'_, VecDeque<PyObjectRef>> {
             self.deque.write()
         }
     }
 
-    struct SimpleSeqDeque<'a>(RwLockReadGuard<'a, VecDeque<PyObjectRef>>);
+    struct SimpleSeqDeque<'a>(PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>);
 
     impl sequence::SimpleSeq for SimpleSeqDeque<'_> {
         fn len(&self) -> usize {
@@ -59,8 +59,8 @@ mod _collections {
         }
     }
 
-    impl<'a> From<RwLockReadGuard<'a, VecDeque<PyObjectRef>>> for SimpleSeqDeque<'a> {
-        fn from(from: RwLockReadGuard<'a, VecDeque<PyObjectRef>>) -> Self {
+    impl<'a> From<PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>> for SimpleSeqDeque<'a> {
+        fn from(from: PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>) -> Self {
             Self { 0: from }
         }
     }
@@ -75,7 +75,7 @@ mod _collections {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let py_deque = PyDeque {
-                deque: RwLock::default(),
+                deque: PyRwLock::default(),
                 maxlen: AtomicCell::new(maxlen),
             };
             if let OptionalArg::Present(iter) = iter {
@@ -110,7 +110,7 @@ mod _collections {
         #[pymethod]
         fn copy(&self) -> Self {
             PyDeque {
-                deque: RwLock::new(self.borrow_deque().clone()),
+                deque: PyRwLock::new(self.borrow_deque().clone()),
                 maxlen: AtomicCell::new(self.maxlen.load()),
             }
         }
@@ -383,7 +383,7 @@ mod _collections {
             };
             let deque = mul.skip(skipped).cloned().collect();
             PyDeque {
-                deque: RwLock::new(deque),
+                deque: PyRwLock::new(deque),
                 maxlen: AtomicCell::new(self.maxlen.load()),
             }
         }

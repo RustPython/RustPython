@@ -1,11 +1,10 @@
-use parking_lot::RwLock;
 use std::fmt::{self, Debug, Formatter};
 
 use csv as rust_csv;
 use itertools::join;
 
+use crate::common::cell::PyRwLock;
 use crate::function::PyFuncArgs;
-
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString};
 use crate::obj::objtype::PyClassRef;
@@ -126,7 +125,7 @@ impl ReadState {
 
 #[pyclass(name = "Reader")]
 struct Reader {
-    state: RwLock<ReadState>,
+    state: PyRwLock<ReadState>,
 }
 
 impl Debug for Reader {
@@ -143,7 +142,7 @@ impl PyValue for Reader {
 
 impl Reader {
     fn new(iter: PyIterable<PyObjectRef>, config: ReaderOption) -> Self {
-        let state = RwLock::new(ReadState::new(iter, config));
+        let state = PyRwLock::new(ReadState::new(iter, config));
         Reader { state }
     }
 }
