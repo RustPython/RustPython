@@ -274,6 +274,10 @@ impl PyBytesInner {
         self.cmp(other, |a, b| a == b, vm)
     }
 
+    pub fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
+        self.cmp(other, |a, b| a != b, vm)
+    }
+
     pub fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.cmp(other, |a, b| a >= b, vm)
     }

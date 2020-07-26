@@ -456,6 +456,25 @@ impl PyArray {
         }
     }
 
+    #[pymethod(name = "__ne__")]
+    fn ne(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let lhs = class_or_notimplemented!(vm, Self, lhs);
+        let rhs = class_or_notimplemented!(vm, Self, rhs);
+        let lhs = lhs.borrow_value();
+        let rhs = rhs.borrow_value();
+        if lhs.len() != rhs.len() {
+            Ok(vm.new_bool(true))
+        } else {
+            for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
+                let ne = objbool::boolval(vm, vm._ne(a?, b?)?)?;
+                if ne {
+                    return Ok(vm.new_bool(true));
+                }
+            }
+            Ok(vm.new_bool(false))
+        }
+    }
+
     #[pymethod(name = "__lt__")]
     fn lt(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let lhs = class_or_notimplemented!(vm, Self, lhs);
