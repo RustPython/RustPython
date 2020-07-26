@@ -393,23 +393,8 @@ where
     }
 
     fn py_zfill(&self, width: isize) -> Vec<u8> {
-        let bytes = self.as_bytes();
         let width = width.to_usize().unwrap_or(0);
-        if width <= bytes.len() {
-            bytes.to_vec()
-        } else {
-            let (sign, s) = match bytes.first() {
-                Some(_sign @ b'+') | Some(_sign @ b'-') => {
-                    (unsafe { bytes.get_unchecked(..1) }, &bytes[1..])
-                }
-                _ => (&b""[..], bytes),
-            };
-            let mut filled = Vec::new();
-            filled.extend_from_slice(sign);
-            filled.extend(std::iter::repeat(b'0').take(width - bytes.len()));
-            filled.extend_from_slice(s);
-            filled
-        }
+        rustpython_common::str::zfill(self.as_bytes(), width)
     }
 
     fn py_iscase<F, G>(&'s self, is_case: F, is_opposite: G) -> bool
