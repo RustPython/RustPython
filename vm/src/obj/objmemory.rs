@@ -1,5 +1,5 @@
 use super::objtype::{issubclass, PyClassRef};
-use crate::bytesinner::try_as_byte;
+use crate::bytesinner::try_as_bytes;
 use crate::pyobject::{
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -17,7 +17,7 @@ pub type PyMemoryViewRef = PyRef<PyMemoryView>;
 #[pyimpl]
 impl PyMemoryView {
     pub fn try_value(&self) -> Option<Vec<u8>> {
-        try_as_byte(self.obj_ref.clone())
+        try_as_bytes(self.obj_ref.clone(), |bytes| bytes.to_vec())
     }
 
     #[pyslot]

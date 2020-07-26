@@ -183,15 +183,20 @@ pub struct ByteInnerPaddingOptions {
 impl ByteInnerPaddingOptions {
     fn get_value(self, fn_name: &str, vm: &VirtualMachine) -> PyResult<(isize, u8)> {
         let fillchar = if let OptionalArg::Present(v) = self.fillchar {
-            match try_as_byte(v.clone()) {
-                Some(x) if x.len() == 1 => x[0],
-                _ => {
-                    return Err(vm.new_type_error(format!(
-                        "{}() argument 2 must be a byte string of length 1, not {}",
-                        fn_name, &v
-                    )));
+            try_as_bytes(v.clone(), |bytes| {
+                if bytes.len() == 1 {
+                    Some(bytes[0])
+                } else {
+                    None
                 }
-            }
+            })
+            .flatten()
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "{}() argument 2 must be a byte string of length 1, not {}",
+                    fn_name, &v
+                ))
+            })?
         } else {
             b' ' // default is space
         };
@@ -1129,10 +1134,13 @@ impl PyBytesInner {
     }
 }
 
-pub fn try_as_byte(obj: PyObjectRef) -> Option<Vec<u8>> {
+pub fn try_as_bytes<F, R>(obj: PyObjectRef, f: F) -> Option<R>
+where
+    F: Fn(&[u8]) -> R,
+{
     match_class!(match obj {
-        i @ PyBytes => Some(i.get_value().to_vec()),
-        j @ PyByteArray => Some(j.borrow_value().elements.to_vec()),
+        i @ PyBytes => Some(f(i.get_value())),
+        j @ PyByteArray => Some(f(&j.borrow_value().elements)),
         _ => None,
     })
 }
