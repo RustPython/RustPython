@@ -14,16 +14,16 @@ use crate::obj::objnone::PyNoneRef;
 use crate::obj::objsequence::{PySliceableSequence, SequenceIndex};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::{self, PyString, PyStringRef};
-use crate::obj::pystr::{self, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper};
 use crate::pyobject::{
     Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
+use crate::pystr::{self, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]
 pub struct PyBytesInner {
-    pub elements: Vec<u8>,
+    pub(crate) elements: Vec<u8>,
 }
 
 impl From<Vec<u8>> for PyBytesInner {

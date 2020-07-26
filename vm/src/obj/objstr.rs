@@ -19,14 +19,14 @@ use super::objiter;
 use super::objnone::PyNone;
 use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtype::{self, PyClassRef};
-use super::pystr::{
-    self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
-};
 use crate::format::{FormatParseError, FormatSpec, FormatString, FromTemplate};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+};
+use crate::pystr::{
+    self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
 };
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;

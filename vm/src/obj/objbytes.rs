@@ -8,7 +8,6 @@ use super::objiter;
 use super::objsequence::SequenceIndex;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
-use super::pystr::{self, PyCommonString};
 use crate::bytesinner::{
     ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
     ByteInnerTranslateOptions, PyBytesInner,
@@ -20,6 +19,7 @@ use crate::pyobject::{
     PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
+use crate::pystr::{self, PyCommonString};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash::PyHash;
 

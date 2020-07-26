@@ -1,5 +1,4 @@
 //! Implementation of the python bytearray object.
-use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::cast::ToPrimitive;
@@ -10,16 +9,17 @@ use super::objiter;
 use super::objsequence::SequenceIndex;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
-use super::pystr::{self, PyCommonString};
 use crate::bytesinner::{
     ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
     ByteInnerTranslateOptions, ByteOr, PyBytesInner,
 };
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
     Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol,
 };
+use crate::pystr::{self, PyCommonString};
 use crate::vm::VirtualMachine;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\

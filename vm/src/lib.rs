@@ -70,6 +70,7 @@ pub mod import;
 pub mod obj;
 pub mod py_serde;
 pub mod pyobject;
+mod pystr;
 pub mod readline;
 pub mod scope;
 mod sequence;
