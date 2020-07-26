@@ -1196,19 +1196,25 @@ fn os_execv(
     path: PyStringRef,
     argv_list: PyIterable<PyStringRef>,
     vm: &VirtualMachine
-    ) {
+    ) -> PyResult<()> {
 
     let path = ffi::CString::new(path.as_str()).unwrap();
 
-    let argv: Vec<&ffi::CStr> = argv_list.iter(vm).unwrap().map(
+    let argv_list: Vec<ffi::CString> = argv_list.iter(vm).unwrap().map(
         |entry| ffi::CString::new(
             entry
             .unwrap()
             .as_str()
-        ).unwrap().as_c_str()
+        ).unwrap()
+    ).collect();
+    
+    let argv: Vec<&ffi::CStr> = argv_list.iter().map(
+        |entry| entry.as_c_str()
     ).collect();
 
-    unistd::execv(&path, &argv);
+    unistd::execv(&path, &argv)
+        .map(|_ok| ())
+        .map_err(|err| convert_nix_error(vm, err))
 }
 
 fn os_fspath(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
