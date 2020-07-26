@@ -231,6 +231,78 @@ fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
+#[pystruct_sequence(module = "sys", name = "getwindowsversion")]
+#[derive(Default, Debug)]
+#[cfg(windows)]
+struct WindowsVersion {
+    major: u32,
+    minor: u32,
+    build: u32,
+    platform: u32,
+    service_pack: String,
+    service_pack_major: u16,
+    service_pack_minor: u16,
+    suite_mask: u16,
+    product_type: u8,
+    platform_version: (u32, u32, u32),
+}
+
+#[cfg(windows)]
+fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::obj::objtuple::PyTupleRef> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use winapi::um::{
+        sysinfoapi::GetVersionExW,
+        winnt::{LPOSVERSIONINFOEXW, LPOSVERSIONINFOW, OSVERSIONINFOEXW},
+    };
+
+    let mut version = OSVERSIONINFOEXW::default();
+    version.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
+    let result = unsafe {
+        let osvi = &mut version as LPOSVERSIONINFOEXW as LPOSVERSIONINFOW;
+        // SAFE: GetVersionExW accepts a pointer of OSVERSIONINFOW, but winapi crate's type currently doesn't allow to do so.
+        // https://docs.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getversionexw#parameters
+        GetVersionExW(osvi)
+    };
+
+    if result == 0 {
+        Err(vm.new_os_error("failed to get windows version".to_owned()))
+    } else {
+        let service_pack = {
+            let (last, _) = version
+                .szCSDVersion
+                .iter()
+                .take_while(|&x| x != &0)
+                .enumerate()
+                .last()
+                .unwrap_or((0, &0));
+            let sp = OsString::from_wide(&version.szCSDVersion[..last]);
+            if let Ok(string) = sp.into_string() {
+                string
+            } else {
+                return Err(vm.new_os_error("service pack is not ASCII".to_owned()));
+            }
+        };
+        WindowsVersion {
+            major: version.dwMajorVersion,
+            minor: version.dwMinorVersion,
+            build: version.dwBuildNumber,
+            platform: version.dwPlatformId,
+            service_pack,
+            service_pack_major: version.wServicePackMajor,
+            service_pack_minor: version.wServicePackMinor,
+            suite_mask: version.wSuiteMask,
+            product_type: version.wProductType,
+            platform_version: (
+                version.dwMajorVersion,
+                version.dwMinorVersion,
+                version.dwBuildNumber,
+            ), // TODO Provide accurate version, like CPython impl
+        }
+        .into_struct_sequence(vm, vm.try_class("sys", "_getwindowsversion_type")?)
+    }
+}
+
 const PLATFORM: &str = {
     cfg_if::cfg_if! {
         if #[cfg(any(target_os = "linux", target_os = "android"))] {
@@ -473,6 +545,15 @@ settrace() -- set the global debug tracing function
       "displayhook" => ctx.new_function(sys_displayhook),
       "__displayhook__" => ctx.new_function(sys_displayhook),
     });
+
+    #[cfg(windows)]
+    {
+        let getwindowsversion = WindowsVersion::make_class(ctx);
+        extend_module!(vm, module, {
+            "getwindowsversion" => ctx.new_function(sys_getwindowsversion),
+            "_getwindowsversion_type" => getwindowsversion, // XXX: This is not a python spec but required by current RustPython implementation
+        })
+    }
 
     modules.set_item("sys", module.clone(), vm).unwrap();
     modules.set_item("builtins", builtins.clone(), vm).unwrap();
