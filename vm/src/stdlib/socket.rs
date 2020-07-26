@@ -13,10 +13,10 @@ use socket2::{Domain, Protocol, Socket, Type as SocketType};
 use super::os::convert_io_error;
 #[cfg(unix)]
 use super::os::convert_nix_error;
+use crate::byteslike::PyBytesLike;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytearray::PyByteArrayRef;
-use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;

@@ -1,5 +1,5 @@
-use super::objbyteinner::try_as_byte;
 use super::objtype::{issubclass, PyClassRef};
+use crate::bytesinner::try_as_byte;
 use crate::pyobject::{
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };

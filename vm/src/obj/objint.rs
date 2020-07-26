@@ -7,12 +7,12 @@ use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
 
 use super::objbool::IntoPyBool;
 use super::objbytearray::PyByteArray;
-use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
 use super::objfloat;
 use super::objmemory::PyMemoryView;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::{self, PyClassRef};
+use crate::bytesinner::PyBytesInner;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
@@ -714,7 +714,7 @@ impl IntOptions {
 #[derive(FromArgs)]
 struct IntFromByteArgs {
     #[pyarg(positional_or_keyword)]
-    bytes: PyByteInner,
+    bytes: PyBytesInner,
     #[pyarg(positional_or_keyword)]
     byteorder: PyStringRef,
     #[pyarg(keyword_only, optional = true)]

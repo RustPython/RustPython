@@ -3,17 +3,18 @@ use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::ops::Range;
 
-use super::objbytearray::{PyByteArray, PyByteArrayRef};
-use super::objbytes::{PyBytes, PyBytesRef};
-use super::objint::{self, PyInt, PyIntRef};
-use super::objlist::PyList;
-use super::objmemory::PyMemoryView;
-use super::objnone::PyNoneRef;
-use super::objsequence::{PySliceableSequence, SequenceIndex};
-use super::objslice::PySliceRef;
-use super::objstr::{self, PyString, PyStringRef};
-use super::pystr::{self, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper};
+use crate::byteslike::PyBytesLike;
 use crate::function::{OptionalArg, OptionalOption};
+use crate::obj::objbytearray::PyByteArray;
+use crate::obj::objbytes::PyBytes;
+use crate::obj::objint::{self, PyInt, PyIntRef};
+use crate::obj::objlist::PyList;
+use crate::obj::objmemory::PyMemoryView;
+use crate::obj::objnone::PyNoneRef;
+use crate::obj::objsequence::{PySliceableSequence, SequenceIndex};
+use crate::obj::objslice::PySliceRef;
+use crate::obj::objstr::{self, PyString, PyStringRef};
+use crate::obj::pystr::{self, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper};
 use crate::pyobject::{
     Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
@@ -21,26 +22,26 @@ use crate::vm::VirtualMachine;
 use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]
-pub struct PyByteInner {
+pub struct PyBytesInner {
     pub elements: Vec<u8>,
 }
 
-impl From<Vec<u8>> for PyByteInner {
-    fn from(elements: Vec<u8>) -> PyByteInner {
+impl From<Vec<u8>> for PyBytesInner {
+    fn from(elements: Vec<u8>) -> PyBytesInner {
         Self { elements }
     }
 }
 
-impl TryFromObject for PyByteInner {
+impl TryFromObject for PyBytesInner {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         match_class!(match obj {
-            i @ PyBytes => Ok(PyByteInner {
+            i @ PyBytes => Ok(PyBytesInner {
                 elements: i.get_value().to_vec()
             }),
-            j @ PyByteArray => Ok(PyByteInner {
+            j @ PyByteArray => Ok(PyBytesInner {
                 elements: j.borrow_value().elements.to_vec()
             }),
-            k @ PyMemoryView => Ok(PyByteInner {
+            k @ PyMemoryView => Ok(PyBytesInner {
                 elements: k.try_value().unwrap()
             }),
             l @ PyList => l.get_byte_inner(vm),
@@ -49,7 +50,7 @@ impl TryFromObject for PyByteInner {
                     format!("a bytes-like object is required, not {}", obj.class())
                 })?;
                 let iter = PyIterable::from_method(iter);
-                Ok(PyByteInner {
+                Ok(PyBytesInner {
                     elements: iter.iter(vm)?.collect::<PyResult<_>>()?,
                 })
             }
@@ -66,13 +67,13 @@ pub struct ByteInnerNewOptions {
 }
 
 impl ByteInnerNewOptions {
-    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<PyByteInner> {
+    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
         // First handle bytes(string, encoding[, errors])
         if let OptionalArg::Present(enc) = self.encoding {
             if let OptionalArg::Present(eval) = self.val_option {
                 if let Ok(input) = eval.downcast::<PyString>() {
                     let bytes = objstr::encode_string(input, Some(enc), None, vm)?;
-                    Ok(PyByteInner {
+                    Ok(PyBytesInner {
                         elements: bytes.get_value().to_vec(),
                     })
                 } else {
@@ -112,7 +113,7 @@ impl ByteInnerNewOptions {
                         // TODO: only support this method in the bytes() constructor
                         if let Some(bytes_method) = vm.get_method(obj.clone(), "__bytes__") {
                             let bytes = vm.invoke(&bytes_method?, vec![])?;
-                            return PyByteInner::try_from_object(vm, bytes);
+                            return PyBytesInner::try_from_object(vm, bytes);
                         }
                         let elements = vm.extract_elements(&obj).map_err(|_| {
                             vm.new_type_error(format!(
@@ -139,7 +140,7 @@ impl ByteInnerNewOptions {
                 Ok(vec![])
             };
             match value {
-                Ok(val) => Ok(PyByteInner { elements: val }),
+                Ok(val) => Ok(PyBytesInner { elements: val }),
                 Err(err) => Err(err),
             }
         }
@@ -149,7 +150,7 @@ impl ByteInnerNewOptions {
 #[derive(FromArgs)]
 pub struct ByteInnerFindOptions {
     #[pyarg(positional_only, optional = false)]
-    sub: Either<PyByteInner, PyIntRef>,
+    sub: Either<PyBytesInner, PyIntRef>,
     #[pyarg(positional_only, default = "None")]
     start: Option<PyIntRef>,
     #[pyarg(positional_only, default = "None")]
@@ -202,9 +203,9 @@ impl ByteInnerPaddingOptions {
 #[derive(FromArgs)]
 pub struct ByteInnerTranslateOptions {
     #[pyarg(positional_only, optional = false)]
-    table: Either<PyByteInner, PyNoneRef>,
+    table: Either<PyBytesInner, PyNoneRef>,
     #[pyarg(positional_or_keyword, optional = true)]
-    delete: OptionalArg<PyByteInner>,
+    delete: OptionalArg<PyBytesInner>,
 }
 
 impl ByteInnerTranslateOptions {
@@ -229,10 +230,10 @@ impl ByteInnerTranslateOptions {
     }
 }
 
-pub type ByteInnerSplitOptions<'a> = pystr::SplitArgs<'a, PyByteInner, [u8], u8>;
+pub type ByteInnerSplitOptions<'a> = pystr::SplitArgs<'a, PyBytesInner, [u8], u8>;
 
 #[allow(clippy::len_without_is_empty)]
-impl PyByteInner {
+impl PyBytesInner {
     pub fn repr(&self) -> String {
         let mut res = String::with_capacity(self.elements.len());
         for i in self.elements.iter() {
@@ -287,13 +288,13 @@ impl PyByteInner {
         hash::hash_value(&self.elements)
     }
 
-    pub fn add(&self, other: PyByteInner) -> Vec<u8> {
+    pub fn add(&self, other: PyBytesInner) -> Vec<u8> {
         self.elements.py_add(&other.elements)
     }
 
     pub fn contains(
         &self,
-        needle: Either<PyByteInner, PyIntRef>,
+        needle: Either<PyBytesInner, PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         Ok(match needle {
@@ -698,7 +699,7 @@ impl PyByteInner {
 
     pub fn join(
         &self,
-        iterable: PyIterable<PyByteInner>,
+        iterable: PyIterable<PyBytesInner>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let iter = iterable.iter(vm)?;
@@ -719,7 +720,7 @@ impl PyByteInner {
         Ok(self.elements.py_find(&needle, range, find))
     }
 
-    pub fn maketrans(from: PyByteInner, to: PyByteInner, vm: &VirtualMachine) -> PyResult {
+    pub fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult {
         let mut res = vec![];
 
         for i in 0..=255 {
@@ -757,7 +758,7 @@ impl PyByteInner {
         Ok(res)
     }
 
-    pub fn strip(&self, chars: OptionalOption<PyByteInner>) -> Vec<u8> {
+    pub fn strip(&self, chars: OptionalOption<PyBytesInner>) -> Vec<u8> {
         self.elements
             .py_strip(
                 chars,
@@ -767,7 +768,7 @@ impl PyByteInner {
             .to_vec()
     }
 
-    pub fn lstrip(&self, chars: OptionalOption<PyByteInner>) -> Vec<u8> {
+    pub fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> Vec<u8> {
         self.elements
             .py_strip(
                 chars,
@@ -777,7 +778,7 @@ impl PyByteInner {
             .to_vec()
     }
 
-    pub fn rstrip(&self, chars: OptionalOption<PyByteInner>) -> Vec<u8> {
+    pub fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> Vec<u8> {
         self.elements
             .py_strip(
                 chars,
@@ -788,7 +789,7 @@ impl PyByteInner {
     }
 
     // new in Python 3.9
-    pub fn removeprefix(&self, prefix: PyByteInner) -> Vec<u8> {
+    pub fn removeprefix(&self, prefix: PyBytesInner) -> Vec<u8> {
         self.elements
             .py_removeprefix(&prefix.elements, prefix.elements.len(), |s, p| {
                 s.starts_with(p)
@@ -797,7 +798,7 @@ impl PyByteInner {
     }
 
     // new in Python 3.9
-    pub fn removesuffix(&self, suffix: PyByteInner) -> Vec<u8> {
+    pub fn removesuffix(&self, suffix: PyBytesInner) -> Vec<u8> {
         self.elements
             .py_removesuffix(&suffix.elements, suffix.elements.len(), |s, p| {
                 s.ends_with(p)
@@ -846,7 +847,7 @@ impl PyByteInner {
 
     pub fn partition(
         &self,
-        sub: &PyByteInner,
+        sub: &PyBytesInner,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, bool, Vec<u8>)> {
         self.elements.py_partition(
@@ -858,7 +859,7 @@ impl PyByteInner {
 
     pub fn rpartition(
         &self,
-        sub: &PyByteInner,
+        sub: &PyBytesInner,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, bool, Vec<u8>)> {
         self.elements.py_partition(
@@ -912,7 +913,7 @@ impl PyByteInner {
     }
 
     // len(self)>=1, from="", len(to)>=1, maxcount>=1
-    fn replace_interleave(&self, to: PyByteInner, maxcount: Option<usize>) -> Vec<u8> {
+    fn replace_interleave(&self, to: PyBytesInner, maxcount: Option<usize>) -> Vec<u8> {
         let place_count = self.elements.len() + 1;
         let count = maxcount.map_or(place_count, |v| std::cmp::min(v, place_count)) - 1;
         let capacity = self.elements.len() + count * to.len();
@@ -927,7 +928,7 @@ impl PyByteInner {
         result
     }
 
-    fn replace_delete(&self, from: PyByteInner, maxcount: Option<usize>) -> Vec<u8> {
+    fn replace_delete(&self, from: PyBytesInner, maxcount: Option<usize>) -> Vec<u8> {
         let count = count_substring(self.elements.as_slice(), from.elements.as_slice(), maxcount);
         if count == 0 {
             // no matches
@@ -954,8 +955,8 @@ impl PyByteInner {
 
     pub fn replace_in_place(
         &self,
-        from: PyByteInner,
-        to: PyByteInner,
+        from: PyBytesInner,
+        to: PyBytesInner,
         maxcount: Option<usize>,
     ) -> Vec<u8> {
         let len = from.len();
@@ -986,8 +987,8 @@ impl PyByteInner {
 
     fn replace_general(
         &self,
-        from: PyByteInner,
-        to: PyByteInner,
+        from: PyBytesInner,
+        to: PyBytesInner,
         maxcount: Option<usize>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
@@ -1027,8 +1028,8 @@ impl PyByteInner {
 
     pub fn replace(
         &self,
-        from: PyByteInner,
-        to: PyByteInner,
+        from: PyBytesInner,
+        to: PyBytesInner,
         maxcount: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
@@ -1157,42 +1158,7 @@ pub trait ByteOr: ToPrimitive {
 
 impl ByteOr for BigInt {}
 
-pub enum PyBytesLike {
-    Bytes(PyBytesRef),
-    Bytearray(PyByteArrayRef),
-}
-
-impl TryFromObject for PyBytesLike {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match_class!(match obj {
-            b @ PyBytes => Ok(PyBytesLike::Bytes(b)),
-            b @ PyByteArray => Ok(PyBytesLike::Bytearray(b)),
-            obj => Err(vm.new_type_error(format!(
-                "a bytes-like object is required, not {}",
-                obj.class()
-            ))),
-        })
-    }
-}
-
-impl PyBytesLike {
-    pub fn to_cow(&self) -> std::borrow::Cow<[u8]> {
-        match self {
-            PyBytesLike::Bytes(b) => b.get_value().into(),
-            PyBytesLike::Bytearray(b) => b.borrow_value().elements.clone().into(),
-        }
-    }
-
-    #[inline]
-    pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
-        match self {
-            PyBytesLike::Bytes(b) => f(b.get_value()),
-            PyBytesLike::Bytearray(b) => f(&b.borrow_value().elements),
-        }
-    }
-}
-
-impl PyCommonStringWrapper<[u8]> for PyByteInner {
+impl PyCommonStringWrapper<[u8]> for PyBytesInner {
     fn as_ref(&self) -> &[u8] {
         &self.elements
     }

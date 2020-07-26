@@ -14,10 +14,10 @@ mod decl {
     use rustpython_parser::parser;
 
     use super::to_ascii;
+    use crate::bytesinner::PyBytesInner;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
     use crate::obj::objbool::{self, IntoPyBool};
-    use crate::obj::objbyteinner::PyByteInner;
     use crate::obj::objbytes::PyBytesRef;
     use crate::obj::objcode::PyCodeRef;
     use crate::obj::objdict::PyDictRef;
@@ -554,7 +554,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) -> PyResult<u32> {
+    fn ord(string: Either<PyBytesInner, PyStringRef>, vm: &VirtualMachine) -> PyResult<u32> {
         match string {
             Either::A(bytes) => {
                 let bytes_len = bytes.elements.len();

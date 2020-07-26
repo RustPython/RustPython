@@ -25,10 +25,10 @@ use std::os::unix::io::RawFd;
 use std::os::windows::io::RawHandle;
 
 use super::errno::errors;
+use crate::byteslike::PyBytesLike;
 use crate::common::cell::PyRwLock;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
-use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{PyInt, PyIntRef};

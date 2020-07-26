@@ -1,8 +1,8 @@
 use super::socket::PySocketRef;
+use crate::byteslike::PyBytesLike;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::OptionalArg;
 use crate::obj::objbytearray::PyByteArrayRef;
-use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::{objtype::PyClassRef, objweakref::PyWeak};
 use crate::pyobject::{

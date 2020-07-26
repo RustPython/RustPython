@@ -7,12 +7,12 @@ use std::io::{self, prelude::*, Cursor, SeekFrom};
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 
+use crate::byteslike::PyBytesLike;
 use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{Args, KwArgs, OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objbytearray::PyByteArray;
-use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint;
 use crate::obj::objiter;
