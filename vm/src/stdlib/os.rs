@@ -1191,6 +1191,26 @@ fn os_chmod(
     Ok(())
 }
 
+#[cfg(unix)]
+fn os_execv(
+    path: PyStringRef,
+    argv_list: PyIterable<PyStringRef>,
+    vm: &VirtualMachine
+    ) {
+
+    let path = ffi::CString::new(path.as_str()).unwrap();
+
+    let argv: Vec<&ffi::CStr> = argv_list.iter(vm).unwrap().map(
+        |entry| ffi::CString::new(
+            entry
+            .unwrap()
+            .as_str()
+        ).unwrap().as_c_str()
+    ).collect();
+
+    unistd::execv(&path, &argv);
+}
+
 fn os_fspath(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
     path.mode.process_path(path.path, vm)
 }
@@ -2089,6 +2109,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         #[cfg(not(target_os = "redox"))]
         SupportFunc::new(vm, "chroot", os_chroot, Some(false), None, None),
         SupportFunc::new(vm, "umask", os_umask, Some(false), Some(false), Some(false)),
+        SupportFunc::new(vm, "execv", os_execv, None, None, None)
     ]);
     let supports_fd = PySet::default().into_ref(vm);
     let supports_dir_fd = PySet::default().into_ref(vm);
@@ -2186,6 +2207,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
 
     extend_module!(vm, module, {
         "chmod" => ctx.new_function(os_chmod),
+        "execv" => ctx.new_function(os_execv), // TODO: windows
         "get_inheritable" => ctx.new_function(os_get_inheritable), // TODO: windows
         "get_blocking" => ctx.new_function(os_get_blocking),
         "getppid" => ctx.new_function(os_getppid),
