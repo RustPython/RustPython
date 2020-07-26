@@ -231,7 +231,7 @@ fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
-#[pystruct_sequence(name = "sys.getwindowsversion")]
+#[pystruct_sequence(module = "sys", name = "getwindowsversion")]
 #[derive(Default, Debug)]
 #[cfg(windows)]
 struct WindowsVersion {
