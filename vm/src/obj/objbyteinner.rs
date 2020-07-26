@@ -231,26 +231,6 @@ impl ByteInnerTranslateOptions {
 
 pub type ByteInnerSplitOptions<'a> = pystr::SplitArgs<'a, PyByteInner, [u8], u8>;
 
-#[derive(FromArgs)]
-pub struct ByteInnerSplitlinesOptions {
-    #[pyarg(positional_or_keyword, optional = true)]
-    keepends: OptionalArg<bool>,
-}
-
-impl ByteInnerSplitlinesOptions {
-    pub fn get_value(self) -> bool {
-        match self.keepends.into_option() {
-            Some(x) => x,
-            None => false,
-        }
-        // if let OptionalArg::Present(value) = self.keepends {
-        //     Ok(bool::try_from_object(vm, value)?)
-        // } else {
-        //     Ok(false)
-        // }
-    }
-}
-
 #[allow(clippy::len_without_is_empty)]
 impl PyByteInner {
     pub fn repr(&self) -> String {
