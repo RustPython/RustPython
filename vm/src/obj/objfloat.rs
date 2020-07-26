@@ -123,7 +123,13 @@ fn inner_floordiv(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
 
 fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
     if v2 != 0.0 {
-        Ok(((v1 / v2).floor(), v1 % v2))
+        let mut m = v1 % v2;
+        let mut d = (v1 - m) / v2;
+        if v2.is_sign_negative() != m.is_sign_negative() {
+            m += v2;
+            d -= 1.0;
+        }
+        Ok((d, m))
     } else {
         Err(vm.new_zero_division_error("float divmod()".to_owned()))
     }
