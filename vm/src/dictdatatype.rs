@@ -20,18 +20,18 @@ type HashIndex = hash::PyHash;
 type EntryIndex = usize;
 
 pub struct Dict<T = PyObjectRef> {
-    inner: PyRwLock<InnerDict<T>>,
+    inner: PyRwLock<DictInner<T>>,
 }
 
-struct InnerDict<T> {
+struct DictInner<T> {
     size: usize,
     indices: HashMap<HashIndex, EntryIndex>,
     entries: Vec<Option<DictEntry<T>>>,
 }
 
-impl<T: Clone> Clone for InnerDict<T> {
+impl<T: Clone> Clone for DictInner<T> {
     fn clone(&self) -> Self {
-        InnerDict {
+        DictInner {
             size: self.size,
             indices: self.indices.clone(),
             entries: self.entries.clone(),
@@ -50,7 +50,7 @@ impl<T: Clone> Clone for Dict<T> {
 impl<T> Default for Dict<T> {
     fn default() -> Self {
         Dict {
-            inner: PyRwLock::new(InnerDict {
+            inner: PyRwLock::new(DictInner {
                 size: 0,
                 indices: HashMap::new(),
                 entries: Vec::new(),
@@ -82,11 +82,11 @@ pub struct DictSize {
 }
 
 impl<T: Clone> Dict<T> {
-    fn borrow_value(&self) -> PyRwLockReadGuard<'_, InnerDict<T>> {
+    fn borrow_value(&self) -> PyRwLockReadGuard<'_, DictInner<T>> {
         self.inner.read()
     }
 
-    fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, InnerDict<T>> {
+    fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, DictInner<T>> {
         self.inner.write()
     }
 
