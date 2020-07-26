@@ -759,8 +759,7 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult
         }
         memoryview @ PyMemoryView => {
             // TODO: proper error handling instead of `unwrap()`
-            let bytes = memoryview.try_value().unwrap();
-            bytes_to_int(&bytes)
+            memoryview.try_bytes(|bytes| bytes_to_int(&bytes)).unwrap()
         }
         array @ PyArray => {
             let bytes = array.tobytes();

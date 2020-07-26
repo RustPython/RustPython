@@ -16,8 +16,11 @@ pub type PyMemoryViewRef = PyRef<PyMemoryView>;
 
 #[pyimpl]
 impl PyMemoryView {
-    pub fn try_value(&self) -> Option<Vec<u8>> {
-        try_as_bytes(self.obj_ref.clone(), |bytes| bytes.to_vec())
+    pub fn try_bytes<F, R>(&self, f: F) -> Option<R>
+    where
+        F: Fn(&[u8]) -> R,
+    {
+        try_as_bytes(self.obj_ref.clone(), f)
     }
 
     #[pyslot]
