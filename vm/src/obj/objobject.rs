@@ -253,6 +253,7 @@ impl PyBaseObject {
     }
 }
 
+#[cfg_attr(feature = "flame-it", flame)]
 pub(crate) fn setattr(
     obj: PyObjectRef,
     attr_name: PyStringRef,

@@ -52,8 +52,8 @@ statrs = "0.12.0"
 caseless = "0.2.1"
 chrono = { version = "0.4", features = ["wasmbind"] }
 once_cell = "1.3.1"
-lexical = "4"
-itertools = "0.8"
+lexical-core = "0.7"
+itertools = "0.9"
 hex = "0.4.0"
 hexf-parse = "0.1.0"
 indexmap = "1.0.2"
@@ -92,7 +92,8 @@ unic-ucd-age       = "0.9"
 unic-ucd-ident     = "0.9"
 
 flame = { version = "0.2", optional = true }
-flamer = { version = "0.3", optional = true }
+flamer = { version = "0.4", optional = true }
+
 rustpython-common = { path = "../common" }
 
 [target.'cfg(unix)'.dependencies]
@@ -134,4 +135,4 @@ features = [
 wasm-bindgen = "0.2"
 
 [build-dependencies]
-itertools = "0.8"
+itertools = "0.9"
