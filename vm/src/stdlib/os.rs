@@ -1195,22 +1195,17 @@ fn os_chmod(
 fn os_execv(
     path: PyStringRef,
     argv_list: PyIterable<PyStringRef>,
-    vm: &VirtualMachine
-    ) -> PyResult<()> {
-
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     let path = ffi::CString::new(path.as_str()).unwrap();
 
-    let argv_list: Vec<ffi::CString> = argv_list.iter(vm).unwrap().map(
-        |entry| ffi::CString::new(
-            entry
-            .unwrap()
-            .as_str()
-        ).unwrap()
-    ).collect();
-    
-    let argv: Vec<&ffi::CStr> = argv_list.iter().map(
-        |entry| entry.as_c_str()
-    ).collect();
+    let argv_list: Vec<ffi::CString> = argv_list
+        .iter(vm)
+        .unwrap()
+        .map(|entry| ffi::CString::new(entry.unwrap().as_str()).unwrap())
+        .collect();
+
+    let argv: Vec<&ffi::CStr> = argv_list.iter().map(|entry| entry.as_c_str()).collect();
 
     unistd::execv(&path, &argv)
         .map(|_ok| ())
@@ -2115,7 +2110,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         #[cfg(not(target_os = "redox"))]
         SupportFunc::new(vm, "chroot", os_chroot, Some(false), None, None),
         SupportFunc::new(vm, "umask", os_umask, Some(false), Some(false), Some(false)),
-        SupportFunc::new(vm, "execv", os_execv, None, None, None)
+        SupportFunc::new(vm, "execv", os_execv, None, None, None),
     ]);
     let supports_fd = PySet::default().into_ref(vm);
     let supports_dir_fd = PySet::default().into_ref(vm);
