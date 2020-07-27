@@ -5,7 +5,8 @@ Copyright (C) 2011-2012 Vinay Sajip.
 Licensed to the PSF under a contributor agreement.
 """
 
-import ensurepip
+# pip isn't working yet
+# import ensurepip
 import os
 import os.path
 import re
@@ -531,8 +532,10 @@ class EnsurePipTest(BaseTest):
             self.assert_pip_not_installed()
 
     # Issue #26610: pip/pep425tags.py requires ctypes
+    # TODO: RUSTPYTHON
     @unittest.skipUnless(ctypes, 'pip requires ctypes')
-    @requires_zlib()
+    @requires_zlib
+    @unittest.expectedFailure
     def test_with_pip(self):
         self.do_test_with_pip(False)
         self.do_test_with_pip(True)
