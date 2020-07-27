@@ -3,16 +3,15 @@ use crossbeam_utils::atomic::AtomicCell;
 use std::mem::size_of;
 use std::ops::Deref;
 
-use super::objbyteinner::{
-    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
-    ByteInnerTranslateOptions, PyByteInner,
-};
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::SequenceIndex;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
-use super::pystr::{self, PyCommonString};
+use crate::bytesinner::{
+    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
+    ByteInnerTranslateOptions, PyBytesInner,
+};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
     Either, IntoPyObject,
@@ -20,6 +19,7 @@ use crate::pyobject::{
     PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
+use crate::pystr::{self, PyCommonString};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash::PyHash;
 
@@ -35,7 +35,7 @@ use rustpython_common::hash::PyHash;
 #[pyclass(name = "bytes")]
 #[derive(Clone, Debug)]
 pub struct PyBytes {
-    inner: PyByteInner,
+    inner: PyBytesInner,
 }
 
 pub type PyBytesRef = PyRef<PyBytes>;
@@ -43,7 +43,7 @@ pub type PyBytesRef = PyRef<PyBytes>;
 impl PyBytes {
     pub fn new(elements: Vec<u8>) -> Self {
         PyBytes {
-            inner: PyByteInner { elements },
+            inner: PyBytesInner { elements },
         }
     }
 
@@ -82,7 +82,7 @@ pub(crate) fn init(context: &PyContext) {
     PyBytes::extend_class(context, &context.types.bytes_type);
     let bytes_type = &context.types.bytes_type;
     extend_class!(context, bytes_type, {
-        "maketrans" => context.new_method(PyByteInner::maketrans),
+        "maketrans" => context.new_method(PyBytesInner::maketrans),
     });
     PyBytesIterator::extend_class(context, &context.types.bytesiterator_type);
 }
@@ -152,7 +152,7 @@ impl PyBytes {
 
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<PyBytes> {
-        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
+        if let Ok(other) = PyBytesInner::try_from_object(vm, other) {
             Implemented(self.inner.add(other).into())
         } else {
             NotImplemented
@@ -162,7 +162,7 @@ impl PyBytes {
     #[pymethod(name = "__contains__")]
     fn contains(
         &self,
-        needle: Either<PyByteInner, PyIntRef>,
+        needle: Either<PyBytesInner, PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         self.inner.contains(needle, vm)
@@ -240,7 +240,7 @@ impl PyBytes {
 
     #[pymethod]
     fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        Ok(PyByteInner::fromhex(string.as_str(), vm)?.into())
+        Ok(PyBytesInner::fromhex(string.as_str(), vm)?.into())
     }
 
     #[pymethod(name = "center")]
@@ -264,7 +264,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "join")]
-    fn join(&self, iter: PyIterable<PyByteInner>, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn join(&self, iter: PyIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<PyBytes> {
         Ok(self.inner.join(iter, vm)?.into())
     }
 
@@ -274,7 +274,7 @@ impl PyBytes {
             options,
             "endswith",
             "bytes",
-            |s, x: &PyByteInner| s.ends_with(&x.elements[..]),
+            |s, x: &PyBytesInner| s.ends_with(&x.elements[..]),
             vm,
         )
     }
@@ -289,7 +289,7 @@ impl PyBytes {
             options,
             "startswith",
             "bytes",
-            |s, x: &PyByteInner| s.starts_with(&x.elements[..]),
+            |s, x: &PyBytesInner| s.starts_with(&x.elements[..]),
             vm,
         )
     }
@@ -328,17 +328,17 @@ impl PyBytes {
     }
 
     #[pymethod(name = "strip")]
-    fn strip(&self, chars: OptionalOption<PyByteInner>) -> PyBytes {
+    fn strip(&self, chars: OptionalOption<PyBytesInner>) -> PyBytes {
         self.inner.strip(chars).into()
     }
 
     #[pymethod(name = "lstrip")]
-    fn lstrip(&self, chars: OptionalOption<PyByteInner>) -> PyBytes {
+    fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> PyBytes {
         self.inner.lstrip(chars).into()
     }
 
     #[pymethod(name = "rstrip")]
-    fn rstrip(&self, chars: OptionalOption<PyByteInner>) -> PyBytes {
+    fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> PyBytes {
         self.inner.rstrip(chars).into()
     }
 
@@ -350,7 +350,7 @@ impl PyBytes {
     /// If the bytes starts with the prefix string, return string[len(prefix):]
     /// Otherwise, return a copy of the original bytes.
     #[pymethod(name = "removeprefix")]
-    fn removeprefix(&self, prefix: PyByteInner) -> PyBytes {
+    fn removeprefix(&self, prefix: PyBytesInner) -> PyBytes {
         self.inner.removeprefix(prefix).into()
     }
 
@@ -362,7 +362,7 @@ impl PyBytes {
     /// If the bytes ends with the suffix string, return string[:len(suffix)]
     /// Otherwise, return a copy of the original bytes.
     #[pymethod(name = "removesuffix")]
-    fn removesuffix(&self, suffix: PyByteInner) -> PyBytes {
+    fn removesuffix(&self, suffix: PyBytesInner) -> PyBytes {
         self.inner.removesuffix(suffix).into()
     }
 
@@ -380,7 +380,7 @@ impl PyBytes {
 
     #[pymethod(name = "partition")]
     fn partition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let sub = PyByteInner::try_from_object(vm, sep.clone())?;
+        let sub = PyBytesInner::try_from_object(vm, sep.clone())?;
         let (front, has_mid, back) = self.inner.partition(&sub, vm)?;
         Ok(vm.ctx.new_tuple(vec![
             vm.ctx.new_bytes(front),
@@ -395,8 +395,8 @@ impl PyBytes {
 
     #[pymethod(name = "rpartition")]
     fn rpartition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let sub = PyByteInner::try_from_object(vm, sep.clone())?;
-        let (front, has_mid, back) = self.inner.rpartition(&sub, vm)?;
+        let sub = PyBytesInner::try_from_object(vm, sep.clone())?;
+        let (back, has_mid, front) = self.inner.rpartition(&sub, vm)?;
         Ok(vm.ctx.new_tuple(vec![
             vm.ctx.new_bytes(front),
             if has_mid {
@@ -429,8 +429,8 @@ impl PyBytes {
     #[pymethod(name = "replace")]
     fn replace(
         &self,
-        old: PyByteInner,
-        new: PyByteInner,
+        old: PyBytesInner,
+        new: PyBytesInner,
         count: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytes> {

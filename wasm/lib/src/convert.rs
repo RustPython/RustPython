@@ -6,9 +6,10 @@ use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use rustpython_compiler::error::{CompileError, CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
+use rustpython_vm::byteslike::PyBytesLike;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::obj::{objbyteinner::PyBytesLike, objtype};
+use rustpython_vm::obj::objtype;
 use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject};
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{exceptions, py_serde};

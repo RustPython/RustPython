@@ -2,18 +2,18 @@ use std::fmt;
 use std::mem::size_of;
 use std::ops::{DerefMut, Range};
 
-use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::objbool;
-use super::objbyteinner;
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::{get_item, get_pos, get_slice_range, SequenceIndex};
 use super::objslice::PySliceRef;
 use super::objtype::PyClassRef;
+use crate::bytesinner;
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
 use crate::pyobject::{
     IdProtocol, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
@@ -62,10 +62,7 @@ impl PyList {
         self.elements.write()
     }
 
-    pub(crate) fn get_byte_inner(
-        &self,
-        vm: &VirtualMachine,
-    ) -> PyResult<objbyteinner::PyByteInner> {
+    pub(crate) fn to_byte_inner(&self, vm: &VirtualMachine) -> PyResult<bytesinner::PyBytesInner> {
         let mut elements = Vec::<u8>::with_capacity(self.borrow_elements().len());
         for elem in self.borrow_elements().iter() {
             match PyIntRef::try_from_object(vm, elem.clone()) {
@@ -83,7 +80,7 @@ impl PyList {
                 }
             }
         }
-        Ok(objbyteinner::PyByteInner { elements })
+        Ok(bytesinner::PyBytesInner { elements })
     }
 }
 

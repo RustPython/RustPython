@@ -4,3 +4,4 @@ pub mod cell;
 pub mod float_ops;
 pub mod hash;
 pub mod rc;
+pub mod str;

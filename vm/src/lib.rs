@@ -55,6 +55,8 @@ macro_rules! py_compile_bytecode {
 pub mod macros;
 
 mod builtins;
+mod bytesinner;
+pub mod byteslike;
 pub mod cformat;
 mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
@@ -68,6 +70,7 @@ pub mod import;
 pub mod obj;
 pub mod py_serde;
 pub mod pyobject;
+mod pystr;
 pub mod readline;
 pub mod scope;
 mod sequence;

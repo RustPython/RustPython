@@ -325,6 +325,30 @@ where
         Ok(joined)
     }
 
+    fn py_partition<'a, F, S>(
+        &'a self,
+        sub: &Self,
+        split: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Self::Container, bool, Self::Container)>
+    where
+        F: Fn() -> S,
+        S: std::iter::Iterator<Item = &'a Self>,
+    {
+        if sub.is_empty() {
+            return Err(vm.new_value_error("empty separator".to_owned()));
+        }
+
+        let mut sp = split();
+        let front = sp.next().unwrap().to_container();
+        let (has_mid, back) = if let Some(back) = sp.next() {
+            (true, back.to_container())
+        } else {
+            (false, Self::Container::new())
+        };
+        Ok((front, has_mid, back))
+    }
+
     fn py_removeprefix<FC>(
         &self,
         prefix: &Self::Container,
@@ -393,23 +417,8 @@ where
     }
 
     fn py_zfill(&self, width: isize) -> Vec<u8> {
-        let bytes = self.as_bytes();
         let width = width.to_usize().unwrap_or(0);
-        if width <= bytes.len() {
-            bytes.to_vec()
-        } else {
-            let (sign, s) = match bytes.first() {
-                Some(_sign @ b'+') | Some(_sign @ b'-') => {
-                    (unsafe { bytes.get_unchecked(..1) }, &bytes[1..])
-                }
-                _ => (&b""[..], bytes),
-            };
-            let mut filled = Vec::new();
-            filled.extend_from_slice(sign);
-            filled.extend(std::iter::repeat(b'0').take(width - bytes.len()));
-            filled.extend_from_slice(s);
-            filled
-        }
+        rustpython_common::str::zfill(self.as_bytes(), width)
     }
 
     fn py_iscase<F, G>(&'s self, is_case: F, is_opposite: G) -> bool

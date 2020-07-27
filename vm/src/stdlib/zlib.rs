@@ -1,7 +1,7 @@
+use crate::byteslike::PyBytesLike;
 use crate::common::cell::PyMutex;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::OptionalArg;
-use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue};

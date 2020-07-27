@@ -19,14 +19,14 @@ use super::objiter;
 use super::objnone::PyNone;
 use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtype::{self, PyClassRef};
-use super::pystr::{
-    self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
-};
 use crate::format::{FormatParseError, FormatSpec, FormatString, FromTemplate};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+};
+use crate::pystr::{
+    self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
 };
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
@@ -253,7 +253,7 @@ impl PyString {
                 }
             }
             SequenceIndex::Slice(slice) => {
-                let string = self.value.get_slice_items(vm, &slice)?;
+                let string = self.get_slice_items(vm, &slice)?;
                 Ok(vm.new_str(string))
             }
         }
@@ -813,43 +813,35 @@ impl PyString {
     }
 
     #[pymethod]
-    fn partition(&self, sub: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        if sub.value.is_empty() {
-            return Err(vm.new_value_error("empty separator".to_owned()));
-        }
-        let mut sp = self.value.splitn(2, &sub.value);
-        let front = sp.next().unwrap();
-        let elems = if let Some(back) = sp.next() {
-            [front, &sub.value, back]
-        } else {
-            [front, "", ""]
-        };
-        Ok(vm.ctx.new_tuple(
-            elems
-                .iter()
-                .map(|&s| vm.ctx.new_str(s.to_owned()))
-                .collect(),
-        ))
+    fn partition(&self, sep: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let (front, has_mid, back) =
+            self.value
+                .py_partition(&sep.value, || self.value.splitn(2, &sep.value), vm)?;
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_str(front),
+            if has_mid {
+                sep.into_object()
+            } else {
+                vm.ctx.new_str("")
+            },
+            vm.ctx.new_str(back),
+        ]))
     }
 
     #[pymethod]
-    fn rpartition(&self, sub: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        if sub.value.is_empty() {
-            return Err(vm.new_value_error("empty separator".to_owned()));
-        }
-        let mut sp = self.value.rsplitn(2, &sub.value);
-        let back = sp.next().unwrap();
-        let elems = if let Some(front) = sp.next() {
-            [front, &sub.value, back]
-        } else {
-            ["", "", back]
-        };
-        Ok(vm.ctx.new_tuple(
-            elems
-                .iter()
-                .map(|&s| vm.ctx.new_str(s.to_owned()))
-                .collect(),
-        ))
+    fn rpartition(&self, sep: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let (back, has_mid, front) =
+            self.value
+                .py_partition(&sep.value, || self.value.rsplitn(2, &sep.value), vm)?;
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_str(front),
+            if has_mid {
+                sep.into_object()
+            } else {
+                vm.ctx.new_str("")
+            },
+            vm.ctx.new_str(back),
+        ]))
     }
 
     /// Return `true` if the sequence is ASCII titlecase and the sequence is not
@@ -895,26 +887,22 @@ impl PyString {
         unsafe { String::from_utf8_unchecked(self.value.py_zfill(width)) }
     }
 
-    fn get_fill_char(fillchar: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult<char> {
-        match fillchar {
-            OptionalArg::Present(ref s) => s.value.chars().exactly_one().map_err(|_| {
-                vm.new_type_error(
-                    "The fill character must be exactly one character long".to_owned(),
-                )
-            }),
-            OptionalArg::Missing => Ok(' '),
-        }
-    }
-
     #[inline]
-    fn pad(
+    fn _pad(
         &self,
         width: isize,
         fillchar: OptionalArg<PyStringRef>,
         pad: fn(&str, usize, char, usize) -> String,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        let fillchar = Self::get_fill_char(fillchar, vm)?;
+        let fillchar = match fillchar {
+            OptionalArg::Present(ref s) => s.value.chars().exactly_one().map_err(|_| {
+                vm.new_type_error(
+                    "The fill character must be exactly one character long".to_owned(),
+                )
+            }),
+            OptionalArg::Missing => Ok(' '),
+        }?;
         Ok(if self.len() as isize >= width {
             String::from(&self.value)
         } else {
@@ -929,7 +917,7 @@ impl PyString {
         fillchar: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        self.pad(width, fillchar, PyCommonString::<char>::py_center, vm)
+        self._pad(width, fillchar, PyCommonString::<char>::py_center, vm)
     }
 
     #[pymethod]
@@ -939,7 +927,7 @@ impl PyString {
         fillchar: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        self.pad(width, fillchar, PyCommonString::<char>::py_ljust, vm)
+        self._pad(width, fillchar, PyCommonString::<char>::py_ljust, vm)
     }
 
     #[pymethod]
@@ -949,7 +937,7 @@ impl PyString {
         fillchar: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        self.pad(width, fillchar, PyCommonString::<char>::py_rjust, vm)
+        self._pad(width, fillchar, PyCommonString::<char>::py_rjust, vm)
     }
 
     #[pymethod]
@@ -1206,20 +1194,21 @@ pub fn borrow_value(obj: &PyObjectRef) -> &str {
     &obj.payload::<PyString>().unwrap().value
 }
 
-impl PySliceableSequence for str {
+impl PySliceableSequence for PyString {
     type Sliced = String;
 
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
-        self.chars()
+        self.value
+            .chars()
             .skip(range.start)
             .take(range.end - range.start)
             .collect()
     }
 
     fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
-        let count = self.chars().count();
-
-        self.chars()
+        let count = self.len();
+        self.value
+            .chars()
             .rev()
             .skip(count - range.end)
             .take(range.end - range.start)
@@ -1227,7 +1216,8 @@ impl PySliceableSequence for str {
     }
 
     fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        self.chars()
+        self.value
+            .chars()
             .skip(range.start)
             .take(range.end - range.start)
             .step_by(step)
@@ -1235,9 +1225,9 @@ impl PySliceableSequence for str {
     }
 
     fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        let count = self.chars().count();
-
-        self.chars()
+        let count = self.len();
+        self.value
+            .chars()
             .rev()
             .skip(count - range.end)
             .take(range.end - range.start)
@@ -1246,15 +1236,15 @@ impl PySliceableSequence for str {
     }
 
     fn empty() -> Self::Sliced {
-        String::default()
+        String::new()
     }
 
     fn len(&self) -> usize {
-        self.chars().count()
+        self.len()
     }
 
     fn is_empty(&self) -> bool {
-        self.is_empty()
+        self.value.is_empty()
     }
 }
 
@@ -1406,16 +1396,7 @@ impl<'s> PyCommonString<'s, char> for str {
     }
 
     fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
-        let mut chars = self.chars();
-        for _ in 0..range.start {
-            let _ = chars.next();
-        }
-        let start = chars.as_str();
-        for _ in range {
-            let _ = chars.next();
-        }
-        let end = chars.as_str();
-        &start[..start.len() - end.len()]
+        rustpython_common::str::get_chars(self, range)
     }
 
     fn is_empty(&self) -> bool {
