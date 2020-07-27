@@ -1012,7 +1012,7 @@ fn os_symlink(
     } else if meta.is_dir() {
         win_fs::symlink_dir(src.path, dst.path)
     } else {
-        panic!("Uknown file type");
+        panic!("Unknown file type");
     };
     ret.map_err(|err| convert_io_error(vm, err))
 }
