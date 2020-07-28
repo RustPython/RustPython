@@ -23,7 +23,7 @@ use crate::format::{FormatParseError, FormatSpec, FormatString, FromTemplate};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
 use crate::pystr::{
     self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
@@ -1149,14 +1149,6 @@ impl IntoPyObject for &str {
 impl IntoPyObject for &String {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_str(self.clone()))
-    }
-}
-
-impl TryFromObject for std::ffi::CString {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let s = PyStringRef::try_from_object(vm, obj)?;
-        Self::new(s.as_str().to_owned())
-            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
     }
 }
 
