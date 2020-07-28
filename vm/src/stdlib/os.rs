@@ -1197,11 +1197,39 @@ fn os_execv(
     argv_list: PyIterable<PyStringRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
+    // TODO: argv_list to only accept tuples and lists
+    // message: "TypeError: execv() arg 2 must be a tuple or list"
+
+    if path.to_string().contains("\0") {
+        return Err(vm.new_value_error("embedded null byte".to_owned()));
+    }
+
     let path = ffi::CString::new(path.as_str()).unwrap();
 
-    let argv_list: Vec<ffi::CString> = argv_list
-        .iter(vm)
+    if argv_list.iter(vm)?.count() == 0 {
+        return Err(vm.new_value_error("execv() arg 2 must not be empty".to_owned()));
+    }
+
+    for arg in argv_list.iter(vm)? {
+        if arg?.as_str().contains("\0") {
+            return Err(vm.new_value_error("embedded null byte".to_owned()));
+        }
+    }
+
+    if argv_list
+        .iter(vm)?
+        .next()
         .unwrap()
+        .unwrap()
+        .to_string()
+        .len()
+        == 0
+    {
+        return Err(vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned()));
+    }
+
+    let argv_list: Vec<ffi::CString> = argv_list
+        .iter(vm)?
         .map(|entry| ffi::CString::new(entry.unwrap().as_str()).unwrap())
         .collect();
 
