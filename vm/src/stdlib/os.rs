@@ -1212,7 +1212,7 @@ fn os_execv(
     }
 
     for arg in argv_list.iter(vm)? {
-        if arg?.as_str().contains("\0") {
+        if arg?.as_str().contains('\0') {
             return Err(vm.new_value_error("embedded null byte".to_owned()));
         }
     }
@@ -1222,7 +1222,7 @@ fn os_execv(
         .map(|entry| ffi::CString::new(entry.unwrap().as_str()).unwrap())
         .collect();
 
-    if argv_list.first().unwrap().as_bytes().len() == 0 {
+    if argv_list.first().unwrap().as_bytes().is_empty() {
         return Err(vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned()));
     }
 
