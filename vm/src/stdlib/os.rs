@@ -33,6 +33,7 @@ use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
+use crate::obj::objlist::PyListRef;
 use crate::obj::objset::PySet;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
@@ -1194,28 +1195,21 @@ fn os_chmod(
 #[cfg(unix)]
 fn os_execv(
     path: PyStringRef,
-    argv_list: PyIterable<PyStringRef>,
+    argv_list: Either<PyListRef, PyTupleRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    // TODO: argv_list to only accept tuples and lists
-    // "TypeError: execv() arg 2 must be a tuple or list"
-
     let path = ffi::CString::new(path.as_str())
-        .map_err(|_| vm.new_value_error("embedded null byte".to_owned()))?;
+        .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
 
-    if argv_list.iter(vm)?.count() == 0 {
-        return Err(vm.new_value_error("execv() arg 2 must not be empty".to_owned()));
-    }
-
-    let mut argv: Vec<ffi::CString> = Vec::new();
-    for arg in argv_list.iter(vm)? {
-        argv.push(
-            ffi::CString::new(arg?.as_str())
-                .map_err(|_| vm.new_value_error("embedded null byte".to_owned()))?,
-        );
-    }
+    let argv: Vec<ffi::CString> = match argv_list {
+        Either::A(list) => vm.extract_elements(list.as_object())?,
+        Either::B(tuple) => vm.extract_elements(tuple.as_object())?,
+    };
     let argv: Vec<&ffi::CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
 
+    if argv.is_empty() {
+        return Err(vm.new_value_error("execv() arg 2 must not be empty".to_owned()));
+    }
     if argv.first().unwrap().to_bytes().is_empty() {
         return Err(vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned()));
     }
