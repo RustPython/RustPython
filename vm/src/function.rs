@@ -404,7 +404,7 @@ pub type OptionalOption<T> = OptionalArg<Option<T>>;
 
 impl<T> OptionalOption<T> {
     #[inline]
-    pub fn flat_option(self) -> Option<T> {
+    pub fn flatten(self) -> Option<T> {
         match self {
             Present(Some(value)) => Some(value),
             _ => None,

@@ -24,7 +24,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 fn byte_count(bytes: OptionalOption<i64>) -> i64 {
-    bytes.flat_option().unwrap_or(-1 as i64)
+    bytes.flatten().unwrap_or(-1 as i64)
 }
 fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
     #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
@@ -204,7 +204,7 @@ impl PyStringIORef {
 
     fn truncate(self, size: OptionalOption<usize>, vm: &VirtualMachine) -> PyResult<()> {
         let mut buffer = self.buffer(vm)?;
-        let size = size.flat_option().unwrap_or_else(|| buffer.tell() as usize);
+        let size = size.flatten().unwrap_or_else(|| buffer.tell() as usize);
         buffer.cursor.get_mut().truncate(size);
         Ok(())
     }
@@ -232,7 +232,7 @@ fn string_io_new(
     _args: StringIOArgs,
     vm: &VirtualMachine,
 ) -> PyResult<PyStringIORef> {
-    let flatten = object.flat_option();
+    let flatten = object.flatten();
     let input = flatten.map_or_else(Vec::new, |v| objstr::borrow_value(&v).as_bytes().to_vec());
 
     PyStringIO {
@@ -316,7 +316,7 @@ impl PyBytesIORef {
 
     fn truncate(self, size: OptionalOption<usize>, vm: &VirtualMachine) -> PyResult<()> {
         let mut buffer = self.buffer(vm)?;
-        let size = size.flat_option().unwrap_or_else(|| buffer.tell() as usize);
+        let size = size.flatten().unwrap_or_else(|| buffer.tell() as usize);
         buffer.cursor.get_mut().truncate(size);
         Ok(())
     }
@@ -411,7 +411,7 @@ fn io_base_checkclosed(
 ) -> PyResult<()> {
     if objbool::boolval(vm, vm.get_attribute(instance, "closed")?)? {
         let msg = msg
-            .flat_option()
+            .flatten()
             .unwrap_or_else(|| vm.new_str("I/O operation on closed file.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
@@ -426,7 +426,7 @@ fn io_base_checkreadable(
 ) -> PyResult<()> {
     if !objbool::boolval(vm, vm.call_method(&instance, "readable", vec![])?)? {
         let msg = msg
-            .flat_option()
+            .flatten()
             .unwrap_or_else(|| vm.new_str("File or stream is not readable.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
@@ -441,7 +441,7 @@ fn io_base_checkwritable(
 ) -> PyResult<()> {
     if !objbool::boolval(vm, vm.call_method(&instance, "writable", vec![])?)? {
         let msg = msg
-            .flat_option()
+            .flatten()
             .unwrap_or_else(|| vm.new_str("File or stream is not writable.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
@@ -456,7 +456,7 @@ fn io_base_checkseekable(
 ) -> PyResult<()> {
     if !objbool::boolval(vm, vm.call_method(&instance, "seekable", vec![])?)? {
         let msg = msg
-            .flat_option()
+            .flatten()
             .unwrap_or_else(|| vm.new_str("File or stream is not seekable.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
@@ -929,7 +929,7 @@ fn text_io_wrapper_read(
     let bytes = vm.call_method(
         &raw,
         "read",
-        vec![size.flat_option().unwrap_or_else(|| vm.get_none())],
+        vec![size.flatten().unwrap_or_else(|| vm.get_none())],
     )?;
     let bytes = PyBytesLike::try_from_object(vm, bytes)?;
     //format bytes into string
@@ -988,7 +988,7 @@ fn text_io_wrapper_readline(
     let bytes = vm.call_method(
         &raw,
         "readline",
-        vec![size.flat_option().unwrap_or_else(|| vm.get_none())],
+        vec![size.flatten().unwrap_or_else(|| vm.get_none())],
     )?;
     let bytes = PyBytesLike::try_from_object(vm, bytes)?;
     //format bytes into string
