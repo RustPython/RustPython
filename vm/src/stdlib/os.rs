@@ -1198,7 +1198,7 @@ fn os_execv(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     // TODO: argv_list to only accept tuples and lists
-    // message: "TypeError: execv() arg 2 must be a tuple or list"
+    // "TypeError: execv() arg 2 must be a tuple or list"
 
     let path = match ffi::CString::new(path.as_str()) {
         Ok(s) => s,
@@ -1217,22 +1217,14 @@ fn os_execv(
         }
     }
 
-    if argv_list
-        .iter(vm)?
-        .next()
-        .unwrap()
-        .unwrap()
-        .to_string()
-        .len()
-        == 0
-    {
-        return Err(vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned()));
-    }
-
     let argv_list: Vec<ffi::CString> = argv_list
         .iter(vm)?
         .map(|entry| ffi::CString::new(entry.unwrap().as_str()).unwrap())
         .collect();
+
+    if argv_list.first().unwrap().as_bytes().len() == 0 {
+        return Err(vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned()));
+    }
 
     let argv: Vec<&ffi::CStr> = argv_list.iter().map(|entry| entry.as_c_str()).collect();
 
