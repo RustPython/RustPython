@@ -1200,33 +1200,25 @@ fn os_execv(
     // TODO: argv_list to only accept tuples and lists
     // "TypeError: execv() arg 2 must be a tuple or list"
 
-    let path = match ffi::CString::new(path.as_str()) {
-        Ok(s) => s,
-        Err(_) => {
-            return Err(vm.new_value_error("embedded null byte".to_owned()));
-        }
-    };
+    let path = ffi::CString::new(path.as_str())
+        .map_err(|_| vm.new_value_error("embedded null byte".to_owned()))?;
 
     if argv_list.iter(vm)?.count() == 0 {
         return Err(vm.new_value_error("execv() arg 2 must not be empty".to_owned()));
     }
 
+    let mut argv: Vec<ffi::CString> = Vec::new();
     for arg in argv_list.iter(vm)? {
-        if arg?.as_str().contains('\0') {
-            return Err(vm.new_value_error("embedded null byte".to_owned()));
-        }
+        argv.push(
+            ffi::CString::new(arg?.as_str())
+                .map_err(|_| vm.new_value_error("embedded null byte".to_owned()))?,
+        );
     }
+    let argv: Vec<&ffi::CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
 
-    let argv_list: Vec<ffi::CString> = argv_list
-        .iter(vm)?
-        .map(|entry| ffi::CString::new(entry.unwrap().as_str()).unwrap())
-        .collect();
-
-    if argv_list.first().unwrap().as_bytes().is_empty() {
+    if argv.first().unwrap().to_bytes().is_empty() {
         return Err(vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned()));
     }
-
-    let argv: Vec<&ffi::CStr> = argv_list.iter().map(|entry| entry.as_c_str()).collect();
 
     unistd::execv(&path, &argv)
         .map(|_ok| ())
