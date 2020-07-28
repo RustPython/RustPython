@@ -522,8 +522,6 @@ class UrlParseTestCase(unittest.TestCase):
             self.assertEqual(result.url, defrag)
             self.assertEqual(result.fragment, frag)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_urlsplit_scoped_IPv6(self):
         p = urllib.parse.urlsplit('http://[FE80::822a:a8ff:fe49:470c%tESt]:1234')
         self.assertEqual(p.hostname, "fe80::822a:a8ff:fe49:470c%tESt")
@@ -883,8 +881,6 @@ class UrlParseTestCase(unittest.TestCase):
                                                           errors="ignore")
         self.assertEqual(result, [('key', '\u0141-')])
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_parse_qsl_max_num_fields(self):
         with self.assertRaises(ValueError):
             urllib.parse.parse_qs('&'.join(['a=a']*11), max_num_fields=10)
@@ -949,8 +945,6 @@ class UrlParseTestCase(unittest.TestCase):
         self.assertEqual(p2.scheme, 'tel')
         self.assertEqual(p2.path, '+31641044153')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_port_casting_failure_message(self):
         message = "Port could not be cast to integer value as 'oracle'"
         p1 = urllib.parse.urlparse('http://Server=sde; Service=sde:oracle')
@@ -1003,7 +997,7 @@ class UrlParseTestCase(unittest.TestCase):
         self.assertCountEqual(urllib.parse.__all__, expected)
 
     # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.expectedFailure
     def test_urlsplit_normalization(self):
         # Certain characters should never occur in the netloc,
         # including under normalization.
@@ -1037,8 +1031,6 @@ class Utility_Tests(unittest.TestCase):
     """Testcase to test the various utility functions in the urllib."""
     # In Python 2 this test class was in test_urllib.
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_splittype(self):
         splittype = urllib.parse._splittype
         self.assertEqual(splittype('type:opaquestring'), ('type', 'opaquestring'))
@@ -1047,8 +1039,6 @@ class Utility_Tests(unittest.TestCase):
         self.assertEqual(splittype('type:'), ('type', ''))
         self.assertEqual(splittype('type:opaque:string'), ('type', 'opaque:string'))
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_splithost(self):
         splithost = urllib.parse._splithost
         self.assertEqual(splithost('//www.example.org:80/foo/bar/baz.html'),
@@ -1078,8 +1068,6 @@ class Utility_Tests(unittest.TestCase):
         self.assertEqual(splithost("//example.net/file#"),
                          ('example.net', '/file#'))
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_splituser(self):
         splituser = urllib.parse._splituser
         self.assertEqual(splituser('User:Pass@www.python.org:080'),
@@ -1093,8 +1081,6 @@ class Utility_Tests(unittest.TestCase):
         self.assertEqual(splituser('User@example.com:Pass@www.python.org:080'),
                          ('User@example.com:Pass', 'www.python.org:080'))
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_splitpasswd(self):
         # Some of the password examples are not sensible, but it is added to
         # confirming to RFC2617 and addressing issue4675.
@@ -1113,8 +1099,6 @@ class Utility_Tests(unittest.TestCase):
         self.assertEqual(splitpasswd('user'), ('user', None))
         self.assertEqual(splitpasswd(':ab'), ('', 'ab'))
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_splitport(self):
         splitport = urllib.parse._splitport
         self.assertEqual(splitport('parrot:88'), ('parrot', '88'))
@@ -1126,8 +1110,6 @@ class Utility_Tests(unittest.TestCase):
         self.assertEqual(splitport('[::1]'), ('[::1]', None))
         self.assertEqual(splitport(':88'), ('', '88'))
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_splitnport(self):
         splitnport = urllib.parse._splitnport
         self.assertEqual(splitnport('parrot:88'), ('parrot', 88))
@@ -1140,8 +1122,6 @@ class Utility_Tests(unittest.TestCase):
         self.assertEqual(splitnport('parrot:cheese'), ('parrot', None))
         self.assertEqual(splitnport('parrot:cheese', 55), ('parrot', None))
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_splitquery(self):
         # Normal cases are exercised by other tests; ensure that we also
         # catch cases with no port specified (testcase ensuring coverage)
@@ -1154,8 +1134,6 @@ class Utility_Tests(unittest.TestCase):
                          ('http://python.org/fake', None))
         self.assertEqual(splitquery('?foo=bar'), ('', 'foo=bar'))
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_splittag(self):
         splittag = urllib.parse._splittag
         self.assertEqual(splittag('http://example.com?foo=bar#baz'),
@@ -1168,8 +1146,6 @@ class Utility_Tests(unittest.TestCase):
         self.assertEqual(splittag('http://example.com?foo=bar#baz#boo'),
                          ('http://example.com?foo=bar#baz', 'boo'))
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_splitattr(self):
         splitattr = urllib.parse._splitattr
         self.assertEqual(splitattr('/path;attr1=value1;attr2=value2'),
@@ -1179,8 +1155,6 @@ class Utility_Tests(unittest.TestCase):
                          ('', ['attr1=value1', 'attr2=value2']))
         self.assertEqual(splitattr('/path'), ('/path', []))
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_splitvalue(self):
         # Normal cases are exercised by other tests; test pathological cases
         # with no key/value pairs. (testcase ensuring coverage)
@@ -1191,8 +1165,6 @@ class Utility_Tests(unittest.TestCase):
         self.assertEqual(splitvalue('foobar'), ('foobar', None))
         self.assertEqual(splitvalue('foo=bar=baz'), ('foo', 'bar=baz'))
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_to_bytes(self):
         result = urllib.parse._to_bytes('http://www.python.org')
         self.assertEqual(result, 'http://www.python.org')
@@ -1208,8 +1180,6 @@ class Utility_Tests(unittest.TestCase):
 
 class DeprecationTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_splittype_deprecation(self):
         with self.assertWarns(DeprecationWarning) as cm:
             urllib.parse.splittype('')
@@ -1217,8 +1187,6 @@ class DeprecationTest(unittest.TestCase):
                          'urllib.parse.splittype() is deprecated as of 3.8, '
                          'use urllib.parse.urlparse() instead')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_splithost_deprecation(self):
         with self.assertWarns(DeprecationWarning) as cm:
             urllib.parse.splithost('')
@@ -1226,8 +1194,6 @@ class DeprecationTest(unittest.TestCase):
                          'urllib.parse.splithost() is deprecated as of 3.8, '
                          'use urllib.parse.urlparse() instead')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_splituser_deprecation(self):
         with self.assertWarns(DeprecationWarning) as cm:
             urllib.parse.splituser('')
@@ -1235,8 +1201,6 @@ class DeprecationTest(unittest.TestCase):
                          'urllib.parse.splituser() is deprecated as of 3.8, '
                          'use urllib.parse.urlparse() instead')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_splitpasswd_deprecation(self):
         with self.assertWarns(DeprecationWarning) as cm:
             urllib.parse.splitpasswd('')
@@ -1244,8 +1208,6 @@ class DeprecationTest(unittest.TestCase):
                          'urllib.parse.splitpasswd() is deprecated as of 3.8, '
                          'use urllib.parse.urlparse() instead')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_splitport_deprecation(self):
         with self.assertWarns(DeprecationWarning) as cm:
             urllib.parse.splitport('')
@@ -1253,8 +1215,6 @@ class DeprecationTest(unittest.TestCase):
                          'urllib.parse.splitport() is deprecated as of 3.8, '
                          'use urllib.parse.urlparse() instead')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_splitnport_deprecation(self):
         with self.assertWarns(DeprecationWarning) as cm:
             urllib.parse.splitnport('')
@@ -1262,8 +1222,6 @@ class DeprecationTest(unittest.TestCase):
                          'urllib.parse.splitnport() is deprecated as of 3.8, '
                          'use urllib.parse.urlparse() instead')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_splitquery_deprecation(self):
         with self.assertWarns(DeprecationWarning) as cm:
             urllib.parse.splitquery('')
@@ -1271,8 +1229,6 @@ class DeprecationTest(unittest.TestCase):
                          'urllib.parse.splitquery() is deprecated as of 3.8, '
                          'use urllib.parse.urlparse() instead')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_splittag_deprecation(self):
         with self.assertWarns(DeprecationWarning) as cm:
             urllib.parse.splittag('')
@@ -1280,8 +1236,6 @@ class DeprecationTest(unittest.TestCase):
                          'urllib.parse.splittag() is deprecated as of 3.8, '
                          'use urllib.parse.urlparse() instead')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_splitattr_deprecation(self):
         with self.assertWarns(DeprecationWarning) as cm:
             urllib.parse.splitattr('')
@@ -1289,8 +1243,6 @@ class DeprecationTest(unittest.TestCase):
                          'urllib.parse.splitattr() is deprecated as of 3.8, '
                          'use urllib.parse.urlparse() instead')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_splitvalue_deprecation(self):
         with self.assertWarns(DeprecationWarning) as cm:
             urllib.parse.splitvalue('')
@@ -1298,8 +1250,6 @@ class DeprecationTest(unittest.TestCase):
                          'urllib.parse.splitvalue() is deprecated as of 3.8, '
                          'use urllib.parse.parse_qsl() instead')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_to_bytes_deprecation(self):
         with self.assertWarns(DeprecationWarning) as cm:
             urllib.parse.to_bytes('')

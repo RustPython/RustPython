@@ -5,7 +5,6 @@ use std::fs;
 use std::io::{self, prelude::*, Cursor, SeekFrom};
 
 use crossbeam_utils::atomic::AtomicCell;
-use memchr;
 use num_traits::ToPrimitive;
 
 use crate::byteslike::PyBytesLike;
