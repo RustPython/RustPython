@@ -1131,7 +1131,7 @@ mod posix {
         for (key, value) in env::vars_os() {
             environ
                 .set_item(
-                    &vm.ctx.new_bytes(key.into_vec()),
+                    vm.ctx.new_bytes(key.into_vec()),
                     vm.ctx.new_bytes(value.into_vec()),
                     vm,
                 )
@@ -2254,7 +2254,7 @@ mod nt {
 
         for (key, value) in env::vars() {
             environ
-                .set_item(&vm.new_str(key), vm.new_str(value), vm)
+                .set_item(vm.new_str(key), vm.new_str(value), vm)
                 .unwrap();
         }
         environ

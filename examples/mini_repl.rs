@@ -40,7 +40,7 @@ macro_rules! add_python_function {
 
         // inserts the first function found in the module into the provided scope.
         $scope.globals.set_item(
-            &def.obj_name,
+            def.obj_name.as_str(),
             $vm.context().new_pyfunction(
                 vm::obj::objcode::PyCode::new(*def.clone()).into_ref(&$vm),
                 $scope.clone(),

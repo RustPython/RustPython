@@ -33,7 +33,7 @@ fn dis_compiler_flag_names(vm: &VirtualMachine) -> PyObjectRef {
     let dict = vm.ctx.new_dict();
     for (name, flag) in CodeFlags::NAME_MAPPING {
         dict.set_item(
-            &vm.ctx.new_int(flag.bits()),
+            vm.ctx.new_int(flag.bits()),
             vm.ctx.new_str((*name).to_owned()),
             vm,
         )

@@ -130,18 +130,16 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Store a key
-    pub fn insert<K: DictKey + IntoPyObject + Copy>(
-        &self,
-        vm: &VirtualMachine,
-        key: K,
-        value: T,
-    ) -> PyResult<()> {
+    pub fn insert<K>(&self, vm: &VirtualMachine, key: K, value: T) -> PyResult<()>
+    where
+        K: DictKey,
+    {
         // This does not need to be accurate so we can take the lock mutiple times.
         if self.borrow_value().indices.len() > 2 * self.borrow_value().size {
             self.resize();
         }
         loop {
-            match self.lookup(vm, key)? {
+            match self.lookup(vm, &key)? {
                 LookupResult::Existing(index) => {
                     let mut inner = self.borrow_value_mut();
                     // Update existing key
@@ -166,7 +164,7 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub fn contains<K: DictKey + Copy>(&self, vm: &VirtualMachine, key: K) -> PyResult<bool> {
+    pub fn contains<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool> {
         if let LookupResult::Existing(_) = self.lookup(vm, key)? {
             Ok(true)
         } else {
@@ -176,7 +174,7 @@ impl<T: Clone> Dict<T> {
 
     /// Retrieve a key
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
-    pub fn get<K: DictKey + Copy>(&self, vm: &VirtualMachine, key: K) -> PyResult<Option<T>> {
+    pub fn get<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
         loop {
             if let LookupResult::Existing(index) = self.lookup(vm, key)? {
                 if let Some(entry) = &self.borrow_value().entries[index] {
@@ -304,7 +302,7 @@ impl<T: Clone> Dict<T> {
 
     /// Lookup the index for the given key.
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
-    fn lookup<K: DictKey + Copy>(&self, vm: &VirtualMachine, key: K) -> PyResult<LookupResult> {
+    fn lookup<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<LookupResult> {
         let hash_value = key.do_hash(vm)?;
         let perturb = hash_value;
         let mut hash_index: HashIndex = hash_value;
@@ -359,7 +357,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Retrieve and delete a key
-    pub fn pop<K: DictKey + Copy>(&self, vm: &VirtualMachine, key: K) -> PyResult<Option<T>> {
+    pub fn pop<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
         loop {
             if let LookupResult::Existing(index) = self.lookup(vm, key)? {
                 let mut inner = self.borrow_value_mut();
@@ -413,41 +411,41 @@ enum LookupResult {
 /// the dictionary. Typical usecases are:
 /// - PyObjectRef -> arbitrary python type used as key
 /// - str -> string reference used as key, this is often used internally
-pub trait DictKey {
-    fn do_hash(self, vm: &VirtualMachine) -> PyResult<HashValue>;
-    fn do_is(self, other: &PyObjectRef) -> bool;
-    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool>;
+pub trait DictKey: IntoPyObject {
+    fn do_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue>;
+    fn do_is(&self, other: &PyObjectRef) -> bool;
+    fn do_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool>;
 }
 
 /// Implement trait for PyObjectRef such that we can use python objects
 /// to index dictionaries.
-impl DictKey for &PyObjectRef {
-    fn do_hash(self, vm: &VirtualMachine) -> PyResult<HashValue> {
+impl DictKey for PyObjectRef {
+    fn do_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         let raw_hash = vm._hash(self)?;
         let mut hasher = DefaultHasher::new();
         raw_hash.hash(&mut hasher);
         Ok(hasher.finish() as HashValue)
     }
 
-    fn do_is(self, other: &PyObjectRef) -> bool {
+    fn do_is(&self, other: &PyObjectRef) -> bool {
         self.is(other)
     }
 
-    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+    fn do_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         vm.identical_or_equal(self, other_key)
     }
 }
 
-impl DictKey for &PyStringRef {
-    fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
+impl DictKey for PyStringRef {
+    fn do_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         Ok(self.hash())
     }
 
-    fn do_is(self, other: &PyObjectRef) -> bool {
+    fn do_is(&self, other: &PyObjectRef) -> bool {
         self.is(other)
     }
 
-    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+    fn do_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         if self.is(other_key) {
             Ok(true)
         } else if let Some(py_str_value) = other_key.payload::<PyString>() {
@@ -458,46 +456,34 @@ impl DictKey for &PyStringRef {
     }
 }
 
+// AsRef<str> fit this case but not possible in rust 1.46
+
 /// Implement trait for the str type, so that we can use strings
 /// to index dictionaries.
 impl DictKey for &str {
-    fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
+    fn do_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStringRef
-        let raw_hash = hash::hash_value(&self.to_owned()).to_bigint().unwrap();
+        let raw_hash = hash::hash_value(*self).to_bigint().unwrap();
         let raw_hash = hash::hash_bigint(&raw_hash);
         let mut hasher = DefaultHasher::new();
         raw_hash.hash(&mut hasher);
         Ok(hasher.finish() as HashValue)
     }
 
-    fn do_is(self, _other: &PyObjectRef) -> bool {
+    fn do_is(&self, _other: &PyObjectRef) -> bool {
         // No matter who the other pyobject is, we are never the same thing, since
         // we are a str, not a pyobject.
         false
     }
 
-    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+    fn do_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         if let Some(py_str_value) = other_key.payload::<PyString>() {
-            Ok(py_str_value.as_str() == self)
+            Ok(py_str_value.as_str() == *self)
         } else {
             // Fall back to PyString implementation.
-            let s = vm.new_str(self.to_owned());
+            let s = vm.ctx.new_str(*self);
             s.do_eq(vm, other_key)
         }
-    }
-}
-
-impl DictKey for &String {
-    fn do_hash(self, vm: &VirtualMachine) -> PyResult<HashValue> {
-        self.as_str().do_hash(vm)
-    }
-
-    fn do_is(self, other: &PyObjectRef) -> bool {
-        self.as_str().do_is(other)
-    }
-
-    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
-        self.as_str().do_eq(vm, other_key)
     }
 }
 
@@ -513,27 +499,27 @@ mod tests {
 
         let key1 = vm.new_bool(true);
         let value1 = vm.new_str("abc".to_owned());
-        dict.insert(&vm, &key1, value1.clone()).unwrap();
+        dict.insert(&vm, key1.clone(), value1.clone()).unwrap();
         assert_eq!(1, dict.len());
 
         let key2 = vm.new_str("x".to_owned());
         let value2 = vm.new_str("def".to_owned());
-        dict.insert(&vm, &key2, value2.clone()).unwrap();
+        dict.insert(&vm, key2.clone(), value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
-        dict.insert(&vm, &key1, value2.clone()).unwrap();
+        dict.insert(&vm, key1.clone(), value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
         dict.delete(&vm, &key1).unwrap();
         assert_eq!(1, dict.len());
 
-        dict.insert(&vm, &key1, value2.clone()).unwrap();
+        dict.insert(&vm, key1.clone(), value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
         assert_eq!(true, dict.contains(&vm, &key1).unwrap());
-        assert_eq!(true, dict.contains(&vm, "x").unwrap());
+        assert_eq!(true, dict.contains(&vm, &"x").unwrap());
 
-        let val = dict.get(&vm, "x").unwrap().unwrap();
+        let val = dict.get(&vm, &"x").unwrap().unwrap();
         vm.bool_eq(val, value2)
             .expect("retrieved value must be equal to inserted value.");
     }

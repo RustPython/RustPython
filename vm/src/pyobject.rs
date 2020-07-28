@@ -10,7 +10,6 @@ use num_complex::Complex64;
 use num_traits::{One, ToPrimitive, Zero};
 
 use crate::bytecode;
-use crate::dictdatatype::DictKey;
 use crate::exceptions::{self, PyBaseExceptionRef};
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
 use crate::obj::objbuiltinfunc::{PyBuiltinFunction, PyBuiltinMethod};
@@ -952,32 +951,28 @@ impl<T: TypeProtocol> TypeProtocol for &'_ T {
 
 /// The python item protocol. Mostly applies to dictionaries.
 /// Allows getting, setting and deletion of keys-value pairs.
-pub trait ItemProtocol {
-    fn get_item<T: IntoPyObject + DictKey + Copy>(&self, key: T, vm: &VirtualMachine) -> PyResult;
-    fn set_item<T: IntoPyObject + DictKey + Copy>(
-        &self,
-        key: T,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult;
-    fn del_item<T: IntoPyObject + DictKey + Copy>(&self, key: T, vm: &VirtualMachine) -> PyResult;
+pub trait ItemProtocol<T>
+where
+    T: IntoPyObject + ?Sized,
+{
+    fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult;
+    fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult;
+    fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult;
 }
 
-impl ItemProtocol for PyObjectRef {
-    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
+impl<T> ItemProtocol<T> for PyObjectRef
+where
+    T: IntoPyObject,
+{
+    fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
         vm.call_method(self, "__getitem__", key.into_pyobject(vm)?)
     }
 
-    fn set_item<T: IntoPyObject>(
-        &self,
-        key: T,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm.call_method(self, "__setitem__", vec![key.into_pyobject(vm)?, value])
     }
 
-    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
+    fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
         vm.call_method(self, "__delitem__", key.into_pyobject(vm)?)
     }
 }
