@@ -83,7 +83,7 @@ mod _random {
 
         #[pymethod]
         fn seed(&self, n: OptionalOption<PyIntRef>) {
-            let new_rng = match n.flat_option() {
+            let new_rng = match n.flatten() {
                 None => PyRng::default(),
                 Some(n) => {
                     let (_, mut key) = n.as_bigint().abs().to_u32_digits();

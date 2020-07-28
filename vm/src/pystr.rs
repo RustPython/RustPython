@@ -251,7 +251,7 @@ where
         FC: Fn(&'a Self, &Self) -> &'a Self,
         FD: Fn(&'a Self) -> &'a Self,
     {
-        let chars = chars.flat_option();
+        let chars = chars.flatten();
         match chars {
             Some(chars) => func_chars(self, chars.as_ref()),
             None => func_default(self),

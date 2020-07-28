@@ -381,7 +381,7 @@ impl PyFloat {
 
     #[pymethod(name = "__round__")]
     fn round(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
-        let ndigits = ndigits.flat_option();
+        let ndigits = ndigits.flatten();
         if let Some(ndigits) = ndigits {
             let ndigits = ndigits.as_bigint();
             if ndigits.is_zero() {

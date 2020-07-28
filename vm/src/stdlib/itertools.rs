@@ -1356,7 +1356,7 @@ mod decl {
             let n = pool.len();
             // If r is not provided, r == n. If provided, r must be a positive integer, or None.
             // If None, it behaves the same as if it was not provided.
-            let r = match r.flat_option() {
+            let r = match r.flatten() {
                 Some(r) => {
                     let val = r
                         .payload::<PyInt>()
