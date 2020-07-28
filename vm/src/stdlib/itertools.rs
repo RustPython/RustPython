@@ -5,9 +5,11 @@ mod decl {
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
     use num_traits::{One, Signed, ToPrimitive, Zero};
+    use std::fmt;
     use std::iter;
 
-    use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
+    use crate::common::cell::{PyMutex, PyRwLock, PyRwLockWriteGuard};
+    use crate::common::rc::{PyRc, PyWeak};
     use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;
     use crate::obj::objint::{self, PyInt, PyIntRef};
@@ -15,10 +17,10 @@ mod decl {
     use crate::obj::objtuple::PyTuple;
     use crate::obj::objtype::{self, PyClassRef};
     use crate::pyobject::{
-        IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+        IdProtocol, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+        TypeProtocol,
     };
     use crate::vm::VirtualMachine;
-    use rustpython_common::rc::PyRc;
 
     #[pyclass(name = "chain")]
     #[derive(Debug)]
@@ -480,6 +482,191 @@ mod decl {
                 }
             }
             call_next(vm, iterable)
+        }
+
+        #[pymethod(name = "__iter__")]
+        fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
+            zelf
+        }
+    }
+
+    struct GroupByState {
+        current_value: Option<PyObjectRef>,
+        current_key: Option<PyObjectRef>,
+        next_group: bool,
+        grouper: Option<PyWeak<PyObject<PyItertoolsGrouper>>>,
+    }
+
+    impl fmt::Debug for GroupByState {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("GroupByState")
+                .field("current_value", &self.current_value)
+                .field("current_key", &self.current_key)
+                .field("next_group", &self.next_group)
+                .finish()
+        }
+    }
+
+    impl GroupByState {
+        fn is_current(&self, grouper: &PyItertoolsGrouperRef) -> bool {
+            self.grouper
+                .as_ref()
+                .and_then(|g| g.upgrade())
+                .map_or(false, |ref current_grouper| grouper.is(current_grouper))
+        }
+    }
+
+    #[pyclass(name = "groupby")]
+    struct PyItertoolsGroupBy {
+        iterable: PyObjectRef,
+        key_func: Option<PyObjectRef>,
+        state: PyMutex<GroupByState>,
+    }
+
+    impl PyValue for PyItertoolsGroupBy {
+        fn class(vm: &VirtualMachine) -> PyClassRef {
+            vm.class("itertools", "groupby")
+        }
+    }
+
+    impl fmt::Debug for PyItertoolsGroupBy {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("PyItertoolsGroupBy")
+                .field("iterable", &self.iterable)
+                .field("key_func", &self.key_func)
+                .field("state", &self.state.lock())
+                .finish()
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct GroupByArgs {
+        iterable: PyObjectRef,
+        #[pyarg(positional_or_keyword, optional = true)]
+        key: OptionalOption<PyObjectRef>,
+    }
+
+    #[pyimpl]
+    impl PyItertoolsGroupBy {
+        #[pyslot]
+        fn tp_new(
+            cls: PyClassRef,
+            args: GroupByArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
+            let iter = get_iter(vm, &args.iterable)?;
+
+            PyItertoolsGroupBy {
+                iterable: iter,
+                key_func: args.key.flat_option(),
+                state: PyMutex::new(GroupByState {
+                    current_key: None,
+                    current_value: None,
+                    next_group: false,
+                    grouper: None,
+                }),
+            }
+            .into_ref_with_type(vm, cls)
+        }
+
+        #[pymethod(name = "__next__")]
+        fn next(
+            zelf: PyRef<Self>,
+            vm: &VirtualMachine,
+        ) -> PyResult<(PyObjectRef, PyItertoolsGrouperRef)> {
+            let mut state = zelf.state.lock();
+            state.grouper = None;
+
+            if !state.next_group {
+                let current_key = state.current_key.clone();
+                drop(state);
+
+                let (value, key) = if let Some(old_key) = current_key {
+                    loop {
+                        let (value, new_key) = zelf.advance(vm)?;
+                        if !vm.bool_eq(new_key.clone(), old_key.clone())? {
+                            break (value, new_key);
+                        }
+                    }
+                } else {
+                    zelf.advance(vm)?
+                };
+
+                state = zelf.state.lock();
+                state.current_value = Some(value);
+                state.current_key = Some(key);
+            }
+
+            state.next_group = false;
+
+            let grouper = PyItertoolsGrouper {
+                groupby: zelf.clone(),
+            }
+            .into_ref(vm);
+
+            state.grouper = Some(PyRc::downgrade(&grouper.clone().into_typed_pyobj()));
+            Ok((state.current_key.as_ref().unwrap().clone(), grouper))
+        }
+
+        #[pymethod(name = "__iter__")]
+        fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
+            zelf
+        }
+
+        pub(super) fn advance(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+            let new_value = call_next(vm, &self.iterable)?;
+            let new_key = if let Some(ref kf) = self.key_func {
+                vm.invoke(kf, new_value.clone())?
+            } else {
+                new_value.clone()
+            };
+            Ok((new_value, new_key))
+        }
+    }
+
+    #[pyclass(name = "_grouper")]
+    #[derive(Debug)]
+    struct PyItertoolsGrouper {
+        groupby: PyRef<PyItertoolsGroupBy>,
+    }
+
+    type PyItertoolsGrouperRef = PyRef<PyItertoolsGrouper>;
+
+    impl PyValue for PyItertoolsGrouper {
+        fn class(vm: &VirtualMachine) -> PyClassRef {
+            vm.class("itertools", "_grouper")
+        }
+    }
+
+    #[pyimpl]
+    impl PyItertoolsGrouper {
+        #[pymethod(name = "__next__")]
+        fn next(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let old_key = {
+                let mut state = zelf.groupby.state.lock();
+
+                if !state.is_current(&zelf) {
+                    return Err(new_stop_iteration(vm));
+                }
+
+                // check to see if the value has already been retrieved from the iterator
+                if let Some(val) = state.current_value.take() {
+                    return Ok(val);
+                }
+
+                state.current_key.as_ref().unwrap().clone()
+            };
+            let (value, key) = zelf.groupby.advance(vm)?;
+            if vm.bool_eq(key.clone(), old_key)? {
+                Ok(value)
+            } else {
+                let mut state = zelf.groupby.state.lock();
+                state.current_value = Some(value);
+                state.current_key = Some(key);
+                state.next_group = true;
+                state.grouper = None;
+                Err(new_stop_iteration(vm))
+            }
         }
 
         #[pymethod(name = "__iter__")]

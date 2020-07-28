@@ -915,6 +915,10 @@ pub trait TypeProtocol {
     fn get_class_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
         self.lease_class().get_attr(attr_name)
     }
+
+    fn has_class_attr(&self, attr_name: &str) -> bool {
+        self.lease_class().has_attr(attr_name)
+    }
 }
 
 impl TypeProtocol for PyObjectRef {
