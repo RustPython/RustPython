@@ -1200,11 +1200,12 @@ fn os_execv(
     // TODO: argv_list to only accept tuples and lists
     // message: "TypeError: execv() arg 2 must be a tuple or list"
 
-    if path.to_string().contains("\0") {
-        return Err(vm.new_value_error("embedded null byte".to_owned()));
-    }
-
-    let path = ffi::CString::new(path.as_str()).unwrap();
+    let path = match ffi::CString::new(path.as_str()) {
+        Ok(s) => s,
+        Err(_) => {
+            return Err(vm.new_value_error("embedded null byte".to_owned()));
+        }
+    };
 
     if argv_list.iter(vm)?.count() == 0 {
         return Err(vm.new_value_error("execv() arg 2 must not be empty".to_owned()));
