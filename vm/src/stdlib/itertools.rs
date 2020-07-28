@@ -558,7 +558,7 @@ mod decl {
 
             PyItertoolsGroupBy {
                 iterable: iter,
-                key_func: args.key.flat_option(),
+                key_func: args.key.flatten(),
                 state: PyMutex::new(GroupByState {
                     current_key: None,
                     current_value: None,
