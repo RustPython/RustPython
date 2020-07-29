@@ -1,9 +1,11 @@
 /*
  * I/O core tools.
  */
+use std::convert::TryInto;
 use std::fs;
 use std::io::{self, prelude::*, Cursor, SeekFrom};
 
+use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 
@@ -109,12 +111,39 @@ impl BufferedIO {
         self.cursor.position()
     }
 
-    fn readline(&mut self) -> Option<String> {
-        let mut buf = String::new();
+    fn readline(&mut self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let mut buf = Vec::new();
+        let mut left = size
+            .flatten()
+            .filter(|s| *s >= 0)
+            .and_then(|s| s.try_into().ok())
+            .unwrap_or(usize::MAX);
+        if left == 0 {
+            return Ok(buf);
+        }
+        loop {
+            let (done, used) = {
+                let mut available = self.cursor.fill_buf().map_err(|err| os_err(vm, err))?;
+                if left < available.len() {
+                    available = &available[..left];
+                }
 
-        match self.cursor.read_line(&mut buf) {
-            Ok(_) => Some(buf),
-            Err(_) => None,
+                match available.find_byte(b'\n') {
+                    Some(i) => {
+                        buf.extend_from_slice(&available[..=i]);
+                        (true, i + 1)
+                    }
+                    _ => {
+                        buf.extend_from_slice(available);
+                        (false, available.len())
+                    }
+                }
+            };
+            self.cursor.consume(used);
+            left -= used;
+            if done || used == 0 || left == 0 {
+                return Ok(buf);
+            }
         }
     }
 }
@@ -195,10 +224,12 @@ impl PyStringIORef {
         Ok(self.buffer(vm)?.tell())
     }
 
-    fn readline(self, vm: &VirtualMachine) -> PyResult<String> {
-        match self.buffer(vm)?.readline() {
-            Some(line) => Ok(line),
-            None => Err(vm.new_value_error("Error Performing Operation".to_owned())),
+    fn readline(self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<String> {
+        // TODO size should correspond to the number of characters, at the moments its the number of
+        // bytes.
+        match String::from_utf8(self.buffer(vm)?.readline(size, vm)?) {
+            Ok(value) => Ok(value),
+            Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
         }
     }
 
@@ -307,11 +338,8 @@ impl PyBytesIORef {
         Ok(self.buffer(vm)?.tell())
     }
 
-    fn readline(self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        match self.buffer(vm)?.readline() {
-            Some(line) => Ok(line.as_bytes().to_vec()),
-            None => Err(vm.new_value_error("Error Performing Operation".to_owned())),
-        }
+    fn readline(self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        self.buffer(vm)?.readline(size, vm)
     }
 
     fn truncate(self, size: OptionalOption<usize>, vm: &VirtualMachine) -> PyResult<()> {
@@ -812,6 +840,17 @@ fn buffered_writer_seekable(_self: PyObjectRef) -> bool {
     true
 }
 
+fn buffered_writer_seek(
+    instance: PyObjectRef,
+    offset: PyObjectRef,
+    how: OptionalArg,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let raw = vm.get_attribute(instance, "raw")?;
+    let args: Vec<_> = std::iter::once(offset).chain(how.into_option()).collect();
+    vm.invoke(&vm.get_attribute(raw, "seek")?, args)
+}
+
 #[derive(FromArgs)]
 struct TextIOWrapperArgs {
     #[pyarg(positional_or_keyword, optional = false)]
@@ -1149,7 +1188,7 @@ pub fn io_open(
     // There are 3 possible classes here, each inheriting from the RawBaseIO
     // creating || writing || appending => BufferedWriter
     let buffered = match mode.chars().next().unwrap() {
-        'w' => {
+        'w' | 'a' => {
             let buffered_writer_class = vm
                 .get_attribute(io_module.clone(), "BufferedWriter")
                 .unwrap();
@@ -1162,7 +1201,7 @@ pub fn io_open(
             vm.invoke(&buffered_reader_class, vec![file_io_obj.clone()])
         }
         //TODO: updating => PyBufferedRandom
-        _ => unimplemented!("'a' mode is not yet implemented"),
+        _ => unimplemented!("'+' modes is not yet implemented"),
     };
 
     match typ.chars().next().unwrap() {
@@ -1237,6 +1276,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "__init__" => ctx.new_method(buffered_io_base_init),
         "write" => ctx.new_method(buffered_writer_write),
         "seekable" => ctx.new_method(buffered_writer_seekable),
+        "seek" => ctx.new_method(buffered_writer_seek),
         "fileno" => ctx.new_method(buffered_io_base_fileno),
         "tell" => ctx.new_method(buffered_io_base_tell),
         "close" => ctx.new_method(buffered_io_base_close),
