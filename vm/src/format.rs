@@ -2,8 +2,9 @@ use crate::function::PyFuncArgs;
 use crate::obj::objint::PyInt;
 use crate::obj::objstr::PyString;
 use crate::obj::{objstr, objtype};
-use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{IntoPyObject, ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
+use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;
 use num_traits::Signed;
@@ -557,6 +558,9 @@ pub(crate) enum FormatParseError {
     MissingStartBracket,
     UnescapedStartBracketInLiteral,
     InvalidFormatSpecifier,
+    EmptyAttribute,
+    MissingRightBracket,
+    InvalidCharacterAfterRightBracket,
 }
 
 impl FromStr for FormatSpec {
@@ -567,24 +571,115 @@ impl FromStr for FormatSpec {
 }
 
 #[derive(Debug, PartialEq)]
+pub(crate) enum FieldNamePart {
+    Attribute(String),
+    Index(usize),
+    StringIndex(String),
+}
+
+impl FieldNamePart {
+    fn parse_part(
+        chars: &mut impl PeekingNext<Item = char>,
+    ) -> Result<FieldNamePart, FormatParseError> {
+        let ch = chars.next().unwrap();
+        if ch == '.' {
+            let mut attribute = String::new();
+            for ch in chars.peeking_take_while(|ch| *ch != '.' && *ch != '[') {
+                attribute.push(ch);
+            }
+            if attribute.is_empty() {
+                Err(FormatParseError::EmptyAttribute)
+            } else {
+                Ok(FieldNamePart::Attribute(attribute))
+            }
+        } else if ch == '[' {
+            let mut index = String::new();
+            for ch in chars {
+                if ch == ']' {
+                    return if index.is_empty() {
+                        Err(FormatParseError::EmptyAttribute)
+                    } else if let Ok(index) = index.parse::<usize>() {
+                        Ok(FieldNamePart::Index(index))
+                    } else {
+                        Ok(FieldNamePart::StringIndex(index))
+                    };
+                }
+                index.push(ch);
+            }
+            Err(FormatParseError::MissingRightBracket)
+        } else {
+            Err(FormatParseError::InvalidCharacterAfterRightBracket)
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum FieldType {
+    AutoSpec,
+    IndexSpec(usize),
+    KeywordSpec(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) struct FieldName {
+    field_type: FieldType,
+    parts: Vec<FieldNamePart>,
+}
+
+impl FieldName {
+    fn parse(text: &str) -> Result<FieldName, FormatParseError> {
+        let mut chars = text.chars().peekable();
+        let mut first = String::new();
+        for ch in chars.peeking_take_while(|ch| *ch != '.' && *ch != '[') {
+            first.push(ch);
+        }
+
+        let field_type = if first.is_empty() {
+            FieldType::AutoSpec
+        } else if let Ok(index) = first.parse::<usize>() {
+            FieldType::IndexSpec(index)
+        } else {
+            FieldType::KeywordSpec(first)
+        };
+
+        let mut parts = Vec::new();
+        while chars.peek().is_some() {
+            parts.push(FieldNamePart::parse_part(&mut chars)?)
+        }
+
+        Ok(FieldName { field_type, parts })
+    }
+}
+
+#[derive(Debug, PartialEq)]
 enum FormatPart {
-    AutoSpec(String),
-    IndexSpec(usize, String),
-    KeywordSpec(String, String),
+    Field(FieldName, String),
     Literal(String),
 }
 
 impl FormatPart {
     fn is_auto(&self) -> bool {
         match self {
-            FormatPart::AutoSpec(_) => true,
+            FormatPart::Field(
+                FieldName {
+                    field_type: FieldType::AutoSpec,
+                    ..
+                },
+                _,
+            ) => true,
             _ => false,
         }
     }
 
     fn is_index(&self) -> bool {
         match self {
-            FormatPart::IndexSpec(_, _) => true,
+            FormatPart::Field(
+                FieldName {
+                    field_type: FieldType::IndexSpec(_),
+                    ..
+                },
+                _,
+            ) => true,
             _ => false,
         }
     }
@@ -655,16 +750,7 @@ impl FormatString {
             String::new()
         };
         let format_spec = preconversor_spec + &format_spec;
-
-        if arg_part.is_empty() {
-            return Ok(FormatPart::AutoSpec(format_spec));
-        }
-
-        if let Ok(index) = arg_part.parse::<usize>() {
-            Ok(FormatPart::IndexSpec(index, format_spec))
-        } else {
-            Ok(FormatPart::KeywordSpec(arg_part.to_owned(), format_spec))
-        }
+        Ok(FormatPart::Field(FieldName::parse(arg_part)?, format_spec))
     }
 
     fn parse_spec<'a>(
@@ -724,46 +810,34 @@ impl FormatString {
         }
     }
 
-    pub(crate) fn format(&self, arguments: &PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn format_internal(
+        &self,
+        vm: &VirtualMachine,
+        mut field_func: impl FnMut(&FieldType) -> PyResult,
+    ) -> PyResult {
         let mut final_string = String::new();
-        if self.format_parts.iter().any(FormatPart::is_auto)
-            && self.format_parts.iter().any(FormatPart::is_index)
-        {
-            return Err(vm.new_value_error(
-                "cannot switch from automatic field numbering to manual field specification"
-                    .to_owned(),
-            ));
-        }
-        let mut auto_argument_index: usize = 1;
         for part in &self.format_parts {
             let result_string: String = match part {
-                FormatPart::AutoSpec(format_spec) => {
-                    let result = match arguments.args.get(auto_argument_index) {
-                        Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
-                        None => {
-                            return Err(vm.new_index_error("tuple index out of range".to_owned()));
+                FormatPart::Field(FieldName { field_type, parts }, format_spec) => {
+                    let mut argument = field_func(field_type)?;
+
+                    for name_part in parts {
+                        match name_part {
+                            FieldNamePart::Attribute(attribute) => {
+                                argument = vm.get_attribute(argument, attribute.as_str())?;
+                            }
+                            FieldNamePart::Index(index) => {
+                                // TODO Implement DictKey for usize so we can pass index directly
+                                argument = argument.get_item(&index.into_pyobject(vm)?, vm)?;
+                            }
+                            FieldNamePart::StringIndex(index) => {
+                                argument = argument.get_item(index, vm)?;
+                            }
                         }
-                    };
-                    auto_argument_index += 1;
-                    objstr::clone_value(&result)
-                }
-                FormatPart::IndexSpec(index, format_spec) => {
-                    let result = match arguments.args.get(*index + 1) {
-                        Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
-                        None => {
-                            return Err(vm.new_index_error("tuple index out of range".to_owned()));
-                        }
-                    };
-                    objstr::clone_value(&result)
-                }
-                FormatPart::KeywordSpec(keyword, format_spec) => {
-                    let result = match arguments.get_optional_kwarg(&keyword) {
-                        Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
-                        None => {
-                            return Err(vm.new_key_error(vm.new_str(keyword.to_owned())));
-                        }
-                    };
-                    objstr::clone_value(&result)
+                    }
+
+                    let value = call_object_format(vm, argument, &format_spec)?;
+                    objstr::clone_value(&value)
                 }
                 FormatPart::Literal(literal) => literal.clone(),
             };
@@ -772,25 +846,44 @@ impl FormatString {
         Ok(vm.ctx.new_str(final_string))
     }
 
-    pub(crate) fn format_map(&self, dict: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let mut final_string = String::new();
-        for part in &self.format_parts {
-            let result_string: String = match part {
-                FormatPart::AutoSpec(_) | FormatPart::IndexSpec(_, _) => {
-                    return Err(
-                        vm.new_value_error("Format string contains positional fields".to_owned())
-                    );
-                }
-                FormatPart::KeywordSpec(keyword, format_spec) => {
-                    let argument = dict.get_item(keyword, &vm)?;
-                    let result = call_object_format(vm, argument.clone(), &format_spec)?;
-                    objstr::clone_value(&result)
-                }
-                FormatPart::Literal(literal) => literal.clone(),
-            };
-            final_string.push_str(&result_string);
+    pub(crate) fn format(&self, arguments: &PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        if self.format_parts.iter().any(FormatPart::is_auto)
+            && self.format_parts.iter().any(FormatPart::is_index)
+        {
+            return Err(vm.new_value_error(
+                "cannot switch from automatic field numbering to manual field specification"
+                    .to_owned(),
+            ));
         }
-        Ok(vm.ctx.new_str(final_string))
+
+        let mut auto_argument_index: usize = 1;
+        self.format_internal(vm, |field_type| match field_type {
+            FieldType::AutoSpec => {
+                auto_argument_index += 1;
+                arguments
+                    .args
+                    .get(auto_argument_index - 1)
+                    .cloned()
+                    .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))
+            }
+            FieldType::IndexSpec(index) => arguments
+                .args
+                .get(*index + 1)
+                .cloned()
+                .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned())),
+            FieldType::KeywordSpec(keyword) => arguments
+                .get_optional_kwarg(&keyword)
+                .ok_or_else(|| vm.new_key_error(vm.new_str(keyword.to_owned()))),
+        })
+    }
+
+    pub(crate) fn format_map(&self, dict: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.format_internal(vm, |field_type| match field_type {
+            FieldType::AutoSpec | FieldType::IndexSpec(_) => {
+                Err(vm.new_value_error("Format string contains positional fields".to_owned()))
+            }
+            FieldType::KeywordSpec(keyword) => dict.get_item(keyword, &vm),
+        })
     }
 }
 
@@ -968,9 +1061,21 @@ mod tests {
         let expected = Ok(FormatString {
             format_parts: vec![
                 FormatPart::Literal("abcd".to_owned()),
-                FormatPart::IndexSpec(1, String::new()),
+                FormatPart::Field(
+                    FieldName {
+                        field_type: FieldType::IndexSpec(1),
+                        parts: Vec::new(),
+                    },
+                    String::new(),
+                ),
                 FormatPart::Literal(":".to_owned()),
-                FormatPart::KeywordSpec("key".to_owned(), String::new()),
+                FormatPart::Field(
+                    FieldName {
+                        field_type: FieldType::KeywordSpec("key".to_owned()),
+                        parts: Vec::new(),
+                    },
+                    String::new(),
+                ),
             ],
         });
 
@@ -993,7 +1098,13 @@ mod tests {
         let expected = Ok(FormatString {
             format_parts: vec![
                 FormatPart::Literal("{".to_owned()),
-                FormatPart::KeywordSpec("key".to_owned(), String::new()),
+                FormatPart::Field(
+                    FieldName {
+                        field_type: FieldType::KeywordSpec("key".to_owned()),
+                        parts: Vec::new(),
+                    },
+                    String::new(),
+                ),
                 FormatPart::Literal("}ddfe".to_owned()),
             ],
         });
@@ -1013,5 +1124,57 @@ mod tests {
         assert_eq!(parse_format_spec("b4"), Err("Invalid format specifier"));
         assert_eq!(parse_format_spec("o!"), Err("Invalid format specifier"));
         assert_eq!(parse_format_spec("d "), Err("Invalid format specifier"));
+    }
+
+    #[test]
+    fn test_parse_field_name() {
+        assert_eq!(
+            FieldName::parse(""),
+            Ok(FieldName {
+                field_type: FieldType::AutoSpec,
+                parts: Vec::new(),
+            })
+        );
+        assert_eq!(
+            FieldName::parse("0"),
+            Ok(FieldName {
+                field_type: FieldType::IndexSpec(0),
+                parts: Vec::new(),
+            })
+        );
+        assert_eq!(
+            FieldName::parse("key"),
+            Ok(FieldName {
+                field_type: FieldType::KeywordSpec("key".to_owned()),
+                parts: Vec::new(),
+            })
+        );
+        assert_eq!(
+            FieldName::parse("key.attr[0][string]"),
+            Ok(FieldName {
+                field_type: FieldType::KeywordSpec("key".to_owned()),
+                parts: vec![
+                    FieldNamePart::Attribute("attr".to_owned()),
+                    FieldNamePart::Index(0),
+                    FieldNamePart::StringIndex("string".to_owned())
+                ],
+            })
+        );
+        assert_eq!(
+            FieldName::parse("key.."),
+            Err(FormatParseError::EmptyAttribute)
+        );
+        assert_eq!(
+            FieldName::parse("key[]"),
+            Err(FormatParseError::EmptyAttribute)
+        );
+        assert_eq!(
+            FieldName::parse("key["),
+            Err(FormatParseError::MissingRightBracket)
+        );
+        assert_eq!(
+            FieldName::parse("key[0]after"),
+            Err(FormatParseError::InvalidCharacterAfterRightBracket)
+        );
     }
 }
