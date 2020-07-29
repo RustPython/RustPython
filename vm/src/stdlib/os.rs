@@ -47,6 +47,8 @@ use crate::vm::VirtualMachine;
 #[cfg(unix)]
 use crate::obj::objdict::PyMapping;
 #[cfg(unix)]
+use crate::obj::objlist::PyListRef;
+#[cfg(unix)]
 use crate::pyobject::PyIterable;
 #[cfg(unix)]
 use std::convert::TryFrom;
@@ -1271,6 +1273,33 @@ fn os_chmod(
     Ok(())
 }
 
+#[cfg(unix)]
+fn os_execv(
+    path: PyStringRef,
+    argv_list: Either<PyListRef, PyTupleRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let path = ffi::CString::new(path.as_str())
+        .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+
+    let argv: Vec<ffi::CString> = match argv_list {
+        Either::A(list) => vm.extract_elements(list.as_object())?,
+        Either::B(tuple) => vm.extract_elements(tuple.as_object())?,
+    };
+    let argv: Vec<&ffi::CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
+
+    if argv.is_empty() {
+        return Err(vm.new_value_error("execv() arg 2 must not be empty".to_owned()));
+    }
+    if argv.first().unwrap().to_bytes().is_empty() {
+        return Err(vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned()));
+    }
+
+    unistd::execv(&path, &argv)
+        .map(|_ok| ())
+        .map_err(|err| convert_nix_error(vm, err))
+}
+
 fn os_fspath(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
     path.mode.process_path(path.path, vm)
 }
@@ -2171,6 +2200,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "lchown", os_lchown, None, None, None),
         SupportFunc::new(vm, "fchown", os_fchown, Some(true), None, Some(true)),
         SupportFunc::new(vm, "umask", os_umask, Some(false), Some(false), Some(false)),
+        SupportFunc::new(vm, "execv", os_execv, None, None, None),
     ]);
     let supports_fd = PySet::default().into_ref(vm);
     let supports_dir_fd = PySet::default().into_ref(vm);
@@ -2268,6 +2298,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
 
     extend_module!(vm, module, {
         "chmod" => ctx.new_function(os_chmod),
+        "execv" => ctx.new_function(os_execv), // TODO: windows
         "get_inheritable" => ctx.new_function(os_get_inheritable), // TODO: windows
         "get_blocking" => ctx.new_function(os_get_blocking),
         "getppid" => ctx.new_function(os_getppid),
