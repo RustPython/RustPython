@@ -33,7 +33,6 @@ use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
-use crate::obj::objlist::PyListRef;
 use crate::obj::objset::PySet;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
@@ -47,6 +46,8 @@ use crate::vm::VirtualMachine;
 // just to avoid unused import warnings
 #[cfg(unix)]
 use crate::obj::objdict::PyMapping;
+#[cfg(unix)]
+use crate::obj::objlist::PyListRef;
 #[cfg(unix)]
 use crate::pyobject::PyIterable;
 #[cfg(unix)]
