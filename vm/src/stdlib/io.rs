@@ -626,7 +626,7 @@ mod fileio {
                     }
                     fd
                 } else {
-                    os::os_open(
+                    os::open(
                         os::PyPathLike::new_str(name.as_str().to_owned()),
                         mode as _,
                         OptionalArg::Missing,

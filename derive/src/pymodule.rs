@@ -227,7 +227,7 @@ pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Di
     let extend_mod = extract_module_items(items, &module_name)?;
     content.extend(vec![
         parse_quote! {
-            const MODULE_NAME: &str = #module_name;
+            pub(crate) const MODULE_NAME: &str = #module_name;
         },
         parse_quote! {
             pub(crate) fn extend_module(
