@@ -1412,7 +1412,6 @@ dependencies = [
  "log",
  "maplit",
  "md-5",
- "memchr",
  "mt19937",
  "nix",
  "num-bigint",

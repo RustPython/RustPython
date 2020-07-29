@@ -1,9 +1,11 @@
 /*
  * I/O core tools.
  */
+use std::convert::TryInto;
 use std::fs;
 use std::io::{self, prelude::*, Cursor, SeekFrom};
 
+use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 
@@ -111,18 +113,22 @@ impl BufferedIO {
 
     fn readline(&mut self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let mut buf = Vec::new();
-        let mut left = size.flat_option().filter(|s| *s >= 0).unwrap_or(i64::MAX);
+        let mut left = size
+            .flatten()
+            .filter(|s| *s >= 0)
+            .and_then(|s| s.try_into().ok())
+            .unwrap_or(usize::MAX);
         if left == 0 {
             return Ok(buf);
         }
         loop {
             let (done, used) = {
                 let mut available = self.cursor.fill_buf().map_err(|err| os_err(vm, err))?;
-                if left < available.len() as i64 {
-                    available = &available[..left as usize];
+                if left < available.len() {
+                    available = &available[..left];
                 }
 
-                match memchr::memchr(b'\n', available) {
+                match available.find_byte(b'\n') {
                     Some(i) => {
                         buf.extend_from_slice(&available[..=i]);
                         (true, i + 1)
@@ -134,7 +140,7 @@ impl BufferedIO {
                 }
             };
             self.cursor.consume(used);
-            left -= used as i64;
+            left -= used;
             if done || used == 0 || left == 0 {
                 return Ok(buf);
             }
