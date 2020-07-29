@@ -1,4 +1,5 @@
 use num_bigint::{BigInt, ToBigInt};
+use num_complex::Complex64;
 use num_rational::Ratio;
 use num_traits::{pow, ToPrimitive, Zero};
 
@@ -134,12 +135,16 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
     }
 }
 
-pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
+pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     if v1.is_zero() {
         let msg = format!("{} cannot be raised to a negative power", v1);
         Err(vm.new_zero_division_error(msg))
+    } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
+        let v1 = Complex64::new(v1, 0.);
+        let v2 = Complex64::new(v2, 0.);
+        v1.powc(v2).into_pyobject(vm)
     } else {
-        Ok(v1.powf(v2))
+        v1.powf(v2).into_pyobject(vm)
     }
 }
 
@@ -259,6 +264,17 @@ impl PyFloat {
     }
 
     #[inline]
+    fn complex_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult
+    where
+        F: Fn(f64, f64) -> PyResult,
+    {
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| op(self.value, other).into_pyobject(vm),
+        )
+    }
+
+    #[inline]
     fn tuple_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: Fn(f64, f64) -> PyResult<(f64, f64)>,
@@ -331,12 +347,12 @@ impl PyFloat {
 
     #[pymethod(name = "__pow__")]
     fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.simple_op(other, |a, b| float_pow(a, b, vm), vm)
+        self.complex_op(other, |a, b| float_pow(a, b, vm), vm)
     }
 
     #[pymethod(name = "__rpow__")]
     fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.simple_op(other, |a, b| float_pow(b, a, vm), vm)
+        self.complex_op(other, |a, b| float_pow(b, a, vm), vm)
     }
 
     #[pymethod(name = "__sub__")]

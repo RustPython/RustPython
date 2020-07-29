@@ -392,8 +392,6 @@ class FractionTest(unittest.TestCase):
         self.assertTypedEquals(F(-2, 10), round(F(-15, 100), 1))
         self.assertTypedEquals(F(-2, 10), round(F(-25, 100), 1))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testArithmetic(self):
         self.assertEqual(F(1, 2), F(1, 10) + F(2, 5))
         self.assertEqual(F(-3, 10), F(1, 10) - F(2, 5))
