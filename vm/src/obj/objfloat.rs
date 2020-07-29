@@ -139,7 +139,7 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     if v1.is_zero() {
         let msg = format!("{} cannot be raised to a negative power", v1);
         Err(vm.new_zero_division_error(msg))
-    } else if v1.is_sign_negative() && v2.floor() != v2 {
+    } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
         let v1 = Complex64::new(v1, 0.);
         let v2 = Complex64::new(v2, 0.);
         v1.powc(v2).into_pyobject(vm)
