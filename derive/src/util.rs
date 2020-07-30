@@ -32,6 +32,41 @@ pub fn def_to_name(
     Ok(name.unwrap_or_else(|| ident.to_string()))
 }
 
+pub fn optional_attribute_arg(
+    attr_name: &'static str,
+    arg_name: &'static str,
+    attr: AttributeArgs,
+) -> Result<Option<String>, Diagnostic> {
+    let mut arg_value = None;
+    for attr in attr {
+        if let NestedMeta::Meta(meta) = attr {
+            if let Meta::NameValue(name_value) = meta {
+                if path_eq(&name_value.path, arg_name) {
+                    if let Lit::Str(lit) = name_value.lit {
+                        arg_value = Some(lit.value());
+                    } else {
+                        bail_span!(
+                            name_value.lit,
+                            "#[{}({} = ...)] must be a string",
+                            attr_name,
+                            arg_name
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Ok(arg_value)
+}
+
+pub fn module_class_name(mod_name: Option<String>, class_name: &str) -> String {
+    if let Some(mod_name) = mod_name {
+        format!("{}.{}", mod_name, class_name)
+    } else {
+        class_name.into()
+    }
+}
+
 pub fn strip_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     if s.starts_with(prefix) {
         Some(&s[prefix.len()..])

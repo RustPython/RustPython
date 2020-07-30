@@ -1,5 +1,5 @@
+use crate::byteslike::PyBytesLike;
 use crate::function::OptionalArg;
-use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::{objiter, objtype};
 use crate::pyobject::{Either, PyObjectRef, PyResult, TypeProtocol};

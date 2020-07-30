@@ -5,10 +5,11 @@ mod decl {
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
     use num_traits::{One, Signed, ToPrimitive, Zero};
-    use parking_lot::{RwLock, RwLockWriteGuard};
+    use std::fmt;
     use std::iter;
-    use std::sync::Arc;
 
+    use crate::common::cell::{PyMutex, PyRwLock, PyRwLockWriteGuard};
+    use crate::common::rc::{PyRc, PyWeak};
     use crate::function::{Args, OptionalArg, OptionalOption, PyFuncArgs};
     use crate::obj::objbool;
     use crate::obj::objint::{self, PyInt, PyIntRef};
@@ -16,7 +17,8 @@ mod decl {
     use crate::obj::objtuple::PyTuple;
     use crate::obj::objtype::{self, PyClassRef};
     use crate::pyobject::{
-        IdProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+        IdProtocol, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+        TypeProtocol,
     };
     use crate::vm::VirtualMachine;
 
@@ -25,7 +27,7 @@ mod decl {
     struct PyItertoolsChain {
         iterables: Vec<PyObjectRef>,
         cur_idx: AtomicCell<usize>,
-        cached_iter: RwLock<Option<PyObjectRef>>,
+        cached_iter: PyRwLock<Option<PyObjectRef>>,
     }
 
     impl PyValue for PyItertoolsChain {
@@ -41,7 +43,7 @@ mod decl {
             PyItertoolsChain {
                 iterables: args.args,
                 cur_idx: AtomicCell::new(0),
-                cached_iter: RwLock::new(None),
+                cached_iter: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -99,7 +101,7 @@ mod decl {
             PyItertoolsChain {
                 iterables,
                 cur_idx: AtomicCell::new(0),
-                cached_iter: RwLock::new(None),
+                cached_iter: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -159,7 +161,7 @@ mod decl {
     #[pyclass(name = "count")]
     #[derive(Debug)]
     struct PyItertoolsCount {
-        cur: RwLock<BigInt>,
+        cur: PyRwLock<BigInt>,
         step: BigInt,
     }
 
@@ -188,7 +190,7 @@ mod decl {
             };
 
             PyItertoolsCount {
-                cur: RwLock::new(start),
+                cur: PyRwLock::new(start),
                 step,
             }
             .into_ref_with_type(vm, cls)
@@ -212,7 +214,7 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsCycle {
         iter: PyObjectRef,
-        saved: RwLock<Vec<PyObjectRef>>,
+        saved: PyRwLock<Vec<PyObjectRef>>,
         index: AtomicCell<usize>,
     }
 
@@ -234,7 +236,7 @@ mod decl {
 
             PyItertoolsCycle {
                 iter: iter.clone(),
-                saved: RwLock::new(Vec::new()),
+                saved: PyRwLock::new(Vec::new()),
                 index: AtomicCell::new(0),
             }
             .into_ref_with_type(vm, cls)
@@ -273,7 +275,7 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsRepeat {
         object: PyObjectRef,
-        times: Option<RwLock<BigInt>>,
+        times: Option<PyRwLock<BigInt>>,
     }
 
     impl PyValue for PyItertoolsRepeat {
@@ -292,7 +294,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let times = match times.into_option() {
-                Some(int) => Some(RwLock::new(int.as_bigint().clone())),
+                Some(int) => Some(PyRwLock::new(int.as_bigint().clone())),
                 None => None,
             };
 
@@ -488,6 +490,191 @@ mod decl {
         }
     }
 
+    struct GroupByState {
+        current_value: Option<PyObjectRef>,
+        current_key: Option<PyObjectRef>,
+        next_group: bool,
+        grouper: Option<PyWeak<PyObject<PyItertoolsGrouper>>>,
+    }
+
+    impl fmt::Debug for GroupByState {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("GroupByState")
+                .field("current_value", &self.current_value)
+                .field("current_key", &self.current_key)
+                .field("next_group", &self.next_group)
+                .finish()
+        }
+    }
+
+    impl GroupByState {
+        fn is_current(&self, grouper: &PyItertoolsGrouperRef) -> bool {
+            self.grouper
+                .as_ref()
+                .and_then(|g| g.upgrade())
+                .map_or(false, |ref current_grouper| grouper.is(current_grouper))
+        }
+    }
+
+    #[pyclass(name = "groupby")]
+    struct PyItertoolsGroupBy {
+        iterable: PyObjectRef,
+        key_func: Option<PyObjectRef>,
+        state: PyMutex<GroupByState>,
+    }
+
+    impl PyValue for PyItertoolsGroupBy {
+        fn class(vm: &VirtualMachine) -> PyClassRef {
+            vm.class("itertools", "groupby")
+        }
+    }
+
+    impl fmt::Debug for PyItertoolsGroupBy {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("PyItertoolsGroupBy")
+                .field("iterable", &self.iterable)
+                .field("key_func", &self.key_func)
+                .field("state", &self.state.lock())
+                .finish()
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct GroupByArgs {
+        iterable: PyObjectRef,
+        #[pyarg(positional_or_keyword, optional = true)]
+        key: OptionalOption<PyObjectRef>,
+    }
+
+    #[pyimpl]
+    impl PyItertoolsGroupBy {
+        #[pyslot]
+        fn tp_new(
+            cls: PyClassRef,
+            args: GroupByArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
+            let iter = get_iter(vm, &args.iterable)?;
+
+            PyItertoolsGroupBy {
+                iterable: iter,
+                key_func: args.key.flatten(),
+                state: PyMutex::new(GroupByState {
+                    current_key: None,
+                    current_value: None,
+                    next_group: false,
+                    grouper: None,
+                }),
+            }
+            .into_ref_with_type(vm, cls)
+        }
+
+        #[pymethod(name = "__next__")]
+        fn next(
+            zelf: PyRef<Self>,
+            vm: &VirtualMachine,
+        ) -> PyResult<(PyObjectRef, PyItertoolsGrouperRef)> {
+            let mut state = zelf.state.lock();
+            state.grouper = None;
+
+            if !state.next_group {
+                let current_key = state.current_key.clone();
+                drop(state);
+
+                let (value, key) = if let Some(old_key) = current_key {
+                    loop {
+                        let (value, new_key) = zelf.advance(vm)?;
+                        if !vm.bool_eq(new_key.clone(), old_key.clone())? {
+                            break (value, new_key);
+                        }
+                    }
+                } else {
+                    zelf.advance(vm)?
+                };
+
+                state = zelf.state.lock();
+                state.current_value = Some(value);
+                state.current_key = Some(key);
+            }
+
+            state.next_group = false;
+
+            let grouper = PyItertoolsGrouper {
+                groupby: zelf.clone(),
+            }
+            .into_ref(vm);
+
+            state.grouper = Some(PyRc::downgrade(&grouper.clone().into_typed_pyobj()));
+            Ok((state.current_key.as_ref().unwrap().clone(), grouper))
+        }
+
+        #[pymethod(name = "__iter__")]
+        fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
+            zelf
+        }
+
+        pub(super) fn advance(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+            let new_value = call_next(vm, &self.iterable)?;
+            let new_key = if let Some(ref kf) = self.key_func {
+                vm.invoke(kf, new_value.clone())?
+            } else {
+                new_value.clone()
+            };
+            Ok((new_value, new_key))
+        }
+    }
+
+    #[pyclass(name = "_grouper")]
+    #[derive(Debug)]
+    struct PyItertoolsGrouper {
+        groupby: PyRef<PyItertoolsGroupBy>,
+    }
+
+    type PyItertoolsGrouperRef = PyRef<PyItertoolsGrouper>;
+
+    impl PyValue for PyItertoolsGrouper {
+        fn class(vm: &VirtualMachine) -> PyClassRef {
+            vm.class("itertools", "_grouper")
+        }
+    }
+
+    #[pyimpl]
+    impl PyItertoolsGrouper {
+        #[pymethod(name = "__next__")]
+        fn next(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let old_key = {
+                let mut state = zelf.groupby.state.lock();
+
+                if !state.is_current(&zelf) {
+                    return Err(new_stop_iteration(vm));
+                }
+
+                // check to see if the value has already been retrieved from the iterator
+                if let Some(val) = state.current_value.take() {
+                    return Ok(val);
+                }
+
+                state.current_key.as_ref().unwrap().clone()
+            };
+            let (value, key) = zelf.groupby.advance(vm)?;
+            if vm.bool_eq(key.clone(), old_key)? {
+                Ok(value)
+            } else {
+                let mut state = zelf.groupby.state.lock();
+                state.current_value = Some(value);
+                state.current_key = Some(key);
+                state.next_group = true;
+                state.grouper = None;
+                Err(new_stop_iteration(vm))
+            }
+        }
+
+        #[pymethod(name = "__iter__")]
+        fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
+            zelf
+        }
+    }
+
     #[pyclass(name = "islice")]
     #[derive(Debug)]
     struct PyItertoolsIslice {
@@ -675,7 +862,7 @@ mod decl {
     struct PyItertoolsAccumulate {
         iterable: PyObjectRef,
         binop: PyObjectRef,
-        acc_value: RwLock<Option<PyObjectRef>>,
+        acc_value: PyRwLock<Option<PyObjectRef>>,
     }
 
     impl PyValue for PyItertoolsAccumulate {
@@ -698,7 +885,7 @@ mod decl {
             PyItertoolsAccumulate {
                 iterable: iter,
                 binop: binop.unwrap_or_else(|| vm.get_none()),
-                acc_value: RwLock::new(None),
+                acc_value: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
         }
@@ -734,14 +921,14 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsTeeData {
         iterable: PyObjectRef,
-        values: RwLock<Vec<PyObjectRef>>,
+        values: PyRwLock<Vec<PyObjectRef>>,
     }
 
     impl PyItertoolsTeeData {
-        fn new(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Arc<PyItertoolsTeeData>> {
-            Ok(Arc::new(PyItertoolsTeeData {
+        fn new(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRc<PyItertoolsTeeData>> {
+            Ok(PyRc::new(PyItertoolsTeeData {
                 iterable: get_iter(vm, &iterable)?,
-                values: RwLock::new(vec![]),
+                values: PyRwLock::new(vec![]),
             }))
         }
 
@@ -757,7 +944,7 @@ mod decl {
     #[pyclass(name = "tee")]
     #[derive(Debug)]
     struct PyItertoolsTee {
-        tee_data: Arc<PyItertoolsTeeData>,
+        tee_data: PyRc<PyItertoolsTeeData>,
         index: AtomicCell<usize>,
     }
 
@@ -812,7 +999,7 @@ mod decl {
         #[pymethod(name = "__copy__")]
         fn copy(&self, vm: &VirtualMachine) -> PyResult {
             Ok(PyItertoolsTee {
-                tee_data: Arc::clone(&self.tee_data),
+                tee_data: PyRc::clone(&self.tee_data),
                 index: AtomicCell::new(self.index.load()),
             }
             .into_ref_with_type(vm, Self::class(vm))?
@@ -836,7 +1023,7 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsProduct {
         pools: Vec<Vec<PyObjectRef>>,
-        idxs: RwLock<Vec<usize>>,
+        idxs: PyRwLock<Vec<usize>>,
         cur: AtomicCell<usize>,
         stop: AtomicCell<bool>,
     }
@@ -883,7 +1070,7 @@ mod decl {
 
             PyItertoolsProduct {
                 pools,
-                idxs: RwLock::new(vec![0; l]),
+                idxs: PyRwLock::new(vec![0; l]),
                 cur: AtomicCell::new(l - 1),
                 stop: AtomicCell::new(false),
             }
@@ -920,7 +1107,7 @@ mod decl {
             Ok(res.into_ref(vm).into_object())
         }
 
-        fn update_idxs(&self, mut idxs: RwLockWriteGuard<'_, Vec<usize>>) {
+        fn update_idxs(&self, mut idxs: PyRwLockWriteGuard<'_, Vec<usize>>) {
             let cur = self.cur.load();
             let lst_idx = &self.pools[cur].len() - 1;
 
@@ -948,7 +1135,7 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsCombinations {
         pool: Vec<PyObjectRef>,
-        indices: RwLock<Vec<usize>>,
+        indices: PyRwLock<Vec<usize>>,
         r: AtomicCell<usize>,
         exhausted: AtomicCell<bool>,
     }
@@ -981,7 +1168,7 @@ mod decl {
 
             PyItertoolsCombinations {
                 pool,
-                indices: RwLock::new((0..r).collect()),
+                indices: PyRwLock::new((0..r).collect()),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(r > n),
             }
@@ -1047,7 +1234,7 @@ mod decl {
     #[derive(Debug)]
     struct PyItertoolsCombinationsWithReplacement {
         pool: Vec<PyObjectRef>,
-        indices: RwLock<Vec<usize>>,
+        indices: PyRwLock<Vec<usize>>,
         r: AtomicCell<usize>,
         exhausted: AtomicCell<bool>,
     }
@@ -1080,7 +1267,7 @@ mod decl {
 
             PyItertoolsCombinationsWithReplacement {
                 pool,
-                indices: RwLock::new(vec![0; r]),
+                indices: PyRwLock::new(vec![0; r]),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(n == 0 && r > 0),
             }
@@ -1140,12 +1327,12 @@ mod decl {
     #[pyclass(name = "permutations")]
     #[derive(Debug)]
     struct PyItertoolsPermutations {
-        pool: Vec<PyObjectRef>,             // Collected input iterable
-        indices: RwLock<Vec<usize>>,        // One index per element in pool
-        cycles: RwLock<Vec<usize>>,         // One rollover counter per element in the result
-        result: RwLock<Option<Vec<usize>>>, // Indexes of the most recently returned result
-        r: AtomicCell<usize>,               // Size of result tuple
-        exhausted: AtomicCell<bool>,        // Set when the iterator is exhausted
+        pool: Vec<PyObjectRef>,               // Collected input iterable
+        indices: PyRwLock<Vec<usize>>,        // One index per element in pool
+        cycles: PyRwLock<Vec<usize>>,         // One rollover counter per element in the result
+        result: PyRwLock<Option<Vec<usize>>>, // Indexes of the most recently returned result
+        r: AtomicCell<usize>,                 // Size of result tuple
+        exhausted: AtomicCell<bool>,          // Set when the iterator is exhausted
     }
 
     impl PyValue for PyItertoolsPermutations {
@@ -1169,7 +1356,7 @@ mod decl {
             let n = pool.len();
             // If r is not provided, r == n. If provided, r must be a positive integer, or None.
             // If None, it behaves the same as if it was not provided.
-            let r = match r.flat_option() {
+            let r = match r.flatten() {
                 Some(r) => {
                     let val = r
                         .payload::<PyInt>()
@@ -1186,9 +1373,9 @@ mod decl {
 
             PyItertoolsPermutations {
                 pool,
-                indices: RwLock::new((0..n).collect()),
-                cycles: RwLock::new((0..r).map(|i| n - i).collect()),
-                result: RwLock::new(None),
+                indices: PyRwLock::new((0..n).collect()),
+                cycles: PyRwLock::new((0..r).map(|i| n - i).collect()),
+                result: PyRwLock::new(None),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(r > n),
             }

@@ -8,7 +8,7 @@ use std::ptr::NonNull;
 
 use nix::unistd::{self, User};
 
-#[pystruct_sequence(name = "pwd.struct_passwd")]
+#[pystruct_sequence(module = "pwd", name = "struct_passwd")]
 struct Passwd {
     pw_name: String,
     pw_passwd: String,

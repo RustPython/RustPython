@@ -66,6 +66,15 @@ impl From<(&Args, &KwArgs)> for PyFuncArgs {
     }
 }
 
+impl From<KwArgs> for PyFuncArgs {
+    fn from(kwargs: KwArgs) -> Self {
+        PyFuncArgs {
+            args: Vec::new(),
+            kwargs: kwargs.into_iter().collect(),
+        }
+    }
+}
+
 impl FromArgs for PyFuncArgs {
     fn from_args(_vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         Ok(mem::take(args))
@@ -395,7 +404,7 @@ pub type OptionalOption<T> = OptionalArg<Option<T>>;
 
 impl<T> OptionalOption<T> {
     #[inline]
-    pub fn flat_option(self) -> Option<T> {
+    pub fn flatten(self) -> Option<T> {
         match self {
             Present(Some(value)) => Some(value),
             _ => None,

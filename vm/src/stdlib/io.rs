@@ -1,18 +1,20 @@
 /*
  * I/O core tools.
  */
-use parking_lot::{RwLock, RwLockWriteGuard};
+use std::convert::TryInto;
 use std::fs;
 use std::io::{self, prelude::*, Cursor, SeekFrom};
 
+use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 
+use crate::byteslike::PyBytesLike;
+use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{Args, KwArgs, OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objbytearray::PyByteArray;
-use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint;
 use crate::obj::objiter;
@@ -24,7 +26,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 fn byte_count(bytes: OptionalOption<i64>) -> i64 {
-    bytes.flat_option().unwrap_or(-1 as i64)
+    bytes.flatten().unwrap_or(-1 as i64)
 }
 fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
     #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
@@ -109,19 +111,46 @@ impl BufferedIO {
         self.cursor.position()
     }
 
-    fn readline(&mut self) -> Option<String> {
-        let mut buf = String::new();
+    fn readline(&mut self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let mut buf = Vec::new();
+        let mut left = size
+            .flatten()
+            .filter(|s| *s >= 0)
+            .and_then(|s| s.try_into().ok())
+            .unwrap_or(usize::MAX);
+        if left == 0 {
+            return Ok(buf);
+        }
+        loop {
+            let (done, used) = {
+                let mut available = self.cursor.fill_buf().map_err(|err| os_err(vm, err))?;
+                if left < available.len() {
+                    available = &available[..left];
+                }
 
-        match self.cursor.read_line(&mut buf) {
-            Ok(_) => Some(buf),
-            Err(_) => None,
+                match available.find_byte(b'\n') {
+                    Some(i) => {
+                        buf.extend_from_slice(&available[..=i]);
+                        (true, i + 1)
+                    }
+                    _ => {
+                        buf.extend_from_slice(available);
+                        (false, available.len())
+                    }
+                }
+            };
+            self.cursor.consume(used);
+            left -= used;
+            if done || used == 0 || left == 0 {
+                return Ok(buf);
+            }
         }
     }
 }
 
 #[derive(Debug)]
 struct PyStringIO {
-    buffer: RwLock<BufferedIO>,
+    buffer: PyRwLock<BufferedIO>,
     closed: AtomicCell<bool>,
 }
 
@@ -134,7 +163,7 @@ impl PyValue for PyStringIO {
 }
 
 impl PyStringIORef {
-    fn buffer(&self, vm: &VirtualMachine) -> PyResult<RwLockWriteGuard<'_, BufferedIO>> {
+    fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
         if !self.closed.load() {
             Ok(self.buffer.write())
         } else {
@@ -195,16 +224,18 @@ impl PyStringIORef {
         Ok(self.buffer(vm)?.tell())
     }
 
-    fn readline(self, vm: &VirtualMachine) -> PyResult<String> {
-        match self.buffer(vm)?.readline() {
-            Some(line) => Ok(line),
-            None => Err(vm.new_value_error("Error Performing Operation".to_owned())),
+    fn readline(self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<String> {
+        // TODO size should correspond to the number of characters, at the moments its the number of
+        // bytes.
+        match String::from_utf8(self.buffer(vm)?.readline(size, vm)?) {
+            Ok(value) => Ok(value),
+            Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
         }
     }
 
     fn truncate(self, size: OptionalOption<usize>, vm: &VirtualMachine) -> PyResult<()> {
         let mut buffer = self.buffer(vm)?;
-        let size = size.flat_option().unwrap_or_else(|| buffer.tell() as usize);
+        let size = size.flatten().unwrap_or_else(|| buffer.tell() as usize);
         buffer.cursor.get_mut().truncate(size);
         Ok(())
     }
@@ -232,11 +263,11 @@ fn string_io_new(
     _args: StringIOArgs,
     vm: &VirtualMachine,
 ) -> PyResult<PyStringIORef> {
-    let flatten = object.flat_option();
+    let flatten = object.flatten();
     let input = flatten.map_or_else(Vec::new, |v| objstr::borrow_value(&v).as_bytes().to_vec());
 
     PyStringIO {
-        buffer: RwLock::new(BufferedIO::new(Cursor::new(input))),
+        buffer: PyRwLock::new(BufferedIO::new(Cursor::new(input))),
         closed: AtomicCell::new(false),
     }
     .into_ref_with_type(vm, cls)
@@ -244,7 +275,7 @@ fn string_io_new(
 
 #[derive(Debug)]
 struct PyBytesIO {
-    buffer: RwLock<BufferedIO>,
+    buffer: PyRwLock<BufferedIO>,
     closed: AtomicCell<bool>,
 }
 
@@ -257,7 +288,7 @@ impl PyValue for PyBytesIO {
 }
 
 impl PyBytesIORef {
-    fn buffer(&self, vm: &VirtualMachine) -> PyResult<RwLockWriteGuard<'_, BufferedIO>> {
+    fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
         if !self.closed.load() {
             Ok(self.buffer.write())
         } else {
@@ -307,16 +338,13 @@ impl PyBytesIORef {
         Ok(self.buffer(vm)?.tell())
     }
 
-    fn readline(self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        match self.buffer(vm)?.readline() {
-            Some(line) => Ok(line.as_bytes().to_vec()),
-            None => Err(vm.new_value_error("Error Performing Operation".to_owned())),
-        }
+    fn readline(self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        self.buffer(vm)?.readline(size, vm)
     }
 
     fn truncate(self, size: OptionalOption<usize>, vm: &VirtualMachine) -> PyResult<()> {
         let mut buffer = self.buffer(vm)?;
-        let size = size.flat_option().unwrap_or_else(|| buffer.tell() as usize);
+        let size = size.flatten().unwrap_or_else(|| buffer.tell() as usize);
         buffer.cursor.get_mut().truncate(size);
         Ok(())
     }
@@ -341,7 +369,7 @@ fn bytes_io_new(
     };
 
     PyBytesIO {
-        buffer: RwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
+        buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
         closed: AtomicCell::new(false),
     }
     .into_ref_with_type(vm, cls)
@@ -411,7 +439,7 @@ fn io_base_checkclosed(
 ) -> PyResult<()> {
     if objbool::boolval(vm, vm.get_attribute(instance, "closed")?)? {
         let msg = msg
-            .flat_option()
+            .flatten()
             .unwrap_or_else(|| vm.new_str("I/O operation on closed file.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
@@ -426,7 +454,7 @@ fn io_base_checkreadable(
 ) -> PyResult<()> {
     if !objbool::boolval(vm, vm.call_method(&instance, "readable", vec![])?)? {
         let msg = msg
-            .flat_option()
+            .flatten()
             .unwrap_or_else(|| vm.new_str("File or stream is not readable.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
@@ -441,7 +469,7 @@ fn io_base_checkwritable(
 ) -> PyResult<()> {
     if !objbool::boolval(vm, vm.call_method(&instance, "writable", vec![])?)? {
         let msg = msg
-            .flat_option()
+            .flatten()
             .unwrap_or_else(|| vm.new_str("File or stream is not writable.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
@@ -456,7 +484,7 @@ fn io_base_checkseekable(
 ) -> PyResult<()> {
     if !objbool::boolval(vm, vm.call_method(&instance, "seekable", vec![])?)? {
         let msg = msg
-            .flat_option()
+            .flatten()
             .unwrap_or_else(|| vm.new_str("File or stream is not seekable.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
@@ -812,6 +840,17 @@ fn buffered_writer_seekable(_self: PyObjectRef) -> bool {
     true
 }
 
+fn buffered_writer_seek(
+    instance: PyObjectRef,
+    offset: PyObjectRef,
+    how: OptionalArg,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let raw = vm.get_attribute(instance, "raw")?;
+    let args: Vec<_> = std::iter::once(offset).chain(how.into_option()).collect();
+    vm.invoke(&vm.get_attribute(raw, "seek")?, args)
+}
+
 #[derive(FromArgs)]
 struct TextIOWrapperArgs {
     #[pyarg(positional_or_keyword, optional = false)]
@@ -929,7 +968,7 @@ fn text_io_wrapper_read(
     let bytes = vm.call_method(
         &raw,
         "read",
-        vec![size.flat_option().unwrap_or_else(|| vm.get_none())],
+        vec![size.flatten().unwrap_or_else(|| vm.get_none())],
     )?;
     let bytes = PyBytesLike::try_from_object(vm, bytes)?;
     //format bytes into string
@@ -988,7 +1027,7 @@ fn text_io_wrapper_readline(
     let bytes = vm.call_method(
         &raw,
         "readline",
-        vec![size.flat_option().unwrap_or_else(|| vm.get_none())],
+        vec![size.flatten().unwrap_or_else(|| vm.get_none())],
     )?;
     let bytes = PyBytesLike::try_from_object(vm, bytes)?;
     //format bytes into string
@@ -1149,7 +1188,7 @@ pub fn io_open(
     // There are 3 possible classes here, each inheriting from the RawBaseIO
     // creating || writing || appending => BufferedWriter
     let buffered = match mode.chars().next().unwrap() {
-        'w' => {
+        'w' | 'a' => {
             let buffered_writer_class = vm
                 .get_attribute(io_module.clone(), "BufferedWriter")
                 .unwrap();
@@ -1162,7 +1201,7 @@ pub fn io_open(
             vm.invoke(&buffered_reader_class, vec![file_io_obj.clone()])
         }
         //TODO: updating => PyBufferedRandom
-        _ => unimplemented!("'a' mode is not yet implemented"),
+        _ => unimplemented!("'+' modes is not yet implemented"),
     };
 
     match typ.chars().next().unwrap() {
@@ -1237,6 +1276,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "__init__" => ctx.new_method(buffered_io_base_init),
         "write" => ctx.new_method(buffered_writer_write),
         "seekable" => ctx.new_method(buffered_writer_seekable),
+        "seek" => ctx.new_method(buffered_writer_seek),
         "fileno" => ctx.new_method(buffered_io_base_fileno),
         "tell" => ctx.new_method(buffered_io_base_tell),
         "close" => ctx.new_method(buffered_io_base_close),

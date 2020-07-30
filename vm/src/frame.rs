@@ -3,10 +3,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use indexmap::IndexMap;
 use itertools::Itertools;
-use parking_lot::Mutex;
 
 use crate::builtins::builtin_isinstance;
 use crate::bytecode;
+use crate::common::cell::PyMutex;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::PyFuncArgs;
 use crate::obj::objasyncgenerator::PyAsyncGenWrappedValue;
@@ -92,7 +92,7 @@ pub struct Frame {
     pub scope: Scope,
     /// index of last instruction ran
     pub lasti: AtomicUsize,
-    state: Mutex<FrameState>,
+    state: PyMutex<FrameState>,
 }
 
 impl PyValue for Frame {
@@ -163,7 +163,7 @@ impl Frame {
             code,
             scope,
             lasti: AtomicUsize::new(0),
-            state: Mutex::new(FrameState {
+            state: PyMutex::new(FrameState {
                 stack: Vec::new(),
                 blocks: Vec::new(),
             }),
@@ -780,7 +780,7 @@ impl ExecutingFrame<'_> {
         // Load attribute, and transform any error into import error.
         let obj = vm
             .get_attribute(module, name)
-            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name)))?;
+            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name), name))?;
         self.push_value(obj);
         Ok(None)
     }

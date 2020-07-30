@@ -1,16 +1,16 @@
-use std::sync::Arc;
 use std::{env, mem};
 
 use crate::builtins;
 use crate::frame::FrameRef;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
-use crate::pyhash::PyHashInfo;
 use crate::pyobject::{
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::version;
 use crate::vm::{PySettings, VirtualMachine};
+use rustpython_common::hash::{PyHash, PyUHash};
+use rustpython_common::rc::PyRc;
 
 /*
  * The magic sys module.
@@ -28,10 +28,19 @@ fn argv(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 fn executable(ctx: &PyContext) -> PyObjectRef {
-    if let Some(arg) = env::args().next() {
-        ctx.new_str(arg)
+    if let Ok(path) = env::current_exe() {
+        if let Ok(path) = path.into_os_string().into_string() {
+            return ctx.new_str(path);
+        }
+    }
+    ctx.none()
+}
+
+fn _base_executable(ctx: &PyContext) -> PyObjectRef {
+    if let Ok(var) = env::var("__PYVENV_LAUNCHER__") {
+        ctx.new_str(var)
     } else {
-        ctx.none()
+        executable(ctx)
     }
 }
 
@@ -101,7 +110,7 @@ impl SysFlags {
 }
 
 fn sys_getrefcount(obj: PyObjectRef) -> usize {
-    Arc::strong_count(&obj)
+    PyRc::strong_count(&obj)
 }
 
 fn sys_getsizeof(obj: PyObjectRef) -> usize {
@@ -222,6 +231,78 @@ fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
+#[pystruct_sequence(module = "sys", name = "getwindowsversion")]
+#[derive(Default, Debug)]
+#[cfg(windows)]
+struct WindowsVersion {
+    major: u32,
+    minor: u32,
+    build: u32,
+    platform: u32,
+    service_pack: String,
+    service_pack_major: u16,
+    service_pack_minor: u16,
+    suite_mask: u16,
+    product_type: u8,
+    platform_version: (u32, u32, u32),
+}
+
+#[cfg(windows)]
+fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::obj::objtuple::PyTupleRef> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use winapi::um::{
+        sysinfoapi::GetVersionExW,
+        winnt::{LPOSVERSIONINFOEXW, LPOSVERSIONINFOW, OSVERSIONINFOEXW},
+    };
+
+    let mut version = OSVERSIONINFOEXW::default();
+    version.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
+    let result = unsafe {
+        let osvi = &mut version as LPOSVERSIONINFOEXW as LPOSVERSIONINFOW;
+        // SAFE: GetVersionExW accepts a pointer of OSVERSIONINFOW, but winapi crate's type currently doesn't allow to do so.
+        // https://docs.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getversionexw#parameters
+        GetVersionExW(osvi)
+    };
+
+    if result == 0 {
+        Err(vm.new_os_error("failed to get windows version".to_owned()))
+    } else {
+        let service_pack = {
+            let (last, _) = version
+                .szCSDVersion
+                .iter()
+                .take_while(|&x| x != &0)
+                .enumerate()
+                .last()
+                .unwrap_or((0, &0));
+            let sp = OsString::from_wide(&version.szCSDVersion[..last]);
+            if let Ok(string) = sp.into_string() {
+                string
+            } else {
+                return Err(vm.new_os_error("service pack is not ASCII".to_owned()));
+            }
+        };
+        WindowsVersion {
+            major: version.dwMajorVersion,
+            minor: version.dwMinorVersion,
+            build: version.dwBuildNumber,
+            platform: version.dwPlatformId,
+            service_pack,
+            service_pack_major: version.wServicePackMajor,
+            service_pack_minor: version.wServicePackMinor,
+            suite_mask: version.wSuiteMask,
+            product_type: version.wProductType,
+            platform_version: (
+                version.dwMajorVersion,
+                version.dwMinorVersion,
+                version.dwBuildNumber,
+            ), // TODO Provide accurate version, like CPython impl
+        }
+        .into_struct_sequence(vm, vm.try_class("sys", "_getwindowsversion_type")?)
+    }
+}
+
 const PLATFORM: &str = {
     cfg_if::cfg_if! {
         if #[cfg(any(target_os = "linux", target_os = "android"))] {
@@ -246,6 +327,34 @@ const MULTIARCH: &str = env!("RUSTPYTHON_TARGET_TRIPLE");
 
 pub fn sysconfigdata_name() -> String {
     format!("_sysconfigdata_{}_{}_{}", ABIFLAGS, PLATFORM, MULTIARCH)
+}
+
+#[pystruct_sequence(module = "sys", name = "hash_info")]
+#[derive(Debug)]
+struct PyHashInfo {
+    width: usize,
+    modulus: PyUHash,
+    inf: PyHash,
+    nan: PyHash,
+    imag: PyHash,
+    algorithm: &'static str,
+    hash_bits: usize,
+    seed_bits: usize,
+}
+impl PyHashInfo {
+    pub const INFO: Self = {
+        use rustpython_common::hash::*;
+        PyHashInfo {
+            width: BITS,
+            modulus: MODULUS,
+            inf: INF,
+            nan: NAN,
+            imag: IMAG,
+            algorithm: ALGO,
+            hash_bits: HASH_BITS,
+            seed_bits: SEED_BITS,
+        }
+    };
 }
 
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
@@ -340,6 +449,8 @@ prefix -- prefix used to find the Python library
 thread_info -- a struct sequence with information about the thread implementation.
 version -- the version of this interpreter as a string
 version_info -- version information as a named tuple
+_base_executable -- __PYVENV_LAUNCHER__ enviroment variable if defined, else sys.executable.
+
 __stdin__ -- the original stdin; don't touch!
 __stdout__ -- the original stdout; don't touch!
 __stderr__ -- the original stderr; don't touch!
@@ -387,6 +498,7 @@ settrace() -- set the global debug tracing function
       "builtin_module_names" => builtin_module_names,
       "byteorder" => ctx.new_str(bytorder),
       "copyright" => ctx.new_str(copyright.to_owned()),
+      "_base_executable" => _base_executable(ctx),
       "executable" => executable(ctx),
       "flags" => flags,
       "getrefcount" => ctx.new_function(sys_getrefcount),
@@ -433,6 +545,15 @@ settrace() -- set the global debug tracing function
       "displayhook" => ctx.new_function(sys_displayhook),
       "__displayhook__" => ctx.new_function(sys_displayhook),
     });
+
+    #[cfg(windows)]
+    {
+        let getwindowsversion = WindowsVersion::make_class(ctx);
+        extend_module!(vm, module, {
+            "getwindowsversion" => ctx.new_function(sys_getwindowsversion),
+            "_getwindowsversion_type" => getwindowsversion, // XXX: This is not a python spec but required by current RustPython implementation
+        })
+    }
 
     modules.set_item("sys", module.clone(), vm).unwrap();
     modules.set_item("builtins", builtins.clone(), vm).unwrap();

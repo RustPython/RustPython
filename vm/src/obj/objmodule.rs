@@ -57,7 +57,7 @@ impl PyModuleRef {
             vm,
             &zelf.as_object().dict().unwrap(),
             name.into_object(),
-            doc.flat_option()
+            doc.flatten()
                 .map_or_else(|| vm.get_none(), PyRef::into_object),
         );
         Ok(zelf)

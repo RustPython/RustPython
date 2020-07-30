@@ -1,4 +1,4 @@
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use std::io::{self, prelude::*};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
@@ -13,10 +13,10 @@ use socket2::{Domain, Protocol, Socket, Type as SocketType};
 use super::os::convert_io_error;
 #[cfg(unix)]
 use super::os::convert_nix_error;
+use crate::byteslike::PyBytesLike;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytearray::PyByteArrayRef;
-use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
@@ -62,7 +62,7 @@ pub struct PySocket {
     kind: AtomicCell<i32>,
     family: AtomicCell<i32>,
     proto: AtomicCell<i32>,
-    sock: RwLock<Socket>,
+    sock: PyRwLock<Socket>,
 }
 
 impl PyValue for PySocket {
@@ -75,11 +75,11 @@ pub type PySocketRef = PyRef<PySocket>;
 
 #[pyimpl(flags(BASETYPE))]
 impl PySocket {
-    fn sock(&self) -> RwLockReadGuard<'_, Socket> {
+    fn sock(&self) -> PyRwLockReadGuard<'_, Socket> {
         self.sock.read()
     }
 
-    fn sock_mut(&self) -> RwLockWriteGuard<'_, Socket> {
+    fn sock_mut(&self) -> PyRwLockWriteGuard<'_, Socket> {
         self.sock.write()
     }
 
@@ -89,7 +89,7 @@ impl PySocket {
             kind: AtomicCell::default(),
             family: AtomicCell::default(),
             proto: AtomicCell::default(),
-            sock: RwLock::new(invalid_sock()),
+            sock: PyRwLock::new(invalid_sock()),
         }
         .into_ref_with_type(vm, cls)
     }

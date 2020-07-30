@@ -10,11 +10,12 @@ use super::objtuple::PyTuple;
 use super::objtype::PyClassRef;
 
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyhash;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    self, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use rustpython_common::hash::PyHash;
 
 /// range(stop) -> range object
 /// range(start, stop[, step]) -> range object
@@ -363,7 +364,7 @@ impl PyRange {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let length = zelf.length();
         let elements = if length.is_zero() {
             vec![vm.ctx.new_int(length), vm.get_none(), vm.get_none()]
@@ -380,7 +381,7 @@ impl PyRange {
                 zelf.step().into_object(),
             ]
         };
-        pyhash::hash_iter(elements.iter(), vm)
+        pyobject::hash_iter(&elements, vm)
     }
 
     #[pyslot]

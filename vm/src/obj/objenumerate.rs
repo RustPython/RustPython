@@ -1,4 +1,4 @@
-use parking_lot::RwLock;
+use crate::common::cell::PyRwLock;
 use std::ops::AddAssign;
 
 use num_bigint::BigInt;
@@ -14,7 +14,7 @@ use crate::vm::VirtualMachine;
 #[pyclass]
 #[derive(Debug)]
 pub struct PyEnumerate {
-    counter: RwLock<BigInt>,
+    counter: PyRwLock<BigInt>,
     iterator: PyObjectRef,
 }
 type PyEnumerateRef = PyRef<PyEnumerate>;
@@ -41,7 +41,7 @@ impl PyEnumerate {
 
         let iterator = objiter::get_iter(vm, &iterable)?;
         PyEnumerate {
-            counter: RwLock::new(counter),
+            counter: PyRwLock::new(counter),
             iterator,
         }
         .into_ref_with_type(vm, cls)

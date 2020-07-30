@@ -10,7 +10,7 @@ use crate::pyobject::{
 };
 use crate::VirtualMachine;
 
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use std::fmt;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -99,10 +99,29 @@ macro_rules! def_array_enum {
             fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let val = $t::try_from_object(vm, obj)?;
-                        Ok(v.iter().filter(|&&a| a == val).count())
+                        Ok(<Option<$t>>::try_from_object(vm, obj)?.map_or(0, |val| {
+                            v.iter().filter(|&&a| a == val).count()
+                        }))
                     })*
                 }
+            }
+
+            fn remove(&mut self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()>{
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        let pos = <Option<$t>>::try_from_object(vm, obj)?.map_or(None, |val| {
+                            v.iter().position(|&a| a == val)
+                        });
+
+                        match pos {
+                            Some(x) => {
+                                v.remove(x);
+                            },
+                            None => return Err(vm.new_value_error("array.remove(x): x not in array".to_owned()))
+                        }
+                    })*
+                }
+                Ok(())
             }
 
             fn frombytes(&mut self, b: &[u8]) {
@@ -133,8 +152,9 @@ macro_rules! def_array_enum {
             fn index(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<usize>> {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let val = $t::try_from_object(vm, x)?;
-                        Ok(v.iter().position(|&a| a == val))
+                        Ok(<Option<$t>>::try_from_object(vm, x)?.map_or(None, |val| {
+                            v.iter().position(|&a| a == val)
+                        }))
                     })*
                 }
             }
@@ -225,7 +245,7 @@ def_array_enum!(
 #[pyclass(name = "array")]
 #[derive(Debug)]
 pub struct PyArray {
-    array: RwLock<ArrayContentType>,
+    array: PyRwLock<ArrayContentType>,
 }
 
 pub type PyArrayRef = PyRef<PyArray>;
@@ -238,11 +258,11 @@ impl PyValue for PyArray {
 
 #[pyimpl(flags(BASETYPE))]
 impl PyArray {
-    fn borrow_value(&self) -> RwLockReadGuard<'_, ArrayContentType> {
+    fn borrow_value(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
         self.array.read()
     }
 
-    fn borrow_value_mut(&self) -> RwLockWriteGuard<'_, ArrayContentType> {
+    fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, ArrayContentType> {
         self.array.write()
     }
 
@@ -264,7 +284,7 @@ impl PyArray {
         let array =
             ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err.to_string()))?;
         let zelf = PyArray {
-            array: RwLock::new(array),
+            array: PyRwLock::new(array),
         };
         if let OptionalArg::Present(init) = init {
             zelf.extend(init, vm)?;
@@ -296,6 +316,11 @@ impl PyArray {
     #[pymethod]
     fn count(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         self.borrow_value().count(x, vm)
+    }
+
+    #[pymethod]
+    fn remove(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.borrow_value_mut().remove(x, vm)
     }
 
     #[pymethod]

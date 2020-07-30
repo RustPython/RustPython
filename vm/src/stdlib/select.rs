@@ -113,7 +113,7 @@ fn select_select(
     timeout: OptionalOption<Either<f64, isize>>,
     vm: &VirtualMachine,
 ) -> PyResult<(PyObjectRef, PyObjectRef, PyObjectRef)> {
-    let mut timeout = timeout.flat_option().map(|e| match e {
+    let mut timeout = timeout.flatten().map(|e| match e {
         Either::A(f) => f,
         Either::B(i) => i as f64,
     });

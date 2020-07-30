@@ -1,4 +1,3 @@
-use parking_lot::RwLock;
 use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -26,9 +25,10 @@ use std::os::unix::io::RawFd;
 use std::os::windows::io::RawHandle;
 
 use super::errno::errors;
+use crate::byteslike::PyBytesLike;
+use crate::common::cell::PyRwLock;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
-use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{PyInt, PyIntRef};
@@ -46,6 +46,8 @@ use crate::vm::VirtualMachine;
 // just to avoid unused import warnings
 #[cfg(unix)]
 use crate::obj::objdict::PyMapping;
+#[cfg(unix)]
+use crate::obj::objlist::PyListRef;
 #[cfg(unix)]
 use crate::pyobject::PyIterable;
 #[cfg(unix)]
@@ -136,6 +138,11 @@ impl OutputMode {
                     #[cfg(unix)]
                     {
                         use std::os::unix::ffi::OsStringExt;
+                        Ok(vm.ctx.new_bytes(path.into_os_string().into_vec()))
+                    }
+                    #[cfg(target_os = "wasi")]
+                    {
+                        use std::os::wasi::ffi::OsStringExt;
                         Ok(vm.ctx.new_bytes(path.into_os_string().into_vec()))
                     }
                     #[cfg(windows)]
@@ -721,7 +728,7 @@ impl DirEntryRef {
 #[pyclass]
 #[derive(Debug)]
 struct ScandirIterator {
-    entries: RwLock<fs::ReadDir>,
+    entries: PyRwLock<fs::ReadDir>,
     exhausted: AtomicCell<bool>,
     mode: OutputMode,
 }
@@ -786,7 +793,7 @@ fn os_scandir(path: OptionalArg<PyPathLike>, vm: &VirtualMachine) -> PyResult {
 
     match fs::read_dir(path.path) {
         Ok(iter) => Ok(ScandirIterator {
-            entries: RwLock::new(iter),
+            entries: PyRwLock::new(iter),
             exhausted: AtomicCell::new(false),
             mode: path.mode,
         }
@@ -796,7 +803,7 @@ fn os_scandir(path: OptionalArg<PyPathLike>, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-#[pystruct_sequence(name = "os.stat_result")]
+#[pystruct_sequence(module = "os", name = "stat_result")]
 #[derive(Debug)]
 struct StatResult {
     st_mode: u32,
@@ -1007,7 +1014,7 @@ fn os_symlink(
     } else if meta.is_dir() {
         win_fs::symlink_dir(src.path, dst.path)
     } else {
-        panic!("Uknown file type");
+        panic!("Unknown file type");
     };
     ret.map_err(|err| convert_io_error(vm, err))
 }
@@ -1038,6 +1045,86 @@ fn os_chdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
 #[cfg(all(unix, not(target_os = "redox")))]
 fn os_chroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
     nix::unistd::chroot(&*path.path).map_err(|err| convert_nix_error(vm, err))
+}
+
+// As of now, redox does not seems to support chown command (cf. https://gitlab.redox-os.org/redox-os/coreutils , last checked on 05/07/2020)
+#[cfg(all(unix, not(target_os = "redox")))]
+fn os_chown(
+    path: Either<PyPathLike, i64>,
+    uid: PyIntRef,
+    gid: PyIntRef,
+    dir_fd: DirFd,
+    follow_symlinks: FollowSymlinks,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let uid = isize::try_from_object(&vm, uid.as_object().clone())?;
+    let gid = isize::try_from_object(&vm, gid.as_object().clone())?;
+
+    let uid = if uid >= 0 {
+        Some(nix::unistd::Uid::from_raw(uid as u32))
+    } else if uid == -1 {
+        None
+    } else {
+        return Err(vm.new_os_error(String::from("Specified uid is not valid.")));
+    };
+
+    let gid = if gid >= 0 {
+        Some(nix::unistd::Gid::from_raw(gid as u32))
+    } else if gid == -1 {
+        None
+    } else {
+        return Err(vm.new_os_error(String::from("Specified gid is not valid.")));
+    };
+
+    let flag = if follow_symlinks.follow_symlinks {
+        nix::unistd::FchownatFlags::FollowSymlink
+    } else {
+        nix::unistd::FchownatFlags::NoFollowSymlink
+    };
+
+    let dir_fd: Option<std::os::unix::io::RawFd> = match dir_fd.dir_fd {
+        Some(int_ref) => Some(i32::try_from_object(&vm, int_ref.as_object().clone())?),
+        None => None,
+    };
+
+    match path {
+        Either::A(p) => nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag)
+            .map_err(|err| convert_nix_error(vm, err)),
+        Either::B(fd) => {
+            let path = fs::read_link(format!("/proc/self/fd/{}", fd))
+                .map_err(|_| vm.new_os_error(String::from("Cannot find path for specified fd")))?;
+            nix::unistd::fchownat(dir_fd, &path, uid, gid, flag)
+                .map_err(|err| convert_nix_error(vm, err))
+        }
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+fn os_lchown(path: PyPathLike, uid: PyIntRef, gid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    os_chown(
+        Either::A(path),
+        uid,
+        gid,
+        DirFd { dir_fd: None },
+        FollowSymlinks {
+            follow_symlinks: false,
+        },
+        vm,
+    )
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+fn os_fchown(fd: i64, uid: PyIntRef, gid: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    os_chown(
+        Either::B(fd),
+        uid,
+        gid,
+        DirFd { dir_fd: None },
+        FollowSymlinks {
+            follow_symlinks: true,
+        },
+        vm,
+    )
 }
 
 #[cfg(unix)]
@@ -1184,6 +1271,33 @@ fn os_chmod(
     permissions.set_mode(mode);
     fs::set_permissions(path, permissions).map_err(|err| convert_io_error(vm, err))?;
     Ok(())
+}
+
+#[cfg(unix)]
+fn os_execv(
+    path: PyStringRef,
+    argv_list: Either<PyListRef, PyTupleRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let path = ffi::CString::new(path.as_str())
+        .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+
+    let argv: Vec<ffi::CString> = match argv_list {
+        Either::A(list) => vm.extract_elements(list.as_object())?,
+        Either::B(tuple) => vm.extract_elements(tuple.as_object())?,
+    };
+    let argv: Vec<&ffi::CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
+
+    if argv.is_empty() {
+        return Err(vm.new_value_error("execv() arg 2 must not be empty".to_owned()));
+    }
+    if argv.first().unwrap().to_bytes().is_empty() {
+        return Err(vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned()));
+    }
+
+    unistd::execv(&path, &argv)
+        .map(|_ok| ())
+        .map_err(|err| convert_nix_error(vm, err))
 }
 
 fn os_fspath(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
@@ -1368,7 +1482,7 @@ fn os_umask(mask: ModeT, _vm: &VirtualMachine) -> PyResult<ModeT> {
     Ok(ret_mask)
 }
 
-#[pystruct_sequence(name = "os.uname_result")]
+#[pystruct_sequence(module = "os", name = "uname_result")]
 #[derive(Debug)]
 #[cfg(unix)]
 struct UnameResult {
@@ -1408,7 +1522,7 @@ pub type Offset = libc::off_t;
 #[cfg(windows)]
 pub type Offset = libc::c_longlong;
 
-#[cfg(windows)]
+#[cfg(all(windows, target_env = "msvc"))]
 type InvalidParamHandler = extern "C" fn(
     *const libc::wchar_t,
     *const libc::wchar_t,
@@ -1416,7 +1530,7 @@ type InvalidParamHandler = extern "C" fn(
     libc::c_uint,
     libc::uintptr_t,
 );
-#[cfg(windows)]
+#[cfg(all(windows, target_env = "msvc"))]
 extern "C" {
     #[doc(hidden)]
     pub fn _set_thread_local_invalid_parameter_handler(
@@ -1424,7 +1538,7 @@ extern "C" {
     ) -> InvalidParamHandler;
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, target_env = "msvc"))]
 #[doc(hidden)]
 pub extern "C" fn silent_iph_handler(
     _: *const libc::wchar_t,
@@ -1438,7 +1552,7 @@ pub extern "C" fn silent_iph_handler(
 #[macro_export]
 macro_rules! suppress_iph {
     ($e:expr) => {{
-        #[cfg(windows)]
+        #[cfg(all(windows, target_env = "msvc"))]
         {
             let old = $crate::stdlib::os::_set_thread_local_invalid_parameter_handler(
                 $crate::stdlib::os::silent_iph_handler,
@@ -1447,7 +1561,7 @@ macro_rules! suppress_iph {
             $crate::stdlib::os::_set_thread_local_invalid_parameter_handler(old);
             ret
         }
-        #[cfg(not(windows))]
+        #[cfg(not(all(windows, target_env = "msvc")))]
         {
             $e
         }
@@ -1504,6 +1618,7 @@ struct UtimeArgs {
     _follow_symlinks: FollowSymlinks,
 }
 
+#[cfg(not(target_os = "wasi"))]
 fn os_utime(args: UtimeArgs, vm: &VirtualMachine) -> PyResult<()> {
     let parse_tup = |tup: PyTupleRef| -> Option<(i64, i64)> {
         let tup = tup.as_slice();
@@ -1924,13 +2039,14 @@ fn os_strerror(e: i32) -> String {
         .into_owned()
 }
 
-#[pystruct_sequence(name = "os.terminal_size")]
+#[pystruct_sequence(module = "os", name = "terminal_size")]
 #[allow(dead_code)]
 struct PyTerminalSize {
     columns: usize,
     lines: usize,
 }
 
+#[cfg(not(target_os = "wasi"))]
 fn os_get_terminal_size(fd: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
     let (columns, lines) = {
         #[cfg(unix)]
@@ -2056,7 +2172,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "access", os_access, Some(false), Some(false), None),
         SupportFunc::new(vm, "chdir", os_chdir, Some(false), None, None),
         // chflags Some, None Some
-        // chown Some Some Some
         SupportFunc::new(vm, "listdir", os_listdir, Some(false), None, None),
         SupportFunc::new(vm, "mkdir", os_mkdir, Some(false), Some(false), None),
         // mkfifo Some Some None
@@ -2073,6 +2188,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "symlink", os_symlink, None, Some(false), None),
         // truncate Some None None
         SupportFunc::new(vm, "unlink", os_remove, Some(false), Some(false), None),
+        #[cfg(not(target_os = "wasi"))]
         SupportFunc::new(vm, "utime", os_utime, Some(false), Some(false), Some(false)),
     ];
     #[cfg(unix)]
@@ -2080,7 +2196,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         SupportFunc::new(vm, "chmod", os_chmod, Some(false), Some(false), Some(false)),
         #[cfg(not(target_os = "redox"))]
         SupportFunc::new(vm, "chroot", os_chroot, Some(false), None, None),
+        SupportFunc::new(vm, "chown", os_chown, Some(true), Some(true), Some(true)),
+        SupportFunc::new(vm, "lchown", os_lchown, None, None, None),
+        SupportFunc::new(vm, "fchown", os_fchown, Some(true), None, Some(true)),
         SupportFunc::new(vm, "umask", os_umask, Some(false), Some(false), Some(false)),
+        SupportFunc::new(vm, "execv", os_execv, None, None, None),
     ]);
     let supports_fd = PySet::default().into_ref(vm);
     let supports_dir_fd = PySet::default().into_ref(vm);
@@ -2114,7 +2234,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "link" => ctx.new_function(os_link),
         "kill" => ctx.new_function(os_kill),
         "strerror" => ctx.new_function(os_strerror),
-        "get_terminal_size" => ctx.new_function(os_get_terminal_size),
 
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
@@ -2161,6 +2280,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "supports_follow_symlinks" => supports_follow_symlinks.into_object(),
     });
 
+    #[cfg(not(target_os = "wasi"))]
+    extend_module!(vm, module, {
+        "get_terminal_size" => ctx.new_function(os_get_terminal_size),
+    });
+
     extend_module_platform_specific(&vm, &module);
 
     module
@@ -2174,6 +2298,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
 
     extend_module!(vm, module, {
         "chmod" => ctx.new_function(os_chmod),
+        "execv" => ctx.new_function(os_execv), // TODO: windows
         "get_inheritable" => ctx.new_function(os_get_inheritable), // TODO: windows
         "get_blocking" => ctx.new_function(os_get_blocking),
         "getppid" => ctx.new_function(os_getppid),
@@ -2224,6 +2349,9 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
 
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
+        "chown" => ctx.new_function(os_chown),
+        "lchown" => ctx.new_function(os_lchown),
+        "fchown" => ctx.new_function(os_fchown),
         "chroot" => ctx.new_function(os_chroot),
         "getsid" => ctx.new_function(os_getsid),
         "setsid" => ctx.new_function(os_setsid),

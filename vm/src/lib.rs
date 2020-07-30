@@ -20,7 +20,6 @@ extern crate flamer;
 
 #[macro_use]
 extern crate bitflags;
-extern crate lexical;
 #[macro_use]
 extern crate log;
 #[macro_use]
@@ -56,6 +55,8 @@ macro_rules! py_compile_bytecode {
 pub mod macros;
 
 mod builtins;
+mod bytesinner;
+pub mod byteslike;
 pub mod cformat;
 mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
@@ -68,8 +69,8 @@ pub mod function;
 pub mod import;
 pub mod obj;
 pub mod py_serde;
-mod pyhash;
 pub mod pyobject;
+mod pystr;
 pub mod readline;
 pub mod scope;
 mod sequence;
@@ -84,6 +85,7 @@ mod vm;
 // pub use self::pyobject::Executor;
 pub use self::vm::{InitParameter, PySettings, VirtualMachine};
 pub use rustpython_bytecode::*;
+pub use rustpython_common as common;
 
 #[doc(hidden)]
 pub mod __exports {

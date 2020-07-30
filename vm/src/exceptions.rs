@@ -1,3 +1,4 @@
+use crate::common::cell::PyRwLock;
 use crate::function::PyFuncArgs;
 use crate::obj::objnone::PyNone;
 use crate::obj::objstr::{PyString, PyStringRef};
@@ -14,7 +15,6 @@ use crate::types::create_type;
 use crate::VirtualMachine;
 
 use itertools::Itertools;
-use parking_lot::RwLock;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
@@ -23,11 +23,11 @@ use crossbeam_utils::atomic::AtomicCell;
 
 #[pyclass]
 pub struct PyBaseException {
-    traceback: RwLock<Option<PyTracebackRef>>,
-    cause: RwLock<Option<PyBaseExceptionRef>>,
-    context: RwLock<Option<PyBaseExceptionRef>>,
+    traceback: PyRwLock<Option<PyTracebackRef>>,
+    cause: PyRwLock<Option<PyBaseExceptionRef>>,
+    context: PyRwLock<Option<PyBaseExceptionRef>>,
     suppress_context: AtomicCell<bool>,
-    args: RwLock<PyTupleRef>,
+    args: PyRwLock<PyTupleRef>,
 }
 
 impl fmt::Debug for PyBaseException {
@@ -51,11 +51,11 @@ impl PyValue for PyBaseException {
 impl PyBaseException {
     pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
         PyBaseException {
-            traceback: RwLock::new(None),
-            cause: RwLock::new(None),
-            context: RwLock::new(None),
+            traceback: PyRwLock::new(None),
+            cause: PyRwLock::new(None),
+            context: PyRwLock::new(None),
             suppress_context: AtomicCell::new(false),
-            args: RwLock::new(PyTuple::from(args).into_ref(vm)),
+            args: PyRwLock::new(PyTuple::from(args).into_ref(vm)),
         }
     }
 

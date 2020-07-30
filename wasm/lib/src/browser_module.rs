@@ -1,10 +1,10 @@
 use futures::Future;
 use js_sys::Promise;
-use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
+use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::import::import_file;
 use rustpython_vm::obj::{objdict::PyDictRef, objstr::PyStringRef, objtype::PyClassRef};
@@ -377,7 +377,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 pub fn setup_browser_module(vm: &mut VirtualMachine) {
-    let state = Arc::get_mut(&mut vm.state).unwrap();
+    let state = PyRc::get_mut(&mut vm.state).unwrap();
     state
         .stdlib_inits
         .insert("_browser".to_owned(), Box::new(make_module));

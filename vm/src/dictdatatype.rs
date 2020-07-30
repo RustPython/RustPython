@@ -1,9 +1,9 @@
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::obj::objstr::{PyString, PyStringRef};
-use crate::pyhash;
 use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use rustpython_common::hash;
 /// Ordered dictionary implementation.
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
@@ -13,25 +13,25 @@ use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 
 /// hash value of an object returned by __hash__
-type HashValue = pyhash::PyHash;
+type HashValue = hash::PyHash;
 /// index calculated by resolving collision
-type HashIndex = pyhash::PyHash;
+type HashIndex = hash::PyHash;
 /// entry index mapped in indices
 type EntryIndex = usize;
 
 pub struct Dict<T = PyObjectRef> {
-    inner: RwLock<InnerDict<T>>,
+    inner: PyRwLock<DictInner<T>>,
 }
 
-struct InnerDict<T> {
+struct DictInner<T> {
     size: usize,
     indices: HashMap<HashIndex, EntryIndex>,
     entries: Vec<Option<DictEntry<T>>>,
 }
 
-impl<T: Clone> Clone for InnerDict<T> {
+impl<T: Clone> Clone for DictInner<T> {
     fn clone(&self) -> Self {
-        InnerDict {
+        DictInner {
             size: self.size,
             indices: self.indices.clone(),
             entries: self.entries.clone(),
@@ -42,7 +42,7 @@ impl<T: Clone> Clone for InnerDict<T> {
 impl<T: Clone> Clone for Dict<T> {
     fn clone(&self) -> Self {
         Dict {
-            inner: RwLock::new(self.inner.read().clone()),
+            inner: PyRwLock::new(self.inner.read().clone()),
         }
     }
 }
@@ -50,7 +50,7 @@ impl<T: Clone> Clone for Dict<T> {
 impl<T> Default for Dict<T> {
     fn default() -> Self {
         Dict {
-            inner: RwLock::new(InnerDict {
+            inner: PyRwLock::new(DictInner {
                 size: 0,
                 indices: HashMap::new(),
                 entries: Vec::new(),
@@ -82,11 +82,11 @@ pub struct DictSize {
 }
 
 impl<T: Clone> Dict<T> {
-    fn borrow_value(&self) -> RwLockReadGuard<'_, InnerDict<T>> {
+    fn borrow_value(&self) -> PyRwLockReadGuard<'_, DictInner<T>> {
         self.inner.read()
     }
 
-    fn borrow_value_mut(&self) -> RwLockWriteGuard<'_, InnerDict<T>> {
+    fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, DictInner<T>> {
         self.inner.write()
     }
 
@@ -463,8 +463,8 @@ impl DictKey for &PyStringRef {
 impl DictKey for &str {
     fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStringRef
-        let raw_hash = pyhash::hash_value(&self.to_owned()).to_bigint().unwrap();
-        let raw_hash = pyhash::hash_bigint(&raw_hash);
+        let raw_hash = hash::hash_value(&self.to_owned()).to_bigint().unwrap();
+        let raw_hash = hash::hash_bigint(&raw_hash);
         let mut hasher = DefaultHasher::new();
         raw_hash.hash(&mut hasher);
         Ok(hasher.finish() as HashValue)

@@ -226,8 +226,6 @@ class TestCase(unittest.TestCase):
         self.assertEqual(list(a), [0, 1, 2, 3, 4, 5, 6])
 
     # Test a new_style class with __iter__ but no next() method
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_style_iter_class(self):
         class IterClass(object):
             def __iter__(self):

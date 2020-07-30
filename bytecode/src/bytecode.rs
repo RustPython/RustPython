@@ -409,14 +409,15 @@ impl CodeObject {
 
     /// Load a code object from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-        let data = lz4_compress::decompress(data)?;
+        let data = lz4_compression::decompress::decompress(data)
+            .map_err(|e| format!("lz4 error: {:?}", e))?;
         bincode::deserialize::<Self>(&data).map_err(|e| e.into())
     }
 
     /// Serialize this bytecode to bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
         let data = bincode::serialize(&self).expect("Code object must be serializable");
-        lz4_compress::compress(&data)
+        lz4_compression::compress::compress(&data)
     }
 
     pub fn get_constants(&self) -> impl Iterator<Item = &Constant> {
