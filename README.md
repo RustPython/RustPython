@@ -28,7 +28,7 @@ To test RustPython, do the following:
 
     $ git clone https://github.com/RustPython/RustPython
     $ cd RustPython
-      # if you're on windows:
+    # if you're on windows:
     $ powershell scripts\symlinks-to-hardlinks.ps1
     $ cargo run demo.py
     Hello, RustPython!
