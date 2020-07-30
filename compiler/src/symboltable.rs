@@ -97,10 +97,13 @@ pub struct Symbol {
     pub name: String,
     // pub table: SymbolTableRef,
     pub scope: SymbolScope,
+    // TODO(lynskylate@gmail.com): Use bitflags replace
     pub is_referenced: bool,
     pub is_assigned: bool,
     pub is_parameter: bool,
     pub is_free: bool,
+    pub is_annotated: bool,
+    pub is_imported: bool,
 
     // indicates if the symbol gets a value assigned by a named expression in a comprehension
     // this is required to correct the scope in the analysis.
@@ -121,6 +124,8 @@ impl Symbol {
             is_assigned: false,
             is_parameter: false,
             is_free: false,
+            is_annotated: false,
+            is_imported: false,
             is_assign_namedexpr_in_comprehension: false,
             is_iter: false,
         }
@@ -276,6 +281,11 @@ impl<'a> SymbolTableAnalyzer<'a> {
     fn analyze_unknown_symbol(&self, symbol: &mut Symbol) {
         if symbol.is_assigned || symbol.is_parameter {
             symbol.scope = SymbolScope::Local;
+        } else if !symbol.is_assigned && symbol.is_referenced {
+            // if symbol is referenced in its block, but not assigned to.
+            // https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.Symbol.is_free
+            symbol.scope = SymbolScope::Unknown;
+            symbol.is_free = true;
         } else {
             // Interesting stuff about the __class__ variable:
             // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
@@ -394,7 +404,10 @@ enum SymbolUsage {
     Nonlocal,
     Used,
     Assigned,
+    Imported,
+    AnnotationAssigned,
     Parameter,
+    AnnotationParameter,
     AssignedNamedExprInCompr,
     Iter,
 }
@@ -460,7 +473,11 @@ impl SymbolTableBuilder {
     }
 
     fn scan_parameter(&mut self, parameter: &ast::Parameter) -> SymbolTableResult {
-        self.register_name(&parameter.arg, SymbolUsage::Parameter)
+        if let Some(_annotation) = &parameter.annotation {
+            self.register_name(&parameter.arg, SymbolUsage::AnnotationParameter)
+        } else {
+            self.register_name(&parameter.arg, SymbolUsage::Parameter)
+        }
     }
 
     fn scan_parameters_annotations(&mut self, parameters: &[ast::Parameter]) -> SymbolTableResult {
@@ -564,12 +581,12 @@ impl SymbolTableBuilder {
                 for name in names {
                     if let Some(alias) = &name.alias {
                         // `import mymodule as myalias`
-                        self.register_name(alias, SymbolUsage::Assigned)?;
+                        self.register_name(alias, SymbolUsage::Imported)?;
                     } else {
                         // `import module`
                         self.register_name(
                             name.symbol.split('.').next().unwrap(),
-                            SymbolUsage::Assigned,
+                            SymbolUsage::Imported,
                         )?;
                     }
                 }
@@ -601,7 +618,12 @@ impl SymbolTableBuilder {
                 annotation,
                 value,
             } => {
-                self.scan_expression(target, &ExpressionContext::Store)?;
+                // https://github.com/python/cpython/blob/master/Python/symtable.c#L1233
+                if let ast::ExpressionType::Identifier { ref name } = target.node {
+                    self.register_name(name, SymbolUsage::AnnotationAssigned)?;
+                } else {
+                    self.scan_expression(target, &ExpressionContext::Store)?;
+                }
                 self.scan_expression(annotation, &ExpressionContext::Load)?;
                 if let Some(value) = value {
                     self.scan_expression(value, &ExpressionContext::Load)?;
@@ -984,8 +1006,20 @@ impl SymbolTableBuilder {
                     });
                 }
             }
+            SymbolUsage::Imported => {
+                symbol.is_assigned = true;
+                symbol.is_imported = true;
+            }
             SymbolUsage::Parameter => {
                 symbol.is_parameter = true;
+            }
+            SymbolUsage::AnnotationParameter => {
+                symbol.is_parameter = true;
+                symbol.is_annotated = true;
+            }
+            SymbolUsage::AnnotationAssigned => {
+                symbol.is_assigned = true;
+                symbol.is_annotated = true;
             }
             SymbolUsage::Assigned => {
                 symbol.is_assigned = true;
