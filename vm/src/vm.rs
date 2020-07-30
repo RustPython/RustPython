@@ -1407,11 +1407,11 @@ impl VirtualMachine {
     }
 
     pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<rustpython_common::hash::PyHash> {
+        // TODO: tp_hash
         let hash_obj = self.call_method(obj, "__hash__", vec![])?;
-        if let Some(hash_value) = hash_obj.payload_if_subclass::<PyInt>(self) {
-            Ok(hash_value.hash())
-        } else {
-            Err(self.new_type_error("__hash__ method should return an integer".to_owned()))
+        match hash_obj.payload_if_subclass::<PyInt>(self) {
+            Some(py_int) => Ok(rustpython_common::hash::hash_bigint(py_int.as_bigint())),
+            None => Err(self.new_type_error("__hash__ method should return an integer".to_owned())),
         }
     }
 
