@@ -99,8 +99,9 @@ macro_rules! def_array_enum {
             fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let val = $t::try_from_object(vm, obj)?;
-                        Ok(v.iter().filter(|&&a| a == val).count())
+                        Ok(<Option<$t>>::try_from_object(vm, obj)?.map_or(0, |val| {
+                            v.iter().filter(|&&a| a == val).count()
+                        }))
                     })*
                 }
             }
@@ -108,11 +109,15 @@ macro_rules! def_array_enum {
             fn remove(&mut self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()>{
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let val = $t::try_from_object(vm, obj)?;
-                        if let Some(pos) = v.iter().position(|&a| a == val) {
-                            v.remove(pos);
-                        } else {
-                            return Err(vm.new_value_error("array.remove(x): x not in array".to_owned()));
+                        let pos = <Option<$t>>::try_from_object(vm, obj)?.map_or(None, |val| {
+                            v.iter().position(|&a| a == val)
+                        });
+
+                        match pos {
+                            Some(x) => {
+                                v.remove(x);
+                            },
+                            None => return Err(vm.new_value_error("array.remove(x): x not in array".to_owned()))
                         }
                     })*
                 }
@@ -147,8 +152,9 @@ macro_rules! def_array_enum {
             fn index(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<usize>> {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let val = $t::try_from_object(vm, x)?;
-                        Ok(v.iter().position(|&a| a == val))
+                        Ok(<Option<$t>>::try_from_object(vm, x)?.map_or(None, |val| {
+                            v.iter().position(|&a| a == val)
+                        }))
                     })*
                 }
             }
