@@ -6,7 +6,6 @@ use crate::VirtualMachine;
 
 use winapi::shared::minwindef::UINT;
 use winapi::um::errhandlingapi::SetErrorMode;
-
 use itertools::Itertools;
 
 extern "C" {
