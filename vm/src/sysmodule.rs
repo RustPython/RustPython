@@ -1,4 +1,4 @@
-use std::{env, mem};
+use std::{env, mem, path};
 
 use crate::builtins;
 use crate::frame::FrameRef;
@@ -28,9 +28,18 @@ fn argv(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 fn executable(ctx: &PyContext) -> PyObjectRef {
-    if let Ok(path) = env::current_exe() {
-        if let Ok(path) = path.into_os_string().into_string() {
-            return ctx.new_str(path);
+    if let Some(exec_path) = env::args().next() {
+        if path::Path::new(&exec_path).is_absolute() {
+            return ctx.new_str(exec_path);
+        }
+        if let Ok(dir) = env::current_dir() {
+            if let Ok(dir) = dir.into_os_string().into_string() {
+                return ctx.new_str(format!(
+                    "{}/{}",
+                    dir,
+                    exec_path.strip_prefix("./").unwrap_or(&exec_path)
+                ));
+            }
         }
     }
     ctx.none()

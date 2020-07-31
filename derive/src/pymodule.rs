@@ -15,7 +15,7 @@ fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
 
 #[derive(Default)]
 struct Module {
-    items: HashSet<ModuleItem>,
+    items: HashSet<(ModuleItem, Vec<Meta>)>,
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -25,13 +25,13 @@ enum ModuleItem {
 }
 
 impl Module {
-    fn add_item(&mut self, item: ModuleItem, span: Span) -> Result<(), Diagnostic> {
+    fn add_item(&mut self, item: (ModuleItem, Vec<Meta>), span: Span) -> Result<(), Diagnostic> {
         if self.items.insert(item) {
             Ok(())
         } else {
             Err(Diagnostic::span_error(
                 span,
-                "Duplicate #[py*] attribute on pyimpl".to_owned(),
+                "Duplicate #[py*] attribute on pymodule".to_owned(),
             ))
         }
     }
@@ -70,12 +70,35 @@ impl Module {
         })
     }
 
+    fn extract_struct_sequence(ident: &Ident, meta: Meta) -> Result<ModuleItem, Diagnostic> {
+        let nesteds = meta_to_vec(meta).map_err(|meta| {
+            err_span!(
+                meta,
+                "#[pystruct_sequence = \"...\"] cannot be a name/value, you probably meant \
+                 #[pystruct_sequence(name = \"...\")]",
+            )
+        })?;
+
+        let item_meta = ItemMeta::from_nested_meta(
+            "pystruct_sequence",
+            &ident,
+            &nesteds,
+            ItemMeta::STRUCT_SEQUENCE_NAMES,
+        )?;
+        Ok(ModuleItem::Class {
+            item_ident: ident.clone(),
+            py_name: item_meta.simple_name()?,
+        })
+    }
+
     fn extract_item_from_syn(
         &mut self,
         attrs: &mut Vec<Attribute>,
         ident: &Ident,
     ) -> Result<(), Diagnostic> {
         let mut attr_idxs = Vec::new();
+        let mut items = Vec::new();
+        let mut cfgs = Vec::new();
         for (i, meta) in attrs
             .iter()
             .filter_map(|attr| attr.parse_meta().ok())
@@ -86,17 +109,28 @@ impl Module {
                 Some(name) => name,
                 None => continue,
             };
-            let item = match name.to_string().as_str() {
+            match name.to_string().as_str() {
                 "pyfunction" => {
                     attr_idxs.push(i);
-                    Self::extract_function(ident, meta)?
+                    items.push((Self::extract_function(ident, meta)?, meta_span));
                 }
-                "pyclass" => Self::extract_class(ident, meta)?,
+                "pyclass" => {
+                    items.push((Self::extract_class(ident, meta)?, meta_span));
+                }
+                "pystruct_sequence" => {
+                    items.push((Self::extract_struct_sequence(ident, meta)?, meta_span));
+                }
+                "cfg" => {
+                    cfgs.push(meta);
+                    continue;
+                }
                 _ => {
                     continue;
                 }
             };
-            self.add_item(item, meta_span)?;
+        }
+        for (item, meta) in items {
+            self.add_item((item, cfgs.clone()), meta)?;
         }
         let mut i = 0;
         let mut attr_idxs = &*attr_idxs;
@@ -130,7 +164,7 @@ fn extract_module_items(
         );
     }
 
-    let functions = module.items.into_iter().map(|item| match item {
+    let functions = module.items.into_iter().map(|(item, cfgs)| match item {
         ModuleItem::Function {
             item_ident,
             py_name,
@@ -140,6 +174,7 @@ fn extract_module_items(
                                                                           #module_name.to_owned(),
                                                                           #py_name.to_owned()));
             quote! {
+                #( #[ #cfgs ])*
                 vm.__module_set_attr(&module, #py_name, vm.ctx#new_func).unwrap();
             }
         }
