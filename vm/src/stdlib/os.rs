@@ -1971,7 +1971,6 @@ mod posix {
         unsafe { libc::WEXITSTATUS(status) }
     }
 
-    // TODO: os.wait[pid] for windows
     #[pyfunction]
     fn waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
         let mut status = 0;
@@ -2134,6 +2133,8 @@ mod nt {
     use super::*;
     pub(super) use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::RawHandle;
+    #[cfg(target_env = "msvc")]
+    use winapi::vc::vcruntime::intptr_t;
 
     pub(super) type OpenFlags = u32;
 
@@ -2288,6 +2289,46 @@ mod nt {
         };
 
         get_stats().map_err(|e| convert_io_error(vm, e))
+    }
+
+    // cwait is available on MSVC only (according to CPython)
+    #[cfg(target_env = "msvc")]
+    extern "C" {
+        fn _cwait(termstat: *mut i32, procHandle: intptr_t, action: i32) -> intptr_t;
+        fn _get_errno(pValue: *mut i32) -> i32;
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[pyfunction]
+    fn waitpid(pid: intptr_t, opt: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, i32)> {
+        const ECHILD: i32 = 10;
+        const EINVAL: i32 = 22;
+
+        let mut status = 0;
+        let pid = unsafe { suppress_iph!(_cwait(&mut status, pid, opt)) };
+        if pid == -1 {
+            let mut errno = 0;
+            unsafe { _get_errno(&mut errno) };
+            match errno {
+                ECHILD => Err(vm.new_exception_msg(
+                    vm.ctx.exceptions.os_error.clone(),
+                    "ECHILD: No spawned processes".to_owned(),
+                )),
+                EINVAL => Err(vm.new_exception_msg(
+                    vm.ctx.exceptions.os_error.clone(),
+                    "EINVAL: Invalid argument".to_owned(),
+                )),
+                _ => unreachable!(),
+            }
+        } else {
+            Ok((pid, status << 8))
+        }
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[pyfunction]
+    fn wait(vm: &VirtualMachine) -> PyResult<(intptr_t, i32)> {
+        waitpid(-1, 0, vm)
     }
 
     #[pyfunction]
