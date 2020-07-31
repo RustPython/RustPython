@@ -1,12 +1,23 @@
 use crate::bytecode::CodeFlags;
 use crate::obj::objcode::PyCodeRef;
+use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
+use rustpython_compiler::compile;
 
 fn dis_dis(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     // Method or function:
     if let Ok(co) = vm.get_attribute(obj.clone(), "__code__") {
         return dis_disassemble(co, vm);
+    }
+
+    // String:
+    if let Ok(co_str) = PyStringRef::try_from_object(vm, obj.clone()) {
+        let code = vm
+            .compile(co_str.as_str(), compile::Mode::Exec, "<string>".to_owned())
+            .map_err(|err| vm.new_syntax_error(&err))?
+            .into_object();
+        return dis_disassemble(code, vm);
     }
 
     dis_disassemble(obj, vm)
