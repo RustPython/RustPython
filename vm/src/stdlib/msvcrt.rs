@@ -4,9 +4,9 @@ use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::VirtualMachine;
 
+use itertools::Itertools;
 use winapi::shared::minwindef::UINT;
 use winapi::um::errhandlingapi::SetErrorMode;
-use itertools::Itertools;
 
 extern "C" {
     fn _getch() -> i32;
