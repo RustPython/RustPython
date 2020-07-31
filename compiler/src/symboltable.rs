@@ -473,11 +473,12 @@ impl SymbolTableBuilder {
     }
 
     fn scan_parameter(&mut self, parameter: &ast::Parameter) -> SymbolTableResult {
-        if let Some(_annotation) = &parameter.annotation {
-            self.register_name(&parameter.arg, SymbolUsage::AnnotationParameter)
+        let usage = if parameter.annotation.is_some() {
+            SymbolUsage::AnnotationParamater
         } else {
-            self.register_name(&parameter.arg, SymbolUsage::Parameter)
-        }
+            SymbolUsage::Parameter
+        };
+        self.regsiter_name(&parameter.arg, usage)
     }
 
     fn scan_parameters_annotations(&mut self, parameters: &[ast::Parameter]) -> SymbolTableResult {
