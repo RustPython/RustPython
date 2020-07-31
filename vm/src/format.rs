@@ -856,7 +856,7 @@ impl FormatString {
                 auto_argument_index += 1;
                 arguments
                     .args
-                    .get(auto_argument_index)
+                    .get(auto_argument_index - 1)
                     .cloned()
                     .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))
             }
