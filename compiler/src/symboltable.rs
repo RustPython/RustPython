@@ -97,7 +97,7 @@ pub struct Symbol {
     pub name: String,
     // pub table: SymbolTableRef,
     pub scope: SymbolScope,
-    // TODO(lynskylate@gmail.com): Use bitflags replace
+    // TODO: Use bitflags replace
     pub is_referenced: bool,
     pub is_assigned: bool,
     pub is_parameter: bool,
@@ -474,11 +474,11 @@ impl SymbolTableBuilder {
 
     fn scan_parameter(&mut self, parameter: &ast::Parameter) -> SymbolTableResult {
         let usage = if parameter.annotation.is_some() {
-            SymbolUsage::AnnotationParamater
+            SymbolUsage::AnnotationParameter
         } else {
             SymbolUsage::Parameter
         };
-        self.regsiter_name(&parameter.arg, usage)
+        self.register_name(&parameter.arg, usage)
     }
 
     fn scan_parameters_annotations(&mut self, parameters: &[ast::Parameter]) -> SymbolTableResult {
