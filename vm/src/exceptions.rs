@@ -40,6 +40,10 @@ impl fmt::Debug for PyBaseException {
 
 pub type PyBaseExceptionRef = PyRef<PyBaseException>;
 
+pub trait IntoPyException {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
+}
+
 impl PyValue for PyBaseException {
     const HAVE_DICT: bool = true;
 

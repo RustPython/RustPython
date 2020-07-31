@@ -10,11 +10,8 @@ use gethostname::gethostname;
 use nix::unistd::sethostname;
 use socket2::{Domain, Protocol, Socket, Type as SocketType};
 
-use super::os::convert_io_error;
-#[cfg(unix)]
-use super::os::convert_nix_error;
 use crate::byteslike::PyBytesLike;
-use crate::exceptions::PyBaseExceptionRef;
+use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytearray::PyByteArrayRef;
 use crate::obj::objbytes::PyBytesRef;
@@ -481,7 +478,7 @@ fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
 
 #[cfg(all(unix, not(target_os = "redox")))]
 fn socket_sethostname(hostname: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    sethostname(hostname.as_str()).map_err(|err| convert_nix_error(vm, err))
+    sethostname(hostname.as_str()).map_err(|err| err.into_pyexception(vm))
 }
 
 fn socket_inet_aton(ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
@@ -648,7 +645,7 @@ fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef
         let socket_timeout = vm.class("_socket", "timeout");
         vm.new_exception_msg(socket_timeout, "Timed out".to_owned())
     } else {
-        convert_io_error(vm, err)
+        err.into_pyexception(vm)
     }
 }
 

@@ -1,5 +1,5 @@
 /// Implementation of the _thread module
-use crate::exceptions;
+use crate::exceptions::{self, IntoPyException};
 use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objstr::PyStringRef;
@@ -256,7 +256,7 @@ fn thread_start_new_thread(
         vm.state.thread_count.fetch_add(1);
         thread_to_id(&handle.thread())
     })
-    .map_err(|err| super::os::convert_io_error(vm, err))
+    .map_err(|err| err.into_pyexception(vm))
 }
 
 thread_local!(static SENTINELS: RefCell<Vec<PyLockRef>> = RefCell::default());

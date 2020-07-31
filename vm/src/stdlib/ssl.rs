@@ -1,6 +1,7 @@
 use super::socket::PySocketRef;
 use crate::byteslike::PyBytesLike;
-use crate::exceptions::PyBaseExceptionRef;
+use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
+use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
 use crate::obj::objbytearray::PyByteArrayRef;
 use crate::obj::objstr::PyStringRef;
@@ -11,11 +12,6 @@ use crate::pyobject::{
 use crate::types::create_type;
 use crate::VirtualMachine;
 
-use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
-use std::convert::TryFrom;
-use std::ffi::{CStr, CString};
-use std::fmt;
-
 use foreign_types_shared::{ForeignType, ForeignTypeRef};
 use openssl::{
     asn1::{Asn1Object, Asn1ObjectRef},
@@ -24,6 +20,9 @@ use openssl::{
     ssl::{self, SslContextBuilder, SslOptions, SslVerifyMode},
     x509::{self, X509Object, X509Ref, X509},
 };
+use std::convert::TryFrom;
+use std::ffi::{CStr, CString};
+use std::fmt;
 
 mod sys {
     #![allow(non_camel_case_types, unused)]
@@ -147,7 +146,7 @@ fn ssl_enum_certificates(store_name: PyStringRef, vm: &VirtualMachine) -> PyResu
     });
     let certs = certs
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| super::os::convert_io_error(vm, e))?;
+        .map_err(|e: std::io::Error| e.into_pyexception(vm))?;
     Ok(vm.ctx.new_list(certs))
 }
 
@@ -652,7 +651,7 @@ fn convert_openssl_error(vm: &VirtualMachine, err: ErrorStack) -> PyBaseExceptio
 }
 fn convert_ssl_error(vm: &VirtualMachine, e: ssl::Error) -> PyBaseExceptionRef {
     match e.into_io_error() {
-        Ok(io_err) => super::os::convert_io_error(vm, io_err),
+        Ok(io_err) => io_err.into_pyexception(vm),
         Err(e) => convert_openssl_error(vm, e.ssl_error().unwrap().clone()),
     }
 }
