@@ -1,4 +1,5 @@
 use std::fmt;
+use std::iter::FromIterator;
 use std::mem::size_of;
 use std::ops::{DerefMut, Range};
 
@@ -44,6 +45,12 @@ impl From<Vec<PyObjectRef>> for PyList {
         PyList {
             elements: PyRwLock::new(elements),
         }
+    }
+}
+
+impl FromIterator<PyObjectRef> for PyList {
+    fn from_iter<T: IntoIterator<Item = PyObjectRef>>(iter: T) -> Self {
+        Vec::from_iter(iter).into()
     }
 }
 

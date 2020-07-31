@@ -1,6 +1,5 @@
+use crate::exceptions::PyBaseExceptionRef;
 use crate::function::PyFuncArgs;
-use crate::obj::objint::PyInt;
-use crate::obj::objstr::PyString;
 use crate::obj::{objstr, objtype};
 use crate::pyobject::{IntoPyObject, ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
@@ -558,9 +557,21 @@ pub(crate) enum FormatParseError {
     MissingStartBracket,
     UnescapedStartBracketInLiteral,
     InvalidFormatSpecifier,
+    UnknownConversion,
     EmptyAttribute,
     MissingRightBracket,
     InvalidCharacterAfterRightBracket,
+}
+
+impl FormatParseError {
+    pub fn into_pyobject(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            FormatParseError::UnmatchedBracket => {
+                vm.new_value_error("expected '}' before end of string".to_owned())
+            }
+            _ => vm.new_value_error("Unexpected error parsing format string".to_owned()),
+        }
+    }
 }
 
 impl FromStr for FormatSpec {
@@ -622,12 +633,12 @@ pub(crate) enum FieldType {
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct FieldName {
-    field_type: FieldType,
-    parts: Vec<FieldNamePart>,
+    pub(crate) field_type: FieldType,
+    pub(crate) parts: Vec<FieldNamePart>,
 }
 
 impl FieldName {
-    fn parse(text: &str) -> Result<FieldName, FormatParseError> {
+    pub(crate) fn parse(text: &str) -> Result<FieldName, FormatParseError> {
         let mut chars = text.chars().peekable();
         let mut first = String::new();
         for ch in chars.peeking_take_while(|ch| *ch != '.' && *ch != '[') {
@@ -652,42 +663,18 @@ impl FieldName {
 }
 
 #[derive(Debug, PartialEq)]
-enum FormatPart {
-    Field(FieldName, String),
+pub(crate) enum FormatPart {
+    Field {
+        field_name: String,
+        preconversion_spec: Option<char>,
+        format_spec: String,
+    },
     Literal(String),
-}
-
-impl FormatPart {
-    fn is_auto(&self) -> bool {
-        match self {
-            FormatPart::Field(
-                FieldName {
-                    field_type: FieldType::AutoSpec,
-                    ..
-                },
-                _,
-            ) => true,
-            _ => false,
-        }
-    }
-
-    fn is_index(&self) -> bool {
-        match self {
-            FormatPart::Field(
-                FieldName {
-                    field_type: FieldType::IndexSpec(_),
-                    ..
-                },
-                _,
-            ) => true,
-            _ => false,
-        }
-    }
 }
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct FormatString {
-    format_parts: Vec<FormatPart>,
+    pub(crate) format_parts: Vec<FormatPart>,
 }
 
 impl FormatString {
@@ -744,22 +731,31 @@ impl FormatString {
         // before the bang is a keyword or arg index, after the comma is maybe a conversor spec.
         let arg_part = parts[0];
 
-        let preconversor_spec = if parts.len() > 1 {
-            "!".to_owned() + parts[1]
+        let preconversion_spec = if let Some(conversion) = parts.get(1) {
+            let mut chars = conversion.chars();
+            if let Some(ch) = chars.next() {
+                // conversions are only every one character
+                if chars.next().is_some() {
+                    return Err(FormatParseError::UnknownConversion);
+                }
+                Some(ch)
+            } else {
+                return Err(FormatParseError::UnknownConversion);
+            }
         } else {
-            String::new()
+            None
         };
-        let format_spec = preconversor_spec + &format_spec;
-        Ok(FormatPart::Field(FieldName::parse(arg_part)?, format_spec))
+
+        Ok(FormatPart::Field {
+            field_name: arg_part.to_owned(),
+            preconversion_spec,
+            format_spec,
+        })
     }
 
-    fn parse_spec<'a>(
-        text: &'a str,
-        args: &'a PyFuncArgs,
-    ) -> Result<(FormatPart, &'a str), FormatParseError> {
+    fn parse_spec(text: &str) -> Result<(FormatPart, &str), FormatParseError> {
         let mut nested = false;
         let mut end_bracket_pos = None;
-        let mut spec_template = String::new();
         let mut left = String::new();
 
         // There may be one layer nesting brackets in spec
@@ -773,30 +769,18 @@ impl FormatString {
                     return Err(FormatParseError::InvalidFormatSpecifier);
                 } else {
                     nested = true;
+                    left.push(c);
                     continue;
                 }
             } else if c == '}' {
                 if nested {
                     nested = false;
-                    if let Some(obj) = args.kwargs.get(&spec_template) {
-                        if let Some(s) = (*obj).clone().payload::<PyString>() {
-                            left.push_str(s.as_str());
-                        } else if let Some(i) = (*obj).clone().payload::<PyInt>() {
-                            left.push_str(&PyInt::repr(i));
-                        } else {
-                            return Err(FormatParseError::InvalidFormatSpecifier);
-                        }
-                    } else {
-                        // CPython return KeyError here
-                        return Err(FormatParseError::InvalidFormatSpecifier);
-                    }
+                    left.push(c);
                     continue;
                 } else {
                     end_bracket_pos = Some(idx);
                     break;
                 }
-            } else if nested {
-                spec_template.push(c);
             } else {
                 left.push(c);
             }
@@ -813,13 +797,20 @@ impl FormatString {
     fn format_internal(
         &self,
         vm: &VirtualMachine,
-        mut field_func: impl FnMut(&FieldType) -> PyResult,
-    ) -> PyResult {
+        field_func: &mut impl FnMut(&FieldType) -> PyResult,
+    ) -> PyResult<String> {
         let mut final_string = String::new();
         for part in &self.format_parts {
             let result_string: String = match part {
-                FormatPart::Field(FieldName { field_type, parts }, format_spec) => {
-                    let mut argument = field_func(field_type)?;
+                FormatPart::Field {
+                    field_name,
+                    preconversion_spec,
+                    format_spec,
+                } => {
+                    let FieldName { field_type, parts } =
+                        FieldName::parse(field_name.as_str()).map_err(|e| e.into_pyobject(vm))?;
+
+                    let mut argument = field_func(&field_type)?;
 
                     for name_part in parts {
                         match name_part {
@@ -831,54 +822,66 @@ impl FormatString {
                                 argument = argument.get_item(&index.into_pyobject(vm)?, vm)?;
                             }
                             FieldNamePart::StringIndex(index) => {
-                                argument = argument.get_item(index, vm)?;
+                                argument = argument.get_item(&index, vm)?;
                             }
                         }
                     }
 
-                    let value = call_object_format(vm, argument, &format_spec)?;
+                    let nested_format =
+                        FormatString::from_str(&format_spec).map_err(|e| e.into_pyobject(vm))?;
+                    let format_spec = nested_format.format_internal(vm, field_func)?;
+
+                    let value =
+                        call_object_format(vm, argument, *preconversion_spec, &format_spec)?;
                     objstr::clone_value(&value)
                 }
                 FormatPart::Literal(literal) => literal.clone(),
             };
             final_string.push_str(&result_string);
         }
-        Ok(vm.ctx.new_str(final_string))
+        Ok(final_string)
     }
 
-    pub(crate) fn format(&self, arguments: &PyFuncArgs, vm: &VirtualMachine) -> PyResult {
-        if self.format_parts.iter().any(FormatPart::is_auto)
-            && self.format_parts.iter().any(FormatPart::is_index)
-        {
-            return Err(vm.new_value_error(
-                "cannot switch from automatic field numbering to manual field specification"
-                    .to_owned(),
-            ));
-        }
-
-        let mut auto_argument_index: usize = 1;
-        self.format_internal(vm, |field_type| match field_type {
+    pub(crate) fn format(&self, arguments: &PyFuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+        let mut auto_argument_index: usize = 0;
+        let mut seen_index = false;
+        self.format_internal(vm, &mut |field_type| match field_type {
             FieldType::AutoSpec => {
+                if seen_index {
+                    return Err(vm.new_value_error(
+                        "cannot switch from manual field specification to automatic field numbering"
+                            .to_owned(),
+                    ));
+                }
                 auto_argument_index += 1;
                 arguments
                     .args
-                    .get(auto_argument_index - 1)
+                    .get(auto_argument_index)
                     .cloned()
                     .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))
             }
-            FieldType::IndexSpec(index) => arguments
-                .args
-                .get(*index + 1)
-                .cloned()
-                .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned())),
+            FieldType::IndexSpec(index) => {
+                if auto_argument_index != 0 {
+                    return Err(vm.new_value_error(
+                        "cannot switch from automatic field numbering to manual field specification"
+                            .to_owned(),
+                    ));
+                }
+                seen_index = true;
+                arguments
+                    .args
+                    .get(*index)
+                    .cloned()
+                    .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))
+            }
             FieldType::KeywordSpec(keyword) => arguments
                 .get_optional_kwarg(&keyword)
                 .ok_or_else(|| vm.new_key_error(vm.new_str(keyword.to_owned()))),
         })
     }
 
-    pub(crate) fn format_map(&self, dict: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.format_internal(vm, |field_type| match field_type {
+    pub(crate) fn format_map(&self, dict: &PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        self.format_internal(vm, &mut |field_type| match field_type {
             FieldType::AutoSpec | FieldType::IndexSpec(_) => {
                 Err(vm.new_value_error("Format string contains positional fields".to_owned()))
             }
@@ -887,16 +890,20 @@ impl FormatString {
     }
 }
 
-fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &str) -> PyResult {
-    let (preconversor, new_format_spec) = FormatPreconversor::parse_and_consume(format_spec);
-    let argument = match preconversor {
+fn call_object_format(
+    vm: &VirtualMachine,
+    argument: PyObjectRef,
+    preconversion_spec: Option<char>,
+    format_spec: &str,
+) -> PyResult {
+    let argument = match preconversion_spec.and_then(|c| FormatPreconversor::from_char(c)) {
         Some(FormatPreconversor::Str) => vm.call_method(&argument, "__str__", vec![])?,
         Some(FormatPreconversor::Repr) => vm.call_method(&argument, "__repr__", vec![])?,
         Some(FormatPreconversor::Ascii) => vm.call_method(&argument, "__repr__", vec![])?,
         Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", vec![])?,
         None => argument,
     };
-    let returned_type = vm.ctx.new_str(new_format_spec.to_owned());
+    let returned_type = vm.ctx.new_str(format_spec.to_owned());
 
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.types.str_type) {
@@ -909,20 +916,20 @@ fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &
 
 pub(crate) trait FromTemplate<'a>: Sized {
     type Err;
-    fn from_str(s: &'a str, arg: &'a PyFuncArgs) -> Result<Self, Self::Err>;
+    fn from_str(s: &'a str) -> Result<Self, Self::Err>;
 }
 
 impl<'a> FromTemplate<'a> for FormatString {
     type Err = FormatParseError;
 
-    fn from_str(text: &'a str, args: &'a PyFuncArgs) -> Result<Self, Self::Err> {
+    fn from_str(text: &'a str) -> Result<Self, Self::Err> {
         let mut cur_text: &str = text;
         let mut parts: Vec<FormatPart> = Vec::new();
         while !cur_text.is_empty() {
             // Try to parse both literals and bracketed format parts util we
             // run out of text
             cur_text = FormatString::parse_literal(cur_text)
-                .or_else(|_| FormatString::parse_spec(cur_text, &args))
+                .or_else(|_| FormatString::parse_spec(cur_text))
                 .map(|(part, new_text)| {
                     parts.push(part);
                     new_text
@@ -1061,21 +1068,17 @@ mod tests {
         let expected = Ok(FormatString {
             format_parts: vec![
                 FormatPart::Literal("abcd".to_owned()),
-                FormatPart::Field(
-                    FieldName {
-                        field_type: FieldType::IndexSpec(1),
-                        parts: Vec::new(),
-                    },
-                    String::new(),
-                ),
+                FormatPart::Field {
+                    field_name: "1".to_owned(),
+                    preconversion_spec: None,
+                    format_spec: String::new(),
+                },
                 FormatPart::Literal(":".to_owned()),
-                FormatPart::Field(
-                    FieldName {
-                        field_type: FieldType::KeywordSpec("key".to_owned()),
-                        parts: Vec::new(),
-                    },
-                    String::new(),
-                ),
+                FormatPart::Field {
+                    field_name: "key".to_owned(),
+                    preconversion_spec: None,
+                    format_spec: String::new(),
+                },
             ],
         });
 
@@ -1098,13 +1101,11 @@ mod tests {
         let expected = Ok(FormatString {
             format_parts: vec![
                 FormatPart::Literal("{".to_owned()),
-                FormatPart::Field(
-                    FieldName {
-                        field_type: FieldType::KeywordSpec("key".to_owned()),
-                        parts: Vec::new(),
-                    },
-                    String::new(),
-                ),
+                FormatPart::Field {
+                    field_name: "key".to_owned(),
+                    preconversion_spec: None,
+                    format_spec: String::new(),
+                },
                 FormatPart::Literal("}ddfe".to_owned()),
             ],
         });
