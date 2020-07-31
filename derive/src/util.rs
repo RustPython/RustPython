@@ -88,6 +88,7 @@ pub struct ItemMeta<'a> {
 
 impl<'a> ItemMeta<'a> {
     pub const SIMPLE_NAMES: &'static [&'static str] = &["name"];
+    pub const STRUCT_SEQUENCE_NAMES: &'static [&'static str] = &["module", "name"];
     pub const ATTRIBUTE_NAMES: &'static [&'static str] = &["name", "magic"];
     pub const PROPERTY_NAMES: &'static [&'static str] = &["name", "magic", "setter"];
 
