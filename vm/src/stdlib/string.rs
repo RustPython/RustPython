@@ -76,9 +76,9 @@ mod _string {
         let field_name = FieldName::parse(text.as_str()).map_err(|e| e.into_pyobject(vm))?;
 
         let first = match field_name.field_type {
-            FieldType::AutoSpec => vm.new_str("".to_owned()),
-            FieldType::IndexSpec(index) => index.into_pyobject(vm)?,
-            FieldType::KeywordSpec(attribute) => attribute.into_pyobject(vm)?,
+            FieldType::Auto => vm.new_str("".to_owned()),
+            FieldType::Index(index) => index.into_pyobject(vm)?,
+            FieldType::Keyword(attribute) => attribute.into_pyobject(vm)?,
         };
 
         let rest = field_name

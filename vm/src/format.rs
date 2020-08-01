@@ -626,9 +626,9 @@ impl FieldNamePart {
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum FieldType {
-    AutoSpec,
-    IndexSpec(usize),
-    KeywordSpec(String),
+    Auto,
+    Index(usize),
+    Keyword(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -646,11 +646,11 @@ impl FieldName {
         }
 
         let field_type = if first.is_empty() {
-            FieldType::AutoSpec
+            FieldType::Auto
         } else if let Ok(index) = first.parse::<usize>() {
-            FieldType::IndexSpec(index)
+            FieldType::Index(index)
         } else {
-            FieldType::KeywordSpec(first)
+            FieldType::Keyword(first)
         };
 
         let mut parts = Vec::new();
@@ -846,7 +846,7 @@ impl FormatString {
         let mut auto_argument_index: usize = 0;
         let mut seen_index = false;
         self.format_internal(vm, &mut |field_type| match field_type {
-            FieldType::AutoSpec => {
+            FieldType::Auto => {
                 if seen_index {
                     return Err(vm.new_value_error(
                         "cannot switch from manual field specification to automatic field numbering"
@@ -860,7 +860,7 @@ impl FormatString {
                     .cloned()
                     .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))
             }
-            FieldType::IndexSpec(index) => {
+            FieldType::Index(index) => {
                 if auto_argument_index != 0 {
                     return Err(vm.new_value_error(
                         "cannot switch from automatic field numbering to manual field specification"
@@ -874,7 +874,7 @@ impl FormatString {
                     .cloned()
                     .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))
             }
-            FieldType::KeywordSpec(keyword) => arguments
+            FieldType::Keyword(keyword) => arguments
                 .get_optional_kwarg(&keyword)
                 .ok_or_else(|| vm.new_key_error(vm.new_str(keyword.to_owned()))),
         })
@@ -882,10 +882,10 @@ impl FormatString {
 
     pub(crate) fn format_map(&self, dict: &PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         self.format_internal(vm, &mut |field_type| match field_type {
-            FieldType::AutoSpec | FieldType::IndexSpec(_) => {
+            FieldType::Auto | FieldType::Index(_) => {
                 Err(vm.new_value_error("Format string contains positional fields".to_owned()))
             }
-            FieldType::KeywordSpec(keyword) => dict.get_item(keyword, &vm),
+            FieldType::Keyword(keyword) => dict.get_item(keyword, &vm),
         })
     }
 }
@@ -896,7 +896,7 @@ fn call_object_format(
     preconversion_spec: Option<char>,
     format_spec: &str,
 ) -> PyResult {
-    let argument = match preconversion_spec.and_then(|c| FormatPreconversor::from_char(c)) {
+    let argument = match preconversion_spec.and_then(FormatPreconversor::from_char) {
         Some(FormatPreconversor::Str) => vm.call_method(&argument, "__str__", vec![])?,
         Some(FormatPreconversor::Repr) => vm.call_method(&argument, "__repr__", vec![])?,
         Some(FormatPreconversor::Ascii) => vm.call_method(&argument, "__repr__", vec![])?,
@@ -1126,28 +1126,28 @@ mod tests {
         assert_eq!(
             FieldName::parse(""),
             Ok(FieldName {
-                field_type: FieldType::AutoSpec,
+                field_type: FieldType::Auto,
                 parts: Vec::new(),
             })
         );
         assert_eq!(
             FieldName::parse("0"),
             Ok(FieldName {
-                field_type: FieldType::IndexSpec(0),
+                field_type: FieldType::Index(0),
                 parts: Vec::new(),
             })
         );
         assert_eq!(
             FieldName::parse("key"),
             Ok(FieldName {
-                field_type: FieldType::KeywordSpec("key".to_owned()),
+                field_type: FieldType::Keyword("key".to_owned()),
                 parts: Vec::new(),
             })
         );
         assert_eq!(
             FieldName::parse("key.attr[0][string]"),
             Ok(FieldName {
-                field_type: FieldType::KeywordSpec("key".to_owned()),
+                field_type: FieldType::Keyword("key".to_owned()),
                 parts: vec![
                     FieldNamePart::Attribute("attr".to_owned()),
                     FieldNamePart::Index(0),
