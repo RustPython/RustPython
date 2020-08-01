@@ -2568,6 +2568,31 @@ def skip_if_buggy_ucrt_strfptime(test):
             _buggy_ucrt = False
     return unittest.skip("buggy MSVC UCRT strptime/strftime")(test) if _buggy_ucrt else test
 
+
+def skip_if_broken_multiprocessing_synchronize():
+    """
+    Skip tests if the multiprocessing.synchronize module is missing, if there
+    is no available semaphore implementation, or if creating a lock raises an
+    OSError (on Linux only).
+    """
+
+    # Skip tests if the _multiprocessing extension is missing.
+    import_module('_multiprocessing')
+
+    # Skip tests if there is no available semaphore implementation:
+    # multiprocessing.synchronize requires _multiprocessing.SemLock.
+    synchronize = import_module('multiprocessing.synchronize')
+
+    if sys.platform == "linux":
+        try:
+            # bpo-38377: On Linux, creating a semaphore fails with OSError
+            # if the current user does not have the permission to create
+            # a file in /dev/shm/ directory.
+            synchronize.Lock(ctx=None)
+        except OSError as exc:
+            raise unittest.SkipTest(f"broken multiprocessing SemLock: {exc!r}")
+
+
 class PythonSymlink:
     """Creates a symlink for the current Python executable"""
     def __init__(self, link=None):
