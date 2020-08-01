@@ -148,9 +148,9 @@ impl PyBaseException {
 
 /// Print exception chain
 pub fn print_exception(vm: &VirtualMachine, exc: &PyBaseExceptionRef) {
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
-    let _ = write_exception(&mut stdout, vm, exc);
+    let stderr = io::stderr();
+    let mut stderr = stderr.lock();
+    let _ = write_exception(&mut stderr, vm, exc);
 }
 
 pub fn write_exception<W: Write>(
