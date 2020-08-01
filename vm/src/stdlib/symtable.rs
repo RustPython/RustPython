@@ -249,7 +249,7 @@ impl PySymbol {
 
     #[pymethod(name = "is_namespace")]
     fn is_namespace(&self) -> bool {
-        self.namespaces.is_empty()
+        !self.namespaces.is_empty()
     }
 
     #[pymethod(name = "is_annotated")]
