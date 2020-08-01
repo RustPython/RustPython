@@ -591,36 +591,40 @@ pub(crate) enum FieldNamePart {
 impl FieldNamePart {
     fn parse_part(
         chars: &mut impl PeekingNext<Item = char>,
-    ) -> Result<FieldNamePart, FormatParseError> {
-        let ch = chars.next().unwrap();
-        if ch == '.' {
-            let mut attribute = String::new();
-            for ch in chars.peeking_take_while(|ch| *ch != '.' && *ch != '[') {
-                attribute.push(ch);
-            }
-            if attribute.is_empty() {
-                Err(FormatParseError::EmptyAttribute)
-            } else {
-                Ok(FieldNamePart::Attribute(attribute))
-            }
-        } else if ch == '[' {
-            let mut index = String::new();
-            for ch in chars {
-                if ch == ']' {
-                    return if index.is_empty() {
+    ) -> Result<Option<FieldNamePart>, FormatParseError> {
+        chars
+            .next()
+            .map(|ch| match ch {
+                '.' => {
+                    let mut attribute = String::new();
+                    for ch in chars.peeking_take_while(|ch| *ch != '.' && *ch != '[') {
+                        attribute.push(ch);
+                    }
+                    if attribute.is_empty() {
                         Err(FormatParseError::EmptyAttribute)
-                    } else if let Ok(index) = index.parse::<usize>() {
-                        Ok(FieldNamePart::Index(index))
                     } else {
-                        Ok(FieldNamePart::StringIndex(index))
-                    };
+                        Ok(FieldNamePart::Attribute(attribute))
+                    }
                 }
-                index.push(ch);
-            }
-            Err(FormatParseError::MissingRightBracket)
-        } else {
-            Err(FormatParseError::InvalidCharacterAfterRightBracket)
-        }
+                '[' => {
+                    let mut index = String::new();
+                    for ch in chars {
+                        if ch == ']' {
+                            return if index.is_empty() {
+                                Err(FormatParseError::EmptyAttribute)
+                            } else if let Ok(index) = index.parse::<usize>() {
+                                Ok(FieldNamePart::Index(index))
+                            } else {
+                                Ok(FieldNamePart::StringIndex(index))
+                            };
+                        }
+                        index.push(ch);
+                    }
+                    Err(FormatParseError::MissingRightBracket)
+                }
+                _ => Err(FormatParseError::InvalidCharacterAfterRightBracket),
+            })
+            .transpose()
     }
 }
 
@@ -633,8 +637,8 @@ pub(crate) enum FieldType {
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct FieldName {
-    pub(crate) field_type: FieldType,
-    pub(crate) parts: Vec<FieldNamePart>,
+    pub field_type: FieldType,
+    pub parts: Vec<FieldNamePart>,
 }
 
 impl FieldName {
@@ -654,8 +658,8 @@ impl FieldName {
         };
 
         let mut parts = Vec::new();
-        while chars.peek().is_some() {
-            parts.push(FieldNamePart::parse_part(&mut chars)?)
+        while let Some(part) = FieldNamePart::parse_part(&mut chars)? {
+            parts.push(part)
         }
 
         Ok(FieldName { field_type, parts })
@@ -674,7 +678,7 @@ pub(crate) enum FormatPart {
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct FormatString {
-    pub(crate) format_parts: Vec<FormatPart>,
+    pub format_parts: Vec<FormatPart>,
 }
 
 impl FormatString {
