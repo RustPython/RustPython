@@ -281,11 +281,6 @@ impl<'a> SymbolTableAnalyzer<'a> {
     fn analyze_unknown_symbol(&self, symbol: &mut Symbol) {
         if symbol.is_assigned || symbol.is_parameter {
             symbol.scope = SymbolScope::Local;
-        } else if !symbol.is_assigned && symbol.is_referenced {
-            // if symbol is referenced in its block, but not assigned to.
-            // https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.Symbol.is_free
-            symbol.scope = SymbolScope::Unknown;
-            symbol.is_free = true;
         } else {
             // Interesting stuff about the __class__ variable:
             // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
