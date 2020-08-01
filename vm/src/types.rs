@@ -87,6 +87,7 @@ pub struct TypeZoo {
     pub tuple_type: PyClassRef,
     pub tupleiterator_type: PyClassRef,
     pub set_type: PyClassRef,
+    pub setiterator_type: PyClassRef,
     pub staticmethod_type: PyClassRef,
     pub super_type: PyClassRef,
     pub str_type: PyClassRef,
@@ -161,6 +162,7 @@ impl TypeZoo {
         let dictitemiterator_type = create_type("dict_itemiterator", &type_type, &object_type);
         let set_type = create_type("set", &type_type, &object_type);
         let frozenset_type = create_type("frozenset", &type_type, &object_type);
+        let setiterator_type = create_type("set_iterator", &type_type, &object_type);
         let int_type = create_type("int", &type_type, &object_type);
         let float_type = create_type("float", &type_type, &object_type);
         let frame_type = create_type("frame", &type_type, &object_type);
@@ -220,6 +222,7 @@ impl TypeZoo {
             dictitemiterator_type,
             set_type,
             frozenset_type,
+            setiterator_type,
             tuple_type,
             tupleiterator_type,
             iter_type,
