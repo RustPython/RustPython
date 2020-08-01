@@ -290,6 +290,10 @@ class EnvBuilder:
 
     def _setup_pip(self, context):
         """Installs or upgrades pip in a virtual environment"""
+        # TODO: RustPython
+        msg = ("Pip isn't supported yet. To create a virtual environment"
+               "without pip, call venv with the --without-pip flag.")
+        raise NotImplementedError(msg)
         # We run ensurepip in isolated mode to avoid side effects from
         # environment vars, the current directory and anything else
         # intended for the global Python environment
