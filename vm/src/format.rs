@@ -1082,10 +1082,7 @@ mod tests {
             ],
         });
 
-        assert_eq!(
-            FormatString::from_str("abcd{1}:{key}"),
-            expected
-        );
+        assert_eq!(FormatString::from_str("abcd{1}:{key}"), expected);
     }
 
     #[test]
@@ -1110,10 +1107,7 @@ mod tests {
             ],
         });
 
-        assert_eq!(
-            FormatString::from_str("{{{key}}}ddfe"),
-            expected
-        );
+        assert_eq!(FormatString::from_str("{{{key}}}ddfe"), expected);
     }
 
     #[test]
