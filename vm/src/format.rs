@@ -685,7 +685,7 @@ impl FormatString {
         if first_char == '{' || first_char == '}' {
             let maybe_next_char = chars.next();
             // if we see a bracket, it has to be escaped by doubling up to be in a literal
-            if maybe_next_char.is_some() && maybe_next_char.unwrap() != first_char {
+            if maybe_next_char.is_none() || maybe_next_char.unwrap() != first_char {
                 return Err(FormatParseError::UnescapedStartBracketInLiteral);
             } else {
                 return Ok((first_char, chars.as_str()));
