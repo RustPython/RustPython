@@ -809,7 +809,7 @@ impl ExecutingFrame<'_> {
                     Box::new(|name| !name.starts_with('_'))
                 };
             for (k, v) in &dict {
-                let k = vm.to_str(&k)?;
+                let k = PyStringRef::try_from_object(vm, k)?;
                 let k = k.as_str();
                 if filter_pred(k) {
                     self.scope.store_name(&vm, k, v);
