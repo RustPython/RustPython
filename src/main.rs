@@ -75,7 +75,7 @@ fn main() {
                 }
             }
         } else {
-            print_exception(&vm, &err);
+            print_exception(&vm, err);
         }
         process::exit(1);
     }

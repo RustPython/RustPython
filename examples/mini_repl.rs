@@ -103,7 +103,7 @@ fn main() -> vm::pyobject::PyResult<()> {
                 }
             }
             Err(e) => {
-                vm::exceptions::print_exception(&vm, &e);
+                vm::exceptions::print_exception(&vm, e);
             }
         }
     }

@@ -19,7 +19,7 @@ fn main() -> vm::pyobject::PyResult<()> {
     );
 
     if let Err(err) = res {
-        vm::exceptions::print_exception(&vm, &err)
+        vm::exceptions::print_exception(&vm, err);
     }
 
     Ok(())

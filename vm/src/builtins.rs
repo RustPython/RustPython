@@ -35,6 +35,7 @@ mod decl {
     use crate::scope::Scope;
     #[cfg(feature = "rustpython-parser")]
     use crate::stdlib::ast;
+    use crate::sysmodule;
     use crate::vm::VirtualMachine;
     use rustpython_common::hash::PyHash;
 
@@ -647,7 +648,7 @@ mod decl {
     pub fn print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
         let file = match options.file {
             Some(f) => f,
-            None => vm.get_attribute(vm.sys_module.clone(), "stdout")?,
+            None => sysmodule::get_stdout(vm)?,
         };
         let write = |obj: PyStringRef| vm.call_method(&file, "write", vec![obj.into_object()]);
 

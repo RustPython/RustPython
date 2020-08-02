@@ -1,14 +1,11 @@
 use std::{env, mem, path};
 
-use crate::builtins;
 use crate::frame::FrameRef;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{
-    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, TypeProtocol,
-};
-use crate::version;
+use crate::pyobject::{IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
 use crate::vm::{PySettings, VirtualMachine};
+use crate::{builtins, exceptions, py_io, version};
 use rustpython_common::hash::{PyHash, PyUHash};
 use rustpython_common::rc::PyRc;
 
@@ -196,17 +193,11 @@ fn sys_intern(value: PyStringRef) -> PyStringRef {
 }
 
 fn sys_exc_info(vm: &VirtualMachine) -> PyObjectRef {
-    let exc_info = match vm.current_exception() {
-        Some(exception) => vec![
-            exception.class().into_object(),
-            exception.clone().into_object(),
-            exception
-                .traceback()
-                .map_or(vm.get_none(), |tb| tb.into_object()),
-        ],
-        None => vec![vm.get_none(), vm.get_none(), vm.get_none()],
+    let (ty, val, tb) = match vm.current_exception() {
+        Some(exception) => exceptions::split(exception, vm),
+        None => (vm.get_none(), vm.get_none(), vm.get_none()),
     };
-    vm.ctx.new_tuple(exc_info)
+    vm.ctx.new_tuple(vec![ty, val, tb])
 }
 
 fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
@@ -310,6 +301,26 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::obj::objtuple::
         }
         .into_struct_sequence(vm, vm.try_class("sys", "_getwindowsversion_type")?)
     }
+}
+
+pub fn get_stdout(vm: &VirtualMachine) -> PyResult {
+    vm.get_attribute(vm.sys_module.clone(), "stdout")
+        .map_err(|_| vm.new_runtime_error("lost sys.stdout".to_owned()))
+}
+pub fn get_stderr(vm: &VirtualMachine) -> PyResult {
+    vm.get_attribute(vm.sys_module.clone(), "stderr")
+        .map_err(|_| vm.new_runtime_error("lost sys.stderr".to_owned()))
+}
+
+fn sys_excepthook(
+    exc_type: PyObjectRef,
+    exc_val: PyObjectRef,
+    exc_tb: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let exc = exceptions::normalize(exc_type, exc_val, exc_tb, vm)?;
+    let stderr = get_stderr(vm)?;
+    exceptions::write_exception(&mut py_io::PyWriter(stderr, vm), vm, &exc)
 }
 
 const PLATFORM: &str = {
@@ -553,6 +564,8 @@ settrace() -- set the global debug tracing function
       "audit" => ctx.new_function(sys_audit),
       "displayhook" => ctx.new_function(sys_displayhook),
       "__displayhook__" => ctx.new_function(sys_displayhook),
+      "excepthook" => ctx.new_function(sys_excepthook),
+      "__excepthook__" => ctx.new_function(sys_excepthook),
     });
 
     #[cfg(windows)]
