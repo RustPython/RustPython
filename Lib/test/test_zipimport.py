@@ -191,6 +191,8 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
                  TESTMOD + pyc_ext: (NOW, test_pyc)}
         self.doTest(pyc_ext, files, TESTMOD)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testUncheckedHashBasedPyc(self):
         source = b"state = 'old'"
         source_hash = importlib.util.source_hash(source)
@@ -205,6 +207,8 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
             self.assertEqual(mod.state, 'old')
         self.doTest(None, files, TESTMOD, call=check)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.mock.patch('_imp.check_hash_based_pycs', 'always')
     def test_checked_hash_based_change_pyc(self):
         source = b"state = 'old'"
@@ -224,6 +228,8 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
         files = {TESTMOD + ".py": (NOW, "")}
         self.doTest(None, files, TESTMOD)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testBadMagic(self):
         # make pyc magic word invalid, forcing loading from .py
         badmagic_pyc = bytearray(test_pyc)
@@ -232,6 +238,8 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
                  TESTMOD + pyc_ext: (NOW, badmagic_pyc)}
         self.doTest(".py", files, TESTMOD)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testBadMagic2(self):
         # make pyc magic word invalid, causing an ImportError
         badmagic_pyc = bytearray(test_pyc)
@@ -244,6 +252,8 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
         else:
             self.fail("expected ImportError; import from bad pyc")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testBadMTime(self):
         badtime_pyc = bytearray(test_pyc)
         # flip the second bit -- not the first as that one isn't stored in the
@@ -713,6 +723,8 @@ class BadFileZipImportTestCase(unittest.TestCase):
         support.create_empty_file(TESTMOD)
         self.assertZipFailure(TESTMOD)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testFileUnreadable(self):
         support.unlink(TESTMOD)
         fd = os.open(TESTMOD, os.O_CREAT, 000)
