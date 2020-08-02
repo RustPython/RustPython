@@ -157,6 +157,12 @@ pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
 }
 
 #[derive(FromArgs, Default)]
+pub struct TargetIsDirectory {
+    #[pyarg(keyword_only, default = "false")]
+    target_is_directory: bool,
+}
+
+#[derive(FromArgs, Default)]
 pub struct DirFd {
     #[pyarg(keyword_only, default = "None")]
     dir_fd: Option<PyIntRef>,
@@ -596,6 +602,7 @@ mod _os {
     pub(super) fn symlink(
         src: PyPathLike,
         dst: PyPathLike,
+        _target_is_directory: TargetIsDirectory,
         dir_fd: DirFd,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -1196,6 +1203,7 @@ mod posix {
     pub(super) fn symlink(
         src: PyPathLike,
         dst: PyPathLike,
+        _target_is_directory: TargetIsDirectory,
         dir_fd: DirFd,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -2183,6 +2191,7 @@ mod nt {
     pub(super) fn symlink(
         src: PyPathLike,
         dst: PyPathLike,
+        _target_is_directory: TargetIsDirectory,
         _dir_fd: DirFd,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
