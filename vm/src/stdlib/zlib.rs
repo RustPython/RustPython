@@ -80,9 +80,7 @@ fn zlib_crc32(data: PyBytesRef, begin_state: OptionalArg<i32>, vm: &VirtualMachi
 }
 
 /// Returns a bytes object containing compressed data.
-fn zlib_compress(data: PyBytesRef, level: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
-    let input_bytes = data.get_value();
-
+fn zlib_compress(data: PyBytesLike, level: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
     let level = level.unwrap_or(libz::Z_DEFAULT_COMPRESSION);
 
     let compression = match level {
@@ -94,7 +92,7 @@ fn zlib_compress(data: PyBytesRef, level: OptionalArg<i32>, vm: &VirtualMachine)
     };
 
     let mut encoder = ZlibEncoder::new(Vec::new(), compression);
-    encoder.write_all(input_bytes).unwrap();
+    data.with_ref(|input_bytes| encoder.write_all(input_bytes).unwrap());
     let encoded_bytes = encoder.finish().unwrap();
 
     Ok(vm.ctx.new_bytes(encoded_bytes))
@@ -106,46 +104,92 @@ fn header_from_wbits(wbits: OptionalArg<i8>) -> (bool, u8) {
     (wbits > 0, wbits.abs() as u8)
 }
 
-/// Returns a bytes object containing the uncompressed data.
-fn zlib_decompress(
-    data: PyBytesRef,
-    wbits: OptionalArg<i8>,
-    bufsize: OptionalArg<usize>,
+fn decompress(
+    data: &[u8],
+    d: &mut Decompress,
+    bufsize: usize,
+    max_length: Option<usize>,
     vm: &VirtualMachine,
-) -> PyResult<Vec<u8>> {
-    let data = data.get_value();
-
-    let (header, wbits) = header_from_wbits(wbits);
-    let bufsize = bufsize.unwrap_or(DEF_BUF_SIZE);
-
-    let mut d = Decompress::new_with_window_bits(header, wbits);
+) -> PyResult<(Vec<u8>, bool)> {
+    if data.is_empty() {
+        return Ok((Vec::new(), true));
+    }
+    let orig_in = d.total_in();
     let mut buf = Vec::new();
 
-    // TODO: maybe deduplicate this with the Decompress.{decompress,flush}
-    'outer: for chunk in data.chunks(CHUNKSIZE) {
+    for mut chunk in data.chunks(CHUNKSIZE) {
         // if this is the final chunk, finish it
-        let flush = if d.total_in() == (data.len() - chunk.len()) as u64 {
+        let flush = if d.total_in() - orig_in == (data.len() - chunk.len()) as u64 {
             FlushDecompress::Finish
         } else {
             FlushDecompress::None
         };
         loop {
-            buf.reserve(bufsize);
+            let additional = if let Some(max_length) = max_length {
+                std::cmp::min(bufsize, max_length - buf.capacity())
+            } else {
+                bufsize
+            };
+
+            buf.reserve_exact(additional);
+            let prev_in = d.total_in();
             match d.decompress_vec(chunk, &mut buf, flush) {
-                // we've run out of space, loop again and allocate more
-                Ok(_) if buf.len() == buf.capacity() => {}
                 // we've reached the end of the stream, we're done
                 Ok(Status::StreamEnd) => {
-                    break 'outer;
+                    buf.shrink_to_fit();
+                    return Ok((buf, true));
                 }
-                // we've reached the end of this chunk of the data, do the next one
-                Ok(_) => break,
+                // we have hit the maximum length that we can decompress, so stop
+                Ok(_) if max_length.map_or(false, |max_length| buf.len() == max_length) => {
+                    return Ok((buf, false));
+                }
+                Ok(_) => {
+                    chunk = &chunk[(d.total_in() - prev_in) as usize..];
+
+                    if !chunk.is_empty() {
+                        // there is more input to process
+                        continue;
+                    } else if flush == FlushDecompress::Finish {
+                        if buf.len() == buf.capacity() {
+                            // we've run out of space, loop again and allocate more room
+                            continue;
+                        } else {
+                            // we need more input to continue
+                            buf.shrink_to_fit();
+                            return Ok((buf, false));
+                        }
+                    } else {
+                        // progress onto next chunk
+                        break;
+                    }
+                }
                 Err(_) => return Err(zlib_error("invalid input data", vm)),
             }
         }
     }
-    buf.shrink_to_fit();
-    Ok(buf)
+    unreachable!("Didn't reach end of stream or capacity limit")
+}
+
+/// Returns a bytes object containing the uncompressed data.
+fn zlib_decompress(
+    data: PyBytesLike,
+    wbits: OptionalArg<i8>,
+    bufsize: OptionalArg<usize>,
+    vm: &VirtualMachine,
+) -> PyResult<Vec<u8>> {
+    data.with_ref(|data| {
+        let (header, wbits) = header_from_wbits(wbits);
+        let bufsize = bufsize.unwrap_or(DEF_BUF_SIZE);
+
+        let mut d = Decompress::new_with_window_bits(header, wbits);
+        decompress(data, &mut d, bufsize, None, vm).and_then(|(buf, stream_end)| {
+            if stream_end {
+                Ok(buf)
+            } else {
+                Err(zlib_error("incomplete or truncated stream", vm))
+            }
+        })
+    })
 }
 
 fn zlib_decompressobj(
@@ -193,7 +237,7 @@ impl PyDecompress {
         self.unconsumed_tail.lock().clone()
     }
 
-    fn save_unconsumed_input(
+    fn save_unused_input(
         &self,
         d: &mut Decompress,
         data: &[u8],
@@ -213,67 +257,41 @@ impl PyDecompress {
                 .collect();
             *unused_data = PyBytes::new(unused).into_ref(vm);
         }
-
-        let mut unconsumed_tail = self.unconsumed_tail.lock();
-        if !leftover.is_empty() || unconsumed_tail.len() > 0 {
-            *unconsumed_tail = PyBytes::new(leftover.to_owned()).into_ref(vm);
-        }
     }
 
     #[pymethod]
     fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let limited = args.max_length == 0;
+        let max_length = if args.max_length == 0 {
+            None
+        } else {
+            Some(args.max_length)
+        };
         let data = args.data.get_value();
 
         let mut d = self.decompress.lock();
-
         let orig_in = d.total_in();
-        let mut buf = Vec::new();
-        let mut stream_end = false;
 
-        'outer: for chunk in data.chunks(CHUNKSIZE) {
-            // if this is the final chunk, finish it
-            let flush = if d.total_in() - orig_in == (data.len() - chunk.len()) as u64 {
-                FlushDecompress::Finish
-            } else {
-                FlushDecompress::None
-            };
-            loop {
-                let additional = if limited {
-                    std::cmp::min(DEF_BUF_SIZE, args.max_length - buf.capacity())
-                } else {
-                    DEF_BUF_SIZE
-                };
-                buf.reserve(additional);
-                match d.decompress_vec(chunk, &mut buf, flush) {
-                    // we've run out of space
-                    Ok(_) if buf.len() == buf.capacity() => {
-                        if limited && buf.len() == args.max_length {
-                            // if we have a maximum length we can decompress and we've hit it, stop
-                            break 'outer;
-                        } else {
-                            // otherwise, loop again and allocate more
-                            continue;
-                        }
-                    }
-                    // we've reached the end of the stream, we're done
-                    Ok(Status::StreamEnd) => {
-                        stream_end = true;
-                        self.eof.store(true);
-                        break 'outer;
-                    }
-                    // we've reached the end of this chunk of the data, do the next one
-                    Ok(_) => break,
-                    Err(_) => {
-                        self.save_unconsumed_input(&mut d, data, stream_end, orig_in, vm);
-                        return Err(zlib_error("invalid input data", vm));
-                    }
-                }
+        let (ret, stream_end) = match decompress(data, &mut d, DEF_BUF_SIZE, max_length, vm) {
+            Ok((buf, true)) => {
+                self.eof.store(true);
+                (Ok(buf), true)
             }
+            Ok((buf, false)) => (Ok(buf), false),
+            Err(err) => (Err(err), false),
+        };
+        self.save_unused_input(&mut d, data, stream_end, orig_in, vm);
+
+        let leftover = if !stream_end {
+            &data[(d.total_in() - orig_in) as usize..]
+        } else {
+            b""
+        };
+        let mut unconsumed_tail = self.unconsumed_tail.lock();
+        if !leftover.is_empty() || unconsumed_tail.len() > 0 {
+            *unconsumed_tail = PyBytes::new(leftover.to_owned()).into_ref(vm);
         }
-        buf.shrink_to_fit();
-        self.save_unconsumed_input(&mut d, data, stream_end, orig_in, vm);
-        Ok(buf)
+
+        ret
     }
 
     #[pymethod]
@@ -289,48 +307,24 @@ impl PyDecompress {
             OptionalArg::Missing => DEF_BUF_SIZE,
         };
 
-        let data = self.unconsumed_tail.lock();
+        let mut data = self.unconsumed_tail.lock();
         let mut d = self.decompress.lock();
 
         let orig_in = d.total_in();
-        let mut buf = Vec::new();
-        let mut stream_end = false;
 
-        'outer: for chunk in data.chunks(CHUNKSIZE) {
-            // if this is the final chunk, finish it
-            let flush = if d.total_in() - orig_in == (data.len() - chunk.len()) as u64 {
-                FlushDecompress::Finish
-            } else {
-                FlushDecompress::None
-            };
-            loop {
-                buf.reserve(length);
-                match d.decompress_vec(chunk, &mut buf, flush) {
-                    // we've run out of space, loop again and allocate more
-                    Ok(_) if buf.len() == buf.capacity() => {}
-                    // we've reached the end of the stream, we're done
-                    Ok(Status::StreamEnd) => {
-                        stream_end = true;
-                        self.eof.store(true);
-                        // self->is_initialised = 0;
-                        break 'outer;
-                    }
-                    // we've reached the end of this chunk of the data, do the next one
-                    Ok(_) => break,
-                    Err(_) => {
-                        self.save_unconsumed_input(&mut d, &data, stream_end, orig_in, vm);
-                        return Err(zlib_error("invalid input data", vm));
-                    }
-                }
-            }
-        }
-        buf.shrink_to_fit();
-        self.save_unconsumed_input(&mut d, &data, stream_end, orig_in, vm);
+        let (ret, stream_end) = match decompress(&data, &mut d, length, None, vm) {
+            Ok((buf, stream_end)) => (Ok(buf), stream_end),
+            Err(err) => (Err(err), false),
+        };
+        self.save_unused_input(&mut d, &data, stream_end, orig_in, vm);
+
+        *data = PyBytes::new(Vec::new()).into_ref(vm);
+
         // TODO: drop the inner decompressor, somehow
         // if stream_end {
         //
         // }
-        Ok(buf)
+        ret
     }
 }
 

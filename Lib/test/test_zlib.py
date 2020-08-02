@@ -185,8 +185,6 @@ class CompressTestCase(BaseCompressTestCase, unittest.TestCase):
                                          bufsize=zlib.DEF_BUF_SIZE),
                          HAMLET_SCENE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_speech128(self):
         # compress more data
         data = HAMLET_SCENE * 128
@@ -215,8 +213,6 @@ class CompressTestCase(BaseCompressTestCase, unittest.TestCase):
     def test_big_decompress_buffer(self, size):
         self.check_big_decompress_buffer(size, zlib.decompress)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @bigmemtest(size=_4G, memuse=1)
     def test_large_bufsize(self, size):
         # Test decompress(bufsize) parameter greater than the internal limit
@@ -321,8 +317,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         y2 = dco.flush()
         self.assertEqual(data, y1 + y2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decompinc(self, flush=False, source=None, cx=256, dcx=64):
         # compress object in steps, decompress object in steps
         source = source or HAMLET_SCENE
@@ -364,13 +358,9 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         self.assertEqual(data, b''.join(bufs))
         # Failure means: "decompressobj with init options failed"
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decompincflush(self):
         self.test_decompinc(flush=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decompimax(self, source=None, cx=256, dcx=64):
         # compress in steps, decompress in length-restricted steps
         source = source or HAMLET_SCENE
@@ -398,8 +388,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         bufs.append(dco.flush())
         self.assertEqual(data, b''.join(bufs), 'Wrong data retrieved')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decompressmaxlen(self, flush=False):
         # Check a decompression object with max_length specified
         data = HAMLET_SCENE * 128
@@ -432,8 +420,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
                 bufs.append(chunk)
         self.assertEqual(data, b''.join(bufs), 'Wrong data retrieved')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decompressmaxlenflush(self):
         self.test_decompressmaxlen(flush=True)
 
@@ -445,7 +431,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         self.assertRaises(ValueError, dco.decompress, b"", -1)
         self.assertEqual(b'', dco.unconsumed_tail)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_maxlen_large(self):
         # Sizes up to sys.maxsize should be accepted, although zlib is
         # internally limited to expressing sizes with unsigned int
@@ -540,7 +525,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         # if decompressed data is different from the input data, choke.
         self.assertEqual(expanded, data, "17K random source doesn't match")
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_empty_flush(self):
         # Test that calling .flush() on unused objects works.
         # (Bug #1083110 -- calling .flush() on decompress objects
@@ -584,8 +568,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         self.assertEqual(do.decompress(d1), piece[100:])
         self.assertEqual(do.decompress(d2), piece[:-100])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decompress_incomplete_stream(self):
         # This is 'foo', deflated
         x = b'x\x9cK\xcb\xcf\x07\x00\x02\x82\x01E'
@@ -599,8 +581,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         y += dco.flush()
         self.assertEqual(y, b'foo')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decompress_eof(self):
         x = b'x\x9cK\xcb\xcf\x07\x00\x02\x82\x01E'  # 'foo'
         dco = zlib.decompressobj()
@@ -612,7 +592,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco.flush()
         self.assertTrue(dco.eof)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_decompress_eof_incomplete_stream(self):
         x = b'x\x9cK\xcb\xcf\x07\x00\x02\x82\x01E'  # 'foo'
         dco = zlib.decompressobj()
@@ -622,8 +601,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco.flush()
         self.assertFalse(dco.eof)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decompress_unused_data(self):
         # Repeated calls to decompress() after EOF should accumulate data in
         # dco.unused_data, instead of just storing the arg to the last call.
@@ -661,7 +638,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         uncomp = dco.decompress(comp) + dco.flush()
         self.assertEqual(zdict, uncomp)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_flush_with_freed_input(self):
         # Issue #16411: decompressor accesses input to last decompress() call
         # in flush(), even if this object has been freed in the meanwhile.
@@ -674,7 +650,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         data = zlib.compress(input2)
         self.assertEqual(dco.flush(), input1[1:])
 
-    @unittest.skip('TODO: RUSTPYTHON')
     @bigmemtest(size=_4G, memuse=1)
     def test_flush_large_length(self, size):
         # Test flush(length) parameter greater than internal limit UINT_MAX
@@ -684,7 +659,8 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco.decompress(data, 1)
         self.assertEqual(dco.flush(size), input[1:])
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_flush_custom_length(self):
         input = HAMLET_SCENE * 10
         data = zlib.compress(input, 1)
@@ -781,14 +757,12 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         compress = lambda s: c.compress(s) + c.flush()
         self.check_big_compress_buffer(size, compress)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     @bigmemtest(size=_1G + 1024 * 1024, memuse=2)
     def test_big_decompress_buffer(self, size):
         d = zlib.decompressobj()
         decompress = lambda s: d.decompress(s) + d.flush()
         self.check_big_decompress_buffer(size, decompress)
 
-    @unittest.skip('TODO: RUSTPYTHON')
     @unittest.skipUnless(sys.maxsize > 2**32, 'requires 64bit platform')
     @bigmemtest(size=_4G + 100, memuse=4)
     def test_64bit_compress(self, size):
@@ -802,7 +776,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         finally:
             comp = uncomp = data = None
 
-    @unittest.skip('TODO: RUSTPYTHON')
     @unittest.skipUnless(sys.maxsize > 2**32, 'requires 64bit platform')
     @bigmemtest(size=_4G + 100, memuse=3)
     def test_large_unused_data(self, size):
@@ -817,7 +790,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         finally:
             unused = comp = do = None
 
-    @unittest.skip('TODO: RUSTPYTHON')
     @unittest.skipUnless(sys.maxsize > 2**32, 'requires 64bit platform')
     @bigmemtest(size=_4G + 100, memuse=5)
     def test_large_unconsumed_tail(self, size):
