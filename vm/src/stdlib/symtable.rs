@@ -136,23 +136,25 @@ impl PySymbolTable {
 
     #[pymethod(name = "get_symbols")]
     fn get_symbols(&self, vm: &VirtualMachine) -> PyResult {
-        let mut symbols: Vec<PyObjectRef> = vec![];
-        for symbol in self.symtable.symbols.values() {
-            symbols.push(
-                PySymbol {
-                    symbol: symbol.clone(),
+        let symbols = self
+            .symtable
+            .symbols
+            .values()
+            .map(|s| {
+                (PySymbol {
+                    symbol: s.clone(),
                     namespaces: self
                         .symtable
                         .sub_tables
                         .iter()
-                        .filter(|&table| table.name == symbol.name)
+                        .filter(|&table| table.name == s.name)
                         .cloned()
                         .collect(),
-                }
+                })
                 .into_ref(vm)
-                .into_object(),
-            )
-        }
+                .into_object()
+            })
+            .collect();
         Ok(vm.ctx.new_list(symbols))
     }
 
