@@ -2292,7 +2292,7 @@ mod nt {
     }
 
     #[pyfunction]
-    fn os_chmod(
+    fn chmod(
         path: PyPathLike,
         dir_fd: DirFd,
         mode: u32,
