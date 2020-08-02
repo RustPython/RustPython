@@ -1,7 +1,6 @@
 /*
  * I/O core tools.
  */
-use std::convert::TryInto;
 use std::fs;
 use std::io::{self, prelude::*, Cursor, SeekFrom};
 
@@ -24,6 +23,32 @@ use crate::pyobject::{
     BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::vm::VirtualMachine;
+
+#[derive(FromArgs)]
+struct OptionalSize {
+    // In a few functions, the default value is -1 rather than None.
+    // Make sure the default value doesn't affect compatibility.
+    #[pyarg(positional_only, default = "None")]
+    size: Option<isize>,
+}
+
+impl OptionalSize {
+    fn to_usize(self) -> Option<usize> {
+        self.size.and_then(|v| v.to_usize())
+    }
+
+    fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
+        self.size
+            .map(|v| {
+                if v >= 0 {
+                    Ok(v as usize)
+                } else {
+                    Err(vm.new_value_error(format!("Negative size value {}", v)))
+                }
+            })
+            .transpose()
+    }
+}
 
 fn byte_count(bytes: OptionalOption<i64>) -> i64 {
     bytes.flatten().unwrap_or(-1)
@@ -83,9 +108,9 @@ impl BufferedIO {
     }
 
     //Read k bytes from the object and return.
-    fn read(&mut self, bytes: Option<i64>) -> Option<Vec<u8>> {
+    fn read(&mut self, bytes: Option<usize>) -> Option<Vec<u8>> {
         //for a defined number of bytes, i.e. bytes != -1
-        match bytes.and_then(|v| v.to_usize()) {
+        match bytes {
             Some(bytes) => {
                 let mut buffer = unsafe {
                     // Do not move or edit any part of this block without a safety validation.
@@ -115,13 +140,9 @@ impl BufferedIO {
         self.cursor.position()
     }
 
-    fn readline(&mut self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn readline(&mut self, size: Option<usize>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let mut buf = Vec::new();
-        let mut left = size
-            .flatten()
-            .filter(|s| *s >= 0)
-            .and_then(|s| s.try_into().ok())
-            .unwrap_or(usize::MAX);
+        let mut left = size.unwrap_or(usize::MAX);
         if left == 0 {
             return Ok(buf);
         }
@@ -149,6 +170,12 @@ impl BufferedIO {
                 return Ok(buf);
             }
         }
+    }
+
+    fn truncate(&mut self, pos: Option<usize>) -> PyResult<()> {
+        let pos = pos.unwrap_or_else(|| self.tell() as usize);
+        self.cursor.get_mut().truncate(pos);
+        Ok(())
     }
 }
 
@@ -212,8 +239,8 @@ impl PyStringIORef {
     //Read k bytes from the object and return.
     //If k is undefined || k == -1, then we read all bytes until the end of the file.
     //This also increments the stream position by the value of k
-    fn read(self, bytes: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult {
-        let data = match self.buffer(vm)?.read(bytes.flatten()) {
+    fn read(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
+        let data = match self.buffer(vm)?.read(size.to_usize()) {
             Some(value) => value,
             None => Vec::new(),
         };
@@ -228,19 +255,18 @@ impl PyStringIORef {
         Ok(self.buffer(vm)?.tell())
     }
 
-    fn readline(self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<String> {
+    fn readline(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<String> {
         // TODO size should correspond to the number of characters, at the moments its the number of
         // bytes.
-        match String::from_utf8(self.buffer(vm)?.readline(size, vm)?) {
+        match String::from_utf8(self.buffer(vm)?.readline(size.to_usize(), vm)?) {
             Ok(value) => Ok(value),
             Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
         }
     }
 
-    fn truncate(self, size: OptionalOption<usize>, vm: &VirtualMachine) -> PyResult<()> {
+    fn truncate(self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<()> {
         let mut buffer = self.buffer(vm)?;
-        let size = size.flatten().unwrap_or_else(|| buffer.tell() as usize);
-        buffer.cursor.get_mut().truncate(size);
+        buffer.truncate(pos.try_usize(vm)?)?;
         Ok(())
     }
 
@@ -316,8 +342,8 @@ impl PyBytesIORef {
     //Takes an integer k (bytes) and returns them from the underlying buffer
     //If k is undefined || k == -1, then we read all bytes until the end of the file.
     //This also increments the stream position by the value of k
-    fn read(self, bytes: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult {
-        match self.buffer(vm)?.read(bytes.flatten()) {
+    fn read(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
+        match self.buffer(vm)?.read(size.to_usize()) {
             Some(value) => Ok(vm.ctx.new_bytes(value)),
             None => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
         }
@@ -343,14 +369,13 @@ impl PyBytesIORef {
         Ok(self.buffer(vm)?.tell())
     }
 
-    fn readline(self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        self.buffer(vm)?.readline(size, vm)
+    fn readline(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        self.buffer(vm)?.readline(size.to_usize(), vm)
     }
 
-    fn truncate(self, size: OptionalOption<usize>, vm: &VirtualMachine) -> PyResult<()> {
+    fn truncate(self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<()> {
         let mut buffer = self.buffer(vm)?;
-        let size = size.flatten().unwrap_or_else(|| buffer.tell() as usize);
-        buffer.cursor.get_mut().truncate(size);
+        buffer.truncate(pos.try_usize(vm)?)?;
         Ok(())
     }
 
