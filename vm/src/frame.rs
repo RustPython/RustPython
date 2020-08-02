@@ -19,7 +19,7 @@ use crate::obj::objgenerator::PyGenerator;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
-use crate::obj::objstr::{self, PyString};
+use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtraceback::PyTraceback;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
@@ -791,10 +791,21 @@ impl ExecutingFrame<'_> {
 
         // Grab all the names from the module and put them in the context
         if let Some(dict) = module.dict() {
+            let filter_pred: Box<dyn Fn(&str) -> bool> =
+                if let Ok(all) = dict.get_item("__all__", vm) {
+                    let all: Vec<PyStringRef> = vm.extract_elements(&all)?;
+                    let all: Vec<String> = all
+                        .into_iter()
+                        .map(|name| name.as_str().to_owned())
+                        .collect();
+                    Box::new(move |name| all.contains(&name.to_owned()))
+                } else {
+                    Box::new(|name| !name.starts_with('_'))
+                };
             for (k, v) in &dict {
                 let k = vm.to_str(&k)?;
                 let k = k.as_str();
-                if !k.starts_with('_') {
+                if filter_pred(k) {
                     self.scope.store_name(&vm, k, v);
                 }
             }
