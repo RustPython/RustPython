@@ -1273,8 +1273,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual("{!s}".format(n), 'N(data)')
         self.assertRaises(TypeError, "{}".format, n)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format_map(self):
         self.assertEqual(''.format_map({}), '')
         self.assertEqual('a'.format_map({}), 'a')
@@ -2958,8 +2956,6 @@ class CAPITest(unittest.TestCase):
                 self.assertEqual(getargs_s_hash(s), chr(k).encode() * (i + 1))
 
 class StringModuleTest(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_formatter_parser(self):
         def parse(format):
             return list(_string.formatter_parser(format))
@@ -2993,8 +2989,6 @@ class StringModuleTest(unittest.TestCase):
 
         self.assertRaises(TypeError, _string.formatter_parser, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_formatter_field_name_split(self):
         def split(name):
             items = list(_string.formatter_field_name_split(name))

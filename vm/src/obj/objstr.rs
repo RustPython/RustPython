@@ -19,7 +19,7 @@ use super::objiter;
 use super::objnone::PyNone;
 use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtype::{self, PyClassRef};
-use crate::format::{FormatParseError, FormatSpec, FormatString, FromTemplate};
+use crate::format::{FormatSpec, FormatString, FromTemplate};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
@@ -587,31 +587,10 @@ impl PyString {
     }
 
     #[pymethod]
-    fn format(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        if args.args.is_empty() {
-            return Err(vm.new_type_error(
-                "descriptor 'format' of 'str' object needs an argument".to_owned(),
-            ));
-        }
-
-        let zelf = &args.args[0];
-        if !objtype::isinstance(&zelf, &vm.ctx.types.str_type) {
-            let zelf_typ = zelf.class();
-            let actual_type = vm.to_pystr(&zelf_typ)?;
-            return Err(vm.new_type_error(format!(
-                "descriptor 'format' requires a 'str' object but received a '{}'",
-                actual_type
-            )));
-        }
-        let format_string_text = borrow_value(zelf);
-        match FormatString::from_str(format_string_text, &args) {
+    fn format(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+        match FormatString::from_str(&self.value) {
             Ok(format_string) => format_string.format(&args, vm),
-            Err(err) => match err {
-                FormatParseError::UnmatchedBracket => {
-                    Err(vm.new_value_error("expected '}' before end of string".to_owned()))
-                }
-                _ => Err(vm.new_value_error("Unexpected error parsing format string".to_owned())),
-            },
+            Err(err) => Err(err.into_pyobject(vm)),
         }
     }
 
@@ -620,24 +599,10 @@ impl PyString {
     /// Return a formatted version of S, using substitutions from mapping.
     /// The substitutions are identified by braces ('{' and '}').
     #[pymethod]
-    fn format_map(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        if args.args.len() != 2 {
-            return Err(vm.new_type_error(format!(
-                "format_map() takes exactly one argument ({} given)",
-                args.args.len() - 1
-            )));
-        }
-
-        let zelf = &args.args[0];
-        let format_string_text = borrow_value(zelf);
-        match FormatString::from_str(format_string_text, &args) {
-            Ok(format_string) => format_string.format_map(&args.args[1], vm),
-            Err(err) => match err {
-                FormatParseError::UnmatchedBracket => {
-                    Err(vm.new_value_error("expected '}' before end of string".to_owned()))
-                }
-                _ => Err(vm.new_value_error("Unexpected error parsing format string".to_owned())),
-            },
+    fn format_map(&self, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        match FormatString::from_str(&self.value) {
+            Ok(format_string) => format_string.format_map(&mapping, vm),
+            Err(err) => Err(err.into_pyobject(vm)),
         }
     }
 
