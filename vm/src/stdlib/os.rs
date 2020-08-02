@@ -2291,6 +2291,27 @@ mod nt {
         get_stats().map_err(|e| convert_io_error(vm, e))
     }
 
+    #[pyfunction]
+    fn os_chmod(
+        path: PyPathLike,
+        dir_fd: DirFd,
+        mode: u32,
+        follow_symlinks: FollowSymlinks,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        const S_IWRITE: u32 = 128;
+        let path = make_path(vm, &path, &dir_fd);
+        let metadata = if follow_symlinks.follow_symlinks {
+            fs::metadata(path)
+        } else {
+            fs::symlink_metadata(path)
+        };
+        let meta = metadata.map_err(|err| convert_io_error(vm, err))?;
+        let mut permissions = meta.permissions();
+        permissions.set_readonly(mode & S_IWRITE != 0);
+        fs::set_permissions(path, permissions).map_err(|err| convert_io_error(vm, err))
+    }
+
     // cwait is available on MSVC only (according to CPython)
     #[cfg(target_env = "msvc")]
     extern "C" {
