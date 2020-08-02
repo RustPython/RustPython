@@ -109,10 +109,17 @@ impl PySymbolTable {
         if let Some(symbol) = self.symtable.symbols.get(name) {
             Ok(PySymbol {
                 symbol: symbol.clone(),
+                namespaces: self
+                    .symtable
+                    .sub_tables
+                    .iter()
+                    .filter(|table| table.name == name)
+                    .cloned()
+                    .collect(),
             }
             .into_ref(vm))
         } else {
-            Err(vm.new_lookup_error(name.to_owned()))
+            Err(vm.new_key_error(vm.new_str(format!("lookup {} failed", name))))
         }
     }
 
@@ -133,7 +140,20 @@ impl PySymbolTable {
             .symtable
             .symbols
             .values()
-            .map(|s| (PySymbol { symbol: s.clone() }).into_ref(vm).into_object())
+            .map(|s| {
+                (PySymbol {
+                    symbol: s.clone(),
+                    namespaces: self
+                        .symtable
+                        .sub_tables
+                        .iter()
+                        .filter(|&table| table.name == s.name)
+                        .cloned()
+                        .collect(),
+                })
+                .into_ref(vm)
+                .into_object()
+            })
             .collect();
         Ok(vm.ctx.new_list(symbols))
     }
@@ -158,6 +178,7 @@ impl PySymbolTable {
 #[pyclass(name = "Symbol")]
 struct PySymbol {
     symbol: symboltable::Symbol,
+    namespaces: Vec<symboltable::SymbolTable>,
 }
 
 impl fmt::Debug for PySymbol {
@@ -189,6 +210,25 @@ impl PySymbol {
         self.symbol.is_local()
     }
 
+    #[pymethod(name = "is_imported")]
+    fn is_imported(&self) -> bool {
+        self.symbol.is_imported
+    }
+
+    #[pymethod(name = "is_nested")]
+    fn is_nested(&self) -> bool {
+        // TODO
+        false
+    }
+
+    #[pymethod(name = "is_nonlocal")]
+    fn is_nonlocal(&self) -> bool {
+        match self.symbol.scope {
+            symboltable::SymbolScope::Nonlocal => true,
+            _ => false,
+        }
+    }
+
     #[pymethod(name = "is_referenced")]
     fn is_referenced(&self) -> bool {
         self.symbol.is_referenced
@@ -211,7 +251,32 @@ impl PySymbol {
 
     #[pymethod(name = "is_namespace")]
     fn is_namespace(&self) -> bool {
-        // TODO
-        false
+        !self.namespaces.is_empty()
+    }
+
+    #[pymethod(name = "is_annotated")]
+    fn is_annotated(&self) -> bool {
+        self.symbol.is_annotated
+    }
+
+    #[pymethod(name = "get_namespaces")]
+    fn get_namespaces(&self, vm: &VirtualMachine) -> PyResult {
+        let namespaces = self
+            .namespaces
+            .iter()
+            .map(|table| to_py_symbol_table(table.clone()).into_ref(vm).into_object())
+            .collect();
+        Ok(vm.ctx.new_list(namespaces))
+    }
+
+    #[pymethod(name = "get_namespace")]
+    fn get_namespace(&self, vm: &VirtualMachine) -> PyResult {
+        if self.namespaces.len() != 1 {
+            Err(vm.new_value_error("namespace is bound to multiple namespaces".to_owned()))
+        } else {
+            Ok(to_py_symbol_table(self.namespaces.first().unwrap().clone())
+                .into_ref(vm)
+                .into_object())
+        }
     }
 }
