@@ -114,7 +114,11 @@ impl PySuper {
         } else {
             let frame = vm.current_frame().expect("no current frame for super()");
             if let Some(first_arg) = frame.code.arg_names.get(0) {
-                match frame.scope.get_locals().get_item_option(first_arg, vm)? {
+                match frame
+                    .scope
+                    .get_locals()
+                    .get_item_option(first_arg.as_str(), vm)?
+                {
                     Some(obj) => obj,
                     _ => {
                         return Err(vm.new_type_error(format!(

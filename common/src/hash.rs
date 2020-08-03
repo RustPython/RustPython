@@ -68,7 +68,7 @@ pub fn hash_float(value: f64) -> PyHash {
     x as PyHash * value.signum() as PyHash
 }
 
-pub fn hash_value<T: Hash>(data: &T) -> PyHash {
+pub fn hash_value<T: Hash + ?Sized>(data: &T) -> PyHash {
     let mut hasher = DefaultHasher::new();
     data.hash(&mut hasher);
     hasher.finish() as PyHash

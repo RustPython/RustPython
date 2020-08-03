@@ -73,7 +73,7 @@ impl PySetInner {
     fn new(iterable: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let set = PySetInner::default();
         for item in iterable.iter(vm)? {
-            set.add(&item?, vm)?;
+            set.add(item?, vm)?;
         }
         Ok(set)
     }
@@ -177,7 +177,7 @@ impl PySetInner {
     fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let set = self.clone();
         for item in other.iter(vm)? {
-            set.add(&item?, vm)?;
+            set.add(item?, vm)?;
         }
 
         Ok(set)
@@ -188,7 +188,7 @@ impl PySetInner {
         for item in other.iter(vm)? {
             let obj = item?;
             if self.contains(&obj, vm)? {
-                set.add(&obj, vm)?;
+                set.add(obj, vm)?;
             }
         }
         Ok(set)
@@ -256,16 +256,16 @@ impl PySetInner {
         Ok(format!("{{{}}}", str_parts.join(", ")))
     }
 
-    fn add(&self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.content.insert(vm, item, ())
     }
 
-    fn remove(&self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.content.delete(vm, item)
+    fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.content.delete(vm, &item)
     }
 
     fn discard(&self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.content.delete_if_exists(vm, item)
+        self.content.delete_if_exists(vm, &item)
     }
 
     fn clear(&self) {
@@ -284,7 +284,7 @@ impl PySetInner {
     fn update(&self, others: Args<PyIterable>, vm: &VirtualMachine) -> PyResult<()> {
         for iterable in others {
             for item in iterable.iter(vm)? {
-                self.add(&item?, vm)?;
+                self.add(item?, vm)?;
             }
         }
         Ok(())
@@ -297,7 +297,7 @@ impl PySetInner {
             for item in iterable.iter(vm)? {
                 let obj = item?;
                 if temp_inner.contains(&obj, vm)? {
-                    self.add(&obj, vm)?;
+                    self.add(obj, vm)?;
                 }
             }
             temp_inner = self.copy()
@@ -518,13 +518,13 @@ impl PySet {
 
     #[pymethod]
     pub fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.add(&item, vm)?;
+        self.inner.add(item, vm)?;
         Ok(())
     }
 
     #[pymethod]
     fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.remove(&item, vm)
+        self.inner.remove(item, vm)
     }
 
     #[pymethod]
@@ -620,7 +620,7 @@ impl PyFrozenSet {
     ) -> PyResult<Self> {
         let inner = PySetInner::default();
         for elem in it {
-            inner.add(&elem, vm)?;
+            inner.add(elem, vm)?;
         }
         Ok(Self { inner })
     }

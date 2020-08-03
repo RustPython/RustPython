@@ -267,7 +267,7 @@ impl WASMVirtualMachine {
                     let (key, value) = entry?;
                     let key: String = Object::from(key).to_string().into();
                     attrs
-                        .set_item(&key, convert::js_to_py(vm, value), vm)
+                        .set_item(key.as_str(), convert::js_to_py(vm, value), vm)
                         .to_js(vm)?;
                 }
             }
@@ -280,7 +280,7 @@ impl WASMVirtualMachine {
             let sys_modules = vm
                 .get_attribute(vm.sys_module.clone(), "modules")
                 .to_js(vm)?;
-            sys_modules.set_item(&name, module, vm).to_js(vm)?;
+            sys_modules.set_item(name, module, vm).to_js(vm)?;
 
             Ok(())
         })?
@@ -301,7 +301,7 @@ impl WASMVirtualMachine {
             let sys_modules = vm
                 .get_attribute(vm.sys_module.clone(), "modules")
                 .to_js(vm)?;
-            sys_modules.set_item(&name, py_module, vm).to_js(vm)?;
+            sys_modules.set_item(name, py_module, vm).to_js(vm)?;
 
             Ok(())
         })?

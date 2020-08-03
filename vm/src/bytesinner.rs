@@ -883,9 +883,9 @@ impl PyBytesInner {
             return self
                 .elements
                 .iter()
-                .cloned()
+                .copied()
                 .filter(|x| *x != b'\t')
-                .collect::<Vec<u8>>();
+                .collect();
         }
 
         for i in &self.elements {

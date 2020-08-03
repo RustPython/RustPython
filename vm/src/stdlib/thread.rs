@@ -330,7 +330,7 @@ impl PyLocal {
                 zelf.as_object()
             )))
         } else {
-            zelf.ldict(vm).set_item(attr.as_object(), value, vm)?;
+            zelf.ldict(vm).set_item(attr.into_object(), value, vm)?;
             Ok(())
         }
     }
@@ -343,7 +343,7 @@ impl PyLocal {
                 zelf.as_object()
             )))
         } else {
-            zelf.ldict(vm).del_item(attr.as_object(), vm)?;
+            zelf.ldict(vm).del_item(attr.into_object(), vm)?;
             Ok(())
         }
     }

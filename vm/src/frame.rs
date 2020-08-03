@@ -956,7 +956,7 @@ impl ExecutingFrame<'_> {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        obj.set_item(&idx, value, vm)?;
+        obj.set_item(idx, value, vm)?;
         Ok(None)
     }
 
@@ -996,12 +996,12 @@ impl ExecutingFrame<'_> {
                             return Err(vm.new_type_error(msg));
                         }
                     }
-                    map_obj.set_item(&key, value, vm).unwrap();
+                    map_obj.set_item(key, value, vm).unwrap();
                 }
             }
         } else {
             for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
-                map_obj.set_item(&key, value, vm).unwrap();
+                map_obj.set_item(key, value, vm).unwrap();
             }
         }
 

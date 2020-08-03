@@ -213,8 +213,12 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             for pair in object_entries(&Object::from(js_val)) {
                 let (key, val) = pair.expect("iteration over object to not fail");
                 let py_val = js_to_py(vm, val);
-                dict.set_item(&String::from(js_sys::JsString::from(key)), py_val, vm)
-                    .unwrap();
+                dict.set_item(
+                    String::from(js_sys::JsString::from(key)).as_str(),
+                    py_val,
+                    vm,
+                )
+                .unwrap();
             }
             dict.into_object()
         }
