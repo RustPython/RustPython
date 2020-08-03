@@ -2,7 +2,7 @@ from test import support
 from test.support.script_helper import assert_python_ok, assert_python_failure
 import builtins
 import codecs
-import gc
+# import gc
 import locale
 import operator
 import os
@@ -81,6 +81,7 @@ class ExceptHookTest(unittest.TestCase):
 
         self.assertRaises(TypeError, sys.__excepthook__)
 
+    @unittest.skip("TODO: RUSTPYTHON; SyntaxError formatting in arbitrary tracebacks")
     def test_excepthook_bytes_filename(self):
         # bpo-37467: sys.excepthook() must not crash if a filename
         # is a bytes string
@@ -98,6 +99,7 @@ class ExceptHookTest(unittest.TestCase):
         self.assertIn("""    text\n""", err)
         self.assertTrue(err.endswith("SyntaxError: msg\n"))
 
+    @unittest.skip("TODO: RUSTPYTHON; print argument error to stderr in sys.excepthook instead of throwing")
     def test_excepthook(self):
         with test.support.captured_output("stderr") as stderr:
             sys.excepthook(1, '1', 1)
@@ -169,15 +171,17 @@ class SysModuleTest(unittest.TestCase):
 
         # test that the exit message is written with backslashreplace error
         # handler to stderr
-        check_exit_message(
-            r'import sys; sys.exit("surrogates:\uDCFF")',
-            b"surrogates:\\udcff")
+        # TODO: RUSTPYTHON; allow surrogates in strings
+        # check_exit_message(
+        #     r'import sys; sys.exit("surrogates:\uDCFF")',
+        #     b"surrogates:\\udcff")
 
         # test that the unicode message is encoded to the stderr encoding
         # instead of the default encoding (utf8)
-        check_exit_message(
-            r'import sys; sys.exit("h\xe9")',
-            b"h\xe9", PYTHONIOENCODING='latin-1')
+        # TODO: RUSTPYTHON; handle PYTHONIOENCODING
+        # check_exit_message(
+        #     r'import sys; sys.exit("h\xe9")',
+        #     b"h\xe9", PYTHONIOENCODING='latin-1')
 
     def test_getdefaultencoding(self):
         self.assertRaises(TypeError, sys.getdefaultencoding, 42)
@@ -187,6 +191,7 @@ class SysModuleTest(unittest.TestCase):
     # testing sys.settrace() is done in test_sys_settrace.py
     # testing sys.setprofile() is done in test_sys_setprofile.py
 
+    @unittest.skip("RUSTPYTHON: don't have sys.setcheckinterval")
     def test_setcheckinterval(self):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -196,6 +201,7 @@ class SysModuleTest(unittest.TestCase):
                 sys.setcheckinterval(n)
                 self.assertEqual(sys.getcheckinterval(), n)
 
+    @unittest.skip("RUSTPYTHON: don't have sys.setswitchinterval")
     def test_switchinterval(self):
         self.assertRaises(TypeError, sys.setswitchinterval)
         self.assertRaises(TypeError, sys.setswitchinterval, "a")
@@ -278,6 +284,7 @@ class SysModuleTest(unittest.TestCase):
         finally:
             sys.setrecursionlimit(oldlimit)
 
+    @unittest.skip("TODO: RUSTPYTHON; super recursion detection")
     def test_recursionlimit_fatalerror(self):
         # A fatal error occurs if a second recursion limit is hit when recovering
         # from a first one.
@@ -332,6 +339,7 @@ class SysModuleTest(unittest.TestCase):
         #  still has 5 elements
         maj, min, buildno, plat, csd = sys.getwindowsversion()
 
+    @unittest.skip("TODO: RUSTPYTHON; sys.call_tracing")
     def test_call_tracing(self):
         self.assertRaises(TypeError, sys.call_tracing, type, 2)
 
@@ -371,6 +379,8 @@ class SysModuleTest(unittest.TestCase):
         )
 
     # sys._current_frames() is a CPython-only gimmick.
+    # XXX RUSTPYTHON: above comment is from original cpython test; not sure why the cpython_only decorator wasn't added
+    @test.support.cpython_only
     @test.support.reap_threads
     def test_current_frames(self):
         import threading
@@ -482,7 +492,9 @@ class SysModuleTest(unittest.TestCase):
                 self.assertIn(sys.hash_info.algorithm, {"fnv", "siphash24"})
         else:
             # PY_HASH_EXTERNAL
-            self.assertEqual(algo, 0)
+            # TODO: RUSTPYTHON; use siphash24
+            # self.assertEqual(algo, 0)
+            pass
         self.assertGreaterEqual(sys.hash_info.cutoff, 0)
         self.assertLess(sys.hash_info.cutoff, 8)
 
@@ -517,6 +529,7 @@ class SysModuleTest(unittest.TestCase):
         if not sys.platform.startswith('win'):
             self.assertIsInstance(sys.abiflags, str)
 
+    @unittest.skip("TODO: RUSTPYTHON; sys.thread_info")
     def test_thread_info(self):
         info = sys.thread_info
         self.assertEqual(len(info), 3)
@@ -528,6 +541,7 @@ class SysModuleTest(unittest.TestCase):
         # the test runs under regrtest.
         self.assertEqual(sys.__stdout__.encoding, sys.__stderr__.encoding)
 
+    @unittest.skip("TODO: RUSTPYTHON; sys.intern() string interning")
     def test_intern(self):
         global INTERN_NUMRUNS
         INTERN_NUMRUNS += 1
@@ -588,6 +602,7 @@ class SysModuleTest(unittest.TestCase):
     def test_clear_type_cache(self):
         sys._clear_type_cache()
 
+    @unittest.skip("TODO: RUSTPYTHON; PYTHONIOENCODING var")
     def test_ioencoding(self):
         env = dict(os.environ)
 
@@ -710,6 +725,7 @@ class SysModuleTest(unittest.TestCase):
         stdout, stderr = p.communicate()
         return stdout
 
+    @unittest.skip("TODO: RUSTPYTHON; surrogates in strings")
     def check_locale_surrogateescape(self, locale):
         out = self.c_locale_get_error_handler(locale, isolated=True)
         self.assertEqual(out,
@@ -828,6 +844,7 @@ class SysModuleTest(unittest.TestCase):
         c = sys.getallocatedblocks()
         self.assertIn(c, range(b - 50, b + 50))
 
+    @unittest.skip("TODO: RUSTPYTHON; destructors + interpreter finalization")
     @test.support.requires_type_collecting
     def test_is_finalizing(self):
         self.assertIs(sys.is_finalizing(), False)
@@ -850,6 +867,7 @@ class SysModuleTest(unittest.TestCase):
         rc, stdout, stderr = assert_python_ok('-c', code)
         self.assertEqual(stdout.rstrip(), b'True')
 
+    @unittest.skip("TODO: RUSTPYTHON; __del__ destructors/interpreter shutdown")
     @test.support.requires_type_collecting
     def test_issue20602(self):
         # sys.flags and sys.float_info were wiped during shutdown.
@@ -873,6 +891,7 @@ class SysModuleTest(unittest.TestCase):
         self.assertIsInstance(level, int)
         self.assertGreater(level, 0)
 
+    @unittest.skip("TODO: RUSTPYTHON; sys.tracebacklimit")
     def test_sys_tracebacklimit(self):
         code = """if 1:
             import sys
