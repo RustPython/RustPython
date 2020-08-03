@@ -1,11 +1,19 @@
 /* Several function to retrieve version information.
  */
 
+use chrono::prelude::DateTime;
+use chrono::Local;
+use std::time::{Duration, UNIX_EPOCH};
+
 const MAJOR: usize = 3;
 const MINOR: usize = 5;
 const MICRO: usize = 0;
 const RELEASELEVEL: &str = "alpha";
+const RELEASELEVEL_N: usize = 0xA;
 const SERIAL: usize = 0;
+
+pub const VERSION_HEX: usize =
+    (MAJOR << 24) | (MINOR << 16) | (MICRO << 8) | (RELEASELEVEL_N << 4) | SERIAL;
 
 #[pystruct_sequence(module = "sys", name = "version_info")]
 #[derive(Default, Debug)]
@@ -16,10 +24,6 @@ pub struct VersionInfo {
     releaselevel: &'static str,
     serial: usize,
 }
-extern crate chrono;
-use chrono::prelude::DateTime;
-use chrono::Local;
-use std::time::{Duration, UNIX_EPOCH};
 
 pub fn get_version() -> String {
     format!(
@@ -30,14 +34,14 @@ pub fn get_version() -> String {
     )
 }
 
-pub fn get_version_info() -> VersionInfo {
-    VersionInfo {
+impl VersionInfo {
+    pub const VERSION: VersionInfo = VersionInfo {
         major: MAJOR,
         minor: MINOR,
         micro: MICRO,
         releaselevel: RELEASELEVEL,
         serial: SERIAL,
-    }
+    };
 }
 
 pub fn get_version_number() -> String {

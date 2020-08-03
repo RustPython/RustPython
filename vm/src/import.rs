@@ -45,7 +45,7 @@ pub fn init_importlib(vm: &mut VirtualMachine, initialize_parameter: InitParamet
                 Ok(())
             })();
             if zipimport_res.is_err() {
-                eprintln!("couldn't init zipimport")
+                warn!("couldn't init zipimport")
             }
         }
         InitParameter::NoInitialize => {

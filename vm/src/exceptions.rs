@@ -661,6 +661,19 @@ fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStringRef {
     }
 }
 
+fn system_exit_code(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyObjectRef {
+    match exc.args.read().as_slice().first() {
+        Some(code) => match_class!(match code {
+            ref tup @ PyTuple => match tup.as_slice() {
+                [x] => x.clone(),
+                _ => code.clone(),
+            },
+            other => other.clone(),
+        }),
+        None => vm.get_none(),
+    }
+}
+
 pub fn init(ctx: &PyContext) {
     let excs = &ctx.exceptions;
 
@@ -676,7 +689,7 @@ pub fn init(ctx: &PyContext) {
     });
 
     extend_class!(ctx, &excs.system_exit, {
-        "code" => ctx.new_readonly_getset("code", make_arg_getter(0)),
+        "code" => ctx.new_readonly_getset("code", system_exit_code),
     });
 
     extend_class!(ctx, &excs.import_error, {
