@@ -4,7 +4,10 @@ version = "0.1.0"
 authors = ["RustPython Team"]
 edition = "2018"
 
+[features]
+default = ["compiled-bytecode"]
+compiled-bytecode = ["rustpython-derive", "rustpython-bytecode"]
+
 [dependencies]
-rustpython-derive = { version = "0.1.2", path = "../../derive" }
-rustpython-bytecode = { version = "0.1.2", path = "../../bytecode" }
-maplit = "1.0"
+rustpython-derive = { version = "0.1.2", path = "../../derive", optional = true }
+rustpython-bytecode = { version = "0.1.2", path = "../../bytecode", optional = true }

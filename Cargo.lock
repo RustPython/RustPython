@@ -1294,6 +1294,7 @@ dependencies = [
  "num-traits",
  "rustpython-compiler",
  "rustpython-parser",
+ "rustpython-pylib",
  "rustpython-vm",
  "rustyline",
 ]
@@ -1368,7 +1369,6 @@ dependencies = [
 name = "rustpython-pylib"
 version = "0.1.0"
 dependencies = [
- "maplit",
  "rustpython-bytecode",
  "rustpython-derive",
 ]

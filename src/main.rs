@@ -198,14 +198,14 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
     // add the current directory to sys.path
     settings.path_list.push("".to_owned());
 
+    // BUILDTIME_RUSTPYTHONPATH should be set when distributing
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
         settings.path_list.extend(
             std::env::split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()),
         )
-    } else if option_env!("RUSTPYTHONPATH").is_none() {
-        settings
-            .path_list
-            .push(concat!(env!("CARGO_MANIFEST_DIR"), "/Lib").to_owned());
+    } else {
+        #[cfg(all(feature = "pylib", not(feature = "freeze-stdlib")))]
+        settings.path_list.push(pylib::LIB_PATH.to_owned());
     }
 
     if !ignore_environment {
