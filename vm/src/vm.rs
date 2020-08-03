@@ -591,7 +591,7 @@ impl VirtualMachine {
                 fn error(s: &str);
             }
             let mut s = Vec::<u8>::new();
-            exceptions::write_exception(&mut s, self, exc).unwrap();
+            exceptions::write_exception(&mut s, self, &exc).unwrap();
             error(std::str::from_utf8(&s).unwrap());
             panic!("{}; exception backtrace above", msg)
         }
