@@ -33,20 +33,6 @@ extern crate self as rustpython_vm;
 
 pub use rustpython_derive::*;
 
-#[doc(hidden)]
-pub use rustpython_derive::py_compile_bytecode as _py_compile_bytecode;
-
-#[macro_export]
-macro_rules! py_compile_bytecode {
-    ($($arg:tt)*) => {{
-        #[macro_use]
-        mod __m {
-            $crate::_py_compile_bytecode!($($arg)*);
-        }
-        __proc_macro_call!()
-    }};
-}
-
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};
 
@@ -90,6 +76,5 @@ pub use rustpython_common as common;
 
 #[doc(hidden)]
 pub mod __exports {
-    pub use maplit::hashmap;
     pub use smallbox::smallbox;
 }
