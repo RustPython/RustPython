@@ -3,6 +3,7 @@ name = "rustpython-pylib"
 version = "0.1.0"
 authors = ["RustPython Team"]
 edition = "2018"
+include = ["Cargo.toml", "src/**/*.rs", "Lib/**"]
 
 [features]
 default = ["compiled-bytecode"]
