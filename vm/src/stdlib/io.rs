@@ -141,35 +141,36 @@ impl BufferedIO {
     }
 
     fn readline(&mut self, size: Option<usize>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let mut buf = Vec::new();
-        let mut left = size.unwrap_or(usize::MAX);
-        if left == 0 {
-            return Ok(buf);
-        }
-        loop {
-            let (done, used) = {
-                let mut available = self.cursor.fill_buf().map_err(|err| os_err(vm, err))?;
-                if left < available.len() {
-                    available = &available[..left];
-                }
-
-                match available.find_byte(b'\n') {
-                    Some(i) => {
-                        buf.extend_from_slice(&available[..=i]);
-                        (true, i + 1)
-                    }
-                    _ => {
-                        buf.extend_from_slice(available);
-                        (false, available.len())
-                    }
-                }
-            };
-            self.cursor.consume(used);
-            left -= used;
-            if done || used == 0 || left == 0 {
-                return Ok(buf);
+        let size = match size {
+            None => {
+                let mut buf = String::new();
+                self.cursor
+                    .read_line(&mut buf)
+                    .map_err(|err| os_err(vm, err))?;
+                return Ok(buf.into_bytes());
             }
-        }
+            Some(0) => {
+                return Ok(Vec::new());
+            }
+            Some(size) => size,
+        };
+
+        let available = {
+            // For Cursor, fill_buf returns all of the remaining data unlike other BufReads which have outer reading source.
+            // Unless we add other data by write, there will be no more data.
+            let buf = self.cursor.fill_buf().map_err(|err| os_err(vm, err))?;
+            if size < buf.len() {
+                &buf[..size]
+            } else {
+                buf
+            }
+        };
+        let buf = match available.find_byte(b'\n') {
+            Some(i) => (available[..=i].to_vec()),
+            _ => (available.to_vec()),
+        };
+        self.cursor.consume(buf.len());
+        Ok(buf)
     }
 
     fn truncate(&mut self, pos: Option<usize>) -> PyResult<()> {
@@ -1470,12 +1471,12 @@ mod tests {
     #[test]
     fn test_buffered_read() {
         let data = vec![1, 2, 3, 4];
-        let bytes: i64 = -1;
+        let bytes = None;
         let mut buffered = BufferedIO {
             cursor: Cursor::new(data.clone()),
         };
 
-        assert_eq!(buffered.read(Some(bytes)).unwrap(), data);
+        assert_eq!(buffered.read(bytes).unwrap(), data);
     }
 
     #[test]
@@ -1487,7 +1488,7 @@ mod tests {
         };
 
         assert_eq!(buffered.seek(SeekFrom::Start(count)).unwrap(), count);
-        assert_eq!(buffered.read(Some(count as i64)).unwrap(), vec![3, 4]);
+        assert_eq!(buffered.read(Some(count as usize)).unwrap(), vec![3, 4]);
     }
 
     #[test]
