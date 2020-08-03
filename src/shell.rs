@@ -131,7 +131,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 repl.save_history(&repl_history_path).unwrap();
                 return Err(exc);
             }
-            print_exception(vm, &exc);
+            print_exception(vm, exc);
         }
     }
     repl.save_history(&repl_history_path).unwrap();

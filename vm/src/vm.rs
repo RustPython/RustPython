@@ -570,7 +570,7 @@ impl VirtualMachine {
     }
 
     // TODO: #[track_caller] when stabilized
-    fn _py_panic_failed(&self, exc: &PyBaseExceptionRef, msg: &str) -> ! {
+    fn _py_panic_failed(&self, exc: PyBaseExceptionRef, msg: &str) -> ! {
         #[cfg(not(all(target_arch = "wasm32", not(target_os = "wasi"))))]
         {
             let show_backtrace = env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
@@ -591,18 +591,18 @@ impl VirtualMachine {
                 fn error(s: &str);
             }
             let mut s = Vec::<u8>::new();
-            exceptions::write_exception(&mut s, self, exc).unwrap();
+            exceptions::write_exception(&mut s, self, &exc).unwrap();
             error(std::str::from_utf8(&s).unwrap());
             panic!("{}; exception backtrace above", msg)
         }
     }
     pub fn unwrap_pyresult<T>(&self, result: PyResult<T>) -> T {
         result.unwrap_or_else(|exc| {
-            self._py_panic_failed(&exc, "called `vm.unwrap_pyresult()` on an `Err` value")
+            self._py_panic_failed(exc, "called `vm.unwrap_pyresult()` on an `Err` value")
         })
     }
     pub fn expect_pyresult<T>(&self, result: PyResult<T>, msg: &str) -> T {
-        result.unwrap_or_else(|exc| self._py_panic_failed(&exc, msg))
+        result.unwrap_or_else(|exc| self._py_panic_failed(exc, msg))
     }
 
     pub fn new_scope_with_builtins(&self) -> Scope {

@@ -663,7 +663,9 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
 
-                let displayhook = vm.get_attribute(vm.sys_module.clone(), "displayhook")?;
+                let displayhook = vm
+                    .get_attribute(vm.sys_module.clone(), "displayhook")
+                    .map_err(|_| vm.new_runtime_error("lost sys.displayhook".to_owned()))?;
                 vm.invoke(&displayhook, vec![expr])?;
 
                 Ok(None)
