@@ -156,6 +156,7 @@ pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
     convert_io_error(vm, io::Error::last_os_error())
 }
 
+#[allow(dead_code)]
 #[derive(FromArgs, Default)]
 pub struct TargetIsDirectory {
     #[pyarg(keyword_only, default = "false")]
