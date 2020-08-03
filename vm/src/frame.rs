@@ -19,7 +19,7 @@ use crate::obj::objgenerator::PyGenerator;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
-use crate::obj::objstr::{self, PyString};
+use crate::obj::objstr::{self, PyStr};
 use crate::obj::objtraceback::PyTraceback;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
@@ -1065,7 +1065,7 @@ impl ExecutingFrame<'_> {
                     };
                     let mut kwargs = IndexMap::new();
                     for (key, value) in kw_dict.into_iter() {
-                        if let Some(key) = key.payload_if_subclass::<objstr::PyString>(vm) {
+                        if let Some(key) = key.payload_if_subclass::<objstr::PyStr>(vm) {
                             kwargs.insert(key.as_str().to_owned(), value);
                         } else {
                             return Err(vm.new_type_error("keywords must be strings".to_owned()));
@@ -1243,7 +1243,7 @@ impl ExecutingFrame<'_> {
     fn execute_make_function(&mut self, vm: &VirtualMachine) -> FrameResult {
         let qualified_name = self
             .pop_value()
-            .downcast::<PyString>()
+            .downcast::<PyStr>()
             .expect("qualified name to be a string");
         let code_obj: PyCodeRef = self
             .pop_value()

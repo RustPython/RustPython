@@ -1,7 +1,7 @@
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -90,7 +90,7 @@ impl PyHasher {
 }
 
 fn hashlib_new(
-    name: PyStringRef,
+    name: PyStrRef,
     data: OptionalArg<PyBytesRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyHasher> {

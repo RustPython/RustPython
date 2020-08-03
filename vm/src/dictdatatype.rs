@@ -1,5 +1,5 @@
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-use crate::obj::objstr::{PyString, PyStringRef};
+use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -436,7 +436,7 @@ impl DictKey for PyObjectRef {
     }
 }
 
-impl DictKey for PyStringRef {
+impl DictKey for PyStrRef {
     fn do_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         Ok(self.hash())
     }
@@ -448,7 +448,7 @@ impl DictKey for PyStringRef {
     fn do_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         if self.is(other_key) {
             Ok(true)
-        } else if let Some(py_str_value) = other_key.payload::<PyString>() {
+        } else if let Some(py_str_value) = other_key.payload::<PyStr>() {
             Ok(py_str_value.as_str() == self.as_str())
         } else {
             vm.bool_eq(self.clone().into_object(), other_key.clone())
@@ -462,7 +462,7 @@ impl DictKey for PyStringRef {
 /// to index dictionaries.
 impl DictKey for &str {
     fn do_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
-        // follow a similar route as the hashing of PyStringRef
+        // follow a similar route as the hashing of PyStrRef
         let raw_hash = hash::hash_value(*self).to_bigint().unwrap();
         let raw_hash = hash::hash_bigint(&raw_hash);
         let mut hasher = DefaultHasher::new();
@@ -477,10 +477,10 @@ impl DictKey for &str {
     }
 
     fn do_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
-        if let Some(py_str_value) = other_key.payload::<PyString>() {
+        if let Some(py_str_value) = other_key.payload::<PyStr>() {
             Ok(py_str_value.as_str() == *self)
         } else {
-            // Fall back to PyString implementation.
+            // Fall back to PyStr implementation.
             let s = vm.ctx.new_str(*self);
             s.do_eq(vm, other_key)
         }

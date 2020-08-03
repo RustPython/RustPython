@@ -11,7 +11,7 @@ mod _string {
         FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
     };
     use crate::obj::objlist::PyList;
-    use crate::obj::objstr::PyStringRef;
+    use crate::obj::objstr::PyStrRef;
     use crate::pyobject::{IntoPyObject, PyObjectRef, PyResult};
     use crate::vm::VirtualMachine;
 
@@ -32,7 +32,7 @@ mod _string {
     }
 
     #[pyfunction]
-    fn formatter_parser(text: PyStringRef, vm: &VirtualMachine) -> PyResult<PyList> {
+    fn formatter_parser(text: PyStrRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let format_string =
             FormatString::from_str(text.as_str()).map_err(|e| e.into_pyobject(vm))?;
 
@@ -70,7 +70,7 @@ mod _string {
 
     #[pyfunction]
     fn formatter_field_name_split(
-        text: PyStringRef,
+        text: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, PyList)> {
         let field_name = FieldName::parse(text.as_str()).map_err(|e| e.into_pyobject(vm))?;

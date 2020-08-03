@@ -1,6 +1,6 @@
 use super::objdict::PyDictRef;
 use super::objiter;
-use super::objstr::PyStringRef;
+use super::objstr::PyStrRef;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
@@ -47,7 +47,7 @@ impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         let opt = match &self.mapping {
             MappingProxyInner::Class(class) => {
-                let key = PyStringRef::try_from_object(vm, key)?;
+                let key = PyStrRef::try_from_object(vm, key)?;
                 class.get_attr(key.as_str())
             }
             MappingProxyInner::Dict(obj) => obj.get_item(&key, vm).ok(),
@@ -74,7 +74,7 @@ impl PyMappingProxy {
     pub fn contains(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match &self.mapping {
             MappingProxyInner::Class(class) => {
-                let key = PyStringRef::try_from_object(vm, key)?;
+                let key = PyStrRef::try_from_object(vm, key)?;
                 Ok(vm.new_bool(class.has_attr(key.as_str())))
             }
             MappingProxyInner::Dict(obj) => vm._membership(obj.clone(), key),

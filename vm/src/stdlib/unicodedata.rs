@@ -3,7 +3,7 @@
 */
 
 use crate::function::OptionalArg;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -81,7 +81,7 @@ impl PyUCD {
         Age::of(c).map_or(false, |age| age.actual() <= self.unic_version)
     }
 
-    fn extract_char(&self, character: PyStringRef, vm: &VirtualMachine) -> PyResult<Option<char>> {
+    fn extract_char(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<Option<char>> {
         let c = character.as_str().chars().exactly_one().map_err(|_| {
             vm.new_type_error("argument must be an unicode character, not str".to_owned())
         })?;
@@ -94,7 +94,7 @@ impl PyUCD {
     }
 
     #[pymethod]
-    fn category(&self, character: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn category(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         Ok(self
             .extract_char(character, vm)?
             .map_or(GeneralCategory::Unassigned, GeneralCategory::of)
@@ -103,7 +103,7 @@ impl PyUCD {
     }
 
     #[pymethod]
-    fn lookup(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         if let Some(character) = unicode_names2::character(name.as_str()) {
             if self.check_age(character) {
                 return Ok(character.to_string());
@@ -115,7 +115,7 @@ impl PyUCD {
     #[pymethod]
     fn name(
         &self,
-        character: PyStringRef,
+        character: PyStrRef,
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -135,7 +135,7 @@ impl PyUCD {
     }
 
     #[pymethod]
-    fn bidirectional(&self, character: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn bidirectional(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         let bidi = match self.extract_char(character, vm)? {
             Some(c) => BidiClass::of(c).abbr_name(),
             None => "",
@@ -144,12 +144,7 @@ impl PyUCD {
     }
 
     #[pymethod]
-    fn normalize(
-        &self,
-        form: PyStringRef,
-        unistr: PyStringRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    fn normalize(&self, form: PyStrRef, unistr: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         let text = unistr.as_str();
         let normalized_text = match form.as_str() {
             "NFC" => text.nfc().collect::<String>(),

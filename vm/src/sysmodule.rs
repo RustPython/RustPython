@@ -3,7 +3,7 @@ use std::{env, mem, path};
 
 use crate::frame::FrameRef;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
 use crate::vm::{PySettings, VirtualMachine};
@@ -200,7 +200,7 @@ fn sys_setrecursionlimit(recursion_limit: i32, vm: &VirtualMachine) -> PyResult 
 }
 
 // TODO implement string interning, this will be key for performance
-fn sys_intern(value: PyStringRef) -> PyStringRef {
+fn sys_intern(value: PyStrRef) -> PyStrRef {
     value
 }
 

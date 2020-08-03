@@ -1,4 +1,4 @@
-use rustpython_vm::obj::objstr::PyStringRef;
+use rustpython_vm::obj::objstr::PyStrRef;
 use rustpython_vm::pyobject::{PyIterable, PyResult, TryFromObject};
 use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::VirtualMachine;
@@ -59,16 +59,13 @@ impl<'vm> ShellHelper<'vm> {
     fn get_available_completions<'w>(
         &self,
         words: &'w [String],
-    ) -> Option<(
-        &'w str,
-        Box<dyn Iterator<Item = PyResult<PyStringRef>> + 'vm>,
-    )> {
+    ) -> Option<(&'w str, Box<dyn Iterator<Item = PyResult<PyStrRef>> + 'vm>)> {
         // the very first word and then all the ones after the dot
         let (first, rest) = words.split_first().unwrap();
 
         let str_iter_method = |obj, name| {
             let iter = self.vm.call_method(obj, name, vec![])?;
-            PyIterable::<PyStringRef>::try_from_object(self.vm, iter)?.iter(self.vm)
+            PyIterable::<PyStrRef>::try_from_object(self.vm, iter)?.iter(self.vm)
         };
 
         if let Some((last, parents)) = rest.split_last() {

@@ -3,7 +3,7 @@ use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCode;
 use crate::obj::objmodule::PyModuleRef;
 use crate::obj::objstr;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::thread::RawRMutex;
@@ -47,11 +47,11 @@ fn imp_lock_held(_vm: &VirtualMachine) -> bool {
     false
 }
 
-fn imp_is_builtin(name: PyStringRef, vm: &VirtualMachine) -> bool {
+fn imp_is_builtin(name: PyStrRef, vm: &VirtualMachine) -> bool {
     vm.state.stdlib_inits.contains_key(name.as_str())
 }
 
-fn imp_is_frozen(name: PyStringRef, vm: &VirtualMachine) -> bool {
+fn imp_is_frozen(name: PyStrRef, vm: &VirtualMachine) -> bool {
     vm.state.frozen.contains_key(name.as_str())
 }
 
@@ -74,7 +74,7 @@ fn imp_exec_builtin(_mod: PyModuleRef) -> i32 {
     0
 }
 
-fn imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyCode> {
+fn imp_get_frozen_object(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyCode> {
     vm.state
         .frozen
         .get(name.as_str())
@@ -91,11 +91,11 @@ fn imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyC
         })
 }
 
-fn imp_init_frozen(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn imp_init_frozen(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     import::import_frozen(vm, name.as_str())
 }
 
-fn imp_is_frozen_package(name: PyStringRef, vm: &VirtualMachine) -> PyResult<bool> {
+fn imp_is_frozen_package(name: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
     vm.state
         .frozen
         .get(name.as_str())
@@ -108,7 +108,7 @@ fn imp_is_frozen_package(name: PyStringRef, vm: &VirtualMachine) -> PyResult<boo
         })
 }
 
-fn imp_fix_co_filename(_code: PyObjectRef, _path: PyStringRef) {
+fn imp_fix_co_filename(_code: PyObjectRef, _path: PyStrRef) {
     // TODO:
 }
 

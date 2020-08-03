@@ -7,7 +7,7 @@ use std::mem::size_of;
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objsequence::SequenceIndex;
-use super::objstr::{PyString, PyStringRef};
+use super::objstr::{PyStr, PyStrRef};
 use super::objtype::PyClassRef;
 use crate::bytesinner::{
     ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
@@ -19,7 +19,7 @@ use crate::pyobject::{
     Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol,
 };
-use crate::pystr::{self, PyCommonString};
+use crate::pystr::{self, PyStringImpl};
 use crate::vm::VirtualMachine;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\
@@ -249,7 +249,7 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
+    fn fromhex(string: PyStrRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
         Ok(PyBytesInner::fromhex(string.as_str(), vm)?.into())
     }
 
@@ -573,13 +573,13 @@ impl PyByteArray {
     #[pymethod]
     fn decode(
         zelf: PyRef<Self>,
-        encoding: OptionalArg<PyStringRef>,
-        errors: OptionalArg<PyStringRef>,
+        encoding: OptionalArg<PyStrRef>,
+        errors: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyStringRef> {
+    ) -> PyResult<PyStrRef> {
         let encoding = encoding.into_option();
         vm.decode(zelf.into_object(), encoding.clone(), errors.into_option())?
-            .downcast::<PyString>()
+            .downcast::<PyStr>()
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \

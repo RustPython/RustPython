@@ -1,7 +1,7 @@
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objslice::PySliceRef;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
@@ -269,7 +269,7 @@ impl PyArray {
     #[pyslot]
     fn tp_new(
         cls: PyClassRef,
-        spec: PyStringRef,
+        spec: PyStrRef,
         init: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyArrayRef> {

@@ -23,7 +23,7 @@ mod _struct {
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
     use crate::obj::{
-        objbool::IntoPyBool, objbytes::PyBytesRef, objstr::PyString, objstr::PyStringRef,
+        objbool::IntoPyBool, objbytes::PyBytesRef, objstr::PyStr, objstr::PyStrRef,
         objtuple::PyTuple, objtype::PyClassRef,
     };
     use crate::pyobject::{
@@ -437,7 +437,7 @@ mod _struct {
 
     #[pyfunction]
     fn pack(
-        fmt: Either<PyStringRef, PyBytesRef>,
+        fmt: Either<PyStrRef, PyBytesRef>,
         args: Args,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
@@ -609,7 +609,7 @@ mod _struct {
 
     #[pyfunction]
     fn unpack(
-        fmt: Either<PyStringRef, PyBytesRef>,
+        fmt: Either<PyStrRef, PyBytesRef>,
         buffer: PyBytesRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyTuple> {
@@ -671,7 +671,7 @@ mod _struct {
     }
 
     #[pyfunction]
-    fn calcsize(fmt: Either<PyStringRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<usize> {
+    fn calcsize(fmt: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<usize> {
         // FIXME: the given fmt must be parsed as ascii string
         // https://github.com/RustPython/RustPython/pull/1792#discussion_r387340905
         let parsed = match fmt {
@@ -686,7 +686,7 @@ mod _struct {
     #[derive(Debug)]
     struct PyStruct {
         spec: FormatSpec,
-        fmt_str: PyStringRef,
+        fmt_str: PyStrRef,
     }
 
     impl PyValue for PyStruct {
@@ -700,12 +700,12 @@ mod _struct {
         #[pyslot]
         fn tp_new(
             cls: PyClassRef,
-            fmt: Either<PyStringRef, PyBytesRef>,
+            fmt: Either<PyStrRef, PyBytesRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let fmt_str = match fmt {
                 Either::A(s) => s,
-                Either::B(b) => PyString::from(std::str::from_utf8(b.get_value()).unwrap())
+                Either::B(b) => PyStr::from(std::str::from_utf8(b.get_value()).unwrap())
                     .into_ref_with_type(vm, vm.ctx.str_type())?,
             };
             let spec = FormatSpec::parse(fmt_str.as_str()).map_err(|e| new_struct_error(vm, e))?;
@@ -713,7 +713,7 @@ mod _struct {
         }
 
         #[pyproperty]
-        fn format(&self) -> PyStringRef {
+        fn format(&self) -> PyStrRef {
             self.fmt_str.clone()
         }
 

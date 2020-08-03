@@ -1,6 +1,6 @@
 use super::objcode::PyCodeRef;
 use super::objdict::PyDictRef;
-use super::objstr::PyStringRef;
+use super::objstr::PyStrRef;
 use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
 use crate::bytecode;
@@ -324,7 +324,7 @@ impl PyBoundMethod {
     }
 
     #[pymethod(magic)]
-    fn getattribute(zelf: PyRef<Self>, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn getattribute(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         if let Some(obj) = zelf.get_class_attr(name.as_str()) {
             return vm.call_if_get_descriptor(obj, zelf.into_object());
         }

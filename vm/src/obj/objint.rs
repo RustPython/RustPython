@@ -10,7 +10,7 @@ use super::objbytearray::PyByteArray;
 use super::objbytes::PyBytes;
 use super::objfloat;
 use super::objmemory::PyMemoryView;
-use super::objstr::{PyString, PyStringRef};
+use super::objstr::{PyStr, PyStrRef};
 use super::objtype::{self, PyClassRef};
 use crate::bytesinner::PyBytesInner;
 use crate::format::FormatSpec;
@@ -503,7 +503,7 @@ impl PyInt {
     }
 
     #[pymethod(name = "__format__")]
-    fn format(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         match FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_int(&self.value))
         {
@@ -716,7 +716,7 @@ struct IntFromByteArgs {
     #[pyarg(positional_or_keyword)]
     bytes: PyBytesInner,
     #[pyarg(positional_or_keyword)]
-    byteorder: PyStringRef,
+    byteorder: PyStrRef,
     #[pyarg(keyword_only, optional = true)]
     signed: OptionalArg<IntoPyBool>,
 }
@@ -726,7 +726,7 @@ struct IntToByteArgs {
     #[pyarg(positional_or_keyword)]
     length: PyIntRef,
     #[pyarg(positional_or_keyword)]
-    byteorder: PyStringRef,
+    byteorder: PyStrRef,
     #[pyarg(keyword_only, optional = true)]
     signed: OptionalArg<IntoPyBool>,
 }
@@ -745,7 +745,7 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult
     };
 
     let opt = match_class!(match obj.clone() {
-        string @ PyString => {
+        string @ PyStr => {
             let s = string.as_str();
             str_to_int(&s, base)
         }

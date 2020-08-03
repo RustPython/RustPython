@@ -1,5 +1,5 @@
 use super::objdict::PyDictRef;
-use super::objstr::{PyString, PyStringRef};
+use super::objstr::{PyStr, PyStrRef};
 use super::objtype::PyClassRef;
 use crate::function::OptionalOption;
 use crate::pyobject::{
@@ -48,8 +48,8 @@ impl PyModuleRef {
     #[pyslot]
     fn tp_new(
         cls: PyClassRef,
-        name: PyStringRef,
-        doc: OptionalOption<PyStringRef>,
+        name: PyStrRef,
+        doc: OptionalOption<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyModuleRef> {
         let zelf = PyModule {}.into_ref_with_type(vm, cls)?;
@@ -66,15 +66,15 @@ impl PyModuleRef {
     fn name(self, vm: &VirtualMachine) -> Option<String> {
         vm.generic_getattribute_opt(
             self.as_object().clone(),
-            PyString::from("__name__").into_ref(vm),
+            PyStr::from("__name__").into_ref(vm),
             None,
         )
         .unwrap_or(None)
-        .and_then(|obj| obj.payload::<PyString>().map(|s| s.as_str().to_owned()))
+        .and_then(|obj| obj.payload::<PyStr>().map(|s| s.as_str().to_owned()))
     }
 
     #[pymethod(magic)]
-    fn getattribute(self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn getattribute(self, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         vm.generic_getattribute_opt(self.as_object().clone(), name.clone(), None)?
             .ok_or_else(|| {
                 let module_name = if let Some(name) = self.name(vm) {

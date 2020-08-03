@@ -13,11 +13,11 @@ use crate::obj::objmemory::PyMemoryView;
 use crate::obj::objnone::PyNoneRef;
 use crate::obj::objsequence::{PySliceableSequence, SequenceIndex};
 use crate::obj::objslice::PySliceRef;
-use crate::obj::objstr::{self, PyString, PyStringRef};
+use crate::obj::objstr::{self, PyStr, PyStrRef};
 use crate::pyobject::{
     Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
-use crate::pystr::{self, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper};
+use crate::pystr::{self, PyStringImpl, PyStringImplContainer, PyStringImplWrapper};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
 
@@ -63,7 +63,7 @@ pub struct ByteInnerNewOptions {
     #[pyarg(positional_only, optional = true)]
     val_option: OptionalArg<PyObjectRef>,
     #[pyarg(positional_or_keyword, optional = true)]
-    encoding: OptionalArg<PyStringRef>,
+    encoding: OptionalArg<PyStrRef>,
 }
 
 impl ByteInnerNewOptions {
@@ -71,7 +71,7 @@ impl ByteInnerNewOptions {
         // First handle bytes(string, encoding[, errors])
         if let OptionalArg::Present(enc) = self.encoding {
             if let OptionalArg::Present(eval) = self.val_option {
-                if let Ok(input) = eval.downcast::<PyString>() {
+                if let Ok(input) = eval.downcast::<PyStr>() {
                     let bytes = objstr::encode_string(input, Some(enc), None, vm)?;
                     Ok(PyBytesInner {
                         elements: bytes.get_value().to_vec(),
@@ -102,7 +102,7 @@ impl ByteInnerNewOptions {
                         };
                         Ok(vec![0; size])
                     }
-                    _l @ PyString => {
+                    _l @ PyStr => {
                         return Err(
                             vm.new_type_error("string argument without an encoding".to_owned())
                         );
@@ -676,7 +676,7 @@ impl PyBytesInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self._pad(options, PyCommonString::<u8>::py_center, vm)
+        self._pad(options, PyStringImpl::<u8>::py_center, vm)
     }
 
     pub fn ljust(
@@ -684,7 +684,7 @@ impl PyBytesInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self._pad(options, PyCommonString::<u8>::py_ljust, vm)
+        self._pad(options, PyStringImpl::<u8>::py_ljust, vm)
     }
 
     pub fn rjust(
@@ -692,7 +692,7 @@ impl PyBytesInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self._pad(options, PyCommonString::<u8>::py_rjust, vm)
+        self._pad(options, PyStringImpl::<u8>::py_rjust, vm)
     }
 
     pub fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
@@ -1166,13 +1166,13 @@ pub trait ByteOr: ToPrimitive {
 
 impl ByteOr for BigInt {}
 
-impl PyCommonStringWrapper<[u8]> for PyBytesInner {
+impl PyStringImplWrapper<[u8]> for PyBytesInner {
     fn as_ref(&self) -> &[u8] {
         &self.elements
     }
 }
 
-impl PyCommonStringContainer<[u8]> for Vec<u8> {
+impl PyStringImplContainer<[u8]> for Vec<u8> {
     fn new() -> Self {
         Vec::new()
     }
@@ -1188,7 +1188,7 @@ impl PyCommonStringContainer<[u8]> for Vec<u8> {
 
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
-impl<'s> PyCommonString<'s, u8> for [u8] {
+impl<'s> PyStringImpl<'s, u8> for [u8] {
     type Container = Vec<u8>;
     type CharIter = bstr::Chars<'s>;
     type ElementIter = std::iter::Copied<std::slice::Iter<'s, u8>>;

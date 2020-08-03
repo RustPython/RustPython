@@ -5,7 +5,7 @@ use num_traits::{pow, ToPrimitive, Zero};
 
 use super::objbytes::PyBytes;
 use super::objint::{self, PyInt, PyIntRef};
-use super::objstr::{PyString, PyStringRef};
+use super::objstr::{PyStr, PyStrRef};
 use super::objtype::PyClassRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
@@ -186,7 +186,7 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__format__")]
-    fn format(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         match FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_float(self.value))
         {
@@ -507,7 +507,7 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn fromhex(repr: PyStringRef, vm: &VirtualMachine) -> PyResult<f64> {
+    fn fromhex(repr: PyStrRef, vm: &VirtualMachine) -> PyResult<f64> {
         float_ops::from_hex(repr.as_str().trim()).ok_or_else(|| {
             vm.new_value_error("invalid hexadecimal floating-point string".to_owned())
         })
@@ -524,7 +524,7 @@ fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
         float.value
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
         objint::try_float(int.as_bigint(), vm)?
-    } else if let Some(s) = obj.payload_if_subclass::<PyString>(vm) {
+    } else if let Some(s) = obj.payload_if_subclass::<PyStr>(vm) {
         float_ops::parse_str(s.as_str().trim()).ok_or_else(|| {
             vm.new_value_error(format!("could not convert string to float: '{}'", s))
         })?

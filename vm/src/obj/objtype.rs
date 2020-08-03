@@ -7,7 +7,7 @@ use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objmappingproxy::PyMappingProxy;
 use super::objstaticmethod::PyStaticMethod;
-use super::objstr::PyStringRef;
+use super::objstr::PyStrRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
@@ -123,12 +123,12 @@ impl PyClassRef {
     }
 
     #[pymethod(magic)]
-    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
+    fn prepare(_name: PyStrRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
     }
 
     #[pymethod(magic)]
-    fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn getattribute(self, name_ref: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let name = name_ref.as_str();
         vm_trace!("type.__getattribute__({:?}, {:?})", self, name);
         let mcl = self.lease_class();
@@ -176,12 +176,7 @@ impl PyClassRef {
     }
 
     #[pymethod(magic)]
-    fn setattr(
-        self,
-        attr_name: PyStringRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn setattr(self, attr_name: PyStrRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(attr) = self.get_class_attr(attr_name.as_str()) {
             if let Some(ref descriptor) = attr.get_class_attr("__set__") {
                 vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
@@ -194,7 +189,7 @@ impl PyClassRef {
     }
 
     #[pymethod(magic)]
-    fn delattr(self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn delattr(self, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(attr) = self.get_class_attr(attr_name.as_str()) {
             if let Some(ref descriptor) = attr.get_class_attr("__delete__") {
                 return vm
@@ -258,7 +253,7 @@ impl PyClassRef {
             }));
         }
 
-        let (name, bases, dict, kwargs): (PyStringRef, PyIterable<PyClassRef>, PyDictRef, KwArgs) =
+        let (name, bases, dict, kwargs): (PyStrRef, PyIterable<PyClassRef>, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
         let bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;

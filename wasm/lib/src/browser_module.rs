@@ -7,7 +7,7 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::import::import_file;
-use rustpython_vm::obj::{objdict::PyDictRef, objstr::PyStringRef, objtype::PyClassRef};
+use rustpython_vm::obj::{objdict::PyDictRef, objstr::PyStrRef, objtype::PyClassRef};
 use rustpython_vm::pyobject::{
     PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
 };
@@ -50,18 +50,18 @@ impl FetchResponseFormat {
 #[derive(FromArgs)]
 struct FetchArgs {
     #[pyarg(keyword_only, default = "None")]
-    response_format: Option<PyStringRef>,
+    response_format: Option<PyStrRef>,
     #[pyarg(keyword_only, default = "None")]
-    method: Option<PyStringRef>,
+    method: Option<PyStrRef>,
     #[pyarg(keyword_only, default = "None")]
     headers: Option<PyDictRef>,
     #[pyarg(keyword_only, default = "None")]
     body: Option<PyObjectRef>,
     #[pyarg(keyword_only, default = "None")]
-    content_type: Option<PyStringRef>,
+    content_type: Option<PyStrRef>,
 }
 
-fn browser_fetch(url: PyStringRef, args: FetchArgs, vm: &VirtualMachine) -> PyResult {
+fn browser_fetch(url: PyStrRef, args: FetchArgs, vm: &VirtualMachine) -> PyResult {
     let FetchArgs {
         response_format,
         method,
@@ -263,7 +263,7 @@ impl PyValue for Document {
 #[pyimpl]
 impl Document {
     #[pymethod]
-    fn query(&self, query: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn query(&self, query: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let elem = self
             .doc
             .query_selector(query.as_str())
@@ -293,7 +293,7 @@ impl Element {
     #[pymethod]
     fn get_attr(
         &self,
-        attr: PyStringRef,
+        attr: PyStrRef,
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
@@ -304,14 +304,14 @@ impl Element {
     }
 
     #[pymethod]
-    fn set_attr(&self, attr: PyStringRef, value: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_attr(&self, attr: PyStrRef, value: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         self.elem
             .set_attribute(attr.as_str(), value.as_str())
             .map_err(|err| convert::js_py_typeerror(vm, err))
     }
 }
 
-fn browser_load_module(module: PyStringRef, path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn browser_load_module(module: PyStrRef, path: PyStrRef, vm: &VirtualMachine) -> PyResult {
     let weak_vm = weak_vm(vm);
 
     let mut opts = web_sys::RequestInit::new();

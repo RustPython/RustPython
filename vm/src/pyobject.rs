@@ -422,9 +422,9 @@ impl PyContext {
 
     pub fn new_str<S>(&self, s: S) -> PyObjectRef
     where
-        objstr::PyString: std::convert::From<S>,
+        objstr::PyStr: std::convert::From<S>,
     {
-        PyObject::new(objstr::PyString::from(s), self.str_type(), None)
+        PyObject::new(objstr::PyStr::from(s), self.str_type(), None)
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
@@ -496,7 +496,7 @@ impl PyContext {
     where
         F: IntoPyNativeFunc<T, R, VM>,
     {
-        let stringref = |s| PyRef::new_ref(objstr::PyString::from(s), self.str_type(), None);
+        let stringref = |s| PyRef::new_ref(objstr::PyStr::from(s), self.str_type(), None);
         PyObject::new(
             PyBuiltinFunction::new_with_name(f.into_func(), stringref(module), stringref(name)),
             self.builtin_function_or_method_type(),
@@ -1347,10 +1347,10 @@ impl<A: PyValue, B: PyValue> Either<PyRef<A>, PyRef<B>> {
 ///
 /// ```
 /// use rustpython_vm::VirtualMachine;
-/// use rustpython_vm::obj::{objstr::PyStringRef, objint::PyIntRef};
+/// use rustpython_vm::obj::{objstr::PyStrRef, objint::PyIntRef};
 /// use rustpython_vm::pyobject::Either;
 ///
-/// fn do_something(arg: Either<PyIntRef, PyStringRef>, vm: &VirtualMachine) {
+/// fn do_something(arg: Either<PyIntRef, PyStrRef>, vm: &VirtualMachine) {
 ///     match arg {
 ///         Either::A(int)=> {
 ///             // do something with int

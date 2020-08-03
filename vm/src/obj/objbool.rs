@@ -9,7 +9,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 use super::objint::PyInt;
-use super::objstr::PyStringRef;
+use super::objstr::PyStrRef;
 use super::objtype;
 
 impl IntoPyObject for bool {
@@ -98,11 +98,7 @@ impl PyBool {
     }
 
     #[pymethod(magic)]
-    fn format(
-        obj: PyObjectRef,
-        format_spec: PyStringRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStringRef> {
+    fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         if format_spec.as_str().is_empty() {
             vm.to_str(&obj)
         } else {

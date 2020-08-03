@@ -1,6 +1,6 @@
 use super::objcode::PyCodeRef;
 use super::objcoroinner::{Coro, Variant};
-use super::objstr::PyStringRef;
+use super::objstr::PyStrRef;
 use super::objtype::PyClassRef;
 use crate::frame::FrameRef;
 use crate::function::OptionalArg;
@@ -90,7 +90,7 @@ impl PyCoroutine {
     // TODO: coroutine origin tracking:
     // https://docs.python.org/3/library/sys.html#sys.set_coroutine_origin_tracking_depth
     #[pyproperty]
-    fn cr_origin(&self, _vm: &VirtualMachine) -> Option<(PyStringRef, usize, PyStringRef)> {
+    fn cr_origin(&self, _vm: &VirtualMachine) -> Option<(PyStrRef, usize, PyStrRef)> {
         None
     }
 }

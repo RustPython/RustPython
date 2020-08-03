@@ -1,5 +1,5 @@
 use crate::obj::objiter;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::{objbool, objtype::PyClassRef};
 use crate::pyobject::{IdProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::VirtualMachine;
@@ -64,7 +64,7 @@ impl JsonScanner {
     fn parse(
         &self,
         s: &str,
-        pystr: PyStringRef,
+        pystr: PyStrRef,
         idx: usize,
         scan_once: PyObjectRef,
         vm: &VirtualMachine,
@@ -190,7 +190,7 @@ impl JsonScanner {
     }
 
     #[pyslot]
-    fn call(zelf: PyRef<Self>, pystr: PyStringRef, idx: isize, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: PyRef<Self>, pystr: PyStrRef, idx: isize, vm: &VirtualMachine) -> PyResult {
         if idx < 0 {
             return Err(vm.new_value_error("idx cannot be negative".to_owned()));
         }
@@ -220,11 +220,11 @@ fn encode_string(s: &str, ascii_only: bool) -> String {
     String::from_utf8(buf).expect("invalid utf-8 in json output")
 }
 
-fn _json_encode_basestring(s: PyStringRef) -> String {
+fn _json_encode_basestring(s: PyStrRef) -> String {
     encode_string(s.as_str(), false)
 }
 
-fn _json_encode_basestring_ascii(s: PyStringRef) -> String {
+fn _json_encode_basestring_ascii(s: PyStrRef) -> String {
     encode_string(s.as_str(), true)
 }
 

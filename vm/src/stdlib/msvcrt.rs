@@ -1,6 +1,6 @@
 use super::os::errno_err;
 use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::VirtualMachine;
 
@@ -40,7 +40,7 @@ fn msvcrt_putch(b: PyBytesRef, vm: &VirtualMachine) -> PyResult<()> {
     unsafe { suppress_iph!(_putch(c.into())) };
     Ok(())
 }
-fn msvcrt_putwch(s: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+fn msvcrt_putwch(s: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
     let c = s.as_str().chars().exactly_one().map_err(|_| {
         vm.new_type_error("putch() argument must be a string of length 1".to_owned())
     })?;

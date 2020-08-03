@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use super::objfloat::{self, IntoPyFloat, PyFloat};
 use super::objint::{self, PyInt};
-use super::objstr::PyString;
+use super::objstr::PyStr;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
@@ -238,7 +238,7 @@ impl PyComplex {
                 f @ PyFloat => {
                     f.to_f64()
                 }
-                s @ PyString => {
+                s @ PyStr => {
                     if imag.into_option().is_some() {
                         return Err(vm.new_type_error(
                             "complex() can't take second arg if first is a string".to_owned(),

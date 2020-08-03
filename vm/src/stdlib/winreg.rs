@@ -5,7 +5,7 @@ use std::io;
 
 use super::os;
 use crate::function::OptionalArg;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
@@ -101,7 +101,7 @@ impl Hkey {
 
 fn winreg_OpenKey(
     key: Hkey,
-    subkey: Option<PyStringRef>,
+    subkey: Option<PyStrRef>,
     reserved: OptionalArg<i32>,
     access: OptionalArg<u32>,
     vm: &VirtualMachine,
@@ -121,11 +121,7 @@ fn winreg_OpenKey(
     Ok(PyHKEY::new(key))
 }
 
-fn winreg_QueryValue(
-    key: Hkey,
-    subkey: Option<PyStringRef>,
-    vm: &VirtualMachine,
-) -> PyResult<String> {
+fn winreg_QueryValue(key: Hkey, subkey: Option<PyStrRef>, vm: &VirtualMachine) -> PyResult<String> {
     let subkey = subkey.as_ref().map_or("", |s| s.as_str());
     key.with_key(|k| k.get_value(subkey))
         .map_err(|e| os::convert_io_error(vm, e))
@@ -133,7 +129,7 @@ fn winreg_QueryValue(
 
 fn winreg_QueryValueEx(
     key: Hkey,
-    subkey: Option<PyStringRef>,
+    subkey: Option<PyStrRef>,
     vm: &VirtualMachine,
 ) -> PyResult<(PyObjectRef, usize)> {
     let subkey = subkey.as_ref().map_or("", |s| s.as_str());

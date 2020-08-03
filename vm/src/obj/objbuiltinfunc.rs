@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol,
@@ -12,8 +12,8 @@ use crate::vm::VirtualMachine;
 #[pyclass]
 pub struct PyBuiltinFunction {
     value: PyNativeFunc,
-    module: Option<PyStringRef>,
-    name: Option<PyStringRef>,
+    module: Option<PyStrRef>,
+    name: Option<PyStrRef>,
 }
 
 impl PyValue for PyBuiltinFunction {
@@ -38,7 +38,7 @@ impl PyBuiltinFunction {
         }
     }
 
-    pub fn new_with_name(value: PyNativeFunc, module: PyStringRef, name: PyStringRef) -> Self {
+    pub fn new_with_name(value: PyNativeFunc, module: PyStrRef, name: PyStrRef) -> Self {
         Self {
             value,
             module: Some(module),
@@ -60,11 +60,11 @@ impl SlotCall for PyBuiltinFunction {
 #[pyimpl(with(SlotCall))]
 impl PyBuiltinFunction {
     #[pyproperty(magic)]
-    fn module(&self) -> Option<PyStringRef> {
+    fn module(&self) -> Option<PyStrRef> {
         self.module.clone()
     }
     #[pyproperty(magic)]
-    fn name(&self) -> Option<PyStringRef> {
+    fn name(&self) -> Option<PyStrRef> {
         self.name.clone()
     }
 }
@@ -92,7 +92,7 @@ impl PyBuiltinMethod {
             function: PyBuiltinFunction::new(value),
         }
     }
-    pub fn new_with_name(value: PyNativeFunc, module: PyStringRef, name: PyStringRef) -> Self {
+    pub fn new_with_name(value: PyNativeFunc, module: PyStrRef, name: PyStrRef) -> Self {
         Self {
             function: PyBuiltinFunction::new_with_name(value, module, name),
         }
@@ -131,11 +131,11 @@ impl SlotCall for PyBuiltinMethod {
 #[pyimpl(with(SlotDescriptor, SlotCall))]
 impl PyBuiltinMethod {
     #[pyproperty(magic)]
-    fn module(&self) -> Option<PyStringRef> {
+    fn module(&self) -> Option<PyStrRef> {
         self.function.module.clone()
     }
     #[pyproperty(magic)]
-    fn name(&self) -> Option<PyStringRef> {
+    fn name(&self) -> Option<PyStrRef> {
         self.function.name.clone()
     }
 }

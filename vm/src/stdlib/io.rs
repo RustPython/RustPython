@@ -18,7 +18,7 @@ use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint;
 use crate::obj::objiter;
-use crate::obj::objstr::{self, PyString, PyStringRef};
+use crate::obj::objstr::{self, PyStr, PyStrRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -153,20 +153,20 @@ impl BufferedIO {
 }
 
 #[derive(Debug)]
-struct PyStringIO {
+struct PyStrIO {
     buffer: PyRwLock<BufferedIO>,
     closed: AtomicCell<bool>,
 }
 
-type PyStringIORef = PyRef<PyStringIO>;
+type PyStrIORef = PyRef<PyStrIO>;
 
-impl PyValue for PyStringIO {
+impl PyValue for PyStrIO {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("io", "StringIO")
     }
 }
 
-impl PyStringIORef {
+impl PyStrIORef {
     fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
         if !self.closed.load() {
             Ok(self.buffer.write())
@@ -176,7 +176,7 @@ impl PyStringIORef {
     }
 
     //write string to underlying vector
-    fn write(self, data: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    fn write(self, data: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let bytes = data.as_str().as_bytes();
 
         match self.buffer(vm)?.write(bytes) {
@@ -258,7 +258,7 @@ struct StringIOArgs {
     #[pyarg(positional_or_keyword, default = "None")]
     #[allow(dead_code)]
     // TODO: use this
-    newline: Option<PyStringRef>,
+    newline: Option<PyStrRef>,
 }
 
 fn string_io_new(
@@ -266,12 +266,12 @@ fn string_io_new(
     object: OptionalArg<Option<PyObjectRef>>,
     _args: StringIOArgs,
     vm: &VirtualMachine,
-) -> PyResult<PyStringIORef> {
+) -> PyResult<PyStrIORef> {
     let raw_bytes = object
         .flatten()
         .map_or_else(Vec::new, |v| objstr::borrow_value(&v).as_bytes().to_vec());
 
-    PyStringIO {
+    PyStrIO {
         buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
         closed: AtomicCell::new(false),
     }
@@ -625,9 +625,9 @@ mod fileio {
     #[derive(FromArgs)]
     struct FileIOArgs {
         #[pyarg(positional_only)]
-        name: Either<PyStringRef, i64>,
+        name: Either<PyStrRef, i64>,
         #[pyarg(positional_or_keyword, default = "None")]
-        mode: Option<PyStringRef>,
+        mode: Option<PyStrRef>,
         #[pyarg(positional_or_keyword, default = "true")]
         closefd: bool,
         #[pyarg(positional_or_keyword, default = "None")]
@@ -860,11 +860,11 @@ struct TextIOWrapperArgs {
     #[pyarg(positional_or_keyword, optional = false)]
     buffer: PyObjectRef,
     #[pyarg(positional_or_keyword, default = "None")]
-    encoding: Option<PyStringRef>,
+    encoding: Option<PyStrRef>,
     #[pyarg(positional_or_keyword, default = "None")]
-    errors: Option<PyStringRef>,
+    errors: Option<PyStrRef>,
     #[pyarg(positional_or_keyword, default = "None")]
-    newline: Option<PyStringRef>,
+    newline: Option<PyStrRef>,
 }
 
 impl TextIOWrapperArgs {
@@ -889,14 +889,14 @@ fn text_io_wrapper_init(
 ) -> PyResult<()> {
     args.validate_newline(vm)?;
 
-    let mut encoding: Option<PyStringRef> = args.encoding.clone();
+    let mut encoding: Option<PyStrRef> = args.encoding.clone();
     let mut self_encoding = None; // TODO: Try os.device_encoding(fileno)
     if encoding.is_none() && self_encoding.is_none() {
         // TODO: locale module
         self_encoding = Some("utf-8");
     }
     if let Some(self_encoding) = self_encoding {
-        encoding = Some(PyString::from(self_encoding).into_ref(vm));
+        encoding = Some(PyStr::from(self_encoding).into_ref(vm));
     } else if let Some(ref encoding) = encoding {
         self_encoding = Some(encoding.as_str())
     } else {
@@ -987,7 +987,7 @@ fn text_io_wrapper_read(
 
 fn text_io_wrapper_write(
     instance: PyObjectRef,
-    obj: PyStringRef,
+    obj: PyStrRef,
     vm: &VirtualMachine,
 ) -> PyResult<usize> {
     use std::str::from_utf8;
@@ -1103,7 +1103,7 @@ fn split_mode_string(mode_string: &str) -> Result<(String, String), String> {
 
 fn io_open_wrapper(
     file: PyObjectRef,
-    mode: OptionalArg<PyStringRef>,
+    mode: OptionalArg<PyStrRef>,
     opts: OpenArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
@@ -1125,11 +1125,11 @@ pub struct OpenArgs {
     #[pyarg(positional_or_keyword, default = "-1")]
     buffering: isize,
     #[pyarg(positional_or_keyword, default = "None")]
-    encoding: Option<PyStringRef>,
+    encoding: Option<PyStrRef>,
     #[pyarg(positional_or_keyword, default = "None")]
-    errors: Option<PyStringRef>,
+    errors: Option<PyStrRef>,
     #[pyarg(positional_or_keyword, default = "None")]
-    newline: Option<PyStringRef>,
+    newline: Option<PyStrRef>,
     #[pyarg(positional_or_keyword, default = "true")]
     closefd: bool,
     #[pyarg(positional_or_keyword, default = "None")]
@@ -1305,16 +1305,16 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     //StringIO: in-memory text
     let string_io = py_class!(ctx, "StringIO", text_io_base.clone(), {
         (slot new) => string_io_new,
-        "seek" => ctx.new_method(PyStringIORef::seek),
-        "seekable" => ctx.new_method(PyStringIORef::seekable),
-        "read" => ctx.new_method(PyStringIORef::read),
-        "write" => ctx.new_method(PyStringIORef::write),
-        "getvalue" => ctx.new_method(PyStringIORef::getvalue),
-        "tell" => ctx.new_method(PyStringIORef::tell),
-        "readline" => ctx.new_method(PyStringIORef::readline),
-        "truncate" => ctx.new_method(PyStringIORef::truncate),
-        "closed" => ctx.new_readonly_getset("closed", PyStringIORef::closed),
-        "close" => ctx.new_method(PyStringIORef::close),
+        "seek" => ctx.new_method(PyStrIORef::seek),
+        "seekable" => ctx.new_method(PyStrIORef::seekable),
+        "read" => ctx.new_method(PyStrIORef::read),
+        "write" => ctx.new_method(PyStrIORef::write),
+        "getvalue" => ctx.new_method(PyStrIORef::getvalue),
+        "tell" => ctx.new_method(PyStrIORef::tell),
+        "readline" => ctx.new_method(PyStrIORef::readline),
+        "truncate" => ctx.new_method(PyStrIORef::truncate),
+        "closed" => ctx.new_readonly_getset("closed", PyStrIORef::closed),
+        "close" => ctx.new_method(PyStrIORef::close),
     });
 
     //BytesIO: in-memory bytes

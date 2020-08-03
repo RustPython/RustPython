@@ -6,11 +6,11 @@ use std::iter::FromIterator;
 
 use rustpython_parser::lexer;
 
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
-fn tokenize_tokenize(s: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn tokenize_tokenize(s: PyStrRef, vm: &VirtualMachine) -> PyResult {
     let source = s.as_str();
 
     // TODO: implement generator when the time has come.

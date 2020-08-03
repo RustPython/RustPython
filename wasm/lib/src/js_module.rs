@@ -2,7 +2,7 @@ use js_sys::{Array, Object, Reflect};
 use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::Args;
-use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStringRef, objtype::PyClassRef};
+use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStrRef, objtype::PyClassRef};
 use rustpython_vm::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use rustpython_vm::types::create_type;
 use rustpython_vm::VirtualMachine;
@@ -46,13 +46,13 @@ impl PyValue for PyJsValue {
 }
 
 enum JsProperty {
-    Str(PyStringRef),
+    Str(PyStrRef),
     Js(PyJsValueRef),
 }
 
 impl TryFromObject for JsProperty {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        PyStringRef::try_from_object(vm, obj.clone())
+        PyStrRef::try_from_object(vm, obj.clone())
             .map(JsProperty::Str)
             .or_else(|_| PyJsValueRef::try_from_object(vm, obj).map(JsProperty::Js))
     }
@@ -87,7 +87,7 @@ impl PyJsValue {
     }
 
     #[pymethod]
-    fn new_from_str(&self, s: PyStringRef) -> PyJsValue {
+    fn new_from_str(&self, s: PyStrRef) -> PyJsValue {
         PyJsValue::new(s.as_str())
     }
 

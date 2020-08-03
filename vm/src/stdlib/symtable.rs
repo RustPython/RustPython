@@ -3,7 +3,7 @@ use std::fmt;
 use rustpython_compiler::{compile, error::CompileError, symboltable};
 use rustpython_parser::parser;
 
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -24,9 +24,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 /// symtable. Return top level SymbolTable.
 /// See docs: https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.symtable
 fn symtable_symtable(
-    source: PyStringRef,
-    filename: PyStringRef,
-    mode: PyStringRef,
+    source: PyStrRef,
+    filename: PyStrRef,
+    mode: PyStrRef,
     vm: &VirtualMachine,
 ) -> PyResult<PySymbolTableRef> {
     let mode = mode
@@ -104,7 +104,7 @@ impl PySymbolTable {
     }
 
     #[pymethod(name = "lookup")]
-    fn lookup(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
+    fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
         let name = name.as_str();
         if let Some(symbol) = self.symtable.symbols.get(name) {
             Ok(PySymbol {

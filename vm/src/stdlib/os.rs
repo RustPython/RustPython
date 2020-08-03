@@ -19,7 +19,7 @@ use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
-use crate::obj::objstr::{PyString, PyStringRef};
+use crate::obj::objstr::{PyStr, PyStrRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
@@ -86,7 +86,7 @@ impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let match1 = |obj: &PyObjectRef| {
             let pathlike = match_class!(match obj {
-                ref l @ PyString => PyPathLike {
+                ref l @ PyStr => PyPathLike {
                     path: l.as_str().into(),
                     mode: OutputMode::String,
                 },
@@ -281,7 +281,7 @@ mod _os {
     }
 
     #[pyfunction]
-    fn error(message: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
+    fn error(message: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
         let msg = message.map_or("".to_owned(), |msg| msg.as_str().to_owned());
 
         Err(vm.new_os_error(msg))
@@ -340,7 +340,7 @@ mod _os {
     }
 
     #[pyfunction]
-    fn mkdirs(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn mkdirs(path: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         fs::create_dir_all(path.as_str()).map_err(|err| convert_io_error(vm, err))
     }
 
@@ -364,8 +364,8 @@ mod _os {
 
     #[pyfunction]
     fn putenv(
-        key: Either<PyStringRef, PyBytesRef>,
-        value: Either<PyStringRef, PyBytesRef>,
+        key: Either<PyStrRef, PyBytesRef>,
+        value: Either<PyStrRef, PyBytesRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let key: &ffi::OsStr = match key {
@@ -381,7 +381,7 @@ mod _os {
     }
 
     #[pyfunction]
-    fn unsetenv(key: Either<PyStringRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
+    fn unsetenv(key: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
         let key: &ffi::OsStr = match key {
             Either::A(ref s) => s.as_str().as_ref(),
             Either::B(ref b) => bytes_as_osstr(b.get_value(), vm)?,
@@ -1393,7 +1393,7 @@ mod posix {
     }
 
     #[pyfunction]
-    fn system(command: PyStringRef) -> PyResult<i32> {
+    fn system(command: PyStrRef) -> PyResult<i32> {
         use std::ffi::CString;
 
         let rstr = command.as_str();
@@ -1427,7 +1427,7 @@ mod posix {
 
     #[pyfunction]
     fn execv(
-        path: PyStringRef,
+        path: PyStrRef,
         argv_list: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -1733,7 +1733,7 @@ mod posix {
         target_os = "openbsd"
     ))]
     #[pyfunction]
-    fn initgroups(user_name: PyStringRef, gid: u32, vm: &VirtualMachine) -> PyResult<()> {
+    fn initgroups(user_name: PyStrRef, gid: u32, vm: &VirtualMachine) -> PyResult<()> {
         let user = ffi::CString::new(user_name.as_str()).unwrap();
         let gid = Gid::from_raw(gid);
         unistd::initgroups(&user, gid).map_err(|err| convert_nix_error(vm, err))
@@ -2494,7 +2494,7 @@ mod minor {
     }
 
     #[pyfunction]
-    pub(super) fn access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+    pub(super) fn access(path: PyStrRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
         unimplemented!()
     }
 

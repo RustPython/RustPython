@@ -1,6 +1,6 @@
 use super::os::convert_nix_error;
 use crate::obj::objint::PyIntRef;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::PyStrRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use std::convert::TryFrom;
@@ -43,7 +43,7 @@ impl From<User> for Passwd {
     }
 }
 
-fn pwd_getpwnam(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
     match User::from_name(name.as_str()).map_err(|e| convert_nix_error(vm, e))? {
         Some(user) => Ok(Passwd::from(user)
             .into_struct_sequence(vm, vm.try_class("pwd", "struct_passwd")?)?
