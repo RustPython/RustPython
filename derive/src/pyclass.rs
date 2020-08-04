@@ -524,7 +524,7 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
                     vec![#(::rustpython_vm::pyobject::IntoPyObject::into_pyobject(
                         ::std::clone::Clone::clone(&self.#field_names),
                         vm,
-                    )?),*],
+                    )),*],
                 );
                 ::rustpython_vm::pyobject::PyValue::into_ref_with_type(tuple, vm, cls)
             }

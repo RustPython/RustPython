@@ -282,7 +282,7 @@ impl PyDictRef {
 
         if let Some(method_or_err) = vm.get_method(self.clone().into_object(), "__missing__") {
             let method = method_or_err?;
-            Ok(Some(vm.invoke(&method, vec![key.into_pyobject(vm)?])?))
+            Ok(Some(vm.invoke(&method, vec![key.into_pyobject(vm)])?))
         } else {
             Ok(None)
         }
@@ -419,7 +419,7 @@ impl PyDictRef {
     }
 
     pub fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool {
-        let key = key.into_pyobject(vm).unwrap();
+        let key = key.into_pyobject(vm);
         self.entries.contains(vm, &key).unwrap()
     }
 

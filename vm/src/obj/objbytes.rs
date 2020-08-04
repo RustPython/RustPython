@@ -59,8 +59,8 @@ impl From<Vec<u8>> for PyBytes {
 }
 
 impl IntoPyObject for Vec<u8> {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bytes(self))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_bytes(self)
     }
 }
 

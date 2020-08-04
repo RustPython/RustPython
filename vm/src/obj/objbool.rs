@@ -13,8 +13,8 @@ use super::objstr::PyStringRef;
 use super::objtype;
 
 impl IntoPyObject for bool {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_bool(self))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_bool(self)
     }
 }
 
@@ -112,7 +112,7 @@ impl PyBool {
 
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
-    fn or(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn or(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&lhs, &vm.ctx.types.bool_type)
             && objtype::isinstance(&rhs, &vm.ctx.types.bool_type)
         {
@@ -126,7 +126,7 @@ impl PyBool {
 
     #[pymethod(name = "__rand__")]
     #[pymethod(magic)]
-    fn and(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn and(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&lhs, &vm.ctx.types.bool_type)
             && objtype::isinstance(&rhs, &vm.ctx.types.bool_type)
         {
@@ -140,7 +140,7 @@ impl PyBool {
 
     #[pymethod(name = "__rxor__")]
     #[pymethod(magic)]
-    fn xor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn xor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&lhs, &vm.ctx.types.bool_type)
             && objtype::isinstance(&rhs, &vm.ctx.types.bool_type)
         {

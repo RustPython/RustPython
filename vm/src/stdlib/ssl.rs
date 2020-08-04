@@ -770,7 +770,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         // Constants
         "OPENSSL_VERSION" => ctx.new_str(openssl::version::version().to_owned()),
         "OPENSSL_VERSION_NUMBER" => ctx.new_int(openssl::version::number()),
-        "OPENSSL_VERSION_INFO" => parse_version_info(openssl::version::number()).into_pyobject(vm).unwrap(),
+        "OPENSSL_VERSION_INFO" => parse_version_info(openssl::version::number()).into_pyobject(vm),
         "PROTOCOL_SSLv2" => ctx.new_int(SslVersion::Ssl2 as u32),
         "PROTOCOL_SSLv3" => ctx.new_int(SslVersion::Ssl3 as u32),
         "PROTOCOL_SSLv23" => ctx.new_int(SslVersion::Tls as u32),

@@ -551,7 +551,7 @@ fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
                         Some(s) => vm.new_str(s),
                         None => vm.get_none(),
                     },
-                    get_addr_tuple(ai.sockaddr).into_pyobject(vm).unwrap(),
+                    get_addr_tuple(ai.sockaddr).into_pyobject(vm),
                 ])
             })
         })

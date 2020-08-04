@@ -32,8 +32,8 @@ impl PyValue for PyComplex {
 }
 
 impl IntoPyObject for Complex64 {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_complex(self))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_complex(self)
     }
 }
 
@@ -81,10 +81,10 @@ impl PyComplex {
     where
         F: Fn(Complex64, Complex64) -> Complex64,
     {
-        try_complex(&other, vm)?.map_or_else(
-            || Ok(vm.ctx.not_implemented()),
+        Ok(try_complex(&other, vm)?.map_or_else(
+            || vm.ctx.not_implemented(),
             |other| op(self.value, other).into_pyobject(vm),
-        )
+        ))
     }
 
     #[pymethod(name = "__add__")]

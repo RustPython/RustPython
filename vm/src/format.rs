@@ -564,6 +564,7 @@ pub(crate) enum FormatParseError {
 }
 
 impl FormatParseError {
+    // TODO: IntoPyException
     pub fn into_pyobject(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
             FormatParseError::UnmatchedBracket => {
@@ -823,7 +824,7 @@ impl FormatString {
                             }
                             FieldNamePart::Index(index) => {
                                 // TODO Implement DictKey for usize so we can pass index directly
-                                argument = argument.get_item(&index.into_pyobject(vm)?, vm)?;
+                                argument = argument.get_item(&index.into_pyobject(vm), vm)?;
                             }
                             FieldNamePart::StringIndex(index) => {
                                 argument = argument.get_item(&index, vm)?;
