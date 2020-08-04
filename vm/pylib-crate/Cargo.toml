@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["RustPython Team"]
 edition = "2018"
 include = ["Cargo.toml", "src/**/*.rs", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"]
+license-file = "Lib/PSF-LICENSE"
 
 [features]
 default = ["compiled-bytecode"]
