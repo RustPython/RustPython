@@ -1,7 +1,7 @@
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::PyFuncArgs;
 use crate::obj::{objstr, objtype};
-use crate::pyobject::{IntoPyObject, ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};
@@ -823,8 +823,7 @@ impl FormatString {
                                 argument = vm.get_attribute(argument, attribute.as_str())?;
                             }
                             FieldNamePart::Index(index) => {
-                                // TODO Implement DictKey for usize so we can pass index directly
-                                argument = argument.get_item(&index.into_pyobject(vm), vm)?;
+                                argument = argument.get_item(index, vm)?;
                             }
                             FieldNamePart::StringIndex(index) => {
                                 argument = argument.get_item(&index, vm)?;

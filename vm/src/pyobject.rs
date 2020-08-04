@@ -1160,12 +1160,6 @@ impl<T> IntoPyObject for PyRef<T> {
     }
 }
 
-impl<T> IntoPyObject for &PyRef<T> {
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.obj.clone()
-    }
-}
-
 impl IntoPyObject for PyCallable {
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.into_object()
@@ -1175,12 +1169,6 @@ impl IntoPyObject for PyCallable {
 impl IntoPyObject for PyObjectRef {
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self
-    }
-}
-
-impl IntoPyObject for &PyObjectRef {
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.clone()
     }
 }
 

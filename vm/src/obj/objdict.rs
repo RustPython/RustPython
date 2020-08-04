@@ -75,7 +75,7 @@ impl PyDictRef {
             } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
                 let keys = objiter::get_iter(vm, &vm.invoke(&keys?, vec![])?)?;
                 while let Some(key) = objiter::get_next_object(vm, &keys)? {
-                    let val = dict_obj.get_item(&key, vm)?;
+                    let val = dict_obj.get_item(key.clone(), vm)?;
                     dict.insert(vm, key, val)?;
                 }
             } else {

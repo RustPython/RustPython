@@ -947,7 +947,7 @@ impl ExecutingFrame<'_> {
     fn execute_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
-        let value = a_ref.get_item(&b_ref, vm)?;
+        let value = a_ref.get_item(b_ref, vm)?;
         self.push_value(value);
         Ok(None)
     }
@@ -963,7 +963,7 @@ impl ExecutingFrame<'_> {
     fn execute_delete_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        obj.del_item(&idx, vm)?;
+        obj.del_item(idx, vm)?;
         Ok(None)
     }
 
@@ -987,7 +987,7 @@ impl ExecutingFrame<'_> {
                 })?;
                 for (key, value) in dict {
                     if for_call {
-                        if map_obj.contains_key(&key, vm) {
+                        if map_obj.contains_key(key.clone(), vm) {
                             let key_repr = vm.to_repr(&key)?;
                             let msg = format!(
                                 "got multiple values for keyword argument {}",
