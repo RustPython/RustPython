@@ -20,7 +20,7 @@ use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BufferProtocol, Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -50,9 +50,6 @@ impl OptionalSize {
     }
 }
 
-fn byte_count(bytes: OptionalOption<i64>) -> i64 {
-    bytes.flatten().unwrap_or(-1)
-}
 fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
     #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
     {
@@ -443,13 +440,13 @@ fn io_base_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
 
 fn io_base_readline(
     instance: PyObjectRef,
-    size: OptionalOption<i64>,
+    size: OptionalSize,
     vm: &VirtualMachine,
 ) -> PyResult<Vec<u8>> {
-    let size = byte_count(size);
-    let mut res = Vec::<u8>::new();
+    let size = size.to_usize();
     let read = vm.get_attribute(instance, "read")?;
-    while size < 0 || res.len() < size as usize {
+    let mut res = Vec::new();
+    while size.map_or(true, |s| res.len() < s) {
         let read_res = PyBytesLike::try_from_object(vm, vm.invoke(&read, vec![vm.new_int(1)])?)?;
         if read_res.with_ref(|b| b.is_empty()) {
             break;
@@ -537,26 +534,21 @@ fn io_base_readlines(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_list(vm.extract_elements(&instance)?))
 }
 
-fn raw_io_base_read(
-    instance: PyObjectRef,
-    size: OptionalOption<i64>,
-    vm: &VirtualMachine,
-) -> PyResult {
-    let size = byte_count(size);
-    if size < 0 {
-        return vm.call_method(&instance, "readall", vec![]);
-    }
-    let b = PyByteArray::new(vec![0; size as usize]).into_ref(vm);
-    let n = <Option<usize>>::try_from_object(
-        vm,
-        vm.call_method(&instance, "readinto", vec![b.as_object().clone()])?,
-    )?;
-    if let Some(n) = n {
-        let bytes = &mut b.borrow_value_mut().elements;
-        bytes.truncate(n);
-        Ok(vm.ctx.new_bytes(bytes.clone()))
+fn raw_io_base_read(instance: PyObjectRef, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
+    if let Some(size) = size.to_usize() {
+        let b = PyByteArray::new(vec![0; size]).into_ref(vm);
+        let n = <Option<usize>>::try_from_object(
+            vm,
+            vm.call_method(&instance, "readinto", vec![b.as_object().clone()])?,
+        )?;
+        n.map(|n| {
+            let bytes = &mut b.borrow_value_mut().elements;
+            bytes.truncate(n);
+            bytes.clone()
+        })
+        .into_pyobject(vm)
     } else {
-        Ok(vm.get_none())
+        vm.call_method(&instance, "readall", vec![])
     }
 }
 
@@ -592,13 +584,13 @@ fn buffered_io_base_name(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult
 
 fn buffered_reader_read(
     instance: PyObjectRef,
-    size: OptionalOption<i64>,
+    size: OptionalSize,
     vm: &VirtualMachine,
 ) -> PyResult {
     vm.call_method(
         &vm.get_attribute(instance.clone(), "raw")?,
         "read",
-        vec![vm.new_int(byte_count(size))],
+        vec![size.to_usize().into_pyobject(vm).unwrap()],
     )
 }
 
@@ -718,25 +710,22 @@ mod fileio {
 
     fn file_io_read(
         instance: PyObjectRef,
-        read_byte: OptionalOption<i64>,
+        read_byte: OptionalSize,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let read_byte = byte_count(read_byte);
-
         let mut handle = fio_get_fileno(&instance, vm)?;
-
-        let bytes = if read_byte < 0 {
-            let mut bytes = vec![];
-            handle
-                .read_to_end(&mut bytes)
-                .map_err(|e| os::convert_io_error(vm, e))?;
-            bytes
-        } else {
+        let bytes = if let Some(read_byte) = read_byte.to_usize() {
             let mut bytes = vec![0; read_byte as usize];
             let n = handle
                 .read(&mut bytes)
                 .map_err(|e| os::convert_io_error(vm, e))?;
             bytes.truncate(n);
+            bytes
+        } else {
+            let mut bytes = vec![];
+            handle
+                .read_to_end(&mut bytes)
+                .map_err(|e| os::convert_io_error(vm, e))?;
             bytes
         };
         fio_set_fileno(&instance, handle, vm)?;
