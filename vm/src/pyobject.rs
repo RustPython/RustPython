@@ -965,15 +965,15 @@ where
     T: IntoPyObject,
 {
     fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(self, "__getitem__", key.into_pyobject(vm)?)
+        vm.call_method(self, "__getitem__", key.into_pyobject(vm))
     }
 
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(self, "__setitem__", vec![key.into_pyobject(vm)?, value])
+        vm.call_method(self, "__setitem__", vec![key.into_pyobject(vm), value])
     }
 
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(self, "__delitem__", key.into_pyobject(vm)?)
+        vm.call_method(self, "__delitem__", key.into_pyobject(vm))
     }
 }
 
@@ -1151,45 +1151,24 @@ pub trait TryFromObject: Sized {
 /// and should be implemented by many primitive Rust types, allowing a built-in
 /// function to simply return a `bool` or a `usize` for example.
 pub trait IntoPyObject {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult;
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef;
 }
 
 impl<T> IntoPyObject for PyRef<T> {
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
-        Ok(self.obj)
-    }
-}
-
-impl<T> IntoPyObject for &PyRef<T> {
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
-        Ok(self.obj.clone())
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.obj
     }
 }
 
 impl IntoPyObject for PyCallable {
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
-        Ok(self.into_object())
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.into_object()
     }
 }
 
 impl IntoPyObject for PyObjectRef {
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
-        Ok(self)
-    }
-}
-
-impl IntoPyObject for &PyObjectRef {
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
-        Ok(self.clone())
-    }
-}
-
-impl<T> IntoPyObject for PyResult<T>
-where
-    T: IntoPyObject,
-{
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        self.and_then(|res| T::into_pyobject(res, vm))
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self
     }
 }
 
@@ -1199,8 +1178,30 @@ impl<T> IntoPyObject for T
 where
     T: PyValue + Sized,
 {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(self, T::class(vm), None))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        PyObject::new(self, T::class(vm), None)
+    }
+}
+
+pub trait IntoPyResult {
+    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult;
+}
+
+impl<T> IntoPyResult for T
+where
+    T: IntoPyObject,
+{
+    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        Ok(self.into_pyobject(vm))
+    }
+}
+
+impl<T> IntoPyResult for PyResult<T>
+where
+    T: IntoPyObject,
+{
+    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        self.map(|res| T::into_pyobject(res, vm))
     }
 }
 
@@ -1434,10 +1435,10 @@ impl<T> IntoPyObject for PyArithmaticValue<T>
 where
     T: IntoPyObject,
 {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             PyArithmaticValue::Implemented(v) => v.into_pyobject(vm),
-            PyArithmaticValue::NotImplemented => Ok(vm.ctx.not_implemented()),
+            PyArithmaticValue::NotImplemented => vm.ctx.not_implemented(),
         }
     }
 }

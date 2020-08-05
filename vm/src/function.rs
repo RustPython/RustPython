@@ -10,7 +10,7 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{
-    IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IntoPyResult, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -524,13 +524,13 @@ macro_rules! into_py_native_func_tuple {
         where
             F: Fn($($T,)* &VirtualMachine) -> R + 'static + Send + Sync,
             $($T: FromArgs,)*
-            R: IntoPyObject,
+            R: IntoPyResult,
         {
             fn into_func(self) -> PyNativeFunc {
                 smallbox!(move |vm: &VirtualMachine, args: PyFuncArgs| {
                     let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
-                    (self)($($n,)* vm).into_pyobject(vm)
+                    (self)($($n,)* vm).into_pyresult(vm)
                 })
             }
         }
@@ -540,13 +540,13 @@ macro_rules! into_py_native_func_tuple {
             F: Fn(&S, $($T,)* &VirtualMachine) -> R + 'static  + Send + Sync,
             S: PyValue,
             $($T: FromArgs,)*
-            R: IntoPyObject,
+            R: IntoPyResult,
         {
             fn into_func(self) -> PyNativeFunc {
                 smallbox!(move |vm: &VirtualMachine, args: PyFuncArgs| {
                     let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
 
-                    (self)(&zelf, $($n,)* vm).into_pyobject(vm)
+                    (self)(&zelf, $($n,)* vm).into_pyresult(vm)
                 })
             }
         }
@@ -555,7 +555,7 @@ macro_rules! into_py_native_func_tuple {
         where
             F: Fn($($T,)*) -> R + 'static  + Send + Sync,
             $($T: FromArgs,)*
-            R: IntoPyObject,
+            R: IntoPyResult,
         {
             fn into_func(self) -> PyNativeFunc {
                 IntoPyNativeFunc::into_func(move |$($n,)* _vm: &VirtualMachine| (self)($($n,)*))
@@ -567,7 +567,7 @@ macro_rules! into_py_native_func_tuple {
             F: Fn(&S, $($T,)*) -> R + 'static  + Send + Sync,
             S: PyValue,
             $($T: FromArgs,)*
-            R: IntoPyObject,
+            R: IntoPyResult,
         {
             fn into_func(self) -> PyNativeFunc {
                 IntoPyNativeFunc::into_func(move |zelf: &S, $($n,)* _vm: &VirtualMachine| (self)(zelf, $($n,)*))

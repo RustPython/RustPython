@@ -10,8 +10,8 @@ use super::objtype::PyClassRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
-    IntoPyObject, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IntoPyObject, IntoPyResult, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyContext,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use rustpython_common::{float_ops, hash};
@@ -36,13 +36,13 @@ impl PyValue for PyFloat {
 }
 
 impl IntoPyObject for f64 {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_float(self))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_float(self)
     }
 }
 impl IntoPyObject for f32 {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_float(f64::from(self)))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_float(f64::from(self))
     }
 }
 
@@ -142,9 +142,9 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
         let v1 = Complex64::new(v1, 0.);
         let v2 = Complex64::new(v2, 0.);
-        v1.powc(v2).into_pyobject(vm)
+        Ok(v1.powc(v2).into_pyobject(vm))
     } else {
-        v1.powf(v2).into_pyobject(vm)
+        Ok(v1.powf(v2).into_pyobject(vm))
     }
 }
 
@@ -259,7 +259,7 @@ impl PyFloat {
     {
         try_float(&other, vm)?.map_or_else(
             || Ok(vm.ctx.not_implemented()),
-            |other| op(self.value, other).into_pyobject(vm),
+            |other| op(self.value, other).into_pyresult(vm),
         )
     }
 
@@ -270,7 +270,7 @@ impl PyFloat {
     {
         try_float(&other, vm)?.map_or_else(
             || Ok(vm.ctx.not_implemented()),
-            |other| op(self.value, other).into_pyobject(vm),
+            |other| op(self.value, other).into_pyresult(vm),
         )
     }
 

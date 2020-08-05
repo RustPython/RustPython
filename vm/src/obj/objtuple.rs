@@ -45,8 +45,8 @@ impl PyValue for PyTuple {
 macro_rules! impl_intopyobj_tuple {
     ($(($T:ident, $idx:tt)),+) => {
         impl<$($T: IntoPyObject),*> IntoPyObject for ($($T,)*) {
-            fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-                Ok(vm.ctx.new_tuple(vec![$(self.$idx.into_pyobject(vm)?),*]))
+            fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+                vm.ctx.new_tuple(vec![$(self.$idx.into_pyobject(vm)),*])
             }
         }
     };

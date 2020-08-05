@@ -18,16 +18,16 @@ impl PyValue for PyNone {
 // This allows a built-in function to not return a value, mapping to
 // Python's behavior of returning `None` in this situation.
 impl IntoPyObject for () {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.none())
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.none()
     }
 }
 
 impl<T: IntoPyObject> IntoPyObject for Option<T> {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             Some(x) => x.into_pyobject(vm),
-            None => Ok(vm.ctx.none()),
+            None => vm.ctx.none(),
         }
     }
 }

@@ -157,7 +157,7 @@ impl<T: Clone> Dict<T> {
                     hash_value,
                 } => {
                     // New key:
-                    self.unchecked_push(hash_index, hash_value, key.into_pyobject(vm)?, value);
+                    self.unchecked_push(hash_index, hash_value, key.into_pyobject(vm), value);
                     break Ok(());
                 }
             }

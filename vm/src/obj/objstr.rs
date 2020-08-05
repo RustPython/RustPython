@@ -953,7 +953,7 @@ impl PyString {
 
         let mut translated = String::new();
         for c in self.value.chars() {
-            match table.get_item(&(c as u32).into_pyobject(vm)?, vm) {
+            match table.get_item((c as u32).into_pyobject(vm), vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyString>() {
                         translated.push_str(&text.value);
@@ -1000,7 +1000,7 @@ impl PyString {
                                 new_dict.set_item(vm.new_int(c as u32), vm.get_none(), vm)?;
                             }
                         }
-                        new_dict.into_pyobject(vm)
+                        Ok(new_dict.into_pyobject(vm))
                     } else {
                         Err(vm.new_value_error(
                             "the first two maketrans arguments must have equal length".to_owned(),
@@ -1019,14 +1019,14 @@ impl PyString {
                     for (key, val) in dict {
                         if let Some(num) = key.payload::<PyInt>() {
                             new_dict.set_item(
-                                num.as_bigint().to_i32().into_pyobject(vm)?,
+                                num.as_bigint().to_i32().into_pyobject(vm),
                                 val,
                                 vm,
                             )?;
                         } else if let Some(string) = key.payload::<PyString>() {
                             if string.len() == 1 {
                                 let num_value = string.value.chars().next().unwrap() as u32;
-                                new_dict.set_item(num_value.into_pyobject(vm)?, val, vm)?;
+                                new_dict.set_item(num_value.into_pyobject(vm), val, vm)?;
                             } else {
                                 return Err(vm.new_value_error(
                                     "string keys in translate table must be of length 1".to_owned(),
@@ -1034,7 +1034,7 @@ impl PyString {
                             }
                         }
                     }
-                    new_dict.into_pyobject(vm)
+                    Ok(new_dict.into_pyobject(vm))
                 }
                 _ => Err(vm.new_value_error(
                     "if you give only one argument to maketrans it must be a dict".to_owned(),
@@ -1100,20 +1100,20 @@ impl PyValue for PyString {
 }
 
 impl IntoPyObject for String {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self)
     }
 }
 
 impl IntoPyObject for &str {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.to_owned()))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self.to_owned())
     }
 }
 
 impl IntoPyObject for &String {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.clone()))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self.clone())
     }
 }
 

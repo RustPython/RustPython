@@ -60,7 +60,7 @@ impl PyMemoryView {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.obj_ref.get_item(&needle, vm)
+        self.obj_ref.get_item(needle, vm)
     }
 
     #[pymethod(magic)]

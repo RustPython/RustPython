@@ -68,7 +68,7 @@ pub fn build_reader(
 ) -> PyResult {
     let config = ReaderOption::new(args, vm)?;
 
-    Reader::new(iterable, config).into_ref(vm).into_pyobject(vm)
+    Ok(Reader::new(iterable, config).into_ref(vm).into_pyobject(vm))
 }
 
 fn into_strings(iterable: &PyIterable<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Vec<String>> {
@@ -152,7 +152,7 @@ impl Reader {
     #[pymethod(name = "__iter__")]
     fn iter(this: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         this.state.write().cast_to_reader(vm)?;
-        this.into_pyobject(vm)
+        Ok(this.into_pyobject(vm))
     }
 
     #[pymethod(name = "__next__")]
@@ -167,7 +167,7 @@ impl Reader {
                         let iter = records
                             .into_iter()
                             .map(|bytes| bytes.into_pyobject(vm))
-                            .collect::<PyResult<Vec<_>>>()?;
+                            .collect::<Vec<_>>();
                         Ok(vm.ctx.new_list(iter))
                     }
                     Err(_err) => {

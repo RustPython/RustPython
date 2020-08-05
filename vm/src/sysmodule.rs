@@ -576,12 +576,8 @@ settrace() -- set the global debug tracing function
     module_names.push("sys".to_owned());
     module_names.push("builtins".to_owned());
     module_names.sort();
-    let builtin_module_names = ctx.new_tuple(
-        module_names
-            .iter()
-            .map(|v| v.into_pyobject(vm).unwrap())
-            .collect(),
-    );
+    let builtin_module_names =
+        ctx.new_tuple(module_names.iter().map(|v| v.into_pyobject(vm)).collect());
     let modules = ctx.new_dict();
 
     let prefix = option_env!("RUSTPYTHON_PREFIX").unwrap_or("/usr/local");

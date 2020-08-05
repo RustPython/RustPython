@@ -16,8 +16,8 @@ use crate::bytesinner::PyBytesInner;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl, PyComparisonValue,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
@@ -62,8 +62,8 @@ impl PyInt {
 }
 
 impl IntoPyObject for BigInt {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_int(self))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_int(self)
     }
 }
 
@@ -76,8 +76,8 @@ impl PyValue for PyInt {
 macro_rules! impl_into_pyobject_int {
     ($($t:ty)*) => {$(
         impl IntoPyObject for $t {
-            fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-                Ok(vm.ctx.new_int(self))
+            fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+                vm.ctx.new_int(self)
             }
         }
     )*};
@@ -121,7 +121,7 @@ fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
         let v1 = try_float(int1, vm)?;
         let v2 = try_float(int2, vm)?;
-        objfloat::float_pow(v1, v2, vm).into_pyobject(vm)
+        objfloat::float_pow(v1, v2, vm).into_pyresult(vm)
     } else {
         Ok(if let Some(v2) = int2.to_u64() {
             vm.ctx.new_int(Pow::pow(int1, v2))
