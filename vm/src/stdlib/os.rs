@@ -927,7 +927,7 @@ fn to_seconds_from_unix_epoch(sys_time: SystemTime) -> f64 {
 }
 
 #[cfg(unix)]
-#[pymodule(name = "posix")]
+#[pymodule]
 mod posix {
     use super::*;
 
@@ -2452,7 +2452,7 @@ use nt as platform;
 pub use nt::{_set_thread_local_invalid_parameter_handler, silent_iph_handler};
 
 #[cfg(not(any(unix, windows)))]
-#[pymodule(name = "_os")]
+#[pymodule(name = "posix")]
 mod minor {
     use super::*;
 
