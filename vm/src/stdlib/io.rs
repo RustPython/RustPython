@@ -10,7 +10,7 @@ use num_traits::ToPrimitive;
 
 use crate::byteslike::PyBytesLike;
 use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
-use crate::exceptions::PyBaseExceptionRef;
+use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{Args, KwArgs, OptionalArg, OptionalOption, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objbytearray::PyByteArray;
@@ -53,7 +53,7 @@ impl OptionalSize {
 fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
     #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
     {
-        super::os::convert_io_error(vm, err)
+        err.into_pyexception(vm)
     }
     #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
     {
@@ -718,14 +718,14 @@ mod fileio {
             let mut bytes = vec![0; read_byte as usize];
             let n = handle
                 .read(&mut bytes)
-                .map_err(|e| os::convert_io_error(vm, e))?;
+                .map_err(|err| err.into_pyexception(vm))?;
             bytes.truncate(n);
             bytes
         } else {
             let mut bytes = vec![];
             handle
                 .read_to_end(&mut bytes)
-                .map_err(|e| os::convert_io_error(vm, e))?;
+                .map_err(|err| err.into_pyexception(vm))?;
             bytes
         };
         fio_set_fileno(&instance, handle, vm)?;
@@ -776,7 +776,7 @@ mod fileio {
 
         let len = obj
             .with_ref(|b| handle.write(b))
-            .map_err(|e| os::convert_io_error(vm, e))?;
+            .map_err(|err| err.into_pyexception(vm))?;
 
         fio_set_fileno(&instance, handle, vm)?;
 
@@ -809,7 +809,7 @@ mod fileio {
 
         let new_pos = handle
             .seek(seekfrom(vm, offset, how)?)
-            .map_err(|e| os::convert_io_error(vm, e))?;
+            .map_err(|err| err.into_pyexception(vm))?;
 
         fio_set_fileno(&instance, handle, vm)?;
 
@@ -821,7 +821,7 @@ mod fileio {
 
         let pos = handle
             .seek(SeekFrom::Current(0))
-            .map_err(|e| os::convert_io_error(vm, e))?;
+            .map_err(|err| err.into_pyexception(vm))?;
 
         fio_set_fileno(&instance, handle, vm)?;
 

@@ -2,7 +2,7 @@ use std::ffi;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
@@ -12,7 +12,7 @@ use num_traits::ToPrimitive;
 use super::errno::errors;
 use crate::byteslike::PyBytesLike;
 use crate::common::cell::PyRwLock;
-use crate::exceptions::PyBaseExceptionRef;
+use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objdict::PyDictRef;
@@ -82,6 +82,14 @@ impl PyPathLike {
     }
 }
 
+fn fs_metadata<P: AsRef<Path>>(path: P, follow_symlink: bool) -> io::Result<fs::Metadata> {
+    if follow_symlink {
+        fs::metadata(path.as_ref())
+    } else {
+        fs::symlink_metadata(path.as_ref())
+    }
+}
+
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let match1 = |obj: &PyObjectRef| {
@@ -126,34 +134,64 @@ fn make_path<'a>(_vm: &VirtualMachine, path: &'a PyPathLike, dir_fd: &DirFd) -> 
     }
 }
 
-pub fn convert_io_error(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
-    #[allow(unreachable_patterns)] // some errors are just aliases of each other
-    let exc_type = match err.kind() {
-        ErrorKind::NotFound => vm.ctx.exceptions.file_not_found_error.clone(),
-        ErrorKind::PermissionDenied => vm.ctx.exceptions.permission_error.clone(),
-        ErrorKind::AlreadyExists => vm.ctx.exceptions.file_exists_error.clone(),
-        ErrorKind::WouldBlock => vm.ctx.exceptions.blocking_io_error.clone(),
-        _ => match err.raw_os_error() {
-            Some(errors::EAGAIN)
-            | Some(errors::EALREADY)
-            | Some(errors::EWOULDBLOCK)
-            | Some(errors::EINPROGRESS) => vm.ctx.exceptions.blocking_io_error.clone(),
-            _ => vm.ctx.exceptions.os_error.clone(),
-        },
-    };
-    let os_error = vm.new_exception_msg(exc_type, err.to_string());
-    let errno = match err.raw_os_error() {
-        Some(errno) => vm.new_int(errno),
-        None => vm.get_none(),
-    };
-    vm.set_attr(os_error.as_object(), "errno", errno).unwrap();
-    os_error
+impl IntoPyException for io::Error {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        #[allow(unreachable_patterns)] // some errors are just aliases of each other
+        let exc_type = match self.kind() {
+            ErrorKind::NotFound => vm.ctx.exceptions.file_not_found_error.clone(),
+            ErrorKind::PermissionDenied => vm.ctx.exceptions.permission_error.clone(),
+            ErrorKind::AlreadyExists => vm.ctx.exceptions.file_exists_error.clone(),
+            ErrorKind::WouldBlock => vm.ctx.exceptions.blocking_io_error.clone(),
+            _ => match self.raw_os_error() {
+                Some(errors::EAGAIN)
+                | Some(errors::EALREADY)
+                | Some(errors::EWOULDBLOCK)
+                | Some(errors::EINPROGRESS) => vm.ctx.exceptions.blocking_io_error.clone(),
+                _ => vm.ctx.exceptions.os_error.clone(),
+            },
+        };
+        let os_error = vm.new_exception_msg(exc_type, self.to_string());
+        let errno = match self.raw_os_error() {
+            Some(errno) => vm.new_int(errno),
+            None => vm.get_none(),
+        };
+        vm.set_attr(os_error.as_object(), "errno", errno).unwrap();
+        os_error
+    }
+}
+
+#[cfg(unix)]
+impl IntoPyException for nix::Error {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let nix_error = match self {
+            nix::Error::InvalidPath => {
+                let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
+                vm.new_exception_msg(exc_type, self.to_string())
+            }
+            nix::Error::InvalidUtf8 => {
+                let exc_type = vm.ctx.exceptions.unicode_error.clone();
+                vm.new_exception_msg(exc_type, self.to_string())
+            }
+            nix::Error::UnsupportedOperation => vm.new_runtime_error(self.to_string()),
+            nix::Error::Sys(errno) => {
+                let exc_type = posix::convert_nix_errno(vm, errno);
+                vm.new_exception_msg(exc_type, self.to_string())
+            }
+        };
+
+        if let nix::Error::Sys(errno) = self {
+            vm.set_attr(nix_error.as_object(), "errno", vm.ctx.new_int(errno as i32))
+                .unwrap();
+        }
+
+        nix_error
+    }
 }
 
 /// Convert the error stored in the `errno` variable into an Exception
 #[inline]
 pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    convert_io_error(vm, io::Error::last_os_error())
+    io::Error::last_os_error().into_pyexception(vm)
 }
 
 #[allow(dead_code)]
@@ -269,7 +307,7 @@ mod _os {
         }
         let handle = options
             .open(fname)
-            .map_err(|err| convert_io_error(vm, err))?;
+            .map_err(|err| err.into_pyexception(vm))?;
 
         Ok(raw_file_number(handle))
     }
@@ -290,7 +328,7 @@ mod _os {
     #[pyfunction]
     fn fsync(fd: i64, vm: &VirtualMachine) -> PyResult<()> {
         let file = rust_file(fd);
-        file.sync_all().map_err(|err| convert_io_error(vm, err))?;
+        file.sync_all().map_err(|err| err.into_pyexception(vm))?;
         // Avoid closing the fd
         raw_file_number(file);
         Ok(())
@@ -302,7 +340,7 @@ mod _os {
         let mut file = rust_file(fd);
         let n = file
             .read(&mut buffer)
-            .map_err(|err| convert_io_error(vm, err))?;
+            .map_err(|err| err.into_pyexception(vm))?;
         buffer.truncate(n);
 
         // Avoid closing the fd
@@ -315,7 +353,7 @@ mod _os {
         let mut file = rust_file(fd);
         let written = data
             .with_ref(|b| file.write(b))
-            .map_err(|err| convert_io_error(vm, err))?;
+            .map_err(|err| err.into_pyexception(vm))?;
 
         // Avoid closing the fd
         raw_file_number(file);
@@ -325,7 +363,7 @@ mod _os {
     #[pyfunction]
     fn remove(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
         let path = make_path(vm, &path, &dir_fd);
-        fs::remove_file(path).map_err(|err| convert_io_error(vm, err))
+        fs::remove_file(path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -336,27 +374,27 @@ mod _os {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let path = make_path(vm, &path, &dir_fd);
-        fs::create_dir(path).map_err(|err| convert_io_error(vm, err))
+        fs::create_dir(path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn mkdirs(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        fs::create_dir_all(path.as_str()).map_err(|err| convert_io_error(vm, err))
+        fs::create_dir_all(path.as_str()).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn rmdir(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
         let path = make_path(vm, &path, &dir_fd);
-        fs::remove_dir(path).map_err(|err| convert_io_error(vm, err))
+        fs::remove_dir(path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn listdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
-        let res: PyResult<Vec<PyObjectRef>> = fs::read_dir(&path.path)
-            .map_err(|err| convert_io_error(vm, err))?
+        let dir_iter = fs::read_dir(&path.path).map_err(|err| err.into_pyexception(vm))?;
+        let res: PyResult<Vec<PyObjectRef>> = dir_iter
             .map(|entry| match entry {
                 Ok(entry_path) => path.mode.process_path(entry_path.file_name(), vm),
-                Err(s) => Err(convert_io_error(vm, s)),
+                Err(err) => Err(err.into_pyexception(vm)),
             })
             .collect();
         Ok(vm.ctx.new_list(res?))
@@ -394,7 +432,7 @@ mod _os {
     fn readlink(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
         let mode = path.mode;
         let path = make_path(vm, &path, &dir_fd);
-        let path = fs::read_link(path).map_err(|err| convert_io_error(vm, err))?;
+        let path = fs::read_link(path).map_err(|err| err.into_pyexception(vm))?;
         mode.process_path(path, vm)
     }
 
@@ -430,11 +468,8 @@ mod _os {
             action: fn(fs::Metadata) -> bool,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
-            let metadata = match follow_symlinks.follow_symlinks {
-                true => fs::metadata(self.entry.path()),
-                false => fs::symlink_metadata(self.entry.path()),
-            };
-            let meta = metadata.map_err(|err| convert_io_error(vm, err))?;
+            let meta = fs_metadata(self.entry.path(), follow_symlinks.follow_symlinks)
+                .map_err(|err| err.into_pyexception(vm))?;
             Ok(action(meta))
         }
 
@@ -461,7 +496,7 @@ mod _os {
             Ok(self
                 .entry
                 .file_type()
-                .map_err(|err| convert_io_error(vm, err))?
+                .map_err(|err| err.into_pyexception(vm))?
                 .is_symlink())
         }
 
@@ -514,7 +549,7 @@ mod _os {
                     }
                     .into_ref(vm)
                     .into_object()),
-                    Err(s) => Err(convert_io_error(vm, s)),
+                    Err(err) => Err(err.into_pyexception(vm)),
                 },
                 None => {
                     self.exhausted.store(true);
@@ -551,16 +586,14 @@ mod _os {
             OptionalArg::Missing => PyPathLike::new_str(".".to_owned()),
         };
 
-        match fs::read_dir(path.path) {
-            Ok(iter) => Ok(ScandirIterator {
-                entries: PyRwLock::new(iter),
-                exhausted: AtomicCell::new(false),
-                mode: path.mode,
-            }
-            .into_ref(vm)
-            .into_object()),
-            Err(s) => Err(convert_io_error(vm, s)),
+        let entries = fs::read_dir(path.path).map_err(|err| err.into_pyexception(vm))?;
+        Ok(ScandirIterator {
+            entries: PyRwLock::new(entries),
+            exhausted: AtomicCell::new(false),
+            mode: path.mode,
         }
+        .into_ref(vm)
+        .into_object())
     }
 
     #[pystruct_sequence(module = "os", name = "stat_result")]
@@ -601,7 +634,7 @@ mod _os {
     #[pyfunction]
     fn getcwd(vm: &VirtualMachine) -> PyResult<String> {
         Ok(env::current_dir()
-            .map_err(|err| convert_io_error(vm, err))?
+            .map_err(|err| err.into_pyexception(vm))?
             .as_path()
             .to_str()
             .unwrap()
@@ -610,7 +643,7 @@ mod _os {
 
     #[pyfunction]
     fn chdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
-        env::set_current_dir(&path.path).map_err(|err| convert_io_error(vm, err))
+        env::set_current_dir(&path.path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -620,7 +653,7 @@ mod _os {
 
     #[pyfunction]
     fn rename(src: PyPathLike, dst: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
-        fs::rename(src.path, dst.path).map_err(|err| convert_io_error(vm, err))
+        fs::rename(src.path, dst.path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -643,13 +676,11 @@ mod _os {
     #[pyfunction]
     fn urandom(size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let mut buf = vec![0u8; size];
-        match getrandom::getrandom(&mut buf) {
-            Ok(()) => Ok(buf),
-            Err(e) => match e.raw_os_error() {
-                Some(errno) => Err(convert_io_error(vm, io::Error::from_raw_os_error(errno))),
-                None => Err(vm.new_os_error("Getting random failed".to_owned())),
-            },
-        }
+        getrandom::getrandom(&mut buf).map_err(|e| match e.raw_os_error() {
+            Some(errno) => io::Error::from_raw_os_error(errno).into_pyexception(vm),
+            None => vm.new_os_error("Getting random failed".to_owned()),
+        })?;
+        Ok(buf)
     }
 
     // this is basically what CPython has for Py_off_t; windows uses long long
@@ -696,7 +727,7 @@ mod _os {
 
     #[pyfunction]
     fn link(src: PyPathLike, dst: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
-        fs::hard_link(src.path, dst.path).map_err(|err| convert_io_error(vm, err))
+        fs::hard_link(src.path, dst.path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[derive(FromArgs)]
@@ -751,7 +782,7 @@ mod _os {
                 ))
             }
         };
-        utime::set_file_times(&args.path.path, acc, modif).map_err(|e| convert_io_error(vm, e))
+        utime::set_file_times(&args.path.path, acc, modif).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -962,32 +993,7 @@ mod posix {
         unsafe { File::from_raw_fd(raw_fileno as i32) }
     }
 
-    pub fn convert_nix_error(vm: &VirtualMachine, err: nix::Error) -> PyBaseExceptionRef {
-        let nix_error = match err {
-            nix::Error::InvalidPath => {
-                let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
-                vm.new_exception_msg(exc_type, err.to_string())
-            }
-            nix::Error::InvalidUtf8 => {
-                let exc_type = vm.ctx.exceptions.unicode_error.clone();
-                vm.new_exception_msg(exc_type, err.to_string())
-            }
-            nix::Error::UnsupportedOperation => vm.new_runtime_error(err.to_string()),
-            nix::Error::Sys(errno) => {
-                let exc_type = convert_nix_errno(vm, errno);
-                vm.new_exception_msg(exc_type, err.to_string())
-            }
-        };
-
-        if let nix::Error::Sys(errno) = err {
-            vm.set_attr(nix_error.as_object(), "errno", vm.ctx.new_int(errno as i32))
-                .unwrap();
-        }
-
-        nix_error
-    }
-
-    fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
+    pub(super) fn convert_nix_errno(vm: &VirtualMachine, errno: Errno) -> PyClassRef {
         match errno {
             Errno::EPERM => vm.ctx.exceptions.permission_error.clone(),
             _ => vm.ctx.exceptions.os_error.clone(),
@@ -1089,14 +1095,14 @@ mod posix {
             return Ok(metadata.is_ok());
         }
 
-        let metadata = metadata.map_err(|err| convert_io_error(vm, err))?;
+        let metadata = metadata.map_err(|err| err.into_pyexception(vm))?;
 
         let user_id = metadata.uid();
         let group_id = metadata.gid();
         let mode = metadata.mode();
 
         let perm = get_right_permission(mode, Uid::from_raw(user_id), Gid::from_raw(group_id))
-            .map_err(|err| convert_nix_error(vm, err))?;
+            .map_err(|err| err.into_pyexception(vm))?;
 
         let r_ok = !flags.contains(AccessFlags::R_OK) || perm.is_readable;
         let w_ok = !flags.contains(AccessFlags::W_OK) || perm.is_writable;
@@ -1154,14 +1160,10 @@ mod posix {
 
         let get_stats = move || -> io::Result<PyObjectRef> {
             let meta = match file {
-                Either::A(path) => {
-                    let path = make_path(vm, &path, &dir_fd);
-                    if follow_symlinks.follow_symlinks {
-                        fs::metadata(path)?
-                    } else {
-                        fs::symlink_metadata(path)?
-                    }
-                }
+                Either::A(path) => fs_metadata(
+                    make_path(vm, &path, &dir_fd),
+                    follow_symlinks.follow_symlinks,
+                )?,
                 Either::B(fno) => {
                     let file = rust_file(fno);
                     let meta = file.metadata()?;
@@ -1185,7 +1187,7 @@ mod posix {
             .into_obj(vm))
         };
 
-        get_stats().map_err(|err| convert_io_error(vm, err))
+        get_stats().map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1198,13 +1200,13 @@ mod posix {
     ) -> PyResult<()> {
         use std::os::unix::fs as unix_fs;
         let dst = make_path(vm, &dst, &dir_fd);
-        unix_fs::symlink(src.path, dst).map_err(|err| convert_io_error(vm, err))
+        unix_fs::symlink(src.path, dst).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
-        nix::unistd::chroot(&*path.path).map_err(|err| convert_nix_error(vm, err))
+        nix::unistd::chroot(&*path.path).map_err(|err| err.into_pyexception(vm))
     }
 
     // As of now, redox does not seems to support chown command (cf. https://gitlab.redox-os.org/redox-os/coreutils , last checked on 05/07/2020)
@@ -1249,16 +1251,15 @@ mod posix {
         };
 
         match path {
-            Either::A(p) => nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag)
-                .map_err(|err| convert_nix_error(vm, err)),
+            Either::A(p) => nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag),
             Either::B(fd) => {
                 let path = fs::read_link(format!("/proc/self/fd/{}", fd)).map_err(|_| {
                     vm.new_os_error(String::from("Cannot find path for specified fd"))
                 })?;
                 nix::unistd::fchownat(dir_fd, &path, uid, gid, flag)
-                    .map_err(|err| convert_nix_error(vm, err))
             }
         }
+        .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1298,7 +1299,7 @@ mod posix {
         let flags = fcntl(fd, FcntlArg::F_GETFD);
         match flags {
             Ok(ret) => Ok((ret & libc::FD_CLOEXEC) == 0),
-            Err(err) => Err(convert_nix_error(vm, err)),
+            Err(err) => Err(err.into_pyexception(vm)),
         }
     }
 
@@ -1315,7 +1316,7 @@ mod posix {
 
     #[pyfunction]
     fn set_inheritable(fd: i64, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
-        raw_set_inheritable(fd as RawFd, inheritable).map_err(|err| convert_nix_error(vm, err))
+        raw_set_inheritable(fd as RawFd, inheritable).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1325,7 +1326,7 @@ mod posix {
         let flags = fcntl(fd, FcntlArg::F_GETFL);
         match flags {
             Ok(ret) => Ok((ret & libc::O_NONBLOCK) == 0),
-            Err(err) => Err(convert_nix_error(vm, err)),
+            Err(err) => Err(err.into_pyexception(vm)),
         }
     }
 
@@ -1344,14 +1345,14 @@ mod posix {
             }
             Ok(())
         };
-        _set_flag().map_err(|err| convert_nix_error(vm, err))
+        _set_flag().map_err(|err: nix::Error| err.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn pipe(vm: &VirtualMachine) -> PyResult<(RawFd, RawFd)> {
         use nix::unistd::close;
         use nix::unistd::pipe;
-        let (rfd, wfd) = pipe().map_err(|err| convert_nix_error(vm, err))?;
+        let (rfd, wfd) = pipe().map_err(|err| err.into_pyexception(vm))?;
         set_inheritable(rfd.into(), false, vm)
             .and_then(|_| set_inheritable(wfd.into(), false, vm))
             .map_err(|err| {
@@ -1377,7 +1378,7 @@ mod posix {
         use nix::fcntl::OFlag;
         use nix::unistd::pipe2;
         let oflags = OFlag::from_bits_truncate(flags);
-        pipe2(oflags).map_err(|err| convert_nix_error(vm, err))
+        pipe2(oflags).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1398,19 +1399,15 @@ mod posix {
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        use std::os::unix::fs::PermissionsExt;
-
         let path = make_path(vm, &path, &dir_fd);
-        let metadata = if follow_symlinks.follow_symlinks {
-            fs::metadata(path)
-        } else {
-            fs::symlink_metadata(path)
+        let body = move || {
+            use std::os::unix::fs::PermissionsExt;
+            let meta = fs_metadata(path, follow_symlinks.follow_symlinks)?;
+            let mut permissions = meta.permissions();
+            permissions.set_mode(mode);
+            fs::set_permissions(path, permissions)
         };
-        let meta = metadata.map_err(|err| convert_io_error(vm, err))?;
-        let mut permissions = meta.permissions();
-        permissions.set_mode(mode);
-        fs::set_permissions(path, permissions).map_err(|err| convert_io_error(vm, err))?;
-        Ok(())
+        body().map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1439,7 +1436,7 @@ mod posix {
 
         unistd::execv(&path, &argv)
             .map(|_ok| ())
-            .map_err(|err| convert_nix_error(vm, err))
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1464,7 +1461,7 @@ mod posix {
     fn getpgid(pid: u32, vm: &VirtualMachine) -> PyResult {
         match unistd::getpgid(Some(Pid::from_raw(pid as i32))) {
             Ok(pgid) => Ok(vm.new_int(pgid.as_raw())),
-            Err(err) => Err(convert_nix_error(vm, err)),
+            Err(err) => Err(err.into_pyexception(vm)),
         }
     }
 
@@ -1478,7 +1475,7 @@ mod posix {
     fn getsid(pid: u32, vm: &VirtualMachine) -> PyResult {
         match unistd::getsid(Some(Pid::from_raw(pid as i32))) {
             Ok(sid) => Ok(vm.new_int(sid.as_raw())),
-            Err(err) => Err(convert_nix_error(vm, err)),
+            Err(err) => Err(err.into_pyexception(vm)),
         }
     }
 
@@ -1496,19 +1493,19 @@ mod posix {
 
     #[pyfunction]
     fn setgid(gid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setgid(Gid::from_raw(gid)).map_err(|err| convert_nix_error(vm, err))
+        unistd::setgid(Gid::from_raw(gid)).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn setegid(egid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setegid(Gid::from_raw(egid)).map_err(|err| convert_nix_error(vm, err))
+        unistd::setegid(Gid::from_raw(egid)).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn setpgid(pid: u32, pgid: u32, vm: &VirtualMachine) -> PyResult<()> {
         unistd::setpgid(Pid::from_raw(pid as i32), Pid::from_raw(pgid as i32))
-            .map_err(|err| convert_nix_error(vm, err))
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1516,25 +1513,25 @@ mod posix {
     fn setsid(vm: &VirtualMachine) -> PyResult<()> {
         unistd::setsid()
             .map(|_ok| ())
-            .map_err(|err| convert_nix_error(vm, err))
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn setuid(uid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setuid(Uid::from_raw(uid)).map_err(|err| convert_nix_error(vm, err))
+        unistd::setuid(Uid::from_raw(uid)).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn seteuid(euid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::seteuid(Uid::from_raw(euid)).map_err(|err| convert_nix_error(vm, err))
+        unistd::seteuid(Uid::from_raw(euid)).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn setreuid(ruid: u32, euid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setuid(Uid::from_raw(ruid)).map_err(|err| convert_nix_error(vm, err))?;
-        unistd::seteuid(Uid::from_raw(euid)).map_err(|err| convert_nix_error(vm, err))
+        unistd::setuid(Uid::from_raw(ruid)).map_err(|err| err.into_pyexception(vm))?;
+        unistd::seteuid(Uid::from_raw(euid)).map_err(|err| err.into_pyexception(vm))
     }
 
     // cfg from nix
@@ -1551,24 +1548,21 @@ mod posix {
             Uid::from_raw(euid),
             Uid::from_raw(suid),
         )
-        .map_err(|err| convert_nix_error(vm, err))
+        .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn openpty(vm: &VirtualMachine) -> PyResult {
-        match nix::pty::openpty(None, None) {
-            Ok(r) => Ok(vm
-                .ctx
-                .new_tuple(vec![vm.new_int(r.master), vm.new_int(r.slave)])),
-            Err(err) => Err(convert_nix_error(vm, err)),
-        }
+        let r = nix::pty::openpty(None, None).map_err(|err| err.into_pyexception(vm))?;
+        Ok(vm
+            .ctx
+            .new_tuple(vec![vm.new_int(r.master), vm.new_int(r.slave)]))
     }
 
     #[pyfunction]
     fn ttyname(fd: i32, vm: &VirtualMachine) -> PyResult {
-        use libc::ttyname;
-        let name = unsafe { ttyname(fd) };
+        let name = unsafe { libc::ttyname(fd) };
         if name.is_null() {
             Err(errno_err(vm))
         } else {
@@ -1619,7 +1613,7 @@ mod posix {
 
     #[pyfunction]
     fn uname(vm: &VirtualMachine) -> PyResult {
-        let info = uname::uname().map_err(|err| convert_io_error(vm, err))?;
+        let info = uname::uname().map_err(|err| err.into_pyexception(vm))?;
         Ok(UnameResult {
             sysname: info.sysname,
             nodename: info.nodename,
@@ -1693,7 +1687,7 @@ mod posix {
             Gid::from_raw(egid),
             Gid::from_raw(sgid),
         )
-        .map_err(|err| convert_nix_error(vm, err))
+        .map_err(|err| err.into_pyexception(vm))
     }
 
     // cfg from nix
@@ -1724,7 +1718,7 @@ mod posix {
     fn initgroups(user_name: PyStringRef, gid: u32, vm: &VirtualMachine) -> PyResult<()> {
         let user = ffi::CString::new(user_name.as_str()).unwrap();
         let gid = Gid::from_raw(gid);
-        unistd::initgroups(&user, gid).map_err(|err| convert_nix_error(vm, err))
+        unistd::initgroups(&user, gid).map_err(|err| err.into_pyexception(vm))
     }
 
     // cfg from nix
@@ -1744,7 +1738,7 @@ mod posix {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let ret = unistd::setgroups(&gids);
-        ret.map_err(|err| convert_nix_error(vm, err))
+        ret.map_err(|err| err.into_pyexception(vm))
     }
 
     fn envp_from_dict(dict: PyDictRef, vm: &VirtualMachine) -> PyResult<Vec<ffi::CString>> {
@@ -1972,7 +1966,7 @@ mod posix {
     fn waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
         let mut status = 0;
         let pid = unsafe { libc::waitpid(pid, &mut status, opt) };
-        let pid = Errno::result(pid).map_err(|e| convert_nix_error(vm, e))?;
+        let pid = Errno::result(pid).map_err(|err| err.into_pyexception(vm))?;
         Ok((pid, status))
     }
     #[pyfunction]
@@ -2005,7 +1999,7 @@ mod posix {
                     ws_ypixel: 0,
                 };
                 unsafe { winsz(fd.unwrap_or(libc::STDOUT_FILENO), &mut w) }
-                    .map_err(|e| convert_nix_error(vm, e))?;
+                    .map_err(|err| err.into_pyexception(vm))?;
                 (w.ws_col.into(), w.ws_row.into())
             }
         };
@@ -2122,7 +2116,7 @@ mod posix {
 #[cfg(unix)]
 use posix as platform;
 #[cfg(unix)]
-pub(crate) use posix::{convert_nix_error, raw_set_inheritable as set_inheritable};
+pub(crate) use posix::raw_set_inheritable;
 
 #[cfg(windows)]
 #[pymodule]
@@ -2184,16 +2178,18 @@ mod nt {
         _dir_fd: DirFd,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        use std::os::windows::fs as win_fs;
-        let meta = fs::metadata(src.path.clone()).map_err(|err| convert_io_error(vm, err))?;
-        let ret = if meta.is_file() {
-            win_fs::symlink_file(src.path, dst.path)
-        } else if meta.is_dir() {
-            win_fs::symlink_dir(src.path, dst.path)
-        } else {
-            panic!("Unknown file type");
+        let body = move || {
+            use std::os::windows::fs as win_fs;
+            let meta = fs::metadata(src.path.clone())?;
+            if meta.is_file() {
+                win_fs::symlink_file(src.path, dst.path)
+            } else if meta.is_dir() {
+                win_fs::symlink_dir(src.path, dst.path)
+            } else {
+                panic!("Unknown file type");
+            }
         };
-        ret.map_err(|err| convert_io_error(vm, err))
+        body().map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -2259,10 +2255,7 @@ mod nt {
 
         let get_stats = move || -> io::Result<PyObjectRef> {
             let meta = match file {
-                Either::A(path) => match follow_symlinks.follow_symlinks {
-                    true => fs::metadata(path.path)?,
-                    false => fs::symlink_metadata(path.path)?,
-                },
+                Either::A(path) => fs_metadata(path.path, follow_symlinks.follow_symlinks)?,
                 Either::B(fno) => {
                     let f = rust_file(fno);
                     let meta = f.metadata()?;
@@ -2286,7 +2279,7 @@ mod nt {
             .into_obj(vm))
         };
 
-        get_stats().map_err(|e| convert_io_error(vm, e))
+        get_stats().map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -2304,10 +2297,10 @@ mod nt {
         } else {
             fs::symlink_metadata(path)
         };
-        let meta = metadata.map_err(|err| convert_io_error(vm, err))?;
+        let meta = metadata.map_err(|err| err.into_pyexception(vm))?;
         let mut permissions = meta.permissions();
         permissions.set_readonly(mode & S_IWRITE != 0);
-        fs::set_permissions(path, permissions).map_err(|err| convert_io_error(vm, err))
+        fs::set_permissions(path, permissions).map_err(|err| err.into_pyexception(vm))
     }
 
     // cwait is available on MSVC only (according to CPython)
@@ -2442,7 +2435,7 @@ mod nt {
         });
     }
 
-    pub(super) fn support_funcs(vm: &VirtualMachine) -> Vec<SupportFunc> {
+    pub(super) fn support_funcs(_vm: &VirtualMachine) -> Vec<SupportFunc> {
         Vec::new()
     }
 }

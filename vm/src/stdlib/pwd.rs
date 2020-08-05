@@ -1,4 +1,4 @@
-use super::os::convert_nix_error;
+use crate::exceptions::IntoPyException;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult};
@@ -44,7 +44,7 @@ impl From<User> for Passwd {
 }
 
 fn pwd_getpwnam(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match User::from_name(name.as_str()).map_err(|e| convert_nix_error(vm, e))? {
+    match User::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))? {
         Some(user) => Ok(Passwd::from(user)
             .into_struct_sequence(vm, vm.try_class("pwd", "struct_passwd")?)?
             .into_object()),
@@ -59,7 +59,7 @@ fn pwd_getpwnam(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
 fn pwd_getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult {
     let uid_t = libc::uid_t::try_from(uid.as_bigint()).map(unistd::Uid::from_raw);
     let user = match uid_t {
-        Ok(uid) => User::from_uid(uid).map_err(|e| convert_nix_error(vm, e))?,
+        Ok(uid) => User::from_uid(uid).map_err(|err| err.into_pyexception(vm))?,
         Err(_) => None,
     };
     match user {
