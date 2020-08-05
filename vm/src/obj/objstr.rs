@@ -19,6 +19,7 @@ use super::objiter;
 use super::objnone::PyNone;
 use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtype::{self, PyClassRef};
+use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyobject::{
@@ -590,7 +591,7 @@ impl PyString {
     fn format(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<String> {
         match FormatString::from_str(&self.value) {
             Ok(format_string) => format_string.format(&args, vm),
-            Err(err) => Err(err.into_pyobject(vm)),
+            Err(err) => Err(err.into_pyexception(vm)),
         }
     }
 
@@ -602,7 +603,7 @@ impl PyString {
     fn format_map(&self, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         match FormatString::from_str(&self.value) {
             Ok(format_string) => format_string.format_map(&mapping, vm),
-            Err(err) => Err(err.into_pyobject(vm)),
+            Err(err) => Err(err.into_pyexception(vm)),
         }
     }
 

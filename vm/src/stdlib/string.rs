@@ -7,6 +7,7 @@ pub(crate) use _string::make_module;
 mod _string {
     use std::mem;
 
+    use crate::exceptions::IntoPyException;
     use crate::format::{
         FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
     };
@@ -34,7 +35,7 @@ mod _string {
     #[pyfunction]
     fn formatter_parser(text: PyStringRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let format_string =
-            FormatString::from_str(text.as_str()).map_err(|e| e.into_pyobject(vm))?;
+            FormatString::from_str(text.as_str()).map_err(|e| e.into_pyexception(vm))?;
 
         let mut result = Vec::new();
         let mut literal = String::new();
@@ -73,7 +74,7 @@ mod _string {
         text: PyStringRef,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, PyList)> {
-        let field_name = FieldName::parse(text.as_str()).map_err(|e| e.into_pyobject(vm))?;
+        let field_name = FieldName::parse(text.as_str()).map_err(|e| e.into_pyexception(vm))?;
 
         let first = match field_name.field_type {
             FieldType::Auto => vm.new_str("".to_owned()),
