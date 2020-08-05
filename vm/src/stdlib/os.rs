@@ -598,18 +598,6 @@ mod _os {
         )
     }
 
-    #[cfg(all(not(unix), not(windows)))]
-    #[pyfunction]
-    pub(super) fn symlink(
-        src: PyPathLike,
-        dst: PyPathLike,
-        _target_is_directory: TargetIsDirectory,
-        dir_fd: DirFd,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        unimplemented!();
-    }
-
     #[pyfunction]
     fn getcwd(vm: &VirtualMachine) -> PyResult<String> {
         Ok(env::current_dir()
@@ -939,7 +927,7 @@ fn to_seconds_from_unix_epoch(sys_time: SystemTime) -> f64 {
 }
 
 #[cfg(unix)]
-#[pymodule(name = "posix")]
+#[pymodule]
 mod posix {
     use super::*;
 
@@ -2464,10 +2452,9 @@ use nt as platform;
 pub use nt::{_set_thread_local_invalid_parameter_handler, silent_iph_handler};
 
 #[cfg(not(any(unix, windows)))]
+#[pymodule(name = "posix")]
 mod minor {
     use super::*;
-
-    pub const MODULE_NAME: &str = "posix";
 
     #[cfg(target_os = "wasi")]
     pub(super) type OpenFlags = u16;
@@ -2475,11 +2462,11 @@ mod minor {
     #[cfg(target_os = "wasi")]
     pub(crate) fn raw_file_number(handle: File) -> i64 {
         // This should be safe, since the wasi api is pretty well defined, but once
-        // `wasi_ext` get's stabilized, we should use that instead.
+        // `wasi_ext` gets stabilized we should use that instead.
         unsafe { std::mem::transmute::<_, u32>(handle).into() }
     }
     #[cfg(not(target_os = "wasi"))]
-    pub(crate) fn raw_file_number(handle: File) -> i64 {
+    pub(crate) fn raw_file_number(_handle: File) -> i64 {
         unimplemented!();
     }
 
@@ -2489,22 +2476,33 @@ mod minor {
     }
 
     #[cfg(not(target_os = "wasi"))]
-    pub(crate) fn rust_file(raw_fileno: i64) -> File {
+    pub(crate) fn rust_file(_raw_fileno: i64) -> File {
         unimplemented!();
     }
 
     #[pyfunction]
-    pub(super) fn access(path: PyStringRef, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+    pub(super) fn access(_path: PyStringRef, _mode: u8, _vm: &VirtualMachine) -> PyResult<bool> {
         unimplemented!()
     }
 
     #[pyfunction]
-    fn stat(
-        file: Either<PyPathLike, i64>,
+    pub(super) fn stat(
+        _file: Either<PyPathLike, i64>,
         _dir_fd: DirFd,
-        follow_symlinks: FollowSymlinks,
-        vm: &VirtualMachine,
+        _follow_symlinks: FollowSymlinks,
+        _vm: &VirtualMachine,
     ) -> PyResult {
+        unimplemented!();
+    }
+
+    #[pyfunction]
+    pub(super) fn symlink(
+        _src: PyPathLike,
+        _dst: PyPathLike,
+        _target_is_directory: TargetIsDirectory,
+        _dir_fd: DirFd,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
         unimplemented!();
     }
 
@@ -2512,9 +2510,9 @@ mod minor {
         vm.ctx.new_dict()
     }
 
-    fn extend_module_platform_specific(_vm: &VirtualMachine, _module: &PyObjectRef) {}
+    pub fn extend_module_platform_specific(_vm: &VirtualMachine, _module: &PyObjectRef) {}
 
-    pub(super) fn support_funcs(vm: &VirtualMachine) -> Vec<SupportFunc> {
+    pub(super) fn support_funcs(_vm: &VirtualMachine) -> Vec<SupportFunc> {
         Vec::new()
     }
 }
