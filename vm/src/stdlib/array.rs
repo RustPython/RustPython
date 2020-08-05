@@ -444,15 +444,15 @@ impl PyArray {
         let lhs = lhs.borrow_value();
         let rhs = rhs.borrow_value();
         if lhs.len() != rhs.len() {
-            Ok(vm.new_bool(false))
+            Ok(vm.ctx.new_bool(false))
         } else {
             for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
                 let ne = objbool::boolval(vm, vm._ne(a, b)?)?;
                 if ne {
-                    return Ok(vm.new_bool(false));
+                    return Ok(vm.ctx.new_bool(false));
                 }
             }
-            Ok(vm.new_bool(true))
+            Ok(vm.ctx.new_bool(true))
         }
     }
 
@@ -467,11 +467,11 @@ impl PyArray {
             let lt = objbool::boolval(vm, vm._lt(a, b)?)?;
 
             if lt {
-                return Ok(vm.new_bool(true));
+                return Ok(vm.ctx.new_bool(true));
             }
         }
 
-        Ok(vm.new_bool(lhs.len() < rhs.len()))
+        Ok(vm.ctx.new_bool(lhs.len() < rhs.len()))
     }
 
     #[pymethod(name = "__le__")]
@@ -485,11 +485,11 @@ impl PyArray {
             let le = objbool::boolval(vm, vm._le(a, b)?)?;
 
             if le {
-                return Ok(vm.new_bool(true));
+                return Ok(vm.ctx.new_bool(true));
             }
         }
 
-        Ok(vm.new_bool(lhs.len() <= rhs.len()))
+        Ok(vm.ctx.new_bool(lhs.len() <= rhs.len()))
     }
 
     #[pymethod(name = "__gt__")]
@@ -503,11 +503,11 @@ impl PyArray {
             let gt = objbool::boolval(vm, vm._gt(a, b)?)?;
 
             if gt {
-                return Ok(vm.new_bool(true));
+                return Ok(vm.ctx.new_bool(true));
             }
         }
 
-        Ok(vm.new_bool(lhs.len() > rhs.len()))
+        Ok(vm.ctx.new_bool(lhs.len() > rhs.len()))
     }
 
     #[pymethod(name = "__ge__")]
@@ -521,11 +521,11 @@ impl PyArray {
             let ge = objbool::boolval(vm, vm._ge(a, b)?)?;
 
             if ge {
-                return Ok(vm.new_bool(true));
+                return Ok(vm.ctx.new_bool(true));
             }
         }
 
-        Ok(vm.new_bool(lhs.len() >= rhs.len()))
+        Ok(vm.ctx.new_bool(lhs.len() >= rhs.len()))
     }
 
     #[pymethod(name = "__len__")]

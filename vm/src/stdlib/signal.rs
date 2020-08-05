@@ -112,7 +112,7 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
         if triggerd {
             let handler = &signal_handlers[signum];
             if vm.is_callable(handler) {
-                vm.invoke(handler, vec![vm.new_int(signum), vm.get_none()])?;
+                vm.invoke(handler, vec![vm.ctx.new_int(signum), vm.get_none()])?;
             }
         }
     }

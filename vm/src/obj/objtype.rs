@@ -325,7 +325,7 @@ impl PyClassRef {
                 let set_name = meth?;
                 vm.invoke(
                     &set_name,
-                    vec![typ.clone().into_object(), vm.new_str(name.clone())],
+                    vec![typ.clone().into_object(), vm.ctx.new_str(name.clone())],
                 )
                 .map_err(|e| {
                     let err = vm.new_runtime_error(format!(

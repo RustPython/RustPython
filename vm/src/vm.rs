@@ -11,8 +11,6 @@ use std::{env, fmt};
 
 use arr_macro::arr;
 use crossbeam_utils::atomic::AtomicCell;
-use num_bigint::BigInt;
-use num_traits::ToPrimitive;
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, MutexGuard};
 #[cfg(feature = "rustpython-compiler")]
@@ -216,13 +214,13 @@ impl VirtualMachine {
         objmodule::init_module_dict(
             &vm,
             &builtins_dict,
-            vm.new_str("builtins".to_owned()),
+            vm.ctx.new_str("builtins".to_owned()),
             vm.get_none(),
         );
         objmodule::init_module_dict(
             &vm,
             &sysmod_dict,
-            vm.new_str("sys".to_owned()),
+            vm.ctx.new_str("sys".to_owned()),
             vm.get_none(),
         );
         vm.initialize(initialize_parameter);
@@ -258,7 +256,7 @@ impl VirtualMachine {
                         let set_stdio = |name, fd, mode: &str| {
                             let stdio = self.invoke(
                                 &io_open,
-                                vec![self.new_int(fd), self.new_str(mode.to_owned())],
+                                vec![self.ctx.new_int(fd), self.new_pyobj(mode)],
                             )?;
                             self.set_attr(
                                 &self.sys_module,
@@ -384,25 +382,13 @@ impl VirtualMachine {
         value.into_pyobject(self)
     }
 
-    /// Create a new python string object.
-    pub fn new_str(&self, s: String) -> PyObjectRef {
-        self.ctx.new_str(s)
-    }
-
-    /// Create a new python int object.
-    #[inline]
-    pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyObjectRef {
-        self.ctx.new_int(i)
-    }
-
-    /// Create a new python bool object.
-    #[inline]
-    pub fn new_bool(&self, b: bool) -> PyObjectRef {
-        self.ctx.new_bool(b)
-    }
-
     pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
-        objmodule::init_module_dict(self, &dict, self.new_str(name.to_owned()), self.get_none());
+        objmodule::init_module_dict(
+            self,
+            &dict,
+            self.new_pyobj(name.to_owned()),
+            self.get_none(),
+        );
         PyObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
     }
 
@@ -445,7 +431,7 @@ impl VirtualMachine {
     /// [invoke]: rustpython_vm::exceptions::invoke
     /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
     pub fn new_exception_msg(&self, exc_type: PyClassRef, msg: String) -> PyBaseExceptionRef {
-        self.new_exception(exc_type, vec![self.new_str(msg)])
+        self.new_exception(exc_type, vec![self.ctx.new_str(msg)])
     }
 
     pub fn new_lookup_error(&self, msg: String) -> PyBaseExceptionRef {
@@ -544,20 +530,20 @@ impl VirtualMachine {
             self.ctx.exceptions.syntax_error.clone()
         };
         let syntax_error = self.new_exception_msg(syntax_error_type, error.to_string());
-        let lineno = self.new_int(error.location.row());
-        let offset = self.new_int(error.location.column());
+        let lineno = self.ctx.new_int(error.location.row());
+        let offset = self.ctx.new_int(error.location.column());
         self.set_attr(syntax_error.as_object(), "lineno", lineno)
             .unwrap();
         self.set_attr(syntax_error.as_object(), "offset", offset)
             .unwrap();
         if let Some(v) = error.statement.as_ref() {
-            self.set_attr(syntax_error.as_object(), "text", self.new_str(v.to_owned()))
+            self.set_attr(syntax_error.as_object(), "text", self.new_pyobj(v))
                 .unwrap();
         }
         self.set_attr(
             syntax_error.as_object(),
             "filename",
-            self.new_str(error.source_path.clone()),
+            self.ctx.new_str(error.source_path.clone()),
         )
         .unwrap();
         syntax_error
@@ -566,7 +552,7 @@ impl VirtualMachine {
     pub fn new_import_error(&self, msg: String, name: &str) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.clone();
         let exc = self.new_exception_msg(import_error, msg);
-        self.set_attr(exc.as_object(), "name", self.new_str(name.to_owned()))
+        self.set_attr(exc.as_object(), "name", self.new_pyobj(name))
             .unwrap();
         exc
     }
@@ -672,7 +658,7 @@ impl VirtualMachine {
         let repr = self.call_method(obj, "__repr__", vec![])?;
         let repr: PyStringRef = TryFromObject::try_from_object(self, repr)?;
         let ascii = to_ascii(repr.borrow_value());
-        Ok(self.new_str(ascii))
+        Ok(self.ctx.new_str(ascii))
     }
 
     pub fn to_index(&self, obj: &PyObjectRef) -> Option<PyResult<PyIntRef>> {
@@ -734,16 +720,13 @@ impl VirtualMachine {
                 } else {
                     (self.get_none(), self.get_none())
                 };
-                let from_list = self.ctx.new_tuple(
-                    from_list
-                        .iter()
-                        .map(|name| self.new_str(name.to_owned()))
-                        .collect(),
-                );
+                let from_list = self
+                    .ctx
+                    .new_tuple(from_list.iter().map(|name| self.new_pyobj(name)).collect());
                 self.invoke(
                     &import_func,
                     vec![
-                        self.new_str(module.to_owned()),
+                        self.new_pyobj(module),
                         globals,
                         locals,
                         from_list,
@@ -865,7 +848,7 @@ impl VirtualMachine {
     fn trace_event(&self, event: TraceEvent) -> PyResult<()> {
         if self.use_tracing.get() {
             let frame = self.get_none();
-            let event = self.new_str(event.to_string());
+            let event = self.ctx.new_str(event.to_string());
             let arg = self.get_none();
             let args = vec![frame, event, arg];
 
@@ -1379,13 +1362,13 @@ impl VirtualMachine {
 
     pub fn _eq(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         self._cmp(a, b, "__eq__", "__eq__", |vm, a, b| {
-            Ok(vm.new_bool(a.is(&b)))
+            Ok(vm.ctx.new_bool(a.is(&b)))
         })
     }
 
     pub fn _ne(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         self._cmp(a, b, "__ne__", "__ne__", |vm, a, b| {
-            Ok(vm.new_bool(!a.is(&b)))
+            Ok(vm.ctx.new_bool(!a.is(&b)))
         })
     }
 
@@ -1428,12 +1411,12 @@ impl VirtualMachine {
         loop {
             if let Some(element) = objiter::get_next_object(self, &iter)? {
                 if self.bool_eq(needle.clone(), element.clone())? {
-                    return Ok(self.new_bool(true));
+                    return Ok(self.ctx.new_bool(true));
                 } else {
                     continue;
                 }
             } else {
-                return Ok(self.new_bool(false));
+                return Ok(self.ctx.new_bool(false));
             }
         }
     }

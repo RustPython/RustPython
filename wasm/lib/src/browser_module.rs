@@ -298,7 +298,7 @@ impl Element {
         vm: &VirtualMachine,
     ) -> PyObjectRef {
         match self.elem.get_attribute(attr.borrow_value()) {
-            Some(s) => vm.new_str(s),
+            Some(s) => vm.ctx.new_str(s),
             None => default.into_option().unwrap_or_else(|| vm.get_none()),
         }
     }

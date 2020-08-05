@@ -448,7 +448,8 @@ fn io_base_readline(
     let read = vm.get_attribute(instance, "read")?;
     let mut res = Vec::new();
     while size.map_or(true, |s| res.len() < s) {
-        let read_res = PyBytesLike::try_from_object(vm, vm.invoke(&read, vec![vm.new_int(1)])?)?;
+        let read_res =
+            PyBytesLike::try_from_object(vm, vm.invoke(&read, vec![vm.ctx.new_int(1)])?)?;
         if read_res.with_ref(|b| b.is_empty()) {
             break;
         }
@@ -468,7 +469,7 @@ fn io_base_checkclosed(
     if objbool::boolval(vm, vm.get_attribute(instance, "closed")?)? {
         let msg = msg
             .flatten()
-            .unwrap_or_else(|| vm.new_str("I/O operation on closed file.".to_owned()));
+            .unwrap_or_else(|| vm.ctx.new_str("I/O operation on closed file.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -483,7 +484,7 @@ fn io_base_checkreadable(
     if !objbool::boolval(vm, vm.call_method(&instance, "readable", vec![])?)? {
         let msg = msg
             .flatten()
-            .unwrap_or_else(|| vm.new_str("File or stream is not readable.".to_owned()));
+            .unwrap_or_else(|| vm.ctx.new_str("File or stream is not readable.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -498,7 +499,7 @@ fn io_base_checkwritable(
     if !objbool::boolval(vm, vm.call_method(&instance, "writable", vec![])?)? {
         let msg = msg
             .flatten()
-            .unwrap_or_else(|| vm.new_str("File or stream is not writable.".to_owned()));
+            .unwrap_or_else(|| vm.ctx.new_str("File or stream is not writable.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -513,7 +514,7 @@ fn io_base_checkseekable(
     if !objbool::boolval(vm, vm.call_method(&instance, "seekable", vec![])?)? {
         let msg = msg
             .flatten()
-            .unwrap_or_else(|| vm.new_str("File or stream is not seekable.".to_owned()));
+            .unwrap_or_else(|| vm.ctx.new_str("File or stream is not seekable.".to_owned()));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -564,7 +565,7 @@ fn buffered_io_base_init(
     vm.set_attr(
         &instance,
         "buffer_size",
-        vm.new_int(buffer_size.unwrap_or(DEFAULT_BUFFER_SIZE)),
+        vm.ctx.new_int(buffer_size.unwrap_or(DEFAULT_BUFFER_SIZE)),
     )?;
     Ok(())
 }
@@ -667,8 +668,10 @@ mod fileio {
                 }
                 let mode = compute_c_flag(&mode);
                 let fd = if let Some(opener) = args.opener {
-                    let fd =
-                        vm.invoke(&opener, vec![name.clone().into_object(), vm.new_int(mode)])?;
+                    let fd = vm.invoke(
+                        &opener,
+                        vec![name.clone().into_object(), vm.ctx.new_int(mode)],
+                    )?;
                     if !vm.isinstance(&fd, &vm.ctx.types.int_type)? {
                         return Err(vm.new_type_error("expected integer from opener".to_owned()));
                     }
@@ -688,14 +691,14 @@ mod fileio {
                 };
                 (name.into_object(), fd)
             }
-            Either::B(fno) => (vm.new_int(fno), fno),
+            Either::B(fno) => (vm.ctx.new_int(fno), fno),
         };
 
         vm.set_attr(&file_io, "name", name)?;
-        vm.set_attr(&file_io, "mode", vm.new_str(mode))?;
-        vm.set_attr(&file_io, "__fileno", vm.new_int(file_no))?;
-        vm.set_attr(&file_io, "closefd", vm.new_bool(args.closefd))?;
-        vm.set_attr(&file_io, "__closed", vm.new_bool(false))?;
+        vm.set_attr(&file_io, "mode", vm.ctx.new_str(mode))?;
+        vm.set_attr(&file_io, "__fileno", vm.ctx.new_int(file_no))?;
+        vm.set_attr(&file_io, "closefd", vm.ctx.new_bool(args.closefd))?;
+        vm.set_attr(&file_io, "__closed", vm.ctx.new_bool(false))?;
         Ok(vm.get_none())
     }
 
@@ -793,7 +796,7 @@ mod fileio {
                 i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
             drop(os::rust_file(raw_handle));
         }
-        vm.set_attr(&instance, "__closed", vm.new_bool(true))?;
+        vm.set_attr(&instance, "__closed", vm.ctx.new_bool(true))?;
         Ok(())
     }
 
@@ -1196,13 +1199,13 @@ pub fn io_open(
         PyFuncArgs::from((
             Args::new(vec![file.clone(), vm.ctx.new_str(mode.clone())]),
             KwArgs::new(maplit::hashmap! {
-                "closefd".to_owned() => vm.new_bool(opts.closefd),
+                "closefd".to_owned() => vm.ctx.new_bool(opts.closefd),
                 "opener".to_owned() => opts.opener.unwrap_or_else(|| vm.get_none()),
             }),
         )),
     )?;
 
-    vm.set_attr(&file_io_obj, "mode", vm.new_str(mode_string.to_owned()))?;
+    vm.set_attr(&file_io_obj, "mode", vm.ctx.new_str(mode_string.to_owned()))?;
 
     // Create Buffered class to consume FileIO. The type of buffered class depends on
     // the operation in the mode.

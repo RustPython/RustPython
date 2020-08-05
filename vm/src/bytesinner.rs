@@ -313,7 +313,7 @@ impl PyBytesInner {
         match needle {
             SequenceIndex::Int(int) => {
                 if let Some(idx) = self.elements.get_pos(int) {
-                    Ok(vm.new_int(self.elements[idx]))
+                    Ok(vm.ctx.new_int(self.elements[idx]))
                 } else {
                     Err(vm.new_index_error("index out of range".to_owned()))
                 }
@@ -338,7 +338,7 @@ impl PyBytesInner {
             });
             let value = result?;
             self.elements[idx] = value;
-            Ok(vm.new_int(value))
+            Ok(vm.ctx.new_int(value))
         } else {
             Err(vm.new_index_error("index out of range".to_owned()))
         }

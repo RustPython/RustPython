@@ -80,7 +80,7 @@ impl PyWeak {
             self.upgrade()
                 .and_then(|s| other.upgrade().map(|o| (s, o)))
                 .map_or(Ok(false), |(a, b)| vm.bool_eq(a, b))
-                .map(|b| vm.new_bool(b))
+                .map(|b| vm.ctx.new_bool(b))
         } else {
             Ok(vm.ctx.not_implemented())
         }

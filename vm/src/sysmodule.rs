@@ -21,7 +21,7 @@ fn argv(vm: &VirtualMachine) -> PyObjectRef {
             .settings
             .argv
             .iter()
-            .map(|arg| vm.new_str(arg.to_owned()))
+            .map(|arg| vm.ctx.new_str(arg.to_owned()))
             .collect(),
     )
 }
@@ -620,11 +620,11 @@ settrace() -- set the global debug tracing function
       "path_hooks" => ctx.new_list(vec![]),
       "path_importer_cache" => ctx.new_dict(),
       "pycache_prefix" => vm.get_none(),
-      "dont_write_bytecode" => vm.new_bool(vm.state.settings.dont_write_bytecode),
+      "dont_write_bytecode" => vm.ctx.new_bool(vm.state.settings.dont_write_bytecode),
       "setprofile" => ctx.new_function(sys_setprofile),
       "setrecursionlimit" => ctx.new_function(sys_setrecursionlimit),
       "settrace" => ctx.new_function(sys_settrace),
-      "version" => vm.new_str(version::get_version()),
+      "version" => vm.ctx.new_str(version::get_version()),
       "version_info" => version_info,
       "_git" => sys_git_info(vm),
       "exc_info" => ctx.new_function(sys_exc_info),

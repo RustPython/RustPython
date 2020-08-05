@@ -24,7 +24,7 @@ impl Write for PyWriter<'_> {
     type Error = PyBaseExceptionRef;
     fn write_fmt(&mut self, args: fmt::Arguments) -> Result<(), Self::Error> {
         let PyWriter(obj, vm) = self;
-        vm.call_method(obj, "write", vec![vm.new_str(args.to_string())])
+        vm.call_method(obj, "write", vec![vm.ctx.new_str(args.to_string())])
             .map(drop)
     }
 }

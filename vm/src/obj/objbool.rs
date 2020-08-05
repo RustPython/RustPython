@@ -166,7 +166,7 @@ impl PyBool {
             OptionalArg::Present(val) => boolval(vm, val.clone())?,
             OptionalArg::Missing => false,
         };
-        Ok(vm.new_bool(val))
+        Ok(vm.ctx.new_bool(val))
     }
 }
 

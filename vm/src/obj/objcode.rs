@@ -111,7 +111,7 @@ impl PyCodeRef {
         let varnames = self
             .code
             .varnames()
-            .map(|s| vm.new_str(s.to_owned()))
+            .map(|s| vm.ctx.new_str(s.to_owned()))
             .collect();
         vm.ctx.new_tuple(varnames)
     }

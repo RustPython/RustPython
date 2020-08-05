@@ -281,7 +281,7 @@ impl PySetInner {
         if let Some((key, _)) = self.content.pop_front() {
             Ok(key)
         } else {
-            let err_msg = vm.new_str("pop from an empty set".to_owned());
+            let err_msg = vm.ctx.new_str("pop from an empty set".to_owned());
             Err(vm.new_key_error(err_msg))
         }
     }
@@ -342,8 +342,8 @@ impl PySetInner {
 macro_rules! try_set_cmp {
     ($vm:expr, $other:expr, $op:expr) => {
         Ok(match_class!(match ($other) {
-            set @ PySet => ($vm.new_bool($op(&set.inner)?)),
-            frozen @ PyFrozenSet => ($vm.new_bool($op(&frozen.inner)?)),
+            set @ PySet => ($vm.ctx.new_bool($op(&set.inner)?)),
+            frozen @ PyFrozenSet => ($vm.ctx.new_bool($op(&frozen.inner)?)),
             _ => $vm.ctx.not_implemented(),
         }));
     };
@@ -518,7 +518,7 @@ impl PySet {
         } else {
             "set(...)".to_owned()
         };
-        Ok(vm.new_str(s))
+        Ok(vm.ctx.new_str(s))
     }
 
     #[pymethod]
@@ -788,7 +788,7 @@ impl PyFrozenSet {
         } else {
             "frozenset(...)".to_owned()
         };
-        Ok(vm.new_str(s))
+        Ok(vm.ctx.new_str(s))
     }
 
     #[pymethod(name = "__hash__")]

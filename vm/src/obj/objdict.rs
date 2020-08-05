@@ -100,7 +100,7 @@ impl PyDictRef {
         }
 
         for (key, value) in kwargs.into_iter() {
-            dict.insert(vm, vm.new_str(key), value)?;
+            dict.insert(vm, vm.ctx.new_str(key), value)?;
         }
         Ok(())
     }
@@ -392,7 +392,7 @@ impl PyDictRef {
         if let Some((key, value)) = self.entries.pop_front() {
             Ok(vm.ctx.new_tuple(vec![key, value]))
         } else {
-            let err_msg = vm.new_str("popitem(): dictionary is empty".to_owned());
+            let err_msg = vm.ctx.new_str("popitem(): dictionary is empty".to_owned());
             Err(vm.new_key_error(err_msg))
         }
     }
