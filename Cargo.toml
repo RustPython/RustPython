@@ -6,6 +6,7 @@ edition = "2018"
 description = "A python interpreter written in rust."
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
+include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
 
 [workspace]
 members = [".", "derive", "vm", "wasm/lib", "parser", "compiler", "bytecode", "vm/pylib-crate", "common"]
@@ -15,7 +16,7 @@ name = "bench"
 path = "./benchmarks/bench.rs"
 
 [features]
-default = ["threading"]
+default = ["threading", "pylib"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 threading = ["rustpython-vm/threading"]
@@ -29,6 +30,7 @@ clap = "2.33"
 rustpython-compiler = { path = "compiler", version = "0.1.1" }
 rustpython-parser = { path = "parser", version = "0.1.1" }
 rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["compile-parse"] }
+pylib = { package = "rustpython-pylib", path = "vm/pylib-crate", version = "0.1.0", default-features = false, optional = true }
 dirs = { package = "dirs-next", version = "1.0" }
 num-traits = "0.2.8"
 cfg-if = "0.1"
