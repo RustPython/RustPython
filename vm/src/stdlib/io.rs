@@ -1,7 +1,6 @@
 /*
  * I/O core tools.
  */
-use std::convert::TryInto;
 use std::fs;
 use std::io::{self, prelude::*, Cursor, SeekFrom};
 
@@ -21,13 +20,36 @@ use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    BufferProtocol, Either, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BufferProtocol, Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
-fn byte_count(bytes: OptionalOption<i64>) -> i64 {
-    bytes.flatten().unwrap_or(-1)
+#[derive(FromArgs)]
+struct OptionalSize {
+    // In a few functions, the default value is -1 rather than None.
+    // Make sure the default value doesn't affect compatibility.
+    #[pyarg(positional_only, default = "None")]
+    size: Option<isize>,
 }
+
+impl OptionalSize {
+    fn to_usize(self) -> Option<usize> {
+        self.size.and_then(|v| v.to_usize())
+    }
+
+    fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
+        self.size
+            .map(|v| {
+                if v >= 0 {
+                    Ok(v as usize)
+                } else {
+                    Err(vm.new_value_error(format!("Negative size value {}", v)))
+                }
+            })
+            .transpose()
+    }
+}
+
 fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
     #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
     {
@@ -83,9 +105,9 @@ impl BufferedIO {
     }
 
     //Read k bytes from the object and return.
-    fn read(&mut self, bytes: Option<i64>) -> Option<Vec<u8>> {
+    fn read(&mut self, bytes: Option<usize>) -> Option<Vec<u8>> {
         //for a defined number of bytes, i.e. bytes != -1
-        match bytes.and_then(|v| v.to_usize()) {
+        match bytes {
             Some(bytes) => {
                 let mut buffer = unsafe {
                     // Do not move or edit any part of this block without a safety validation.
@@ -115,40 +137,43 @@ impl BufferedIO {
         self.cursor.position()
     }
 
-    fn readline(&mut self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let mut buf = Vec::new();
-        let mut left = size
-            .flatten()
-            .filter(|s| *s >= 0)
-            .and_then(|s| s.try_into().ok())
-            .unwrap_or(usize::MAX);
-        if left == 0 {
-            return Ok(buf);
-        }
-        loop {
-            let (done, used) = {
-                let mut available = self.cursor.fill_buf().map_err(|err| os_err(vm, err))?;
-                if left < available.len() {
-                    available = &available[..left];
-                }
-
-                match available.find_byte(b'\n') {
-                    Some(i) => {
-                        buf.extend_from_slice(&available[..=i]);
-                        (true, i + 1)
-                    }
-                    _ => {
-                        buf.extend_from_slice(available);
-                        (false, available.len())
-                    }
-                }
-            };
-            self.cursor.consume(used);
-            left -= used;
-            if done || used == 0 || left == 0 {
-                return Ok(buf);
+    fn readline(&mut self, size: Option<usize>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let size = match size {
+            None => {
+                let mut buf = String::new();
+                self.cursor
+                    .read_line(&mut buf)
+                    .map_err(|err| os_err(vm, err))?;
+                return Ok(buf.into_bytes());
             }
-        }
+            Some(0) => {
+                return Ok(Vec::new());
+            }
+            Some(size) => size,
+        };
+
+        let available = {
+            // For Cursor, fill_buf returns all of the remaining data unlike other BufReads which have outer reading source.
+            // Unless we add other data by write, there will be no more data.
+            let buf = self.cursor.fill_buf().map_err(|err| os_err(vm, err))?;
+            if size < buf.len() {
+                &buf[..size]
+            } else {
+                buf
+            }
+        };
+        let buf = match available.find_byte(b'\n') {
+            Some(i) => (available[..=i].to_vec()),
+            _ => (available.to_vec()),
+        };
+        self.cursor.consume(buf.len());
+        Ok(buf)
+    }
+
+    fn truncate(&mut self, pos: Option<usize>) -> PyResult<()> {
+        let pos = pos.unwrap_or_else(|| self.tell() as usize);
+        self.cursor.get_mut().truncate(pos);
+        Ok(())
     }
 }
 
@@ -212,8 +237,8 @@ impl PyStringIORef {
     //Read k bytes from the object and return.
     //If k is undefined || k == -1, then we read all bytes until the end of the file.
     //This also increments the stream position by the value of k
-    fn read(self, bytes: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult {
-        let data = match self.buffer(vm)?.read(bytes.flatten()) {
+    fn read(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
+        let data = match self.buffer(vm)?.read(size.to_usize()) {
             Some(value) => value,
             None => Vec::new(),
         };
@@ -228,19 +253,18 @@ impl PyStringIORef {
         Ok(self.buffer(vm)?.tell())
     }
 
-    fn readline(self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<String> {
+    fn readline(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<String> {
         // TODO size should correspond to the number of characters, at the moments its the number of
         // bytes.
-        match String::from_utf8(self.buffer(vm)?.readline(size, vm)?) {
+        match String::from_utf8(self.buffer(vm)?.readline(size.to_usize(), vm)?) {
             Ok(value) => Ok(value),
             Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
         }
     }
 
-    fn truncate(self, size: OptionalOption<usize>, vm: &VirtualMachine) -> PyResult<()> {
+    fn truncate(self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<()> {
         let mut buffer = self.buffer(vm)?;
-        let size = size.flatten().unwrap_or_else(|| buffer.tell() as usize);
-        buffer.cursor.get_mut().truncate(size);
+        buffer.truncate(pos.try_usize(vm)?)?;
         Ok(())
     }
 
@@ -316,8 +340,8 @@ impl PyBytesIORef {
     //Takes an integer k (bytes) and returns them from the underlying buffer
     //If k is undefined || k == -1, then we read all bytes until the end of the file.
     //This also increments the stream position by the value of k
-    fn read(self, bytes: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult {
-        match self.buffer(vm)?.read(bytes.flatten()) {
+    fn read(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
+        match self.buffer(vm)?.read(size.to_usize()) {
             Some(value) => Ok(vm.ctx.new_bytes(value)),
             None => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
         }
@@ -343,14 +367,13 @@ impl PyBytesIORef {
         Ok(self.buffer(vm)?.tell())
     }
 
-    fn readline(self, size: OptionalOption<i64>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        self.buffer(vm)?.readline(size, vm)
+    fn readline(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        self.buffer(vm)?.readline(size.to_usize(), vm)
     }
 
-    fn truncate(self, size: OptionalOption<usize>, vm: &VirtualMachine) -> PyResult<()> {
+    fn truncate(self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<()> {
         let mut buffer = self.buffer(vm)?;
-        let size = size.flatten().unwrap_or_else(|| buffer.tell() as usize);
-        buffer.cursor.get_mut().truncate(size);
+        buffer.truncate(pos.try_usize(vm)?)?;
         Ok(())
     }
 
@@ -417,13 +440,13 @@ fn io_base_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
 
 fn io_base_readline(
     instance: PyObjectRef,
-    size: OptionalOption<i64>,
+    size: OptionalSize,
     vm: &VirtualMachine,
 ) -> PyResult<Vec<u8>> {
-    let size = byte_count(size);
-    let mut res = Vec::<u8>::new();
+    let size = size.to_usize();
     let read = vm.get_attribute(instance, "read")?;
-    while size < 0 || res.len() < size as usize {
+    let mut res = Vec::new();
+    while size.map_or(true, |s| res.len() < s) {
         let read_res = PyBytesLike::try_from_object(vm, vm.invoke(&read, vec![vm.new_int(1)])?)?;
         if read_res.with_ref(|b| b.is_empty()) {
             break;
@@ -511,26 +534,21 @@ fn io_base_readlines(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_list(vm.extract_elements(&instance)?))
 }
 
-fn raw_io_base_read(
-    instance: PyObjectRef,
-    size: OptionalOption<i64>,
-    vm: &VirtualMachine,
-) -> PyResult {
-    let size = byte_count(size);
-    if size < 0 {
-        return vm.call_method(&instance, "readall", vec![]);
-    }
-    let b = PyByteArray::new(vec![0; size as usize]).into_ref(vm);
-    let n = <Option<usize>>::try_from_object(
-        vm,
-        vm.call_method(&instance, "readinto", vec![b.as_object().clone()])?,
-    )?;
-    if let Some(n) = n {
-        let bytes = &mut b.borrow_value_mut().elements;
-        bytes.truncate(n);
-        Ok(vm.ctx.new_bytes(bytes.clone()))
+fn raw_io_base_read(instance: PyObjectRef, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
+    if let Some(size) = size.to_usize() {
+        let b = PyByteArray::new(vec![0; size]).into_ref(vm);
+        let n = <Option<usize>>::try_from_object(
+            vm,
+            vm.call_method(&instance, "readinto", vec![b.as_object().clone()])?,
+        )?;
+        n.map(|n| {
+            let bytes = &mut b.borrow_value_mut().elements;
+            bytes.truncate(n);
+            bytes.clone()
+        })
+        .into_pyobject(vm)
     } else {
-        Ok(vm.get_none())
+        vm.call_method(&instance, "readall", vec![])
     }
 }
 
@@ -566,13 +584,13 @@ fn buffered_io_base_name(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult
 
 fn buffered_reader_read(
     instance: PyObjectRef,
-    size: OptionalOption<i64>,
+    size: OptionalSize,
     vm: &VirtualMachine,
 ) -> PyResult {
     vm.call_method(
         &vm.get_attribute(instance.clone(), "raw")?,
         "read",
-        vec![vm.new_int(byte_count(size))],
+        vec![size.to_usize().into_pyobject(vm).unwrap()],
     )
 }
 
@@ -692,25 +710,22 @@ mod fileio {
 
     fn file_io_read(
         instance: PyObjectRef,
-        read_byte: OptionalOption<i64>,
+        read_byte: OptionalSize,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let read_byte = byte_count(read_byte);
-
         let mut handle = fio_get_fileno(&instance, vm)?;
-
-        let bytes = if read_byte < 0 {
-            let mut bytes = vec![];
-            handle
-                .read_to_end(&mut bytes)
-                .map_err(|e| os::convert_io_error(vm, e))?;
-            bytes
-        } else {
+        let bytes = if let Some(read_byte) = read_byte.to_usize() {
             let mut bytes = vec![0; read_byte as usize];
             let n = handle
                 .read(&mut bytes)
                 .map_err(|e| os::convert_io_error(vm, e))?;
             bytes.truncate(n);
+            bytes
+        } else {
+            let mut bytes = vec![];
+            handle
+                .read_to_end(&mut bytes)
+                .map_err(|e| os::convert_io_error(vm, e))?;
             bytes
         };
         fio_set_fileno(&instance, handle, vm)?;
@@ -1445,12 +1460,12 @@ mod tests {
     #[test]
     fn test_buffered_read() {
         let data = vec![1, 2, 3, 4];
-        let bytes: i64 = -1;
+        let bytes = None;
         let mut buffered = BufferedIO {
             cursor: Cursor::new(data.clone()),
         };
 
-        assert_eq!(buffered.read(Some(bytes)).unwrap(), data);
+        assert_eq!(buffered.read(bytes).unwrap(), data);
     }
 
     #[test]
@@ -1462,7 +1477,7 @@ mod tests {
         };
 
         assert_eq!(buffered.seek(SeekFrom::Start(count)).unwrap(), count);
-        assert_eq!(buffered.read(Some(count as i64)).unwrap(), vec![3, 4]);
+        assert_eq!(buffered.read(Some(count as usize)).unwrap(), vec![3, 4]);
     }
 
     #[test]
