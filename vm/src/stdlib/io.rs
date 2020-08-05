@@ -541,12 +541,12 @@ fn raw_io_base_read(instance: PyObjectRef, size: OptionalSize, vm: &VirtualMachi
             vm,
             vm.call_method(&instance, "readinto", vec![b.as_object().clone()])?,
         )?;
-        n.map(|n| {
+        Ok(n.map(|n| {
             let bytes = &mut b.borrow_value_mut().elements;
             bytes.truncate(n);
             bytes.clone()
         })
-        .into_pyobject(vm)
+        .into_pyobject(vm))
     } else {
         vm.call_method(&instance, "readall", vec![])
     }
@@ -590,7 +590,7 @@ fn buffered_reader_read(
     vm.call_method(
         &vm.get_attribute(instance.clone(), "raw")?,
         "read",
-        vec![size.to_usize().into_pyobject(vm).unwrap()],
+        vec![size.to_usize().into_pyobject(vm)],
     )
 }
 
