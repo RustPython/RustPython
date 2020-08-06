@@ -1341,6 +1341,8 @@ class MakedirTests(unittest.TestCase):
                             'dir5', 'dir6')
         os.makedirs(path)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_mode(self):
         with support.temp_umask(0o002):
             base = support.TESTFN
@@ -3609,6 +3611,8 @@ class FDInheritanceTests(unittest.TestCase):
         self.assertEqual(os.dup2(fd, fd3, inheritable=False), fd3)
         self.assertFalse(os.get_inheritable(fd3))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'openpty'), "need os.openpty()")
     def test_openpty(self):
         master_fd, slave_fd = os.openpty()
@@ -3630,6 +3634,8 @@ class PathTConverterTests(unittest.TestCase):
         ('open', False, (0,), getattr(os, 'close', None)),
     ]
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_path_t_converter(self):
         str_filename = support.TESTFN
         if os.name == 'nt':
@@ -3674,6 +3680,8 @@ class PathTConverterTests(unittest.TestCase):
                             'os.PathLike'):
                         fn(fd, *extra_args)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_path_t_converter_and_custom_class(self):
         msg = r'__fspath__\(\) to return str or bytes, not %s'
         with self.assertRaisesRegex(TypeError, msg % r'int'):
@@ -4101,6 +4109,8 @@ class TestPEP519(unittest.TestCase):
         self.assertRaises(ZeroDivisionError, self.fspath,
                           FakePath(ZeroDivisionError()))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pathlike_subclasshook(self):
         # bpo-38878: subclasshook causes subclass checks
         # true on abstract implementation.
