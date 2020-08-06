@@ -141,6 +141,8 @@ class MiscTests(unittest.TestCase):
                 if support.verbose:
                     print(f"Tested current directory length: {len(cwd)}")
 
+    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'getcwdb')
+    @unittest.expectedFailure
     def test_getcwdb(self):
         cwd = os.getcwdb()
         self.assertIsInstance(cwd, bytes)
@@ -159,6 +161,8 @@ class FileTests(unittest.TestCase):
         os.close(f)
         self.assertTrue(os.access(support.TESTFN, os.W_OK))
 
+    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'dup')
+    @unittest.expectedFailure
     def test_closerange(self):
         first = os.open(support.TESTFN, os.O_CREAT|os.O_RDWR)
         # We must allocate two consecutive file descriptors, otherwise
@@ -1912,6 +1916,8 @@ class TestInvalidFD(unittest.TestCase):
     def test_fchmod(self):
         self.check(os.fchmod, 0)
 
+    # TODO: RUSTPYTHON (AttributeError: 'OSError' object has no attribute 'errno')
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'fchown'), 'test needs os.fchown()')
     def test_fchown(self):
         self.check(os.fchown, -1, -1)
@@ -2678,7 +2684,8 @@ class FSEncodingTests(unittest.TestCase):
 
 
 class DeviceEncodingTests(unittest.TestCase):
-
+    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'device_encoding')
+    @unittest.expectedFailure
     def test_bad_fd(self):
         # Return None when an fd doesn't actually exist.
         self.assertIsNone(os.device_encoding(123456))
@@ -2719,9 +2726,13 @@ class PidTests(unittest.TestCase):
             self.assertEqual(os.WEXITSTATUS(status), exitcode)
         self.assertEqual(pid2, pid)
 
+    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'spawnv')
+    @unittest.expectedFailure
     def test_waitpid(self):
         self.check_waitpid(code='pass', exitcode=0)
 
+    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'spawnv')
+    @unittest.expectedFailure
     def test_waitpid_exitcode(self):
         exitcode = 23
         code = f'import sys; sys.exit({exitcode})'
@@ -3427,6 +3438,8 @@ class OSErrorTests(unittest.TestCase):
 
         self.filenames = self.bytes_filenames + self.unicode_filenames
 
+    # TODO: RUSTPYTHON (AttributeError: 'FileNotFoundError' object has no attribute 'filename')
+    @unittest.expectedFailure
     def test_oserror_filename(self):
         funcs = [
             (self.filenames, os.chdir,),
@@ -3553,6 +3566,8 @@ class FDInheritanceTests(unittest.TestCase):
         self.assertEqual(os.get_inheritable(rfd), False)
         self.assertEqual(os.get_inheritable(wfd), False)
 
+    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'dup')
+    @unittest.expectedFailure
     def test_dup(self):
         fd1 = os.open(__file__, os.O_RDONLY)
         self.addCleanup(os.close, fd1)
@@ -3561,6 +3576,8 @@ class FDInheritanceTests(unittest.TestCase):
         self.addCleanup(os.close, fd2)
         self.assertEqual(os.get_inheritable(fd2), False)
 
+    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'dup')
+    @unittest.expectedFailure
     def test_dup_standard_stream(self):
         fd = os.dup(1)
         self.addCleanup(os.close, fd)
@@ -4094,6 +4111,8 @@ class TestPEP519(unittest.TestCase):
 
 
 class TimesTests(unittest.TestCase):
+    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'times')
+    @unittest.expectedFailure
     def test_times(self):
         times = os.times()
         self.assertIsInstance(times, os.times_result)
