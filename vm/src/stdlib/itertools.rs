@@ -17,8 +17,8 @@ mod decl {
     use crate::obj::objtuple::PyTuple;
     use crate::obj::objtype::{self, PyClassRef};
     use crate::pyobject::{
-        IdProtocol, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-        TypeProtocol,
+        IdProtocol, IntoPyRef, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult,
+        PyValue, TypeProtocol,
     };
     use crate::vm::VirtualMachine;
 
@@ -197,11 +197,11 @@ mod decl {
         }
 
         #[pymethod(name = "__next__")]
-        fn next(&self) -> PyResult<PyInt> {
+        fn next(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
             let mut cur = self.cur.write();
             let result = cur.clone();
             *cur += &self.step;
-            Ok(PyInt::new(result))
+            Ok(result.into_pyref(vm))
         }
 
         #[pymethod(name = "__iter__")]

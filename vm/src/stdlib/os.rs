@@ -75,7 +75,7 @@ pub struct PyPathLike {
 
 impl PyPathLike {
     pub fn new_str(path: String) -> Self {
-        PyPathLike {
+        Self {
             path: PathBuf::from(path),
             mode: OutputMode::String,
         }

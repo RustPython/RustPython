@@ -407,7 +407,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
         }),
         Number { value } => {
             let py_n = match value {
-                ast::Number::Integer { value } => vm.ctx.new_int(value.clone()),
+                ast::Number::Integer { value } => vm.ctx.new_bigint(value),
                 ast::Number::Float { value } => vm.ctx.new_float(*value),
                 ast::Number::Complex { real, imag } => {
                     vm.ctx.new_complex(Complex64::new(*real, *imag))

@@ -16,8 +16,9 @@ use crate::bytesinner::PyBytesInner;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl, PyComparisonValue,
-    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, IntoPyRef, IntoPyResult, PyArithmaticValue, PyClassImpl,
+    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
@@ -52,12 +53,17 @@ impl fmt::Display for PyInt {
 pub type PyIntRef = PyRef<PyInt>;
 
 impl PyInt {
-    pub fn new<T: Into<BigInt>>(i: T) -> Self {
-        PyInt { value: i.into() }
-    }
-
     pub fn as_bigint(&self) -> &BigInt {
         &self.value
+    }
+}
+
+impl<T> From<T> for PyInt
+where
+    T: Into<BigInt>,
+{
+    fn from(v: T) -> Self {
+        Self { value: v.into() }
     }
 }
 
@@ -214,9 +220,21 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
 #[pyimpl(flags(BASETYPE))]
 impl PyInt {
+    fn raw_new<T>(cls: PyClassRef, value: T, vm: &VirtualMachine) -> PyResult<PyIntRef>
+    where
+        T: Into<BigInt>,
+    {
+        if cls.is(&vm.ctx.int_type()) {
+            Ok(value.into().into_pyref(vm))
+        } else {
+            PyInt::from(value).into_ref_with_type(vm, cls)
+        }
+    }
+
     #[pyslot]
     fn tp_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-        PyInt::new(options.get_int_value(vm)?).into_ref_with_type(vm, cls)
+        let value = options.get_int_value(vm)?;
+        Self::raw_new(cls, value, vm)
     }
 
     #[inline]
@@ -568,7 +586,7 @@ impl PyInt {
                 )
             }
         };
-        PyInt::new(x).into_ref_with_type(vm, cls)
+        Self::raw_new(cls, x, vm)
     }
 
     #[pymethod]
@@ -631,7 +649,7 @@ impl PyInt {
             }
             _ => (),
         }
-        Ok(PyBytes::new(bytes))
+        Ok(bytes.into())
     }
     #[pyproperty]
     fn real(&self, vm: &VirtualMachine) -> PyObjectRef {

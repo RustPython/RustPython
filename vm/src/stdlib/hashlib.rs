@@ -74,8 +74,7 @@ impl PyHasher {
 
     #[pymethod(name = "digest")]
     fn digest(&self) -> PyBytes {
-        let result = self.get_digest();
-        PyBytes::new(result)
+        self.get_digest().into()
     }
 
     #[pymethod(name = "hexdigest")]
