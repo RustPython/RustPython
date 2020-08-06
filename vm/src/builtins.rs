@@ -6,9 +6,6 @@ use crate::vm::VirtualMachine;
 
 #[pymodule(name = "builtins")]
 mod decl {
-    use std::char;
-    use std::str;
-
     use num_bigint::Sign;
     use num_traits::{Signed, ToPrimitive, Zero};
     #[cfg(feature = "rustpython-compiler")]
@@ -17,10 +14,10 @@ mod decl {
     use rustpython_parser::parser;
 
     use super::to_ascii;
+    use crate::byteslike::PyBytesLike;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
     use crate::obj::objbool::{self, IntoPyBool};
-    use crate::obj::objbyteinner::PyByteInner;
     use crate::obj::objbytes::PyBytesRef;
     use crate::obj::objcode::PyCodeRef;
     use crate::obj::objdict::PyDictRef;
@@ -30,7 +27,6 @@ mod decl {
     use crate::obj::objsequence;
     use crate::obj::objstr::{PyString, PyStringRef};
     use crate::obj::objtype::{self, PyClassRef};
-    use crate::pyhash;
     use crate::pyobject::{
         Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef, PyResult, PyValue,
         TryFromObject, TypeProtocol,
@@ -39,7 +35,9 @@ mod decl {
     use crate::scope::Scope;
     #[cfg(feature = "rustpython-parser")]
     use crate::stdlib::ast;
+    use crate::sysmodule;
     use crate::vm::VirtualMachine;
+    use rustpython_common::hash::PyHash;
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -95,7 +93,7 @@ mod decl {
 
     #[pyfunction]
     fn chr(i: u32, vm: &VirtualMachine) -> PyResult<String> {
-        match char::from_u32(i) {
+        match std::char::from_u32(i) {
             Some(value) => Ok(value.to_string()),
             None => Err(vm.new_value_error("chr() arg not in range(0x110000)".to_owned())),
         }
@@ -124,7 +122,7 @@ mod decl {
         // TODO: compile::compile should probably get bytes
         let source = match &args.source {
             Either::A(string) => string.as_str(),
-            Either::B(bytes) => str::from_utf8(bytes).unwrap(),
+            Either::B(bytes) => std::str::from_utf8(bytes).unwrap(),
         };
 
         let mode_str = args.mode.as_str();
@@ -332,7 +330,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+    fn hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
         vm._hash(&obj)
     }
 
@@ -557,18 +555,18 @@ mod decl {
     }
 
     #[pyfunction]
-    fn ord(string: Either<PyByteInner, PyStringRef>, vm: &VirtualMachine) -> PyResult<u32> {
+    fn ord(string: Either<PyBytesLike, PyStringRef>, vm: &VirtualMachine) -> PyResult<u32> {
         match string {
-            Either::A(bytes) => {
-                let bytes_len = bytes.elements.len();
+            Either::A(bytes) => bytes.with_ref(|bytes| {
+                let bytes_len = bytes.len();
                 if bytes_len != 1 {
                     return Err(vm.new_type_error(format!(
                         "ord() expected a character, but string of length {} found",
                         bytes_len
                     )));
                 }
-                Ok(u32::from(bytes.elements[0]))
-            }
+                Ok(u32::from(bytes[0]))
+            }),
             Either::B(string) => {
                 let string = string.as_str();
                 let string_len = string.chars().count();
@@ -650,7 +648,7 @@ mod decl {
     pub fn print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
         let file = match options.file {
             Some(f) => f,
-            None => vm.get_attribute(vm.sys_module.clone(), "stdout")?,
+            None => sysmodule::get_stdout(vm)?,
         };
         let write = |obj: PyStringRef| vm.call_method(&file, "write", vec![obj.into_object()]);
 

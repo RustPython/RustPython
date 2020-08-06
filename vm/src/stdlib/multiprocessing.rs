@@ -1,5 +1,5 @@
 #[allow(unused_imports)]
-use crate::obj::objbyteinner::PyBytesLike;
+use crate::byteslike::PyBytesLike;
 #[allow(unused_imports)]
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::VirtualMachine;

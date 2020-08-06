@@ -1,11 +1,10 @@
-use parking_lot::RwLock;
 use std::fmt::{self, Debug, Formatter};
 
 use csv as rust_csv;
 use itertools::join;
 
+use crate::common::cell::PyRwLock;
 use crate::function::PyFuncArgs;
-
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString};
 use crate::obj::objtype::PyClassRef;
@@ -69,7 +68,7 @@ pub fn build_reader(
 ) -> PyResult {
     let config = ReaderOption::new(args, vm)?;
 
-    Reader::new(iterable, config).into_ref(vm).into_pyobject(vm)
+    Ok(Reader::new(iterable, config).into_ref(vm).into_pyobject(vm))
 }
 
 fn into_strings(iterable: &PyIterable<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Vec<String>> {
@@ -126,7 +125,7 @@ impl ReadState {
 
 #[pyclass(name = "Reader")]
 struct Reader {
-    state: RwLock<ReadState>,
+    state: PyRwLock<ReadState>,
 }
 
 impl Debug for Reader {
@@ -143,7 +142,7 @@ impl PyValue for Reader {
 
 impl Reader {
     fn new(iter: PyIterable<PyObjectRef>, config: ReaderOption) -> Self {
-        let state = RwLock::new(ReadState::new(iter, config));
+        let state = PyRwLock::new(ReadState::new(iter, config));
         Reader { state }
     }
 }
@@ -153,7 +152,7 @@ impl Reader {
     #[pymethod(name = "__iter__")]
     fn iter(this: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         this.state.write().cast_to_reader(vm)?;
-        this.into_pyobject(vm)
+        Ok(this.into_pyobject(vm))
     }
 
     #[pymethod(name = "__next__")]
@@ -168,7 +167,7 @@ impl Reader {
                         let iter = records
                             .into_iter()
                             .map(|bytes| bytes.into_pyobject(vm))
-                            .collect::<PyResult<Vec<_>>>()?;
+                            .collect::<Vec<_>>();
                         Ok(vm.ctx.new_list(iter))
                     }
                     Err(_err) => {

@@ -1,22 +1,21 @@
 #![allow(non_snake_case)]
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::convert::TryInto;
-use std::io;
-
-use super::os;
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::exceptions::IntoPyException;
 use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
 
+use std::convert::TryInto;
+use std::io;
 use winapi::shared::winerror;
 use winreg::{enums::RegType, RegKey, RegValue};
 
 #[pyclass]
 #[derive(Debug)]
 struct PyHKEY {
-    key: RwLock<RegKey>,
+    key: PyRwLock<RegKey>,
 }
 type PyHKEYRef = PyRef<PyHKEY>;
 
@@ -33,15 +32,15 @@ impl PyValue for PyHKEY {
 impl PyHKEY {
     fn new(key: RegKey) -> Self {
         Self {
-            key: RwLock::new(key),
+            key: PyRwLock::new(key),
         }
     }
 
-    fn key(&self) -> RwLockReadGuard<'_, RegKey> {
+    fn key(&self) -> PyRwLockReadGuard<'_, RegKey> {
         self.key.read()
     }
 
-    fn key_mut(&self) -> RwLockWriteGuard<'_, RegKey> {
+    fn key_mut(&self) -> PyRwLockWriteGuard<'_, RegKey> {
         self.key.write()
     }
 
@@ -116,7 +115,7 @@ fn winreg_OpenKey(
     let subkey = subkey.as_ref().map_or("", |s| s.as_str());
     let key = key
         .with_key(|k| k.open_subkey_with_flags(subkey, access))
-        .map_err(|e| os::convert_io_error(vm, e))?;
+        .map_err(|e| e.into_pyexception(vm))?;
 
     Ok(PyHKEY::new(key))
 }
@@ -128,7 +127,7 @@ fn winreg_QueryValue(
 ) -> PyResult<String> {
     let subkey = subkey.as_ref().map_or("", |s| s.as_str());
     key.with_key(|k| k.get_value(subkey))
-        .map_err(|e| os::convert_io_error(vm, e))
+        .map_err(|e| e.into_pyexception(vm))
 }
 
 fn winreg_QueryValueEx(
@@ -138,7 +137,7 @@ fn winreg_QueryValueEx(
 ) -> PyResult<(PyObjectRef, usize)> {
     let subkey = subkey.as_ref().map_or("", |s| s.as_str());
     key.with_key(|k| k.get_raw_value(subkey))
-        .map_err(|e| os::convert_io_error(vm, e))
+        .map_err(|e| e.into_pyexception(vm))
         .and_then(|regval| {
             let ty = regval.vtype.clone() as usize;
             Ok((reg_to_py(regval, vm)?, ty))
@@ -152,7 +151,7 @@ fn winreg_EnumKey(key: Hkey, index: u32, vm: &VirtualMachine) -> PyResult<String
                 winerror::ERROR_NO_MORE_ITEMS as i32,
             ))
         })
-        .map_err(|e| os::convert_io_error(vm, e))
+        .map_err(|e| e.into_pyexception(vm))
 }
 
 fn winreg_EnumValue(
@@ -166,7 +165,7 @@ fn winreg_EnumValue(
                 winerror::ERROR_NO_MORE_ITEMS as i32,
             ))
         })
-        .map_err(|e| os::convert_io_error(vm, e))
+        .map_err(|e| e.into_pyexception(vm))
         .and_then(|(name, value)| {
             let ty = value.vtype.clone() as usize;
             Ok((name, reg_to_py(value, vm)?, ty))

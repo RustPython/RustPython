@@ -3,10 +3,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use indexmap::IndexMap;
 use itertools::Itertools;
-use parking_lot::Mutex;
 
 use crate::builtins::builtin_isinstance;
 use crate::bytecode;
+use crate::common::cell::PyMutex;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::PyFuncArgs;
 use crate::obj::objasyncgenerator::PyAsyncGenWrappedValue;
@@ -92,7 +92,7 @@ pub struct Frame {
     pub scope: Scope,
     /// index of last instruction ran
     pub lasti: AtomicUsize,
-    state: Mutex<FrameState>,
+    state: PyMutex<FrameState>,
 }
 
 impl PyValue for Frame {
@@ -163,7 +163,7 @@ impl Frame {
             code,
             scope,
             lasti: AtomicUsize::new(0),
-            state: Mutex::new(FrameState {
+            state: PyMutex::new(FrameState {
                 stack: Vec::new(),
                 blocks: Vec::new(),
             }),
@@ -663,7 +663,9 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
 
-                let displayhook = vm.get_attribute(vm.sys_module.clone(), "displayhook")?;
+                let displayhook = vm
+                    .get_attribute(vm.sys_module.clone(), "displayhook")
+                    .map_err(|_| vm.new_runtime_error("lost sys.displayhook".to_owned()))?;
                 vm.invoke(&displayhook, vec![expr])?;
 
                 Ok(None)
@@ -780,7 +782,7 @@ impl ExecutingFrame<'_> {
         // Load attribute, and transform any error into import error.
         let obj = vm
             .get_attribute(module, name)
-            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name)))?;
+            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name), name))?;
         self.push_value(obj);
         Ok(None)
     }
@@ -945,7 +947,7 @@ impl ExecutingFrame<'_> {
     fn execute_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
-        let value = a_ref.get_item(&b_ref, vm)?;
+        let value = a_ref.get_item(b_ref, vm)?;
         self.push_value(value);
         Ok(None)
     }
@@ -954,14 +956,14 @@ impl ExecutingFrame<'_> {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        obj.set_item(&idx, value, vm)?;
+        obj.set_item(idx, value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        obj.del_item(&idx, vm)?;
+        obj.del_item(idx, vm)?;
         Ok(None)
     }
 
@@ -985,7 +987,7 @@ impl ExecutingFrame<'_> {
                 })?;
                 for (key, value) in dict {
                     if for_call {
-                        if map_obj.contains_key(&key, vm) {
+                        if map_obj.contains_key(key.clone(), vm) {
                             let key_repr = vm.to_repr(&key)?;
                             let msg = format!(
                                 "got multiple values for keyword argument {}",
@@ -994,12 +996,12 @@ impl ExecutingFrame<'_> {
                             return Err(vm.new_type_error(msg));
                         }
                     }
-                    map_obj.set_item(&key, value, vm).unwrap();
+                    map_obj.set_item(key, value, vm).unwrap();
                 }
             }
         } else {
             for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
-                map_obj.set_item(&key, value, vm).unwrap();
+                map_obj.set_item(key, value, vm).unwrap();
             }
         }
 

@@ -4,7 +4,7 @@
 use super::objtype::PyClassRef;
 use crate::function::{FunctionBox, OptionalArg, OwnedParam, RefParam};
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    IntoPyResult, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::slots::SlotDescriptor;
@@ -22,12 +22,12 @@ impl<F, T, R> IntoPyGetterFunc<(OwnedParam<T>, R, VirtualMachine)> for F
 where
     F: Fn(T, &VirtualMachine) -> R + 'static + Send + Sync,
     T: TryFromObject,
-    R: IntoPyObject,
+    R: IntoPyResult,
 {
     fn into_getter(self) -> PyGetterFunc {
         smallbox::smallbox!(move |vm: &VirtualMachine, obj| {
             let obj = T::try_from_object(vm, obj)?;
-            (self)(obj, vm).into_pyobject(vm)
+            (self)(obj, vm).into_pyresult(vm)
         })
     }
 }
@@ -36,12 +36,12 @@ impl<F, S, R> IntoPyGetterFunc<(RefParam<S>, R, VirtualMachine)> for F
 where
     F: Fn(&S, &VirtualMachine) -> R + 'static + Send + Sync,
     S: PyValue,
-    R: IntoPyObject,
+    R: IntoPyResult,
 {
     fn into_getter(self) -> PyGetterFunc {
         smallbox::smallbox!(move |vm: &VirtualMachine, obj| {
             let zelf = PyRef::<S>::try_from_object(vm, obj)?;
-            (self)(&zelf, vm).into_pyobject(vm)
+            (self)(&zelf, vm).into_pyresult(vm)
         })
     }
 }
@@ -50,7 +50,7 @@ impl<F, T, R> IntoPyGetterFunc<(OwnedParam<T>, R)> for F
 where
     F: Fn(T) -> R + 'static + Send + Sync,
     T: TryFromObject,
-    R: IntoPyObject,
+    R: IntoPyResult,
 {
     fn into_getter(self) -> PyGetterFunc {
         IntoPyGetterFunc::into_getter(move |obj, _vm: &VirtualMachine| (self)(obj))
@@ -61,7 +61,7 @@ impl<F, S, R> IntoPyGetterFunc<(RefParam<S>, R)> for F
 where
     F: Fn(&S) -> R + 'static + Send + Sync,
     S: PyValue,
-    R: IntoPyObject,
+    R: IntoPyResult,
 {
     fn into_getter(self) -> PyGetterFunc {
         IntoPyGetterFunc::into_getter(move |zelf: &S, _vm: &VirtualMachine| (self)(zelf))

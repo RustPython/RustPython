@@ -64,18 +64,18 @@ fn main() {
                             return;
                         }
                         if let Ok(s) = vm.to_str(&arg) {
-                            println!("{}", s);
+                            eprintln!("{}", s);
                         }
                     }
                 }),
                 _ => {
                     if let Ok(r) = vm.to_repr(args.as_object()) {
-                        println!("{}", r);
+                        eprintln!("{}", r);
                     }
                 }
             }
         } else {
-            print_exception(&vm, &err);
+            print_exception(&vm, err);
         }
         process::exit(1);
     }
@@ -158,6 +158,17 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
             Arg::with_name("ignore-environment")
                 .short("E")
                 .help("Ignore environment variables PYTHON* such as PYTHONPATH"),
+        )
+        .arg(
+            Arg::with_name("isolate")
+                .short("I")
+                .help("isolate Python from the user's environment (implies -E and -s)"),
+        )
+        .arg(
+            Arg::with_name("implementation-option")
+                .short("X")
+                .takes_value(true)
+                .help("set implementation-specific option"),
         );
     #[cfg(feature = "flame-it")]
     let app = app
@@ -179,21 +190,22 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
 /// Create settings by examining command line arguments and environment
 /// variables.
 fn create_settings(matches: &ArgMatches) -> PySettings {
-    let ignore_environment = matches.is_present("ignore-environment");
+    let ignore_environment =
+        matches.is_present("ignore-environment") || matches.is_present("isolate");
     let mut settings: PySettings = Default::default();
     settings.ignore_environment = ignore_environment;
 
     // add the current directory to sys.path
     settings.path_list.push("".to_owned());
 
+    // BUILDTIME_RUSTPYTHONPATH should be set when distributing
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
         settings.path_list.extend(
             std::env::split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()),
         )
-    } else if option_env!("RUSTPYTHONPATH").is_none() {
-        settings
-            .path_list
-            .push(concat!(env!("CARGO_MANIFEST_DIR"), "/Lib").to_owned());
+    } else {
+        #[cfg(all(feature = "pylib", not(feature = "freeze-stdlib")))]
+        settings.path_list.push(pylib::LIB_PATH.to_owned());
     }
 
     if !ignore_environment {
@@ -232,6 +244,7 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
     settings.no_site = matches.is_present("no-site");
 
     if matches.is_present("no-user-site")
+        || matches.is_present("isolate")
         || (!ignore_environment && env::var_os("PYTHONNOUSERSITE").is_some())
     {
         settings.no_user_site = true;

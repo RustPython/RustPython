@@ -274,6 +274,8 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
     let crate_name = args.crate_name;
     let code_map = args.source.compile(args.mode, args.module_name)?;
 
+    let modules_len = code_map.len();
+
     let modules = code_map
         .into_iter()
         .map(|(module_name, FrozenModule { code, package })| {
@@ -281,22 +283,21 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
             let bytes = code.to_bytes();
             let bytes = LitByteStr::new(&bytes, Span::call_site());
             quote! {
-                #module_name.into() => ::#crate_name::bytecode::FrozenModule {
+                m.insert(#module_name.into(), ::#crate_name::bytecode::FrozenModule {
                     code: ::#crate_name::bytecode::CodeObject::from_bytes(
                         #bytes
                     ).expect("Deserializing CodeObject failed"),
                     package: #package,
-                }
+                });
             }
         });
 
     let output = quote! {
-        ({
-            use ::#crate_name::__exports::hashmap;
-            hashmap! {
-                #(#modules),*
-            }
-        })
+        {
+            let mut m = ::std::collections::HashMap::with_capacity(#modules_len);
+            #(#modules)*
+            m
+        }
     };
 
     Ok(output)

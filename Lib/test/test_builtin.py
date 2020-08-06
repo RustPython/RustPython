@@ -446,8 +446,6 @@ class BuiltinTest(unittest.TestCase):
         # test that object has a __dir__()
         self.assertEqual(sorted([].__dir__()), dir([]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_divmod(self):
         self.assertEqual(divmod(12, 7), (1, 5))
         self.assertEqual(divmod(-12, 7), (-2, 2))

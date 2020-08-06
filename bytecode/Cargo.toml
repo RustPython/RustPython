@@ -11,8 +11,8 @@ license = "MIT"
 [dependencies]
 bincode =  "1.1"
 bitflags = "1.1"
-lz4-compress = "0.1.1"
-num-bigint = { version = "0.2", features = ["serde"] }
+lz4-compression = "0.7"
+num-bigint = { version = "0.3", features = ["serde"] }
 num-complex = { version = "0.2", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
-itertools = "0.8"
+itertools = "0.9"

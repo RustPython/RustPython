@@ -45,7 +45,7 @@ pub fn init_importlib(vm: &mut VirtualMachine, initialize_parameter: InitParamet
                 Ok(())
             })();
             if zipimport_res.is_err() {
-                eprintln!("couldn't init zipimport")
+                warn!("couldn't init zipimport")
             }
         }
         InitParameter::NoInitialize => {
@@ -60,7 +60,12 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
     vm.state
         .frozen
         .get(module_name)
-        .ok_or_else(|| vm.new_import_error(format!("Cannot import frozen module {}", module_name)))
+        .ok_or_else(|| {
+            vm.new_import_error(
+                format!("Cannot import frozen module {}", module_name),
+                module_name,
+            )
+        })
         .and_then(|frozen| import_codeobj(vm, module_name, frozen.code.clone(), false))
 }
 
@@ -68,7 +73,12 @@ pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
     vm.state
         .stdlib_inits
         .get(module_name)
-        .ok_or_else(|| vm.new_import_error(format!("Cannot import bultin module {}", module_name)))
+        .ok_or_else(|| {
+            vm.new_import_error(
+                format!("Cannot import bultin module {}", module_name),
+                module_name,
+            )
+        })
         .and_then(|make_module_func| {
             let module = make_module_func(vm);
             let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;

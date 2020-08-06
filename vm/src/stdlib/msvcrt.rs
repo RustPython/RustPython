@@ -5,6 +5,8 @@ use crate::pyobject::{PyObjectRef, PyResult};
 use crate::VirtualMachine;
 
 use itertools::Itertools;
+use winapi::shared::minwindef::UINT;
+use winapi::um::errhandlingapi::SetErrorMode;
 
 extern "C" {
     fn _getch() -> i32;
@@ -72,7 +74,16 @@ fn msvcrt_open_osfhandle(handle: isize, flags: i32, vm: &VirtualMachine) -> PyRe
     }
 }
 
+fn msvcrt_seterrormode(mode: UINT, _: &VirtualMachine) -> UINT {
+    unsafe { suppress_iph!(SetErrorMode(mode)) }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    use winapi::um::winbase::{
+        SEM_FAILCRITICALERRORS, SEM_NOALIGNMENTFAULTEXCEPT, SEM_NOGPFAULTERRORBOX,
+        SEM_NOOPENFILEERRORBOX,
+    };
+
     let ctx = &vm.ctx;
     py_module!(vm, "msvcrt", {
         "getch" => ctx.new_function(msvcrt_getch),
@@ -83,5 +94,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "putwch" => ctx.new_function(msvcrt_putwch),
         "setmode" => ctx.new_function(msvcrt_setmode),
         "open_osfhandle" => ctx.new_function(msvcrt_open_osfhandle),
+        "SetErrorMode" => ctx.new_function(msvcrt_seterrormode),
+        "SEM_FAILCRITICALERRORS" => ctx.new_int(SEM_FAILCRITICALERRORS),
+        "SEM_NOALIGNMENTFAULTEXCEPT" => ctx.new_int(SEM_NOALIGNMENTFAULTEXCEPT),
+        "SEM_NOGPFAULTERRORBOX" => ctx.new_int(SEM_NOGPFAULTERRORBOX),
+        "SEM_NOOPENFILEERRORBOX" => ctx.new_int(SEM_NOOPENFILEERRORBOX),
     })
 }

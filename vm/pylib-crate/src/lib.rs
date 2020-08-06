@@ -4,25 +4,14 @@
 
 extern crate self as rustpython_pylib;
 
-use rustpython_bytecode::bytecode::{self, FrozenModule};
-use std::collections::HashMap;
+pub const LIB_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/Lib");
 
-use rustpython_derive::py_compile_bytecode as _py_compile_bytecode;
-#[macro_export]
-macro_rules! py_compile_bytecode {
-    ($($arg:tt)*) => {{
-        #[macro_use]
-        mod __m {
-            $crate::_py_compile_bytecode!($($arg)*);
-        }
-        __proc_macro_call!()
-    }};
-}
-
-mod __exports {
-    pub use maplit::hashmap;
-}
-
+#[cfg(feature = "compiled-bytecode")]
+use {
+    rustpython_bytecode::bytecode::{self, FrozenModule},
+    std::collections::HashMap,
+};
+#[cfg(feature = "compiled-bytecode")]
 pub fn frozen_stdlib() -> HashMap<String, FrozenModule> {
-    py_compile_bytecode!(dir = "Lib", crate_name = "rustpython_pylib")
+    rustpython_derive::py_compile_bytecode!(dir = "Lib", crate_name = "rustpython_pylib")
 }

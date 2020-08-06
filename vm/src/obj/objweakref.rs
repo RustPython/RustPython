@@ -6,10 +6,10 @@ use crate::pyobject::{
 };
 use crate::slots::SlotCall;
 use crate::vm::VirtualMachine;
+use rustpython_common::hash::PyHash;
+use rustpython_common::rc::{PyRc, PyWeak as Weak};
 
-use crate::pyhash::PyHash;
 use crossbeam_utils::atomic::AtomicCell;
-use std::sync::{Arc, Weak};
 
 #[pyclass]
 #[derive(Debug)]
@@ -21,7 +21,7 @@ pub struct PyWeak {
 impl PyWeak {
     pub fn downgrade(obj: &PyObjectRef) -> PyWeak {
         PyWeak {
-            referent: Arc::downgrade(obj),
+            referent: PyRc::downgrade(obj),
             hash: AtomicCell::new(None),
         }
     }

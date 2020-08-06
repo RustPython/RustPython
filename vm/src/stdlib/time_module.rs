@@ -170,7 +170,7 @@ fn time_strptime(
     Ok(PyStructTime::new(vm, instant, -1).into_obj(vm))
 }
 
-#[pystruct_sequence(name = "time.struct_time")]
+#[pystruct_sequence(module = "time", name = "struct_time")]
 #[allow(dead_code)]
 struct PyStructTime {
     tm_year: PyObjectRef,

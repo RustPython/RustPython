@@ -8,11 +8,11 @@ use super::objint::{self, PyInt};
 use super::objstr::PyString;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
-use crate::pyhash;
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use rustpython_common::hash;
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///
@@ -32,8 +32,8 @@ impl PyValue for PyComplex {
 }
 
 impl IntoPyObject for Complex64 {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_complex(self))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_complex(self)
     }
 }
 
@@ -81,10 +81,10 @@ impl PyComplex {
     where
         F: Fn(Complex64, Complex64) -> Complex64,
     {
-        try_complex(&other, vm)?.map_or_else(
-            || Ok(vm.ctx.not_implemented()),
+        Ok(try_complex(&other, vm)?.map_or_else(
+            || vm.ctx.not_implemented(),
             |other| op(self.value, other).into_pyobject(vm),
-        )
+        ))
     }
 
     #[pymethod(name = "__add__")]
@@ -267,10 +267,10 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self) -> pyhash::PyHash {
-        let re_hash = pyhash::hash_float(self.value.re);
-        let im_hash = pyhash::hash_float(self.value.im);
-        let ret = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(pyhash::IMAG);
+    fn hash(&self) -> hash::PyHash {
+        let re_hash = hash::hash_float(self.value.re);
+        let im_hash = hash::hash_float(self.value.im);
+        let ret = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(hash::IMAG);
         ret.0
     }
 

@@ -1,3 +1,4 @@
+use crate::exceptions::IntoPyException;
 use crate::function::OptionalOption;
 use crate::pyobject::{Either, PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
@@ -113,7 +114,7 @@ fn select_select(
     timeout: OptionalOption<Either<f64, isize>>,
     vm: &VirtualMachine,
 ) -> PyResult<(PyObjectRef, PyObjectRef, PyObjectRef)> {
-    let mut timeout = timeout.flat_option().map(|e| match e {
+    let mut timeout = timeout.flatten().map(|e| match e {
         Either::A(f) => f,
         Either::B(i) => i as f64,
     });
@@ -177,7 +178,7 @@ fn select_select(
     };
 
     if select_res < 0 {
-        return Err(super::os::convert_io_error(vm, err));
+        return Err(err.into_pyexception(vm));
     }
 
     let set2list = |list: Vec<Selectable>, mut set: FdSet| {

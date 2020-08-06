@@ -7,21 +7,22 @@ use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
 
 use super::objbool::IntoPyBool;
 use super::objbytearray::PyByteArray;
-use super::objbyteinner::PyByteInner;
 use super::objbytes::PyBytes;
 use super::objfloat;
 use super::objmemory::PyMemoryView;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::{self, PyClassRef};
+use crate::bytesinner::PyBytesInner;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyhash;
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, IntoPyRef, IntoPyResult, PyArithmaticValue, PyClassImpl,
+    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
+use rustpython_common::hash;
 
 /// int(x=0) -> integer
 /// int(x, base=10) -> integer
@@ -52,18 +53,23 @@ impl fmt::Display for PyInt {
 pub type PyIntRef = PyRef<PyInt>;
 
 impl PyInt {
-    pub fn new<T: Into<BigInt>>(i: T) -> Self {
-        PyInt { value: i.into() }
-    }
-
     pub fn as_bigint(&self) -> &BigInt {
         &self.value
     }
 }
 
+impl<T> From<T> for PyInt
+where
+    T: Into<BigInt>,
+{
+    fn from(v: T) -> Self {
+        Self { value: v.into() }
+    }
+}
+
 impl IntoPyObject for BigInt {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_int(self))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_int(self)
     }
 }
 
@@ -76,8 +82,8 @@ impl PyValue for PyInt {
 macro_rules! impl_into_pyobject_int {
     ($($t:ty)*) => {$(
         impl IntoPyObject for $t {
-            fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-                Ok(vm.ctx.new_int(self))
+            fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+                vm.ctx.new_int(self)
             }
         }
     )*};
@@ -121,10 +127,10 @@ fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
         let v1 = try_float(int1, vm)?;
         let v2 = try_float(int2, vm)?;
-        objfloat::float_pow(v1, v2, vm).into_pyobject(vm)
+        objfloat::float_pow(v1, v2, vm).into_pyresult(vm)
     } else {
         Ok(if let Some(v2) = int2.to_u64() {
-            vm.ctx.new_int(int1.pow(v2))
+            vm.ctx.new_int(Pow::pow(int1, v2))
         } else if int1.is_one() {
             vm.ctx.new_int(1)
         } else if int1.is_zero() {
@@ -214,9 +220,21 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
 #[pyimpl(flags(BASETYPE))]
 impl PyInt {
+    fn raw_new<T>(cls: PyClassRef, value: T, vm: &VirtualMachine) -> PyResult<PyIntRef>
+    where
+        T: Into<BigInt>,
+    {
+        if cls.is(&vm.ctx.int_type()) {
+            Ok(value.into().into_pyref(vm))
+        } else {
+            PyInt::from(value).into_ref_with_type(vm, cls)
+        }
+    }
+
     #[pyslot]
     fn tp_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-        PyInt::new(options.get_int_value(vm)?).into_ref_with_type(vm, cls)
+        let value = options.get_int_value(vm)?;
+        Self::raw_new(cls, value, vm)
     }
 
     #[inline]
@@ -419,8 +437,8 @@ impl PyInt {
     }
 
     #[pymethod(name = "__hash__")]
-    pub fn hash(&self) -> pyhash::PyHash {
-        pyhash::hash_bigint(&self.value)
+    fn hash(&self) -> hash::PyHash {
+        hash::hash_bigint(&self.value)
     }
 
     #[pymethod(name = "__abs__")]
@@ -498,7 +516,7 @@ impl PyInt {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self) -> String {
+    pub(crate) fn repr(&self) -> String {
         self.value.to_string()
     }
 
@@ -519,7 +537,7 @@ impl PyInt {
 
     #[pymethod(name = "__sizeof__")]
     fn sizeof(&self) -> usize {
-        size_of::<Self>() + ((self.value.bits() + 7) & !7) / 8
+        size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
     }
 
     #[pymethod(name = "as_integer_ratio")]
@@ -531,7 +549,7 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn bit_length(&self) -> usize {
+    fn bit_length(&self) -> u64 {
         self.value.bits()
     }
 
@@ -568,7 +586,7 @@ impl PyInt {
                 )
             }
         };
-        PyInt::new(x).into_ref_with_type(vm, cls)
+        Self::raw_new(cls, x, vm)
     }
 
     #[pymethod]
@@ -631,7 +649,7 @@ impl PyInt {
             }
             _ => (),
         }
-        Ok(PyBytes::new(bytes))
+        Ok(bytes.into())
     }
     #[pyproperty]
     fn real(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -714,7 +732,7 @@ impl IntOptions {
 #[derive(FromArgs)]
 struct IntFromByteArgs {
     #[pyarg(positional_or_keyword)]
-    bytes: PyByteInner,
+    bytes: PyBytesInner,
     #[pyarg(positional_or_keyword)]
     byteorder: PyStringRef,
     #[pyarg(keyword_only, optional = true)]
@@ -759,8 +777,7 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult
         }
         memoryview @ PyMemoryView => {
             // TODO: proper error handling instead of `unwrap()`
-            let bytes = memoryview.try_value().unwrap();
-            bytes_to_int(&bytes)
+            memoryview.try_bytes(|bytes| bytes_to_int(&bytes)).unwrap()
         }
         array @ PyArray => {
             let bytes = array.tobytes();

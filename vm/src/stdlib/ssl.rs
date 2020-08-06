@@ -1,8 +1,9 @@
 use super::socket::PySocketRef;
-use crate::exceptions::PyBaseExceptionRef;
+use crate::byteslike::PyBytesLike;
+use crate::common::cell::{PyRwLock, PyRwLockWriteGuard};
+use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::OptionalArg;
 use crate::obj::objbytearray::PyByteArrayRef;
-use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::{objtype::PyClassRef, objweakref::PyWeak};
 use crate::pyobject::{
@@ -10,11 +11,6 @@ use crate::pyobject::{
 };
 use crate::types::create_type;
 use crate::VirtualMachine;
-
-use parking_lot::{RwLock, RwLockWriteGuard};
-use std::convert::TryFrom;
-use std::ffi::{CStr, CString};
-use std::fmt;
 
 use foreign_types_shared::{ForeignType, ForeignTypeRef};
 use openssl::{
@@ -24,6 +20,9 @@ use openssl::{
     ssl::{self, SslContextBuilder, SslOptions, SslVerifyMode},
     x509::{self, X509Object, X509Ref, X509},
 };
+use std::convert::TryFrom;
+use std::ffi::{CStr, CString};
+use std::fmt;
 
 mod sys {
     #![allow(non_camel_case_types, unused)]
@@ -147,7 +146,7 @@ fn ssl_enum_certificates(store_name: PyStringRef, vm: &VirtualMachine) -> PyResu
     });
     let certs = certs
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| super::os::convert_io_error(vm, e))?;
+        .map_err(|e: std::io::Error| e.into_pyexception(vm))?;
     Ok(vm.ctx.new_list(certs))
 }
 
@@ -230,7 +229,7 @@ fn ssl_rand_pseudo_bytes(n: i32, vm: &VirtualMachine) -> PyResult<(Vec<u8>, bool
 
 #[pyclass(name = "_SSLContext")]
 struct PySslContext {
-    ctx: RwLock<SslContextBuilder>,
+    ctx: PyRwLock<SslContextBuilder>,
     check_hostname: bool,
 }
 
@@ -248,7 +247,7 @@ impl PyValue for PySslContext {
 
 #[pyimpl(flags(BASETYPE))]
 impl PySslContext {
-    fn builder(&self) -> RwLockWriteGuard<'_, SslContextBuilder> {
+    fn builder(&self) -> PyRwLockWriteGuard<'_, SslContextBuilder> {
         self.ctx.write()
     }
     fn exec_ctx<F, R>(&self, func: F) -> R
@@ -308,7 +307,7 @@ impl PySslContext {
             .map_err(|e| convert_openssl_error(vm, e))?;
 
         PySslContext {
-            ctx: RwLock::new(builder),
+            ctx: PyRwLock::new(builder),
             check_hostname,
         }
         .into_ref_with_type(vm, cls)
@@ -471,10 +470,10 @@ impl PySslContext {
 
         Ok(PySslSocket {
             ctx: zelf,
-            stream: RwLock::new(Some(stream)),
+            stream: PyRwLock::new(Some(stream)),
             socket_type,
             server_hostname: args.server_hostname,
-            owner: RwLock::new(args.owner.as_ref().map(PyWeak::downgrade)),
+            owner: PyRwLock::new(args.owner.as_ref().map(PyWeak::downgrade)),
         })
     }
 }
@@ -507,10 +506,10 @@ struct LoadVerifyLocationsArgs {
 #[pyclass(name = "_SSLSocket")]
 struct PySslSocket {
     ctx: PyRef<PySslContext>,
-    stream: RwLock<Option<ssl::SslStreamBuilder<PySocketRef>>>,
+    stream: PyRwLock<Option<ssl::SslStreamBuilder<PySocketRef>>>,
     socket_type: SslServerOrClient,
     server_hostname: Option<PyStringRef>,
-    owner: RwLock<Option<PyWeak>>,
+    owner: PyRwLock<Option<PyWeak>>,
 }
 
 impl fmt::Debug for PySslSocket {
@@ -652,7 +651,7 @@ fn convert_openssl_error(vm: &VirtualMachine, err: ErrorStack) -> PyBaseExceptio
 }
 fn convert_ssl_error(vm: &VirtualMachine, e: ssl::Error) -> PyBaseExceptionRef {
     match e.into_io_error() {
-        Ok(io_err) => super::os::convert_io_error(vm, io_err),
+        Ok(io_err) => io_err.into_pyexception(vm),
         Err(e) => convert_openssl_error(vm, e.ssl_error().unwrap().clone()),
     }
 }
@@ -770,7 +769,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         // Constants
         "OPENSSL_VERSION" => ctx.new_str(openssl::version::version().to_owned()),
         "OPENSSL_VERSION_NUMBER" => ctx.new_int(openssl::version::number()),
-        "OPENSSL_VERSION_INFO" => parse_version_info(openssl::version::number()).into_pyobject(vm).unwrap(),
+        "OPENSSL_VERSION_INFO" => parse_version_info(openssl::version::number()).into_pyobject(vm),
         "PROTOCOL_SSLv2" => ctx.new_int(SslVersion::Ssl2 as u32),
         "PROTOCOL_SSLv3" => ctx.new_int(SslVersion::Ssl3 as u32),
         "PROTOCOL_SSLv23" => ctx.new_int(SslVersion::Tls as u32),

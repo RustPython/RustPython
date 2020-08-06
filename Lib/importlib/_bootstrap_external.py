@@ -26,16 +26,6 @@ _CASE_INSENSITIVE_PLATFORMS =  (_CASE_INSENSITIVE_PLATFORMS_BYTES_KEY
                                 + _CASE_INSENSITIVE_PLATFORMS_STR_KEY)
 
 
-def _w_long(x):
-    """Convert a 32-bit integer to little-endian."""
-    return (int(x) & 0xFFFFFFFF).to_bytes(4, 'little')
-
-
-def _r_long(int_bytes):
-    """Convert 4 bytes in little-endian to an integer."""
-    return int.from_bytes(int_bytes, 'little')
-
-
 def _make_relax_case():
     if sys.platform.startswith(_CASE_INSENSITIVE_PLATFORMS):
         if sys.platform.startswith(_CASE_INSENSITIVE_PLATFORMS_STR_KEY):
@@ -1597,7 +1587,10 @@ def _setup(_bootstrap_module):
     setattr(self_module, '_pathseps_with_colon', {f':{s}' for s in path_separators})
 
     # Directly load the _thread module (needed during bootstrap).
-    thread_module = _bootstrap._builtin_from_name('_thread')
+    try:
+        thread_module = _bootstrap._builtin_from_name('_thread')
+    except ImportError:
+        thread_module = None
     setattr(self_module, '_thread', thread_module)
 
     # Directly load the _weakref module (needed during bootstrap).

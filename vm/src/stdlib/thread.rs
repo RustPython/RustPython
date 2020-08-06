@@ -1,5 +1,5 @@
 /// Implementation of the _thread module
-use crate::exceptions;
+use crate::exceptions::{self, IntoPyException};
 use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objstr::PyStringRef;
@@ -145,7 +145,7 @@ impl PyLock {
     }
 }
 
-type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
+pub type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
 #[pyclass(name = "RLock")]
 struct PyRLock {
     mu: RawRMutex,
@@ -256,7 +256,7 @@ fn thread_start_new_thread(
         vm.state.thread_count.fetch_add(1);
         thread_to_id(&handle.thread())
     })
-    .map_err(|err| super::os::convert_io_error(vm, err))
+    .map_err(|err| err.into_pyexception(vm))
 }
 
 thread_local!(static SENTINELS: RefCell<Vec<PyLockRef>> = RefCell::default());
@@ -330,7 +330,7 @@ impl PyLocal {
                 zelf.as_object()
             )))
         } else {
-            zelf.ldict(vm).set_item(attr.as_object(), value, vm)?;
+            zelf.ldict(vm).set_item(attr.into_object(), value, vm)?;
             Ok(())
         }
     }
@@ -343,7 +343,7 @@ impl PyLocal {
                 zelf.as_object()
             )))
         } else {
-            zelf.ldict(vm).del_item(attr.as_object(), vm)?;
+            zelf.ldict(vm).del_item(attr.into_object(), vm)?;
             Ok(())
         }
     }

@@ -2,9 +2,9 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "binascii")]
 mod decl {
+    use crate::byteslike::PyBytesLike;
     use crate::function::OptionalArg;
     use crate::obj::objbytearray::{PyByteArray, PyByteArrayRef};
-    use crate::obj::objbyteinner::PyBytesLike;
     use crate::obj::objbytes::{PyBytes, PyBytesRef};
     use crate::obj::objstr::{PyString, PyStringRef};
     use crate::pyobject::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};

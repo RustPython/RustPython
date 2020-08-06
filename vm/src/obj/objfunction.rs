@@ -91,7 +91,7 @@ impl PyFunction {
         for i in 0..n {
             let arg_name = &code_object.arg_names[i];
             let arg = &func_args.args[i];
-            locals.set_item(arg_name, arg.clone(), vm)?;
+            locals.set_item(arg_name.as_str(), arg.clone(), vm)?;
         }
 
         // Pack other positional arguments in to *args:
@@ -103,7 +103,7 @@ impl PyFunction {
             }
             let vararg_value = vm.ctx.new_tuple(last_args);
 
-            locals.set_item(vararg_name, vararg_value, vm)?;
+            locals.set_item(vararg_name.as_str(), vararg_value, vm)?;
         } else {
             // Check the number of positional arguments
             if nargs > nexpected_args {
@@ -121,7 +121,7 @@ impl PyFunction {
         {
             let d = vm.ctx.new_dict();
             if let Some(ref kwargs_name) = code_object.varkeywords_name {
-                locals.set_item(kwargs_name, d.as_object().clone(), vm)?;
+                locals.set_item(kwargs_name.as_str(), d.as_object().clone(), vm)?;
             }
             Some(d)
         } else {
@@ -143,9 +143,9 @@ impl PyFunction {
                     );
                 }
 
-                locals.set_item(&name, value, vm)?;
+                locals.set_item(name.as_str(), value, vm)?;
             } else if let Some(d) = &kwargs {
-                d.set_item(&name, value, vm)?;
+                d.set_item(name.as_str(), value, vm)?;
             } else {
                 return Err(
                     vm.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
@@ -189,7 +189,7 @@ impl PyFunction {
                 for (default_index, i) in (required_args..nexpected_args).enumerate() {
                     let arg_name = &code_object.arg_names[i];
                     if !locals.contains_key(arg_name, vm) {
-                        locals.set_item(arg_name, defaults[default_index].clone(), vm)?;
+                        locals.set_item(arg_name.as_str(), defaults[default_index].clone(), vm)?;
                     }
                 }
             }
@@ -199,8 +199,10 @@ impl PyFunction {
         for arg_name in &code_object.kwonlyarg_names {
             if !locals.contains_key(arg_name, vm) {
                 if let Some(kw_only_defaults) = &self.kw_only_defaults {
-                    if let Some(default) = kw_only_defaults.get_item_option(arg_name, vm)? {
-                        locals.set_item(arg_name, default, vm)?;
+                    if let Some(default) =
+                        kw_only_defaults.get_item_option(arg_name.as_str(), vm)?
+                    {
+                        locals.set_item(arg_name.as_str(), default, vm)?;
                         continue;
                     }
                 }

@@ -10,11 +10,12 @@ use super::objtuple::PyTuple;
 use super::objtype::PyClassRef;
 
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyhash;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    self, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use rustpython_common::hash::PyHash;
 
 /// range(stop) -> range object
 /// range(start, stop[, step]) -> range object
@@ -131,9 +132,9 @@ type PyRangeRef = PyRef<PyRange>;
 impl PyRange {
     fn new(cls: PyClassRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
         PyRange {
-            start: PyInt::new(BigInt::zero()).into_ref(vm),
+            start: (0).into_pyref(vm),
             stop,
-            step: PyInt::new(BigInt::one()).into_ref(vm),
+            step: (1).into_pyref(vm),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -145,7 +146,7 @@ impl PyRange {
         step: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRangeRef> {
-        let step = step.unwrap_or_else(|| PyInt::new(BigInt::one()).into_ref(vm));
+        let step = step.unwrap_or_else(|| (1).into_pyref(vm));
         if step.as_bigint().is_zero() {
             return Err(vm.new_value_error("range() arg 3 must not be zero".to_owned()));
         }
@@ -197,9 +198,9 @@ impl PyRange {
         };
 
         let reversed = PyRange {
-            start: PyInt::new(new_start).into_ref(vm),
-            stop: PyInt::new(new_stop).into_ref(vm),
-            step: PyInt::new(-step).into_ref(vm),
+            start: new_start.into_pyref(vm),
+            stop: new_stop.into_pyref(vm),
+            step: (-step).into_pyref(vm),
         };
 
         PyRangeIterator {
@@ -348,22 +349,22 @@ impl PyRange {
                 substop = (substop * range_step.as_bigint()) + range_start.as_bigint();
 
                 Ok(PyRange {
-                    start: PyInt::new(substart).into_ref(vm),
-                    stop: PyInt::new(substop).into_ref(vm),
-                    step: PyInt::new(substep).into_ref(vm),
+                    start: substart.into_pyref(vm),
+                    stop: substop.into_pyref(vm),
+                    step: substep.into_pyref(vm),
                 }
                 .into_ref(vm)
                 .into_object())
             }
             RangeIndex::Int(index) => match self.get(index.as_bigint()) {
-                Some(value) => Ok(PyInt::new(value).into_ref(vm).into_object()),
+                Some(value) => Ok(vm.ctx.new_int(value)),
                 None => Err(vm.new_index_error("range object index out of range".to_owned())),
             },
         }
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let length = zelf.length();
         let elements = if length.is_zero() {
             vec![vm.ctx.new_int(length), vm.get_none(), vm.get_none()]
@@ -380,7 +381,7 @@ impl PyRange {
                 zelf.step().into_object(),
             ]
         };
-        pyhash::hash_iter(elements.iter(), vm)
+        pyobject::hash_iter(&elements, vm)
     }
 
     #[pyslot]

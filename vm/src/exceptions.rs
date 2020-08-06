@@ -1,10 +1,11 @@
+use crate::common::cell::PyRwLock;
 use crate::function::PyFuncArgs;
 use crate::obj::objnone::PyNone;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtraceback::PyTracebackRef;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
-use crate::py_serde;
+use crate::py_io::{self, Write};
 use crate::pyobject::{
     PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -12,22 +13,22 @@ use crate::pyobject::{
 use crate::slots::PyTpFlags;
 use crate::types::create_type;
 use crate::VirtualMachine;
+use crate::{py_serde, sysmodule};
 
 use itertools::Itertools;
-use parking_lot::RwLock;
 use std::fmt;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader};
 
 use crossbeam_utils::atomic::AtomicCell;
 
 #[pyclass]
 pub struct PyBaseException {
-    traceback: RwLock<Option<PyTracebackRef>>,
-    cause: RwLock<Option<PyBaseExceptionRef>>,
-    context: RwLock<Option<PyBaseExceptionRef>>,
+    traceback: PyRwLock<Option<PyTracebackRef>>,
+    cause: PyRwLock<Option<PyBaseExceptionRef>>,
+    context: PyRwLock<Option<PyBaseExceptionRef>>,
     suppress_context: AtomicCell<bool>,
-    args: RwLock<PyTupleRef>,
+    args: PyRwLock<PyTupleRef>,
 }
 
 impl fmt::Debug for PyBaseException {
@@ -38,6 +39,10 @@ impl fmt::Debug for PyBaseException {
 }
 
 pub type PyBaseExceptionRef = PyRef<PyBaseException>;
+
+pub trait IntoPyException {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
+}
 
 impl PyValue for PyBaseException {
     const HAVE_DICT: bool = true;
@@ -51,11 +56,11 @@ impl PyValue for PyBaseException {
 impl PyBaseException {
     pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
         PyBaseException {
-            traceback: RwLock::new(None),
-            cause: RwLock::new(None),
-            context: RwLock::new(None),
+            traceback: PyRwLock::new(None),
+            cause: PyRwLock::new(None),
+            context: PyRwLock::new(None),
             suppress_context: AtomicCell::new(false),
-            args: RwLock::new(PyTuple::from(args).into_ref(vm)),
+            args: PyRwLock::new(PyTuple::from(args).into_ref(vm)),
         }
     }
 
@@ -146,18 +151,35 @@ impl PyBaseException {
     }
 }
 
-/// Print exception chain
-pub fn print_exception(vm: &VirtualMachine, exc: &PyBaseExceptionRef) {
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
-    let _ = write_exception(&mut stdout, vm, exc);
+/// Print exception chain by calling sys.excepthook
+pub fn print_exception(vm: &VirtualMachine, exc: PyBaseExceptionRef) {
+    let write_fallback = |exc, errstr| {
+        if let Ok(stderr) = sysmodule::get_stderr(vm) {
+            let mut stderr = py_io::PyWriter(stderr, vm);
+            // if this fails stderr might be closed -- ignore it
+            let _ = writeln!(stderr, "{}", errstr);
+            let _ = write_exception(&mut stderr, vm, exc);
+        } else {
+            eprintln!("{}\nlost sys.stderr", errstr);
+            let _ = write_exception(&mut io::stderr(), vm, exc);
+        }
+    };
+    if let Ok(excepthook) = vm.get_attribute(vm.sys_module.clone(), "excepthook") {
+        let (exc_type, exc_val, exc_tb) = split(exc, vm);
+        if let Err(eh_exc) = vm.invoke(&excepthook, vec![exc_type, exc_val, exc_tb]) {
+            write_fallback(&eh_exc, "Error in sys.excepthook:");
+            write_fallback(&eh_exc, "Original exception was:");
+        }
+    } else {
+        write_fallback(&exc, "missing sys.excepthook");
+    }
 }
 
 pub fn write_exception<W: Write>(
     output: &mut W,
     vm: &VirtualMachine,
     exc: &PyBaseExceptionRef,
-) -> io::Result<()> {
+) -> Result<(), W::Error> {
     if let Some(cause) = exc.cause() {
         write_exception(output, vm, &cause)?;
         writeln!(
@@ -175,7 +197,11 @@ pub fn write_exception<W: Write>(
     write_exception_inner(output, vm, exc)
 }
 
-fn print_source_line<W: Write>(output: &mut W, filename: &str, lineno: usize) -> io::Result<()> {
+fn print_source_line<W: Write>(
+    output: &mut W,
+    filename: &str,
+    lineno: usize,
+) -> Result<(), W::Error> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/master/Python/traceback.c#L393
     // TODO: support different encodings
     let file = match File::open(filename) {
@@ -198,7 +224,10 @@ fn print_source_line<W: Write>(output: &mut W, filename: &str, lineno: usize) ->
 }
 
 /// Print exception occurrence location from traceback element
-fn write_traceback_entry<W: Write>(output: &mut W, tb_entry: &PyTracebackRef) -> io::Result<()> {
+fn write_traceback_entry<W: Write>(
+    output: &mut W,
+    tb_entry: &PyTracebackRef,
+) -> Result<(), W::Error> {
     let filename = tb_entry.frame.code.source_path.to_owned();
     writeln!(
         output,
@@ -215,7 +244,7 @@ pub fn write_exception_inner<W: Write>(
     output: &mut W,
     vm: &VirtualMachine,
     exc: &PyBaseExceptionRef,
-) -> io::Result<()> {
+) -> Result<(), W::Error> {
     if let Some(tb) = exc.traceback.read().clone() {
         writeln!(output, "Traceback (most recent call last):")?;
         for tb in tb.iter() {
@@ -339,6 +368,14 @@ impl ExceptionCtor {
             }
         }
     }
+}
+
+pub fn split(
+    exc: PyBaseExceptionRef,
+    vm: &VirtualMachine,
+) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
+    let tb = exc.traceback().map_or(vm.get_none(), |tb| tb.into_object());
+    (exc.class().into_object(), exc.into_object(), tb)
 }
 
 /// Similar to PyErr_NormalizeException in CPython
@@ -628,6 +665,19 @@ fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStringRef {
     }
 }
 
+fn system_exit_code(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyObjectRef {
+    match exc.args.read().as_slice().first() {
+        Some(code) => match_class!(match code {
+            ref tup @ PyTuple => match tup.as_slice() {
+                [x] => x.clone(),
+                _ => code.clone(),
+            },
+            other => other.clone(),
+        }),
+        None => vm.get_none(),
+    }
+}
+
 pub fn init(ctx: &PyContext) {
     let excs = &ctx.exceptions;
 
@@ -643,7 +693,7 @@ pub fn init(ctx: &PyContext) {
     });
 
     extend_class!(ctx, &excs.system_exit, {
-        "code" => ctx.new_readonly_getset("code", make_arg_getter(0)),
+        "code" => ctx.new_readonly_getset("code", system_exit_code),
     });
 
     extend_class!(ctx, &excs.import_error, {

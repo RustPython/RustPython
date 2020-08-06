@@ -5,7 +5,6 @@ use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objtype::PyClass;
-use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassImpl, PyComparisonValue,
     PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -85,8 +84,8 @@ impl PyBaseObject {
     }
 
     #[pymethod(magic)]
-    fn hash(zelf: PyObjectRef) -> pyhash::PyHash {
-        zelf.get_id() as pyhash::PyHash
+    fn hash(zelf: PyObjectRef) -> rustpython_common::hash::PyHash {
+        zelf.get_id() as _
     }
 
     #[pymethod(magic)]
@@ -136,6 +135,11 @@ impl PyBaseObject {
     #[pyclassmethod(magic)]
     fn subclasshook(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
         Ok(vm.ctx.not_implemented())
+    }
+
+    #[pyclassmethod(magic)]
+    fn init_subclass(_cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.none())
     }
 
     #[pymethod(magic)]
@@ -249,6 +253,7 @@ impl PyBaseObject {
     }
 }
 
+#[cfg_attr(feature = "flame-it", flame)]
 pub(crate) fn setattr(
     obj: PyObjectRef,
     attr_name: PyStringRef,

@@ -5,14 +5,14 @@ use super::objiter;
 use super::objsequence::get_item;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
-use crate::pyhash;
 use crate::pyobject::{
-    IntoPyObject,
+    self, IntoPyObject,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
-use crate::sequence;
+use crate::sequence::{self, SimpleSeq};
 use crate::vm::{ReprGuard, VirtualMachine};
+use rustpython_common::hash::PyHash;
 
 /// tuple() -> empty tuple
 /// tuple(iterable) -> tuple initialized from iterable's items
@@ -45,8 +45,8 @@ impl PyValue for PyTuple {
 macro_rules! impl_intopyobj_tuple {
     ($(($T:ident, $idx:tt)),+) => {
         impl<$($T: IntoPyObject),*> IntoPyObject for ($($T,)*) {
-            fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-                Ok(vm.ctx.new_tuple(vec![$(self.$idx.into_pyobject(vm)?),*]))
+            fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+                vm.ctx.new_tuple(vec![$(self.$idx.into_pyobject(vm)),*])
             }
         }
     };
@@ -81,10 +81,13 @@ impl PyTuple {
     #[inline]
     fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>
     where
-        F: Fn(&Vec<PyObjectRef>, &Vec<PyObjectRef>) -> PyResult<bool>,
+        F: Fn(sequence::DynPyIter, sequence::DynPyIter) -> PyResult<bool>,
     {
         let r = if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            Implemented(op(&self.elements, &other.elements)?)
+            Implemented(op(
+                self.as_slice().boxed_iter(),
+                other.as_slice().boxed_iter(),
+            )?)
         } else {
             NotImplemented
         };
@@ -116,8 +119,8 @@ impl PyTuple {
         if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
             let elements: Vec<_> = self
                 .elements
-                .iter()
-                .chain(other.as_slice().iter())
+                .boxed_iter()
+                .chain(other.as_slice().boxed_iter())
                 .cloned()
                 .collect();
             Implemented(elements.into())
@@ -153,8 +156,8 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
-        pyhash::hash_iter(self.elements.iter(), vm)
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
+        pyobject::hash_iter(self.elements.iter(), vm)
     }
 
     #[pymethod(name = "__iter__")]

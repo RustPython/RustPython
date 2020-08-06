@@ -1,7 +1,8 @@
-use parking_lot::RwLock;
+use crate::common::cell::PyRwLock;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
+use super::objclassmethod::PyClassMethod;
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objmappingproxy::PyMappingProxy;
@@ -9,7 +10,7 @@ use super::objstaticmethod::PyStaticMethod;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease, PyObject, PyObjectRef,
     PyRef, PyResult, PyValue, TypeProtocol,
@@ -28,9 +29,9 @@ pub struct PyClass {
     pub name: String,
     pub bases: Vec<PyClassRef>,
     pub mro: Vec<PyClassRef>,
-    pub subclasses: RwLock<Vec<PyWeak>>,
-    pub attributes: RwLock<PyAttributes>,
-    pub slots: RwLock<PyClassSlots>,
+    pub subclasses: PyRwLock<Vec<PyWeak>>,
+    pub attributes: PyRwLock<PyAttributes>,
+    pub slots: PyRwLock<PyClassSlots>,
 }
 
 impl fmt::Display for PyClass {
@@ -257,7 +258,7 @@ impl PyClassRef {
             }));
         }
 
-        let (name, bases, dict): (PyStringRef, PyIterable<PyClassRef>, PyDictRef) =
+        let (name, bases, dict, kwargs): (PyStringRef, PyIterable<PyClassRef>, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
         let bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
@@ -297,7 +298,13 @@ impl PyClassRef {
         let mut attributes = dict.to_attributes();
         if let Some(f) = attributes.get_mut("__new__") {
             if f.class().is(&vm.ctx.function_type()) {
-                *f = PyStaticMethod::new(f.clone()).into_ref(vm).into_object();
+                *f = PyStaticMethod::from(f.clone()).into_ref(vm).into_object();
+            }
+        }
+
+        if let Some(f) = attributes.get_mut("__init_subclass__") {
+            if f.class().is(&vm.ctx.function_type()) {
+                *f = PyClassMethod::from(f.clone()).into_ref(vm).into_object();
             }
         }
 
@@ -326,6 +333,17 @@ impl PyClassRef {
                 })?;
             }
         }
+
+        if let Some(initter) = typ.get_super_attr("__init_subclass__") {
+            let initter = vm
+                .call_get_descriptor_specific(
+                    initter.clone(),
+                    None,
+                    Some(typ.clone().into_object()),
+                )
+                .unwrap_or(Ok(initter))?;
+            vm.invoke(&initter, kwargs)?;
+        };
 
         Ok(typ.into_object())
     }
@@ -577,12 +595,12 @@ pub fn new(
             name: String::from(name),
             bases,
             mro,
-            subclasses: RwLock::default(),
-            attributes: RwLock::new(dict),
-            slots: RwLock::default(),
+            subclasses: PyRwLock::default(),
+            attributes: PyRwLock::new(dict),
+            slots: PyRwLock::default(),
         },
         dict: None,
-        typ: RwLock::new(typ.into_typed_pyobj()),
+        typ: PyRwLock::new(typ.into_typed_pyobj()),
     }
     .into_ref();
 

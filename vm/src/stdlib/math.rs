@@ -15,6 +15,7 @@ use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objtype;
 use crate::pyobject::{Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
+use rustpython_common::float_ops;
 
 #[cfg(not(target_arch = "wasm32"))]
 use libc::c_double;
@@ -253,7 +254,7 @@ fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn math_frexp(value: IntoPyFloat) -> (f64, i32) {
     let value = value.to_f64();
     if value.is_finite() {
-        let (m, e) = objfloat::ufrexp(value);
+        let (m, e) = float_ops::ufrexp(value);
         (m * value.signum(), e)
     } else {
         (value, 0)

@@ -25,15 +25,21 @@ jobs:
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
-          key: ${{ runner.os }}-rust_tests-${{ hashFiles('Cargo.lock') }}
-          path: target
-          restore-keys: |
-            ${{ runner.os }}-rust_tests-
+          path: |
+              ~/.cargo/registry
+              ~/.cargo/git
+              target
+          key: ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
       - name: run rust tests
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --verbose ${{ env.CARGO_ARGS }}
+      - name: check compilation without threading
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: ${{ env.CARGO_ARGS }} --no-default-features
 
   snippets_cpython:
     name: Run snippets and cpython tests
@@ -51,10 +57,11 @@ jobs:
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
-          key: ${{ runner.os }}-snippets-${{ hashFiles('Cargo.lock') }}
-          path: target
-          restore-keys: |
-            ${{ runner.os }}-snippets-
+          path: |
+              ~/.cargo/registry
+              ~/.cargo/git
+              target
+          key: ${{ runner.os }}-release-${{ hashFiles('**/Cargo.lock') }}
       - name: build rustpython
         uses: actions-rs/cargo@v1
         with:
@@ -77,9 +84,14 @@ jobs:
         run: target/release/rustpython -m test -v
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
+      - name: run cpython tests (macOS lightweight)
+        run: target/release/rustpython -m test -x test_argparse -x test_json -x test_bytes -x test_long -v
+        env:
+          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
+        if: runner.os == 'macOS'
 
-  format:
+  lint:
     name: Check Rust code with rustfmt and clippy
     runs-on: ubuntu-latest
     steps:
@@ -100,12 +112,6 @@ jobs:
         with:
           command: clippy
           args: ${{ env.CARGO_ARGS }} -- -Dwarnings
-
-  lint:
-    name: Lint Python code with flake8
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@master
       - uses: actions/setup-python@v1
         with:
           python-version: 3.8
@@ -116,16 +122,20 @@ jobs:
 
   wasm:
     name: Check the WASM package and demo
+    needs: rust_tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
-          key: ${{ runner.os }}-wasm-${{ hashFiles('**/Cargo.lock') }}
-          path: target
+          path: |
+              ~/.cargo/registry
+              ~/.cargo/git
+              target
+          key: ${{ runner.os }}-wasm_opt3-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-wasm-
+               ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver
