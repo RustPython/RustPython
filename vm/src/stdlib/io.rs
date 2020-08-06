@@ -536,7 +536,8 @@ fn io_base_readlines(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 
 fn raw_io_base_read(instance: PyObjectRef, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
     if let Some(size) = size.to_usize() {
-        let b = PyByteArray::new(vec![0; size]).into_ref(vm);
+        // FIXME: unnessessary zero-init
+        let b = PyByteArray::from(vec![0; size]).into_ref(vm);
         let n = <Option<usize>>::try_from_object(
             vm,
             vm.call_method(&instance, "readinto", vec![b.as_object().clone()])?,

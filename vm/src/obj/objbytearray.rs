@@ -42,12 +42,6 @@ pub struct PyByteArray {
 pub type PyByteArrayRef = PyRef<PyByteArray>;
 
 impl PyByteArray {
-    pub fn new(data: Vec<u8>) -> Self {
-        PyByteArray {
-            inner: PyRwLock::new(PyBytesInner { elements: data }),
-        }
-    }
-
     fn from_inner(inner: PyBytesInner) -> Self {
         PyByteArray {
             inner: PyRwLock::new(inner),
@@ -65,7 +59,9 @@ impl PyByteArray {
 
 impl From<Vec<u8>> for PyByteArray {
     fn from(elements: Vec<u8>) -> Self {
-        Self::new(elements)
+        Self {
+            inner: PyRwLock::new(PyBytesInner { elements }),
+        }
     }
 }
 

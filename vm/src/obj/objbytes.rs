@@ -41,12 +41,6 @@ pub struct PyBytes {
 pub type PyBytesRef = PyRef<PyBytes>;
 
 impl PyBytes {
-    pub fn new(elements: Vec<u8>) -> Self {
-        PyBytes {
-            inner: PyBytesInner { elements },
-        }
-    }
-
     pub fn get_value(&self) -> &[u8] {
         &self.inner.elements
     }
@@ -54,7 +48,9 @@ impl PyBytes {
 
 impl From<Vec<u8>> for PyBytes {
     fn from(elements: Vec<u8>) -> Self {
-        Self::new(elements)
+        Self {
+            inner: PyBytesInner { elements },
+        }
     }
 }
 

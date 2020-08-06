@@ -7,7 +7,7 @@ use std::ops::Deref;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
-use num_traits::{One, ToPrimitive, Zero};
+use num_traits::ToPrimitive;
 
 use crate::bytecode;
 use crate::exceptions::{self, PyBaseExceptionRef};
@@ -89,9 +89,6 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
     }
 }
 
-const INT_CACHE_POOL_MIN: i32 = -5;
-const INT_CACHE_POOL_MAX: i32 = 256;
-
 #[derive(Debug)]
 pub struct PyContext {
     pub true_value: PyIntRef,
@@ -132,6 +129,9 @@ impl PyValue for PyEllipsis {
 
 // Basic objects:
 impl PyContext {
+    pub const INT_CACHE_POOL_MIN: i32 = -5;
+    pub const INT_CACHE_POOL_MAX: i32 = 256;
+
     pub fn new() -> Self {
         flame_guard!("init PyContext");
         let types = TypeZoo::new();
@@ -151,17 +151,17 @@ impl PyContext {
             create_type("NotImplementedType", &types.type_type, &types.object_type);
         let not_implemented = create_object(PyNotImplemented, &not_implemented_type);
 
-        let int_cache_pool = (INT_CACHE_POOL_MIN..=INT_CACHE_POOL_MAX)
-            .map(|v| create_object(PyInt::new(BigInt::from(v)), &types.int_type).into_object())
+        let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)
+            .map(|v| PyObject::new(PyInt::from(BigInt::from(v)), types.int_type.clone(), None))
             .collect();
 
-        let true_value = create_object(PyInt::new(BigInt::one()), &types.bool_type);
-        let false_value = create_object(PyInt::new(BigInt::zero()), &types.bool_type);
+        let true_value = create_object(PyInt::from(1), &types.bool_type);
+        let false_value = create_object(PyInt::from(0), &types.bool_type);
 
         let empty_tuple = create_object(PyTuple::from(vec![]), &types.tuple_type);
 
         let tp_new_wrapper = create_object(
-            PyBuiltinFunction::new(objtype::tp_new_wrapper.into_func()),
+            PyBuiltinFunction::from(objtype::tp_new_wrapper.into_func()),
             &types.builtin_function_or_method_type,
         )
         .into_object();
@@ -393,23 +393,23 @@ impl PyContext {
     #[inline]
     pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyObjectRef {
         if let Some(i) = i.to_i32() {
-            if i >= INT_CACHE_POOL_MIN && i <= INT_CACHE_POOL_MAX {
-                let inner_idx = (i - INT_CACHE_POOL_MIN) as usize;
+            if i >= Self::INT_CACHE_POOL_MIN && i <= Self::INT_CACHE_POOL_MAX {
+                let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
                 return self.int_cache_pool[inner_idx].clone();
             }
         }
-        PyObject::new(PyInt::new(i), self.int_type(), None)
+        PyObject::new(PyInt::from(i), self.int_type(), None)
     }
 
     #[inline]
     pub fn new_bigint(&self, i: &BigInt) -> PyObjectRef {
         if let Some(i) = i.to_i32() {
-            if i >= INT_CACHE_POOL_MIN && i <= INT_CACHE_POOL_MAX {
-                let inner_idx = (i - INT_CACHE_POOL_MIN) as usize;
+            if i >= Self::INT_CACHE_POOL_MIN && i <= Self::INT_CACHE_POOL_MAX {
+                let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
                 return self.int_cache_pool[inner_idx].clone();
             }
         }
-        PyObject::new(PyInt::new(i.clone()), self.int_type(), None)
+        PyObject::new(PyInt::from(i.clone()), self.int_type(), None)
     }
 
     pub fn new_float(&self, value: f64) -> PyObjectRef {
@@ -428,12 +428,12 @@ impl PyContext {
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(objbytes::PyBytes::new(data), self.bytes_type(), None)
+        PyObject::new(objbytes::PyBytes::from(data), self.bytes_type(), None)
     }
 
     pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
         PyObject::new(
-            objbytearray::PyByteArray::new(data),
+            objbytearray::PyByteArray::from(data),
             self.bytearray_type(),
             None,
         )
@@ -486,7 +486,7 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R, VM>,
     {
         PyObject::new(
-            PyBuiltinFunction::new(f.into_func()),
+            PyBuiltinFunction::from(f.into_func()),
             self.builtin_function_or_method_type(),
             None,
         )
@@ -509,7 +509,7 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R, VM>,
     {
         PyObject::new(
-            PyBuiltinMethod::new(f.into_func()),
+            PyBuiltinMethod::from(f.into_func()),
             self.method_descriptor_type(),
             None,
         )
@@ -520,7 +520,7 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R, VM>,
     {
         PyObject::new(
-            PyClassMethod::new(self.new_method(f)),
+            PyClassMethod::from(self.new_method(f)),
             self.classmethod_type(),
             None,
         )
@@ -530,7 +530,7 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R, VM>,
     {
         PyObject::new(
-            PyStaticMethod::new(self.new_method(f)),
+            PyStaticMethod::from(self.new_method(f)),
             self.staticmethod_type(),
             None,
         )
@@ -1142,6 +1142,19 @@ where
 pub trait TryFromObject: Sized {
     /// Attempt to convert a Python object to a value of this type.
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
+}
+
+pub trait IntoPyRef<T> {
+    fn into_pyref(self, vm: &VirtualMachine) -> PyRef<T>;
+}
+
+impl<T, P> IntoPyRef<P> for T
+where
+    P: PyValue + IntoPyObject + From<T>,
+{
+    fn into_pyref(self, vm: &VirtualMachine) -> PyRef<P> {
+        PyRef::from_obj_unchecked(P::from(self).into_pyobject(vm))
+    }
 }
 
 /// Implemented by any type that can be returned from a built-in Python function.

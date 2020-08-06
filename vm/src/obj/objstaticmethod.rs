@@ -29,12 +29,14 @@ impl SlotDescriptor for PyStaticMethod {
     }
 }
 
-#[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
-impl PyStaticMethod {
-    pub fn new(callable: PyObjectRef) -> Self {
+impl From<PyObjectRef> for PyStaticMethod {
+    fn from(callable: PyObjectRef) -> Self {
         Self { callable }
     }
+}
 
+#[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
+impl PyStaticMethod {
     #[pyslot]
     fn tp_new(
         cls: PyClassRef,

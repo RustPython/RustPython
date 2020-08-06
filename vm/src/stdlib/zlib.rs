@@ -4,7 +4,7 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::function::OptionalArg;
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue};
+use crate::pyobject::{IntoPyRef, PyClassImpl, PyObjectRef, PyResult, PyValue};
 use crate::types::create_type;
 use crate::vm::VirtualMachine;
 
@@ -205,8 +205,8 @@ fn zlib_decompressobj(
     PyDecompress {
         decompress: PyMutex::new(decompress),
         eof: AtomicCell::new(false),
-        unused_data: PyMutex::new(PyBytes::new(vec![]).into_ref(vm)),
-        unconsumed_tail: PyMutex::new(PyBytes::new(vec![]).into_ref(vm)),
+        unused_data: PyMutex::new(PyBytes::from(vec![]).into_ref(vm)),
+        unconsumed_tail: PyMutex::new(PyBytes::from(vec![]).into_ref(vm)),
     }
 }
 #[pyclass(name = "Decompress")]
@@ -249,13 +249,13 @@ impl PyDecompress {
 
         if stream_end && !leftover.is_empty() {
             let mut unused_data = self.unused_data.lock();
-            let unused = unused_data
+            let unused: Vec<_> = unused_data
                 .get_value()
                 .iter()
                 .chain(leftover)
                 .copied()
                 .collect();
-            *unused_data = PyBytes::new(unused).into_ref(vm);
+            *unused_data = unused.into_pyref(vm);
         }
     }
 
@@ -288,7 +288,7 @@ impl PyDecompress {
         };
         let mut unconsumed_tail = self.unconsumed_tail.lock();
         if !leftover.is_empty() || unconsumed_tail.len() > 0 {
-            *unconsumed_tail = PyBytes::new(leftover.to_owned()).into_ref(vm);
+            *unconsumed_tail = PyBytes::from(leftover.to_owned()).into_ref(vm);
         }
 
         ret
@@ -318,7 +318,7 @@ impl PyDecompress {
         };
         self.save_unused_input(&mut d, &data, stream_end, orig_in, vm);
 
-        *data = PyBytes::new(Vec::new()).into_ref(vm);
+        *data = PyBytes::from(Vec::new()).into_ref(vm);
 
         // TODO: drop the inner decompressor, somehow
         // if stream_end {

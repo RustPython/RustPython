@@ -94,7 +94,7 @@ macro_rules! py_namespace {
 /// use rustpython_vm::pyobject::PyValue;
 ///
 /// let vm: VirtualMachine = Default::default();
-/// let obj = PyInt::new(0).into_ref(&vm).into_object();
+/// let obj = PyInt::from(0).into_ref(&vm).into_object();
 /// assert_eq!(
 ///     "int",
 ///     match_class!(match obj.clone() {
@@ -119,7 +119,7 @@ macro_rules! py_namespace {
 /// use rustpython_vm::pyobject::PyValue;
 ///
 /// let vm: VirtualMachine = Default::default();
-/// let obj = PyInt::new(0).into_ref(&vm).into_object();
+/// let obj = PyInt::from(0).into_ref(&vm).into_object();
 ///
 /// let int_value = match_class!(match obj {
 ///     i @ PyInt => i.as_bigint().clone(),

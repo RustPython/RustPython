@@ -29,15 +29,17 @@ impl fmt::Debug for PyBuiltinFunction {
     }
 }
 
-impl PyBuiltinFunction {
-    pub fn new(value: PyNativeFunc) -> Self {
+impl From<PyNativeFunc> for PyBuiltinFunction {
+    fn from(value: PyNativeFunc) -> Self {
         Self {
             value,
             module: None,
             name: None,
         }
     }
+}
 
+impl PyBuiltinFunction {
     pub fn new_with_name(value: PyNativeFunc, module: PyStringRef, name: PyStringRef) -> Self {
         Self {
             value,
@@ -86,12 +88,15 @@ impl fmt::Debug for PyBuiltinMethod {
     }
 }
 
-impl PyBuiltinMethod {
-    pub fn new(value: PyNativeFunc) -> Self {
+impl From<PyNativeFunc> for PyBuiltinMethod {
+    fn from(value: PyNativeFunc) -> Self {
         Self {
-            function: PyBuiltinFunction::new(value),
+            function: value.into(),
         }
     }
+}
+
+impl PyBuiltinMethod {
     pub fn new_with_name(value: PyNativeFunc, module: PyStringRef, name: PyStringRef) -> Self {
         Self {
             function: PyBuiltinFunction::new_with_name(value, module, name),
