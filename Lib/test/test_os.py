@@ -12,7 +12,7 @@ import fnmatch
 import fractions
 import itertools
 import locale
-import mmap
+# import mmap
 import os
 import pickle
 import shutil
@@ -2228,6 +2228,7 @@ class Win32KillTests(unittest.TestCase):
 
         self._kill_with_event(signal.CTRL_C_EVENT, "CTRL_C_EVENT")
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_CTRL_BREAK_EVENT(self):
         self._kill_with_event(signal.CTRL_BREAK_EVENT, "CTRL_BREAK_EVENT")
 
