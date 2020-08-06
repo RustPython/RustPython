@@ -378,7 +378,6 @@ class LongTest(unittest.TestCase):
         # See bpo-34087
         self.assertRaises(ValueError, int, '\u3053\u3093\u306b\u3061\u306f')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_long_a(self):
         self.assertRaises(ValueError, int, '-012395', 0)
 
