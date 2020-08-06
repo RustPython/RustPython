@@ -419,7 +419,7 @@ impl PyInt {
     }
 
     #[pymethod(name = "__hash__")]
-    pub fn hash(&self) -> hash::PyHash {
+    fn hash(&self) -> hash::PyHash {
         hash::hash_bigint(&self.value)
     }
 
