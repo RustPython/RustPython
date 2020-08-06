@@ -220,7 +220,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
 #[pyimpl(flags(BASETYPE))]
 impl PyInt {
-    fn raw_new<T>(cls: PyClassRef, value: T, vm: &VirtualMachine) -> PyResult<PyIntRef>
+    fn with_value<T>(cls: PyClassRef, value: T, vm: &VirtualMachine) -> PyResult<PyIntRef>
     where
         T: Into<BigInt>,
     {
@@ -233,8 +233,46 @@ impl PyInt {
 
     #[pyslot]
     fn tp_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-        let value = options.get_int_value(vm)?;
-        Self::raw_new(cls, value, vm)
+        let value = if let OptionalArg::Present(val) = options.val_options {
+            if let OptionalArg::Present(base) = options.base {
+                if ![
+                    &vm.ctx.types.str_type,
+                    &vm.ctx.types.bytes_type,
+                    &vm.ctx.types.bytearray_type,
+                ]
+                .iter()
+                .any(|&typ| objtype::isinstance(&val, typ))
+                {
+                    return Err(vm.new_type_error(
+                        "int() can't convert non-string with explicit base".to_owned(),
+                    ));
+                }
+
+                let base = vm
+                    .to_index(&base)
+                    .unwrap_or_else(|| {
+                        Err(vm.new_type_error(format!(
+                        "'{}' object cannot be interpreted as an integer missing string argument",
+                        base.lease_class().name
+                    )))
+                    })?
+                    .as_bigint()
+                    .to_u32()
+                    .filter(|v| (2..=36).contains(v))
+                    .ok_or_else(|| {
+                        vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned())
+                    })?;
+                to_int(vm, &val, base)
+            } else {
+                to_int(vm, &val, 10)
+            }
+        } else if let OptionalArg::Present(_) = options.base {
+            Err(vm.new_type_error("int() missing string argument".to_owned()))
+        } else {
+            Ok(Zero::zero())
+        }?;
+
+        Self::with_value(cls, value, vm)
     }
 
     #[inline]
@@ -586,7 +624,7 @@ impl PyInt {
                 )
             }
         };
-        Self::raw_new(cls, x, vm)
+        Self::with_value(cls, x, vm)
     }
 
     #[pymethod]
@@ -693,42 +731,6 @@ struct IntOptions {
     base: OptionalArg<PyObjectRef>,
 }
 
-impl IntOptions {
-    fn get_int_value(self, vm: &VirtualMachine) -> PyResult<BigInt> {
-        if let OptionalArg::Present(val) = self.val_options {
-            // FIXME: unnessessary bigint clone/creation
-            let base = if let OptionalArg::Present(base) = self.base {
-                if ![
-                    &vm.ctx.types.str_type,
-                    &vm.ctx.types.bytes_type,
-                    &vm.ctx.types.bytearray_type,
-                ]
-                .iter()
-                .any(|&typ| objtype::isinstance(&val, typ))
-                {
-                    return Err(vm.new_type_error(
-                        "int() can't convert non-string with explicit base".to_owned(),
-                    ));
-                }
-                let base = vm.to_index(&base).unwrap_or_else(|| {
-                    Err(vm.new_type_error(format!(
-                        "'{}' object cannot be interpreted as an integer missing string argument",
-                        base.lease_class().name
-                    )))
-                })?;
-                base.as_bigint().clone()
-            } else {
-                BigInt::from(10)
-            };
-            to_int(vm, &val, &base)
-        } else if let OptionalArg::Present(_) = self.base {
-            Err(vm.new_type_error("int() missing string argument".to_owned()))
-        } else {
-            Ok(Zero::zero())
-        }
-    }
-}
-
 #[derive(FromArgs)]
 struct IntFromByteArgs {
     #[pyarg(positional_or_keyword)]
@@ -750,12 +752,8 @@ struct IntToByteArgs {
 }
 
 // Casting function:
-pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult<BigInt> {
-    let base = match base.to_u32() {
-        Some(base) if base == 0 || (2..=36).contains(&base) => base,
-        _ => return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned())),
-    };
-
+pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
+    debug_assert!((2..=36).contains(&base));
     let bytes_to_int = |bytes: &[u8]| {
         std::str::from_utf8(bytes)
             .ok()
