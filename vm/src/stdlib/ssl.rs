@@ -130,8 +130,8 @@ fn ssl_enum_certificates(store_name: PyStringRef, vm: &VirtualMachine) -> PyResu
             (*ptr).dwCertEncodingType
         };
         let enc_type = match enc_type {
-            wincrypt::X509_ASN_ENCODING => vm.ctx.new_str("x509_asn".to_owned()),
-            wincrypt::PKCS_7_ASN_ENCODING => vm.ctx.new_str("pkcs_7_asn".to_owned()),
+            wincrypt::X509_ASN_ENCODING => vm.ctx.new_str("x509_asn"),
+            wincrypt::PKCS_7_ASN_ENCODING => vm.ctx.new_str("pkcs_7_asn"),
             other => vm.ctx.new_int(other),
         };
         let usage = match c.valid_uses()? {
@@ -705,18 +705,18 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
                 .iter()
                 .filter_map(|gen_name| {
                     if let Some(email) = gen_name.email() {
-                        Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_str("email".to_owned()),
-                            vm.ctx.new_str(email.to_owned()),
-                        ]))
+                        Some(
+                            vm.ctx
+                                .new_tuple(vec![vm.ctx.new_str("email"), vm.ctx.new_str(email)]),
+                        )
                     } else if let Some(dnsname) = gen_name.dnsname() {
-                        Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_str("DNS".to_owned()),
-                            vm.ctx.new_str(dnsname.to_owned()),
-                        ]))
+                        Some(
+                            vm.ctx
+                                .new_tuple(vec![vm.ctx.new_str("DNS"), vm.ctx.new_str(dnsname)]),
+                        )
                     } else if let Some(ip) = gen_name.ipaddress() {
                         Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_str("IP Address".to_owned()),
+                            vm.ctx.new_str("IP Address"),
                             vm.ctx.new_str(String::from_utf8_lossy(ip).into_owned()),
                         ]))
                     } else {

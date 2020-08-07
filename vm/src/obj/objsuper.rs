@@ -200,6 +200,6 @@ pub fn init(context: &PyContext) {
                      super().cmeth(arg)\n";
 
     extend_class!(context, super_type, {
-        "__doc__" => context.new_str(super_doc.to_owned()),
+        "__doc__" => context.new_str(super_doc),
     });
 }

@@ -214,15 +214,10 @@ impl VirtualMachine {
         objmodule::init_module_dict(
             &vm,
             &builtins_dict,
-            vm.ctx.new_str("builtins".to_owned()),
+            vm.ctx.new_str("builtins"),
             vm.get_none(),
         );
-        objmodule::init_module_dict(
-            &vm,
-            &sysmod_dict,
-            vm.ctx.new_str("sys".to_owned()),
-            vm.get_none(),
-        );
+        objmodule::init_module_dict(&vm, &sysmod_dict, vm.ctx.new_str("sys"), vm.get_none());
         vm.initialize(initialize_parameter);
         vm
     }

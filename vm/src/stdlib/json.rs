@@ -179,12 +179,12 @@ impl JsonScanner {
         let ret = if has_decimal || has_exponent {
             // float
             if let Some(ref parse_float) = self.parse_float {
-                vm.invoke(parse_float, vec![vm.ctx.new_str(buf.to_owned())])
+                vm.invoke(parse_float, vec![vm.ctx.new_str(buf)])
             } else {
                 Ok(vm.ctx.new_float(f64::from_str(buf).unwrap()))
             }
         } else if let Some(ref parse_int) = self.parse_int {
-            vm.invoke(parse_int, vec![vm.ctx.new_str(buf.to_owned())])
+            vm.invoke(parse_int, vec![vm.ctx.new_str(buf)])
         } else {
             Ok(vm.ctx.new_int(BigInt::from_str(buf).unwrap()))
         };
@@ -233,7 +233,7 @@ fn _json_encode_basestring_ascii(s: PyStringRef) -> String {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     let scanner_cls = JsonScanner::make_class(ctx);
-    scanner_cls.set_str_attr("__module__", vm.ctx.new_str("_json".to_owned()));
+    scanner_cls.set_str_attr("__module__", vm.ctx.new_str("_json"));
     py_module!(vm, "_json", {
         "make_scanner" => scanner_cls,
         "encode_basestring" => named_function!(ctx, _json, encode_basestring),

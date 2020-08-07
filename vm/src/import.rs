@@ -106,13 +106,9 @@ pub fn import_codeobj(
     set_file_attr: bool,
 ) -> PyResult {
     let attrs = vm.ctx.new_dict();
-    attrs.set_item("__name__", vm.ctx.new_str(module_name.to_owned()), vm)?;
+    attrs.set_item("__name__", vm.ctx.new_str(module_name), vm)?;
     if set_file_attr {
-        attrs.set_item(
-            "__file__",
-            vm.ctx.new_str(code_obj.source_path.to_owned()),
-            vm,
-        )?;
+        attrs.set_item("__file__", vm.ctx.new_str(&code_obj.source_path), vm)?;
     }
     let module = vm.new_module(module_name, attrs.clone());
 

@@ -66,7 +66,7 @@ impl AsRef<str> for PyString {
 
 impl<T> From<&T> for PyString
 where
-    T: AsRef<T> + ?Sized,
+    T: AsRef<str> + ?Sized,
 {
     fn from(s: &T) -> PyString {
         s.as_ref().to_owned().into()
@@ -745,10 +745,8 @@ impl PyString {
 
     #[pymethod]
     fn splitlines(&self, args: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(
-            self.value
-                .py_splitlines(args, |s| vm.ctx.new_str(s.to_owned())),
-        )
+        vm.ctx
+            .new_list(self.value.py_splitlines(args, |s| vm.ctx.new_str(s)))
     }
 
     #[pymethod]
@@ -1124,7 +1122,7 @@ impl IntoPyObject for String {
 
 impl IntoPyObject for &str {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_str(self.to_owned())
+        vm.ctx.new_str(self)
     }
 }
 
@@ -1308,13 +1306,9 @@ mod tests {
         let vm: VirtualMachine = Default::default();
 
         let table = vm.context().new_dict();
-        table
-            .set_item("a", vm.ctx.new_str("🎅".to_owned()), &vm)
-            .unwrap();
+        table.set_item("a", vm.ctx.new_str("🎅"), &vm).unwrap();
         table.set_item("b", vm.get_none(), &vm).unwrap();
-        table
-            .set_item("c", vm.ctx.new_str("xda".to_owned()), &vm)
-            .unwrap();
+        table.set_item("c", vm.ctx.new_str("xda"), &vm).unwrap();
         let translated = PyString::maketrans(
             table.into_object(),
             OptionalArg::Missing,

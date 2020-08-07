@@ -469,7 +469,7 @@ fn io_base_checkclosed(
     if objbool::boolval(vm, vm.get_attribute(instance, "closed")?)? {
         let msg = msg
             .flatten()
-            .unwrap_or_else(|| vm.ctx.new_str("I/O operation on closed file.".to_owned()));
+            .unwrap_or_else(|| vm.ctx.new_str("I/O operation on closed file."));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -484,7 +484,7 @@ fn io_base_checkreadable(
     if !objbool::boolval(vm, vm.call_method(&instance, "readable", vec![])?)? {
         let msg = msg
             .flatten()
-            .unwrap_or_else(|| vm.ctx.new_str("File or stream is not readable.".to_owned()));
+            .unwrap_or_else(|| vm.ctx.new_str("File or stream is not readable."));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -499,7 +499,7 @@ fn io_base_checkwritable(
     if !objbool::boolval(vm, vm.call_method(&instance, "writable", vec![])?)? {
         let msg = msg
             .flatten()
-            .unwrap_or_else(|| vm.ctx.new_str("File or stream is not writable.".to_owned()));
+            .unwrap_or_else(|| vm.ctx.new_str("File or stream is not writable."));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -514,7 +514,7 @@ fn io_base_checkseekable(
     if !objbool::boolval(vm, vm.call_method(&instance, "seekable", vec![])?)? {
         let msg = msg
             .flatten()
-            .unwrap_or_else(|| vm.ctx.new_str("File or stream is not seekable.".to_owned()));
+            .unwrap_or_else(|| vm.ctx.new_str("File or stream is not seekable."));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -1205,7 +1205,7 @@ pub fn io_open(
         )),
     )?;
 
-    vm.set_attr(&file_io_obj, "mode", vm.ctx.new_str(mode_string.to_owned()))?;
+    vm.set_attr(&file_io_obj, "mode", vm.ctx.new_str(mode_string))?;
 
     // Create Buffered class to consume FileIO. The type of buffered class depends on
     // the operation in the mode.

@@ -1567,7 +1567,7 @@ mod posix {
             Err(errno_err(vm))
         } else {
             let name = unsafe { ffi::CStr::from_ptr(name) }.to_str().unwrap();
-            Ok(vm.ctx.new_str(name.to_owned()))
+            Ok(vm.ctx.new_str(name))
         }
     }
 

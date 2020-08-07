@@ -112,7 +112,7 @@ impl PyClassRef {
             .read()
             .get("__module__")
             .cloned()
-            .unwrap_or_else(|| vm.ctx.new_str("builtins".to_owned()))
+            .unwrap_or_else(|| vm.ctx.new_str("builtins"))
     }
 
     #[pyproperty(magic, setter)]

@@ -1291,7 +1291,7 @@ impl ExecutingFrame<'_> {
             .split('.')
             .next_back()
             .unwrap();
-        vm.set_attr(&func_obj, "__name__", vm.ctx.new_str(name.to_owned()))?;
+        vm.set_attr(&func_obj, "__name__", vm.ctx.new_str(name))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
         let module = self
             .scope
@@ -1439,13 +1439,13 @@ impl ExecutingFrame<'_> {
     fn store_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let value = self.pop_value();
-        vm.set_attr(&parent, vm.ctx.new_str(attr_name.to_owned()), value)?;
+        vm.set_attr(&parent, vm.ctx.new_str(attr_name), value)?;
         Ok(None)
     }
 
     fn delete_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
-        let name = vm.ctx.new_str(attr_name.to_owned());
+        let name = vm.ctx.new_str(attr_name);
         vm.del_attr(&parent, name)?;
         Ok(None)
     }

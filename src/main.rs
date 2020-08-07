@@ -409,7 +409,7 @@ fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
     let runpy = vm.import("runpy", &[], 0)?;
     let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
-    vm.invoke(&run_module_as_main, vec![vm.ctx.new_str(module.to_owned())])?;
+    vm.invoke(&run_module_as_main, vec![vm.ctx.new_str(module)])?;
     Ok(())
 }
 

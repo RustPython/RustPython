@@ -129,7 +129,7 @@ impl PySymbolTable {
             .symtable
             .symbols
             .keys()
-            .map(|s| vm.ctx.new_str(s.to_owned()))
+            .map(|s| vm.ctx.new_str(s))
             .collect();
         Ok(vm.ctx.new_list(symbols))
     }

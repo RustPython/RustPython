@@ -784,7 +784,7 @@ mod decl {
             .split('.')
             .next_back()
             .unwrap();
-        let name_obj = vm.ctx.new_str(name.to_owned());
+        let name_obj = vm.ctx.new_str(name);
 
         let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
             PyClassRef::try_from_object(vm, metaclass)?
