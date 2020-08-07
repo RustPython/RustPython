@@ -340,7 +340,8 @@ class IntTestCases(unittest.TestCase):
     def test_string_float(self):
         self.assertRaises(ValueError, int, '1.2')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_intconversion(self):
         # Test __int__()
         class ClassicMissingMethods:
