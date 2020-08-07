@@ -40,8 +40,8 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
-    TryIntoRef, TypeProtocol,
+    IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::stdlib;
@@ -415,8 +415,10 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         // TODO: add repr of args into logging?
         vm_trace!("New exception created: {}", exc_type.name);
-        PyBaseException::new(args, self)
-            .into_ref_with_type_unchecked(exc_type, Some(self.ctx.new_dict()))
+
+        let pyobj =
+            PyBaseException::new(args, self).into_object(self, exc_type, Some(self.ctx.new_dict()));
+        PyRef::from_obj_unchecked(pyobj)
     }
 
     /// Instantiate an exception with no arguments.

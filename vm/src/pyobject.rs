@@ -1191,7 +1191,7 @@ where
     T: PyValue + Sized,
 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        PyObject::new(self, T::class(vm), None)
+        PyValue::into_simple_object(self, vm)
     }
 }
 
@@ -1303,8 +1303,21 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
 
     fn class(vm: &VirtualMachine) -> PyClassRef;
 
+    fn into_simple_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        self.into_object(vm, Self::class(vm), None)
+    }
+
+    fn into_object(
+        self,
+        _vm: &VirtualMachine,
+        cls: PyClassRef,
+        dict: Option<PyDictRef>,
+    ) -> PyObjectRef {
+        PyObject::new(self, cls, dict)
+    }
+
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        self.into_ref_with_type_unchecked(Self::class(vm), None)
+        PyRef::from_obj_unchecked(self.into_simple_object(vm))
     }
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
@@ -1315,16 +1328,12 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
             } else {
                 Some(vm.ctx.new_dict())
             };
-            PyRef::from_obj(PyObject::new(self, cls, dict), vm)
+            PyRef::from_obj(self.into_object(vm, cls, dict), vm)
         } else {
             let subtype = vm.to_str(&cls.obj)?;
             let basetype = vm.to_str(&class.obj)?;
             Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
         }
-    }
-
-    fn into_ref_with_type_unchecked(self, cls: PyClassRef, dict: Option<PyDictRef>) -> PyRef<Self> {
-        PyRef::from_obj_unchecked(PyObject::new(self, cls, dict))
     }
 }
 
