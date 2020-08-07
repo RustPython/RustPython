@@ -68,10 +68,10 @@ impl PyClassRef {
 
     #[pymethod(magic)]
     fn dir(self, vm: &VirtualMachine) -> PyList {
-        let attributes = self.get_attributes();
-        let attributes: Vec<PyObjectRef> = attributes
-            .keys()
-            .map(|k| vm.ctx.new_str(k.to_owned()))
+        let attributes: Vec<PyObjectRef> = self
+            .get_attributes()
+            .drain()
+            .map(|(k, _)| vm.ctx.new_str(k))
             .collect();
         PyList::from(attributes)
     }
