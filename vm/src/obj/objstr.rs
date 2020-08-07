@@ -64,9 +64,12 @@ impl AsRef<str> for PyString {
     }
 }
 
-impl From<&str> for PyString {
-    fn from(s: &str) -> PyString {
-        s.to_owned().into()
+impl<T> From<&T> for PyString
+where
+    T: AsRef<T> + ?Sized,
+{
+    fn from(s: &T) -> PyString {
+        s.as_ref().to_owned().into()
     }
 }
 
