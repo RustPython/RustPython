@@ -827,10 +827,7 @@ fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
         _ => None,
     };
     if sign.is_some() {
-        lit = unsafe {
-            // safe by sign check
-            lit.get_unchecked(1..)
-        };
+        lit = &lit[1..];
     }
 
     // split radix
@@ -863,15 +860,9 @@ fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
         false
     };
     if has_radix {
-        lit = unsafe {
-            // safe by radix check
-            lit.get_unchecked(2..)
-        };
-        if lit.first() == Some(&b'_') {
-            lit = unsafe {
-                // safe by b'_' check
-                lit.get_unchecked(1..)
-            };
+        lit = &lit[2..];
+        if lit.first()? == &b'_' {
+            lit = &lit[1..];
         }
     }
 
@@ -879,31 +870,19 @@ fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
     let mut last = *lit.first()?;
     if last == b'0' {
         let mut count = 0;
-        for pair in lit.windows(2) {
-            let c1 = pair[0];
-            let c2 = pair[1];
-            let skip = if c2 == b'_' {
-                if c1 == b'_' {
+        for &cur in &lit[1..] {
+            if cur == b'_' {
+                if last == b'_' {
                     return None;
                 }
-                true
-            } else {
-                c2 == b'0'
-            };
-            if skip {
-                count += 1;
-            } else {
+            } else if cur != b'0' {
                 break;
-            }
+            };
+            count += 1;
+            last = cur;
         }
-        let prefix_last = *unsafe {
-            // safe by upper loop: count < lit.len() - 1
-            lit.get_unchecked(count)
-        };
-        lit = unsafe {
-            // safe by upper loop: count < lit.len() - 1
-            lit.get_unchecked(count + 1..)
-        };
+        let prefix_last = lit[count];
+        lit = &lit[count + 1..];
         if lit.is_empty() && prefix_last == b'_' {
             return None;
         }
