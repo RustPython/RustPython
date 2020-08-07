@@ -12,7 +12,7 @@ use super::objbytes::PyBytes;
 use super::objfloat;
 use super::objmemory::PyMemoryView;
 use super::objstr::{PyString, PyStringRef};
-use super::objtype::{self, PyClassRef};
+use super::objtype::PyClassRef;
 use crate::bytesinner::PyBytesInner;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
@@ -236,26 +236,13 @@ impl PyInt {
     fn tp_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
-                if ![
-                    &vm.ctx.types.str_type,
-                    &vm.ctx.types.bytes_type,
-                    &vm.ctx.types.bytearray_type,
-                ]
-                .iter()
-                .any(|&typ| objtype::isinstance(&val, typ))
-                {
-                    return Err(vm.new_type_error(
-                        "int() can't convert non-string with explicit base".to_owned(),
-                    ));
-                }
-
                 let base = vm
                     .to_index(&base)
                     .unwrap_or_else(|| {
                         Err(vm.new_type_error(format!(
-                        "'{}' object cannot be interpreted as an integer missing string argument",
-                        base.lease_class().name
-                    )))
+                            "'{}' object cannot be interpreted as an integer",
+                            base.lease_class().name
+                        )))
                     })?
                     .as_bigint()
                     .to_u32()
@@ -822,7 +809,9 @@ fn to_int_radix(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<B
             bytes_to_int(&inner.elements, base)
         }
         _ => {
-            unreachable!("this case must not enter this function");
+            return Err(
+                vm.new_type_error("int() can't convert non-string with explicit base".to_owned())
+            );
         }
     });
     match opt {
