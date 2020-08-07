@@ -585,7 +585,6 @@ impl PyInt {
     }
 
     #[pyclassmethod]
-    #[allow(clippy::match_bool)]
     fn from_bytes(
         cls: PyClassRef,
         args: IntFromByteArgs,
@@ -597,26 +596,21 @@ impl PyInt {
             false
         };
 
-        let x = match args.byteorder.as_str() {
-            "big" => match signed {
-                true => BigInt::from_signed_bytes_be(&args.bytes.elements),
-                false => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
-            },
-            "little" => match signed {
-                true => BigInt::from_signed_bytes_le(&args.bytes.elements),
-                false => BigInt::from_bytes_le(Sign::Plus, &args.bytes.elements),
-            },
+        let value = match (args.byteorder.as_str(), signed) {
+            ("big", true) => BigInt::from_signed_bytes_be(&args.bytes.elements),
+            ("big", false) => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
+            ("little", true) => BigInt::from_signed_bytes_le(&args.bytes.elements),
+            ("little", false) => BigInt::from_bytes_le(Sign::Plus, &args.bytes.elements),
             _ => {
                 return Err(
                     vm.new_value_error("byteorder must be either 'little' or 'big'".to_owned())
                 )
             }
         };
-        Self::with_value(cls, x, vm)
+        Self::with_value(cls, value, vm)
     }
 
     #[pymethod]
-    #[allow(clippy::match_bool)]
     fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
         let signed = if let OptionalArg::Present(signed) = args.signed {
             signed.to_bool()
