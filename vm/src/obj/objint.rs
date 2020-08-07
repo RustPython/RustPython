@@ -1,9 +1,10 @@
 use std::fmt;
 use std::mem::size_of;
 
-use num_bigint::{BigInt, Sign};
+use bstr::ByteSlice;
+use num_bigint::{BigInt, BigUint, Sign};
 use num_integer::Integer;
-use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
+use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 
 use super::objbool::IntoPyBool;
 use super::objbytearray::PyByteArray;
@@ -11,7 +12,7 @@ use super::objbytes::PyBytes;
 use super::objfloat;
 use super::objmemory::PyMemoryView;
 use super::objstr::{PyString, PyStringRef};
-use super::objtype::{self, PyClassRef};
+use super::objtype::PyClassRef;
 use crate::bytesinner::PyBytesInner;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
@@ -220,7 +221,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
 #[pyimpl(flags(BASETYPE))]
 impl PyInt {
-    fn raw_new<T>(cls: PyClassRef, value: T, vm: &VirtualMachine) -> PyResult<PyIntRef>
+    fn with_value<T>(cls: PyClassRef, value: T, vm: &VirtualMachine) -> PyResult<PyIntRef>
     where
         T: Into<BigInt>,
     {
@@ -233,8 +234,33 @@ impl PyInt {
 
     #[pyslot]
     fn tp_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-        let value = options.get_int_value(vm)?;
-        Self::raw_new(cls, value, vm)
+        let value = if let OptionalArg::Present(val) = options.val_options {
+            if let OptionalArg::Present(base) = options.base {
+                let base = vm
+                    .to_index(&base)
+                    .unwrap_or_else(|| {
+                        Err(vm.new_type_error(format!(
+                            "'{}' object cannot be interpreted as an integer",
+                            base.lease_class().name
+                        )))
+                    })?
+                    .as_bigint()
+                    .to_u32()
+                    .filter(|&v| v == 0 || (2..=36).contains(&v))
+                    .ok_or_else(|| {
+                        vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned())
+                    })?;
+                to_int_radix(vm, &val, base)
+            } else {
+                to_int(vm, &val)
+            }
+        } else if let OptionalArg::Present(_) = options.base {
+            Err(vm.new_type_error("int() missing string argument".to_owned()))
+        } else {
+            Ok(Zero::zero())
+        }?;
+
+        Self::with_value(cls, value, vm)
     }
 
     #[inline]
@@ -559,7 +585,6 @@ impl PyInt {
     }
 
     #[pyclassmethod]
-    #[allow(clippy::match_bool)]
     fn from_bytes(
         cls: PyClassRef,
         args: IntFromByteArgs,
@@ -571,26 +596,21 @@ impl PyInt {
             false
         };
 
-        let x = match args.byteorder.as_str() {
-            "big" => match signed {
-                true => BigInt::from_signed_bytes_be(&args.bytes.elements),
-                false => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
-            },
-            "little" => match signed {
-                true => BigInt::from_signed_bytes_le(&args.bytes.elements),
-                false => BigInt::from_bytes_le(Sign::Plus, &args.bytes.elements),
-            },
+        let value = match (args.byteorder.as_str(), signed) {
+            ("big", true) => BigInt::from_signed_bytes_be(&args.bytes.elements),
+            ("big", false) => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
+            ("little", true) => BigInt::from_signed_bytes_le(&args.bytes.elements),
+            ("little", false) => BigInt::from_bytes_le(Sign::Plus, &args.bytes.elements),
             _ => {
                 return Err(
                     vm.new_value_error("byteorder must be either 'little' or 'big'".to_owned())
                 )
             }
         };
-        Self::raw_new(cls, x, vm)
+        Self::with_value(cls, value, vm)
     }
 
     #[pymethod]
-    #[allow(clippy::match_bool)]
     fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
         let signed = if let OptionalArg::Present(signed) = args.signed {
             signed.to_bool()
@@ -693,42 +713,6 @@ struct IntOptions {
     base: OptionalArg<PyObjectRef>,
 }
 
-impl IntOptions {
-    fn get_int_value(self, vm: &VirtualMachine) -> PyResult<BigInt> {
-        if let OptionalArg::Present(val) = self.val_options {
-            // FIXME: unnessessary bigint clone/creation
-            let base = if let OptionalArg::Present(base) = self.base {
-                if ![
-                    &vm.ctx.types.str_type,
-                    &vm.ctx.types.bytes_type,
-                    &vm.ctx.types.bytearray_type,
-                ]
-                .iter()
-                .any(|&typ| objtype::isinstance(&val, typ))
-                {
-                    return Err(vm.new_type_error(
-                        "int() can't convert non-string with explicit base".to_owned(),
-                    ));
-                }
-                let base = vm.to_index(&base).unwrap_or_else(|| {
-                    Err(vm.new_type_error(format!(
-                        "'{}' object cannot be interpreted as an integer missing string argument",
-                        base.lease_class().name
-                    )))
-                })?;
-                base.as_bigint().clone()
-            } else {
-                BigInt::from(10)
-            };
-            to_int(vm, &val, &base)
-        } else if let OptionalArg::Present(_) = self.base {
-            Err(vm.new_type_error("int() missing string argument".to_owned()))
-        } else {
-            Ok(Zero::zero())
-        }
-    }
-}
-
 #[derive(FromArgs)]
 struct IntFromByteArgs {
     #[pyarg(positional_or_keyword)]
@@ -750,38 +734,30 @@ struct IntToByteArgs {
 }
 
 // Casting function:
-pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult<BigInt> {
-    let base = match base.to_u32() {
-        Some(base) if base == 0 || (2..=36).contains(&base) => base,
-        _ => return Err(vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned())),
-    };
-
-    let bytes_to_int = |bytes: &[u8]| {
-        std::str::from_utf8(bytes)
-            .ok()
-            .and_then(|s| str_to_int(s, base))
-    };
-
+pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt> {
+    let base = 10;
     let opt = match_class!(match obj.clone() {
         string @ PyString => {
             let s = string.as_str();
-            str_to_int(&s, base)
+            bytes_to_int(s.as_bytes(), base)
         }
         bytes @ PyBytes => {
             let bytes = bytes.get_value();
-            bytes_to_int(bytes)
+            bytes_to_int(bytes, base)
         }
         bytearray @ PyByteArray => {
             let inner = bytearray.borrow_value();
-            bytes_to_int(&inner.elements)
+            bytes_to_int(&inner.elements, base)
         }
         memoryview @ PyMemoryView => {
             // TODO: proper error handling instead of `unwrap()`
-            memoryview.try_bytes(|bytes| bytes_to_int(&bytes)).unwrap()
+            memoryview
+                .try_bytes(|bytes| bytes_to_int(&bytes, base))
+                .unwrap()
         }
         array @ PyArray => {
             let bytes = array.tobytes();
-            bytes_to_int(&bytes)
+            bytes_to_int(&bytes, base)
         }
         obj => {
             let method = vm.get_method_or_type_error(obj.clone(), "__int__", || {
@@ -810,79 +786,139 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: &BigInt) -> PyResult
     }
 }
 
-fn str_to_int(literal: &str, mut base: u32) -> Option<BigInt> {
-    let mut buf = validate_literal(literal)?.to_owned();
-    let is_signed = buf.starts_with('+') || buf.starts_with('-');
-    let radix_range = if is_signed { 1..3 } else { 0..2 };
-    let radix_candidate = buf.get(radix_range.clone());
+fn to_int_radix(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
+    debug_assert!(base == 0 || (2..=36).contains(&base));
 
-    // try to find base
-    if let Some(radix_candidate) = radix_candidate {
-        if let Some(matched_radix) = detect_base(&radix_candidate) {
-            if base == 0 || base == matched_radix {
-                /* If base is 0 or equal radix number, it means radix is validate
-                 * So change base to radix number and remove radix from literal
-                 */
-                base = matched_radix;
-                buf.drain(radix_range);
+    let opt = match_class!(match obj.clone() {
+        string @ PyString => {
+            let s = string.as_str();
+            bytes_to_int(s.as_bytes(), base)
+        }
+        bytes @ PyBytes => {
+            let bytes = bytes.get_value();
+            bytes_to_int(bytes, base)
+        }
+        bytearray @ PyByteArray => {
+            let inner = bytearray.borrow_value();
+            bytes_to_int(&inner.elements, base)
+        }
+        _ => {
+            return Err(
+                vm.new_type_error("int() can't convert non-string with explicit base".to_owned())
+            );
+        }
+    });
+    match opt {
+        Some(int) => Ok(int),
+        None => Err(vm.new_value_error(format!(
+            "invalid literal for int() with base {}: {}",
+            base,
+            vm.to_repr(obj)?,
+        ))),
+    }
+}
 
-                /* first underscore with radix is validate
-                 * e.g : int(`0x_1`, base=0) = int('1', base=16)
-                 */
-                if buf.starts_with('_') {
-                    buf.remove(0);
+fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
+    // split sign
+    let mut lit = lit.trim();
+    let sign = match lit.first()? {
+        b'+' => Some(Sign::Plus),
+        b'-' => Some(Sign::Minus),
+        _ => None,
+    };
+    if sign.is_some() {
+        lit = &lit[1..];
+    }
+
+    // split radix
+    let first = *lit.first()?;
+    let has_radix = if first == b'0' {
+        match base {
+            0 => {
+                if let Some(parsed) = lit.get(1).and_then(detect_base) {
+                    base = parsed;
+                    true
+                } else {
+                    if let Some((last, body)) = lit[1..].split_last() {
+                        let is_zero = body.iter().all(|&c| c == b'0' || c == b'_') && *last == b'0';
+                        if !is_zero {
+                            return None;
+                        }
+                    }
+                    return Some(BigInt::zero());
                 }
-            } else if (matched_radix == 2 && base < 12)
-                || (matched_radix == 8 && base < 25)
-                || (matched_radix == 16 && base < 34)
-            {
-                return None;
             }
+            16 => lit.get(1).map_or(false, |&b| matches!(b, b'x' | b'X')),
+            2 => lit.get(1).map_or(false, |&b| matches!(b, b'b' | b'B')),
+            8 => lit.get(1).map_or(false, |&b| matches!(b, b'o' | b'O')),
+            _ => false,
+        }
+    } else {
+        if base == 0 {
+            base = 10;
+        }
+        false
+    };
+    if has_radix {
+        lit = &lit[2..];
+        if lit.first()? == &b'_' {
+            lit = &lit[1..];
         }
     }
 
-    // base still not found, try to use default
-    if base == 0 {
-        if buf.starts_with('0') {
-            if buf.chars().all(|c| matches!(c, '+' | '-' | '0' | '_')) {
-                return Some(BigInt::zero());
-            }
+    // remove zeroes
+    let mut last = *lit.first()?;
+    if last == b'0' {
+        let mut count = 0;
+        for &cur in &lit[1..] {
+            if cur == b'_' {
+                if last == b'_' {
+                    return None;
+                }
+            } else if cur != b'0' {
+                break;
+            };
+            count += 1;
+            last = cur;
+        }
+        let prefix_last = lit[count];
+        lit = &lit[count + 1..];
+        if lit.is_empty() && prefix_last == b'_' {
+            return None;
+        }
+    }
+
+    // validate
+    for c in lit.iter() {
+        let c = *c;
+        if !(c.is_ascii_alphanumeric() || c == b'_') {
             return None;
         }
 
-        base = 10;
+        if c == b'_' && last == b'_' {
+            return None;
+        }
+
+        last = c;
     }
-
-    BigInt::from_str_radix(&buf, base).ok()
-}
-
-fn validate_literal(literal: &str) -> Option<&str> {
-    let trimmed = literal.trim();
-    if trimmed.starts_with('_') || trimmed.ends_with('_') {
+    if last == b'_' {
         return None;
     }
 
-    let mut last_tok = None;
-    for c in trimmed.chars() {
-        if !(c.is_ascii_alphanumeric() || c == '_' || c == '+' || c == '-') {
-            return None;
-        }
-
-        if c == '_' && Some(c) == last_tok {
-            return None;
-        }
-
-        last_tok = Some(c);
-    }
-
-    Some(trimmed)
+    // parse
+    Some(if lit.is_empty() {
+        BigInt::zero()
+    } else {
+        let uint = BigUint::parse_bytes(&lit, base)?;
+        BigInt::from_biguint(sign.unwrap_or(Sign::Plus), uint)
+    })
 }
 
-fn detect_base(literal: &str) -> Option<u32> {
-    match literal {
-        "0x" | "0X" => Some(16),
-        "0o" | "0O" => Some(8),
-        "0b" | "0B" => Some(2),
+fn detect_base(c: &u8) -> Option<u32> {
+    match c {
+        b'x' | b'X' => Some(16),
+        b'b' | b'B' => Some(2),
+        b'o' | b'O' => Some(8),
         _ => None,
     }
 }
@@ -911,6 +947,19 @@ fn get_shift_amount(amount: &BigInt, vm: &VirtualMachine) -> PyResult<usize> {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub(crate) fn init(context: &PyContext) {
     PyInt::extend_class(context, &context.types.int_type);
+}
+
+#[test]
+fn test_bytes_to_int() {
+    assert_eq!(bytes_to_int(&b"0b101"[..], 2).unwrap(), BigInt::from(5));
+    assert_eq!(bytes_to_int(&b"0x_10"[..], 16).unwrap(), BigInt::from(16));
+    assert_eq!(bytes_to_int(&b"0b"[..], 16).unwrap(), BigInt::from(11));
+    assert_eq!(bytes_to_int(&b"+0b101"[..], 2).unwrap(), BigInt::from(5));
+    assert_eq!(bytes_to_int(&b"0_0_0"[..], 10).unwrap(), BigInt::from(0));
+    assert_eq!(bytes_to_int(&b"09_99"[..], 0), None);
+    assert_eq!(bytes_to_int(&b"000"[..], 0).unwrap(), BigInt::from(0));
+    assert_eq!(bytes_to_int(&b"0_"[..], 0), None);
+    assert_eq!(bytes_to_int(&b"0_100"[..], 10).unwrap(), BigInt::from(100));
 }

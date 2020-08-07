@@ -124,7 +124,7 @@ impl ByteInnerNewOptions {
 
                         let mut data_bytes = vec![];
                         for elem in elements {
-                            let v = objint::to_int(vm, &elem, &BigInt::from(10))?;
+                            let v = objint::to_int(vm, &elem)?;
                             if let Some(i) = v.to_u8() {
                                 data_bytes.push(i);
                             } else {

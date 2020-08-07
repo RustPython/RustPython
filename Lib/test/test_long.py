@@ -313,7 +313,6 @@ class LongTest(unittest.TestCase):
             with self.subTest(got=got):
                 self.assertEqual(int(got, 0), x)
 
-    @unittest.skip # TODO: RUSTPYTHON
     def test_format(self):
         for x in special:
             self.check_format_1(x)
@@ -378,7 +377,6 @@ class LongTest(unittest.TestCase):
         # See bpo-34087
         self.assertRaises(ValueError, int, '\u3053\u3093\u306b\u3061\u306f')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_long_a(self):
         self.assertRaises(ValueError, int, '-012395', 0)
 
@@ -417,8 +415,9 @@ class LongTest(unittest.TestCase):
                "Got {}, expected {}.".format(n, actual, expected))
         self.assertEqual(actual, expected, msg)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     #@support.requires_IEEE_754
-    @unittest.skip # TODO: RUSTPYTHON
     def test_float_conversion(self):
 
         exact_values = [0, 1, 2,
@@ -830,8 +829,9 @@ class LongTest(unittest.TestCase):
         self.assertEqual(expected, got, "Incorrectly rounded division {}/{}: "
                          "expected {}, got {}".format(a, b, expected, got))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     #@support.requires_IEEE_754
-    @unittest.skip
     def test_correctly_rounded_true_division(self):
         # more stringent tests than those above, checking that the
         # result of true division of ints is always correctly rounded.
