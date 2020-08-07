@@ -2,11 +2,13 @@ use crate::obj::objbytearray::{PyByteArray, PyByteArrayRef};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::pyobject::PyObjectRef;
 use crate::pyobject::{PyResult, TryFromObject, TypeProtocol};
+use crate::stdlib::array::{PyArray, PyArrayRef};
 use crate::vm::VirtualMachine;
 
 pub enum PyBytesLike {
     Bytes(PyBytesRef),
     Bytearray(PyByteArrayRef),
+    Array(PyArrayRef),
 }
 
 impl TryFromObject for PyBytesLike {
@@ -14,6 +16,7 @@ impl TryFromObject for PyBytesLike {
         match_class!(match obj {
             b @ PyBytes => Ok(PyBytesLike::Bytes(b)),
             b @ PyByteArray => Ok(PyBytesLike::Bytearray(b)),
+            array @ PyArray => Ok(PyBytesLike::Array(array)),
             obj => Err(vm.new_type_error(format!(
                 "a bytes-like object is required, not {}",
                 obj.class()
@@ -27,6 +30,7 @@ impl PyBytesLike {
         match self {
             PyBytesLike::Bytes(b) => b.get_value().into(),
             PyBytesLike::Bytearray(b) => b.borrow_value().elements.clone().into(),
+            PyBytesLike::Array(array) => array.tobytes().into(),
         }
     }
 
@@ -35,18 +39,21 @@ impl PyBytesLike {
         match self {
             PyBytesLike::Bytes(b) => f(b.get_value()),
             PyBytesLike::Bytearray(b) => f(&b.borrow_value().elements),
+            PyBytesLike::Array(array) => f(&*array.get_bytes()),
         }
     }
 }
 
 pub enum PyBuffer {
     Bytearray(PyByteArrayRef),
+    Array(PyArrayRef),
 }
 
 impl TryFromObject for PyBuffer {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         match_class!(match obj {
             b @ PyByteArray => Ok(PyBuffer::Bytearray(b)),
+            array @ PyArray => Ok(PyBuffer::Array(array)),
             obj =>
                 Err(vm.new_type_error(format!("a buffer object is required, not {}", obj.class()))),
         })
@@ -57,6 +64,7 @@ impl PyBuffer {
     pub fn len(&self) -> usize {
         match self {
             PyBuffer::Bytearray(b) => b.borrow_value().len(),
+            PyBuffer::Array(array) => array.len(),
         }
     }
 
@@ -64,11 +72,11 @@ impl PyBuffer {
         self.len() == 0
     }
 
-
     #[inline]
     pub fn with_ref<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         match self {
             PyBuffer::Bytearray(b) => f(&mut b.borrow_value_mut().elements),
+            PyBuffer::Array(array) => f(&mut array.get_bytes_mut()),
         }
     }
 }

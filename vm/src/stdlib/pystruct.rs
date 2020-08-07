@@ -792,7 +792,10 @@ mod _struct {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let offset = get_buffer_offset(buffer.len(), offset, self.size(), vm)?;
-            buffer.with_ref(|data| self.spec.pack_into(&mut &mut data[offset..], args.as_ref(), vm))
+            buffer.with_ref(|data| {
+                self.spec
+                    .pack_into(&mut &mut data[offset..], args.as_ref(), vm)
+            })
         }
 
         #[pymethod]

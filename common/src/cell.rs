@@ -1,5 +1,8 @@
 #[cfg(feature = "threading")]
-use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use parking_lot::{
+    MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, MutexGuard, RwLock, RwLockReadGuard,
+    RwLockWriteGuard,
+};
 #[cfg(not(feature = "threading"))]
 use std::cell::{Ref, RefCell, RefMut};
 use std::ops::{Deref, DerefMut};
@@ -61,7 +64,9 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
         type RwLockInner<T> = RwLock<T>;
         type RwLockReadInner<'a, T> = RwLockReadGuard<'a, T>;
+        type MappedRwLockReadInner<'a, T> = MappedRwLockReadGuard<'a, T>;
         type RwLockWriteInner<'a, T> = RwLockWriteGuard<'a, T>;
+        type MappedRwLockWriteInner<'a, T> = MappedRwLockWriteGuard<'a, T>;
         const fn new_rwlock<T>(value: T) -> RwLockInner<T> {
             parking_lot::const_rwlock(value)
         }
@@ -74,7 +79,9 @@ cfg_if::cfg_if! {
     } else {
         type RwLockInner<T> = RefCell<T>;
         type RwLockReadInner<'a, T> = Ref<'a, T>;
+        type MappedRwLockReadInner<'a, T> = Ref<'a, T>;
         type RwLockWriteInner<'a, T> = RefMut<'a, T>;
+        type MappedRwLockWriteInner<'a, T> = RefMut<'a, T>;
         const fn new_rwlock<T>(value: T) -> RwLockInner<T> {
             RefCell::new(value)
         }
@@ -116,6 +123,25 @@ impl<T: ?Sized> Deref for PyRwLockReadGuard<'_, T> {
     }
 }
 
+#[repr(transparent)]
+pub struct PyMappedRwLockReadGuard<'a, T: ?Sized>(MappedRwLockReadInner<'a, T>);
+impl<T: ?Sized> Deref for PyMappedRwLockReadGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.0.deref()
+    }
+}
+
+impl<'a, T: ?Sized> PyRwLockReadGuard<'a, T> {
+    #[inline]
+    pub fn map<U: ?Sized, F>(s: Self, f: F) -> PyMappedRwLockReadGuard<'a, U>
+    where
+        F: FnOnce(&T) -> &U,
+    {
+        PyMappedRwLockReadGuard(RwLockReadInner::map(s.0, f))
+    }
+}
+
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct PyRwLockWriteGuard<'a, T: ?Sized>(RwLockWriteInner<'a, T>);
@@ -128,5 +154,29 @@ impl<T: ?Sized> Deref for PyRwLockWriteGuard<'_, T> {
 impl<T: ?Sized> DerefMut for PyRwLockWriteGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
         self.0.deref_mut()
+    }
+}
+
+#[repr(transparent)]
+pub struct PyMappedRwLockWriteGuard<'a, T: ?Sized>(MappedRwLockWriteInner<'a, T>);
+impl<T: ?Sized> Deref for PyMappedRwLockWriteGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.0.deref()
+    }
+}
+impl<T: ?Sized> DerefMut for PyMappedRwLockWriteGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.0.deref_mut()
+    }
+}
+
+impl<'a, T: ?Sized> PyRwLockWriteGuard<'a, T> {
+    #[inline]
+    pub fn map<U: ?Sized, F>(s: Self, f: F) -> PyMappedRwLockWriteGuard<'a, U>
+    where
+        F: FnOnce(&mut T) -> &mut U,
+    {
+        PyMappedRwLockWriteGuard(RwLockWriteInner::map(s.0, f))
     }
 }

@@ -351,7 +351,7 @@ class StructTest(unittest.TestCase):
             self.assertEqual(got, expectedback)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("")
     def test_705836(self):
         # SF bug 705836.  "<f" and ">f" had a severe rounding bug, where a carry
         # from the low-order discarded bits could propagate into the exponent
@@ -422,8 +422,6 @@ class StructTest(unittest.TestCase):
         self.assertEqual(s.unpack_from(buffer=test_string, offset=2),
                          (b'cd01',))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pack_into(self):
         test_string = b'Reykjavik rocks, eow!'
         writable_buf = array.array('b', b' '*100)
@@ -452,8 +450,6 @@ class StructTest(unittest.TestCase):
         self.assertRaises((TypeError, struct.error), struct.pack_into, b'', sb,
                           None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pack_into_fn(self):
         test_string = b'Reykjavik rocks, eow!'
         writable_buf = array.array('b', b' '*100)
