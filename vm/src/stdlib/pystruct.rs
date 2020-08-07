@@ -20,6 +20,7 @@ mod _struct {
     use std::io::{Cursor, Read, Write};
     use std::iter::Peekable;
 
+    use crate::byteslike::PyBuffer;
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
     use crate::obj::{
@@ -79,6 +80,22 @@ mod _struct {
     }
 
     impl FormatSpec {
+        fn decode_and_parse(
+            vm: &VirtualMachine,
+            fmt: &Either<PyStringRef, PyBytesRef>,
+        ) -> PyResult<FormatSpec> {
+            let decoded_fmt = match fmt {
+                Either::A(string) => string.as_str(),
+                Either::B(bytes) if bytes.is_ascii() => std::str::from_utf8(&bytes).unwrap(),
+                _ => {
+                    return Err(vm.new_unicode_decode_error(
+                        "Struct format must be a ascii string".to_owned(),
+                    ))
+                }
+            };
+            FormatSpec::parse(decoded_fmt).map_err(|err| new_struct_error(vm, err))
+        }
+
         fn parse(fmt: &str) -> Result<FormatSpec, String> {
             let mut chars = fmt.chars().peekable();
 
@@ -92,6 +109,20 @@ mod _struct {
         }
 
         fn pack(&self, args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            // Create data vector:
+            let mut data = Vec::<u8>::new();
+
+            self.pack_into(&mut data, args, vm)?;
+
+            Ok(data)
+        }
+
+        fn pack_into<W: Write>(
+            &self,
+            buffer: &mut W,
+            args: &[PyObjectRef],
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let arg_count: usize = self.codes.iter().map(|c| c.arg_count()).sum();
             if arg_count != args.len() {
                 return Err(new_struct_error(
@@ -104,8 +135,6 @@ mod _struct {
                 ));
             }
 
-            // Create data vector:
-            let mut data = Vec::<u8>::new();
             let mut arg_idx = 0;
             // Loop over all opcodes:
             for code in self.codes.iter() {
@@ -116,10 +145,10 @@ mod _struct {
                     Endianness::Network => pack_item::<byteorder::NetworkEndian>,
                     Endianness::Native => pack_item::<byteorder::NativeEndian>,
                 };
-                arg_idx += pack_item(vm, code, &args[arg_idx..], &mut data)?;
+                arg_idx += pack_item(vm, code, &args[arg_idx..], buffer)?;
             }
 
-            Ok(data)
+            Ok(())
         }
 
         fn unpack(&self, data: &[u8], vm: &VirtualMachine) -> PyResult<PyTuple> {
@@ -241,6 +270,26 @@ mod _struct {
                 vm,
                 "required argument is not an integer".to_owned(),
             )),
+        }
+    }
+
+    fn get_buffer_offset(
+        buffer_len: usize,
+        mut offset: isize,
+        needed: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        if offset < 0 {
+            offset += buffer_len as isize;
+        }
+
+        if offset < 0 || offset as usize >= buffer_len || (buffer_len - offset as usize) < needed {
+            Err(new_struct_error(
+                vm,
+                "not enough space in buffer to unpack".to_owned(),
+            ))
+        } else {
+            Ok(offset as usize)
         }
     }
 
@@ -441,14 +490,21 @@ mod _struct {
         args: Args,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        // FIXME: the given fmt must be parsed as ascii string
-        // https://github.com/RustPython/RustPython/pull/1792#discussion_r387340905
-        let parsed = match fmt {
-            Either::A(string) => FormatSpec::parse(string.as_str()),
-            Either::B(bytes) => FormatSpec::parse(std::str::from_utf8(&bytes).unwrap()),
-        };
-        let format_spec = parsed.map_err(|e| new_struct_error(vm, e))?;
+        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
         format_spec.pack(args.as_ref(), vm)
+    }
+
+    #[pyfunction]
+    fn pack_into(
+        fmt: Either<PyStringRef, PyBytesRef>,
+        buffer: PyBuffer,
+        offset: isize,
+        args: Args,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+        let offset = get_buffer_offset(buffer.len(), offset, format_spec.size(), vm)?;
+        buffer.with_ref(|data| format_spec.pack_into(&mut &mut data[offset..], args.as_ref(), vm))
     }
 
     #[inline]
@@ -613,13 +669,7 @@ mod _struct {
         buffer: PyBytesRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyTuple> {
-        // FIXME: the given fmt must be parsed as ascii string
-        // https://github.com/RustPython/RustPython/pull/1792#discussion_r387340905
-        let parsed = match fmt {
-            Either::A(string) => FormatSpec::parse(string.as_str()),
-            Either::B(bytes) => FormatSpec::parse(std::str::from_utf8(&bytes).unwrap()),
-        };
-        let format_spec = parsed.map_err(|e| new_struct_error(vm, e))?;
+        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
         format_spec.unpack(buffer.get_value(), vm)
     }
 
@@ -671,14 +721,20 @@ mod _struct {
     }
 
     #[pyfunction]
+    fn unpack_from(
+        fmt: Either<PyStringRef, PyBytesRef>,
+        buffer: PyBytesRef,
+        offset: isize,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyTuple> {
+        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+        let offset = get_buffer_offset(buffer.len(), offset, format_spec.size(), vm)?;
+        format_spec.unpack(&buffer.get_value()[offset..], vm)
+    }
+
+    #[pyfunction]
     fn calcsize(fmt: Either<PyStringRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<usize> {
-        // FIXME: the given fmt must be parsed as ascii string
-        // https://github.com/RustPython/RustPython/pull/1792#discussion_r387340905
-        let parsed = match fmt {
-            Either::A(string) => FormatSpec::parse(string.as_str()),
-            Either::B(bytes) => FormatSpec::parse(std::str::from_utf8(&bytes).unwrap()),
-        };
-        let format_spec = parsed.map_err(|e| new_struct_error(vm, e))?;
+        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
         Ok(format_spec.size())
     }
 
@@ -703,12 +759,12 @@ mod _struct {
             fmt: Either<PyStringRef, PyBytesRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
+            let spec = FormatSpec::decode_and_parse(vm, &fmt)?;
             let fmt_str = match fmt {
                 Either::A(s) => s,
                 Either::B(b) => PyString::from(std::str::from_utf8(b.get_value()).unwrap())
                     .into_ref_with_type(vm, vm.ctx.str_type())?,
             };
-            let spec = FormatSpec::parse(fmt_str.as_str()).map_err(|e| new_struct_error(vm, e))?;
             PyStruct { spec, fmt_str }.into_ref_with_type(vm, cls)
         }
 
@@ -726,9 +782,33 @@ mod _struct {
         fn pack(&self, args: Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             self.spec.pack(args.as_ref(), vm)
         }
+
+        #[pymethod]
+        fn pack_into(
+            &self,
+            buffer: PyBuffer,
+            offset: isize,
+            args: Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let offset = get_buffer_offset(buffer.len(), offset, self.size(), vm)?;
+            buffer.with_ref(|data| self.spec.pack_into(&mut &mut data[offset..], args.as_ref(), vm))
+        }
+
         #[pymethod]
         fn unpack(&self, data: PyBytesRef, vm: &VirtualMachine) -> PyResult<PyTuple> {
             self.spec.unpack(data.get_value(), vm)
+        }
+
+        #[pymethod]
+        fn unpack_from(
+            &self,
+            buffer: PyBytesRef,
+            offset: isize,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyTuple> {
+            let offset = get_buffer_offset(buffer.len(), offset, self.size(), vm)?;
+            self.spec.unpack(&buffer.get_value()[offset..], vm)
         }
     }
 

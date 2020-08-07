@@ -38,3 +38,37 @@ impl PyBytesLike {
         }
     }
 }
+
+pub enum PyBuffer {
+    Bytearray(PyByteArrayRef),
+}
+
+impl TryFromObject for PyBuffer {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match_class!(match obj {
+            b @ PyByteArray => Ok(PyBuffer::Bytearray(b)),
+            obj =>
+                Err(vm.new_type_error(format!("a buffer object is required, not {}", obj.class()))),
+        })
+    }
+}
+
+impl PyBuffer {
+    pub fn len(&self) -> usize {
+        match self {
+            PyBuffer::Bytearray(b) => b.borrow_value().len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+
+    #[inline]
+    pub fn with_ref<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+        match self {
+            PyBuffer::Bytearray(b) => f(&mut b.borrow_value_mut().elements),
+        }
+    }
+}
