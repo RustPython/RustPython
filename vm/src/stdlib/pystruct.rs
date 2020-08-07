@@ -21,7 +21,7 @@ mod _struct {
     use std::io::{Cursor, Read, Write};
     use std::iter::Peekable;
 
-    use crate::byteslike::PyBuffer;
+    use crate::byteslike::{PyBuffer, PyBytesLike};
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
     use crate::obj::{
@@ -100,11 +100,11 @@ mod _struct {
         fn parse(fmt: &str) -> Result<FormatSpec, String> {
             let mut chars = fmt.chars().peekable();
 
-            // First determine "<", ">","!" or "="
-            let endianness = parse_endiannes(&mut chars);
+            // First determine "@", "<", ">","!" or "="
+            let (is_native_size, endianness) = parse_size_and_endiannes(&mut chars);
 
             // Now, analyze struct string furter:
-            let codes = parse_format_codes(&mut chars)?;
+            let codes = parse_format_codes(&mut chars, is_native_size)?;
 
             Ok(FormatSpec { endianness, codes })
         }
@@ -190,36 +190,36 @@ mod _struct {
 
     /// Parse endianness
     /// See also: https://docs.python.org/3/library/struct.html?highlight=struct#byte-order-size-and-alignment
-    fn parse_endiannes<I>(chars: &mut Peekable<I>) -> Endianness
+    fn parse_size_and_endiannes<I>(chars: &mut Peekable<I>) -> (bool, Endianness)
     where
         I: Sized + Iterator<Item = char>,
     {
         match chars.peek() {
             Some('@') => {
                 chars.next().unwrap();
-                Endianness::Native
+                (true, Endianness::Native)
             }
             Some('=') => {
                 chars.next().unwrap();
-                Endianness::Native
+                (false, Endianness::Native)
             }
             Some('<') => {
                 chars.next().unwrap();
-                Endianness::Little
+                (false, Endianness::Little)
             }
             Some('>') => {
                 chars.next().unwrap();
-                Endianness::Big
+                (false, Endianness::Big)
             }
             Some('!') => {
                 chars.next().unwrap();
-                Endianness::Network
+                (false, Endianness::Network)
             }
-            _ => Endianness::Native,
+            _ => (true, Endianness::Native),
         }
     }
 
-    fn parse_format_codes<I>(chars: &mut Peekable<I>) -> Result<Vec<FormatCode>, String>
+    fn parse_format_codes<I>(chars: &mut Peekable<I>, is_native_size: bool) -> Result<Vec<FormatCode>, String>
     where
         I: Sized + Iterator<Item = char>,
     {
@@ -243,6 +243,9 @@ mod _struct {
             // determine format char:
             let c = chars.next();
             match c {
+                Some('n') | Some('N') if !is_native_size => {
+                    return Err("bad char in struct format".to_owned())
+                }
                 Some(c) if is_supported_format_character(c) => {
                     codes.push(FormatCode { repeat, code: c })
                 }
@@ -667,11 +670,11 @@ mod _struct {
     #[pyfunction]
     fn unpack(
         fmt: Either<PyStringRef, PyBytesRef>,
-        buffer: PyBytesRef,
+        buffer: PyBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<PyTuple> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
-        format_spec.unpack(buffer.get_value(), vm)
+        buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
 
     fn unpack_code<Endianness>(
@@ -721,24 +724,47 @@ mod _struct {
         Ok(())
     }
 
+    #[derive(FromArgs)]
+    struct UpdateFromArgs {
+        buffer: PyBytesLike,
+        #[pyarg(positional_or_keyword, default = "0")]
+        offset: isize
+    }
+
     #[pyfunction]
     fn unpack_from(
         fmt: Either<PyStringRef, PyBytesRef>,
-        buffer: PyBytesRef,
-        offset: isize,
+        args: UpdateFromArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyTuple> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
-        let offset = get_buffer_offset(buffer.len(), offset, format_spec.size(), vm)?;
-        format_spec.unpack(&buffer.get_value()[offset..], vm)
+        let size = format_spec.size();
+        let offset = get_buffer_offset(args.buffer.len(), args.offset, size, vm)?;
+        args.buffer.with_ref(|buf| format_spec.unpack(&buf[offset..offset+size], vm))
     }
 
     #[pyclass(name = "unpack_iterator")]
     #[derive(Debug)]
     struct UnpackIterator {
         format_spec: FormatSpec,
-        buffer: PyBytesRef,
+        buffer: PyBytesLike,
         offset: AtomicCell<usize>,
+    }
+
+    impl UnpackIterator {
+        fn new(vm: &VirtualMachine, format_spec: FormatSpec, buffer: PyBytesLike) -> PyResult<UnpackIterator> {
+            if format_spec.size() == 0 {
+                Err(new_struct_error(vm, "cannot iteratively unpack with a struct of length 0".to_owned()))
+            } else if buffer.len() % format_spec.size() != 0 {
+                Err(new_struct_error(vm, format!("iterative unpacking requires a buffer of a multiple of {} bytes", format_spec.size())))
+            } else {
+                Ok(UnpackIterator {
+                    format_spec,
+                    buffer,
+                    offset: AtomicCell::new(0),
+                })
+            }
+        }
     }
 
     impl PyValue for UnpackIterator {
@@ -756,24 +782,30 @@ mod _struct {
             if offset + size > self.buffer.len() {
                 Err(objiter::new_stop_iteration(vm))
             } else {
-                self.format_spec
-                    .unpack(&self.buffer.get_value()[offset..offset + size], vm)
+                self.buffer.with_ref(|buf| self.format_spec
+                    .unpack(&buf[offset..offset + size], vm))
             }
+        }
+
+        #[pymethod(magic)]
+        fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
+            zelf
+        }
+
+        #[pymethod(magic)]
+        fn length_hint(&self) -> usize {
+            self.buffer.len().saturating_sub(self.offset.load()) / self.format_spec.size()
         }
     }
 
     #[pyfunction]
     fn iter_unpack(
         fmt: Either<PyStringRef, PyBytesRef>,
-        buffer: PyBytesRef,
+        buffer: PyBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<UnpackIterator> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
-        Ok(UnpackIterator {
-            format_spec,
-            buffer,
-            offset: AtomicCell::new(0),
-        })
+        UnpackIterator::new(vm, format_spec, buffer)
     }
 
     #[pyfunction]
@@ -843,28 +875,24 @@ mod _struct {
         }
 
         #[pymethod]
-        fn unpack(&self, data: PyBytesRef, vm: &VirtualMachine) -> PyResult<PyTuple> {
-            self.spec.unpack(data.get_value(), vm)
+        fn unpack(&self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<PyTuple> {
+            data.with_ref(|buf| self.spec.unpack(buf, vm))
         }
 
         #[pymethod]
         fn unpack_from(
             &self,
-            buffer: PyBytesRef,
-            offset: isize,
+            args: UpdateFromArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyTuple> {
-            let offset = get_buffer_offset(buffer.len(), offset, self.size(), vm)?;
-            self.spec.unpack(&buffer.get_value()[offset..], vm)
+            let size = self.size();
+            let offset = get_buffer_offset(args.buffer.len(), args.offset, size, vm)?;
+            args.buffer.with_ref(|buf| self.spec.unpack(&buf[offset..offset+size], vm))
         }
 
         #[pymethod]
-        fn iter_unpack(&self, buffer: PyBytesRef) -> PyResult<UnpackIterator> {
-            Ok(UnpackIterator {
-                format_spec: self.spec.clone(),
-                buffer,
-                offset: AtomicCell::new(0),
-            })
+        fn iter_unpack(&self, buffer: PyBytesLike, vm: &VirtualMachine) -> PyResult<UnpackIterator> {
+            UnpackIterator::new(vm, self.spec.clone(), buffer)
         }
     }
 

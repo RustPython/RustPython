@@ -320,8 +320,6 @@ class StructTest(unittest.TestCase):
             t = IntTester(format)
             t.run()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nN_code(self):
         # n and N don't exist in standard sizes
         def assertStructError(func, *args, **kwargs):
@@ -352,7 +350,7 @@ class StructTest(unittest.TestCase):
             self.assertEqual(got, expectedback)
 
     # TODO: RUSTPYTHON
-    @unittest.skip("")
+    @unittest.expectedFailure
     def test_705836(self):
         # SF bug 705836.  "<f" and ">f" had a severe rounding bug, where a carry
         # from the low-order discarded bits could propagate into the exponent
@@ -394,8 +392,6 @@ class StructTest(unittest.TestCase):
         self.assertRaises(struct.error, struct.pack, 'P', 1.0)
         self.assertRaises(struct.error, struct.pack, 'P', 1.5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unpack_from(self):
         test_string = b'abcd01234'
         fmt = '4s'
@@ -527,7 +523,8 @@ class StructTest(unittest.TestCase):
         for c in [b'\x01', b'\x7f', b'\xff', b'\x0f', b'\xf0']:
             self.assertTrue(struct.unpack('>?', c)[0])
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_count_overflow(self):
         hugecount = '{}b'.format(sys.maxsize+1)
         self.assertRaises(struct.error, struct.calcsize, hugecount)
@@ -535,8 +532,6 @@ class StructTest(unittest.TestCase):
         hugecount2 = '{}b{}H'.format(sys.maxsize//2, sys.maxsize//2)
         self.assertRaises(struct.error, struct.calcsize, hugecount2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_trailing_counter(self):
         store = array.array('b', b' '*100)
 
@@ -676,8 +671,6 @@ class UnpackIteratorTest(unittest.TestCase):
     Tests for iterative unpacking (struct.Struct.iter_unpack).
     """
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_construct(self):
         def _check_iterator(it):
             self.assertIsInstance(it, abc.Iterator)
@@ -720,8 +713,6 @@ class UnpackIteratorTest(unittest.TestCase):
         self.assertRaises(StopIteration, next, it)
         self.assertRaises(StopIteration, next, it)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_length_hint(self):
         lh = operator.length_hint
         s = struct.Struct('>IB')

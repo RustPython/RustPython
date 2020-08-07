@@ -5,6 +5,7 @@ use crate::pyobject::{PyResult, TryFromObject, TypeProtocol};
 use crate::stdlib::array::{PyArray, PyArrayRef};
 use crate::vm::VirtualMachine;
 
+#[derive(Debug)]
 pub enum PyBytesLike {
     Bytes(PyBytesRef),
     Bytearray(PyByteArrayRef),
@@ -26,6 +27,18 @@ impl TryFromObject for PyBytesLike {
 }
 
 impl PyBytesLike {
+    pub fn len(&self) -> usize {
+        match self {
+            PyBytesLike::Bytes(b) => b.len(),
+            PyBytesLike::Bytearray(b) => b.borrow_value().len(),
+            PyBytesLike::Array(array) => array.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn to_cow(&self) -> std::borrow::Cow<[u8]> {
         match self {
             PyBytesLike::Bytes(b) => b.get_value().into(),
