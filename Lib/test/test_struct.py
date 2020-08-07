@@ -165,6 +165,7 @@ class StructTest(unittest.TestCase):
         self.assertGreaterEqual(struct.calcsize('n'), struct.calcsize('i'))
         self.assertGreaterEqual(struct.calcsize('n'), struct.calcsize('P'))
 
+    @unittest.skip("Slow")
     def test_integers(self):
         # Integer tests (bBhHiIlLqQnN).
         import binascii
@@ -698,8 +699,6 @@ class UnpackIteratorTest(unittest.TestCase):
         with self.assertRaises(struct.error):
             s.iter_unpack(b"12")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iterate(self):
         s = struct.Struct('>IB')
         b = bytes(range(1, 16))
@@ -738,8 +737,6 @@ class UnpackIteratorTest(unittest.TestCase):
         self.assertRaises(StopIteration, next, it)
         self.assertEqual(lh(it), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_module_func(self):
         # Sanity check for the global struct.iter_unpack()
         it = struct.iter_unpack('>IB', bytes(range(1, 11)))

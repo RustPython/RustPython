@@ -15,6 +15,7 @@ use crate::VirtualMachine;
 #[pymodule]
 mod _struct {
     use byteorder::{ReadBytesExt, WriteBytesExt};
+    use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
     use num_traits::ToPrimitive;
     use std::io::{Cursor, Read, Write};
@@ -24,7 +25,7 @@ mod _struct {
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
     use crate::obj::{
-        objbool::IntoPyBool, objbytes::PyBytesRef, objstr::PyString, objstr::PyStringRef,
+        objbool::IntoPyBool, objbytes::PyBytesRef, objiter, objstr::PyString, objstr::PyStringRef,
         objtuple::PyTuple, objtype::PyClassRef,
     };
     use crate::pyobject::{
@@ -32,7 +33,7 @@ mod _struct {
     };
     use crate::VirtualMachine;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     enum Endianness {
         Native,
         Little,
@@ -40,7 +41,7 @@ mod _struct {
         Network,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct FormatCode {
         repeat: u32,
         code: char,
@@ -73,7 +74,7 @@ mod _struct {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct FormatSpec {
         endianness: Endianness,
         codes: Vec<FormatCode>,
@@ -732,6 +733,49 @@ mod _struct {
         format_spec.unpack(&buffer.get_value()[offset..], vm)
     }
 
+    #[pyclass(name = "unpack_iterator")]
+    #[derive(Debug)]
+    struct UnpackIterator {
+        format_spec: FormatSpec,
+        buffer: PyBytesRef,
+        offset: AtomicCell<usize>,
+    }
+
+    impl PyValue for UnpackIterator {
+        fn class(vm: &VirtualMachine) -> PyClassRef {
+            vm.class("_struct", "unpack_iterator")
+        }
+    }
+
+    #[pyimpl]
+    impl UnpackIterator {
+        #[pymethod(magic)]
+        fn next(&self, vm: &VirtualMachine) -> PyResult<PyTuple> {
+            let size = self.format_spec.size();
+            let offset = self.offset.fetch_add(size);
+            if offset + size > self.buffer.len() {
+                Err(objiter::new_stop_iteration(vm))
+            } else {
+                self.format_spec
+                    .unpack(&self.buffer.get_value()[offset..offset + size], vm)
+            }
+        }
+    }
+
+    #[pyfunction]
+    fn iter_unpack(
+        fmt: Either<PyStringRef, PyBytesRef>,
+        buffer: PyBytesRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<UnpackIterator> {
+        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+        Ok(UnpackIterator {
+            format_spec,
+            buffer,
+            offset: AtomicCell::new(0),
+        })
+    }
+
     #[pyfunction]
     fn calcsize(fmt: Either<PyStringRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<usize> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
@@ -812,6 +856,15 @@ mod _struct {
         ) -> PyResult<PyTuple> {
             let offset = get_buffer_offset(buffer.len(), offset, self.size(), vm)?;
             self.spec.unpack(&buffer.get_value()[offset..], vm)
+        }
+
+        #[pymethod]
+        fn iter_unpack(&self, buffer: PyBytesRef) -> PyResult<UnpackIterator> {
+            Ok(UnpackIterator {
+                format_spec: self.spec.clone(),
+                buffer,
+                offset: AtomicCell::new(0),
+            })
         }
     }
 
