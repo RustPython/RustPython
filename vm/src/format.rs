@@ -801,7 +801,7 @@ impl FormatString {
     fn format_internal(
         &self,
         vm: &VirtualMachine,
-        field_func: &mut impl FnMut(&FieldType) -> PyResult,
+        field_func: &mut impl FnMut(FieldType) -> PyResult,
     ) -> PyResult<String> {
         let mut final_string = String::new();
         for part in &self.format_parts {
@@ -814,7 +814,7 @@ impl FormatString {
                     let FieldName { field_type, parts } = FieldName::parse(field_name.as_str())
                         .map_err(|e| e.into_pyexception(vm))?;
 
-                    let mut argument = field_func(&field_type)?;
+                    let mut argument = field_func(field_type)?;
 
                     for name_part in parts {
                         match name_part {
@@ -873,13 +873,13 @@ impl FormatString {
                 seen_index = true;
                 arguments
                     .args
-                    .get(*index)
+                    .get(index)
                     .cloned()
                     .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))
             }
             FieldType::Keyword(keyword) => arguments
                 .get_optional_kwarg(&keyword)
-                .ok_or_else(|| vm.new_key_error(vm.new_str(keyword.to_owned()))),
+                .ok_or_else(|| vm.new_key_error(vm.ctx.new_str(keyword))),
         })
     }
 
@@ -906,7 +906,7 @@ fn call_object_format(
         Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", vec![])?,
         None => argument,
     };
-    let returned_type = vm.ctx.new_str(format_spec.to_owned());
+    let returned_type = vm.ctx.new_str(format_spec);
 
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.types.str_type) {
