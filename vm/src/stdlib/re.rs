@@ -13,7 +13,7 @@ use crate::function::{Args, OptionalArg};
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject};
+use crate::pyobject::{BorrowValue, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject};
 use crate::vm::VirtualMachine;
 
 #[pyclass(name = "Pattern")]
@@ -225,7 +225,7 @@ fn do_split(
 ) -> PyResult {
     if maxsplit
         .as_ref()
-        .map_or(false, |i| i.as_bigint().is_negative())
+        .map_or(false, |i| i.borrow_value().is_negative())
     {
         return Ok(vm.ctx.new_list(vec![search_text.into_object()]));
     }

@@ -16,8 +16,8 @@ use crate::bytesinner::{
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
-    Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::pystr::{self, PyCommonString};
 use crate::vm::VirtualMachine;
@@ -338,7 +338,7 @@ impl PyByteArray {
 
     #[pymethod(name = "remove")]
     fn remove(&self, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-        let x = x.as_bigint().byte_or(vm)?;
+        let x = x.borrow_value().byte_or(vm)?;
 
         let bytes = &mut self.borrow_value_mut().elements;
         let pos = bytes
@@ -480,7 +480,7 @@ impl PyByteArray {
     fn append(&self, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
         self.borrow_value_mut()
             .elements
-            .push(x.as_bigint().byte_or(vm)?);
+            .push(x.borrow_value().byte_or(vm)?);
         Ok(())
     }
 
@@ -489,7 +489,7 @@ impl PyByteArray {
         for x in iterable_of_ints.iter(vm)? {
             let x = x?;
             let x = PyIntRef::try_from_object(vm, x)?;
-            let x = x.as_bigint().byte_or(vm)?;
+            let x = x.borrow_value().byte_or(vm)?;
             self.borrow_value_mut().elements.push(x);
         }
 
@@ -504,7 +504,7 @@ impl PyByteArray {
             .to_isize()
             .ok_or_else(|| vm.new_overflow_error("bytearray too big".to_owned()))?;
 
-        let x = x.as_bigint().byte_or(vm)?;
+        let x = x.borrow_value().byte_or(vm)?;
 
         if index >= len {
             bytes.push(x);

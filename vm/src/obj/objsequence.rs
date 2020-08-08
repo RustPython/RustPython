@@ -9,7 +9,7 @@ use super::objnone::PyNone;
 use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
 use crate::function::OptionalArg;
-use crate::pyobject::{PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::pyobject::{BorrowValue, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 pub trait PySliceableSequence {
@@ -137,7 +137,7 @@ impl TryFromObject for SequenceIndex {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         match_class!(match obj {
             i @ PyInt => i
-                .as_bigint()
+                .borrow_value()
                 .to_isize()
                 .map(SequenceIndex::Int)
                 .ok_or_else(|| vm
@@ -154,7 +154,7 @@ impl TryFromObject for SequenceIndex {
 /// Get the index into a sequence like type. Get it from a python integer
 /// object, accounting for negative index, and out of bounds issues.
 pub fn get_sequence_index(vm: &VirtualMachine, index: &PyIntRef, length: usize) -> PyResult<usize> {
-    if let Some(value) = index.as_bigint().to_i64() {
+    if let Some(value) = index.borrow_value().to_i64() {
         if value < 0 {
             let from_end: usize = -value as usize;
             if from_end > length {
@@ -219,7 +219,7 @@ pub fn get_item(
     subscript: PyObjectRef,
 ) -> PyResult {
     if let Some(i) = subscript.payload::<PyInt>() {
-        return match i.as_bigint().to_isize() {
+        return match i.borrow_value().to_isize() {
             Some(value) => {
                 if let Some(pos_index) = get_pos(value, elements.len()) {
                     let obj = elements[pos_index].clone();
@@ -265,7 +265,7 @@ pub fn is_valid_slice_arg(
 ) -> PyResult<Option<BigInt>> {
     if let OptionalArg::Present(value) = arg {
         match_class!(match value {
-            i @ PyInt => Ok(Some(i.as_bigint().clone())),
+            i @ PyInt => Ok(Some(i.borrow_value().clone())),
             _obj @ PyNone => Ok(None),
             _ => Err(vm.new_type_error(
                 "slice indices must be integers or None or have an __index__ method".to_owned()
@@ -287,7 +287,7 @@ pub fn opt_len(obj: &PyObjectRef, vm: &VirtualMachine) -> Option<PyResult<usize>
                     len.lease_class().name
                 ))
             })?
-            .as_bigint();
+            .borrow_value();
         if len.is_negative() {
             return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
         }

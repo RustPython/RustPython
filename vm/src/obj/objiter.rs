@@ -10,8 +10,8 @@ use super::objsequence;
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{
-    PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    BorrowValue, PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -139,7 +139,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
                 result.lease_class().name
             ))
         })?
-        .as_bigint();
+        .borrow_value();
     if result.is_negative() {
         return Err(vm.new_value_error("__length_hint__() should return >= 0".to_owned()));
     }

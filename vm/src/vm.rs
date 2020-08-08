@@ -41,7 +41,7 @@ use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TryIntoRef, TypeProtocol,
+    TryFromObject, TryIntoRef, TypeProtocol, BorrowValue
 };
 use crate::scope::Scope;
 use crate::stdlib;
@@ -900,7 +900,7 @@ impl VirtualMachine {
             value
                 .payload::<PyList>()
                 .unwrap()
-                .borrow_elements()
+                .borrow_value()
                 .iter()
                 .map(|obj| T::try_from_object(self, obj.clone()))
                 .collect()
@@ -1412,7 +1412,7 @@ impl VirtualMachine {
         // TODO: tp_hash
         let hash_obj = self.call_method(obj, "__hash__", vec![])?;
         match hash_obj.payload_if_subclass::<PyInt>(self) {
-            Some(py_int) => Ok(rustpython_common::hash::hash_bigint(py_int.as_bigint())),
+            Some(py_int) => Ok(rustpython_common::hash::hash_bigint(py_int.borrow_value())),
             None => Err(self.new_type_error("__hash__ method should return an integer".to_owned())),
         }
     }

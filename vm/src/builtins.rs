@@ -28,8 +28,8 @@ mod decl {
     use crate::obj::objstr::{PyString, PyStringRef};
     use crate::obj::objtype::{self, PyClassRef};
     use crate::pyobject::{
-        Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef, PyResult, PyValue,
-        TryFromObject, TypeProtocol,
+        BorrowValue, Either, IdProtocol, ItemProtocol, PyCallable, PyIterable, PyObjectRef,
+        PyResult, PyValue, TryFromObject, TypeProtocol,
     };
     use crate::readline::{Readline, ReadlineResult};
     use crate::scope::Scope;
@@ -76,7 +76,7 @@ mod decl {
 
     #[pyfunction]
     fn bin(x: PyIntRef) -> String {
-        let x = x.as_bigint();
+        let x = x.borrow_value();
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
         } else {
@@ -338,7 +338,7 @@ mod decl {
 
     #[pyfunction]
     fn hex(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        let n = number.as_bigint();
+        let n = number.borrow_value();
         let s = if n.is_negative() {
             format!("-0x{:x}", -n)
         } else {
@@ -544,7 +544,7 @@ mod decl {
 
     #[pyfunction]
     fn oct(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
-        let n = number.as_bigint();
+        let n = number.borrow_value();
         let s = if n.is_negative() {
             format!("-0o{:o}", n.abs())
         } else {
@@ -616,7 +616,7 @@ mod decl {
                             .to_owned(),
                     ));
                 }
-                let m = m.as_bigint();
+                let m = m.borrow_value();
                 if m.is_zero() {
                     return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_owned()));
                 }

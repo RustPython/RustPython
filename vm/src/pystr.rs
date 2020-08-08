@@ -1,7 +1,9 @@
 use crate::cformat::CFormatString;
 use crate::function::{single_or_tuple_any, OptionalOption};
 use crate::obj::objint::PyIntRef;
-use crate::pyobject::{PyIterator, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::pyobject::{
+    BorrowValue, PyIterator, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 use num_traits::{cast::ToPrimitive, sign::Signed};
 use std::str::FromStr;
@@ -77,7 +79,7 @@ impl StartsEndsWithArgs {
 }
 
 fn cap_to_isize(py_int: PyIntRef) -> isize {
-    let big = py_int.as_bigint();
+    let big = py_int.borrow_value();
     big.to_isize().unwrap_or_else(|| {
         if big.is_negative() {
             std::isize::MIN

@@ -23,8 +23,8 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    BorrowValue, Either, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -752,7 +752,7 @@ mod _os {
             if tup.len() != 2 {
                 return None;
             }
-            let i = |e: &PyObjectRef| e.clone().downcast::<PyInt>().ok()?.as_bigint().to_i64();
+            let i = |e: &PyObjectRef| e.clone().downcast::<PyInt>().ok()?.borrow_value().to_i64();
             Some((i(&tup[0])?, i(&tup[1])?))
         };
         let (acc, modif) = match (args.times, args.ns) {

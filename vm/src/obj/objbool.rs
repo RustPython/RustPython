@@ -3,8 +3,8 @@ use num_traits::Zero;
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult, TryFromObject,
-    TypeProtocol,
+    BorrowValue, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -59,7 +59,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
                 let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
                 match bool_obj.payload::<PyInt>() {
                     Some(int_obj) => {
-                        let len_val = int_obj.as_bigint();
+                        let len_val = int_obj.borrow_value();
                         if len_val.sign() == Sign::Minus {
                             return Err(
                                 vm.new_value_error("__len__() should return >= 0".to_owned())
@@ -185,7 +185,7 @@ pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<bool> {
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> bool {
-    !obj.payload::<PyInt>().unwrap().as_bigint().is_zero()
+    !obj.payload::<PyInt>().unwrap().borrow_value().is_zero()
 }
 
 pub fn get_py_int(obj: &PyObjectRef) -> &PyInt {

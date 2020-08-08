@@ -7,7 +7,7 @@ use crate::obj::{
     objbool, objdict::PyDictRef, objfloat, objint, objlist::PyList, objstr, objtuple::PyTuple,
     objtype,
 };
-use crate::pyobject::{IdProtocol, ItemProtocol, PyObjectRef, TypeProtocol};
+use crate::pyobject::{BorrowValue, IdProtocol, ItemProtocol, PyObjectRef, TypeProtocol};
 use crate::VirtualMachine;
 
 #[inline]
@@ -85,7 +85,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 serializer.serialize_i64(v.to_i64().ok_or_else(int_too_large)?)
             }
         } else if let Some(list) = self.pyobject.payload_if_subclass::<PyList>(self.vm) {
-            serialize_seq_elements(serializer, &list.borrow_elements())
+            serialize_seq_elements(serializer, &list.borrow_value())
         } else if let Some(tuple) = self.pyobject.payload_if_subclass::<PyTuple>(self.vm) {
             serialize_seq_elements(serializer, tuple.as_slice())
         } else if objtype::isinstance(self.pyobject, &self.vm.ctx.types.dict_type) {

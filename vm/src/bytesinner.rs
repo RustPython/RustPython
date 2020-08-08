@@ -15,7 +15,8 @@ use crate::obj::objsequence::{PySliceableSequence, SequenceIndex};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::pyobject::{
-    Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    BorrowValue, Either, PyComparisonValue, PyIterable, PyObjectRef, PyResult, TryFromObject,
+    TypeProtocol,
 };
 use crate::pystr::{self, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper};
 use crate::vm::VirtualMachine;
@@ -165,7 +166,7 @@ impl ByteInnerFindOptions {
     ) -> PyResult<(Vec<u8>, std::ops::Range<usize>)> {
         let sub = match self.sub {
             Either::A(v) => v.elements.to_vec(),
-            Either::B(int) => vec![int.as_bigint().byte_or(vm)?],
+            Either::B(int) => vec![int.borrow_value().byte_or(vm)?],
         };
         let range = pystr::adjust_indices(self.start, self.end, len);
         Ok((sub, range))
@@ -304,7 +305,7 @@ impl PyBytesInner {
     ) -> PyResult<bool> {
         Ok(match needle {
             Either::A(byte) => self.elements.contains_str(byte.elements.as_slice()),
-            Either::B(int) => self.elements.contains(&int.as_bigint().byte_or(vm)?),
+            Either::B(int) => self.elements.contains(&int.borrow_value().byte_or(vm)?),
         })
     }
 
@@ -327,7 +328,7 @@ impl PyBytesInner {
         if let Some(idx) = self.elements.get_pos(int) {
             let result = match_class!(match object {
                 i @ PyInt => {
-                    if let Some(value) = i.as_bigint().to_u8() {
+                    if let Some(value) = i.borrow_value().to_u8() {
                         Ok(value)
                     } else {
                         Err(vm.new_value_error("byte must be in range(0, 256)".to_owned()))

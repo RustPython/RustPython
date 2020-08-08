@@ -13,7 +13,7 @@ use crate::function::{Args, OptionalArg};
 use crate::obj::objfloat::{self, IntoPyFloat, PyFloatRef};
 use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objtype;
-use crate::pyobject::{Either, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 use rustpython_common::float_ops;
 
@@ -268,9 +268,9 @@ fn math_ldexp(
 ) -> PyResult<f64> {
     let value = match value {
         Either::A(f) => f.to_f64(),
-        Either::B(z) => objint::try_float(z.as_bigint(), vm)?,
+        Either::B(z) => objint::try_float(z.borrow_value(), vm)?,
     };
-    Ok(value * (2_f64).powf(objint::try_float(i.as_bigint(), vm)?))
+    Ok(value * (2_f64).powf(objint::try_float(i.borrow_value(), vm)?))
 }
 
 fn math_perf_arb_len_int_op<F>(args: Args<PyIntRef>, op: F, default: BigInt) -> BigInt
@@ -282,10 +282,10 @@ where
     if argvec.is_empty() {
         return default;
     } else if argvec.len() == 1 {
-        return op(argvec[0].as_bigint(), &argvec[0]);
+        return op(argvec[0].borrow_value(), &argvec[0]);
     }
 
-    let mut res = argvec[0].as_bigint().clone();
+    let mut res = argvec[0].borrow_value().clone();
     for num in argvec[1..].iter() {
         res = op(&res, &num)
     }
@@ -294,16 +294,16 @@ where
 
 fn math_gcd(args: Args<PyIntRef>) -> BigInt {
     use num_integer::Integer;
-    math_perf_arb_len_int_op(args, |x, y| x.gcd(y.as_bigint()), BigInt::zero())
+    math_perf_arb_len_int_op(args, |x, y| x.gcd(y.borrow_value()), BigInt::zero())
 }
 
 fn math_lcm(args: Args<PyIntRef>) -> BigInt {
     use num_integer::Integer;
-    math_perf_arb_len_int_op(args, |x, y| x.lcm(y.as_bigint()), BigInt::one())
+    math_perf_arb_len_int_op(args, |x, y| x.lcm(y.borrow_value()), BigInt::one())
 }
 
 fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-    let value = value.as_bigint();
+    let value = value.borrow_value();
     if *value < BigInt::zero() {
         return Err(vm.new_value_error("factorial() not defined for negative values".to_owned()));
     } else if *value <= BigInt::one() {

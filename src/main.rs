@@ -10,7 +10,7 @@ use rustpython_vm::{
     exceptions::print_exception,
     match_class,
     obj::{objint::PyInt, objtype},
-    pyobject::{ItemProtocol, PyResult},
+    pyobject::{BorrowValue, ItemProtocol, PyResult},
     scope::Scope,
     util, InitParameter, PySettings, VirtualMachine,
 };
@@ -57,7 +57,7 @@ fn main() {
                 1 => match_class!(match args.as_slice()[0].clone() {
                     i @ PyInt => {
                         use num_traits::cast::ToPrimitive;
-                        process::exit(i.as_bigint().to_i32().unwrap_or(0));
+                        process::exit(i.borrow_value().to_i32().unwrap_or(0));
                     }
                     arg => {
                         if vm.is_none(&arg) {

@@ -19,7 +19,7 @@ use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl, PyComparisonValue,
-    PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, BorrowValue
 };
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
@@ -53,8 +53,10 @@ impl fmt::Display for PyInt {
 
 pub type PyIntRef = PyRef<PyInt>;
 
-impl PyInt {
-    pub fn as_bigint(&self) -> &BigInt {
+impl<'a> BorrowValue<'a> for PyInt {
+    type Borrowed = &'a BigInt;
+
+    fn borrow_value(&'a self) -> Self::Borrowed {
         &self.value
     }
 }
@@ -261,7 +263,7 @@ impl PyInt {
                             base.lease_class().name
                         )))
                     })?
-                    .as_bigint()
+                    .borrow_value()
                     .to_u32()
                     .filter(|&v| v == 0 || (2..=36).contains(&v))
                     .ok_or_else(|| {
@@ -635,12 +637,12 @@ impl PyInt {
             false
         };
 
-        let value = self.as_bigint();
+        let value = self.borrow_value();
         if value.sign() == Sign::Minus && !signed {
             return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_owned()));
         }
 
-        let byte_len = if let Some(byte_len) = args.length.as_bigint().to_usize() {
+        let byte_len = if let Some(byte_len) = args.length.borrow_value().to_usize() {
             byte_len
         } else {
             return Err(
@@ -785,7 +787,7 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
             })?;
             let result = vm.invoke(&method, PyFuncArgs::default())?;
             return match result.payload::<PyInt>() {
-                Some(int_obj) => Ok(int_obj.as_bigint().clone()),
+                Some(int_obj) => Ok(int_obj.borrow_value().clone()),
                 None => Err(vm.new_type_error(format!(
                     "TypeError: __int__ returned non-int (type '{}')",
                     result.class().name

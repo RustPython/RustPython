@@ -9,7 +9,8 @@ use super::objstr::PyString;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
@@ -233,7 +234,7 @@ impl PyComplex {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(obj) => match_class!(match obj {
                 i @ PyInt => {
-                    objint::try_float(i.as_bigint(), vm)?
+                    objint::try_float(i.borrow_value(), vm)?
                 }
                 f @ PyFloat => {
                     f.to_f64()

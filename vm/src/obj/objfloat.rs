@@ -10,8 +10,8 @@ use super::objtype::PyClassRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
-    IntoPyObject, IntoPyResult, PyArithmaticValue::*, PyClassImpl, PyComparisonValue, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyObject, IntoPyResult, PyArithmaticValue::*, PyClassImpl, PyComparisonValue,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use rustpython_common::{float_ops, hash};
@@ -56,7 +56,7 @@ pub fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>
     let v = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         Some(float.value)
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
-        Some(objint::try_float(int.as_bigint(), vm)?)
+        Some(objint::try_float(int.borrow_value(), vm)?)
     } else {
         None
     };
@@ -179,7 +179,7 @@ impl PyFloat {
         if let Some(other) = other.payload_if_subclass::<PyFloat>(vm) {
             Implemented(float_op(self.value, other.value))
         } else if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
-            Implemented(int_op(self.value, other.as_bigint()))
+            Implemented(int_op(self.value, other.borrow_value()))
         } else {
             NotImplemented
         }
@@ -399,7 +399,7 @@ impl PyFloat {
     fn round(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
         let ndigits = ndigits.flatten();
         if let Some(ndigits) = ndigits {
-            let ndigits = ndigits.as_bigint();
+            let ndigits = ndigits.borrow_value();
             if ndigits.is_zero() {
                 let fract = self.value.fract();
                 let value = if (fract.abs() - 0.5).abs() < std::f64::EPSILON {
@@ -523,7 +523,7 @@ fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     let value = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         float.value
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
-        objint::try_float(int.as_bigint(), vm)?
+        objint::try_float(int.borrow_value(), vm)?
     } else if let Some(s) = obj.payload_if_subclass::<PyString>(vm) {
         float_ops::parse_str(s.as_str().trim()).ok_or_else(|| {
             vm.new_value_error(format!("could not convert string to float: '{}'", s))
