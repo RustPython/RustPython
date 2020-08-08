@@ -774,8 +774,6 @@ class BuiltinTest(unittest.TestCase):
         self.assertRaises(TypeError, issubclass, E, 'foo')
         self.assertRaises(TypeError, issubclass)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_len(self):
         self.assertEqual(len('123'), 3)
         self.assertEqual(len(()), 0)
