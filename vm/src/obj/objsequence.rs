@@ -291,9 +291,14 @@ pub fn opt_len(obj: &PyObjectRef, vm: &VirtualMachine) -> Option<PyResult<usize>
         if len.is_negative() {
             return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
         }
-        len.to_usize().ok_or_else(|| {
-            vm.new_overflow_error("cannot fit __len__() result into usize".to_owned())
-        })
+        let len = if let Some(len) = len.to_isize() {
+            len
+        } else {
+            return Err(
+                vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
+            );
+        };
+        Ok(len as usize)
     })
 }
 
