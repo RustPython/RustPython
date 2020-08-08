@@ -70,7 +70,7 @@ mod decl {
     #[pyfunction]
     fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         let repr = vm.to_repr(&obj)?;
-        let ascii = to_ascii(repr.as_str());
+        let ascii = to_ascii(repr.borrow_value());
         Ok(ascii)
     }
 
@@ -121,11 +121,11 @@ mod decl {
     fn compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
         // TODO: compile::compile should probably get bytes
         let source = match &args.source {
-            Either::A(string) => string.as_str(),
+            Either::A(string) => string.borrow_value(),
             Either::B(bytes) => std::str::from_utf8(bytes).unwrap(),
         };
 
-        let mode_str = args.mode.as_str();
+        let mode_str = args.mode.borrow_value();
 
         let flags = args
             .flags
@@ -138,7 +138,7 @@ mod decl {
                     .parse::<compile::Mode>()
                     .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-                vm.compile(&source, mode, args.filename.as_str().to_owned())
+                vm.compile(&source, mode, args.filename.borrow_value().to_owned())
                     .map(|o| o.into_object())
                     .map_err(|err| vm.new_syntax_error(&err))
             } else {
@@ -230,7 +230,7 @@ mod decl {
         // Determine code object:
         let code_obj = match source {
             Either::A(string) => vm
-                .compile(string.as_str(), mode, "<string>".to_owned())
+                .compile(string.borrow_value(), mode, "<string>".to_owned())
                 .map_err(|err| vm.new_syntax_error(&err))?,
             Either::B(code_obj) => code_obj,
         };
@@ -355,7 +355,7 @@ mod decl {
 
     #[pyfunction]
     fn input(prompt: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult<String> {
-        let prompt = prompt.as_ref().map_or("", |s| s.as_str());
+        let prompt = prompt.as_ref().map_or("", |s| s.borrow_value());
         let mut readline = Readline::new(());
         match readline.readline(prompt) {
             ReadlineResult::Line(s) => Ok(s),
@@ -568,7 +568,7 @@ mod decl {
                 Ok(u32::from(bytes[0]))
             }),
             Either::B(string) => {
-                let string = string.as_str();
+                let string = string.borrow_value();
                 let string_len = string.chars().count();
                 if string_len != 1 {
                     return Err(vm.new_type_error(format!(
@@ -779,7 +779,11 @@ mod decl {
         mut kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let name = qualified_name.as_str().split('.').next_back().unwrap();
+        let name = qualified_name
+            .borrow_value()
+            .split('.')
+            .next_back()
+            .unwrap();
         let name_obj = vm.new_str(name.to_owned());
 
         let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {

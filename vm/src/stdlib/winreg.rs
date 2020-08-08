@@ -4,7 +4,9 @@ use crate::exceptions::IntoPyException;
 use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use crate::pyobject::{
+    BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 use crate::VirtualMachine;
 
 use std::convert::TryInto;
@@ -112,7 +114,7 @@ fn winreg_OpenKey(
         return Err(vm.new_value_error("reserved param must be 0".to_owned()));
     }
 
-    let subkey = subkey.as_ref().map_or("", |s| s.as_str());
+    let subkey = subkey.as_ref().map_or("", |s| s.borrow_value());
     let key = key
         .with_key(|k| k.open_subkey_with_flags(subkey, access))
         .map_err(|e| e.into_pyexception(vm))?;
@@ -125,7 +127,7 @@ fn winreg_QueryValue(
     subkey: Option<PyStringRef>,
     vm: &VirtualMachine,
 ) -> PyResult<String> {
-    let subkey = subkey.as_ref().map_or("", |s| s.as_str());
+    let subkey = subkey.as_ref().map_or("", |s| s.borrow_value());
     key.with_key(|k| k.get_value(subkey))
         .map_err(|e| e.into_pyexception(vm))
 }
@@ -135,7 +137,7 @@ fn winreg_QueryValueEx(
     subkey: Option<PyStringRef>,
     vm: &VirtualMachine,
 ) -> PyResult<(PyObjectRef, usize)> {
-    let subkey = subkey.as_ref().map_or("", |s| s.as_str());
+    let subkey = subkey.as_ref().map_or("", |s| s.borrow_value());
     key.with_key(|k| k.get_raw_value(subkey))
         .map_err(|e| e.into_pyexception(vm))
         .and_then(|regval| {

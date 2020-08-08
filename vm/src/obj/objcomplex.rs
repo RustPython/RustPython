@@ -245,7 +245,7 @@ impl PyComplex {
                             "complex() can't take second arg if first is a string".to_owned(),
                         ));
                     }
-                    let value = Complex64::from_str(s.as_str())
+                    let value = Complex64::from_str(s.borrow_value())
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
                     return PyComplex { value }.into_ref_with_type(vm, cls);
                 }

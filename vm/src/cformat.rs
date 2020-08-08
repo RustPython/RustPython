@@ -2,7 +2,9 @@
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 use crate::format::get_num_digits;
 use crate::obj::{objfloat, objint, objstr, objtuple, objtype};
-use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::pyobject::{
+    BorrowValue, ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;
@@ -295,7 +297,7 @@ impl CFormatSpec {
                         vm.call_method(&obj.clone(), "decode", vec![])?,
                     )?,
                 };
-                Ok(self.format_string(result.as_str().to_owned()))
+                Ok(self.format_string(result.borrow_value().to_owned()))
             }
             CFormatType::Number(number_type) => {
                 if !objtype::isinstance(&obj, &vm.ctx.types.int_type) {

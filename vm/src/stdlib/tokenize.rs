@@ -4,14 +4,13 @@
 
 use std::iter::FromIterator;
 
+use crate::obj::objstr::PyStringRef;
+use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
+use crate::vm::VirtualMachine;
 use rustpython_parser::lexer;
 
-use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{PyObjectRef, PyResult};
-use crate::vm::VirtualMachine;
-
 fn tokenize_tokenize(s: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    let source = s.as_str();
+    let source = s.borrow_value();
 
     // TODO: implement generator when the time has come.
     let lexer1 = lexer::make_tokenizer(source);

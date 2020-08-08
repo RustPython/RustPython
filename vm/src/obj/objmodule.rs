@@ -3,7 +3,7 @@ use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
 use crate::function::OptionalOption;
 use crate::pyobject::{
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    BorrowValue, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::VirtualMachine;
 
@@ -70,7 +70,10 @@ impl PyModuleRef {
             None,
         )
         .unwrap_or(None)
-        .and_then(|obj| obj.payload::<PyString>().map(|s| s.as_str().to_owned()))
+        .and_then(|obj| {
+            obj.payload::<PyString>()
+                .map(|s| s.borrow_value().to_owned())
+        })
     }
 
     #[pymethod(magic)]

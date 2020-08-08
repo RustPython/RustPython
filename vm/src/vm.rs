@@ -40,8 +40,8 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TryIntoRef, TypeProtocol, BorrowValue
+    BorrowValue, IdProtocol, ItemProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::stdlib;
@@ -655,7 +655,7 @@ impl VirtualMachine {
 
     pub fn to_pystr<'a, T: Into<&'a PyObjectRef>>(&'a self, obj: T) -> PyResult<String> {
         let py_str_obj = self.to_str(obj.into())?;
-        Ok(py_str_obj.as_str().to_owned())
+        Ok(py_str_obj.borrow_value().to_owned())
     }
 
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStringRef> {
@@ -666,7 +666,7 @@ impl VirtualMachine {
     pub fn to_ascii(&self, obj: &PyObjectRef) -> PyResult {
         let repr = self.call_method(obj, "__repr__", vec![])?;
         let repr: PyStringRef = TryFromObject::try_from_object(self, repr)?;
-        let ascii = to_ascii(repr.as_str());
+        let ascii = to_ascii(repr.borrow_value());
         Ok(self.new_str(ascii))
     }
 
@@ -1023,7 +1023,7 @@ impl VirtualMachine {
         name_str: PyStringRef,
         dict: Option<PyDictRef>,
     ) -> PyResult<Option<PyObjectRef>> {
-        let name = name_str.as_str();
+        let name = name_str.borrow_value();
         let cls = obj.class();
 
         if let Some(attr) = cls.get_attr(&name) {
@@ -1037,7 +1037,7 @@ impl VirtualMachine {
         let dict = dict.or_else(|| obj.dict());
 
         let attr = if let Some(dict) = dict {
-            dict.get_item_option(name_str.as_str(), self)?
+            dict.get_item_option(name, self)?
         } else {
             None
         };

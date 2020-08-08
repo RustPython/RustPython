@@ -256,7 +256,7 @@ impl PyByteArray {
 
     #[pymethod]
     fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
-        Ok(PyBytesInner::fromhex(string.as_str(), vm)?.into())
+        Ok(PyBytesInner::fromhex(string.borrow_value(), vm)?.into())
     }
 
     #[pymethod(name = "center")]
@@ -590,7 +590,7 @@ impl PyByteArray {
                 vm.new_type_error(format!(
                     "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
                      encode arbitrary types",
-                    encoding.as_ref().map_or("utf-8", |s| s.as_str()),
+                    encoding.as_ref().map_or("utf-8", |s| s.borrow_value()),
                     obj.lease_class().name,
                 ))
             })

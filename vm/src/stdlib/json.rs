@@ -1,7 +1,9 @@
 use crate::obj::objiter;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::{objbool, objtype::PyClassRef};
-use crate::pyobject::{IdProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    BorrowValue, IdProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+};
 use crate::VirtualMachine;
 
 use num_bigint::BigInt;
@@ -195,7 +197,7 @@ impl JsonScanner {
             return Err(vm.new_value_error("idx cannot be negative".to_owned()));
         }
         let idx = idx as usize;
-        let mut chars = pystr.as_str().chars();
+        let mut chars = pystr.borrow_value().chars();
         if idx > 0 {
             chars
                 .nth(idx - 1)
@@ -221,11 +223,11 @@ fn encode_string(s: &str, ascii_only: bool) -> String {
 }
 
 fn _json_encode_basestring(s: PyStringRef) -> String {
-    encode_string(s.as_str(), false)
+    encode_string(s.borrow_value(), false)
 }
 
 fn _json_encode_basestring_ascii(s: PyStringRef) -> String {
-    encode_string(s.as_str(), true)
+    encode_string(s.borrow_value(), true)
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

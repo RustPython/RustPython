@@ -10,8 +10,8 @@ use crate::obj::objasyncgenerator::PyAsyncGen;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objgenerator::PyGenerator;
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
@@ -314,7 +314,7 @@ impl PyBoundMethod {
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
             "<bound method of {}>",
-            vm.to_repr(&self.object)?.as_str()
+            vm.to_repr(&self.object)?.borrow_value()
         ))
     }
 
@@ -325,7 +325,7 @@ impl PyBoundMethod {
 
     #[pymethod(magic)]
     fn getattribute(zelf: PyRef<Self>, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(obj) = zelf.get_class_attr(name.as_str()) {
+        if let Some(obj) = zelf.get_class_attr(name.borrow_value()) {
             return vm.call_if_get_descriptor(obj, zelf.into_object());
         }
         vm.get_attribute(zelf.function.clone(), name)

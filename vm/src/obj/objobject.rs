@@ -6,8 +6,9 @@ use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objtype::PyClass;
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassImpl, PyComparisonValue,
-    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IdProtocol, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassImpl,
+    PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -100,20 +101,20 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(attr) = obj.get_class_attr(attr_name.as_str()) {
+        if let Some(attr) = obj.get_class_attr(attr_name.borrow_value()) {
             if let Some(descriptor) = attr.get_class_attr("__delete__") {
                 return vm.invoke(&descriptor, vec![attr, obj.clone()]).map(|_| ());
             }
         }
 
         if let Some(dict) = obj.dict() {
-            dict.del_item(attr_name.as_str(), vm)?;
+            dict.del_item(attr_name.borrow_value(), vm)?;
             Ok(())
         } else {
             Err(vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
                 obj.lease_class().name,
-                attr_name.as_str()
+                attr_name.borrow_value()
             )))
         }
     }
@@ -167,7 +168,7 @@ impl PyBaseObject {
         format_spec: PyStringRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyStringRef> {
-        if format_spec.as_str().is_empty() {
+        if format_spec.borrow_value().is_empty() {
             vm.to_str(&obj)
         } else {
             Err(vm.new_type_error(
@@ -262,7 +263,7 @@ pub(crate) fn setattr(
 ) -> PyResult<()> {
     vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
 
-    if let Some(attr) = obj.get_class_attr(attr_name.as_str()) {
+    if let Some(attr) = obj.get_class_attr(attr_name.borrow_value()) {
         if let Some(descriptor) = attr.get_class_attr("__set__") {
             return vm
                 .invoke(&descriptor, vec![attr, obj.clone(), value])
@@ -271,13 +272,13 @@ pub(crate) fn setattr(
     }
 
     if let Some(dict) = obj.dict() {
-        dict.set_item(attr_name.as_str(), value, vm)?;
+        dict.set_item(attr_name.borrow_value(), value, vm)?;
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
             obj.lease_class().name,
-            attr_name.as_str()
+            attr_name.borrow_value()
         )))
     }
 }

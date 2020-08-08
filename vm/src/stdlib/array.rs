@@ -284,8 +284,8 @@ impl PyArray {
         init: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyArrayRef> {
-        let spec = match spec.as_str().len() {
-            1 => spec.as_str().chars().next().unwrap(),
+        let spec = match spec.borrow_value().len() {
+            1 => spec.borrow_value().chars().next().unwrap(),
             _ => {
                 return Err(vm.new_type_error(
                     "array() argument 1 must be a unicode character, not str".to_owned(),

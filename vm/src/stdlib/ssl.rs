@@ -7,7 +7,8 @@ use crate::obj::objbytearray::PyByteArrayRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::{objtype::PyClassRef, objweakref::PyWeak};
 use crate::pyobject::{
-    Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    BorrowValue, Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult,
+    PyValue,
 };
 use crate::types::create_type;
 use crate::VirtualMachine;
@@ -120,7 +121,7 @@ fn ssl_enum_certificates(store_name: PyStringRef, vm: &VirtualMachine) -> PyResu
     let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
     let stores = open_fns
         .iter()
-        .filter_map(|open| open(store_name.as_str()).ok())
+        .filter_map(|open| open(store_name.borrow_value()).ok())
         .collect::<Vec<_>>();
     let certs = stores.iter().map(|s| s.certs()).flatten().map(|c| {
         let cert = vm.ctx.new_bytes(c.to_der().to_owned());
@@ -200,7 +201,7 @@ fn ssl_rand_add(string: Either<PyStringRef, PyBytesLike>, entropy: f64) {
         }
     };
     match string {
-        Either::A(s) => f(s.as_str().as_bytes()),
+        Either::A(s) => f(s.borrow_value().as_bytes()),
         Either::B(b) => b.with_ref(f),
     }
 }
@@ -315,7 +316,7 @@ impl PySslContext {
 
     #[pymethod]
     fn set_ciphers(&self, cipherlist: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        let ciphers = cipherlist.as_str();
+        let ciphers = cipherlist.borrow_value();
         if ciphers.contains('\0') {
             return Err(vm.new_value_error("embedded null character".to_owned()));
         }
@@ -378,10 +379,10 @@ impl PySslContext {
         if let Some(cadata) = args.cadata {
             let cert = match cadata {
                 Either::A(s) => {
-                    if !s.as_str().is_ascii() {
+                    if !s.borrow_value().is_ascii() {
                         return Err(vm.new_type_error("Must be an ascii string".to_owned()));
                     }
-                    X509::from_pem(s.as_str().as_bytes())
+                    X509::from_pem(s.borrow_value().as_bytes())
                 }
                 Either::B(b) => b.with_ref(X509::from_der),
             };

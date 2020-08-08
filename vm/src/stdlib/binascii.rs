@@ -24,7 +24,7 @@ mod decl {
                 b @ PyBytes => Ok(SerializedData::Bytes(b)),
                 b @ PyByteArray => Ok(SerializedData::Buffer(b)),
                 a @ PyString => {
-                    if a.as_str().is_ascii() {
+                    if a.borrow_value().is_ascii() {
                         Ok(SerializedData::Ascii(a))
                     } else {
                         Err(vm.new_value_error(
@@ -46,7 +46,7 @@ mod decl {
             match self {
                 SerializedData::Bytes(b) => f(b.borrow_value()),
                 SerializedData::Buffer(b) => f(&b.borrow_value().elements),
-                SerializedData::Ascii(a) => f(a.as_str().as_bytes()),
+                SerializedData::Ascii(a) => f(a.borrow_value().as_bytes()),
             }
         }
     }

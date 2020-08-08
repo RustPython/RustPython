@@ -4,7 +4,8 @@ use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BorrowValue, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -48,7 +49,7 @@ impl PyMappingProxy {
         let opt = match &self.mapping {
             MappingProxyInner::Class(class) => {
                 let key = PyStringRef::try_from_object(vm, key)?;
-                class.get_attr(key.as_str())
+                class.get_attr(key.borrow_value())
             }
             MappingProxyInner::Dict(obj) => obj.get_item(key, vm).ok(),
         };
@@ -75,7 +76,7 @@ impl PyMappingProxy {
         match &self.mapping {
             MappingProxyInner::Class(class) => {
                 let key = PyStringRef::try_from_object(vm, key)?;
-                Ok(vm.new_bool(class.has_attr(key.as_str())))
+                Ok(vm.new_bool(class.has_attr(key.borrow_value())))
             }
             MappingProxyInner::Dict(obj) => vm._membership(obj.clone(), key),
         }

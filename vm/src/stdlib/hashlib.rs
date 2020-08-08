@@ -93,7 +93,7 @@ fn hashlib_new(
     data: OptionalArg<PyBytesRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyHasher> {
-    match name.as_str() {
+    match name.borrow_value() {
         "md5" => md5(data, vm),
         "sha1" => sha1(data, vm),
         "sha224" => sha224(data, vm),

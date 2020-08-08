@@ -95,7 +95,7 @@ impl TryFromObject for PyPathLike {
         let match1 = |obj: &PyObjectRef| {
             let pathlike = match_class!(match obj {
                 ref l @ PyString => PyPathLike {
-                    path: l.as_str().into(),
+                    path: l.borrow_value().into(),
                     mode: OutputMode::String,
                 },
                 ref i @ PyBytes => PyPathLike {
@@ -320,7 +320,7 @@ mod _os {
 
     #[pyfunction]
     fn error(message: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
-        let msg = message.map_or("".to_owned(), |msg| msg.as_str().to_owned());
+        let msg = message.map_or("".to_owned(), |msg| msg.borrow_value().to_owned());
 
         Err(vm.new_os_error(msg))
     }
@@ -379,7 +379,7 @@ mod _os {
 
     #[pyfunction]
     fn mkdirs(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        fs::create_dir_all(path.as_str()).map_err(|err| err.into_pyexception(vm))
+        fs::create_dir_all(path.borrow_value()).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -407,11 +407,11 @@ mod _os {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let key: &ffi::OsStr = match key {
-            Either::A(ref s) => s.as_str().as_ref(),
+            Either::A(ref s) => s.borrow_value().as_ref(),
             Either::B(ref b) => bytes_as_osstr(b.borrow_value(), vm)?,
         };
         let value: &ffi::OsStr = match value {
-            Either::A(ref s) => s.as_str().as_ref(),
+            Either::A(ref s) => s.borrow_value().as_ref(),
             Either::B(ref b) => bytes_as_osstr(b.borrow_value(), vm)?,
         };
         env::set_var(key, value);
@@ -421,7 +421,7 @@ mod _os {
     #[pyfunction]
     fn unsetenv(key: Either<PyStringRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
         let key: &ffi::OsStr = match key {
-            Either::A(ref s) => s.as_str().as_ref(),
+            Either::A(ref s) => s.borrow_value().as_ref(),
             Either::B(ref b) => bytes_as_osstr(b.borrow_value(), vm)?,
         };
         env::remove_var(key);
@@ -1385,7 +1385,7 @@ mod posix {
     fn system(command: PyStringRef) -> PyResult<i32> {
         use std::ffi::CString;
 
-        let rstr = command.as_str();
+        let rstr = command.borrow_value();
         let cstr = CString::new(rstr).unwrap();
         let x = unsafe { libc::system(cstr.as_ptr()) };
         Ok(x)
@@ -1416,7 +1416,7 @@ mod posix {
         argv_list: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let path = ffi::CString::new(path.as_str())
+        let path = ffi::CString::new(path.borrow_value())
             .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
 
         let argv: Vec<ffi::CString> = match argv_list {
@@ -1716,7 +1716,7 @@ mod posix {
     ))]
     #[pyfunction]
     fn initgroups(user_name: PyStringRef, gid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        let user = ffi::CString::new(user_name.as_str()).unwrap();
+        let user = ffi::CString::new(user_name.borrow_value()).unwrap();
         let gid = Gid::from_raw(gid);
         unistd::initgroups(&user, gid).map_err(|err| err.into_pyexception(vm))
     }

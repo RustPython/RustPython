@@ -425,7 +425,7 @@ impl PyList {
             let mut str_parts = Vec::with_capacity(elements.len());
             for elem in elements.iter() {
                 let s = vm.to_repr(elem)?;
-                str_parts.push(s.as_str().to_owned());
+                str_parts.push(s.borrow_value().to_owned());
             }
             format!("[{}]", str_parts.join(", "))
         } else {
@@ -491,7 +491,7 @@ impl PyList {
             }
         }
         let needle_str = vm.to_str(&needle)?;
-        Err(vm.new_value_error(format!("'{}' is not in list", needle_str.as_str())))
+        Err(vm.new_value_error(format!("'{}' is not in list", needle_str.borrow_value())))
     }
 
     #[pymethod]
@@ -526,7 +526,7 @@ impl PyList {
             Ok(())
         } else {
             let needle_str = vm.to_str(&needle)?;
-            Err(vm.new_value_error(format!("'{}' is not in list", needle_str.as_str())))
+            Err(vm.new_value_error(format!("'{}' is not in list", needle_str.borrow_value())))
         }
     }
 

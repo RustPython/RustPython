@@ -203,7 +203,7 @@ impl PyStringIORef {
 
     //write string to underlying vector
     fn write(self, data: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        let bytes = data.as_str().as_bytes();
+        let bytes = data.borrow_value().as_bytes();
 
         match self.buffer(vm)?.write(bytes) {
             Some(value) => Ok(vm.ctx.new_int(value)),
@@ -656,7 +656,7 @@ mod fileio {
     fn file_io_init(file_io: PyObjectRef, args: FileIOArgs, vm: &VirtualMachine) -> PyResult {
         let mode = args
             .mode
-            .map(|mode| mode.as_str().to_owned())
+            .map(|mode| mode.borrow_value().to_owned())
             .unwrap_or_else(|| "r".to_owned());
         let (name, file_no) = match args.name {
             Either::A(name) => {
@@ -679,7 +679,7 @@ mod fileio {
                     fd
                 } else {
                     os::open(
-                        os::PyPathLike::new_str(name.as_str().to_owned()),
+                        os::PyPathLike::new_str(name.borrow_value().to_owned()),
                         mode as _,
                         OptionalArg::Missing,
                         OptionalArg::Missing,
@@ -887,7 +887,7 @@ struct TextIOWrapperArgs {
 impl TextIOWrapperArgs {
     fn validate_newline(&self, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(pystr) = &self.newline {
-            match pystr.as_str() {
+            match pystr.borrow_value() {
                 "" | "\n" | "\r" | "\r\n" => Ok(()),
                 _ => {
                     Err(vm.new_value_error(format!("illegal newline value: '{}'", pystr.repr(vm)?)))
@@ -915,7 +915,7 @@ fn text_io_wrapper_init(
     if let Some(self_encoding) = self_encoding {
         encoding = Some(PyString::from(self_encoding).into_ref(vm));
     } else if let Some(ref encoding) = encoding {
-        self_encoding = Some(encoding.as_str())
+        self_encoding = Some(encoding.borrow_value())
     } else {
         return Err(vm.new_os_error("could not determine default encoding".to_owned()));
     }
@@ -925,7 +925,7 @@ fn text_io_wrapper_init(
         .errors
         .map_or_else(|| vm.ctx.new_str("strict"), |o| o.into_object());
 
-    // let readuniversal = args.newline.map_or_else(true, |s| s.as_str().is_empty());
+    // let readuniversal = args.newline.map_or_else(true, |s| s.borrow_value().is_empty());
 
     vm.set_attr(
         &instance,
@@ -1017,7 +1017,7 @@ fn text_io_wrapper_write(
         return Err(vm.new_value_error("not writable".to_owned()));
     }
 
-    let bytes = obj.as_str().to_owned().into_bytes();
+    let bytes = obj.borrow_value().to_owned().into_bytes();
 
     let len = vm.call_method(&raw, "write", vec![vm.ctx.new_bytes(bytes.clone())])?;
     let len = objint::get_value(&len)
@@ -1126,7 +1126,7 @@ fn io_open_wrapper(
 ) -> PyResult {
     io_open(
         file,
-        mode.as_ref().into_option().map(|s| s.as_str()),
+        mode.as_ref().into_option().map(|s| s.borrow_value()),
         opts,
         vm,
     )

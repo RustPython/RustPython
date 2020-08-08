@@ -9,7 +9,7 @@ use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::import::import_file;
 use rustpython_vm::obj::{objdict::PyDictRef, objstr::PyStringRef, objtype::PyClassRef};
 use rustpython_vm::pyobject::{
-    PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    BorrowValue, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use rustpython_vm::VirtualMachine;
 
@@ -71,14 +71,14 @@ fn browser_fetch(url: PyStringRef, args: FetchArgs, vm: &VirtualMachine) -> PyRe
     } = args;
 
     let response_format = match response_format {
-        Some(s) => FetchResponseFormat::from_str(vm, s.as_str())?,
+        Some(s) => FetchResponseFormat::from_str(vm, s.borrow_value())?,
         None => FetchResponseFormat::Text,
     };
 
     let mut opts = web_sys::RequestInit::new();
 
     match method {
-        Some(s) => opts.method(s.as_str()),
+        Some(s) => opts.method(s.borrow_value()),
         None => opts.method("GET"),
     };
 
@@ -86,7 +86,7 @@ fn browser_fetch(url: PyStringRef, args: FetchArgs, vm: &VirtualMachine) -> PyRe
         opts.body(Some(&convert::py_to_js(vm, body)));
     }
 
-    let request = web_sys::Request::new_with_str_and_init(url.as_str(), &opts)
+    let request = web_sys::Request::new_with_str_and_init(url.borrow_value(), &opts)
         .map_err(|err| convert::js_py_typeerror(vm, err))?;
 
     if let Some(headers) = headers {
@@ -94,7 +94,7 @@ fn browser_fetch(url: PyStringRef, args: FetchArgs, vm: &VirtualMachine) -> PyRe
         for (key, value) in headers {
             let key = vm.to_str(&key)?;
             let value = vm.to_str(&value)?;
-            h.set(key.as_str(), value.as_str())
+            h.set(key.borrow_value(), value.borrow_value())
                 .map_err(|err| convert::js_py_typeerror(vm, err))?;
         }
     }
@@ -102,7 +102,7 @@ fn browser_fetch(url: PyStringRef, args: FetchArgs, vm: &VirtualMachine) -> PyRe
     if let Some(content_type) = content_type {
         request
             .headers()
-            .set("Content-Type", content_type.as_str())
+            .set("Content-Type", content_type.borrow_value())
             .map_err(|err| convert::js_py_typeerror(vm, err))?;
     }
 
@@ -266,7 +266,7 @@ impl Document {
     fn query(&self, query: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let elem = self
             .doc
-            .query_selector(query.as_str())
+            .query_selector(query.borrow_value())
             .map_err(|err| convert::js_py_typeerror(vm, err))?;
         let elem = match elem {
             Some(elem) => Element { elem }.into_ref(vm).into_object(),
@@ -297,7 +297,7 @@ impl Element {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
-        match self.elem.get_attribute(attr.as_str()) {
+        match self.elem.get_attribute(attr.borrow_value()) {
             Some(s) => vm.new_str(s),
             None => default.into_option().unwrap_or_else(|| vm.get_none()),
         }
@@ -306,7 +306,7 @@ impl Element {
     #[pymethod]
     fn set_attr(&self, attr: PyStringRef, value: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
         self.elem
-            .set_attribute(attr.as_str(), value.as_str())
+            .set_attribute(attr.borrow_value(), value.borrow_value())
             .map_err(|err| convert::js_py_typeerror(vm, err))
     }
 }
@@ -317,7 +317,7 @@ fn browser_load_module(module: PyStringRef, path: PyStringRef, vm: &VirtualMachi
     let mut opts = web_sys::RequestInit::new();
     opts.method("GET");
 
-    let request = web_sys::Request::new_with_str_and_init(path.as_str(), &opts)
+    let request = web_sys::Request::new_with_str_and_init(path.borrow_value(), &opts)
         .map_err(|err| convert::js_py_typeerror(vm, err))?;
 
     let window = window();
@@ -337,7 +337,7 @@ fn browser_load_module(module: PyStringRef, path: PyStringRef, vm: &VirtualMachi
                 .expect("that the vm is valid when the promise resolves");
             let vm = &stored_vm.vm;
             let resp_text = text.as_string().unwrap();
-            let res = import_file(vm, module.as_str(), "WEB".to_owned(), resp_text);
+            let res = import_file(vm, module.borrow_value(), "WEB".to_owned(), resp_text);
             match res {
                 Ok(_) => Ok(JsValue::null()),
                 Err(err) => Err(convert::py_err_to_js_err(vm, &err)),

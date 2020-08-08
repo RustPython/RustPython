@@ -3,7 +3,9 @@ use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::Args;
 use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStringRef, objtype::PyClassRef};
-use rustpython_vm::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use rustpython_vm::pyobject::{
+    BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 use rustpython_vm::types::create_type;
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
@@ -61,7 +63,7 @@ impl TryFromObject for JsProperty {
 impl JsProperty {
     fn into_jsvalue(self) -> JsValue {
         match self {
-            JsProperty::Str(s) => s.as_str().into(),
+            JsProperty::Str(s) => s.borrow_value().into(),
             JsProperty::Js(value) => value.value.clone(),
         }
     }
@@ -88,7 +90,7 @@ impl PyJsValue {
 
     #[pymethod]
     fn new_from_str(&self, s: PyStringRef) -> PyJsValue {
-        PyJsValue::new(s.as_str())
+        PyJsValue::new(s.borrow_value())
     }
 
     #[pymethod]

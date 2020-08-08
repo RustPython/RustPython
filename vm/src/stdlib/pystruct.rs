@@ -92,7 +92,7 @@ mod _struct {
             fmt: &Either<PyStringRef, PyBytesRef>,
         ) -> PyResult<FormatSpec> {
             let decoded_fmt = match fmt {
-                Either::A(string) => string.as_str(),
+                Either::A(string) => string.borrow_value(),
                 Either::B(bytes) if bytes.is_ascii() => std::str::from_utf8(&bytes).unwrap(),
                 _ => {
                     return Err(vm.new_unicode_decode_error(

@@ -13,7 +13,7 @@ use super::os::errno_err;
 use crate::function::OptionalArg;
 use crate::obj::objdict::{PyDictRef, PyMapping};
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{PyObjectRef, PyResult, PySequence, TryFromObject};
+use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, PySequence, TryFromObject};
 use crate::VirtualMachine;
 
 fn GetLastError() -> u32 {
@@ -170,10 +170,10 @@ fn _winapi_CreateProcess(
         .map_or_else(null_mut, |l| l.attrlist.as_mut_ptr() as _);
 
     let wstr = |s: PyStringRef| {
-        if s.as_str().contains('\0') {
+        if s.borrow_value().contains('\0') {
             Err(vm.new_value_error("embedded null character".to_owned()))
         } else {
-            Ok(s.as_str()
+            Ok(s.borrow_value()
                 .encode_utf16()
                 .chain(std::iter::once(0))
                 .collect::<Vec<_>>())
@@ -227,9 +227,9 @@ fn getenvironment(env: PyDictRef, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
     let mut out = vec![];
     for (k, v) in env {
         let k = PyStringRef::try_from_object(vm, k)?;
-        let k = k.as_str();
+        let k = k.borrow_value();
         let v = PyStringRef::try_from_object(vm, v)?;
-        let v = v.as_str();
+        let v = v.borrow_value();
         if k.contains('\0') || v.contains('\0') {
             return Err(vm.new_value_error("embedded null character".to_owned()));
         }

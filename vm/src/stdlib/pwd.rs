@@ -44,7 +44,7 @@ impl From<User> for Passwd {
 }
 
 fn pwd_getpwnam(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match User::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))? {
+    match User::from_name(name.borrow_value()).map_err(|err| err.into_pyexception(vm))? {
         Some(user) => Ok(Passwd::from(user)
             .into_struct_sequence(vm, vm.try_class("pwd", "struct_passwd")?)?
             .into_object()),

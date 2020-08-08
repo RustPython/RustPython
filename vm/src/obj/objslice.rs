@@ -62,9 +62,9 @@ impl PySlice {
 
         Ok(format!(
             "slice({}, {}, {})",
-            start_repr.as_str(),
-            stop_repr.as_str(),
-            step_repr.as_str()
+            start_repr.borrow_value(),
+            stop_repr.borrow_value(),
+            step_repr.borrow_value()
         ))
     }
 
