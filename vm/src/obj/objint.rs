@@ -80,7 +80,7 @@ impl PyValue for PyInt {
     }
 
     fn into_simple_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_bigint(&self.value)
+        vm.ctx.new_int(self.value)
     }
 
     fn into_object(
@@ -90,7 +90,7 @@ impl PyValue for PyInt {
         dict: Option<PyDictRef>,
     ) -> PyObjectRef {
         if cls.is(&Self::class(vm)) {
-            vm.ctx.new_bigint(&self.value)
+            vm.ctx.new_int(self.value)
         } else {
             PyObject::new(self, cls, dict)
         }
