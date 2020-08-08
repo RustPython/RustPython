@@ -10,7 +10,10 @@ use crate::pyobject::{
 };
 use crate::VirtualMachine;
 
-use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::common::cell::{
+    PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
+    PyRwLockWriteGuard,
+};
 use std::fmt;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -137,14 +140,24 @@ macro_rules! def_array_enum {
                 }
             }
 
-            fn tobytes(&self) -> Vec<u8> {
+            fn get_bytes(&self) -> &[u8] {
                 match self {
                     $(ArrayContentType::$n(v) => {
                         // safe because we're just reading memory as bytes
                         let ptr = v.as_ptr() as *const u8;
                         let ptr_len = v.len() * std::mem::size_of::<$t>();
-                        let slice = unsafe { std::slice::from_raw_parts(ptr, ptr_len) };
-                        slice.to_vec()
+                        unsafe { std::slice::from_raw_parts(ptr, ptr_len) }
+                    })*
+                }
+            }
+
+            fn get_bytes_mut(&mut self) -> &mut [u8] {
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        // safe because we're just reading memory as bytes
+                        let ptr = v.as_ptr() as *mut u8;
+                        let ptr_len = v.len() * std::mem::size_of::<$t>();
+                        unsafe { std::slice::from_raw_parts_mut(ptr, ptr_len) }
                     })*
                 }
             }
@@ -383,7 +396,15 @@ impl PyArray {
 
     #[pymethod]
     pub(crate) fn tobytes(&self) -> Vec<u8> {
-        self.borrow_value().tobytes()
+        self.borrow_value().get_bytes().to_vec()
+    }
+
+    pub(crate) fn get_bytes(&self) -> PyMappedRwLockReadGuard<'_, [u8]> {
+        PyRwLockReadGuard::map(self.borrow_value(), |a| a.get_bytes())
+    }
+
+    pub(crate) fn get_bytes_mut(&self) -> PyMappedRwLockWriteGuard<'_, [u8]> {
+        PyRwLockWriteGuard::map(self.borrow_value_mut(), |a| a.get_bytes_mut())
     }
 
     #[pymethod]
@@ -508,7 +529,7 @@ impl PyArray {
     }
 
     #[pymethod(name = "__len__")]
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.borrow_value().len()
     }
 
