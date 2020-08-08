@@ -57,27 +57,27 @@ impl PyBytesLike {
     }
 }
 
-pub enum PyBuffer {
+pub enum PyRwBytesLike {
     Bytearray(PyByteArrayRef),
     Array(PyArrayRef),
 }
 
-impl TryFromObject for PyBuffer {
+impl TryFromObject for PyRwBytesLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         match_class!(match obj {
-            b @ PyByteArray => Ok(PyBuffer::Bytearray(b)),
-            array @ PyArray => Ok(PyBuffer::Array(array)),
+            b @ PyByteArray => Ok(PyRwBytesLike::Bytearray(b)),
+            array @ PyArray => Ok(PyRwBytesLike::Array(array)),
             obj =>
                 Err(vm.new_type_error(format!("a buffer object is required, not {}", obj.class()))),
         })
     }
 }
 
-impl PyBuffer {
+impl PyRwBytesLike {
     pub fn len(&self) -> usize {
         match self {
-            PyBuffer::Bytearray(b) => b.borrow_value().len(),
-            PyBuffer::Array(array) => array.len(),
+            PyRwBytesLike::Bytearray(b) => b.borrow_value().len(),
+            PyRwBytesLike::Array(array) => array.len(),
         }
     }
 
@@ -88,8 +88,8 @@ impl PyBuffer {
     #[inline]
     pub fn with_ref<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         match self {
-            PyBuffer::Bytearray(b) => f(&mut b.borrow_value_mut().elements),
-            PyBuffer::Array(array) => f(&mut array.get_bytes_mut()),
+            PyRwBytesLike::Bytearray(b) => f(&mut b.borrow_value_mut().elements),
+            PyRwBytesLike::Array(array) => f(&mut array.get_bytes_mut()),
         }
     }
 }

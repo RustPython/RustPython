@@ -21,7 +21,7 @@ mod _struct {
     use std::io::{Cursor, Read, Write};
     use std::iter::Peekable;
 
-    use crate::byteslike::{PyBuffer, PyBytesLike};
+    use crate::byteslike::{PyBytesLike, PyRwBytesLike};
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
     use crate::obj::{
@@ -32,6 +32,12 @@ mod _struct {
         Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };
     use crate::VirtualMachine;
+
+    #[derive(Debug, Copy, Clone, PartialEq)]
+    enum SizeAndAlignment {
+        Native,
+        Standard,
+    }
 
     #[derive(Debug, Clone)]
     enum Endianness {
@@ -101,10 +107,10 @@ mod _struct {
             let mut chars = fmt.chars().peekable();
 
             // First determine "@", "<", ">","!" or "="
-            let (is_native_size, endianness) = parse_size_and_endiannes(&mut chars);
+            let (size_and_align, endianness) = parse_size_and_endiannes(&mut chars);
 
             // Now, analyze struct string furter:
-            let codes = parse_format_codes(&mut chars, is_native_size)?;
+            let codes = parse_format_codes(&mut chars, size_and_align)?;
 
             Ok(FormatSpec { endianness, codes })
         }
@@ -190,38 +196,38 @@ mod _struct {
 
     /// Parse endianness
     /// See also: https://docs.python.org/3/library/struct.html?highlight=struct#byte-order-size-and-alignment
-    fn parse_size_and_endiannes<I>(chars: &mut Peekable<I>) -> (bool, Endianness)
+    fn parse_size_and_endiannes<I>(chars: &mut Peekable<I>) -> (SizeAndAlignment, Endianness)
     where
         I: Sized + Iterator<Item = char>,
     {
         match chars.peek() {
             Some('@') => {
                 chars.next().unwrap();
-                (true, Endianness::Native)
+                (SizeAndAlignment::Native, Endianness::Native)
             }
             Some('=') => {
                 chars.next().unwrap();
-                (false, Endianness::Native)
+                (SizeAndAlignment::Standard, Endianness::Native)
             }
             Some('<') => {
                 chars.next().unwrap();
-                (false, Endianness::Little)
+                (SizeAndAlignment::Standard, Endianness::Little)
             }
             Some('>') => {
                 chars.next().unwrap();
-                (false, Endianness::Big)
+                (SizeAndAlignment::Standard, Endianness::Big)
             }
             Some('!') => {
                 chars.next().unwrap();
-                (false, Endianness::Network)
+                (SizeAndAlignment::Standard, Endianness::Network)
             }
-            _ => (true, Endianness::Native),
+            _ => (SizeAndAlignment::Native, Endianness::Native),
         }
     }
 
     fn parse_format_codes<I>(
         chars: &mut Peekable<I>,
-        is_native_size: bool,
+        size_and_align: SizeAndAlignment,
     ) -> Result<Vec<FormatCode>, String>
     where
         I: Sized + Iterator<Item = char>,
@@ -246,7 +252,7 @@ mod _struct {
             // determine format char:
             let c = chars.next();
             match c {
-                Some('n') | Some('N') if !is_native_size => {
+                Some('n') | Some('N') if size_and_align == SizeAndAlignment::Standard => {
                     return Err("bad char in struct format".to_owned())
                 }
                 Some(c) if is_supported_format_character(c) => {
@@ -536,7 +542,7 @@ mod _struct {
     #[pyfunction]
     fn pack_into(
         fmt: Either<PyStringRef, PyBytesRef>,
-        buffer: PyBuffer,
+        buffer: PyRwBytesLike,
         offset: isize,
         args: Args,
         vm: &VirtualMachine,
@@ -911,7 +917,7 @@ mod _struct {
         #[pymethod]
         fn pack_into(
             &self,
-            buffer: PyBuffer,
+            buffer: PyRwBytesLike,
             offset: isize,
             args: Args,
             vm: &VirtualMachine,
