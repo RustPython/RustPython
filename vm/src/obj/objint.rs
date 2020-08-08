@@ -761,7 +761,7 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
             bytes_to_int(s.as_bytes(), base)
         }
         bytes @ PyBytes => {
-            let bytes = bytes.get_value();
+            let bytes = bytes.borrow_value();
             bytes_to_int(bytes, base)
         }
         bytearray @ PyByteArray => {
@@ -814,7 +814,7 @@ fn to_int_radix(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<B
             bytes_to_int(s.as_bytes(), base)
         }
         bytes @ PyBytes => {
-            let bytes = bytes.get_value();
+            let bytes = bytes.borrow_value();
             bytes_to_int(bytes, base)
         }
         bytearray @ PyByteArray => {

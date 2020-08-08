@@ -34,7 +34,7 @@ fn msvcrt_getwche() -> String {
     std::char::from_u32(c).unwrap().to_string()
 }
 fn msvcrt_putch(b: PyBytesRef, vm: &VirtualMachine) -> PyResult<()> {
-    let &c = b.get_value().iter().exactly_one().map_err(|_| {
+    let &c = b.borrow_value().iter().exactly_one().map_err(|_| {
         vm.new_type_error("putch() argument must be a byte string of length 1".to_owned())
     })?;
     unsafe { suppress_iph!(_putch(c.into())) };

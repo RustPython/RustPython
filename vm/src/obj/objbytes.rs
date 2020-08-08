@@ -14,7 +14,7 @@ use crate::bytesinner::{
 };
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
-    Either, IntoPyObject,
+    BorrowValue, Either, IntoPyObject,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
@@ -40,8 +40,10 @@ pub struct PyBytes {
 
 pub type PyBytesRef = PyRef<PyBytes>;
 
-impl PyBytes {
-    pub fn get_value(&self) -> &[u8] {
+impl<'a> BorrowValue<'a> for PyBytes {
+    type Borrowed = &'a [u8];
+
+    fn borrow_value(&'a self) -> Self::Borrowed {
         &self.inner.elements
     }
 }
@@ -504,7 +506,7 @@ impl PyBytesIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<u8> {
         let pos = self.position.fetch_add(1);
-        if let Some(&ret) = self.bytes.get_value().get(pos) {
+        if let Some(&ret) = self.bytes.borrow_value().get(pos) {
             Ok(ret)
         } else {
             Err(objiter::new_stop_iteration(vm))

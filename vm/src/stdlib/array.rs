@@ -5,8 +5,8 @@ use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
-    Either, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject,
+    BorrowValue, Either, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
 
@@ -345,7 +345,7 @@ impl PyArray {
 
     #[pymethod]
     fn frombytes(&self, b: PyBytesRef, vm: &VirtualMachine) -> PyResult<()> {
-        let b = b.get_value();
+        let b = b.borrow_value();
         let itemsize = self.borrow_value().itemsize();
         if b.len() % itemsize != 0 {
             return Err(vm.new_value_error("bytes length not a multiple of item size".to_owned()));

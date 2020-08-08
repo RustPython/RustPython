@@ -41,6 +41,14 @@ pub struct PyByteArray {
 
 pub type PyByteArrayRef = PyRef<PyByteArray>;
 
+impl<'a> BorrowValue<'a> for PyByteArray {
+    type Borrowed = PyRwLockReadGuard<'a, PyBytesInner>;
+
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        self.inner.read()
+    }
+}
+
 impl PyByteArray {
     fn from_inner(inner: PyBytesInner) -> Self {
         PyByteArray {
@@ -48,20 +56,22 @@ impl PyByteArray {
         }
     }
 
-    pub fn borrow_value(&self) -> PyRwLockReadGuard<'_, PyBytesInner> {
-        self.inner.read()
-    }
-
     pub fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, PyBytesInner> {
         self.inner.write()
     }
 }
 
+impl From<PyBytesInner> for PyByteArray {
+    fn from(inner: PyBytesInner) -> Self {
+        Self {
+            inner: PyRwLock::new(inner),
+        }
+    }
+}
+
 impl From<Vec<u8>> for PyByteArray {
     fn from(elements: Vec<u8>) -> Self {
-        Self {
-            inner: PyRwLock::new(PyBytesInner { elements }),
-        }
+        Self::from(PyBytesInner { elements })
     }
 }
 

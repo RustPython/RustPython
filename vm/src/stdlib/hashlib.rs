@@ -3,7 +3,7 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue};
+use crate::pyobject::{BorrowValue, PyClassImpl, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 use std::fmt;
 
@@ -68,7 +68,7 @@ impl PyHasher {
 
     #[pymethod(name = "update")]
     fn update(&self, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
-        self.borrow_value_mut().input(data.get_value());
+        self.borrow_value_mut().input(data.borrow_value());
         Ok(vm.get_none())
     }
 

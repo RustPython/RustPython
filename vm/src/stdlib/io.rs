@@ -20,7 +20,8 @@ use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    BufferProtocol, Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BorrowValue, BufferProtocol, Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -393,7 +394,7 @@ fn bytes_io_new(
 ) -> PyResult<PyBytesIORef> {
     let raw_bytes = object
         .flatten()
-        .map_or_else(Vec::new, |input| input.get_value().to_vec());
+        .map_or_else(Vec::new, |input| input.borrow_value().to_vec());
 
     PyBytesIO {
         buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),

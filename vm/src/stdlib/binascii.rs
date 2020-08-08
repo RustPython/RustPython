@@ -7,7 +7,7 @@ mod decl {
     use crate::obj::objbytearray::{PyByteArray, PyByteArrayRef};
     use crate::obj::objbytes::{PyBytes, PyBytesRef};
     use crate::obj::objstr::{PyString, PyStringRef};
-    use crate::pyobject::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+    use crate::pyobject::{BorrowValue, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
     use crate::vm::VirtualMachine;
     use crc::{crc32, Hasher32};
     use itertools::Itertools;
@@ -44,7 +44,7 @@ mod decl {
         #[inline]
         pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
             match self {
-                SerializedData::Bytes(b) => f(b.get_value()),
+                SerializedData::Bytes(b) => f(b.borrow_value()),
                 SerializedData::Buffer(b) => f(&b.borrow_value().elements),
                 SerializedData::Ascii(a) => f(a.as_str().as_bytes()),
             }
