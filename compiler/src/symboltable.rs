@@ -699,7 +699,7 @@ impl SymbolTableBuilder {
             }
             Subscript { a, b } => {
                 self.scan_expression(a, &ExpressionContext::Load)?;
-                self.scan_expression(b, context)?;
+                self.scan_expression(b, &ExpressionContext::Load)?;
             }
             Attribute { value, .. } => {
                 self.scan_expression(value, &ExpressionContext::Load)?;
