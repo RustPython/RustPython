@@ -165,7 +165,6 @@ class StructTest(unittest.TestCase):
         self.assertGreaterEqual(struct.calcsize('n'), struct.calcsize('i'))
         self.assertGreaterEqual(struct.calcsize('n'), struct.calcsize('P'))
 
-    @unittest.skip("Slow")
     def test_integers(self):
         # Integer tests (bBhHiIlLqQnN).
         import binascii
@@ -585,8 +584,6 @@ class StructTest(unittest.TestCase):
         self.check_sizeof('0s', 1)
         self.check_sizeof('0c', 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_boundary_error_message(self):
         regex1 = (
             r'pack_into requires a buffer of at least 6 '
@@ -604,8 +601,6 @@ class StructTest(unittest.TestCase):
         with self.assertRaisesRegex(struct.error, regex2):
             struct.unpack_from('b', bytearray(1), 5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_boundary_error_message_with_negative_offset(self):
         byte_list = bytearray(10)
         with self.assertRaisesRegex(

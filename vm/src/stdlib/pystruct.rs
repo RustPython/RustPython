@@ -219,7 +219,10 @@ mod _struct {
         }
     }
 
-    fn parse_format_codes<I>(chars: &mut Peekable<I>, is_native_size: bool) -> Result<Vec<FormatCode>, String>
+    fn parse_format_codes<I>(
+        chars: &mut Peekable<I>,
+        is_native_size: bool,
+    ) -> Result<Vec<FormatCode>, String>
     where
         I: Sized + Iterator<Item = char>,
     {
@@ -279,21 +282,53 @@ mod _struct {
 
     fn get_buffer_offset(
         buffer_len: usize,
-        mut offset: isize,
+        offset: isize,
         needed: usize,
+        is_pack: bool,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        if offset < 0 {
-            offset += buffer_len as isize;
-        }
+        let offset_from_start = if offset < 0 {
+            if (-offset) as usize > buffer_len {
+                return Err(new_struct_error(
+                    vm,
+                    format!(
+                        "offset {} out of range for {}-byte buffer",
+                        offset, buffer_len
+                    ),
+                ));
+            }
+            buffer_len - (-offset as usize)
+        } else {
+            if offset as usize >= buffer_len {
+                let msg = format!(
+                    "{op} requires a buffer of at least {required} bytes for {op_action} {needed} \
+                    bytes at offset {offset} (actual buffer size is {buffer_len})",
+                    op = if is_pack { "pack_into" } else { "unpack_from" },
+                    op_action = if is_pack { "packing" } else { "unpacking" },
+                    required = offset + buffer_len as isize,
+                    needed = needed,
+                    offset = offset,
+                    buffer_len = buffer_len
+                );
+                return Err(new_struct_error(vm, msg));
+            }
+            offset as usize
+        };
 
-        if offset < 0 || offset as usize >= buffer_len || (buffer_len - offset as usize) < needed {
+        if (buffer_len - offset_from_start) < needed {
             Err(new_struct_error(
                 vm,
-                "not enough space in buffer to unpack".to_owned(),
+                if is_pack {
+                    format!("no space to pack {} bytes at offset {}", needed, offset)
+                } else {
+                    format!(
+                        "not enough data to unpack {} bytes at offset {}",
+                        needed, offset
+                    )
+                },
             ))
         } else {
-            Ok(offset as usize)
+            Ok(offset_from_start)
         }
     }
 
@@ -507,7 +542,7 @@ mod _struct {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
-        let offset = get_buffer_offset(buffer.len(), offset, format_spec.size(), vm)?;
+        let offset = get_buffer_offset(buffer.len(), offset, format_spec.size(), true, vm)?;
         buffer.with_ref(|data| format_spec.pack_into(&mut &mut data[offset..], args.as_ref(), vm))
     }
 
@@ -728,7 +763,7 @@ mod _struct {
     struct UpdateFromArgs {
         buffer: PyBytesLike,
         #[pyarg(positional_or_keyword, default = "0")]
-        offset: isize
+        offset: isize,
     }
 
     #[pyfunction]
@@ -739,8 +774,9 @@ mod _struct {
     ) -> PyResult<PyTuple> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
         let size = format_spec.size();
-        let offset = get_buffer_offset(args.buffer.len(), args.offset, size, vm)?;
-        args.buffer.with_ref(|buf| format_spec.unpack(&buf[offset..offset+size], vm))
+        let offset = get_buffer_offset(args.buffer.len(), args.offset, size, false, vm)?;
+        args.buffer
+            .with_ref(|buf| format_spec.unpack(&buf[offset..offset + size], vm))
     }
 
     #[pyclass(name = "unpack_iterator")]
@@ -752,11 +788,24 @@ mod _struct {
     }
 
     impl UnpackIterator {
-        fn new(vm: &VirtualMachine, format_spec: FormatSpec, buffer: PyBytesLike) -> PyResult<UnpackIterator> {
+        fn new(
+            vm: &VirtualMachine,
+            format_spec: FormatSpec,
+            buffer: PyBytesLike,
+        ) -> PyResult<UnpackIterator> {
             if format_spec.size() == 0 {
-                Err(new_struct_error(vm, "cannot iteratively unpack with a struct of length 0".to_owned()))
+                Err(new_struct_error(
+                    vm,
+                    "cannot iteratively unpack with a struct of length 0".to_owned(),
+                ))
             } else if buffer.len() % format_spec.size() != 0 {
-                Err(new_struct_error(vm, format!("iterative unpacking requires a buffer of a multiple of {} bytes", format_spec.size())))
+                Err(new_struct_error(
+                    vm,
+                    format!(
+                        "iterative unpacking requires a buffer of a multiple of {} bytes",
+                        format_spec.size()
+                    ),
+                ))
             } else {
                 Ok(UnpackIterator {
                     format_spec,
@@ -782,8 +831,8 @@ mod _struct {
             if offset + size > self.buffer.len() {
                 Err(objiter::new_stop_iteration(vm))
             } else {
-                self.buffer.with_ref(|buf| self.format_spec
-                    .unpack(&buf[offset..offset + size], vm))
+                self.buffer
+                    .with_ref(|buf| self.format_spec.unpack(&buf[offset..offset + size], vm))
             }
         }
 
@@ -867,7 +916,7 @@ mod _struct {
             args: Args,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let offset = get_buffer_offset(buffer.len(), offset, self.size(), vm)?;
+            let offset = get_buffer_offset(buffer.len(), offset, self.size(), true, vm)?;
             buffer.with_ref(|data| {
                 self.spec
                     .pack_into(&mut &mut data[offset..], args.as_ref(), vm)
@@ -880,18 +929,19 @@ mod _struct {
         }
 
         #[pymethod]
-        fn unpack_from(
-            &self,
-            args: UpdateFromArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyTuple> {
+        fn unpack_from(&self, args: UpdateFromArgs, vm: &VirtualMachine) -> PyResult<PyTuple> {
             let size = self.size();
-            let offset = get_buffer_offset(args.buffer.len(), args.offset, size, vm)?;
-            args.buffer.with_ref(|buf| self.spec.unpack(&buf[offset..offset+size], vm))
+            let offset = get_buffer_offset(args.buffer.len(), args.offset, size, false, vm)?;
+            args.buffer
+                .with_ref(|buf| self.spec.unpack(&buf[offset..offset + size], vm))
         }
 
         #[pymethod]
-        fn iter_unpack(&self, buffer: PyBytesLike, vm: &VirtualMachine) -> PyResult<UnpackIterator> {
+        fn iter_unpack(
+            &self,
+            buffer: PyBytesLike,
+            vm: &VirtualMachine,
+        ) -> PyResult<UnpackIterator> {
             UnpackIterator::new(vm, self.spec.clone(), buffer)
         }
     }
