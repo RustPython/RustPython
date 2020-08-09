@@ -2,7 +2,7 @@ use super::Diagnostic;
 use crate::util::{def_to_name, ItemIdent, ItemMeta};
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Meta, NestedMeta};
 
 fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
@@ -15,7 +15,7 @@ fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
 
 #[derive(Default)]
 struct Module {
-    items: HashSet<(ModuleItem, Vec<Meta>)>,
+    items: HashMap<(String, Vec<Meta>), ModuleItem>,
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -24,15 +24,33 @@ enum ModuleItem {
     Class { item_ident: Ident, py_name: String },
 }
 
+impl ModuleItem {
+    fn name(&self) -> String {
+        use ModuleItem::*;
+        match self {
+            Function { py_name, .. } => py_name.clone(),
+            Class { py_name, .. } => py_name.clone(),
+        }
+    }
+}
+
 impl Module {
-    fn add_item(&mut self, item: (ModuleItem, Vec<Meta>), span: Span) -> Result<(), Diagnostic> {
-        if self.items.insert(item) {
-            Ok(())
-        } else {
+    fn add_item(
+        &mut self,
+        item: ModuleItem,
+        cfgs: Vec<Meta>,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if let Some(existing) = self.items.insert((item.name(), cfgs), item) {
             Err(Diagnostic::span_error(
                 span,
-                "Duplicate #[py*] attribute on pymodule".to_owned(),
+                format!(
+                    "Duplicate #[py*] attribute on pymodule: {}",
+                    existing.name()
+                ),
             ))
+        } else {
+            Ok(())
         }
     }
 
@@ -130,7 +148,7 @@ impl Module {
             };
         }
         for (item, meta) in items {
-            self.add_item((item, cfgs.clone()), meta)?;
+            self.add_item(item, cfgs.clone(), meta)?;
         }
         let mut i = 0;
         let mut attr_idxs = &*attr_idxs;
@@ -164,30 +182,35 @@ fn extract_module_items(
         );
     }
 
-    let functions = module.items.into_iter().map(|(item, cfgs)| match item {
-        ModuleItem::Function {
-            item_ident,
-            py_name,
-        } => {
-            let new_func = quote_spanned!(item_ident.span() =>
+    let functions = module
+        .items
+        .into_iter()
+        .map(|((_name, cfgs), item)| match item {
+            ModuleItem::Function {
+                item_ident,
+                py_name,
+            } => {
+                let new_func = quote_spanned!(item_ident.span() =>
                                                       .new_function_named(#item_ident,
                                                                           #module_name.to_owned(),
                                                                           #py_name.to_owned()));
-            quote! {
-                #( #[ #cfgs ])*
-                vm.__module_set_attr(&module, #py_name, vm.ctx#new_func).unwrap();
+                quote! {
+                    #( #[ #cfgs ])*
+                    vm.__module_set_attr(&module, #py_name, vm.ctx#new_func).unwrap();
+                }
             }
-        }
-        ModuleItem::Class {
-            item_ident,
-            py_name,
-        } => {
-            let new_class = quote_spanned!(item_ident.span() => #item_ident::make_class(&vm.ctx));
-            quote! {
-                vm.__module_set_attr(&module, #py_name, #new_class).unwrap();
+            ModuleItem::Class {
+                item_ident,
+                py_name,
+            } => {
+                let new_class =
+                    quote_spanned!(item_ident.span() => #item_ident::make_class(&vm.ctx));
+                quote! {
+                    #( #[ #cfgs ])*
+                    vm.__module_set_attr(&module, #py_name, #new_class).unwrap();
+                }
             }
-        }
-    });
+        });
 
     Diagnostic::from_vec(diagnostics)?;
 
