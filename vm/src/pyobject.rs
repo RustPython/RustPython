@@ -258,6 +258,10 @@ impl PyContext {
         self.types.set_type.clone()
     }
 
+    pub fn setiterator_type(&self) -> PyClassRef {
+        self.types.setiterator_type.clone()
+    }
+
     pub fn range_type(&self) -> PyClassRef {
         self.types.range_type.clone()
     }

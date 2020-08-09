@@ -1,9 +1,10 @@
 /*
  * Builtin set type with a sequence of unique items.
  */
+use rustpython_common::rc::PyRc;
 use std::fmt;
 
-use super::objlist::PyListIterator;
+use super::objiter;
 use super::objtype::{self, PyClassRef};
 use crate::dictdatatype;
 use crate::function::{Args, OptionalArg};
@@ -66,7 +67,7 @@ impl PyValue for PyFrozenSet {
 
 #[derive(Default, Clone)]
 struct PySetInner {
-    content: SetContentType,
+    content: PyRc<SetContentType>,
 }
 
 impl PySetInner {
@@ -96,7 +97,7 @@ impl PySetInner {
 
     fn copy(&self) -> PySetInner {
         PySetInner {
-            content: self.content.clone(),
+            content: PyRc::new((*self.content).clone()),
         }
     }
 
@@ -238,11 +239,15 @@ impl PySetInner {
         Ok(true)
     }
 
-    fn iter(&self, vm: &VirtualMachine) -> PyListIterator {
-        let set_list = vm.ctx.new_list(self.content.keys());
-        PyListIterator {
-            position: crossbeam_utils::atomic::AtomicCell::new(0),
-            list: set_list.downcast().unwrap(),
+    fn iter(&self, _vm: &VirtualMachine) -> PySetIterator {
+        let set_size = SetSizeInfo {
+            position: 0,
+            size: Some(self.content.len()),
+        };
+
+        PySetIterator {
+            dict: PyRc::clone(&self.content),
+            size_info: crossbeam_utils::atomic::AtomicCell::new(set_size),
         }
     }
 
@@ -500,7 +505,7 @@ impl PySet {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(&self, vm: &VirtualMachine) -> PyListIterator {
+    fn iter(&self, vm: &VirtualMachine) -> PySetIterator {
         self.inner.iter(vm)
     }
 
@@ -769,7 +774,7 @@ impl PyFrozenSet {
     }
 
     #[pymethod(name = "__iter__")]
-    fn iter(&self, vm: &VirtualMachine) -> PyListIterator {
+    fn iter(&self, vm: &VirtualMachine) -> PySetIterator {
         self.inner.iter(vm)
     }
 
@@ -813,7 +818,71 @@ impl TryFromObject for SetIterable {
     }
 }
 
+#[derive(Copy, Clone, Default)]
+struct SetSizeInfo {
+    size: Option<usize>,
+    position: usize,
+}
+
+#[pyclass]
+struct PySetIterator {
+    dict: PyRc<SetContentType>,
+    size_info: crossbeam_utils::atomic::AtomicCell<SetSizeInfo>,
+}
+
+impl fmt::Debug for PySetIterator {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: implement more detailed, non-recursive Debug formatter
+        f.write_str("setiterator")
+    }
+}
+
+#[pyimpl]
+impl PySetIterator {
+    #[pymethod(magic)]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let mut size_info = self.size_info.take();
+
+        if let Some(set_size) = size_info.size {
+            if set_size == self.dict.len() {
+                let index = size_info.position;
+                if let Some(item) = self.dict.keys().get(index) {
+                    size_info.position += 1;
+                    self.size_info.store(size_info);
+                    return Ok(item.clone());
+                } else {
+                    return Err(objiter::new_stop_iteration(vm));
+                }
+            } else {
+                size_info.size = None;
+                self.size_info.store(size_info);
+            }
+        }
+
+        Err(vm.new_runtime_error("set changed size during iteration".into()))
+    }
+
+    #[pymethod(magic)]
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
+        zelf
+    }
+
+    #[pymethod(magic)]
+    fn length_hint(&self) -> usize {
+        let set_len = self.dict.len();
+        let position = self.size_info.load().position;
+        set_len.saturating_sub(position)
+    }
+}
+
+impl PyValue for PySetIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.setiterator_type()
+    }
+}
+
 pub fn init(context: &PyContext) {
     PySet::extend_class(context, &context.types.set_type);
     PyFrozenSet::extend_class(context, &context.types.frozenset_type);
+    PySetIterator::extend_class(context, &context.types.setiterator_type);
 }
