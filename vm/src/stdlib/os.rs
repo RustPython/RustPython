@@ -2435,7 +2435,7 @@ mod nt {
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
-    fn execv(path: PyStringRef, argv_list: Either<PyListRef, PyTupleRef>, vm: &VirtualMachine) {
+    fn execv(path: PyStringRef, argv_list: Either<PyListRef, PyTupleRef>, vm: &VirtualMachine) -> PyResult<()> {
         use std::iter::once;
         use std::os::windows::prelude::*;
 
@@ -2462,50 +2462,10 @@ mod nt {
 
         let argv = argv.map(|s| s.encode_wide().chain(once(0u16)).collect::<Vec<u16>>());
 
-        // see https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/execv-wexecv#return-value
-        const E2BIG: i32 = 7;
-        const EACCES: i32 = 13;
-        const EINVAL: i32 = 22;
-        const EMFILE: i32 = 24;
-        const ENOENT: i32 = 2;
-        const ENOEXEC: i32 = 8;
-        const ENOMEM: i32 = 12;
-
         if (unsafe { _wexecv(&path, &argv) } == -1) {
-            let mut errno = 0;
-            unsafe { _get_errno(&mut errno) };
-            match errno {
-                // TODO: cleanup MSVCRT errno handling (as well as waitpid)
-                E2BIG => Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.os_error.clone(),
-                    "E2BIG: Argument list too long".to_owned(),
-                )),
-                EACCES => Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.os_error.clone(),
-                    "EACCES: Permission denied".to_owned(),
-                )),
-                EINVAL => Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.os_error.clone(),
-                    "EINVAL: Invalid argument".to_owned(),
-                )),
-                EMFILE => Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.os_error.clone(),
-                    "EMFILE: Too many open files".to_owned(),
-                )),
-                ENOENT => Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.os_error.clone(),
-                    "ENOENT: No such file or directory".to_owned(),
-                )),
-                ENOEXEC => Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.os_error.clone(),
-                    "ENOEXEC: Exec format error".to_owned(),
-                )),
-                ENOMEM => Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.os_error.clone(),
-                    "ENOMEM: Not enough memory".to_owned(),
-                )),
-                _ => unreachable!(),
-            }
+            Err(errno_err(vm))
+        } else {
+            Ok(())
         }
     }
 
