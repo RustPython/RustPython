@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 
 pub use argument::{ArgCallable, ArgIterable};
-pub use buffer::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
+pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 pub use number::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat};
 
 /// Implemented by any type that can be returned from a built-in Python function.
