@@ -76,19 +76,13 @@ macro_rules! impl_try_from_object_float {
 impl_try_from_object_float!(f32, f64);
 
 fn inner_div(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
-    if v2 != 0.0 {
-        Ok(v1 / v2)
-    } else {
-        Err(vm.new_zero_division_error("float division by zero".to_owned()))
-    }
+    float_ops::div(v1, v2)
+        .ok_or_else(|| vm.new_zero_division_error("float division by zero".to_owned()))
 }
 
 fn inner_mod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
-    if v2 != 0.0 {
-        Ok(v1 % v2)
-    } else {
-        Err(vm.new_zero_division_error("float mod by zero".to_owned()))
-    }
+    float_ops::mod_(v1, v2)
+        .ok_or_else(|| vm.new_zero_division_error("float mod by zero".to_owned()))
 }
 
 pub fn try_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
@@ -114,25 +108,12 @@ pub fn try_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
 }
 
 fn inner_floordiv(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
-    if v2 != 0.0 {
-        Ok((v1 / v2).floor())
-    } else {
-        Err(vm.new_zero_division_error("float floordiv by zero".to_owned()))
-    }
+    float_ops::floordiv(v1, v2)
+        .ok_or_else(|| vm.new_zero_division_error("float floordiv by zero".to_owned()))
 }
 
 fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
-    if v2 != 0.0 {
-        let mut m = v1 % v2;
-        let mut d = (v1 - m) / v2;
-        if v2.is_sign_negative() != m.is_sign_negative() {
-            m += v2;
-            d -= 1.0;
-        }
-        Ok((d, m))
-    } else {
-        Err(vm.new_zero_division_error("float divmod()".to_owned()))
-    }
+    float_ops::divmod(v1, v2).ok_or_else(|| vm.new_zero_division_error("float divmod()".to_owned()))
 }
 
 pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
