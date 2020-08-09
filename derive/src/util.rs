@@ -210,6 +210,10 @@ impl<'a> ItemMeta<'a> {
         Ok(self._str("name")?.unwrap_or_else(|| self.ident.to_string()))
     }
 
+    pub fn optional_name(&self) -> Option<String> {
+        self.simple_name().ok()
+    }
+
     pub fn method_name(&self) -> Result<String, Diagnostic> {
         let name = self._str("name")?;
         let magic = self._bool("magic")?;

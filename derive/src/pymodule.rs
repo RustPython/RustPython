@@ -12,10 +12,26 @@ struct Module {
 
 #[derive(PartialEq, Eq, Hash)]
 enum ModuleItem {
-    Function { item_ident: Ident, py_name: String },
-    EvaluatedAttr { item_ident: Ident, py_name: String },
-    ConstAttr { item_ident: Ident, py_name: String },
-    Class { item_ident: Ident, py_name: String },
+    Function {
+        item_ident: Ident,
+        py_name: String,
+    },
+    EvaluatedAttr {
+        item_ident: Ident,
+        py_name: String,
+    },
+    ConstAttr {
+        item_ident: Ident,
+        py_name: String,
+    },
+    ClassAttr {
+        item_ident: Ident,
+        py_name: Option<String>,
+    },
+    Class {
+        item_ident: Ident,
+        py_name: String,
+    },
 }
 
 impl ModuleItem {
@@ -25,6 +41,7 @@ impl ModuleItem {
             Function { py_name, .. } => py_name.clone(),
             EvaluatedAttr { py_name, .. } => py_name.clone(),
             ConstAttr { py_name, .. } => py_name.clone(),
+            ClassAttr { py_name, .. } => py_name.clone().unwrap_or_else(String::new),
             Class { py_name, .. } => py_name.clone(),
         }
     }
@@ -108,10 +125,23 @@ impl Module {
         })
     }
 
+    fn extract_class_attr(
+        ident: &Ident,
+        nesteds: Vec<NestedMeta>,
+    ) -> Result<ModuleItem, Diagnostic> {
+        let item_meta =
+            ItemMeta::from_nested_meta("pyattr", &ident, &nesteds, ItemMeta::SIMPLE_NAMES)?;
+        Ok(ModuleItem::ClassAttr {
+            item_ident: ident.clone(),
+            py_name: item_meta.optional_name(),
+        })
+    }
+
     fn extract_item_from_syn(&mut self, item: &mut ItemIdent) -> Result<(), Diagnostic> {
         let mut attr_idxs = Vec::new();
         let mut items = Vec::new();
         let mut cfgs = Vec::new();
+        let mut has_class = false;
         for (i, meta) in item
             .attrs
             .iter()
@@ -158,19 +188,66 @@ impl Module {
                                 meta_span,
                             ));
                         }
+                        ItemType::Struct => {
+                            if has_class {
+                                return Err(err_span!(
+                                    meta,
+                                    "#[pyattr] must be placed on top of #[pyclass] or #[pystruct_sequence]",
+                                ));
+                            }
+                            items.push((
+                                Self::extract_class_attr(item.ident, into_nested()?)?,
+                                meta_span,
+                            ));
+                        }
                         _ => unreachable!(),
                     }
                 }
-                "pyclass" => {
+                attr_name @ "pyclass" | attr_name @ "pystruct_sequence" => {
                     assert!(item.typ == ItemType::Struct);
-                    items.push((Self::extract_class(item.ident, into_nested()?)?, meta_span));
-                }
-                "pystruct_sequence" => {
-                    assert!(item.typ == ItemType::Struct);
-                    items.push((
-                        Self::extract_struct_sequence(item.ident, into_nested()?)?,
-                        meta_span,
-                    ));
+                    if has_class {
+                        Err(err_span!(
+                            meta,
+                            "#[{}] in module cannot be duplicated",
+                            attr_name,
+                        ))
+                    } else if !items
+                        .iter()
+                        .all(|(item, _span)| matches!(item, ModuleItem::ClassAttr{..}))
+                    {
+                        Err(err_span!(
+                            meta,
+                            "#[{}] is allowed to have only #[pyattr] as siblings",
+                            attr_name,
+                        ))
+                    } else {
+                        has_class = true;
+                        Ok(())
+                    }?;
+
+                    let class = match attr_name {
+                        "pyclass" => Self::extract_class(item.ident, into_nested()?)?,
+                        "pystruct_sequence" => {
+                            // TODO: validate pystruct_sequence doesn't have module
+                            Self::extract_struct_sequence(item.ident, into_nested()?)?
+                        }
+                        _ => unreachable!(),
+                    };
+
+                    if items.is_empty() {
+                        items.push((class, meta_span));
+                    } else {
+                        for (attr, _) in items.iter_mut() {
+                            match attr {
+                                ModuleItem::ClassAttr { py_name, .. } => {
+                                    if py_name.is_none() {
+                                        *py_name = Some(class.name());
+                                    }
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                    }
                 }
                 "cfg" => {
                     cfgs.push(meta);
@@ -197,6 +274,7 @@ impl Module {
         for (i, idx) in attr_idxs.iter().enumerate() {
             item.attrs.remove(idx - i);
         }
+        // TODO: Add module to pystruct_sequence
         Ok(())
     }
 }
@@ -253,18 +331,31 @@ fn extract_module_items(
                     vm.__module_set_attr(&module, #py_name, #new_attr).unwrap();
                 }
             }
-            ModuleItem::Class {
-                item_ident,
-                py_name,
-            } => {
+            class => {
+                let (item_ident, py_name) = match class {
+                    ModuleItem::ClassAttr {
+                        item_ident,
+                        py_name: Some(py_name),
+                    }   => (item_ident, py_name),
+                    ModuleItem::Class {
+                        item_ident,
+                        py_name,
+                    }   => (item_ident, py_name),
+                    _ => unreachable!()
+                };
                 let new_class = quote_spanned!(
                     item_ident.span() =>
                         #item_ident::make_class(&vm.ctx));
                 quote! {
                     #( #[ #cfgs ])*
-                    vm.__module_set_attr(&module, #py_name, #new_class).unwrap();
+                    {
+                        let new_class = #new_class;
+                        new_class.set_str_attr("__module__", vm.ctx.new_str(#module_name));
+                        vm.__module_set_attr(&module, #py_name, new_class).unwrap();
+                    }
                 }
             }
+
         });
 
     Diagnostic::from_vec(diagnostics)?;
