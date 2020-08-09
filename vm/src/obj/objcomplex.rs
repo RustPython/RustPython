@@ -8,8 +8,8 @@ use super::objstr::PyString;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    BorrowValue, IntoPyObject, Never, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    BorrowValue, IntoPyObject, Never, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
+    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
@@ -77,29 +77,46 @@ impl PyComplex {
     }
 
     #[inline]
-    fn op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult
+    fn op<F>(
+        &self,
+        other: PyObjectRef,
+        op: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>>
     where
         F: Fn(Complex64, Complex64) -> Complex64,
     {
         Ok(try_complex(&other, vm)?.map_or_else(
-            || vm.ctx.not_implemented(),
-            |other| op(self.value, other).into_pyobject(vm),
+            || PyArithmaticValue::NotImplemented,
+            |other| PyArithmaticValue::Implemented(op(self.value, other)),
         ))
     }
 
     #[pymethod(name = "__add__")]
     #[pymethod(name = "__radd__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn add(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| a + b, vm)
     }
 
     #[pymethod(name = "__sub__")]
-    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn sub(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| a - b, vm)
     }
 
     #[pymethod(name = "__rsub__")]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rsub(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| b - a, vm)
     }
 
@@ -109,18 +126,22 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         let result = if let Some(other) = other.payload_if_subclass::<PyComplex>(vm) {
             self.value == other.value
         } else {
             match objfloat::try_float(&other, vm) {
                 Ok(Some(other)) => self.value.im == 0.0f64 && self.value.re == other,
                 Err(_) => false,
-                Ok(None) => return vm.ctx.not_implemented(),
+                Ok(None) => return PyComparisonValue::NotImplemented,
             }
         };
+        PyComparisonValue::Implemented(result)
+    }
 
-        vm.ctx.new_bool(result)
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
+        self.eq(other, vm).map(|v| !v)
     }
 
     #[pymethod(name = "__float__")]
@@ -135,17 +156,29 @@ impl PyComplex {
 
     #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
-    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn mul(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| a * b, vm)
     }
 
     #[pymethod(name = "__truediv__")]
-    fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn truediv(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| a / b, vm)
     }
 
     #[pymethod(name = "__rtruediv__")]
-    fn rtruediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rtruediv(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| b / a, vm)
     }
 
@@ -188,12 +221,20 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__pow__")]
-    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn pow(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| a.powc(b), vm)
     }
 
     #[pymethod(name = "__rpow__")]
-    fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rpow(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| b.powc(a), vm)
     }
 
