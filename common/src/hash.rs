@@ -118,5 +118,5 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
 }
 
 pub fn hash_str(value: &str) -> PyHash {
-    hash_value(value)
+    hash_value(value.as_bytes())
 }
