@@ -2122,6 +2122,7 @@ pub(crate) use posix::raw_set_inheritable;
 #[pymodule]
 mod nt {
     use super::*;
+    use crate::obj::objlist::PyListRef;
     pub(super) use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::RawHandle;
     #[cfg(target_env = "msvc")]
@@ -2435,11 +2436,16 @@ mod nt {
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
-    fn execv(path: PyStringRef, argv_list: Either<PyListRef, PyTupleRef>, vm: &VirtualMachine) -> PyResult<()> {
+    fn execv(
+        path: PyStringRef,
+        argv_list: Either<PyListRef, PyTupleRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         use std::iter::once;
         use std::os::windows::prelude::*;
+        use std::str::FromStr;
 
-        let path: Vec<u16> = ffi::OsString::from_str(path.as_str())
+        let path: Vec<u16> = ffi::OsString::from_str(path.borrow_value())
             .unwrap()
             .encode_wide()
             .chain(once(0u16))
@@ -2454,15 +2460,25 @@ mod nt {
             return Err(vm.new_value_error("execv() arg 2 must not be empty".to_owned()));
         }
 
-        if argv.first().unwrap().to_bytes().is_empty() {
+        // unwrap is safe, since argv is not empty there has to be a item unless race condition happens
+        if argv.first().unwrap().is_empty() {
             return Err(
                 vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned())
             );
         }
 
-        let argv = argv.map(|s| s.encode_wide().chain(once(0u16)).collect::<Vec<u16>>());
+        let argv: Vec<Vec<u16>> = argv
+            .into_iter()
+            .map(|s| s.encode_wide().chain(once(0u16)).collect())
+            .collect();
 
-        if (unsafe { _wexecv(&path, &argv) } == -1) {
+        let argv_execv: Vec<*const u16> = argv
+            .iter()
+            .map(|v| v.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        if (unsafe { _wexecv(path.as_ptr(), argv_execv.as_ptr()) } == -1) {
             Err(errno_err(vm))
         } else {
             Ok(())
