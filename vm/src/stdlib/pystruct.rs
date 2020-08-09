@@ -21,16 +21,14 @@ mod _struct {
     use std::io::{Cursor, Read, Write};
     use std::iter::Peekable;
 
-    use crate::byteslike::{PyBytesLike, PyRwBytesLike};
+    use crate::byteslike::{PyAsciiBytesLike, PyBytesLike, PyRwBytesLike};
     use crate::exceptions::PyBaseExceptionRef;
     use crate::function::Args;
     use crate::obj::{
         objbool::IntoPyBool, objbytes::PyBytesRef, objiter, objstr::PyString, objstr::PyStringRef,
         objtuple::PyTuple, objtype::PyClassRef,
     };
-    use crate::pyobject::{
-        Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    };
+    use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
     use crate::VirtualMachine;
 
     #[derive(Debug, Copy, Clone, PartialEq)]
@@ -50,19 +48,19 @@ mod _struct {
     #[derive(Debug, Clone)]
     struct FormatCode {
         repeat: u32,
-        code: char,
+        code: u8,
     }
 
     impl FormatCode {
         fn unit_size(&self) -> usize {
             match self.code {
-                'x' | 'c' | 'b' | 'B' | '?' | 's' | 'p' => 1,
-                'h' | 'H' => 2,
-                'i' | 'l' | 'I' | 'L' | 'f' => 4,
-                'q' | 'Q' | 'd' => 8,
-                'n' | 'N' | 'P' => std::mem::size_of::<usize>(),
+                b'x' | b'c' | b'b' | b'B' | b'?' | b's' | b'p' => 1,
+                b'h' | b'H' => 2,
+                b'i' | b'l' | b'I' | b'L' | b'f' => 4,
+                b'q' | b'Q' | b'd' => 8,
+                b'n' | b'N' | b'P' => std::mem::size_of::<usize>(),
                 c => {
-                    panic!("Unsupported format code {:?}", c);
+                    panic!("Unsupported format code {:?}", c as char);
                 }
             }
         }
@@ -73,8 +71,8 @@ mod _struct {
 
         fn arg_count(&self) -> usize {
             match self.code {
-                'x' => 0,
-                's' | 'p' => 1,
+                b'x' => 0,
+                b's' | b'p' => 1,
                 _ => self.repeat as usize,
             }
         }
@@ -87,30 +85,15 @@ mod _struct {
     }
 
     impl FormatSpec {
-        fn decode_and_parse(
-            vm: &VirtualMachine,
-            fmt: &Either<PyStringRef, PyBytesRef>,
-        ) -> PyResult<FormatSpec> {
-            let decoded_fmt = match fmt {
-                Either::A(string) => string.as_str(),
-                Either::B(bytes) if bytes.is_ascii() => std::str::from_utf8(&bytes).unwrap(),
-                _ => {
-                    return Err(vm.new_unicode_decode_error(
-                        "Struct format must be a ascii string".to_owned(),
-                    ))
-                }
-            };
-            FormatSpec::parse(decoded_fmt).map_err(|err| new_struct_error(vm, err))
-        }
-
-        fn parse(fmt: &str) -> Result<FormatSpec, String> {
-            let mut chars = fmt.chars().peekable();
+        fn parse(vm: &VirtualMachine, fmt: &[u8]) -> PyResult<FormatSpec> {
+            let mut chars = fmt.iter().copied().peekable();
 
             // First determine "@", "<", ">","!" or "="
             let (size_and_align, endianness) = parse_size_and_endiannes(&mut chars);
 
             // Now, analyze struct string furter:
-            let codes = parse_format_codes(&mut chars, size_and_align)?;
+            let codes = parse_format_codes(&mut chars, size_and_align)
+                .map_err(|err| new_struct_error(vm, err))?;
 
             Ok(FormatSpec { endianness, codes })
         }
@@ -198,26 +181,26 @@ mod _struct {
     /// See also: https://docs.python.org/3/library/struct.html?highlight=struct#byte-order-size-and-alignment
     fn parse_size_and_endiannes<I>(chars: &mut Peekable<I>) -> (SizeAndAlignment, Endianness)
     where
-        I: Sized + Iterator<Item = char>,
+        I: Sized + Iterator<Item = u8>,
     {
         match chars.peek() {
-            Some('@') => {
+            Some(b'@') => {
                 chars.next().unwrap();
                 (SizeAndAlignment::Native, Endianness::Native)
             }
-            Some('=') => {
+            Some(b'=') => {
                 chars.next().unwrap();
                 (SizeAndAlignment::Standard, Endianness::Native)
             }
-            Some('<') => {
+            Some(b'<') => {
                 chars.next().unwrap();
                 (SizeAndAlignment::Standard, Endianness::Little)
             }
-            Some('>') => {
+            Some(b'>') => {
                 chars.next().unwrap();
                 (SizeAndAlignment::Standard, Endianness::Big)
             }
-            Some('!') => {
+            Some(b'!') => {
                 chars.next().unwrap();
                 (SizeAndAlignment::Standard, Endianness::Network)
             }
@@ -230,18 +213,18 @@ mod _struct {
         size_and_align: SizeAndAlignment,
     ) -> Result<Vec<FormatCode>, String>
     where
-        I: Sized + Iterator<Item = char>,
+        I: Sized + Iterator<Item = u8>,
     {
         let mut codes = vec![];
         while chars.peek().is_some() {
             // determine repeat operator:
             let repeat = match chars.peek() {
-                Some('0'..='9') => {
+                Some(b'0'..=b'9') => {
                     let mut repeat = 0;
-                    while let Some('0'..='9') = chars.peek() {
+                    while let Some(b'0'..=b'9') = chars.peek() {
                         if let Some(c) = chars.next() {
-                            let current_digit = c.to_digit(10).unwrap();
-                            repeat = repeat * 10 + current_digit;
+                            let current_digit = c - b'0';
+                            repeat = repeat * 10 + current_digit as u32;
                         }
                     }
                     repeat
@@ -252,23 +235,24 @@ mod _struct {
             // determine format char:
             let c = chars.next();
             match c {
-                Some('n') | Some('N') if size_and_align == SizeAndAlignment::Standard => {
+                Some(b'n') | Some(b'N') if size_and_align == SizeAndAlignment::Standard => {
                     return Err("bad char in struct format".to_owned())
                 }
                 Some(c) if is_supported_format_character(c) => {
                     codes.push(FormatCode { repeat, code: c })
                 }
-                _ => return Err(format!("Illegal format code {:?}", c)),
+                Some(c) => return Err(format!("Illegal format code '{}'", c as char)),
+                None => return Err("repeat count given without format specifier".to_owned()),
             }
         }
 
         Ok(codes)
     }
 
-    fn is_supported_format_character(c: char) -> bool {
+    fn is_supported_format_character(c: u8) -> bool {
         match c {
-            'x' | 'c' | 'b' | 'B' | '?' | 'h' | 'H' | 'i' | 'I' | 'l' | 'L' | 'q' | 'Q' | 'n'
-            | 'N' | 'f' | 'd' | 's' | 'p' | 'P' => true,
+            b'x' | b'c' | b'b' | b'B' | b'?' | b'h' | b'H' | b'i' | b'I' | b'l' | b'L' | b'q'
+            | b'Q' | b'n' | b'N' | b'f' | b'd' | b's' | b'p' | b'P' => true,
             _ => false,
         }
     }
@@ -305,20 +289,26 @@ mod _struct {
             }
             buffer_len - (-offset as usize)
         } else {
-            if offset as usize >= buffer_len {
+            let offset = offset as usize;
+            let (op, op_action) = if is_pack {
+                ("pack_into", "packing")
+            } else {
+                ("unpack_from", "unpacking")
+            };
+            if offset >= buffer_len {
                 let msg = format!(
                     "{op} requires a buffer of at least {required} bytes for {op_action} {needed} \
                     bytes at offset {offset} (actual buffer size is {buffer_len})",
-                    op = if is_pack { "pack_into" } else { "unpack_from" },
-                    op_action = if is_pack { "packing" } else { "unpacking" },
-                    required = offset + buffer_len as isize,
+                    op = op,
+                    op_action = op_action,
+                    required = offset + buffer_len,
                     needed = needed,
                     offset = offset,
                     buffer_len = buffer_len
                 );
                 return Err(new_struct_error(vm, msg));
             }
-            offset as usize
+            offset
         };
 
         if (buffer_len - offset_from_start) < needed {
@@ -490,36 +480,36 @@ mod _struct {
         Endianness: byteorder::ByteOrder,
     {
         let pack = match code.code {
-            'c' => pack_char,
-            'b' => pack_i8,
-            'B' => pack_u8,
-            '?' => pack_bool,
-            'h' => pack_i16::<Endianness>,
-            'H' => pack_u16::<Endianness>,
-            'i' | 'l' => pack_i32::<Endianness>,
-            'I' | 'L' => pack_u32::<Endianness>,
-            'q' => pack_i64::<Endianness>,
-            'Q' => pack_u64::<Endianness>,
-            'n' => pack_isize::<Endianness>,
-            'N' | 'P' => pack_usize::<Endianness>,
-            'f' => pack_f32::<Endianness>,
-            'd' => pack_f64::<Endianness>,
-            's' => {
+            b'c' => pack_char,
+            b'b' => pack_i8,
+            b'B' => pack_u8,
+            b'?' => pack_bool,
+            b'h' => pack_i16::<Endianness>,
+            b'H' => pack_u16::<Endianness>,
+            b'i' | b'l' => pack_i32::<Endianness>,
+            b'I' | b'L' => pack_u32::<Endianness>,
+            b'q' => pack_i64::<Endianness>,
+            b'Q' => pack_u64::<Endianness>,
+            b'n' => pack_isize::<Endianness>,
+            b'N' | b'P' => pack_usize::<Endianness>,
+            b'f' => pack_f32::<Endianness>,
+            b'd' => pack_f64::<Endianness>,
+            b's' => {
                 pack_string(vm, &args[0], data, code.repeat as usize)?;
                 return Ok(1);
             }
-            'p' => {
+            b'p' => {
                 pack_pascal(vm, &args[0], data, code.repeat as usize)?;
                 return Ok(1);
             }
-            'x' => {
+            b'x' => {
                 for _ in 0..code.repeat as usize {
                     data.write_u8(0).unwrap();
                 }
                 return Ok(0);
             }
             c => {
-                panic!("Unsupported format code {:?}", c);
+                panic!("Unsupported format code {:?}", c as char);
             }
         };
 
@@ -530,24 +520,20 @@ mod _struct {
     }
 
     #[pyfunction]
-    fn pack(
-        fmt: Either<PyStringRef, PyBytesRef>,
-        args: Args,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
-        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+    fn pack(fmt: PyAsciiBytesLike, args: Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let format_spec = fmt.with_ref(|bytes| FormatSpec::parse(vm, bytes))?;
         format_spec.pack(args.as_ref(), vm)
     }
 
     #[pyfunction]
     fn pack_into(
-        fmt: Either<PyStringRef, PyBytesRef>,
+        fmt: PyAsciiBytesLike,
         buffer: PyRwBytesLike,
         offset: isize,
         args: Args,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+        let format_spec = fmt.with_ref(|bytes| FormatSpec::parse(vm, bytes))?;
         let offset = get_buffer_offset(buffer.len(), offset, format_spec.size(), true, vm)?;
         buffer.with_ref(|data| format_spec.pack_into(&mut &mut data[offset..], args.as_ref(), vm))
     }
@@ -710,11 +696,11 @@ mod _struct {
 
     #[pyfunction]
     fn unpack(
-        fmt: Either<PyStringRef, PyBytesRef>,
+        fmt: PyAsciiBytesLike,
         buffer: PyBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<PyTuple> {
-        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+        let format_spec = fmt.with_ref(|bytes| FormatSpec::parse(vm, bytes))?;
         buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
 
@@ -728,35 +714,35 @@ mod _struct {
         Endianness: byteorder::ByteOrder,
     {
         let unpack = match code.code {
-            'b' => unpack_i8,
-            'B' => unpack_u8,
-            'c' => unpack_char,
-            '?' => unpack_bool,
-            'h' => unpack_i16::<Endianness>,
-            'H' => unpack_u16::<Endianness>,
-            'i' | 'l' => unpack_i32::<Endianness>,
-            'I' | 'L' => unpack_u32::<Endianness>,
-            'q' => unpack_i64::<Endianness>,
-            'Q' => unpack_u64::<Endianness>,
-            'n' => unpack_isize::<Endianness>,
-            'N' => unpack_usize::<Endianness>,
-            'P' => unpack_usize::<Endianness>, // FIXME: native-only
-            'f' => unpack_f32::<Endianness>,
-            'd' => unpack_f64::<Endianness>,
-            'x' => {
+            b'b' => unpack_i8,
+            b'B' => unpack_u8,
+            b'c' => unpack_char,
+            b'?' => unpack_bool,
+            b'h' => unpack_i16::<Endianness>,
+            b'H' => unpack_u16::<Endianness>,
+            b'i' | b'l' => unpack_i32::<Endianness>,
+            b'I' | b'L' => unpack_u32::<Endianness>,
+            b'q' => unpack_i64::<Endianness>,
+            b'Q' => unpack_u64::<Endianness>,
+            b'n' => unpack_isize::<Endianness>,
+            b'N' => unpack_usize::<Endianness>,
+            b'P' => unpack_usize::<Endianness>, // FIXME: native-only
+            b'f' => unpack_f32::<Endianness>,
+            b'd' => unpack_f64::<Endianness>,
+            b'x' => {
                 unpack_empty(vm, rdr, code.repeat);
                 return Ok(());
             }
-            's' => {
+            b's' => {
                 items.push(unpack_string(vm, rdr, code.repeat)?);
                 return Ok(());
             }
-            'p' => {
+            b'p' => {
                 items.push(unpack_pascal(vm, rdr, code.repeat)?);
                 return Ok(());
             }
             c => {
-                panic!("Unsupported format code {:?}", c);
+                panic!("Unsupported format code {:?}", c as char);
             }
         };
         for _ in 0..code.repeat {
@@ -774,11 +760,11 @@ mod _struct {
 
     #[pyfunction]
     fn unpack_from(
-        fmt: Either<PyStringRef, PyBytesRef>,
+        fmt: PyAsciiBytesLike,
         args: UpdateFromArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyTuple> {
-        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+        let format_spec = fmt.with_ref(|bytes| FormatSpec::parse(vm, bytes))?;
         let size = format_spec.size();
         let offset = get_buffer_offset(args.buffer.len(), args.offset, size, false, vm)?;
         args.buffer
@@ -855,17 +841,17 @@ mod _struct {
 
     #[pyfunction]
     fn iter_unpack(
-        fmt: Either<PyStringRef, PyBytesRef>,
+        fmt: PyAsciiBytesLike,
         buffer: PyBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<UnpackIterator> {
-        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+        let format_spec = fmt.with_ref(|bytes| FormatSpec::parse(vm, bytes))?;
         UnpackIterator::new(vm, format_spec, buffer)
     }
 
     #[pyfunction]
-    fn calcsize(fmt: Either<PyStringRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<usize> {
-        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+    fn calcsize(fmt: PyAsciiBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        let format_spec = fmt.with_ref(|bytes| FormatSpec::parse(vm, bytes))?;
         Ok(format_spec.size())
     }
 
@@ -887,14 +873,15 @@ mod _struct {
         #[pyslot]
         fn tp_new(
             cls: PyClassRef,
-            fmt: Either<PyStringRef, PyBytesRef>,
+            fmt: PyAsciiBytesLike,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+            let spec = fmt.with_ref(|bytes| FormatSpec::parse(vm, bytes))?;
             let fmt_str = match fmt {
-                Either::A(s) => s,
-                Either::B(b) => PyString::from(std::str::from_utf8(b.get_value()).unwrap())
-                    .into_ref_with_type(vm, vm.ctx.str_type())?,
+                PyAsciiBytesLike::String(s) => s,
+                buffer => buffer
+                    .with_ref(|bytes| PyString::from(std::str::from_utf8(bytes).unwrap()))
+                    .into_ref(vm),
             };
             PyStruct { spec, fmt_str }.into_ref_with_type(vm, cls)
         }
