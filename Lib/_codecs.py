@@ -1485,11 +1485,11 @@ def PyUnicode_DecodeUnicodeEscape(s, size, errors):
                         message = "unknown Unicode character name"
                         st = s[pos+1:look]
                         try:
-                            chr = unicodedata.lookup("%s" % st)
+                            chr_codec = unicodedata.lookup("%s" % st)
                         except LookupError as e:
                             x = unicode_call_errorhandler(errors, "unicodeescape", message, s, pos-1, look+1)
                         else:
-                            x = chr, look + 1 
+                            x = chr_codec, look + 1 
                         p += x[0]
                         pos = x[1]
                     else:        
