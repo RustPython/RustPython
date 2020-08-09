@@ -360,8 +360,8 @@ impl ExceptionCtor {
             (Self::Class(cls), _) => {
                 let args = match_class!(match value {
                     PyNone => vec![],
-                    tup @ PyTuple => tup.borrow_value().to_vec(),
-                    exc @ PyBaseException => exc.args().borrow_value().to_vec(),
+                    tup @ PyTuple => tup.owned_value(),
+                    exc @ PyBaseException => exc.args().owned_value(),
                     obj => vec![obj],
                 });
                 invoke(cls, args, vm)

@@ -297,7 +297,7 @@ impl CFormatSpec {
                         vm.call_method(&obj.clone(), "decode", vec![])?,
                     )?,
                 };
-                Ok(self.format_string(result.borrow_value().to_owned()))
+                Ok(self.format_string(result.owned_value()))
             }
             CFormatType::Number(number_type) => {
                 if !objtype::isinstance(&obj, &vm.ctx.types.int_type) {

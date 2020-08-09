@@ -641,7 +641,7 @@ impl VirtualMachine {
 
     pub fn to_pystr<'a, T: Into<&'a PyObjectRef>>(&'a self, obj: T) -> PyResult<String> {
         let py_str_obj = self.to_str(obj.into())?;
-        Ok(py_str_obj.borrow_value().to_owned())
+        Ok(py_str_obj.owned_value())
     }
 
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStringRef> {

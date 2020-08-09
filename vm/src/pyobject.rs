@@ -1359,6 +1359,13 @@ pub trait BorrowValue<'a>: PyValue {
     {
         self.borrow_value().clone()
     }
+
+    fn owned_value(&'a self) -> <<Self::Borrowed as Deref>::Target as ToOwned>::Owned
+    where
+        <Self::Borrowed as Deref>::Target: ToOwned,
+    {
+        self.borrow_value().to_owned()
+    }
 }
 
 pub trait PyObjectPayload: Any + fmt::Debug + PyThreadingConstraint + 'static {

@@ -320,7 +320,7 @@ mod _os {
 
     #[pyfunction]
     fn error(message: OptionalArg<PyStringRef>, vm: &VirtualMachine) -> PyResult {
-        let msg = message.map_or("".to_owned(), |msg| msg.borrow_value().to_owned());
+        let msg = message.map_or("".to_owned(), |msg| msg.owned_value());
 
         Err(vm.new_os_error(msg))
     }

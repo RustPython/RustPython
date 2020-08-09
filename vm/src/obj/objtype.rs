@@ -207,7 +207,7 @@ impl PyClassRef {
             self.attributes.write().remove(attr_name.borrow_value());
             Ok(())
         } else {
-            Err(vm.new_attribute_error(attr_name.borrow_value().to_owned()))
+            Err(vm.new_attribute_error(attr_name.owned_value()))
         }
     }
 

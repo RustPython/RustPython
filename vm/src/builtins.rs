@@ -138,7 +138,7 @@ mod decl {
                     .parse::<compile::Mode>()
                     .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-                vm.compile(&source, mode, args.filename.borrow_value().to_owned())
+                vm.compile(&source, mode, args.filename.owned_value())
                     .map(|o| o.into_object())
                     .map_err(|err| vm.new_syntax_error(&err))
             } else {

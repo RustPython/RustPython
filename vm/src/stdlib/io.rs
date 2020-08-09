@@ -394,7 +394,7 @@ fn bytes_io_new(
 ) -> PyResult<PyBytesIORef> {
     let raw_bytes = object
         .flatten()
-        .map_or_else(Vec::new, |input| input.borrow_value().to_vec());
+        .map_or_else(Vec::new, |input| input.owned_value());
 
     PyBytesIO {
         buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
@@ -657,7 +657,7 @@ mod fileio {
     fn file_io_init(file_io: PyObjectRef, args: FileIOArgs, vm: &VirtualMachine) -> PyResult {
         let mode = args
             .mode
-            .map(|mode| mode.borrow_value().to_owned())
+            .map(|mode| mode.owned_value())
             .unwrap_or_else(|| "r".to_owned());
         let (name, file_no) = match args.name {
             Either::A(name) => {
@@ -682,7 +682,7 @@ mod fileio {
                     fd
                 } else {
                     os::open(
-                        os::PyPathLike::new_str(name.borrow_value().to_owned()),
+                        os::PyPathLike::new_str(name.owned_value()),
                         mode as _,
                         OptionalArg::Missing,
                         OptionalArg::Missing,
@@ -1020,7 +1020,7 @@ fn text_io_wrapper_write(
         return Err(vm.new_value_error("not writable".to_owned()));
     }
 
-    let bytes = obj.borrow_value().to_owned().into_bytes();
+    let bytes = obj.owned_value().into_bytes();
 
     let len = vm.call_method(&raw, "write", vec![vm.ctx.new_bytes(bytes.clone())])?;
     let len = objint::get_value(&len)

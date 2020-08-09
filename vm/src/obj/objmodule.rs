@@ -74,10 +74,7 @@ impl PyModuleRef {
             None,
         )
         .unwrap_or(None)
-        .and_then(|obj| {
-            obj.payload::<PyString>()
-                .map(|s| s.borrow_value().to_owned())
-        })
+        .and_then(|obj| obj.payload::<PyString>().map(|s| s.owned_value()))
     }
 
     #[pymethod(magic)]

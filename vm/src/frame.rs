@@ -1067,7 +1067,7 @@ impl ExecutingFrame<'_> {
                     let mut kwargs = IndexMap::new();
                     for (key, value) in kw_dict.into_iter() {
                         if let Some(key) = key.payload_if_subclass::<objstr::PyString>(vm) {
-                            kwargs.insert(key.borrow_value().to_owned(), value);
+                            kwargs.insert(key.owned_value(), value);
                         } else {
                             return Err(vm.new_type_error("keywords must be strings".to_owned()));
                         }

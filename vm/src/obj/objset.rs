@@ -255,7 +255,7 @@ impl PySetInner {
         let mut str_parts = Vec::with_capacity(self.content.len());
         for key in self.content.keys() {
             let part = vm.to_repr(&key)?;
-            str_parts.push(part.borrow_value().to_owned());
+            str_parts.push(part.owned_value());
         }
 
         Ok(format!("{{{}}}", str_parts.join(", ")))
