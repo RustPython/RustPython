@@ -25,9 +25,11 @@ pub struct PyFloat {
     value: f64,
 }
 
-impl PyFloat {
-    pub fn to_f64(self) -> f64 {
-        self.value
+impl<'a> BorrowValue<'a> for PyFloat {
+    type Borrowed = &'a f64;
+
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        &self.value
     }
 }
 
@@ -69,7 +71,7 @@ macro_rules! impl_try_from_object_float {
     ($($t:ty),*) => {
         $(impl TryFromObject for $t {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                PyFloatRef::try_from_object(vm, obj).map(|f| f.to_f64() as $t)
+                PyFloatRef::try_from_object(vm, obj).map(|f| f.copied_value() as $t)
             }
         })*
     };
@@ -545,7 +547,7 @@ fn to_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
             )
         })?;
         let result = vm.invoke(&method, vec![])?;
-        PyFloatRef::try_from_object(vm, result)?.to_f64()
+        PyFloatRef::try_from_object(vm, result)?.copied_value()
     };
     Ok(value)
 }

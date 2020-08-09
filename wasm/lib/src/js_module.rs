@@ -95,7 +95,7 @@ impl PyJsValue {
 
     #[pymethod]
     fn new_from_float(&self, n: PyFloatRef) -> PyJsValue {
-        PyJsValue::new(n.to_f64())
+        PyJsValue::new(n.copied_value())
     }
 
     #[pymethod]

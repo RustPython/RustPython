@@ -123,7 +123,7 @@ macro_rules! py_namespace {
 ///
 /// let int_value = match_class!(match obj {
 ///     i @ PyInt => i.borrow_value().clone(),
-///     f @ PyFloat => f.to_f64().to_bigint().unwrap(),
+///     f @ PyFloat => f.borrow_value().to_bigint().unwrap(),
 ///     obj => panic!("non-numeric object {}", obj),
 /// });
 ///
