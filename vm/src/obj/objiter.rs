@@ -99,7 +99,7 @@ pub fn stop_iter_with_value(val: PyObjectRef, vm: &VirtualMachine) -> PyBaseExce
 pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyResult {
     let args = exc.args();
     let val = args
-        .as_slice()
+        .borrow_value()
         .first()
         .cloned()
         .unwrap_or_else(|| vm.get_none());

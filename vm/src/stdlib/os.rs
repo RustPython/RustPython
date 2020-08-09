@@ -748,7 +748,7 @@ mod _os {
     #[pyfunction]
     fn utime(args: UtimeArgs, vm: &VirtualMachine) -> PyResult<()> {
         let parse_tup = |tup: PyTupleRef| -> Option<(i64, i64)> {
-            let tup = tup.as_slice();
+            let tup = tup.borrow_value();
             if tup.len() != 2 {
                 return None;
             }
@@ -1807,7 +1807,7 @@ mod posix {
             if let Some(it) = self.file_actions {
                 for action in it.iter(vm)? {
                     let action = action?;
-                    let (id, args) = action.as_slice().split_first().ok_or_else(|| {
+                    let (id, args) = action.borrow_value().split_first().ok_or_else(|| {
                         vm.new_type_error(
                             "Each file_actions element must be a non-empty tuple".to_owned(),
                         )

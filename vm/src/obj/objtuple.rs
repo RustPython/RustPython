@@ -36,6 +36,14 @@ impl From<Vec<PyObjectRef>> for PyTuple {
     }
 }
 
+impl<'a> BorrowValue<'a> for PyTuple {
+    type Borrowed = &'a [PyObjectRef];
+
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        &self.elements
+    }
+}
+
 impl PyValue for PyTuple {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.tuple_type()
@@ -64,16 +72,12 @@ impl PyTuple {
     pub(crate) fn fast_getitem(&self, idx: usize) -> PyObjectRef {
         self.elements[idx].clone()
     }
-
-    pub fn as_slice(&self) -> &[PyObjectRef] {
-        &self.elements
-    }
 }
 
 pub type PyTupleRef = PyRef<PyTuple>;
 
 pub(crate) fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
-    obj.payload::<PyTuple>().unwrap().as_slice()
+    obj.payload::<PyTuple>().unwrap().borrow_value()
 }
 
 #[pyimpl(flags(BASETYPE))]
@@ -85,8 +89,8 @@ impl PyTuple {
     {
         let r = if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
             Implemented(op(
-                self.as_slice().boxed_iter(),
-                other.as_slice().boxed_iter(),
+                self.borrow_value().boxed_iter(),
+                other.borrow_value().boxed_iter(),
             )?)
         } else {
             NotImplemented
@@ -120,7 +124,7 @@ impl PyTuple {
             let elements: Vec<_> = self
                 .elements
                 .boxed_iter()
-                .chain(other.as_slice().boxed_iter())
+                .chain(other.borrow_value().boxed_iter())
                 .cloned()
                 .collect();
             Implemented(elements.into())
@@ -261,7 +265,7 @@ impl PyTupleIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         let pos = self.position.fetch_add(1);
-        if let Some(obj) = self.tuple.as_slice().get(pos) {
+        if let Some(obj) = self.tuple.borrow_value().get(pos) {
             Ok(obj.clone())
         } else {
             Err(objiter::new_stop_iteration(vm))

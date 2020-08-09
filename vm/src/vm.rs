@@ -892,7 +892,7 @@ impl VirtualMachine {
             value
                 .payload::<PyTuple>()
                 .unwrap()
-                .as_slice()
+                .borrow_value()
                 .iter()
                 .map(|obj| T::try_from_object(self, obj.clone()))
                 .collect()

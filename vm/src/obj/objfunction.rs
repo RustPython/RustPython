@@ -163,7 +163,8 @@ impl PyFunction {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let num_defaults_available = self.defaults.as_ref().map_or(0, |d| d.as_slice().len());
+            let num_defaults_available =
+                self.defaults.as_ref().map_or(0, |d| d.borrow_value().len());
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
@@ -183,7 +184,7 @@ impl PyFunction {
                 )));
             }
             if let Some(defaults) = &self.defaults {
-                let defaults = defaults.as_slice();
+                let defaults = defaults.borrow_value();
                 // We have sufficient defaults, so iterate over the corresponding names and use
                 // the default if we don't already have a value
                 for (default_index, i) in (required_args..nexpected_args).enumerate() {

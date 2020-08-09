@@ -10,7 +10,7 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{
-    IntoPyResult, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyResult, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -620,7 +620,7 @@ where
                 Err(_) => {
                     let tuple = PyTupleRef::try_from_object(vm, obj.clone())
                         .map_err(|_| vm.new_type_error((self.message)(&obj)))?;
-                    for obj in tuple.as_slice().iter() {
+                    for obj in tuple.borrow_value().iter() {
                         if self.check(&obj, vm)? {
                             return Ok(true);
                         }
