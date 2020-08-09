@@ -21,6 +21,7 @@ struct Module {
 #[derive(PartialEq, Eq, Hash)]
 enum ModuleItem {
     Function { item_ident: Ident, py_name: String },
+    EvaluatedAttr { item_ident: Ident, py_name: String },
     Class { item_ident: Ident, py_name: String },
 }
 
@@ -29,6 +30,7 @@ impl ModuleItem {
         use ModuleItem::*;
         match self {
             Function { py_name, .. } => py_name.clone(),
+            EvaluatedAttr { py_name, .. } => py_name.clone(),
             Class { py_name, .. } => py_name.clone(),
         }
     }
@@ -109,6 +111,23 @@ impl Module {
         })
     }
 
+    fn extract_attr(ident: &Ident, meta: Meta) -> Result<ModuleItem, Diagnostic> {
+        let nesteds = meta_to_vec(meta).map_err(|meta| {
+            err_span!(
+                meta,
+                "#[pyattr = \"...\"] cannot be a name/value, you probably meant \
+                 #[pyattr(name = \"...\")]",
+            )
+        })?;
+
+        let item_meta =
+            ItemMeta::from_nested_meta("pyattr", &ident, &nesteds, ItemMeta::SIMPLE_NAMES)?;
+        Ok(ModuleItem::EvaluatedAttr {
+            item_ident: ident.clone(),
+            py_name: item_meta.simple_name()?,
+        })
+    }
+
     fn extract_item_from_syn(
         &mut self,
         attrs: &mut Vec<Attribute>,
@@ -131,6 +150,10 @@ impl Module {
                 "pyfunction" => {
                     attr_idxs.push(i);
                     items.push((Self::extract_function(ident, meta)?, meta_span));
+                }
+                "pyattr" => {
+                    attr_idxs.push(i);
+                    items.push((Self::extract_attr(ident, meta)?, meta_span));
                 }
                 "pyclass" => {
                     items.push((Self::extract_class(ident, meta)?, meta_span));
@@ -190,21 +213,33 @@ fn extract_module_items(
                 item_ident,
                 py_name,
             } => {
-                let new_func = quote_spanned!(item_ident.span() =>
-                                                      .new_function_named(#item_ident,
-                                                                          #module_name.to_owned(),
-                                                                          #py_name.to_owned()));
+                let new_func = quote_spanned!(
+                    item_ident.span() =>
+                        vm.ctx.new_function_named(#item_ident, #module_name.to_owned(), #py_name.to_owned()));
                 quote! {
                     #( #[ #cfgs ])*
-                    vm.__module_set_attr(&module, #py_name, vm.ctx#new_func).unwrap();
+                    vm.__module_set_attr(&module, #py_name, #new_func).unwrap();
+                }
+            }
+            ModuleItem::EvaluatedAttr {
+                item_ident,
+                py_name,
+            } => {
+                let new_attr = quote_spanned!(
+                    item_ident.span() =>
+                        vm.new_pyobj(#item_ident(vm)));
+                quote! {
+                    #( #[ #cfgs ])*
+                    vm.__module_set_attr(&module, #py_name, #new_attr).unwrap();
                 }
             }
             ModuleItem::Class {
                 item_ident,
                 py_name,
             } => {
-                let new_class =
-                    quote_spanned!(item_ident.span() => #item_ident::make_class(&vm.ctx));
+                let new_class = quote_spanned!(
+                    item_ident.span() =>
+                        #item_ident::make_class(&vm.ctx));
                 quote! {
                     #( #[ #cfgs ])*
                     vm.__module_set_attr(&module, #py_name, #new_class).unwrap();

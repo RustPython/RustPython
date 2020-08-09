@@ -883,12 +883,9 @@ impl<'a> SupportFunc {
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
-    let environ = platform::_environ(vm);
     let module = platform::make_module(vm);
 
     extend_module!(vm, module, {
-        "environ" => environ,
-
         "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
         "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
         "O_RDWR" => ctx.new_int(libc::O_RDWR),
@@ -1119,7 +1116,8 @@ mod posix {
         Ok(ffi::OsStr::from_bytes(b))
     }
 
-    pub(super) fn _environ(vm: &VirtualMachine) -> PyDictRef {
+    #[pyattr]
+    fn environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
         use std::os::unix::ffi::OsStringExt;
         for (key, value) in env::vars_os() {
@@ -2234,7 +2232,8 @@ mod nt {
         m
     }
 
-    pub(super) fn _environ(vm: &VirtualMachine) -> PyDictRef {
+    #[pyattr]
+    fn environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
 
         for (key, value) in env::vars() {
@@ -2540,7 +2539,8 @@ mod minor {
         unimplemented!();
     }
 
-    pub(super) fn _environ(vm: &VirtualMachine) -> PyDictRef {
+    #[pyattr]
+    fn environ(vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
     }
 
