@@ -559,6 +559,7 @@ class ExceptionTests(unittest.TestCase):
         self.assertEqual(x.fancy_arg, 42)
 
     @no_tracing
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def testInfiniteRecursion(self):
         def f():
             return f()
@@ -955,6 +956,7 @@ class ExceptionTests(unittest.TestCase):
             self.assertEqual(str(klass.__new__(klass)), "")
 
     @no_tracing
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_badisinstance(self):
         # Bug #2542: if issubclass(e, MyException) raises an exception,
         # it should be ignored
@@ -1169,6 +1171,7 @@ class ExceptionTests(unittest.TestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @no_tracing
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_recursion_error_cleanup(self):
         # Same test as above, but with "recursion exceeded" errors
         class C:
@@ -1187,7 +1190,8 @@ class ExceptionTests(unittest.TestCase):
         else:
             self.fail("RecursionError not raised")
         self.assertEqual(wr(), None)
-
+    
+    @unittest.skipIf(sys.platform == 'win32', 'error specific to cpython')
     def test_errno_ENOTDIR(self):
         # Issue #12802: "not a directory" errors are ENOTDIR even on Windows
         with self.assertRaises(OSError) as cm:
