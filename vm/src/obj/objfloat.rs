@@ -10,8 +10,10 @@ use super::objtype::PyClassRef;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
-    BorrowValue, IntoPyObject, IntoPyResult, PyArithmaticValue::*, PyClassImpl, PyComparisonValue,
-    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyObject,
+    PyArithmaticValue::{self, *},
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use rustpython_common::{float_ops, hash};
@@ -76,19 +78,13 @@ macro_rules! impl_try_from_object_float {
 impl_try_from_object_float!(f32, f64);
 
 fn inner_div(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
-    if v2 != 0.0 {
-        Ok(v1 / v2)
-    } else {
-        Err(vm.new_zero_division_error("float division by zero".to_owned()))
-    }
+    float_ops::div(v1, v2)
+        .ok_or_else(|| vm.new_zero_division_error("float division by zero".to_owned()))
 }
 
 fn inner_mod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
-    if v2 != 0.0 {
-        Ok(v1 % v2)
-    } else {
-        Err(vm.new_zero_division_error("float mod by zero".to_owned()))
-    }
+    float_ops::mod_(v1, v2)
+        .ok_or_else(|| vm.new_zero_division_error("float mod by zero".to_owned()))
 }
 
 pub fn try_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
@@ -114,25 +110,12 @@ pub fn try_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
 }
 
 fn inner_floordiv(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
-    if v2 != 0.0 {
-        Ok((v1 / v2).floor())
-    } else {
-        Err(vm.new_zero_division_error("float floordiv by zero".to_owned()))
-    }
+    float_ops::floordiv(v1, v2)
+        .ok_or_else(|| vm.new_zero_division_error("float floordiv by zero".to_owned()))
 }
 
 fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
-    if v2 != 0.0 {
-        let mut m = v1 % v2;
-        let mut d = (v1 - m) / v2;
-        if v2.is_sign_negative() != m.is_sign_negative() {
-            m += v2;
-            d -= 1.0;
-        }
-        Ok((d, m))
-    } else {
-        Err(vm.new_zero_division_error("float divmod()".to_owned()))
-    }
+    float_ops::divmod(v1, v2).ok_or_else(|| vm.new_zero_division_error("float divmod()".to_owned()))
 }
 
 pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
@@ -253,13 +236,18 @@ impl PyFloat {
     }
 
     #[inline]
-    fn simple_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult
+    fn simple_op<F>(
+        &self,
+        other: PyObjectRef,
+        op: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<f64>>
     where
         F: Fn(f64, f64) -> PyResult<f64>,
     {
         try_float(&other, vm)?.map_or_else(
-            || Ok(vm.ctx.not_implemented()),
-            |other| op(self.value, other).into_pyresult(vm),
+            || Ok(NotImplemented),
+            |other| Ok(Implemented(op(self.value, other)?)),
         )
     }
 
@@ -270,34 +258,30 @@ impl PyFloat {
     {
         try_float(&other, vm)?.map_or_else(
             || Ok(vm.ctx.not_implemented()),
-            |other| op(self.value, other).into_pyresult(vm),
+            |other| op(self.value, other),
         )
     }
 
     #[inline]
-    fn tuple_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult
+    fn tuple_op<F>(
+        &self,
+        other: PyObjectRef,
+        op: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<(f64, f64)>>
     where
         F: Fn(f64, f64) -> PyResult<(f64, f64)>,
     {
         try_float(&other, vm)?.map_or_else(
-            || Ok(vm.ctx.not_implemented()),
-            |other| {
-                let (r1, r2) = op(self.value, other)?;
-                Ok(vm
-                    .ctx
-                    .new_tuple(vec![vm.ctx.new_float(r1), vm.ctx.new_float(r2)]))
-            },
+            || Ok(NotImplemented),
+            |other| Ok(Implemented(op(self.value, other)?)),
         )
     }
 
     #[pymethod(name = "__add__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.simple_op(other, |a, b| Ok(a + b), vm)
-    }
-
     #[pymethod(name = "__radd__")]
-    fn radd(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.add(other, vm)
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmaticValue<f64>> {
+        self.simple_op(other, |a, b| Ok(a + b), vm)
     }
 
     #[pymethod(name = "__bool__")]
@@ -306,32 +290,48 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__divmod__")]
-    fn divmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn divmod(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<(f64, f64)>> {
         self.tuple_op(other, |a, b| inner_divmod(a, b, vm), vm)
     }
 
     #[pymethod(name = "__rdivmod__")]
-    fn rdivmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rdivmod(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<(f64, f64)>> {
         self.tuple_op(other, |a, b| inner_divmod(b, a, vm), vm)
     }
 
     #[pymethod(name = "__floordiv__")]
-    fn floordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn floordiv(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| inner_floordiv(a, b, vm), vm)
     }
 
     #[pymethod(name = "__rfloordiv__")]
-    fn rfloordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rfloordiv(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| inner_floordiv(b, a, vm), vm)
     }
 
     #[pymethod(name = "__mod__")]
-    fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| inner_mod(a, b, vm), vm)
     }
 
     #[pymethod(name = "__rmod__")]
-    fn rmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| inner_mod(b, a, vm), vm)
     }
 
@@ -356,12 +356,12 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__sub__")]
-    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| Ok(a - b), vm)
     }
 
     #[pymethod(name = "__rsub__")]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| Ok(b - a), vm)
     }
 
@@ -371,23 +371,23 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__truediv__")]
-    fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| inner_div(a, b, vm), vm)
     }
 
     #[pymethod(name = "__rtruediv__")]
-    fn rtruediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rtruediv(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| inner_div(b, a, vm), vm)
     }
 
     #[pymethod(name = "__mul__")]
-    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.simple_op(other, |a, b| Ok(a * b), vm)
-    }
-
     #[pymethod(name = "__rmul__")]
-    fn rmul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.mul(other, vm)
+    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmaticValue<f64>> {
+        self.simple_op(other, |a, b| Ok(a * b), vm)
     }
 
     #[pymethod(name = "__trunc__")]
@@ -398,7 +398,7 @@ impl PyFloat {
     #[pymethod(name = "__round__")]
     fn round(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
         let ndigits = ndigits.flatten();
-        if let Some(ndigits) = ndigits {
+        let value = if let Some(ndigits) = ndigits {
             let ndigits = ndigits.borrow_value();
             if ndigits.is_zero() {
                 let fract = self.value.fract();
@@ -411,7 +411,7 @@ impl PyFloat {
                 } else {
                     self.value.round()
                 };
-                Ok(vm.ctx.new_float(value))
+                vm.ctx.new_float(value)
             } else {
                 let ndigits = match ndigits {
                     ndigits if *ndigits > i32::max_value().to_bigint().unwrap() => i32::max_value(),
@@ -424,17 +424,17 @@ impl PyFloat {
                     return Ok(vm.ctx.new_float(self.value));
                 }
                 if ndigits >= 0i32 {
-                    Ok(vm.ctx.new_float(
+                    vm.ctx.new_float(
                         (self.value * pow(10.0, ndigits as usize)).round()
                             / pow(10.0, ndigits as usize),
-                    ))
+                    )
                 } else {
                     let result = (self.value / pow(10.0, (-ndigits) as usize)).round()
                         * pow(10.0, (-ndigits) as usize);
                     if result.is_nan() {
                         return Ok(vm.ctx.new_float(0.0));
                     }
-                    Ok(vm.ctx.new_float(result))
+                    vm.ctx.new_float(result)
                 }
             }
         } else {
@@ -449,8 +449,9 @@ impl PyFloat {
                 self.value.round()
             };
             let int = try_bigint(value, vm)?;
-            Ok(vm.ctx.new_int(int))
-        }
+            vm.ctx.new_int(int)
+        };
+        Ok(value)
     }
 
     #[pymethod(name = "__int__")]
@@ -491,13 +492,14 @@ impl PyFloat {
     #[pymethod(name = "as_integer_ratio")]
     fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult {
         let value = self.value;
-        if value.is_infinite() {
-            return Err(
+        if !value.is_finite() {
+            return Err(if value.is_infinite() {
                 vm.new_overflow_error("cannot convert Infinity to integer ratio".to_owned())
-            );
-        }
-        if value.is_nan() {
-            return Err(vm.new_value_error("cannot convert NaN to integer ratio".to_owned()));
+            } else if value.is_nan() {
+                vm.new_value_error("cannot convert NaN to integer ratio".to_owned())
+            } else {
+                unreachable!("it must be finite")
+            });
         }
 
         let ratio = Ratio::from_float(value).unwrap();

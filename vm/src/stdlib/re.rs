@@ -4,10 +4,10 @@
  * This module fits the python re interface onto the rust regular expression
  * system.
  */
-use std::fmt;
-
 use num_traits::Signed;
 use regex::bytes::{Captures, Regex, RegexBuilder};
+use std::fmt;
+use std::ops::Range;
 
 use crate::function::{Args, OptionalArg};
 use crate::obj::objint::{PyInt, PyIntRef};
@@ -72,7 +72,7 @@ impl PyValue for PyPattern {
 #[pyclass(name = "Match")]
 struct PyMatch {
     haystack: PyStringRef,
-    captures: Vec<Option<(usize, usize)>>,
+    captures: Vec<Option<Range<usize>>>,
 }
 
 impl fmt::Debug for PyMatch {
@@ -291,7 +291,7 @@ fn make_regex(vm: &VirtualMachine, pattern: &str, flags: PyRegexFlags) -> PyResu
 fn create_match(vm: &VirtualMachine, haystack: PyStringRef, captures: Captures) -> PyObjectRef {
     let captures = captures
         .iter()
-        .map(|opt| opt.map(|m| (m.start(), m.end())))
+        .map(|opt| opt.map(|m| m.start()..m.end()))
         .collect();
     PyMatch { haystack, captures }.into_ref(vm).into_object()
 }
@@ -373,7 +373,7 @@ impl PyMatch {
         let group = group.unwrap_or_else(|| vm.new_int(0));
         let start = self
             .get_bounds(group, vm)?
-            .map_or_else(|| vm.new_int(-1), |(start, _)| vm.new_int(start));
+            .map_or_else(|| vm.new_int(-1), |r| vm.new_int(r.start));
         Ok(start)
     }
 
@@ -382,23 +382,27 @@ impl PyMatch {
         let group = group.unwrap_or_else(|| vm.new_int(0));
         let end = self
             .get_bounds(group, vm)?
-            .map_or_else(|| vm.new_int(-1), |(_, end)| vm.new_int(end));
+            .map_or_else(|| vm.new_int(-1), |r| vm.new_int(r.end));
         Ok(end)
     }
 
-    fn subgroup(&self, bounds: (usize, usize), vm: &VirtualMachine) -> PyObjectRef {
-        vm.new_str(self.haystack.borrow_value()[bounds.0..bounds.1].to_owned())
+    fn subgroup(&self, bounds: std::ops::Range<usize>, vm: &VirtualMachine) -> PyObjectRef {
+        vm.new_str(self.haystack.borrow_value()[bounds].to_owned())
     }
 
-    fn get_bounds(&self, id: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<(usize, usize)>> {
+    fn get_bounds(
+        &self,
+        id: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<std::ops::Range<usize>>> {
         match_class!(match id {
             i @ PyInt => {
                 let i = usize::try_from_object(vm, i.into_object())?;
-                match self.captures.get(i) {
-                    None => Err(vm.new_index_error("No such group".to_owned())),
-                    Some(None) => Ok(None),
-                    Some(Some(bounds)) => Ok(Some(*bounds)),
-                }
+                let capture = self
+                    .captures
+                    .get(i)
+                    .ok_or_else(|| vm.new_index_error("No such group".to_owned()))?;
+                Ok(capture.clone())
             }
             _s @ PyString => unimplemented!(),
             _ => Err(vm.new_index_error("No such group".to_owned())),
@@ -418,7 +422,7 @@ impl PyMatch {
     fn group(&self, groups: Args, vm: &VirtualMachine) -> PyResult {
         let mut groups = groups.into_vec();
         match groups.len() {
-            0 => Ok(self.subgroup(self.captures[0].unwrap(), vm)),
+            0 => Ok(self.subgroup(self.captures[0].clone().unwrap(), vm)),
             1 => self.get_group(groups.pop().unwrap(), vm),
             len => {
                 let mut output = Vec::with_capacity(len);
@@ -438,7 +442,8 @@ impl PyMatch {
             .iter()
             .map(|capture| {
                 capture
-                    .map(|bounds| self.subgroup(bounds, vm))
+                    .as_ref()
+                    .map(|bounds| self.subgroup(bounds.clone(), vm))
                     .or_else(|| default.clone())
                     .unwrap_or_else(|| vm.get_none())
             })

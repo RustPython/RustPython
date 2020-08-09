@@ -1,6 +1,5 @@
 use num_complex::Complex64;
 use num_traits::Zero;
-use std::num::Wrapping;
 use std::str::FromStr;
 
 use super::objfloat::{self, IntoPyFloat, PyFloat};
@@ -9,8 +8,8 @@ use super::objstr::PyString;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    BorrowValue, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    BorrowValue, IntoPyObject, Never, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
+    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
@@ -78,33 +77,46 @@ impl PyComplex {
     }
 
     #[inline]
-    fn op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult
+    fn op<F>(
+        &self,
+        other: PyObjectRef,
+        op: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>>
     where
         F: Fn(Complex64, Complex64) -> Complex64,
     {
         Ok(try_complex(&other, vm)?.map_or_else(
-            || vm.ctx.not_implemented(),
-            |other| op(self.value, other).into_pyobject(vm),
+            || PyArithmaticValue::NotImplemented,
+            |other| PyArithmaticValue::Implemented(op(self.value, other)),
         ))
     }
 
     #[pymethod(name = "__add__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__radd__")]
+    fn add(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| a + b, vm)
     }
 
-    #[pymethod(name = "__radd__")]
-    fn radd(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.add(other, vm)
-    }
-
     #[pymethod(name = "__sub__")]
-    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn sub(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| a - b, vm)
     }
 
     #[pymethod(name = "__rsub__")]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rsub(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| b - a, vm)
     }
 
@@ -114,78 +126,78 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         let result = if let Some(other) = other.payload_if_subclass::<PyComplex>(vm) {
             self.value == other.value
         } else {
             match objfloat::try_float(&other, vm) {
                 Ok(Some(other)) => self.value.im == 0.0f64 && self.value.re == other,
                 Err(_) => false,
-                Ok(None) => return vm.ctx.not_implemented(),
+                Ok(None) => return PyComparisonValue::NotImplemented,
             }
         };
+        PyComparisonValue::Implemented(result)
+    }
 
-        vm.ctx.new_bool(result)
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
+        self.eq(other, vm).map(|v| !v)
     }
 
     #[pymethod(name = "__float__")]
-    fn float(&self, vm: &VirtualMachine) -> PyResult<()> {
+    fn float(&self, vm: &VirtualMachine) -> PyResult<Never> {
         Err(vm.new_type_error(String::from("Can't convert complex to float")))
     }
 
     #[pymethod(name = "__int__")]
-    fn int(&self, vm: &VirtualMachine) -> PyResult<()> {
+    fn int(&self, vm: &VirtualMachine) -> PyResult<Never> {
         Err(vm.new_type_error(String::from("Can't convert complex to int")))
     }
 
     #[pymethod(name = "__mul__")]
-    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__rmul__")]
+    fn mul(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| a * b, vm)
     }
 
-    #[pymethod(name = "__rmul__")]
-    fn rmul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.mul(other, vm)
-    }
-
     #[pymethod(name = "__truediv__")]
-    fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn truediv(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| a / b, vm)
     }
 
     #[pymethod(name = "__rtruediv__")]
-    fn rtruediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rtruediv(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| b / a, vm)
     }
 
     #[pymethod(name = "__mod__")]
-    fn mod_(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__rmod__")]
+    fn mod_(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Never> {
         Err(vm.new_type_error("can't mod complex numbers.".to_owned()))
     }
 
-    #[pymethod(name = "__rmod__")]
-    fn rmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.mod_(other, vm)
-    }
-
     #[pymethod(name = "__floordiv__")]
-    fn floordiv(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__rfloordiv__")]
+    fn floordiv(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Never> {
         Err(vm.new_type_error("can't take floor of complex number.".to_owned()))
     }
 
-    #[pymethod(name = "__rfloordiv__")]
-    fn rfloordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.floordiv(other, vm)
-    }
-
     #[pymethod(name = "__divmod__")]
-    fn divmod(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error("can't take floor or mod of complex number.".to_owned()))
-    }
-
     #[pymethod(name = "__rdivmod__")]
-    fn rdivmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.divmod(other, vm)
+    fn divmod(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Never> {
+        Err(vm.new_type_error("can't take floor or mod of complex number.".to_owned()))
     }
 
     #[pymethod(name = "__pos__")]
@@ -209,12 +221,20 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__pow__")]
-    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn pow(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| a.powc(b), vm)
     }
 
     #[pymethod(name = "__rpow__")]
-    fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rpow(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmaticValue<Complex64>> {
         self.op(other, |a, b| b.powc(a), vm)
     }
 
@@ -247,7 +267,7 @@ impl PyComplex {
                     }
                     let value = Complex64::from_str(s.borrow_value())
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    return PyComplex { value }.into_ref_with_type(vm, cls);
+                    return Self::from(value).into_ref_with_type(vm, cls);
                 }
                 obj => {
                     return Err(vm.new_type_error(format!(
@@ -264,15 +284,12 @@ impl PyComplex {
         };
 
         let value = Complex64::new(real, imag);
-        PyComplex { value }.into_ref_with_type(vm, cls)
+        Self::from(value).into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__hash__")]
     fn hash(&self) -> hash::PyHash {
-        let re_hash = hash::hash_float(self.value.re);
-        let im_hash = hash::hash_float(self.value.im);
-        let ret = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(hash::IMAG);
-        ret.0
+        hash::hash_complex(&self.value)
     }
 
     #[pymethod(name = "__getnewargs__")]

@@ -176,6 +176,44 @@ pub fn to_hex(value: f64) -> String {
     }
 }
 
+pub fn div(v1: f64, v2: f64) -> Option<f64> {
+    if v2 != 0.0 {
+        Some(v1 / v2)
+    } else {
+        None
+    }
+}
+
+pub fn mod_(v1: f64, v2: f64) -> Option<f64> {
+    if v2 != 0.0 {
+        Some(v1 % v2)
+    } else {
+        None
+    }
+}
+
+pub fn floordiv(v1: f64, v2: f64) -> Option<f64> {
+    if v2 != 0.0 {
+        Some((v1 / v2).floor())
+    } else {
+        None
+    }
+}
+
+pub fn divmod(v1: f64, v2: f64) -> Option<(f64, f64)> {
+    if v2 != 0.0 {
+        let mut m = v1 % v2;
+        let mut d = (v1 - m) / v2;
+        if v2.is_sign_negative() != m.is_sign_negative() {
+            m += v2;
+            d -= 1.0;
+        }
+        Some((d, m))
+    } else {
+        None
+    }
+}
+
 #[test]
 fn test_to_hex() {
     use rand::Rng;
