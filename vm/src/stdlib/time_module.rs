@@ -11,7 +11,7 @@ use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{Either, PyClassImpl, PyObjectRef, PyResult, TryFromObject};
+use crate::pyobject::{BorrowValue, Either, PyClassImpl, PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -152,7 +152,7 @@ fn time_strftime(
         OptionalArg::Present(t) => t.to_date_time(vm)?,
         OptionalArg::Missing => default,
     };
-    let formatted_time = instant.format(format.as_str()).to_string();
+    let formatted_time = instant.format(format.borrow_value()).to_string();
     Ok(vm.ctx.new_str(formatted_time))
 }
 
@@ -162,10 +162,10 @@ fn time_strptime(
     vm: &VirtualMachine,
 ) -> PyResult {
     let format = match format {
-        OptionalArg::Present(ref format) => format.as_str(),
+        OptionalArg::Present(ref format) => format.borrow_value(),
         OptionalArg::Missing => "%a %b %H:%M:%S %Y",
     };
-    let instant = NaiveDateTime::parse_from_str(string.as_str(), format)
+    let instant = NaiveDateTime::parse_from_str(string.borrow_value(), format)
         .map_err(|e| vm.new_value_error(format!("Parse error: {:?}", e)))?;
     Ok(PyStructTime::new(vm, instant, -1).into_obj(vm))
 }

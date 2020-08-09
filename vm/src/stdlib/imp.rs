@@ -4,7 +4,7 @@ use crate::obj::objcode::PyCode;
 use crate::obj::objmodule::PyModuleRef;
 use crate::obj::objstr;
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
+use crate::pyobject::{BorrowValue, ItemProtocol, PyObjectRef, PyResult};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::thread::RawRMutex;
 use crate::vm::VirtualMachine;
@@ -48,11 +48,11 @@ fn imp_lock_held(_vm: &VirtualMachine) -> bool {
 }
 
 fn imp_is_builtin(name: PyStringRef, vm: &VirtualMachine) -> bool {
-    vm.state.stdlib_inits.contains_key(name.as_str())
+    vm.state.stdlib_inits.contains_key(name.borrow_value())
 }
 
 fn imp_is_frozen(name: PyStringRef, vm: &VirtualMachine) -> bool {
-    vm.state.frozen.contains_key(name.as_str())
+    vm.state.frozen.contains_key(name.borrow_value())
 }
 
 fn imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -75,37 +75,29 @@ fn imp_exec_builtin(_mod: PyModuleRef) -> i32 {
 }
 
 fn imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyCode> {
+    let name = name.borrow_value();
     vm.state
         .frozen
-        .get(name.as_str())
+        .get(name)
         .map(|frozen| {
             let mut frozen = frozen.code.clone();
-            frozen.source_path = format!("frozen {}", name.as_str());
+            frozen.source_path = format!("frozen {}", name);
             PyCode::new(frozen)
         })
-        .ok_or_else(|| {
-            vm.new_import_error(
-                format!("No such frozen object named {}", name.as_str()),
-                name.as_str(),
-            )
-        })
+        .ok_or_else(|| vm.new_import_error(format!("No such frozen object named {}", name), name))
 }
 
 fn imp_init_frozen(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    import::import_frozen(vm, name.as_str())
+    import::import_frozen(vm, name.borrow_value())
 }
 
 fn imp_is_frozen_package(name: PyStringRef, vm: &VirtualMachine) -> PyResult<bool> {
+    let name = name.borrow_value();
     vm.state
         .frozen
-        .get(name.as_str())
+        .get(name)
         .map(|frozen| frozen.package)
-        .ok_or_else(|| {
-            vm.new_import_error(
-                format!("No such frozen object named {}", name.as_str()),
-                name.as_str(),
-            )
-        })
+        .ok_or_else(|| vm.new_import_error(format!("No such frozen object named {}", name), name))
 }
 
 fn imp_fix_co_filename(_code: PyObjectRef, _path: PyStringRef) {

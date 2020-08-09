@@ -5,7 +5,7 @@ use rustpython_parser::parser;
 
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -30,11 +30,11 @@ fn symtable_symtable(
     vm: &VirtualMachine,
 ) -> PyResult<PySymbolTableRef> {
     let mode = mode
-        .as_str()
+        .borrow_value()
         .parse::<compile::Mode>()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-    let symtable = source_to_symtable(source.as_str(), mode, filename.as_str())
+    let symtable = source_to_symtable(source.borrow_value(), mode, filename.borrow_value())
         .map_err(|err| vm.new_syntax_error(&err))?;
 
     let py_symbol_table = to_py_symbol_table(symtable);
@@ -105,7 +105,7 @@ impl PySymbolTable {
 
     #[pymethod(name = "lookup")]
     fn lookup(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
-        let name = name.as_str();
+        let name = name.borrow_value();
         if let Some(symbol) = self.symtable.symbols.get(name) {
             Ok(PySymbol {
                 symbol: symbol.clone(),

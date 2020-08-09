@@ -24,7 +24,8 @@ use crate::obj::objtraceback::PyTraceback;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::scope::{NameProtocol, Scope};
 use crate::vm::VirtualMachine;
@@ -795,7 +796,7 @@ impl ExecutingFrame<'_> {
         if let Some(dict) = module.dict() {
             for (k, v) in &dict {
                 let k = vm.to_str(&k)?;
-                let k = k.as_str();
+                let k = k.borrow_value();
                 if !k.starts_with('_') {
                     self.scope.store_name(&vm, k, v);
                 }
@@ -991,7 +992,7 @@ impl ExecutingFrame<'_> {
                             let key_repr = vm.to_repr(&key)?;
                             let msg = format!(
                                 "got multiple values for keyword argument {}",
-                                key_repr.as_str()
+                                key_repr.borrow_value()
                             );
                             return Err(vm.new_type_error(msg));
                         }
@@ -1066,7 +1067,7 @@ impl ExecutingFrame<'_> {
                     let mut kwargs = IndexMap::new();
                     for (key, value) in kw_dict.into_iter() {
                         if let Some(key) = key.payload_if_subclass::<objstr::PyString>(vm) {
-                            kwargs.insert(key.as_str().to_owned(), value);
+                            kwargs.insert(key.borrow_value().to_owned(), value);
                         } else {
                             return Err(vm.new_type_error("keywords must be strings".to_owned()));
                         }
@@ -1285,7 +1286,11 @@ impl ExecutingFrame<'_> {
             .ctx
             .new_pyfunction(code_obj, scope, defaults, kw_only_defaults);
 
-        let name = qualified_name.as_str().split('.').next_back().unwrap();
+        let name = qualified_name
+            .borrow_value()
+            .split('.')
+            .next_back()
+            .unwrap();
         vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_owned()))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
         let module = self

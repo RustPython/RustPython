@@ -10,8 +10,8 @@ use crate::obj::objasyncgenerator::PyAsyncGen;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objgenerator::PyGenerator;
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
@@ -163,7 +163,8 @@ impl PyFunction {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let num_defaults_available = self.defaults.as_ref().map_or(0, |d| d.as_slice().len());
+            let num_defaults_available =
+                self.defaults.as_ref().map_or(0, |d| d.borrow_value().len());
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
@@ -183,7 +184,7 @@ impl PyFunction {
                 )));
             }
             if let Some(defaults) = &self.defaults {
-                let defaults = defaults.as_slice();
+                let defaults = defaults.borrow_value();
                 // We have sufficient defaults, so iterate over the corresponding names and use
                 // the default if we don't already have a value
                 for (default_index, i) in (required_args..nexpected_args).enumerate() {
@@ -314,7 +315,7 @@ impl PyBoundMethod {
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
             "<bound method of {}>",
-            vm.to_repr(&self.object)?.as_str()
+            vm.to_repr(&self.object)?.borrow_value()
         ))
     }
 
@@ -325,7 +326,7 @@ impl PyBoundMethod {
 
     #[pymethod(magic)]
     fn getattribute(zelf: PyRef<Self>, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(obj) = zelf.get_class_attr(name.as_str()) {
+        if let Some(obj) = zelf.get_class_attr(name.borrow_value()) {
             return vm.call_if_get_descriptor(obj, zelf.into_object());
         }
         vm.get_attribute(zelf.function.clone(), name)

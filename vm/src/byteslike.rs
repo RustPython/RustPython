@@ -1,7 +1,7 @@
 use crate::obj::objbytearray::{PyByteArray, PyByteArrayRef};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::pyobject::PyObjectRef;
-use crate::pyobject::{PyResult, TryFromObject, TypeProtocol};
+use crate::pyobject::{BorrowValue, PyResult, TryFromObject, TypeProtocol};
 use crate::stdlib::array::{PyArray, PyArrayRef};
 use crate::vm::VirtualMachine;
 
@@ -41,7 +41,7 @@ impl PyBytesLike {
 
     pub fn to_cow(&self) -> std::borrow::Cow<[u8]> {
         match self {
-            PyBytesLike::Bytes(b) => b.get_value().into(),
+            PyBytesLike::Bytes(b) => b.borrow_value().into(),
             PyBytesLike::Bytearray(b) => b.borrow_value().elements.clone().into(),
             PyBytesLike::Array(array) => array.tobytes().into(),
         }
@@ -50,7 +50,7 @@ impl PyBytesLike {
     #[inline]
     pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         match self {
-            PyBytesLike::Bytes(b) => f(b.get_value()),
+            PyBytesLike::Bytes(b) => f(b.borrow_value()),
             PyBytesLike::Bytearray(b) => f(&b.borrow_value().elements),
             PyBytesLike::Array(array) => f(&*array.get_bytes()),
         }

@@ -4,7 +4,7 @@
 /// And: http://code.activestate.com/recipes/578375/
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::obj::objstr::{PyString, PyStringRef};
-use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
+use crate::pyobject::{BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 use rustpython_common::hash;
 use std::collections::HashMap;
@@ -447,7 +447,7 @@ impl DictKey for PyStringRef {
         if self.is(other_key) {
             Ok(true)
         } else if let Some(py_str_value) = other_key.payload::<PyString>() {
-            Ok(py_str_value.as_str() == self.as_str())
+            Ok(py_str_value.borrow_value() == self.borrow_value())
         } else {
             vm.bool_eq(self.clone().into_object(), other_key.clone())
         }
@@ -472,7 +472,7 @@ impl DictKey for &str {
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         if let Some(py_str_value) = other_key.payload::<PyString>() {
-            Ok(py_str_value.as_str() == *self)
+            Ok(py_str_value.borrow_value() == *self)
         } else {
             // Fall back to PyObjectRef implementation.
             let s = vm.ctx.new_str(*self);

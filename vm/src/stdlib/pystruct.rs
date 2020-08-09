@@ -29,7 +29,7 @@ mod _struct {
         objtuple::PyTuple, objtype::PyClassRef,
     };
     use crate::pyobject::{
-        Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+        BorrowValue, Either, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };
     use crate::VirtualMachine;
 
@@ -92,7 +92,7 @@ mod _struct {
             fmt: &Either<PyStringRef, PyBytesRef>,
         ) -> PyResult<FormatSpec> {
             let decoded_fmt = match fmt {
-                Either::A(string) => string.as_str(),
+                Either::A(string) => string.borrow_value(),
                 Either::B(bytes) if bytes.is_ascii() => std::str::from_utf8(&bytes).unwrap(),
                 _ => {
                     return Err(vm.new_unicode_decode_error(
@@ -440,7 +440,7 @@ mod _struct {
         length: usize,
     ) -> PyResult<()> {
         let mut v = PyBytesRef::try_from_object(vm, arg.clone())?
-            .get_value()
+            .borrow_value()
             .to_vec();
         v.resize(length, 0);
         match data.write_all(&v) {
@@ -456,7 +456,7 @@ mod _struct {
         length: usize,
     ) -> PyResult<()> {
         let mut v = PyBytesRef::try_from_object(vm, arg.clone())?
-            .get_value()
+            .borrow_value()
             .to_vec();
         let string_length = std::cmp::min(std::cmp::min(v.len(), 255), length - 1);
         data.write_u8(string_length as u8).unwrap();
@@ -893,7 +893,7 @@ mod _struct {
             let spec = FormatSpec::decode_and_parse(vm, &fmt)?;
             let fmt_str = match fmt {
                 Either::A(s) => s,
-                Either::B(b) => PyString::from(std::str::from_utf8(b.get_value()).unwrap())
+                Either::B(b) => PyString::from(std::str::from_utf8(b.borrow_value()).unwrap())
                     .into_ref_with_type(vm, vm.ctx.str_type())?,
             };
             PyStruct { spec, fmt_str }.into_ref_with_type(vm, cls)

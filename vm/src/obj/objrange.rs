@@ -11,8 +11,8 @@ use super::objtype::PyClassRef;
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    self, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    self, BorrowValue, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use rustpython_common::hash::PyHash;
@@ -42,19 +42,21 @@ impl PyValue for PyRange {
 impl PyRange {
     #[inline]
     fn offset(&self, value: &BigInt) -> Option<BigInt> {
-        let start = self.start.as_bigint();
-        let stop = self.stop.as_bigint();
-        let step = self.step.as_bigint();
+        let start = self.start.borrow_value();
+        let stop = self.stop.borrow_value();
+        let step = self.step.borrow_value();
         match step.sign() {
             Sign::Plus if value >= start && value < stop => Some(value - start),
-            Sign::Minus if value <= self.start.as_bigint() && value > stop => Some(start - value),
+            Sign::Minus if value <= self.start.borrow_value() && value > stop => {
+                Some(start - value)
+            }
             _ => None,
         }
     }
 
     #[inline]
     pub fn index_of(&self, value: &BigInt) -> Option<BigInt> {
-        let step = self.step.as_bigint();
+        let step = self.step.borrow_value();
         match self.offset(value) {
             Some(ref offset) if offset.is_multiple_of(step) => Some((offset / step).abs()),
             Some(_) | None => None,
@@ -63,21 +65,21 @@ impl PyRange {
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        let start = self.start.as_bigint();
-        let stop = self.stop.as_bigint();
-        let step = self.step.as_bigint();
+        let start = self.start.borrow_value();
+        let stop = self.stop.borrow_value();
+        let step = self.step.borrow_value();
         (start <= stop && step.is_negative()) || (start >= stop && step.is_positive())
     }
 
     #[inline]
     pub fn forward(&self) -> bool {
-        self.start.as_bigint() < self.stop.as_bigint()
+        self.start.borrow_value() < self.stop.borrow_value()
     }
 
     #[inline]
     pub fn get(&self, index: &BigInt) -> Option<BigInt> {
-        let start = self.start.as_bigint();
-        let step = self.step.as_bigint();
+        let start = self.start.borrow_value();
+        let step = self.step.borrow_value();
         let index = index.clone();
         if self.is_empty() {
             return None;
@@ -104,9 +106,9 @@ impl PyRange {
 
     #[inline]
     fn length(&self) -> BigInt {
-        let start = self.start.as_bigint();
-        let stop = self.stop.as_bigint();
-        let step = self.step.as_bigint();
+        let start = self.start.borrow_value();
+        let stop = self.stop.borrow_value();
+        let step = self.step.borrow_value();
 
         match step.sign() {
             Sign::Plus if start < stop => (stop - start - 1usize) / step + 1,
@@ -147,7 +149,7 @@ impl PyRange {
         vm: &VirtualMachine,
     ) -> PyResult<PyRangeRef> {
         let step = step.unwrap_or_else(|| (1).into_pyref(vm));
-        if step.as_bigint().is_zero() {
+        if step.borrow_value().is_zero() {
             return Err(vm.new_value_error("range() arg 3 must not be zero".to_owned()));
         }
         PyRange { start, stop, step }.into_ref_with_type(vm, cls)
@@ -178,9 +180,9 @@ impl PyRange {
 
     #[pymethod(name = "__reversed__")]
     fn reversed(&self, vm: &VirtualMachine) -> PyRangeIterator {
-        let start = self.start.as_bigint();
-        let stop = self.stop.as_bigint();
-        let step = self.step.as_bigint();
+        let start = self.start.borrow_value();
+        let stop = self.stop.borrow_value();
+        let step = self.step.borrow_value();
 
         // compute the last element that is actually contained within the range
         // this is the new start
@@ -216,7 +218,7 @@ impl PyRange {
 
     #[pymethod(name = "__repr__")]
     fn repr(&self) -> String {
-        if self.step.as_bigint().is_one() {
+        if self.step.borrow_value().is_one() {
             format!("range({}, {})", self.start, self.stop)
         } else {
             format!("range({}, {}, {})", self.start, self.stop, self.step)
@@ -231,8 +233,8 @@ impl PyRange {
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyObjectRef) -> bool {
         if let Ok(int) = needle.downcast::<PyInt>() {
-            match self.offset(int.as_bigint()) {
-                Some(ref offset) => offset.is_multiple_of(self.step.as_bigint()),
+            match self.offset(int.borrow_value()) {
+                Some(ref offset) => offset.is_multiple_of(self.step.borrow_value()),
                 None => false,
             }
         } else {
@@ -249,11 +251,11 @@ impl PyRange {
             return true;
         }
 
-        if self.start.as_bigint() != rhs.start.as_bigint() {
+        if self.start.borrow_value() != rhs.start.borrow_value() {
             return false;
         }
-        let step = self.step.as_bigint();
-        if step.is_one() || step == rhs.step.as_bigint() {
+        let step = self.step.borrow_value();
+        if step.is_one() || step == rhs.step.borrow_value() {
             return true;
         }
 
@@ -313,7 +315,7 @@ impl PyRange {
     #[pymethod(name = "index")]
     fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
         if let Ok(int) = needle.downcast::<PyInt>() {
-            match self.index_of(int.as_bigint()) {
+            match self.index_of(int.borrow_value()) {
                 Some(idx) => Ok(idx),
                 None => Err(vm.new_value_error(format!("{} is not in range", int))),
             }
@@ -325,7 +327,7 @@ impl PyRange {
     #[pymethod(name = "count")]
     fn count(&self, item: PyObjectRef) -> usize {
         if let Ok(int) = item.downcast::<PyInt>() {
-            if self.index_of(int.as_bigint()).is_some() {
+            if self.index_of(int.borrow_value()).is_some() {
                 1
             } else {
                 0
@@ -344,9 +346,9 @@ impl PyRange {
                 let range_step = &self.step;
                 let range_start = &self.start;
 
-                substep *= range_step.as_bigint();
-                substart = (substart * range_step.as_bigint()) + range_start.as_bigint();
-                substop = (substop * range_step.as_bigint()) + range_start.as_bigint();
+                substep *= range_step.borrow_value();
+                substart = (substart * range_step.borrow_value()) + range_start.borrow_value();
+                substop = (substop * range_step.borrow_value()) + range_start.borrow_value();
 
                 Ok(PyRange {
                     start: substart.into_pyref(vm),
@@ -356,7 +358,7 @@ impl PyRange {
                 .into_ref(vm)
                 .into_object())
             }
-            RangeIndex::Int(index) => match self.get(index.as_bigint()) {
+            RangeIndex::Int(index) => match self.get(index.borrow_value()) {
                 Some(value) => Ok(vm.ctx.new_int(value)),
                 None => Err(vm.new_index_error("range object index out of range".to_owned())),
             },

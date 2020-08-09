@@ -8,8 +8,8 @@ use super::objtype::{self, PyClassRef};
 use crate::dictdatatype;
 use crate::function::{Args, OptionalArg};
 use crate::pyobject::{
-    self, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    self, BorrowValue, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 use rustpython_common::hash::PyHash;
@@ -250,7 +250,7 @@ impl PySetInner {
         let mut str_parts = Vec::with_capacity(self.content.len());
         for key in self.content.keys() {
             let part = vm.to_repr(&key)?;
-            str_parts.push(part.as_str().to_owned());
+            str_parts.push(part.borrow_value().to_owned());
         }
 
         Ok(format!("{{{}}}", str_parts.join(", ")))

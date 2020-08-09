@@ -16,8 +16,8 @@ use crate::bytesinner::{
 use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
-    Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, Either, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::pystr::{self, PyCommonString};
 use crate::vm::VirtualMachine;
@@ -41,6 +41,14 @@ pub struct PyByteArray {
 
 pub type PyByteArrayRef = PyRef<PyByteArray>;
 
+impl<'a> BorrowValue<'a> for PyByteArray {
+    type Borrowed = PyRwLockReadGuard<'a, PyBytesInner>;
+
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        self.inner.read()
+    }
+}
+
 impl PyByteArray {
     fn from_inner(inner: PyBytesInner) -> Self {
         PyByteArray {
@@ -48,20 +56,22 @@ impl PyByteArray {
         }
     }
 
-    pub fn borrow_value(&self) -> PyRwLockReadGuard<'_, PyBytesInner> {
-        self.inner.read()
-    }
-
     pub fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, PyBytesInner> {
         self.inner.write()
     }
 }
 
+impl From<PyBytesInner> for PyByteArray {
+    fn from(inner: PyBytesInner) -> Self {
+        Self {
+            inner: PyRwLock::new(inner),
+        }
+    }
+}
+
 impl From<Vec<u8>> for PyByteArray {
     fn from(elements: Vec<u8>) -> Self {
-        Self {
-            inner: PyRwLock::new(PyBytesInner { elements }),
-        }
+        Self::from(PyBytesInner { elements })
     }
 }
 
@@ -246,7 +256,7 @@ impl PyByteArray {
 
     #[pymethod]
     fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
-        Ok(PyBytesInner::fromhex(string.as_str(), vm)?.into())
+        Ok(PyBytesInner::fromhex(string.borrow_value(), vm)?.into())
     }
 
     #[pymethod(name = "center")]
@@ -338,7 +348,7 @@ impl PyByteArray {
 
     #[pymethod(name = "remove")]
     fn remove(&self, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-        let x = x.as_bigint().byte_or(vm)?;
+        let x = x.borrow_value().byte_or(vm)?;
 
         let bytes = &mut self.borrow_value_mut().elements;
         let pos = bytes
@@ -480,7 +490,7 @@ impl PyByteArray {
     fn append(&self, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
         self.borrow_value_mut()
             .elements
-            .push(x.as_bigint().byte_or(vm)?);
+            .push(x.borrow_value().byte_or(vm)?);
         Ok(())
     }
 
@@ -489,7 +499,7 @@ impl PyByteArray {
         for x in iterable_of_ints.iter(vm)? {
             let x = x?;
             let x = PyIntRef::try_from_object(vm, x)?;
-            let x = x.as_bigint().byte_or(vm)?;
+            let x = x.borrow_value().byte_or(vm)?;
             self.borrow_value_mut().elements.push(x);
         }
 
@@ -504,7 +514,7 @@ impl PyByteArray {
             .to_isize()
             .ok_or_else(|| vm.new_overflow_error("bytearray too big".to_owned()))?;
 
-        let x = x.as_bigint().byte_or(vm)?;
+        let x = x.borrow_value().byte_or(vm)?;
 
         if index >= len {
             bytes.push(x);
@@ -580,7 +590,7 @@ impl PyByteArray {
                 vm.new_type_error(format!(
                     "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
                      encode arbitrary types",
-                    encoding.as_ref().map_or("utf-8", |s| s.as_str()),
+                    encoding.as_ref().map_or("utf-8", |s| s.borrow_value()),
                     obj.lease_class().name,
                 ))
             })

@@ -18,8 +18,9 @@ use crate::bytesinner::PyBytesInner;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl, PyComparisonValue,
-    PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl,
+    PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
@@ -53,8 +54,10 @@ impl fmt::Display for PyInt {
 
 pub type PyIntRef = PyRef<PyInt>;
 
-impl PyInt {
-    pub fn as_bigint(&self) -> &BigInt {
+impl<'a> BorrowValue<'a> for PyInt {
+    type Borrowed = &'a BigInt;
+
+    fn borrow_value(&'a self) -> Self::Borrowed {
         &self.value
     }
 }
@@ -261,7 +264,7 @@ impl PyInt {
                             base.lease_class().name
                         )))
                     })?
-                    .as_bigint()
+                    .borrow_value()
                     .to_u32()
                     .filter(|&v| v == 0 || (2..=36).contains(&v))
                     .ok_or_else(|| {
@@ -565,7 +568,7 @@ impl PyInt {
 
     #[pymethod(name = "__format__")]
     fn format(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatSpec::parse(spec.as_str())
+        match FormatSpec::parse(spec.borrow_value())
             .and_then(|format_spec| format_spec.format_int(&self.value))
         {
             Ok(string) => Ok(string),
@@ -613,7 +616,7 @@ impl PyInt {
             false
         };
 
-        let value = match (args.byteorder.as_str(), signed) {
+        let value = match (args.byteorder.borrow_value(), signed) {
             ("big", true) => BigInt::from_signed_bytes_be(&args.bytes.elements),
             ("big", false) => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
             ("little", true) => BigInt::from_signed_bytes_le(&args.bytes.elements),
@@ -635,12 +638,12 @@ impl PyInt {
             false
         };
 
-        let value = self.as_bigint();
+        let value = self.borrow_value();
         if value.sign() == Sign::Minus && !signed {
             return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_owned()));
         }
 
-        let byte_len = if let Some(byte_len) = args.length.as_bigint().to_usize() {
+        let byte_len = if let Some(byte_len) = args.length.borrow_value().to_usize() {
             byte_len
         } else {
             return Err(
@@ -648,7 +651,7 @@ impl PyInt {
             );
         };
 
-        let mut origin_bytes = match args.byteorder.as_str() {
+        let mut origin_bytes = match args.byteorder.borrow_value() {
             "big" => match signed {
                 true => value.to_signed_bytes_be(),
                 false => value.to_bytes_be().1,
@@ -675,7 +678,7 @@ impl PyInt {
         };
 
         let mut bytes = vec![];
-        match args.byteorder.as_str() {
+        match args.byteorder.borrow_value() {
             "big" => {
                 bytes = append_bytes;
                 bytes.append(&mut origin_bytes);
@@ -755,11 +758,11 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
     let base = 10;
     let opt = match_class!(match obj.clone() {
         string @ PyString => {
-            let s = string.as_str();
+            let s = string.borrow_value();
             bytes_to_int(s.as_bytes(), base)
         }
         bytes @ PyBytes => {
-            let bytes = bytes.get_value();
+            let bytes = bytes.borrow_value();
             bytes_to_int(bytes, base)
         }
         bytearray @ PyByteArray => {
@@ -785,7 +788,7 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
             })?;
             let result = vm.invoke(&method, PyFuncArgs::default())?;
             return match result.payload::<PyInt>() {
-                Some(int_obj) => Ok(int_obj.as_bigint().clone()),
+                Some(int_obj) => Ok(int_obj.borrow_value().clone()),
                 None => Err(vm.new_type_error(format!(
                     "TypeError: __int__ returned non-int (type '{}')",
                     result.class().name
@@ -808,11 +811,11 @@ fn to_int_radix(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<B
 
     let opt = match_class!(match obj.clone() {
         string @ PyString => {
-            let s = string.as_str();
+            let s = string.borrow_value();
             bytes_to_int(s.as_bytes(), base)
         }
         bytes @ PyBytes => {
-            let bytes = bytes.get_value();
+            let bytes = bytes.borrow_value();
             bytes_to_int(bytes, base)
         }
         bytearray @ PyByteArray => {

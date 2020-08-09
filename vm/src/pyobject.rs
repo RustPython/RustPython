@@ -1337,6 +1337,11 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 }
 
+pub trait BorrowValue<'a>: PyValue {
+    type Borrowed: 'a + Deref;
+    fn borrow_value(&'a self) -> Self::Borrowed;
+}
+
 pub trait PyObjectPayload: Any + fmt::Debug + PyThreadingConstraint + 'static {
     fn as_any(&self) -> &dyn Any;
 }

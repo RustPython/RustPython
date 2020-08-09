@@ -4,7 +4,7 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::function::OptionalArg;
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{IntoPyRef, PyClassImpl, PyObjectRef, PyResult, PyValue};
+use crate::pyobject::{BorrowValue, IntoPyRef, PyClassImpl, PyObjectRef, PyResult, PyValue};
 use crate::types::create_type;
 use crate::vm::VirtualMachine;
 
@@ -53,7 +53,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
 /// Compute an Adler-32 checksum of data.
 fn zlib_adler32(data: PyBytesRef, begin_state: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
-    let data = data.get_value();
+    let data = data.borrow_value();
 
     let begin_state = begin_state.unwrap_or(1);
 
@@ -67,7 +67,7 @@ fn zlib_adler32(data: PyBytesRef, begin_state: OptionalArg<i32>, vm: &VirtualMac
 
 /// Compute a CRC-32 checksum of data.
 fn zlib_crc32(data: PyBytesRef, begin_state: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
-    let data = data.get_value();
+    let data = data.borrow_value();
 
     let begin_state = begin_state.unwrap_or(0);
 
@@ -250,7 +250,7 @@ impl PyDecompress {
         if stream_end && !leftover.is_empty() {
             let mut unused_data = self.unused_data.lock();
             let unused: Vec<_> = unused_data
-                .get_value()
+                .borrow_value()
                 .iter()
                 .chain(leftover)
                 .copied()
@@ -266,7 +266,7 @@ impl PyDecompress {
         } else {
             Some(args.max_length)
         };
-        let data = args.data.get_value();
+        let data = args.data.borrow_value();
 
         let mut d = self.decompress.lock();
         let orig_in = d.total_in();

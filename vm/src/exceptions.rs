@@ -7,8 +7,8 @@ use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::py_io::{self, Write};
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    BorrowValue, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::slots::PyTpFlags;
 use crate::types::create_type;
@@ -273,7 +273,7 @@ fn exception_args_as_string(
     varargs: PyTupleRef,
     str_single: bool,
 ) -> Vec<PyStringRef> {
-    let varargs = varargs.as_slice();
+    let varargs = varargs.borrow_value();
     match varargs.len() {
         0 => vec![],
         1 => {
@@ -360,8 +360,8 @@ impl ExceptionCtor {
             (Self::Class(cls), _) => {
                 let args = match_class!(match value {
                     PyNone => vec![],
-                    tup @ PyTuple => tup.as_slice().to_vec(),
-                    exc @ PyBaseException => exc.args().as_slice().to_vec(),
+                    tup @ PyTuple => tup.borrow_value().to_vec(),
+                    exc @ PyBaseException => exc.args().borrow_value().to_vec(),
                     obj => vec![obj],
                 });
                 invoke(cls, args, vm)
@@ -646,7 +646,7 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef, &VirtualMachine) -
     move |exc, vm| {
         exc.args
             .read()
-            .as_slice()
+            .borrow_value()
             .get(idx)
             .cloned()
             .unwrap_or_else(|| vm.get_none())
@@ -655,7 +655,7 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef, &VirtualMachine) -
 
 fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStringRef {
     let args = exc.args();
-    if args.as_slice().len() == 1 {
+    if args.borrow_value().len() == 1 {
         exception_args_as_string(vm, args, false)
             .into_iter()
             .exactly_one()
@@ -666,9 +666,9 @@ fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStringRef {
 }
 
 fn system_exit_code(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyObjectRef {
-    match exc.args.read().as_slice().first() {
+    match exc.args.read().borrow_value().first() {
         Some(code) => match_class!(match code {
-            ref tup @ PyTuple => match tup.as_slice() {
+            ref tup @ PyTuple => match tup.borrow_value() {
                 [x] => x.clone(),
                 _ => code.clone(),
             },
@@ -781,7 +781,7 @@ impl serde::Serialize for SerializeException<'_> {
                 fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
                     s.collect_seq(
                         self.1
-                            .as_slice()
+                            .borrow_value()
                             .iter()
                             .map(|arg| py_serde::PyObjectSerializer::new(self.0, arg)),
                     )

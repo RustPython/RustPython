@@ -6,7 +6,7 @@ use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
     exceptions::{print_exception, PyBaseExceptionRef},
     obj::objtype,
-    pyobject::PyResult,
+    pyobject::{BorrowValue, PyResult},
     scope::Scope,
     VirtualMachine,
 };
@@ -61,7 +61,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             .get_attribute(vm.sys_module.clone(), prompt_name)
             .and_then(|prompt| vm.to_str(&prompt));
         let prompt = match prompt {
-            Ok(ref s) => s.as_str(),
+            Ok(ref s) => s.borrow_value(),
             Err(_) => "",
         };
         let result = match repl.readline(prompt) {

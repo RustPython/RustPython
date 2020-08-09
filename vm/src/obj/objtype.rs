@@ -12,8 +12,8 @@ use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease, PyObject,
+    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
@@ -129,7 +129,7 @@ impl PyClassRef {
 
     #[pymethod(magic)]
     fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        let name = name_ref.as_str();
+        let name = name_ref.borrow_value();
         vm_trace!("type.__getattribute__({:?}, {:?})", self, name);
         let mcl = self.lease_class();
 
@@ -182,7 +182,7 @@ impl PyClassRef {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(attr) = self.get_class_attr(attr_name.as_str()) {
+        if let Some(attr) = self.get_class_attr(attr_name.borrow_value()) {
             if let Some(ref descriptor) = attr.get_class_attr("__set__") {
                 vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
                 return Ok(());
@@ -195,7 +195,7 @@ impl PyClassRef {
 
     #[pymethod(magic)]
     fn delattr(self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(attr) = self.get_class_attr(attr_name.as_str()) {
+        if let Some(attr) = self.get_class_attr(attr_name.borrow_value()) {
             if let Some(ref descriptor) = attr.get_class_attr("__delete__") {
                 return vm
                     .invoke(descriptor, vec![attr, self.into_object()])
@@ -203,11 +203,11 @@ impl PyClassRef {
             }
         }
 
-        if self.get_attr(attr_name.as_str()).is_some() {
-            self.attributes.write().remove(attr_name.as_str());
+        if self.get_attr(attr_name.borrow_value()).is_some() {
+            self.attributes.write().remove(attr_name.borrow_value());
             Ok(())
         } else {
-            Err(vm.new_attribute_error(attr_name.as_str().to_owned()))
+            Err(vm.new_attribute_error(attr_name.borrow_value().to_owned()))
         }
     }
 
@@ -308,8 +308,14 @@ impl PyClassRef {
             }
         }
 
-        let typ = new(metatype, name.as_str(), base.clone(), bases, attributes)
-            .map_err(|e| vm.new_type_error(e))?;
+        let typ = new(
+            metatype,
+            name.borrow_value(),
+            base.clone(),
+            bases,
+            attributes,
+        )
+        .map_err(|e| vm.new_type_error(e))?;
 
         typ.slots.write().flags = base.slots.read().flags;
         vm.ctx.add_tp_new_wrapper(&typ);

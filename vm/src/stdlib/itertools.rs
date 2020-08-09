@@ -17,8 +17,8 @@ mod decl {
     use crate::obj::objtuple::PyTuple;
     use crate::obj::objtype::{self, PyClassRef};
     use crate::pyobject::{
-        IdProtocol, IntoPyRef, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult,
-        PyValue, TypeProtocol,
+        BorrowValue, IdProtocol, IntoPyRef, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef,
+        PyResult, PyValue, TypeProtocol,
     };
     use crate::vm::VirtualMachine;
 
@@ -181,11 +181,11 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let start = match start.into_option() {
-                Some(int) => int.as_bigint().clone(),
+                Some(int) => int.borrow_value().clone(),
                 None => BigInt::zero(),
             };
             let step = match step.into_option() {
-                Some(int) => int.as_bigint().clone(),
+                Some(int) => int.borrow_value().clone(),
                 None => BigInt::one(),
             };
 
@@ -294,7 +294,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let times = match times.into_option() {
-                Some(int) => Some(PyRwLock::new(int.as_bigint().clone())),
+                Some(int) => Some(PyRwLock::new(int.borrow_value().clone())),
                 None => None,
             };
 
@@ -1158,7 +1158,7 @@ mod decl {
             let iter = get_iter(vm, &iterable)?;
             let pool = get_all(vm, &iter)?;
 
-            let r = r.as_bigint();
+            let r = r.borrow_value();
             if r.is_negative() {
                 return Err(vm.new_value_error("r must be non-negative".to_owned()));
             }
@@ -1257,7 +1257,7 @@ mod decl {
             let iter = get_iter(vm, &iterable)?;
             let pool = get_all(vm, &iter)?;
 
-            let r = r.as_bigint();
+            let r = r.borrow_value();
             if r.is_negative() {
                 return Err(vm.new_value_error("r must be non-negative".to_owned()));
             }
@@ -1361,7 +1361,7 @@ mod decl {
                     let val = r
                         .payload::<PyInt>()
                         .ok_or_else(|| vm.new_type_error("Expected int as r".to_owned()))?
-                        .as_bigint();
+                        .borrow_value();
 
                     if val.is_negative() {
                         return Err(vm.new_value_error("r must be non-negative".to_owned()));

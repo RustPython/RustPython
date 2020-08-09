@@ -9,8 +9,8 @@ use crate::dictdatatype::{self, DictKey};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyClassImpl, PyContext,
+    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -199,7 +199,11 @@ impl PyDictRef {
             for (key, value) in self {
                 let key_repr = vm.to_repr(&key)?;
                 let value_repr = vm.to_repr(&value)?;
-                str_parts.push(format!("{}: {}", key_repr.as_str(), value_repr.as_str()));
+                str_parts.push(format!(
+                    "{}: {}",
+                    key_repr.borrow_value(),
+                    value_repr.borrow_value()
+                ));
             }
 
             format!("{{{}}}", str_parts.join(", "))
@@ -571,7 +575,7 @@ macro_rules! dict_iterator {
                     let mut str_parts = vec![];
                     for (key, value) in zelf.dict.clone() {
                         let s = vm.to_repr(&$result_fn(vm, key, value))?;
-                        str_parts.push(s.as_str().to_owned());
+                        str_parts.push(s.borrow_value().to_owned());
                     }
                     format!("{}([{}])", $class_name, str_parts.join(", "))
                 } else {

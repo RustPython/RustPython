@@ -23,8 +23,8 @@ use crate::exceptions::IntoPyException;
 use crate::format::{FormatSpec, FormatString, FromTemplate};
 use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::pystr::{
     self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
@@ -50,9 +50,16 @@ pub struct PyString {
     len: AtomicCell<Option<usize>>,
 }
 
-impl PyString {
-    #[inline]
-    pub fn as_str(&self) -> &str {
+impl<'a> BorrowValue<'a> for PyString {
+    type Borrowed = &'a str;
+
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        &self.value
+    }
+}
+
+impl AsRef<str> for PyString {
+    fn as_ref(&self) -> &str {
         &self.value
     }
 }
@@ -196,7 +203,7 @@ impl PyString {
         if string.class().is(&cls) {
             Ok(string)
         } else {
-            PyString::from(string.as_str()).into_ref_with_type(vm, cls)
+            PyString::from(string.borrow_value()).into_ref_with_type(vm, cls)
         }
     }
 
@@ -502,7 +509,7 @@ impl PyString {
             args,
             "endswith",
             "str",
-            |s, x: &PyStringRef| s.ends_with(x.as_str()),
+            |s, x: &PyStringRef| s.ends_with(x.borrow_value()),
             vm,
         )
     }
@@ -513,7 +520,7 @@ impl PyString {
             args,
             "startswith",
             "str",
-            |s, x: &PyStringRef| s.starts_with(x.as_str()),
+            |s, x: &PyStringRef| s.starts_with(x.borrow_value()),
             vm,
         )
     }
@@ -609,7 +616,7 @@ impl PyString {
 
     #[pymethod(name = "__format__")]
     fn format_str(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatSpec::parse(spec.as_str())
+        match FormatSpec::parse(spec.borrow_value())
             .and_then(|format_spec| format_spec.format_string(&self.value))
         {
             Ok(string) => Ok(string),
@@ -959,7 +966,7 @@ impl PyString {
                     if let Some(text) = value.payload::<PyString>() {
                         translated.push_str(&text.value);
                     } else if let Some(bigint) = value.payload::<PyInt>() {
-                        match bigint.as_bigint().to_u32().and_then(std::char::from_u32) {
+                        match bigint.borrow_value().to_u32().and_then(std::char::from_u32) {
                             Some(ch) => translated.push(ch as char),
                             None => {
                                 return Err(vm.new_value_error(
@@ -1020,7 +1027,7 @@ impl PyString {
                     for (key, val) in dict {
                         if let Some(num) = key.payload::<PyInt>() {
                             new_dict.set_item(
-                                num.as_bigint().to_i32().into_pyobject(vm),
+                                num.borrow_value().to_i32().into_pyobject(vm),
                                 val,
                                 vm,
                             )?;
@@ -1088,7 +1095,7 @@ pub(crate) fn encode_string(
             vm.new_type_error(format!(
                 "'{}' encoder returned '{}' instead of 'bytes'; use codecs.encode() to \
                  encode arbitrary types",
-                encoding.as_ref().map_or("utf-8", |s| s.as_str()),
+                encoding.as_ref().map_or("utf-8", |s| s.borrow_value()),
                 obj.lease_class().name,
             ))
         })
@@ -1121,7 +1128,7 @@ impl IntoPyObject for &String {
 impl TryFromObject for std::ffi::CString {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let s = PyStringRef::try_from_object(vm, obj)?;
-        Self::new(s.as_str().to_owned())
+        Self::new(s.borrow_value().to_owned())
             .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
     }
 }

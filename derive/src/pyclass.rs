@@ -530,10 +530,11 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             }
 
             fn repr(zelf: rustpython_vm::pyobject::PyRef<rustpython_vm::obj::objtuple::PyTuple>, vm: &rustpython_vm::VirtualMachine) -> ::rustpython_vm::pyobject::PyResult<String> {
+                use rustpython_vm::pyobject::BorrowValue;
                 let s = if let Some(_guard) = rustpython_vm::vm::ReprGuard::enter(zelf.as_object()) {
                         let field_names = vec![#(stringify!(#field_names)),*];
                         let mut fields = Vec::new();
-                        for (value, field_name) in zelf.as_slice().iter().zip(field_names.iter()) {
+                        for (value, field_name) in zelf.borrow_value().iter().zip(field_names.iter()) {
                                 let s = vm.to_repr(value)?;
                                 fields.push(format!("{}: {}", field_name, s));
                         }

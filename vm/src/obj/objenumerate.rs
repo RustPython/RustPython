@@ -8,7 +8,7 @@ use super::objint::PyIntRef;
 use super::objiter;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{BorrowValue, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 #[pyclass]
@@ -35,7 +35,7 @@ impl PyEnumerate {
         vm: &VirtualMachine,
     ) -> PyResult<PyEnumerateRef> {
         let counter = match start {
-            OptionalArg::Present(start) => start.as_bigint().clone(),
+            OptionalArg::Present(start) => start.borrow_value().clone(),
             OptionalArg::Missing => BigInt::zero(),
         };
 

@@ -19,7 +19,8 @@ use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BorrowValue, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -434,23 +435,23 @@ struct Address {
 impl ToSocketAddrs for Address {
     type Iter = std::vec::IntoIter<SocketAddr>;
     fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
-        (self.host.as_str(), self.port).to_socket_addrs()
+        (self.host.borrow_value(), self.port).to_socket_addrs()
     }
 }
 
 impl TryFromObject for Address {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let tuple = PyTupleRef::try_from_object(vm, obj)?;
-        if tuple.as_slice().len() != 2 {
+        if tuple.borrow_value().len() != 2 {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_owned()))
         } else {
-            let host = PyStringRef::try_from_object(vm, tuple.as_slice()[0].clone())?;
-            let host = if host.as_str().is_empty() {
+            let host = PyStringRef::try_from_object(vm, tuple.borrow_value()[0].clone())?;
+            let host = if host.borrow_value().is_empty() {
                 PyString::from("0.0.0.0").into_ref(vm)
             } else {
                 host
             };
-            let port = u16::try_from_object(vm, tuple.as_slice()[1].clone())?;
+            let port = u16::try_from_object(vm, tuple.borrow_value()[1].clone())?;
             Ok(Address { host, port })
         }
     }
@@ -478,12 +479,12 @@ fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
 
 #[cfg(all(unix, not(target_os = "redox")))]
 fn socket_sethostname(hostname: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    sethostname(hostname.as_str()).map_err(|err| err.into_pyexception(vm))
+    sethostname(hostname.borrow_value()).map_err(|err| err.into_pyexception(vm))
 }
 
 fn socket_inet_aton(ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
     ip_string
-        .as_str()
+        .borrow_value()
         .parse::<Ipv4Addr>()
         .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
         .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_owned()))
@@ -523,10 +524,10 @@ fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
         flags: opts.flags,
     };
 
-    let host = opts.host.as_ref().map(|s| s.as_str());
+    let host = opts.host.as_ref().map(|s| s.borrow_value());
     let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<str> {
         match p {
-            Either::A(ref s) => s.as_str().into(),
+            Either::A(ref s) => s.borrow_value().into(),
             Either::B(i) => i.to_string().into(),
         }
     });
@@ -563,7 +564,7 @@ fn socket_gethostbyaddr(
     vm: &VirtualMachine,
 ) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
     // TODO: figure out how to do this properly
-    let ai = dns_lookup::getaddrinfo(Some(addr.as_str()), None, None)
+    let ai = dns_lookup::getaddrinfo(Some(addr.borrow_value()), None, None)
         .map_err(|e| convert_sock_error(vm, e.into()))?
         .next()
         .unwrap()

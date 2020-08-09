@@ -10,8 +10,8 @@ use super::objstr::PyStringRef;
 use super::objtype::{self, PyClass, PyClassRef};
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::scope::NameProtocol;
 use crate::slots::SlotDescriptor;
@@ -65,7 +65,7 @@ impl PySuper {
         let mut it = obj_type.iter_mro().peekable();
         for _ in it.peeking_take_while(|cls| !cls.is(&zelf.typ)) {}
         for cls in it.skip(1) {
-            if let Some(descr) = cls.get_attr(name.as_str()) {
+            if let Some(descr) = cls.get_attr(name.borrow_value()) {
                 return vm
                     .call_get_descriptor_specific(
                         descr.clone(),

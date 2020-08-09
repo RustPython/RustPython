@@ -5,12 +5,12 @@
 use rustpython_parser::lexer;
 
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{PyObjectRef, PyResult};
+use crate::pyobject::{BorrowValue, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 fn keyword_iskeyword(s: PyStringRef, vm: &VirtualMachine) -> PyResult {
     let keywords = lexer::get_keywords();
-    let value = keywords.contains_key(s.as_str());
+    let value = keywords.contains_key(s.borrow_value());
     let value = vm.ctx.new_bool(value);
     Ok(value)
 }

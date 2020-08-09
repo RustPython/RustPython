@@ -5,8 +5,8 @@ use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
-    Either, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject,
+    BorrowValue, Either, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
 
@@ -284,8 +284,8 @@ impl PyArray {
         init: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyArrayRef> {
-        let spec = match spec.as_str().len() {
-            1 => spec.as_str().chars().next().unwrap(),
+        let spec = match spec.borrow_value().len() {
+            1 => spec.borrow_value().chars().next().unwrap(),
             _ => {
                 return Err(vm.new_type_error(
                     "array() argument 1 must be a unicode character, not str".to_owned(),
@@ -345,7 +345,7 @@ impl PyArray {
 
     #[pymethod]
     fn frombytes(&self, b: PyBytesRef, vm: &VirtualMachine) -> PyResult<()> {
-        let b = b.get_value();
+        let b = b.borrow_value();
         let itemsize = self.borrow_value().itemsize();
         if b.len() % itemsize != 0 {
             return Err(vm.new_value_error("bytes length not a multiple of item size".to_owned()));

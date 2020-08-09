@@ -10,8 +10,8 @@ use super::objsequence;
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{
-    PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    BorrowValue, PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -99,7 +99,7 @@ pub fn stop_iter_with_value(val: PyObjectRef, vm: &VirtualMachine) -> PyBaseExce
 pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyResult {
     let args = exc.args();
     let val = args
-        .as_slice()
+        .borrow_value()
         .first()
         .cloned()
         .unwrap_or_else(|| vm.get_none());
@@ -139,7 +139,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
                 result.lease_class().name
             ))
         })?
-        .as_bigint();
+        .borrow_value();
     if result.is_negative() {
         return Err(vm.new_value_error("__length_hint__() should return >= 0".to_owned()));
     }
