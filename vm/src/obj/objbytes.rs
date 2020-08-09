@@ -212,22 +212,22 @@ impl PyBytes {
     }
 
     #[pymethod(name = "lower")]
-    fn lower(&self) -> PyBytes {
+    fn lower(&self) -> Self {
         self.inner.lower().into()
     }
 
     #[pymethod(name = "upper")]
-    fn upper(&self) -> PyBytes {
+    fn upper(&self) -> Self {
         self.inner.upper().into()
     }
 
     #[pymethod(name = "capitalize")]
-    fn capitalize(&self) -> PyBytes {
+    fn capitalize(&self) -> Self {
         self.inner.capitalize().into()
     }
 
     #[pymethod(name = "swapcase")]
-    fn swapcase(&self) -> PyBytes {
+    fn swapcase(&self) -> Self {
         self.inner.swapcase().into()
     }
 
@@ -326,17 +326,17 @@ impl PyBytes {
     }
 
     #[pymethod(name = "strip")]
-    fn strip(&self, chars: OptionalOption<PyBytesInner>) -> PyBytes {
+    fn strip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
         self.inner.strip(chars).into()
     }
 
     #[pymethod(name = "lstrip")]
-    fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> PyBytes {
+    fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
         self.inner.lstrip(chars).into()
     }
 
     #[pymethod(name = "rstrip")]
-    fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> PyBytes {
+    fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
         self.inner.rstrip(chars).into()
     }
 
@@ -348,7 +348,7 @@ impl PyBytes {
     /// If the bytes starts with the prefix string, return string[len(prefix):]
     /// Otherwise, return a copy of the original bytes.
     #[pymethod(name = "removeprefix")]
-    fn removeprefix(&self, prefix: PyBytesInner) -> PyBytes {
+    fn removeprefix(&self, prefix: PyBytesInner) -> Self {
         self.inner.removeprefix(prefix).into()
     }
 
@@ -360,7 +360,7 @@ impl PyBytes {
     /// If the bytes ends with the suffix string, return string[:len(suffix)]
     /// Otherwise, return a copy of the original bytes.
     #[pymethod(name = "removesuffix")]
-    fn removesuffix(&self, suffix: PyBytesInner) -> PyBytes {
+    fn removesuffix(&self, suffix: PyBytesInner) -> Self {
         self.inner.removesuffix(suffix).into()
     }
 
@@ -407,7 +407,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "expandtabs")]
-    fn expandtabs(&self, options: pystr::ExpandTabsArgs) -> PyBytes {
+    fn expandtabs(&self, options: pystr::ExpandTabsArgs) -> Self {
         self.inner.expandtabs(options).into()
     }
 
@@ -420,7 +420,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "zfill")]
-    fn zfill(&self, width: isize) -> PyBytes {
+    fn zfill(&self, width: isize) -> Self {
         self.inner.zfill(width).into()
     }
 
@@ -436,7 +436,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "title")]
-    fn title(&self) -> PyBytes {
+    fn title(&self) -> Self {
         self.inner.title().into()
     }
 

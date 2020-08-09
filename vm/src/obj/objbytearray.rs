@@ -230,22 +230,22 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "lower")]
-    fn lower(&self) -> PyByteArray {
+    fn lower(&self) -> Self {
         self.borrow_value().lower().into()
     }
 
     #[pymethod(name = "upper")]
-    fn upper(&self) -> PyByteArray {
+    fn upper(&self) -> Self {
         self.borrow_value().upper().into()
     }
 
     #[pymethod(name = "capitalize")]
-    fn capitalize(&self) -> PyByteArray {
+    fn capitalize(&self) -> Self {
         self.borrow_value().capitalize().into()
     }
 
     #[pymethod(name = "swapcase")]
-    fn swapcase(&self) -> PyByteArray {
+    fn swapcase(&self) -> Self {
         self.borrow_value().swapcase().into()
     }
 
@@ -371,17 +371,17 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "strip")]
-    fn strip(&self, chars: OptionalOption<PyBytesInner>) -> PyByteArray {
+    fn strip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
         self.borrow_value().strip(chars).into()
     }
 
     #[pymethod(name = "lstrip")]
-    fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> PyByteArray {
+    fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
         self.borrow_value().lstrip(chars).into()
     }
 
     #[pymethod(name = "rstrip")]
-    fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> PyByteArray {
+    fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
         self.borrow_value().rstrip(chars).into()
     }
 
@@ -393,7 +393,7 @@ impl PyByteArray {
     /// If the bytearray starts with the prefix string, return string[len(prefix):]
     /// Otherwise, return a copy of the original bytearray.
     #[pymethod(name = "removeprefix")]
-    fn removeprefix(&self, prefix: PyBytesInner) -> PyByteArray {
+    fn removeprefix(&self, prefix: PyBytesInner) -> Self {
         self.borrow_value().removeprefix(prefix).into()
     }
 
@@ -405,7 +405,7 @@ impl PyByteArray {
     /// If the bytearray ends with the suffix string, return string[:len(suffix)]
     /// Otherwise, return a copy of the original bytearray.
     #[pymethod(name = "removesuffix")]
-    fn removesuffix(&self, suffix: PyBytesInner) -> PyByteArray {
+    fn removesuffix(&self, suffix: PyBytesInner) -> Self {
         self.borrow_value().removesuffix(suffix).to_vec().into()
     }
 
@@ -448,7 +448,7 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "expandtabs")]
-    fn expandtabs(&self, options: pystr::ExpandTabsArgs) -> PyByteArray {
+    fn expandtabs(&self, options: pystr::ExpandTabsArgs) -> Self {
         self.borrow_value().expandtabs(options).into()
     }
 
@@ -461,7 +461,7 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "zfill")]
-    fn zfill(&self, width: isize) -> PyByteArray {
+    fn zfill(&self, width: isize) -> Self {
         self.borrow_value().zfill(width).into()
     }
 
@@ -482,7 +482,7 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "copy")]
-    fn copy(&self) -> PyByteArray {
+    fn copy(&self) -> Self {
         self.borrow_value().elements.clone().into()
     }
 
@@ -544,13 +544,13 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "title")]
-    fn title(&self) -> PyByteArray {
+    fn title(&self) -> Self {
         self.borrow_value().title().into()
     }
 
     #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
-    fn mul(&self, n: isize) -> PyByteArray {
+    fn mul(&self, n: isize) -> Self {
         self.borrow_value().repeat(n).into()
     }
 
