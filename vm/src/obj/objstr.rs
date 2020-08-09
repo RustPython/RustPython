@@ -1133,6 +1133,15 @@ impl TryFromObject for std::ffi::CString {
     }
 }
 
+impl TryFromObject for std::ffi::OsString {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        use std::str::FromStr;
+
+        let s = PyStringRef::try_from_object(vm, obj)?;
+        Ok(std::ffi::OsString::from_str(s.borrow_value()).unwrap())
+    }
+}
+
 type SplitArgs<'a> = pystr::SplitArgs<'a, PyStringRef, str, char>;
 
 #[derive(FromArgs)]
