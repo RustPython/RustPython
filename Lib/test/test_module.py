@@ -32,8 +32,6 @@ class ModuleTests(unittest.TestCase):
             pass
         self.assertEqual(foo.__doc__, ModuleType.__doc__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_uninitialized_missing_getattr(self):
         # Issue 8297
         # test the text in the AttributeError of an uninitialized module
@@ -82,8 +80,6 @@ class ModuleTests(unittest.TestCase):
                           "__loader__": None, "__package__": None,
                           "__spec__": None})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reinit(self):
         # Reinitialization should not replace the __dict__
         foo = ModuleType("foo", "foodoc\u1234")

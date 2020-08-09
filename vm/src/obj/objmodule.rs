@@ -1,7 +1,7 @@
 use super::objdict::PyDictRef;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
-use crate::function::OptionalOption;
+use crate::function::{OptionalOption, PyFuncArgs};
 use crate::pyobject::{
     BorrowValue, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
@@ -46,21 +46,25 @@ pub fn init_module_dict(
 #[pyimpl(flags(BASETYPE))]
 impl PyModuleRef {
     #[pyslot]
-    fn tp_new(
-        cls: PyClassRef,
+    fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyModuleRef> {
+        PyModule {}.into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(magic)]
+    fn init(
+        self,
         name: PyStringRef,
         doc: OptionalOption<PyStringRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyModuleRef> {
-        let zelf = PyModule {}.into_ref_with_type(vm, cls)?;
+    ) -> PyResult<()> {
         init_module_dict(
             vm,
-            &zelf.as_object().dict().unwrap(),
+            &self.as_object().dict().unwrap(),
             name.into_object(),
             doc.flatten()
                 .map_or_else(|| vm.get_none(), PyRef::into_object),
         );
-        Ok(zelf)
+        Ok(())
     }
 
     fn name(self, vm: &VirtualMachine) -> Option<String> {
