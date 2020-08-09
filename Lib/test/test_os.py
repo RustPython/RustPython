@@ -222,6 +222,8 @@ class FileTests(unittest.TestCase):
         # operating system is free to return less bytes than requested.
         self.assertEqual(data, b'test')
 
+    # TODO: RUSTPYTHON (TypeError: a bytes-like object is required, not memoryview)
+    @unittest.expectedFailure
     def test_write(self):
         # os.write() accepts bytes- and buffer-like objects but not strings
         fd = os.open(support.TESTFN, os.O_CREAT | os.O_WRONLY)
@@ -280,11 +282,15 @@ class FileTests(unittest.TestCase):
         with open(TESTFN2, 'r') as f:
             self.assertEqual(f.read(), "1")
 
+    # TODO: RUSTPYTHON (TypeError: Expected at least 2 arguments (0 given))
+    @unittest.expectedFailure
     def test_open_keywords(self):
         f = os.open(path=__file__, flags=os.O_RDONLY, mode=0o777,
             dir_fd=None)
         os.close(f)
 
+    # TODO: RUSTPYTHON (TypeError: Expected at least 2 arguments (0 given))
+    @unittest.expectedFailure
     def test_symlink_keywords(self):
         symlink = support.get_attribute(os, "symlink")
         try:
@@ -1729,6 +1735,8 @@ def _execvpe_mockup(defpath=None):
 @unittest.skipUnless(hasattr(os, 'execv'),
                      "need os.execv()")
 class ExecTests(unittest.TestCase):
+    # TODO: RUSTPYTHON (TypeError: Expected type <class 'str'>, not <class 'bytes'>)
+    @unittest.expectedFailure
     @unittest.skipIf(USING_LINUXTHREADS,
                      "avoid triggering a linuxthreads bug: see issue #4970")
     def test_execvpe_with_bad_program(self):
@@ -1741,6 +1749,8 @@ class ExecTests(unittest.TestCase):
         self.assertRaises(ValueError, os.execv, 'notepad', ('',))
         self.assertRaises(ValueError, os.execv, 'notepad', [''])
 
+    # TODO: RUSTPYTHON (TypeError: Expected type <class 'str'>, not <class 'bytes'>)
+    @unittest.expectedFailure
     def test_execvpe_with_bad_arglist(self):
         self.assertRaises(ValueError, os.execvpe, 'notepad', [], None)
         self.assertRaises(ValueError, os.execvpe, 'notepad', [], {})
@@ -2120,6 +2130,8 @@ class Pep383Tests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir)
 
+    # TODO: RUSTPYTHON (TypeError: Expected at least 1 arguments (0 given))
+    @unittest.expectedFailure
     def test_listdir(self):
         expected = self.unicodefn
         found = set(os.listdir(self.dir))
