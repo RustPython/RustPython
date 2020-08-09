@@ -1,60 +1,62 @@
-use crate::frame::FrameRef;
-use crate::function::OptionalArg;
-use crate::pyobject::PyObjectRef;
-use crate::vm::VirtualMachine;
+pub(crate) use decl::make_module;
 
-fn dump_frame(frame: &FrameRef) {
-    eprintln!(
-        "  File \"{}\", line {} in {}",
-        frame.code.source_path,
-        frame.current_location().row(),
-        frame.code.obj_name
-    )
-}
+#[pymodule(name = "faulthandler")]
+mod decl {
+    use crate::frame::FrameRef;
+    use crate::function::OptionalArg;
+    use crate::vm::VirtualMachine;
 
-fn dump_traceback(_file: OptionalArg<i64>, _all_threads: OptionalArg<bool>, vm: &VirtualMachine) {
-    eprintln!("Stack (most recent call first):");
-
-    for frame in vm.frames.borrow().iter() {
-        dump_frame(frame);
+    fn dump_frame(frame: &FrameRef) {
+        eprintln!(
+            "  File \"{}\", line {} in {}",
+            frame.code.source_path,
+            frame.current_location().row(),
+            frame.code.obj_name
+        )
     }
-}
 
-#[derive(FromArgs)]
-#[allow(unused)]
-struct EnableArgs {
-    #[pyarg(positional_or_keyword, default = "None")]
-    file: Option<i64>,
-    #[pyarg(positional_or_keyword, default = "true")]
-    all_threads: bool,
-}
+    #[pyfunction]
+    fn dump_traceback(
+        _file: OptionalArg<i64>,
+        _all_threads: OptionalArg<bool>,
+        vm: &VirtualMachine,
+    ) {
+        eprintln!("Stack (most recent call first):");
 
-fn enable(_args: EnableArgs) {
-    // TODO
-}
+        for frame in vm.frames.borrow().iter() {
+            dump_frame(frame);
+        }
+    }
 
-#[derive(FromArgs)]
-#[allow(unused)]
-struct RegisterArgs {
-    #[pyarg(positional_only)]
-    signum: i64,
-    #[pyarg(positional_or_keyword, default = "None")]
-    file: Option<i64>,
-    #[pyarg(positional_or_keyword, default = "true")]
-    all_threads: bool,
-    #[pyarg(positional_or_keyword, default = "false")]
-    chain: bool,
-}
+    #[derive(FromArgs)]
+    #[allow(unused)]
+    struct EnableArgs {
+        #[pyarg(positional_or_keyword, default = "None")]
+        file: Option<i64>,
+        #[pyarg(positional_or_keyword, default = "true")]
+        all_threads: bool,
+    }
 
-fn register(_args: RegisterArgs) {
-    // TODO
-}
+    #[pyfunction]
+    fn enable(_args: EnableArgs) {
+        // TODO
+    }
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let ctx = &vm.ctx;
-    py_module!(vm, "faulthandler", {
-        "dump_traceback" => ctx.new_function(dump_traceback),
-        "enable" => ctx.new_function(enable),
-        "register" => ctx.new_function(register),
-    })
+    #[derive(FromArgs)]
+    #[allow(unused)]
+    struct RegisterArgs {
+        #[pyarg(positional_only)]
+        signum: i64,
+        #[pyarg(positional_or_keyword, default = "None")]
+        file: Option<i64>,
+        #[pyarg(positional_or_keyword, default = "true")]
+        all_threads: bool,
+        #[pyarg(positional_or_keyword, default = "false")]
+        chain: bool,
+    }
+
+    #[pyfunction]
+    fn register(_args: RegisterArgs) {
+        // TODO
+    }
 }
