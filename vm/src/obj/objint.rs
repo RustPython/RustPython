@@ -9,6 +9,7 @@ use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 use super::objbool::IntoPyBool;
 use super::objbytearray::PyByteArray;
 use super::objbytes::PyBytes;
+use super::objdict::PyDictRef;
 use super::objfloat;
 use super::objmemory::PyMemoryView;
 use super::objstr::{PyString, PyStringRef};
@@ -17,9 +18,8 @@ use crate::bytesinner::PyBytesInner;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, IntoPyRef, IntoPyResult, PyArithmaticValue, PyClassImpl,
-    PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue, PyClassImpl, PyComparisonValue,
+    PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
@@ -77,6 +77,23 @@ impl IntoPyObject for BigInt {
 impl PyValue for PyInt {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.int_type()
+    }
+
+    fn into_simple_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_int(self.value)
+    }
+
+    fn into_object(
+        self,
+        vm: &VirtualMachine,
+        cls: PyClassRef,
+        dict: Option<PyDictRef>,
+    ) -> PyObjectRef {
+        if cls.is(&Self::class(vm)) {
+            vm.ctx.new_int(self.value)
+        } else {
+            PyObject::new(self, cls, dict)
+        }
     }
 }
 
@@ -223,10 +240,10 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 impl PyInt {
     fn with_value<T>(cls: PyClassRef, value: T, vm: &VirtualMachine) -> PyResult<PyIntRef>
     where
-        T: Into<BigInt>,
+        T: Into<BigInt> + ToPrimitive,
     {
         if cls.is(&vm.ctx.int_type()) {
-            Ok(value.into().into_pyref(vm))
+            Ok(PyRef::from_obj_unchecked(vm.ctx.new_int(value)))
         } else {
             PyInt::from(value).into_ref_with_type(vm, cls)
         }

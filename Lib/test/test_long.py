@@ -976,7 +976,6 @@ class LongTest(unittest.TestCase):
         self.assertIs(a + b, 1)
         self.assertIs(c - a, 1)
 
-    @unittest.expectedFailure
     def test_small_ints(self):
         for i in range(-5, 257):
             self.assertIs(i, i + 0)
