@@ -2122,6 +2122,7 @@ pub(crate) use posix::raw_set_inheritable;
 #[pymodule]
 mod nt {
     use super::*;
+    use crate::obj::objlist::PyListRef;
     pub(super) use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::RawHandle;
     #[cfg(target_env = "msvc")]
@@ -2411,6 +2412,61 @@ mod nt {
         _: libc::c_uint,
         _: libc::uintptr_t,
     ) {
+    }
+
+    #[cfg(target_env = "msvc")]
+    extern "C" {
+        fn _wexecv(cmdname: *const u16, argv: *const *const u16) -> intptr_t;
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[pyfunction]
+    fn execv(
+        path: PyStringRef,
+        argv_list: Either<PyListRef, PyTupleRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        use std::iter::once;
+        use std::os::windows::prelude::*;
+        use std::str::FromStr;
+
+        let path: Vec<u16> = ffi::OsString::from_str(path.borrow_value())
+            .unwrap()
+            .encode_wide()
+            .chain(once(0u16))
+            .collect();
+
+        let argv: Vec<ffi::OsString> = match argv_list {
+            Either::A(list) => vm.extract_elements(list.as_object())?,
+            Either::B(tuple) => vm.extract_elements(tuple.as_object())?,
+        };
+
+        let first = argv
+            .first()
+            .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty".to_owned()))?;
+
+        if first.is_empty() {
+            return Err(
+                vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned())
+            );
+        }
+
+        let argv: Vec<Vec<u16>> = argv
+            .into_iter()
+            .map(|s| s.encode_wide().chain(once(0u16)).collect())
+            .collect();
+
+        let argv_execv: Vec<*const u16> = argv
+            .iter()
+            .map(|v| v.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        if (unsafe { suppress_iph!(_wexecv(path.as_ptr(), argv_execv.as_ptr())) } == -1) {
+            Err(errno_err(vm))
+        } else {
+            Ok(())
+        }
     }
 
     pub(super) fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
