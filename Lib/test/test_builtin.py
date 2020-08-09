@@ -691,8 +691,6 @@ class BuiltinTest(unittest.TestCase):
                 raise ValueError
         self.assertRaises(ValueError, hasattr, B(), "b")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hash(self):
         hash(None)
         self.assertEqual(hash(1), hash(1))
