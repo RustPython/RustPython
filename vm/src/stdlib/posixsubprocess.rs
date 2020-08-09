@@ -1,13 +1,43 @@
+pub(crate) use _posixsubprocess::make_module;
+
+#[pymodule]
+mod _posixsubprocess {
+    use super::{exec, CStrPathLike, ForkExecArgs, ProcArgs};
+    use crate::exceptions::IntoPyException;
+    use crate::pyobject::PyResult;
+    use crate::VirtualMachine;
+
+    #[pyfunction]
+    fn fork_exec(args: ForkExecArgs, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+        if args.preexec_fn.is_some() {
+            return Err(vm.new_not_implemented_error("preexec_fn not supported yet".to_owned()));
+        }
+        let cstrs_to_ptrs = |cstrs: &[CStrPathLike]| {
+            cstrs
+                .iter()
+                .map(|s| s.s.as_ptr())
+                .chain(std::iter::once(std::ptr::null()))
+                .collect::<Vec<_>>()
+        };
+        let argv = cstrs_to_ptrs(args.args.as_slice());
+        let argv = &argv;
+        let envp = args.env_list.as_ref().map(|s| cstrs_to_ptrs(s.as_slice()));
+        let envp = envp.as_deref();
+        match nix::unistd::fork().map_err(|err| err.into_pyexception(vm))? {
+            nix::unistd::ForkResult::Child => exec(&args, ProcArgs { argv, envp }),
+            nix::unistd::ForkResult::Parent { child } => Ok(child.as_raw()),
+        }
+    }
+}
+
 use nix::{dir, errno::Errno, fcntl, unistd};
 use std::convert::Infallible as Never;
 use std::ffi::{CStr, CString};
 use std::io::{self, prelude::*};
 
-use crate::exceptions::IntoPyException;
+use super::os;
 use crate::pyobject::{PyObjectRef, PyResult, PySequence, TryFromObject};
 use crate::VirtualMachine;
-
-use super::os;
 
 macro_rules! gen_args {
     ($($field:ident: $t:ty),*$(,)?) => {
@@ -37,27 +67,6 @@ gen_args! {
     p2cread: i32, p2cwrite: i32, c2pread: i32, c2pwrite: i32,
     errread: i32, errwrite: i32, errpipe_read: i32, errpipe_write: i32,
     restore_signals: bool, call_setsid: bool, preexec_fn: Option<PyObjectRef>,
-}
-
-fn _posixsubprocess_fork_exec(args: ForkExecArgs, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
-    if args.preexec_fn.is_some() {
-        return Err(vm.new_not_implemented_error("preexec_fn not supported yet".to_owned()));
-    }
-    let cstrs_to_ptrs = |cstrs: &[CStrPathLike]| {
-        cstrs
-            .iter()
-            .map(|s| s.s.as_ptr())
-            .chain(std::iter::once(std::ptr::null()))
-            .collect::<Vec<_>>()
-    };
-    let argv = cstrs_to_ptrs(args.args.as_slice());
-    let argv = &argv;
-    let envp = args.env_list.as_ref().map(|s| cstrs_to_ptrs(s.as_slice()));
-    let envp = envp.as_deref();
-    match nix::unistd::fork().map_err(|err| err.into_pyexception(vm))? {
-        nix::unistd::ForkResult::Child => exec(&args, ProcArgs { argv, envp }),
-        nix::unistd::ForkResult::Parent { child } => Ok(child.as_raw()),
-    }
 }
 
 // can't reallocate inside of exec(), so we reallocate prior to fork() and pass this along
@@ -194,11 +203,4 @@ fn pos_int_from_ascii(name: &CStr) -> Option<i32> {
         num = num * 10 + i32::from(c - b'0')
     }
     Some(num)
-}
-
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let ctx = &vm.ctx;
-    py_module!(vm, "_posixsubprocess", {
-        "fork_exec" => named_function!(ctx, _posixsubprocess, fork_exec),
-    })
 }
