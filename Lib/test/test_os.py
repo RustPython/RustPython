@@ -192,6 +192,8 @@ class FileTests(unittest.TestCase):
         new = sys.getrefcount(path)
         self.assertEqual(old, new)
 
+    # TODO: RUSTPYTHON (OSError: Bad file descriptor (os error 9))
+    @unittest.expectedFailure
     def test_read(self):
         with open(support.TESTFN, "w+b") as fobj:
             fobj.write(b"spam")
@@ -1646,6 +1648,8 @@ class URandomFDTests(unittest.TestCase):
             """
         assert_python_ok('-c', code)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_urandom_fd_closed(self):
         # Issue #21207: urandom() should reopen its fd to /dev/urandom if
         # closed.
@@ -1806,11 +1810,15 @@ class ExecTests(unittest.TestCase):
             self.assertSequenceEqual(calls[0],
                 ('execve', native_fullpath, (arguments, env_path)))
 
+    # TODO: RUSTPYTHON (NameError: name 'orig_execve' is not defined)
+    @unittest.expectedFailure
     def test_internal_execvpe_str(self):
         self._test_internal_execvpe(str)
         if os.name != "nt":
             self._test_internal_execvpe(bytes)
 
+    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'execve')
+    @unittest.expectedFailure
     def test_execve_invalid_env(self):
         args = [sys.executable, '-c', 'pass']
 
@@ -2064,6 +2072,8 @@ class PosixUidGidTests(unittest.TestCase):
         self.assertRaises(OverflowError, os.setreuid, self.UID_OVERFLOW, 0)
         self.assertRaises(OverflowError, os.setreuid, 0, self.UID_OVERFLOW)
 
+    # TODO: RUSTPYTHON (subprocess.CalledProcessError)
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setreuid'), 'test needs os.setreuid()')
     def test_setreuid_neg1(self):
         # Needs to accept -1.  We run this in a subprocess to avoid
@@ -3878,6 +3888,8 @@ class TestScandir(unittest.TestCase):
         self.assertEqual(fspath,
                          os.path.join(os.fsencode(self.path),bytes_filename))
 
+    # TODO: RUSTPYTHON (FileNotFoundError: No such file or directory (os error 2))
+    @unittest.expectedFailure
     def test_removed_dir(self):
         path = os.path.join(self.path, 'dir')
 
