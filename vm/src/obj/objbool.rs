@@ -188,7 +188,7 @@ pub fn get_value(obj: &PyObjectRef) -> bool {
     !obj.payload::<PyInt>().unwrap().borrow_value().is_zero()
 }
 
-pub fn get_py_int(obj: &PyObjectRef) -> &PyInt {
+fn get_py_int(obj: &PyObjectRef) -> &PyInt {
     &obj.payload::<PyInt>().unwrap()
 }
 
