@@ -2456,12 +2456,11 @@ mod nt {
             Either::B(tuple) => vm.extract_elements(tuple.as_object())?,
         };
 
-        if argv.is_empty() {
-            return Err(vm.new_value_error("execv() arg 2 must not be empty".to_owned()));
-        }
+        let first = argv
+            .first()
+            .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty".to_owned()))?;
 
-        // unwrap is safe, since argv is not empty there has to be a item unless race condition happens
-        if argv.first().unwrap().is_empty() {
+        if first.is_empty() {
             return Err(
                 vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned())
             );
