@@ -2,11 +2,11 @@ use super::Diagnostic;
 use std::collections::HashMap;
 use syn::{Attribute, AttributeArgs, Ident, Lit, Meta, NestedMeta, Path};
 
-pub fn path_eq(path: &Path, s: &str) -> bool {
+pub(crate) fn path_eq(path: &Path, s: &str) -> bool {
     path.get_ident().map_or(false, |id| id == s)
 }
 
-pub fn def_to_name(
+pub(crate) fn def_to_name(
     ident: &Ident,
     attr_name: &'static str,
     attr: AttributeArgs,
@@ -32,7 +32,7 @@ pub fn def_to_name(
     Ok(name.unwrap_or_else(|| ident.to_string()))
 }
 
-pub fn optional_attribute_arg(
+pub(crate) fn optional_attribute_arg(
     attr_name: &'static str,
     arg_name: &'static str,
     attr: AttributeArgs,
@@ -59,7 +59,7 @@ pub fn optional_attribute_arg(
     Ok(arg_value)
 }
 
-pub fn module_class_name(mod_name: Option<String>, class_name: &str) -> String {
+pub(crate) fn module_class_name(mod_name: Option<String>, class_name: &str) -> String {
     if let Some(mod_name) = mod_name {
         format!("{}.{}", mod_name, class_name)
     } else {
@@ -67,11 +67,19 @@ pub fn module_class_name(mod_name: Option<String>, class_name: &str) -> String {
     }
 }
 
-pub fn strip_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
+pub(crate) fn strip_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     if s.starts_with(prefix) {
         Some(&s[prefix.len()..])
     } else {
         None
+    }
+}
+
+pub(crate) fn meta_into_nesteds(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
+    match meta {
+        Meta::Path(_) => Ok(Vec::new()),
+        Meta::List(list) => Ok(list.nested.into_iter().collect()),
+        Meta::NameValue(_) => Err(meta),
     }
 }
 
@@ -81,6 +89,7 @@ pub enum ItemType {
     Method,
     Struct,
     Enum,
+    Const,
 }
 
 pub struct ItemIdent<'a> {

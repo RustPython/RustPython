@@ -1,7 +1,7 @@
 use super::Diagnostic;
 use crate::util::{
-    def_to_name, module_class_name, optional_attribute_arg, path_eq, strip_prefix, ItemIdent,
-    ItemMeta, ItemType,
+    def_to_name, meta_into_nesteds, module_class_name, optional_attribute_arg, path_eq,
+    strip_prefix, ItemIdent, ItemMeta, ItemType,
 };
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
@@ -10,14 +10,6 @@ use syn::{
     parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Index, Item, Lit, Meta,
     NestedMeta,
 };
-
-fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
-    match meta {
-        Meta::Path(_) => Ok(Vec::new()),
-        Meta::List(list) => Ok(list.nested.into_iter().collect()),
-        Meta::NameValue(_) => Err(meta),
-    }
-}
 
 #[derive(Default)]
 struct Class {
@@ -78,15 +70,7 @@ impl Class {
         }
     }
 
-    fn extract_method(ident: &Ident, meta: Meta) -> Result<ClassItem, Diagnostic> {
-        let nesteds = meta_to_vec(meta).map_err(|meta| {
-            err_span!(
-                meta,
-                "#[pymethod = \"...\"] cannot be a name/value, you probably meant \
-                 #[pymethod(name = \"...\")]",
-            )
-        })?;
-
+    fn extract_method(ident: &Ident, nesteds: Vec<NestedMeta>) -> Result<ClassItem, Diagnostic> {
         let item_meta =
             ItemMeta::from_nested_meta("pymethod", &ident, &nesteds, ItemMeta::ATTRIBUTE_NAMES)?;
         Ok(ClassItem::Method {
@@ -95,14 +79,10 @@ impl Class {
         })
     }
 
-    fn extract_classmethod(ident: &Ident, meta: Meta) -> Result<ClassItem, Diagnostic> {
-        let nesteds = meta_to_vec(meta).map_err(|meta| {
-            err_span!(
-                meta,
-                "#[pyclassmethod = \"...\"] cannot be a name/value, you probably meant \
-                 #[pyclassmethod(name = \"...\")]",
-            )
-        })?;
+    fn extract_classmethod(
+        ident: &Ident,
+        nesteds: Vec<NestedMeta>,
+    ) -> Result<ClassItem, Diagnostic> {
         let item_meta = ItemMeta::from_nested_meta(
             "pyclassmethod",
             &ident,
@@ -115,14 +95,7 @@ impl Class {
         })
     }
 
-    fn extract_property(ident: &Ident, meta: Meta) -> Result<ClassItem, Diagnostic> {
-        let nesteds = meta_to_vec(meta).map_err(|meta| {
-            err_span!(
-                meta,
-                "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
-                 #[pyproperty(name = \"...\")]"
-            )
-        })?;
+    fn extract_property(ident: &Ident, nesteds: Vec<NestedMeta>) -> Result<ClassItem, Diagnostic> {
         let item_meta =
             ItemMeta::from_nested_meta("pyproperty", &ident, &nesteds, ItemMeta::PROPERTY_NAMES)?;
         Ok(ClassItem::Property {
@@ -134,7 +107,7 @@ impl Class {
 
     fn extract_slot(ident: &Ident, meta: Meta) -> Result<ClassItem, Diagnostic> {
         let pyslot_err = "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]";
-        let nesteds = meta_to_vec(meta).map_err(|meta| err_span!(meta, "{}", pyslot_err))?;
+        let nesteds = meta_into_nesteds(meta).map_err(|meta| err_span!(meta, "{}", pyslot_err))?;
         if nesteds.len() > 1 {
             return Err(Diagnostic::spanned_error(&quote!(#(#nesteds)*), pyslot_err));
         }
@@ -174,10 +147,21 @@ impl Class {
                 None => continue,
             };
             assert!(item.typ == ItemType::Method);
+
+            let into_nested = || {
+                meta_into_nesteds(meta.clone()).map_err(|meta| {
+                    err_span!(
+                        meta,
+                        "#[{name} = \"...\"] cannot be a name/value, you probably meant \
+                         #[{name}(name = \"...\")]",
+                        name = name.to_string(),
+                    )
+                })
+            };
             let item = match name.to_string().as_str() {
-                "pymethod" => Self::extract_method(item.ident, meta)?,
-                "pyclassmethod" => Self::extract_classmethod(item.ident, meta)?,
-                "pyproperty" => Self::extract_property(item.ident, meta)?,
+                "pymethod" => Self::extract_method(item.ident, into_nested()?)?,
+                "pyclassmethod" => Self::extract_classmethod(item.ident, into_nested()?)?,
+                "pyproperty" => Self::extract_property(item.ident, into_nested()?)?,
                 "pyslot" => Self::extract_slot(item.ident, meta)?,
                 _ => {
                     continue;
