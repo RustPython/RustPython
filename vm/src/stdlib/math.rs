@@ -285,7 +285,7 @@ where
         return op(argvec[0].borrow_value(), &argvec[0]);
     }
 
-    let mut res = argvec[0].borrow_value().clone();
+    let mut res = argvec[0].cloned_value();
     for num in argvec[1..].iter() {
         res = op(&res, &num)
     }

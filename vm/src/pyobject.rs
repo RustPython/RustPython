@@ -1353,7 +1353,7 @@ pub trait BorrowValue<'a>: PyValue {
         *self.borrow_value()
     }
 
-    fn clone_value(&'a self) -> <Self::Borrowed as Deref>::Target
+    fn cloned_value(&'a self) -> <Self::Borrowed as Deref>::Target
     where
         <Self::Borrowed as Deref>::Target: Clone,
     {

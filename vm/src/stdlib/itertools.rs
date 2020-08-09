@@ -181,11 +181,11 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let start = match start.into_option() {
-                Some(int) => int.borrow_value().clone(),
+                Some(int) => int.cloned_value(),
                 None => BigInt::zero(),
             };
             let step = match step.into_option() {
-                Some(int) => int.borrow_value().clone(),
+                Some(int) => int.cloned_value(),
                 None => BigInt::one(),
             };
 
@@ -294,7 +294,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let times = match times.into_option() {
-                Some(int) => Some(PyRwLock::new(int.borrow_value().clone())),
+                Some(int) => Some(PyRwLock::new(int.cloned_value())),
                 None => None,
             };
 

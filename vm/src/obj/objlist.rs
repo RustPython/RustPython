@@ -137,8 +137,8 @@ impl PyList {
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let e1 = self.borrow_value().clone();
-            let e2 = other.borrow_value().clone();
+            let e1 = self.cloned_value();
+            let e2 = other.cloned_value();
             let elements = e1.iter().chain(e2.iter()).cloned().collect();
             Ok(vm.ctx.new_list(elements))
         } else {
@@ -173,7 +173,7 @@ impl PyList {
 
     #[pymethod]
     fn copy(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(self.borrow_value().clone())
+        vm.ctx.new_list(self.cloned_value())
     }
 
     #[pymethod(name = "__len__")]
@@ -421,7 +421,7 @@ impl PyList {
     #[pymethod(name = "__repr__")]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
-            let elements = zelf.borrow_value().clone();
+            let elements = zelf.cloned_value();
             let mut str_parts = Vec::with_capacity(elements.len());
             for elem in elements.iter() {
                 let s = vm.to_repr(elem)?;
@@ -464,7 +464,7 @@ impl PyList {
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
-        for element in self.borrow_value().clone().iter() {
+        for element in self.cloned_value().iter() {
             if vm.identical_or_equal(element, &needle)? {
                 count += 1;
             }
@@ -474,7 +474,7 @@ impl PyList {
 
     #[pymethod(name = "__contains__")]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        for element in self.borrow_value().clone().iter() {
+        for element in self.cloned_value().iter() {
             if vm.identical_or_equal(element, &needle)? {
                 return Ok(true);
             }
@@ -485,7 +485,7 @@ impl PyList {
 
     #[pymethod]
     fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        for (index, element) in self.borrow_value().clone().iter().enumerate() {
+        for (index, element) in self.cloned_value().iter().enumerate() {
             if vm.identical_or_equal(element, &needle)? {
                 return Ok(index);
             }
@@ -513,7 +513,7 @@ impl PyList {
     #[pymethod]
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut ri: Option<usize> = None;
-        for (index, element) in self.borrow_value().clone().iter().enumerate() {
+        for (index, element) in self.cloned_value().iter().enumerate() {
             if vm.identical_or_equal(element, &needle)? {
                 ri = Some(index);
                 break;

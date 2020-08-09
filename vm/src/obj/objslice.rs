@@ -170,7 +170,7 @@ impl PySlice {
         } else {
             // Clone the value, not the reference.
             let this_step: PyRef<PyInt> = self.step(vm).try_into_ref(vm)?;
-            step = this_step.borrow_value().clone();
+            step = this_step.cloned_value();
 
             if step.is_zero() {
                 return Err(vm.new_value_error("slice step cannot be zero.".to_owned()));
@@ -204,7 +204,7 @@ impl PySlice {
             };
         } else {
             let this_start: PyRef<PyInt> = self.start(vm).try_into_ref(vm)?;
-            start = this_start.borrow_value().clone();
+            start = this_start.cloned_value();
 
             if start < Zero::zero() {
                 // From end of array
@@ -224,7 +224,7 @@ impl PySlice {
             stop = if backwards { lower } else { upper };
         } else {
             let this_stop: PyRef<PyInt> = self.stop(vm).try_into_ref(vm)?;
-            stop = this_stop.borrow_value().clone();
+            stop = this_stop.cloned_value();
 
             if stop < Zero::zero() {
                 // From end of array
@@ -330,7 +330,7 @@ fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<Big
             "slice indices must be integers or None or have an __index__ method".to_owned(),
         ))
     })?;
-    Ok(Some(result.borrow_value().clone()))
+    Ok(Some(result.cloned_value()))
 }
 
 pub fn init(context: &PyContext) {

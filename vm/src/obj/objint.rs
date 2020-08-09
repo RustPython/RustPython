@@ -782,7 +782,7 @@ pub(crate) fn to_int(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<BigInt>
             })?;
             let result = vm.invoke(&method, PyFuncArgs::default())?;
             return match result.payload::<PyInt>() {
-                Some(int_obj) => Ok(int_obj.borrow_value().clone()),
+                Some(int_obj) => Ok(int_obj.cloned_value()),
                 None => Err(vm.new_type_error(format!(
                     "TypeError: __int__ returned non-int (type '{}')",
                     result.class().name
