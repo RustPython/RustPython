@@ -126,11 +126,15 @@ impl TryFromObject for PyPathLike {
     }
 }
 
-fn make_path<'a>(_vm: &VirtualMachine, path: &'a PyPathLike, dir_fd: &DirFd) -> &'a ffi::OsStr {
+fn make_path<'a>(
+    vm: &VirtualMachine,
+    path: &'a PyPathLike,
+    dir_fd: &DirFd,
+) -> PyResult<&'a ffi::OsStr> {
     if dir_fd.dir_fd.is_some() {
-        unimplemented!();
+        Err(vm.new_os_error("dir_fd not supported yet".to_owned()))
     } else {
-        path.path.as_os_str()
+        Ok(path.path.as_os_str())
     }
 }
 
@@ -242,6 +246,11 @@ macro_rules! suppress_iph {
     }};
 }
 
+#[allow(dead_code)]
+fn os_unimpl<T>(func: &str, vm: &VirtualMachine) -> PyResult<T> {
+    Err(vm.new_os_error(format!("{} is not supported on this platform", func)))
+}
+
 #[pymodule]
 mod _os {
     use super::platform::OpenFlags;
@@ -267,7 +276,7 @@ mod _os {
         let dir_fd = DirFd {
             dir_fd: dir_fd.into_option(),
         };
-        let fname = make_path(vm, &name, &dir_fd);
+        let fname = make_path(vm, &name, &dir_fd)?;
 
         let mut options = OpenOptions::new();
 
@@ -315,7 +324,7 @@ mod _os {
     #[pyfunction]
     #[cfg(not(any(unix, windows, target_os = "wasi")))]
     pub(crate) fn open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        unimplemented!()
+        Err(vm.new_os_error("os.open not implemented on this platform".to_owned()))
     }
 
     #[pyfunction]
@@ -362,7 +371,7 @@ mod _os {
 
     #[pyfunction]
     fn remove(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
-        let path = make_path(vm, &path, &dir_fd);
+        let path = make_path(vm, &path, &dir_fd)?;
         fs::remove_file(path).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -373,7 +382,7 @@ mod _os {
         dir_fd: DirFd,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let path = make_path(vm, &path, &dir_fd);
+        let path = make_path(vm, &path, &dir_fd)?;
         fs::create_dir(path).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -384,7 +393,7 @@ mod _os {
 
     #[pyfunction]
     fn rmdir(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
-        let path = make_path(vm, &path, &dir_fd);
+        let path = make_path(vm, &path, &dir_fd)?;
         fs::remove_dir(path).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -431,7 +440,7 @@ mod _os {
     #[pyfunction]
     fn readlink(path: PyPathLike, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult {
         let mode = path.mode;
-        let path = make_path(vm, &path, &dir_fd);
+        let path = make_path(vm, &path, &dir_fd)?;
         let path = fs::read_link(path).map_err(|err| err.into_pyexception(vm))?;
         mode.process_path(path, vm)
     }
@@ -1028,7 +1037,7 @@ mod posix {
         mode: u32,
         file_owner: Uid,
         file_group: Gid,
-    ) -> Result<Permissions, nix::Error> {
+    ) -> nix::Result<Permissions> {
         let owner_mode = (mode & 0o700) >> 6;
         let owner_permissions = get_permissions(owner_mode);
 
@@ -1074,7 +1083,7 @@ mod posix {
 
     #[cfg(target_os = "redox")]
     fn getgroups() -> nix::Result<Vec<Gid>> {
-        unimplemented!("redox getgroups")
+        Err(nix::Error::UnsupportedOperation)
     }
 
     #[pyfunction]
@@ -1158,19 +1167,20 @@ mod posix {
         #[cfg(target_os = "redox")]
         use std::os::redox::fs::MetadataExt;
 
+        let meta = match file {
+            Either::A(path) => fs_metadata(
+                make_path(vm, &path, &dir_fd)?,
+                follow_symlinks.follow_symlinks,
+            ),
+            Either::B(fno) => {
+                let file = rust_file(fno);
+                let res = file.metadata();
+                raw_file_number(file);
+                res
+            }
+        };
         let get_stats = move || -> io::Result<PyObjectRef> {
-            let meta = match file {
-                Either::A(path) => fs_metadata(
-                    make_path(vm, &path, &dir_fd),
-                    follow_symlinks.follow_symlinks,
-                )?,
-                Either::B(fno) => {
-                    let file = rust_file(fno);
-                    let meta = file.metadata()?;
-                    raw_file_number(file);
-                    meta
-                }
-            };
+            let meta = meta?;
 
             Ok(super::_os::StatResult {
                 st_mode: meta.st_mode(),
@@ -1199,7 +1209,7 @@ mod posix {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         use std::os::unix::fs as unix_fs;
-        let dst = make_path(vm, &dst, &dir_fd);
+        let dst = make_path(vm, &dst, &dir_fd)?;
         unix_fs::symlink(src.path, dst).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -1399,7 +1409,7 @@ mod posix {
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let path = make_path(vm, &path, &dir_fd);
+        let path = make_path(vm, &path, &dir_fd)?;
         let body = move || {
             use std::os::unix::fs::PermissionsExt;
             let meta = fs_metadata(path, follow_symlinks.follow_symlinks)?;
@@ -2291,7 +2301,7 @@ mod nt {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         const S_IWRITE: u32 = 128;
-        let path = make_path(vm, &path, &dir_fd);
+        let path = make_path(vm, &path, &dir_fd)?;
         let metadata = if follow_symlinks.follow_symlinks {
             fs::metadata(path)
         } else {
@@ -2474,8 +2484,8 @@ mod minor {
     }
 
     #[pyfunction]
-    pub(super) fn access(_path: PyStringRef, _mode: u8, _vm: &VirtualMachine) -> PyResult<bool> {
-        unimplemented!()
+    pub(super) fn access(_path: PyStringRef, _mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+        os_unimpl("os.access", vm)
     }
 
     #[pyfunction]
@@ -2483,9 +2493,9 @@ mod minor {
         _file: Either<PyPathLike, i64>,
         _dir_fd: DirFd,
         _follow_symlinks: FollowSymlinks,
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult {
-        unimplemented!();
+        os_unimpl("os.stat", vm)
     }
 
     #[pyfunction]
@@ -2494,9 +2504,9 @@ mod minor {
         _dst: PyPathLike,
         _target_is_directory: TargetIsDirectory,
         _dir_fd: DirFd,
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<()> {
-        unimplemented!();
+        os_unimpl("os.symlink", vm)
     }
 
     pub(super) fn _environ(vm: &VirtualMachine) -> PyDictRef {
