@@ -2478,7 +2478,7 @@ mod nt {
             .chain(once(std::ptr::null()))
             .collect();
 
-        if (unsafe { _wexecv(path.as_ptr(), argv_execv.as_ptr()) } == -1) {
+        if (unsafe { suppress_iph!(_wexecv(path.as_ptr(), argv_execv.as_ptr())) } == -1) {
             Err(errno_err(vm))
         } else {
             Ok(())
