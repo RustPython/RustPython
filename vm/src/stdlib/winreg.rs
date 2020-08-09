@@ -253,6 +253,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = py_module!(vm, "winreg", {
         "HKEYType" => hkey_type,
         "OpenKey" => ctx.new_function(winreg_OpenKey),
+        "OpenKeyEx" => ctx.new_function(winreg_OpenKey),
         "QueryValue" => ctx.new_function(winreg_QueryValue),
         "QueryValueEx" => ctx.new_function(winreg_QueryValueEx),
         "EnumKey" => ctx.new_function(winreg_EnumKey),
