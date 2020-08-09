@@ -1,7 +1,7 @@
 use super::Diagnostic;
 use crate::util::{
     def_to_name, module_class_name, optional_attribute_arg, path_eq, strip_prefix, ItemIdent,
-    ItemMeta,
+    ItemMeta, ItemType,
 };
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
@@ -160,13 +160,10 @@ impl Class {
         })
     }
 
-    fn extract_item_from_syn(
-        &mut self,
-        attrs: &mut Vec<Attribute>,
-        ident: &Ident,
-    ) -> Result<(), Diagnostic> {
+    fn extract_item_from_syn(&mut self, item: &mut ItemIdent) -> Result<(), Diagnostic> {
         let mut attr_idxs = Vec::new();
-        for (i, meta) in attrs
+        for (i, meta) in item
+            .attrs
             .iter()
             .filter_map(|attr| attr.parse_meta().ok())
             .enumerate()
@@ -176,11 +173,12 @@ impl Class {
                 Some(name) => name,
                 None => continue,
             };
+            assert!(item.typ == ItemType::Method);
             let item = match name.to_string().as_str() {
-                "pymethod" => Self::extract_method(ident, meta)?,
-                "pyclassmethod" => Self::extract_classmethod(ident, meta)?,
-                "pyproperty" => Self::extract_property(ident, meta)?,
-                "pyslot" => Self::extract_slot(ident, meta)?,
+                "pymethod" => Self::extract_method(item.ident, meta)?,
+                "pyclassmethod" => Self::extract_classmethod(item.ident, meta)?,
+                "pyproperty" => Self::extract_property(item.ident, meta)?,
+                "pyslot" => Self::extract_slot(item.ident, meta)?,
                 _ => {
                     continue;
                 }
@@ -190,7 +188,7 @@ impl Class {
         }
         let mut i = 0;
         let mut attr_idxs = &*attr_idxs;
-        attrs.retain(|_| {
+        item.attrs.retain(|_| {
             let drop = attr_idxs.first().copied() == Some(i);
             if drop {
                 attr_idxs = &attr_idxs[1..];
@@ -199,7 +197,7 @@ impl Class {
             !drop
         });
         for (i, idx) in attr_idxs.iter().enumerate() {
-            attrs.remove(idx - i);
+            item.attrs.remove(idx - i);
         }
         Ok(())
     }
@@ -211,10 +209,7 @@ fn extract_impl_items(mut items: Vec<ItemIdent>) -> Result<TokenStream2, Diagnos
     let mut class = Class::default();
 
     for item in items.iter_mut() {
-        push_diag_result!(
-            diagnostics,
-            class.extract_item_from_syn(&mut item.attrs, &item.ident),
-        );
+        push_diag_result!(diagnostics, class.extract_item_from_syn(item),);
     }
 
     let mut properties: HashMap<&str, (Option<&Ident>, Option<&Ident>)> = HashMap::new();
@@ -380,6 +375,7 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diag
                 .filter_map(|item| match item {
                     syn::ImplItem::Method(syn::ImplItemMethod { attrs, sig, .. }) => {
                         Some(ItemIdent {
+                            typ: ItemType::Method,
                             attrs,
                             ident: &sig.ident,
                         })
@@ -413,6 +409,7 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diag
                 .filter_map(|item| match item {
                     syn::TraitItem::Method(syn::TraitItemMethod { attrs, sig, .. }) => {
                         Some(ItemIdent {
+                            typ: ItemType::Method,
                             attrs,
                             ident: &sig.ident,
                         })

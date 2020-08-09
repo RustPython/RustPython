@@ -1,9 +1,9 @@
 use super::Diagnostic;
-use crate::util::{def_to_name, ItemIdent, ItemMeta};
+use crate::util::{def_to_name, ItemIdent, ItemMeta, ItemType};
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
-use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Meta, NestedMeta};
+use syn::{parse_quote, spanned::Spanned, AttributeArgs, Ident, Item, Meta, NestedMeta};
 
 fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
     match meta {
@@ -128,15 +128,12 @@ impl Module {
         })
     }
 
-    fn extract_item_from_syn(
-        &mut self,
-        attrs: &mut Vec<Attribute>,
-        ident: &Ident,
-    ) -> Result<(), Diagnostic> {
+    fn extract_item_from_syn(&mut self, item: &mut ItemIdent) -> Result<(), Diagnostic> {
         let mut attr_idxs = Vec::new();
         let mut items = Vec::new();
         let mut cfgs = Vec::new();
-        for (i, meta) in attrs
+        for (i, meta) in item
+            .attrs
             .iter()
             .filter_map(|attr| attr.parse_meta().ok())
             .enumerate()
@@ -148,18 +145,22 @@ impl Module {
             };
             match name.to_string().as_str() {
                 "pyfunction" => {
+                    assert!(item.typ == ItemType::Fn);
                     attr_idxs.push(i);
-                    items.push((Self::extract_function(ident, meta)?, meta_span));
+                    items.push((Self::extract_function(item.ident, meta)?, meta_span));
                 }
                 "pyattr" => {
+                    assert!(item.typ == ItemType::Fn);
                     attr_idxs.push(i);
-                    items.push((Self::extract_attr(ident, meta)?, meta_span));
+                    items.push((Self::extract_attr(item.ident, meta)?, meta_span));
                 }
                 "pyclass" => {
-                    items.push((Self::extract_class(ident, meta)?, meta_span));
+                    assert!(item.typ == ItemType::Struct);
+                    items.push((Self::extract_class(item.ident, meta)?, meta_span));
                 }
                 "pystruct_sequence" => {
-                    items.push((Self::extract_struct_sequence(ident, meta)?, meta_span));
+                    assert!(item.typ == ItemType::Struct);
+                    items.push((Self::extract_struct_sequence(item.ident, meta)?, meta_span));
                 }
                 "cfg" => {
                     cfgs.push(meta);
@@ -175,7 +176,7 @@ impl Module {
         }
         let mut i = 0;
         let mut attr_idxs = &*attr_idxs;
-        attrs.retain(|_| {
+        item.attrs.retain(|_| {
             let drop = attr_idxs.first().copied() == Some(i);
             if drop {
                 attr_idxs = &attr_idxs[1..];
@@ -184,7 +185,7 @@ impl Module {
             !drop
         });
         for (i, idx) in attr_idxs.iter().enumerate() {
-            attrs.remove(idx - i);
+            item.attrs.remove(idx - i);
         }
         Ok(())
     }
@@ -199,10 +200,7 @@ fn extract_module_items(
     let mut module = Module::default();
 
     for item in items.iter_mut() {
-        push_diag_result!(
-            diagnostics,
-            module.extract_item_from_syn(&mut item.attrs, item.ident),
-        );
+        push_diag_result!(diagnostics, module.extract_item_from_syn(item),);
     }
 
     let functions = module
@@ -273,11 +271,20 @@ pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Di
         .iter_mut()
         .filter_map(|item| match item {
             Item::Fn(syn::ItemFn { attrs, sig, .. }) => Some(ItemIdent {
+                typ: ItemType::Fn,
                 attrs,
                 ident: &sig.ident,
             }),
-            Item::Struct(syn::ItemStruct { attrs, ident, .. }) => Some(ItemIdent { attrs, ident }),
-            Item::Enum(syn::ItemEnum { attrs, ident, .. }) => Some(ItemIdent { attrs, ident }),
+            Item::Struct(syn::ItemStruct { attrs, ident, .. }) => Some(ItemIdent {
+                typ: ItemType::Struct,
+                attrs,
+                ident,
+            }),
+            Item::Enum(syn::ItemEnum { attrs, ident, .. }) => Some(ItemIdent {
+                typ: ItemType::Enum,
+                attrs,
+                ident,
+            }),
             _ => None,
         })
         .collect();

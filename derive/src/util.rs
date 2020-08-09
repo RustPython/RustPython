@@ -75,7 +75,16 @@ pub fn strip_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     }
 }
 
+#[derive(PartialEq)]
+pub enum ItemType {
+    Fn,
+    Method,
+    Struct,
+    Enum,
+}
+
 pub struct ItemIdent<'a> {
+    pub typ: ItemType,
     pub attrs: &'a mut Vec<Attribute>,
     pub ident: &'a Ident,
 }
