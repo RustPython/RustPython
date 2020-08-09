@@ -5,7 +5,7 @@ use crate::util::{
 };
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use syn::{
     parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Index, Item, Lit, Meta,
     NestedMeta,
@@ -21,7 +21,8 @@ fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
 
 #[derive(Default)]
 struct Class {
-    items: HashSet<ClassItem>,
+    // Unlike pymodule, meta variant is not supported
+    items: HashMap<String, ClassItem>,
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -45,15 +46,35 @@ enum ClassItem {
     },
 }
 
+impl ClassItem {
+    fn name(&self) -> String {
+        use ClassItem::*;
+        match self {
+            Method { py_name, .. } => py_name.clone(),
+            ClassMethod { py_name, .. } => py_name.clone(),
+            Property {
+                py_name, setter, ..
+            } => {
+                if *setter {
+                    format!("{}.setter", py_name)
+                } else {
+                    py_name.clone()
+                }
+            }
+            Slot { slot_ident, .. } => format!("#slot({})", slot_ident),
+        }
+    }
+}
+
 impl Class {
     fn add_item(&mut self, item: ClassItem, span: Span) -> Result<(), Diagnostic> {
-        if self.items.insert(item) {
-            Ok(())
-        } else {
+        if let Some(existing) = self.items.insert(item.name(), item) {
             Err(Diagnostic::span_error(
                 span,
-                "Duplicate #[py*] attribute on pyimpl".to_owned(),
+                format!("Duplicate #[py*] attribute on pyimpl: {}", existing.name()),
             ))
+        } else {
+            Ok(())
         }
     }
 
@@ -197,7 +218,7 @@ fn extract_impl_items(mut items: Vec<ItemIdent>) -> Result<TokenStream2, Diagnos
     }
 
     let mut properties: HashMap<&str, (Option<&Ident>, Option<&Ident>)> = HashMap::new();
-    for item in class.items.iter() {
+    for item in class.items.values() {
         if let ClassItem::Property {
             ref item_ident,
             ref py_name,
@@ -246,7 +267,7 @@ fn extract_impl_items(mut items: Vec<ItemIdent>) -> Result<TokenStream2, Diagnos
             }
         })
         .collect::<Vec<_>>();
-    let methods = class.items.into_iter().filter_map(|item| match item {
+    let methods = class.items.values().filter_map(|item| match item {
         ClassItem::Method {
             item_ident,
             py_name,
