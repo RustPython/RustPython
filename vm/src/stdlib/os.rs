@@ -247,6 +247,35 @@ mod _os {
     use super::platform::OpenFlags;
     use super::*;
 
+    #[pyattr]
+    const O_RDONLY: libc::c_int = libc::O_RDONLY;
+    #[pyattr]
+    const O_WRONLY: libc::c_int = libc::O_WRONLY;
+    #[pyattr]
+    const O_RDWR: libc::c_int = libc::O_RDWR;
+    #[pyattr]
+    const O_APPEND: libc::c_int = libc::O_APPEND;
+    #[pyattr]
+    const O_EXCL: libc::c_int = libc::O_EXCL;
+    #[pyattr]
+    const O_CREAT: libc::c_int = libc::O_CREAT;
+    #[pyattr]
+    const O_TRUNC: libc::c_int = libc::O_TRUNC;
+    #[pyattr]
+    pub(super) const F_OK: u8 = 0;
+    #[pyattr]
+    pub(super) const R_OK: u8 = 4;
+    #[pyattr]
+    pub(super) const W_OK: u8 = 2;
+    #[pyattr]
+    pub(super) const X_OK: u8 = 1;
+    #[pyattr]
+    const SEEK_SET: libc::c_int = libc::SEEK_SET;
+    #[pyattr]
+    const SEEK_CUR: libc::c_int = libc::SEEK_CUR;
+    #[pyattr]
+    const SEEK_END: libc::c_int = libc::SEEK_END;
+
     #[pyfunction]
     fn close(fileno: i64) {
         //The File type automatically closes when it goes out of scope.
@@ -882,25 +911,7 @@ impl<'a> SupportFunc {
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let ctx = &vm.ctx;
     let module = platform::make_module(vm);
-
-    extend_module!(vm, module, {
-        "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
-        "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
-        "O_RDWR" => ctx.new_int(libc::O_RDWR),
-        "O_APPEND" => ctx.new_int(libc::O_APPEND),
-        "O_EXCL" => ctx.new_int(libc::O_EXCL),
-        "O_CREAT" => ctx.new_int(libc::O_CREAT),
-        "O_TRUNC" => ctx.new_int(libc::O_TRUNC),
-        "F_OK" => ctx.new_int(0),
-        "R_OK" => ctx.new_int(4),
-        "W_OK" => ctx.new_int(2),
-        "X_OK" => ctx.new_int(1),
-        "SEEK_SET" => ctx.new_int(libc::SEEK_SET),
-        "SEEK_CUR" => ctx.new_int(libc::SEEK_CUR),
-        "SEEK_END" => ctx.new_int(libc::SEEK_END),
-    });
 
     _os::extend_module(&vm, &module);
     platform::extend_module_platform_specific(&vm, &module);
@@ -1000,10 +1011,10 @@ mod posix {
     // Flags for os_access
     bitflags! {
         pub struct AccessFlags: u8{
-            const F_OK = 0;
-            const R_OK = 4;
-            const W_OK = 2;
-            const X_OK = 1;
+            const F_OK = super::_os::F_OK;
+            const R_OK = super::_os::R_OK;
+            const W_OK = super::_os::W_OK;
+            const X_OK = super::_os::X_OK;
         }
     }
 
