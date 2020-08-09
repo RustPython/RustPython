@@ -1343,7 +1343,22 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
 
 pub trait BorrowValue<'a>: PyValue {
     type Borrowed: 'a + Deref;
+
     fn borrow_value(&'a self) -> Self::Borrowed;
+
+    fn copied_value(&'a self) -> <Self::Borrowed as Deref>::Target
+    where
+        <Self::Borrowed as Deref>::Target: Copy,
+    {
+        *self.borrow_value()
+    }
+
+    fn clone_value(&'a self) -> <Self::Borrowed as Deref>::Target
+    where
+        <Self::Borrowed as Deref>::Target: Clone,
+    {
+        self.borrow_value().clone()
+    }
 }
 
 pub trait PyObjectPayload: Any + fmt::Debug + PyThreadingConstraint + 'static {
