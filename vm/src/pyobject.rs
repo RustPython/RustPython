@@ -1030,12 +1030,12 @@ impl<T> PyIterable<T> {
             },
         )?;
 
-        let lenhint = objiter::length_hint(vm, iter_obj.clone())?;
+        let length_hint = objiter::length_hint(vm, iter_obj.clone())?;
 
         Ok(PyIterator {
             vm,
             obj: iter_obj,
-            lenhint,
+            length_hint,
             _item: std::marker::PhantomData,
         })
     }
@@ -1044,7 +1044,7 @@ impl<T> PyIterable<T> {
 pub struct PyIterator<'a, T> {
     vm: &'a VirtualMachine,
     obj: PyObjectRef,
-    lenhint: Option<usize>,
+    length_hint: Option<usize>,
     _item: std::marker::PhantomData<T>,
 }
 
@@ -1068,7 +1068,7 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.lenhint.unwrap_or(0), self.lenhint)
+        (self.length_hint.unwrap_or(0), self.length_hint)
     }
 }
 
