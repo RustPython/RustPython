@@ -19,6 +19,7 @@ from test.support import start_threads
 import unittest
 import io
 import threading
+import sys
 from traceback import print_exc
 
 
@@ -48,6 +49,7 @@ class TempFileGreedy(threading.Thread):
 
 
 class ThreadedTempFileTest(unittest.TestCase):
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_main(self):
         threads = [TempFileGreedy() for i in range(NUM_THREADS)]
         with start_threads(threads, startEvent.set):
