@@ -6,9 +6,9 @@ use super::objsequence::get_item;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    self, BorrowValue, IntoPyObject,
+    self, BorrowValue, IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
 use crate::vm::{ReprGuard, VirtualMachine};
@@ -238,6 +238,10 @@ impl PyTuple {
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
         let elements = if let OptionalArg::Present(iterable) = iterable {
+            if iterable.lease_class().is(&cls) {
+                return Ok(PyRef::from_obj_unchecked(iterable));
+            }
+
             vm.extract_elements(&iterable)?
         } else {
             vec![]

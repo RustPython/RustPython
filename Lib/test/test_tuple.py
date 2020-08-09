@@ -26,8 +26,6 @@ class TupleTest(seq_tests.CommonTest):
         with self.assertRaisesRegex(TypeError, msg):
             t['a']
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructors(self):
         super().test_constructors()
         # calling built-in types without argument must return empty
