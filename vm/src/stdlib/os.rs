@@ -2313,25 +2313,10 @@ mod nt {
     #[cfg(target_env = "msvc")]
     #[pyfunction]
     fn waitpid(pid: intptr_t, opt: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, i32)> {
-        const ECHILD: i32 = 10;
-        const EINVAL: i32 = 22;
-
         let mut status = 0;
         let pid = unsafe { suppress_iph!(_cwait(&mut status, pid, opt)) };
         if pid == -1 {
-            let mut errno = 0;
-            unsafe { _get_errno(&mut errno) };
-            match errno {
-                ECHILD => Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.os_error.clone(),
-                    "ECHILD: No spawned processes".to_owned(),
-                )),
-                EINVAL => Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.os_error.clone(),
-                    "EINVAL: Invalid argument".to_owned(),
-                )),
-                _ => unreachable!(),
-            }
+            Err(errno_err(vm))
         } else {
             Ok((pid, status << 8))
         }
