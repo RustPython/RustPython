@@ -1,7 +1,9 @@
 use num_bigint::BigInt;
+use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::num::Wrapping;
 
 pub type PyHash = i64;
 pub type PyUHash = u64;
@@ -77,6 +79,13 @@ pub fn hash_float(value: f64) -> PyHash {
     x = ((x << e) & MODULUS) | x >> (BITS32 - e);
 
     x as PyHash * value.signum() as PyHash
+}
+
+pub fn hash_complex(value: &Complex64) -> PyHash {
+    let re_hash = hash_float(value.re);
+    let im_hash = hash_float(value.im);
+    let ret = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(IMAG);
+    ret.0
 }
 
 pub fn hash_iter<'a, T: 'a, I, F, E>(iter: I, hashf: F) -> Result<PyHash, E>

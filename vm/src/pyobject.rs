@@ -834,7 +834,7 @@ pub trait IdProtocol {
     }
 }
 
-type Never = std::convert::Infallible;
+pub type Never = std::convert::Infallible;
 
 impl PyValue for Never {
     fn class(_vm: &VirtualMachine) -> PyClassRef {
