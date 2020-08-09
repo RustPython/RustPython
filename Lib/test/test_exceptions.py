@@ -559,6 +559,7 @@ class ExceptionTests(unittest.TestCase):
         self.assertEqual(x.fancy_arg, 42)
 
     @no_tracing
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def testInfiniteRecursion(self):
         def f():
             return f()
@@ -955,6 +956,7 @@ class ExceptionTests(unittest.TestCase):
             self.assertEqual(str(klass.__new__(klass)), "")
 
     @no_tracing
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_badisinstance(self):
         # Bug #2542: if issubclass(e, MyException) raises an exception,
         # it should be ignored
@@ -1169,6 +1171,7 @@ class ExceptionTests(unittest.TestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @no_tracing
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_recursion_error_cleanup(self):
         # Same test as above, but with "recursion exceeded" errors
         class C:
