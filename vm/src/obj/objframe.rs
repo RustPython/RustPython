@@ -4,6 +4,7 @@
 
 use super::objcode::PyCodeRef;
 use super::objdict::PyDictRef;
+use super::objstr::PyStringRef;
 use crate::frame::FrameRef;
 use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
@@ -25,10 +26,9 @@ impl FrameRef {
     }
 
     #[pymethod(name = "__delattr__")]
-    fn delattr(self, value: PyObjectRef, vm: &VirtualMachine) {
-        println!("Called: FrameRef::f_trace over {:?}", value);
-        let value_str = vm.to_str(&value).unwrap().to_string();
-        if value_str == "f_trace" {
+    fn delattr(self, value: PyStringRef, vm: &VirtualMachine) {
+        println!("Called: FrameRef::delattr over {:?}", value);
+        if value.to_string() == "f_trace" {
             self.set_f_trace(vm.get_none());
         };
     }
@@ -74,7 +74,7 @@ impl FrameRef {
     }
 
     #[pyproperty]
-    fn f_lineno(self) -> usize {
+    pub fn f_lineno(self) -> usize {
         self.current_location().row()
     }
 
