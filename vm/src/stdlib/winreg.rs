@@ -191,7 +191,7 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
                     vm.new_value_error(format!("{} value is wrong length", stringify!(name)))
                 })
             };
-            i.map(|i| vm.new_int(i))
+            i.map(|i| vm.ctx.new_int(i))
         }};
     };
     let bytes_to_wide = |b: &[u8]| -> Option<&[u16]> {
@@ -215,7 +215,7 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
                 .position(|w| *w == 0)
                 .unwrap_or_else(|| wide_slice.len());
             let s = String::from_utf16_lossy(&wide_slice[..nul_pos]);
-            Ok(vm.new_str(s))
+            Ok(vm.ctx.new_str(s))
         }
         RegType::REG_MULTI_SZ => {
             if value.bytes.is_empty() {
@@ -233,7 +233,7 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
             };
             let strings = wide_slice
                 .split(|c| *c == 0)
-                .map(|s| vm.new_str(String::from_utf16_lossy(s)))
+                .map(|s| vm.ctx.new_str(String::from_utf16_lossy(s)))
                 .collect();
             Ok(vm.ctx.new_list(strings))
         }

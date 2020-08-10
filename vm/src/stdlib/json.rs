@@ -74,7 +74,7 @@ impl JsonScanner {
         let c = s
             .chars()
             .next()
-            .ok_or_else(|| objiter::stop_iter_with_value(vm.new_int(idx), vm))?;
+            .ok_or_else(|| objiter::stop_iter_with_value(vm.ctx.new_int(idx), vm))?;
         let next_idx = idx + c.len_utf8();
         match c {
             '"' => {
@@ -84,8 +84,8 @@ impl JsonScanner {
                     &parse_str,
                     vec![
                         pystr.into_object(),
-                        vm.new_int(next_idx),
-                        vm.new_bool(self.strict),
+                        vm.ctx.new_int(next_idx),
+                        vm.ctx.new_bool(self.strict),
                     ],
                 );
             }
@@ -96,8 +96,8 @@ impl JsonScanner {
                     &parse_obj,
                     vec![
                         vm.ctx
-                            .new_tuple(vec![pystr.into_object(), vm.new_int(next_idx)]),
-                        vm.new_bool(self.strict),
+                            .new_tuple(vec![pystr.into_object(), vm.ctx.new_int(next_idx)]),
+                        vm.ctx.new_bool(self.strict),
                         scan_once,
                         self.object_hook.clone().unwrap_or_else(|| vm.get_none()),
                         self.object_pairs_hook
@@ -113,7 +113,7 @@ impl JsonScanner {
                     &parse_array,
                     vec![
                         vm.ctx
-                            .new_tuple(vec![pystr.into_object(), vm.new_int(next_idx)]),
+                            .new_tuple(vec![pystr.into_object(), vm.ctx.new_int(next_idx)]),
                         scan_once,
                     ],
                 );
@@ -124,25 +124,25 @@ impl JsonScanner {
         macro_rules! parse_const {
             ($s:literal, $val:expr) => {
                 if s.starts_with($s) {
-                    return Ok(vm.ctx.new_tuple(vec![$val, vm.new_int(idx + $s.len())]));
+                    return Ok(vm.ctx.new_tuple(vec![$val, vm.ctx.new_int(idx + $s.len())]));
                 }
             };
         }
 
         parse_const!("null", vm.get_none());
-        parse_const!("true", vm.new_bool(true));
-        parse_const!("false", vm.new_bool(false));
+        parse_const!("true", vm.ctx.new_bool(true));
+        parse_const!("false", vm.ctx.new_bool(false));
 
         if let Some((res, len)) = self.parse_number(s, vm) {
-            return Ok(vm.ctx.new_tuple(vec![res?, vm.new_int(idx + len)]));
+            return Ok(vm.ctx.new_tuple(vec![res?, vm.ctx.new_int(idx + len)]));
         }
 
         macro_rules! parse_constant {
             ($s:literal) => {
                 if s.starts_with($s) {
                     return Ok(vm.ctx.new_tuple(vec![
-                        vm.invoke(&self.parse_constant, vec![vm.new_str($s.to_owned())])?,
-                        vm.new_int(idx + $s.len()),
+                        vm.invoke(&self.parse_constant, vec![vm.ctx.new_str($s.to_owned())])?,
+                        vm.ctx.new_int(idx + $s.len()),
                     ]));
                 }
             };
@@ -152,7 +152,7 @@ impl JsonScanner {
         parse_constant!("Infinity");
         parse_constant!("-Infinity");
 
-        Err(objiter::stop_iter_with_value(vm.new_int(idx), vm))
+        Err(objiter::stop_iter_with_value(vm.ctx.new_int(idx), vm))
     }
 
     fn parse_number(&self, s: &str, vm: &VirtualMachine) -> Option<(PyResult, usize)> {
@@ -179,14 +179,14 @@ impl JsonScanner {
         let ret = if has_decimal || has_exponent {
             // float
             if let Some(ref parse_float) = self.parse_float {
-                vm.invoke(parse_float, vec![vm.new_str(buf.to_owned())])
+                vm.invoke(parse_float, vec![vm.ctx.new_str(buf)])
             } else {
                 Ok(vm.ctx.new_float(f64::from_str(buf).unwrap()))
             }
         } else if let Some(ref parse_int) = self.parse_int {
-            vm.invoke(parse_int, vec![vm.new_str(buf.to_owned())])
+            vm.invoke(parse_int, vec![vm.ctx.new_str(buf)])
         } else {
-            Ok(vm.new_int(BigInt::from_str(buf).unwrap()))
+            Ok(vm.ctx.new_int(BigInt::from_str(buf).unwrap()))
         };
         Some((ret, buf.len()))
     }
@@ -201,7 +201,7 @@ impl JsonScanner {
         if idx > 0 {
             chars
                 .nth(idx - 1)
-                .ok_or_else(|| objiter::stop_iter_with_value(vm.new_int(idx), vm))?;
+                .ok_or_else(|| objiter::stop_iter_with_value(vm.ctx.new_int(idx), vm))?;
         }
         zelf.parse(
             chars.as_str(),
@@ -233,7 +233,7 @@ fn _json_encode_basestring_ascii(s: PyStringRef) -> String {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     let scanner_cls = JsonScanner::make_class(ctx);
-    scanner_cls.set_str_attr("__module__", vm.new_str("_json".to_owned()));
+    scanner_cls.set_str_attr("__module__", vm.ctx.new_str("_json"));
     py_module!(vm, "_json", {
         "make_scanner" => scanner_cls,
         "encode_basestring" => named_function!(ctx, _json, encode_basestring),

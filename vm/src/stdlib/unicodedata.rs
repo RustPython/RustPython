@@ -128,7 +128,7 @@ impl PyUCD {
         if let Some(c) = c {
             if self.check_age(c) {
                 if let Some(name) = unicode_names2::name(c) {
-                    return Ok(vm.new_str(name.to_string()));
+                    return Ok(vm.ctx.new_str(name.to_string()));
                 }
             }
         }

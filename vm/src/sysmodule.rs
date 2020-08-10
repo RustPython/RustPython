@@ -21,7 +21,7 @@ fn argv(vm: &VirtualMachine) -> PyObjectRef {
             .settings
             .argv
             .iter()
-            .map(|arg| vm.new_str(arg.to_owned()))
+            .map(|arg| vm.ctx.new_str(arg))
             .collect(),
     )
 }
@@ -214,7 +214,7 @@ fn sys_exc_info(vm: &VirtualMachine) -> PyObjectRef {
 
 fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
     vm.ctx.new_tuple(vec![
-        vm.ctx.new_str("RustPython".to_owned()),
+        vm.ctx.new_str("RustPython"),
         vm.ctx.new_str(version::get_git_identifier()),
         vm.ctx.new_str(version::get_git_revision()),
     ])
@@ -472,8 +472,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
 
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {
-        "name" => ctx.new_str("rustpython".to_owned()),
-        "cache_tag" => ctx.new_str("rustpython-01".to_owned()),
+        "name" => ctx.new_str("rustpython"),
+        "cache_tag" => ctx.new_str("rustpython-01"),
         "_multiarch" => ctx.new_str(MULTIARCH.to_owned()),
         "version" => version_info.clone(),
         "hexversion" => ctx.new_int(version::VERSION_HEX),
@@ -590,7 +590,7 @@ settrace() -- set the global debug tracing function
       "argv" => argv(vm),
       "builtin_module_names" => builtin_module_names,
       "byteorder" => ctx.new_str(bytorder),
-      "copyright" => ctx.new_str(copyright.to_owned()),
+      "copyright" => ctx.new_str(copyright),
       "_base_executable" => _base_executable(ctx),
       "executable" => executable(ctx),
       "flags" => flags,
@@ -608,9 +608,9 @@ settrace() -- set the global debug tracing function
       "maxunicode" => ctx.new_int(std::char::MAX as u32),
       "maxsize" => ctx.new_int(std::isize::MAX),
       "path" => path,
-      "ps1" => ctx.new_str(">>>>> ".to_owned()),
-      "ps2" => ctx.new_str("..... ".to_owned()),
-      "__doc__" => ctx.new_str(sys_doc.to_owned()),
+      "ps1" => ctx.new_str(">>>>> "),
+      "ps2" => ctx.new_str("..... "),
+      "__doc__" => ctx.new_str(sys_doc),
       "_getframe" => ctx.new_function(getframe),
       "modules" => modules.clone(),
       "warnoptions" => ctx.new_list(vec![]),
@@ -620,18 +620,18 @@ settrace() -- set the global debug tracing function
       "path_hooks" => ctx.new_list(vec![]),
       "path_importer_cache" => ctx.new_dict(),
       "pycache_prefix" => vm.get_none(),
-      "dont_write_bytecode" => vm.new_bool(vm.state.settings.dont_write_bytecode),
+      "dont_write_bytecode" => vm.ctx.new_bool(vm.state.settings.dont_write_bytecode),
       "setprofile" => ctx.new_function(sys_setprofile),
       "setrecursionlimit" => ctx.new_function(sys_setrecursionlimit),
       "settrace" => ctx.new_function(sys_settrace),
-      "version" => vm.new_str(version::get_version()),
+      "version" => vm.ctx.new_str(version::get_version()),
       "version_info" => version_info,
       "_git" => sys_git_info(vm),
       "exc_info" => ctx.new_function(sys_exc_info),
-      "prefix" => ctx.new_str(prefix.to_owned()),
-      "base_prefix" => ctx.new_str(base_prefix.to_owned()),
-      "exec_prefix" => ctx.new_str(exec_prefix.to_owned()),
-      "base_exec_prefix" => ctx.new_str(base_exec_prefix.to_owned()),
+      "prefix" => ctx.new_str(prefix),
+      "base_prefix" => ctx.new_str(base_prefix),
+      "exec_prefix" => ctx.new_str(exec_prefix),
+      "base_exec_prefix" => ctx.new_str(base_exec_prefix),
       "exit" => ctx.new_function(sys_exit),
       "abiflags" => ctx.new_str(ABIFLAGS.to_owned()),
       "audit" => ctx.new_function(sys_audit),
@@ -643,7 +643,7 @@ settrace() -- set the global debug tracing function
       "api_version" => ctx.new_int(0x0), // what C api?
       "float_info" => float_info,
       "int_info" => int_info,
-      "float_repr_style" => ctx.new_str("short".to_owned()),
+      "float_repr_style" => ctx.new_str("short"),
     });
 
     #[cfg(windows)]

@@ -162,7 +162,7 @@ fn do_sub(
         repl.borrow_value().as_bytes(),
     );
     let out = String::from_utf8_lossy(&out).into_owned();
-    Ok(vm.new_str(out))
+    Ok(vm.ctx.new_str(out))
 }
 
 fn do_match(vm: &VirtualMachine, pattern: &PyPattern, search_text: PyStringRef) -> PyResult {
@@ -192,12 +192,12 @@ fn do_findall(vm: &VirtualMachine, pattern: &PyPattern, search_text: PyStringRef
             1 => {
                 let full = captures.get(0).unwrap().as_bytes();
                 let full = String::from_utf8_lossy(full).into_owned();
-                vm.new_str(full)
+                vm.ctx.new_str(full)
             }
             2 => {
                 let capture = captures.get(1).unwrap().as_bytes();
                 let capture = String::from_utf8_lossy(capture).into_owned();
-                vm.new_str(capture)
+                vm.ctx.new_str(capture)
             }
             _ => {
                 let out = captures
@@ -257,7 +257,7 @@ fn do_split(
     let split = output
         .into_iter()
         .map(|v| {
-            v.map(|v| vm.new_str(String::from_utf8_lossy(v).into_owned()))
+            v.map(|v| vm.ctx.new_str(String::from_utf8_lossy(v).into_owned()))
                 .unwrap_or_else(|| vm.get_none())
         })
         .collect();
@@ -370,31 +370,27 @@ impl PyPattern {
 impl PyMatch {
     #[pymethod]
     fn start(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
-        let group = group.unwrap_or_else(|| vm.new_int(0));
+        let group = group.unwrap_or_else(|| vm.ctx.new_int(0));
         let start = self
             .get_bounds(group, vm)?
-            .map_or_else(|| vm.new_int(-1), |r| vm.new_int(r.start));
+            .map_or_else(|| vm.ctx.new_int(-1), |r| vm.ctx.new_int(r.start));
         Ok(start)
     }
 
     #[pymethod]
     fn end(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
-        let group = group.unwrap_or_else(|| vm.new_int(0));
+        let group = group.unwrap_or_else(|| vm.ctx.new_int(0));
         let end = self
             .get_bounds(group, vm)?
-            .map_or_else(|| vm.new_int(-1), |r| vm.new_int(r.end));
+            .map_or_else(|| vm.ctx.new_int(-1), |r| vm.ctx.new_int(r.end));
         Ok(end)
     }
 
-    fn subgroup(&self, bounds: std::ops::Range<usize>, vm: &VirtualMachine) -> PyObjectRef {
-        vm.new_str(self.haystack.borrow_value()[bounds].to_owned())
+    fn subgroup(&self, bounds: Range<usize>, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(&self.haystack.borrow_value()[bounds])
     }
 
-    fn get_bounds(
-        &self,
-        id: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<std::ops::Range<usize>>> {
+    fn get_bounds(&self, id: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Range<usize>>> {
         match_class!(match id {
             i @ PyInt => {
                 let i = usize::try_from_object(vm, i.into_object())?;

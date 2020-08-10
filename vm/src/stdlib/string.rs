@@ -78,7 +78,7 @@ mod _string {
             FieldName::parse(text.borrow_value()).map_err(|e| e.into_pyexception(vm))?;
 
         let first = match field_name.field_type {
-            FieldType::Auto => vm.new_str("".to_owned()),
+            FieldType::Auto => vm.ctx.new_str("".to_owned()),
             FieldType::Index(index) => index.into_pyobject(vm),
             FieldType::Keyword(attribute) => attribute.into_pyobject(vm),
         };

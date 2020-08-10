@@ -309,9 +309,11 @@ impl PySlice {
     fn indices(&self, length: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(length) = length.payload::<PyInt>() {
             let (start, stop, step) = self.inner_indices(length.borrow_value(), vm)?;
-            Ok(vm
-                .ctx
-                .new_tuple(vec![vm.new_int(start), vm.new_int(stop), vm.new_int(step)]))
+            Ok(vm.ctx.new_tuple(vec![
+                vm.ctx.new_int(start),
+                vm.ctx.new_int(stop),
+                vm.ctx.new_int(step),
+            ]))
         } else {
             Ok(vm.ctx.not_implemented())
         }

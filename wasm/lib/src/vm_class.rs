@@ -259,7 +259,7 @@ impl WASMVirtualMachine {
                 .map_err(convert::syntax_err)?;
             let attrs = vm.ctx.new_dict();
             attrs
-                .set_item("__name__", vm.new_str(name.clone()), vm)
+                .set_item("__name__", vm.ctx.new_str(name.clone()), vm)
                 .to_js(vm)?;
 
             if let Some(imports) = imports {

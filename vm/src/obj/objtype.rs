@@ -112,7 +112,7 @@ impl PyClassRef {
             .read()
             .get("__module__")
             .cloned()
-            .unwrap_or_else(|| vm.ctx.new_str("builtins".to_owned()))
+            .unwrap_or_else(|| vm.ctx.new_str("builtins"))
     }
 
     #[pyproperty(magic, setter)]
@@ -325,7 +325,7 @@ impl PyClassRef {
                 let set_name = meth?;
                 vm.invoke(
                     &set_name,
-                    vec![typ.clone().into_object(), vm.new_str(name.clone())],
+                    vec![typ.clone().into_object(), vm.ctx.new_str(name.clone())],
                 )
                 .map_err(|e| {
                     let err = vm.new_runtime_error(format!(

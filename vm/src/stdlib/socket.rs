@@ -324,7 +324,7 @@ impl PySocket {
             if ret < 0 {
                 Err(convert_sock_error(vm, io::Error::last_os_error()))
             } else {
-                Ok(vm.new_int(flag))
+                Ok(vm.ctx.new_int(flag))
             }
         } else {
             if buflen <= 0 || buflen > 1024 {
@@ -473,7 +473,7 @@ fn get_addr_tuple<A: Into<socket2::SockAddr>>(addr: A) -> AddrTuple {
 fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
     gethostname()
         .into_string()
-        .map(|hostname| vm.new_str(hostname))
+        .map(|hostname| vm.ctx.new_str(hostname))
         .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
 }
 
@@ -495,7 +495,7 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
         return Err(vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()));
     }
     let ip_num = BigEndian::read_u32(&packed_ip);
-    Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
+    Ok(vm.ctx.new_str(Ipv4Addr::from(ip_num).to_string()))
 }
 
 #[derive(FromArgs)]
@@ -542,11 +542,11 @@ fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
         .map(|ai| {
             ai.map(|ai| {
                 vm.ctx.new_tuple(vec![
-                    vm.new_int(ai.address),
-                    vm.new_int(ai.socktype),
-                    vm.new_int(ai.protocol),
+                    vm.ctx.new_int(ai.address),
+                    vm.ctx.new_int(ai.socktype),
+                    vm.ctx.new_int(ai.protocol),
                     match ai.canonname {
-                        Some(s) => vm.new_str(s),
+                        Some(s) => vm.ctx.new_str(s),
                         None => vm.get_none(),
                     },
                     get_addr_tuple(ai.sockaddr).into_pyobject(vm),
@@ -575,7 +575,7 @@ fn socket_gethostbyaddr(
         hostname,
         vm.ctx.new_list(vec![]),
         vm.ctx
-            .new_list(vec![vm.new_str(ai.sockaddr.ip().to_string())]),
+            .new_list(vec![vm.ctx.new_str(ai.sockaddr.ip().to_string())]),
     ))
 }
 

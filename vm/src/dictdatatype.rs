@@ -491,13 +491,13 @@ mod tests {
         let dict = Dict::default();
         assert_eq!(0, dict.len());
 
-        let key1 = vm.new_bool(true);
-        let value1 = vm.new_str("abc".to_owned());
+        let key1 = vm.ctx.new_bool(true);
+        let value1 = vm.ctx.new_str("abc");
         dict.insert(&vm, key1.clone(), value1.clone()).unwrap();
         assert_eq!(1, dict.len());
 
-        let key2 = vm.new_str("x".to_owned());
-        let value2 = vm.new_str("def".to_owned());
+        let key2 = vm.ctx.new_str("x");
+        let value2 = vm.ctx.new_str("def");
         dict.insert(&vm, key2.clone(), value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
@@ -537,7 +537,7 @@ mod tests {
     fn check_hash_equivalence(text: &str) {
         let vm: VirtualMachine = Default::default();
         let value1 = text;
-        let value2 = vm.new_str(value1.to_owned());
+        let value2 = vm.ctx.new_str(value1.to_owned());
 
         let hash1 = value1.key_hash(&vm).expect("Hash should not fail.");
         let hash2 = value2.key_hash(&vm).expect("Hash should not fail.");

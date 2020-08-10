@@ -345,7 +345,7 @@ mod decl {
             format!("0x{:x}", n)
         };
 
-        Ok(vm.new_str(s))
+        Ok(vm.ctx.new_str(s))
     }
 
     #[pyfunction]
@@ -551,7 +551,7 @@ mod decl {
             format!("0o{:o}", n)
         };
 
-        Ok(vm.new_str(s))
+        Ok(vm.ctx.new_str(s))
     }
 
     #[pyfunction]
@@ -621,14 +621,14 @@ mod decl {
                     return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_owned()));
                 }
                 let x = objint::get_value(&x);
-                Ok(vm.new_int(x.modpow(&y, &m)))
+                Ok(vm.ctx.new_int(x.modpow(&y, &m)))
             }
         }
     }
 
     #[pyfunction]
     pub fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let code = exit_code_arg.unwrap_or_else(|| vm.new_int(0));
+        let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0));
         Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
     }
 
@@ -784,7 +784,7 @@ mod decl {
             .split('.')
             .next_back()
             .unwrap();
-        let name_obj = vm.new_str(name.to_owned());
+        let name_obj = vm.ctx.new_str(name);
 
         let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
             PyClassRef::try_from_object(vm, metaclass)?

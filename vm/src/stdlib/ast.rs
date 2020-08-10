@@ -35,7 +35,7 @@ macro_rules! node {
         $(
             let field_name = stringify!($attr_name);
             $vm.set_attr(node.as_object(), field_name, $attr_value)?;
-            field_names.push($vm.ctx.new_str(field_name.to_owned()));
+            field_names.push($vm.ctx.new_str(field_name));
         )*
         $vm.set_attr(node.as_object(), "_fields", $vm.ctx.new_tuple(field_names))?;
         node
@@ -81,7 +81,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
             decorator_list,
             ..
         } => node!(vm, ClassDef, {
-            name => vm.ctx.new_str(name.to_owned()),
+            name => vm.ctx.new_str(name),
             keywords => map_ast(keyword_to_ast, vm, keywords)?,
             body => statements_to_ast(vm, body)?,
             decorator_list => expressions_to_ast(vm, decorator_list)?,
@@ -96,7 +96,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
         } => {
             if *is_async {
                 node!(vm, AsyncFunctionDef, {
-                    name => vm.ctx.new_str(name.to_owned()),
+                    name => vm.ctx.new_str(name),
                     args => parameters_to_ast(vm, args)?,
                     body => statements_to_ast(vm, body)?,
                     decorator_list => expressions_to_ast(vm, decorator_list)?,
@@ -104,7 +104,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
                 })
             } else {
                 node!(vm, FunctionDef, {
-                    name => vm.ctx.new_str(name.to_owned()),
+                    name => vm.ctx.new_str(name),
                     args => parameters_to_ast(vm, args)?,
                     body => statements_to_ast(vm, body)?,
                     decorator_list => expressions_to_ast(vm, decorator_list)?,
@@ -245,7 +245,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::Statement) -> PyResult
 
 fn alias_to_ast(vm: &VirtualMachine, alias: &ast::ImportSymbol) -> PyResult<AstNodeRef> {
     Ok(node!(vm, alias, {
-        name => vm.ctx.new_str(alias.symbol.to_owned()),
+        name => vm.ctx.new_str(&alias.symbol),
         asname => optional_string_to_py_obj(vm, &alias.alias)
     }))
 }
@@ -281,7 +281,7 @@ fn handler_to_ast(vm: &VirtualMachine, handler: &ast::ExceptHandler) -> PyResult
 
 fn make_string_list(vm: &VirtualMachine, names: &[String]) -> PyObjectRef {
     vm.ctx
-        .new_list(names.iter().map(|x| vm.ctx.new_str(x.to_owned())).collect())
+        .new_list(names.iter().map(|x| vm.ctx.new_str(x)).collect())
 }
 
 fn optional_expressions_to_ast(
@@ -340,7 +340,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 ast::UnaryOperator::Pos => "UAdd",
             };
             node!(vm, UnaryOp, {
-                op => vm.ctx.new_str(op.to_owned()),
+                op => vm.ctx.new_str(op),
                 operand => expression_to_ast(vm, a)?,
             })
         }
@@ -351,7 +351,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 ast::BooleanOperator::And => "And",
                 ast::BooleanOperator::Or => "Or",
             };
-            let py_op = vm.ctx.new_str(str_op.to_owned());
+            let py_op = vm.ctx.new_str(str_op);
 
             node!(vm, BoolOp, {
                 op => py_op,
@@ -374,11 +374,9 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 ast::Comparison::Is => "Is",
                 ast::Comparison::IsNot => "IsNot",
             };
-            let ops = vm.ctx.new_list(
-                ops.iter()
-                    .map(|x| vm.ctx.new_str(to_operator(x).to_owned()))
-                    .collect(),
-            );
+            let ops = vm
+                .ctx
+                .new_list(ops.iter().map(|x| vm.ctx.new_str(to_operator(x))).collect());
 
             let comparators: PyResult<_> = vals
                 .iter()
@@ -393,7 +391,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             })
         }
         Identifier { name } => node!(vm, Name, {
-            id => vm.ctx.new_str(name.clone()),
+            id => vm.ctx.new_str(name),
             ctx => vm.ctx.none()   // TODO: add context.
         }),
         Lambda { args, body } => node!(vm, Lambda, {
@@ -506,7 +504,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
         }),
         Attribute { value, name } => node!(vm, Attribute, {
             value => expression_to_ast(vm, value)?,
-            attr => vm.ctx.new_str(name.to_owned()),
+            attr => vm.ctx.new_str(name),
             ctx => vm.ctx.none()
         }),
         Starred { value } => node!(vm, Starred, {
@@ -575,7 +573,7 @@ fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult
     };
 
     let py_node = node!(vm, arg, {
-        arg => vm.ctx.new_str(parameter.arg.to_owned()),
+        arg => vm.ctx.new_str(&parameter.arg),
         annotation => py_annotation
     });
 
@@ -587,7 +585,7 @@ fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult
 
 fn optional_string_to_py_obj(vm: &VirtualMachine, name: &Option<String>) -> PyObjectRef {
     if let Some(name) = name {
-        vm.ctx.new_str(name.to_owned())
+        vm.ctx.new_str(name)
     } else {
         vm.ctx.none()
     }
@@ -618,15 +616,13 @@ fn comprehension_to_ast(
         target => expression_to_ast(vm, &comprehension.target)?,
         iter => expression_to_ast(vm, &comprehension.iter)?,
         ifs => expressions_to_ast(vm, &comprehension.ifs)?,
-        is_async => vm.new_bool(comprehension.is_async),
+        is_async => vm.ctx.new_bool(comprehension.is_async),
     }))
 }
 
 fn string_to_ast(vm: &VirtualMachine, string: &ast::StringGroup) -> PyResult<AstNodeRef> {
     let string = match string {
-        ast::StringGroup::Constant { value } => {
-            node!(vm, Str, { s => vm.ctx.new_str(value.clone()) })
-        }
+        ast::StringGroup::Constant { value } => node!(vm, Str, { s => vm.ctx.new_str(value) }),
         ast::StringGroup::FormattedValue { value, .. } => {
             node!(vm, FormattedValue, { value => expression_to_ast(vm, value)? })
         }

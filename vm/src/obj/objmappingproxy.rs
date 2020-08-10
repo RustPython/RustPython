@@ -76,7 +76,7 @@ impl PyMappingProxy {
         match &self.mapping {
             MappingProxyInner::Class(class) => {
                 let key = PyStringRef::try_from_object(vm, key)?;
-                Ok(vm.new_bool(class.has_attr(key.borrow_value())))
+                Ok(vm.ctx.new_bool(class.has_attr(key.borrow_value())))
             }
             MappingProxyInner::Dict(obj) => vm._membership(obj.clone(), key),
         }

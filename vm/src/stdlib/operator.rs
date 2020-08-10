@@ -7,7 +7,7 @@ use crate::VirtualMachine;
 use volatile::Volatile;
 
 fn operator_length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
-    let default = default.unwrap_or_else(|| vm.new_int(0));
+    let default = default.unwrap_or_else(|| vm.ctx.new_int(0));
     if !objtype::isinstance(&default, &vm.ctx.types.int_type) {
         return Err(vm.new_type_error(format!(
             "'{}' type cannot be interpreted as an integer",
@@ -15,7 +15,7 @@ fn operator_length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMach
         )));
     }
     let hint = objiter::length_hint(vm, obj)?
-        .map(|i| vm.new_int(i))
+        .map(|i| vm.ctx.new_int(i))
         .unwrap_or(default);
     Ok(hint)
 }

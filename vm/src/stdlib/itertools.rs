@@ -326,8 +326,8 @@ mod decl {
         #[pymethod(name = "__length_hint__")]
         fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
             match self.times {
-                Some(ref times) => vm.new_int(times.read().clone()),
-                None => vm.new_int(0),
+                Some(ref times) => vm.ctx.new_int(times.read().clone()),
+                None => vm.ctx.new_int(0),
             }
         }
     }

@@ -186,7 +186,7 @@ impl PySequenceIterator {
         let step: isize = if self.reversed { -1 } else { 1 };
         let pos = self.position.fetch_add(step);
         if pos >= 0 {
-            match vm.call_method(&self.obj, "__getitem__", vec![vm.new_int(pos)]) {
+            match vm.call_method(&self.obj, "__getitem__", vec![vm.ctx.new_int(pos)]) {
                 Err(ref e) if objtype::isinstance(&e, &vm.ctx.exceptions.index_error) => {
                     Err(new_stop_iteration(vm))
                 }

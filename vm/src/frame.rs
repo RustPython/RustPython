@@ -1291,7 +1291,7 @@ impl ExecutingFrame<'_> {
             .split('.')
             .next_back()
             .unwrap();
-        vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_owned()))?;
+        vm.set_attr(&func_obj, "__name__", vm.ctx.new_str(name))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
         let module = self
             .scope
@@ -1416,12 +1416,12 @@ impl ExecutingFrame<'_> {
             bytecode::ComparisonOperator::LessOrEqual => vm._le(a, b)?,
             bytecode::ComparisonOperator::Greater => vm._gt(a, b)?,
             bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(a, b)?,
-            bytecode::ComparisonOperator::Is => vm.new_bool(self._is(a, b)),
-            bytecode::ComparisonOperator::IsNot => vm.new_bool(self._is_not(a, b)),
-            bytecode::ComparisonOperator::In => vm.new_bool(self._in(vm, a, b)?),
-            bytecode::ComparisonOperator::NotIn => vm.new_bool(self._not_in(vm, a, b)?),
+            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
+            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)),
+            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
+            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
             bytecode::ComparisonOperator::ExceptionMatch => {
-                vm.new_bool(builtin_isinstance(a, b, vm)?)
+                vm.ctx.new_bool(builtin_isinstance(a, b, vm)?)
             }
         };
 
@@ -1439,13 +1439,13 @@ impl ExecutingFrame<'_> {
     fn store_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let value = self.pop_value();
-        vm.set_attr(&parent, vm.new_str(attr_name.to_owned()), value)?;
+        vm.set_attr(&parent, vm.ctx.new_str(attr_name), value)?;
         Ok(None)
     }
 
     fn delete_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
-        let name = vm.ctx.new_str(attr_name.to_owned());
+        let name = vm.ctx.new_str(attr_name);
         vm.del_attr(&parent, name)?;
         Ok(None)
     }

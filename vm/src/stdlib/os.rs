@@ -45,7 +45,7 @@ impl OutputMode {
                 })
             };
             match mode {
-                OutputMode::String => path_as_string(path).map(|s| vm.new_str(s)),
+                OutputMode::String => path_as_string(path).map(|s| vm.ctx.new_str(s)),
                 OutputMode::Bytes => {
                     #[cfg(unix)]
                     {
@@ -152,7 +152,7 @@ impl IntoPyException for io::Error {
         };
         let os_error = vm.new_exception_msg(exc_type, self.to_string());
         let errno = match self.raw_os_error() {
-            Some(errno) => vm.new_int(errno),
+            Some(errno) => vm.ctx.new_int(errno),
             None => vm.get_none(),
         };
         vm.set_attr(os_error.as_object(), "errno", errno).unwrap();
@@ -659,13 +659,13 @@ mod _os {
     #[pyfunction]
     fn getpid(vm: &VirtualMachine) -> PyObjectRef {
         let pid = std::process::id();
-        vm.new_int(pid)
+        vm.ctx.new_int(pid)
     }
 
     #[pyfunction]
     fn cpu_count(vm: &VirtualMachine) -> PyObjectRef {
         let cpu_count = num_cpus::get();
-        vm.new_int(cpu_count)
+        vm.ctx.new_int(cpu_count)
     }
 
     #[pyfunction]
@@ -1442,39 +1442,39 @@ mod posix {
     #[pyfunction]
     fn getppid(vm: &VirtualMachine) -> PyObjectRef {
         let ppid = unistd::getppid().as_raw();
-        vm.new_int(ppid)
+        vm.ctx.new_int(ppid)
     }
 
     #[pyfunction]
     fn getgid(vm: &VirtualMachine) -> PyObjectRef {
         let gid = unistd::getgid().as_raw();
-        vm.new_int(gid)
+        vm.ctx.new_int(gid)
     }
 
     #[pyfunction]
     fn getegid(vm: &VirtualMachine) -> PyObjectRef {
         let egid = unistd::getegid().as_raw();
-        vm.new_int(egid)
+        vm.ctx.new_int(egid)
     }
 
     #[pyfunction]
     fn getpgid(pid: u32, vm: &VirtualMachine) -> PyResult {
         match unistd::getpgid(Some(Pid::from_raw(pid as i32))) {
-            Ok(pgid) => Ok(vm.new_int(pgid.as_raw())),
+            Ok(pgid) => Ok(vm.ctx.new_int(pgid.as_raw())),
             Err(err) => Err(err.into_pyexception(vm)),
         }
     }
 
     #[pyfunction]
     fn getpgrp(vm: &VirtualMachine) -> PyResult {
-        Ok(vm.new_int(unistd::getpgrp().as_raw()))
+        Ok(vm.ctx.new_int(unistd::getpgrp().as_raw()))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn getsid(pid: u32, vm: &VirtualMachine) -> PyResult {
         match unistd::getsid(Some(Pid::from_raw(pid as i32))) {
-            Ok(sid) => Ok(vm.new_int(sid.as_raw())),
+            Ok(sid) => Ok(vm.ctx.new_int(sid.as_raw())),
             Err(err) => Err(err.into_pyexception(vm)),
         }
     }
@@ -1482,13 +1482,13 @@ mod posix {
     #[pyfunction]
     fn getuid(vm: &VirtualMachine) -> PyObjectRef {
         let uid = unistd::getuid().as_raw();
-        vm.new_int(uid)
+        vm.ctx.new_int(uid)
     }
 
     #[pyfunction]
     fn geteuid(vm: &VirtualMachine) -> PyObjectRef {
         let euid = unistd::geteuid().as_raw();
-        vm.new_int(euid)
+        vm.ctx.new_int(euid)
     }
 
     #[pyfunction]
@@ -1557,7 +1557,7 @@ mod posix {
         let r = nix::pty::openpty(None, None).map_err(|err| err.into_pyexception(vm))?;
         Ok(vm
             .ctx
-            .new_tuple(vec![vm.new_int(r.master), vm.new_int(r.slave)]))
+            .new_tuple(vec![vm.ctx.new_int(r.master), vm.ctx.new_int(r.slave)]))
     }
 
     #[pyfunction]
@@ -1567,7 +1567,7 @@ mod posix {
             Err(errno_err(vm))
         } else {
             let name = unsafe { ffi::CStr::from_ptr(name) }.to_str().unwrap();
-            Ok(vm.ctx.new_str(name.to_owned()))
+            Ok(vm.ctx.new_str(name))
         }
     }
 
@@ -2239,7 +2239,7 @@ mod nt {
 
         for (key, value) in env::vars() {
             environ
-                .set_item(vm.new_str(key), vm.new_str(value), vm)
+                .set_item(vm.ctx.new_str(key), vm.ctx.new_str(value), vm)
                 .unwrap();
         }
         environ

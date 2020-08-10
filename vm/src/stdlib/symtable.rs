@@ -119,7 +119,7 @@ impl PySymbolTable {
             }
             .into_ref(vm))
         } else {
-            Err(vm.new_key_error(vm.new_str(format!("lookup {} failed", name))))
+            Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {} failed", name))))
         }
     }
 
@@ -129,7 +129,7 @@ impl PySymbolTable {
             .symtable
             .symbols
             .keys()
-            .map(|s| vm.ctx.new_str(s.to_owned()))
+            .map(|s| vm.ctx.new_str(s))
             .collect();
         Ok(vm.ctx.new_list(symbols))
     }

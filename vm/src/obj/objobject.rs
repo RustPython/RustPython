@@ -295,6 +295,6 @@ fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResul
     } else {
         let copyreg = vm.import("copyreg", &[], 0)?;
         let reduce_ex = vm.get_attribute(copyreg, "_reduce_ex")?;
-        vm.invoke(&reduce_ex, vec![obj, vm.new_int(proto)])
+        vm.invoke(&reduce_ex, vec![obj, vm.ctx.new_int(proto)])
     }
 }

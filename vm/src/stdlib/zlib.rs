@@ -62,7 +62,7 @@ fn zlib_adler32(data: PyBytesRef, begin_state: OptionalArg<i32>, vm: &VirtualMac
 
     let checksum: u32 = hasher.hash();
 
-    Ok(vm.new_int(checksum))
+    Ok(vm.ctx.new_int(checksum))
 }
 
 /// Compute a CRC-32 checksum of data.
@@ -76,7 +76,7 @@ fn zlib_crc32(data: PyBytesRef, begin_state: OptionalArg<i32>, vm: &VirtualMachi
 
     let checksum: u32 = hasher.finalize();
 
-    Ok(vm.new_int(checksum))
+    Ok(vm.ctx.new_int(checksum))
 }
 
 /// Returns a bytes object containing compressed data.

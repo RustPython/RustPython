@@ -64,9 +64,12 @@ impl AsRef<str> for PyString {
     }
 }
 
-impl From<&str> for PyString {
-    fn from(s: &str) -> PyString {
-        s.to_owned().into()
+impl<T> From<&T> for PyString
+where
+    T: AsRef<str> + ?Sized,
+{
+    fn from(s: &T) -> PyString {
+        s.as_ref().to_owned().into()
     }
 }
 
@@ -224,7 +227,7 @@ impl PyString {
     #[pymethod(name = "__eq__")]
     fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&rhs, &vm.ctx.types.str_type) {
-            vm.new_bool(self.value == borrow_value(&rhs))
+            vm.ctx.new_bool(self.value == borrow_value(&rhs))
         } else {
             vm.ctx.not_implemented()
         }
@@ -233,7 +236,7 @@ impl PyString {
     #[pymethod(name = "__ne__")]
     fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&rhs, &vm.ctx.types.str_type) {
-            vm.new_bool(self.value != borrow_value(&rhs))
+            vm.ctx.new_bool(self.value != borrow_value(&rhs))
         } else {
             vm.ctx.not_implemented()
         }
@@ -255,14 +258,14 @@ impl PyString {
                 };
 
                 if let Some(character) = self.value.chars().nth(index) {
-                    Ok(vm.new_str(character.to_string()))
+                    Ok(vm.ctx.new_str(character.to_string()))
                 } else {
                     Err(vm.new_index_error("string index out of range".to_owned()))
                 }
             }
             SequenceIndex::Slice(slice) => {
                 let string = self.get_slice_items(vm, &slice)?;
-                Ok(vm.new_str(string))
+                Ok(vm.ctx.new_str(string))
             }
         }
     }
@@ -743,7 +746,7 @@ impl PyString {
     #[pymethod]
     fn splitlines(&self, args: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
-            .new_list(self.value.py_splitlines(args, |s| vm.new_str(s.to_owned())))
+            .new_list(self.value.py_splitlines(args, |s| vm.ctx.new_str(s)))
     }
 
     #[pymethod]
@@ -1001,11 +1004,15 @@ impl PyString {
                 Ok(from_str) => {
                     if to_str.len() == from_str.len() {
                         for (c1, c2) in from_str.value.chars().zip(to_str.value.chars()) {
-                            new_dict.set_item(vm.new_int(c1 as u32), vm.new_int(c2 as u32), vm)?;
+                            new_dict.set_item(
+                                vm.ctx.new_int(c1 as u32),
+                                vm.ctx.new_int(c2 as u32),
+                                vm,
+                            )?;
                         }
                         if let OptionalArg::Present(none_str) = none_str {
                             for c in none_str.value.chars() {
-                                new_dict.set_item(vm.new_int(c as u32), vm.get_none(), vm)?;
+                                new_dict.set_item(vm.ctx.new_int(c as u32), vm.get_none(), vm)?;
                             }
                         }
                         Ok(new_dict.into_pyobject(vm))
@@ -1115,7 +1122,7 @@ impl IntoPyObject for String {
 
 impl IntoPyObject for &str {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_str(self.to_owned())
+        vm.ctx.new_str(self)
     }
 }
 
@@ -1299,13 +1306,9 @@ mod tests {
         let vm: VirtualMachine = Default::default();
 
         let table = vm.context().new_dict();
-        table
-            .set_item("a", vm.new_str("🎅".to_owned()), &vm)
-            .unwrap();
+        table.set_item("a", vm.ctx.new_str("🎅"), &vm).unwrap();
         table.set_item("b", vm.get_none(), &vm).unwrap();
-        table
-            .set_item("c", vm.new_str("xda".to_owned()), &vm)
-            .unwrap();
+        table.set_item("c", vm.ctx.new_str("xda"), &vm).unwrap();
         let translated = PyString::maketrans(
             table.into_object(),
             OptionalArg::Missing,
@@ -1316,7 +1319,7 @@ mod tests {
         let text = PyString::from("abc");
         let translated = text.translate(translated, &vm).unwrap();
         assert_eq!(translated, "🎅xda".to_owned());
-        let translated = text.translate(vm.new_int(3), &vm);
+        let translated = text.translate(vm.ctx.new_int(3), &vm);
         assert_eq!(
             translated.unwrap_err().lease_class().name,
             "TypeError".to_owned()
