@@ -1,5 +1,7 @@
 use super::Diagnostic;
-use crate::util::{def_to_name, meta_into_nesteds, ItemIdent, ItemMeta, ItemType};
+use crate::util::{
+    def_to_name, meta_into_nesteds, optional_attribute_arg, ItemIdent, ItemMeta, ItemType,
+};
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
@@ -202,15 +204,20 @@ impl Module {
                 attr_name @ "pyclass" | attr_name @ "pystruct_sequence" => {
                     assert!(item.typ == ItemType::Struct);
 
+                    let nested_or = into_nested();
                     let mut metalist = match &meta {
                         Meta::Path(path) => parse_quote!(#path()),
                         Meta::List(metalist) => metalist.clone(),
                         _ => unreachable!(),
                     };
-                    let module_name = &self.name;
-                    metalist.nested.push(parse_quote! {module = #module_name});
 
-                    *attr = parse_quote!(#[#metalist]);
+                    if let Ok(nested) = &nested_or {
+                        if optional_attribute_arg("py..", "module", &nested)?.is_none() {
+                            let module_name = &self.name;
+                            metalist.nested.push(parse_quote! {module = #module_name});
+                            *attr = parse_quote!(#[#metalist]);
+                        }
+                    }
 
                     if has_class {
                         Err(err_span!(
@@ -233,10 +240,10 @@ impl Module {
                     }?;
 
                     let class = match attr_name {
-                        "pyclass" => Self::extract_class(item.ident, into_nested()?)?,
+                        "pyclass" => Self::extract_class(item.ident, nested_or?)?,
                         "pystruct_sequence" => {
                             // TODO: validate pystruct_sequence doesn't have module
-                            Self::extract_struct_sequence(item.ident, into_nested()?)?
+                            Self::extract_struct_sequence(item.ident, nested_or?)?
                         }
                         _ => unreachable!(),
                     };
@@ -380,7 +387,7 @@ pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Di
         Item::Mod(m) => m,
         other => bail_span!(other, "#[pymodule] can only be on a module declaration"),
     };
-    let module_name = def_to_name(&module.ident, "pymodule", attr)?;
+    let module_name = def_to_name(&module.ident, "pymodule", &attr)?;
 
     let (_, content) = match module.content.as_mut() {
         Some(c) => c,

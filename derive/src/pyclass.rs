@@ -1,5 +1,7 @@
 use super::Diagnostic;
-use crate::util::{def_to_name, meta_into_nesteds, path_eq, ItemIdent, ItemMeta, ItemType};
+use crate::util::{
+    attribute_arg, def_to_name, meta_into_nesteds, path_eq, ItemIdent, ItemMeta, ItemType,
+};
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
@@ -461,7 +463,7 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
         ),
     };
 
-    let class_name = def_to_name(&ident, "pyclass", attr)?;
+    let class_name = def_to_name(&ident, "pyclass", &attr)?;
     let class_def = generate_class_def(&ident, &class_name, &attrs)?;
 
     let ret = quote! {
@@ -480,7 +482,7 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             "#[pystruct_sequence] can only be on a struct declaration"
         )
     };
-    let class_name = def_to_name(&struc.ident, "pystruct_sequence", attr)?;
+    let class_name = def_to_name(&struc.ident, "pystruct_sequence", &attr)?;
     let class_def = generate_class_def(&struc.ident, &class_name, &struc.attrs)?;
     let mut properties = Vec::new();
     let mut field_names = Vec::new();

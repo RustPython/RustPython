@@ -1,6 +1,6 @@
 use super::Diagnostic;
 use std::collections::HashMap;
-use syn::{Attribute, AttributeArgs, Ident, Lit, Meta, NestedMeta, Path};
+use syn::{Attribute, Ident, Lit, Meta, NestedMeta, Path};
 
 pub(crate) fn path_eq(path: &Path, s: &str) -> bool {
     path.get_ident().map_or(false, |id| id == s)
@@ -9,53 +9,61 @@ pub(crate) fn path_eq(path: &Path, s: &str) -> bool {
 pub(crate) fn def_to_name(
     ident: &Ident,
     attr_name: &'static str,
-    attr: AttributeArgs,
+    attrs: &[NestedMeta],
 ) -> Result<String, Diagnostic> {
-    let mut name = None;
-    for attr in attr {
-        if let NestedMeta::Meta(meta) = attr {
-            if let Meta::NameValue(name_value) = meta {
-                if path_eq(&name_value.path, "name") {
-                    if let Lit::Str(s) = name_value.lit {
-                        name = Some(s.value());
-                    } else {
-                        bail_span!(
-                            name_value.lit,
-                            "#[{}(name = ...)] must be a string",
-                            attr_name
-                        );
-                    }
-                }
-            }
-        }
-    }
-    Ok(name.unwrap_or_else(|| ident.to_string()))
+    optional_attribute_arg(attr_name, "name", attrs)
+        .transpose()
+        .unwrap_or_else(|| Ok(ident.to_string()))
 }
 
-// Not used for now but keep for future
-#[allow(dead_code)]
+pub(crate) fn attribute_arg(
+    attr_name: &'static str,
+    arg_name: &'static str,
+    attrs: &[NestedMeta],
+) -> Result<String, Diagnostic> {
+    if let Some(r) = optional_attribute_arg(attr_name, arg_name, attrs).transpose() {
+        r
+    } else {
+        bail_span!(
+            attrs[0],
+            "#[{}({} = ...)] must exist but not found",
+            attr_name,
+            arg_name
+        )
+    }
+}
+
 pub(crate) fn optional_attribute_arg(
     attr_name: &'static str,
     arg_name: &'static str,
-    attr: AttributeArgs,
+    attrs: &[NestedMeta],
 ) -> Result<Option<String>, Diagnostic> {
     let mut arg_value = None;
-    for attr in attr {
-        if let NestedMeta::Meta(meta) = attr {
-            if let Meta::NameValue(name_value) = meta {
-                if path_eq(&name_value.path, arg_name) {
-                    if let Lit::Str(lit) = name_value.lit {
-                        arg_value = Some(lit.value());
-                    } else {
+    for attr in attrs {
+        match attr {
+            NestedMeta::Meta(Meta::NameValue(name_value))
+                if path_eq(&name_value.path, arg_name) =>
+            {
+                if let Lit::Str(lit) = &name_value.lit {
+                    if arg_value.is_some() {
                         bail_span!(
                             name_value.lit,
-                            "#[{}({} = ...)] must be a string",
+                            "#[{}({} = ...)] must be unique but found multiple times",
                             attr_name,
                             arg_name
                         );
                     }
+                    arg_value = Some(lit.value());
+                } else {
+                    bail_span!(
+                        name_value.lit,
+                        "#[{}({} = ...)] must be a string",
+                        attr_name,
+                        arg_name
+                    );
                 }
             }
+            _ => continue,
         }
     }
     Ok(arg_value)
