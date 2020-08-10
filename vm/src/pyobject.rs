@@ -1443,6 +1443,43 @@ pub trait PyClassImpl: PyClassDef {
     }
 }
 
+pub trait PyStructSequenceImpl: PyClassImpl {
+    const FIELD_NAMES: &'static [&'static str];
+
+    fn repr(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<String> {
+        let name = if let Ok(module_name) = vm.get_attribute(zelf.as_object().clone(), "__module__")
+        {
+            format!("{}.{}", module_name, Self::NAME)
+        } else {
+            Self::NAME.to_owned()
+        };
+
+        let format_field = |(value, name)| {
+            let s = vm.to_repr(value)?;
+            Ok(format!("{}: {}", name, s))
+        };
+        let (body, suffix) =
+            if let Some(_guard) = rustpython_vm::vm::ReprGuard::enter(zelf.as_object()) {
+                if Self::FIELD_NAMES.len() == 1 {
+                    let value = zelf.borrow_value().first().unwrap();
+                    let formatted = format_field((value, Self::FIELD_NAMES[0]))?;
+                    (formatted, ",")
+                } else {
+                    let fields: PyResult<Vec<_>> = zelf
+                        .borrow_value()
+                        .iter()
+                        .zip(Self::FIELD_NAMES.iter().copied())
+                        .map(format_field)
+                        .collect();
+                    (fields?.join(", "), "")
+                }
+            } else {
+                (String::new(), "...")
+            };
+        Ok(format!("{}({}{})", name, body, suffix))
+    }
+}
+
 // TODO: find a better place to put this impl
 impl TryFromObject for std::time::Duration {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {

@@ -32,6 +32,8 @@ pub(crate) fn def_to_name(
     Ok(name.unwrap_or_else(|| ident.to_string()))
 }
 
+// Not used for now but keep for future
+#[allow(dead_code)]
 pub(crate) fn optional_attribute_arg(
     attr_name: &'static str,
     arg_name: &'static str,
@@ -57,14 +59,6 @@ pub(crate) fn optional_attribute_arg(
         }
     }
     Ok(arg_value)
-}
-
-pub(crate) fn module_class_name(mod_name: Option<String>, class_name: &str) -> String {
-    if let Some(mod_name) = mod_name {
-        format!("{}.{}", mod_name, class_name)
-    } else {
-        class_name.into()
-    }
 }
 
 pub(crate) fn meta_into_nesteds(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {

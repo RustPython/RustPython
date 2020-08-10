@@ -1,8 +1,5 @@
 use super::Diagnostic;
-use crate::util::{
-    def_to_name, meta_into_nesteds, module_class_name, optional_attribute_arg, path_eq, ItemIdent,
-    ItemMeta, ItemType,
-};
+use crate::util::{def_to_name, meta_into_nesteds, path_eq, ItemIdent, ItemMeta, ItemType};
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
@@ -483,9 +480,7 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             "#[pystruct_sequence] can only be on a struct declaration"
         )
     };
-    let class_name = def_to_name(&struc.ident, "pystruct_sequence", attr.clone())?;
-    let module_name = optional_attribute_arg("pystruct_sequence", "module", attr)?;
-    let py_class_name = module_class_name(module_name, &class_name);
+    let class_name = def_to_name(&struc.ident, "pystruct_sequence", attr)?;
     let class_def = generate_class_def(&struc.ident, &class_name, &struc.attrs)?;
     let mut properties = Vec::new();
     let mut field_names = Vec::new();
@@ -517,6 +512,7 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
     let ret = quote! {
         #struc
         #class_def
+
         impl #ty {
             pub fn into_struct_sequence(&self,
                 vm: &::rustpython_vm::VirtualMachine,
@@ -530,27 +526,10 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
                 );
                 ::rustpython_vm::pyobject::PyValue::into_ref_with_type(tuple, vm, cls)
             }
+        }
 
-            fn repr(zelf: rustpython_vm::pyobject::PyRef<rustpython_vm::obj::objtuple::PyTuple>, vm: &rustpython_vm::VirtualMachine) -> ::rustpython_vm::pyobject::PyResult<String> {
-                use rustpython_vm::pyobject::BorrowValue;
-                let s = if let Some(_guard) = rustpython_vm::vm::ReprGuard::enter(zelf.as_object()) {
-                        let field_names = vec![#(stringify!(#field_names)),*];
-                        let mut fields = Vec::new();
-                        for (value, field_name) in zelf.borrow_value().iter().zip(field_names.iter()) {
-                                let s = vm.to_repr(value)?;
-                                fields.push(format!("{}: {}", field_name, s));
-                        }
-
-                        if fields.len() == 1 {
-                                format!("{}({},)", #py_class_name, fields[0])
-                        } else {
-                                format!("{}({})", #py_class_name, fields.join(", "))
-                        }
-                } else {
-                        concat!(#class_name, "(...)").to_string()
-                };
-                Ok(s)
-            }
+        impl ::rustpython_vm::pyobject::PyStructSequenceImpl for #ty {
+            const FIELD_NAMES: &'static [&'static str] = &[#(stringify!(#field_names)),*];
         }
 
         impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
@@ -558,12 +537,14 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
                 ctx: &::rustpython_vm::pyobject::PyContext,
                 class: &::rustpython_vm::obj::objtype::PyClassRef,
             ) {
+                use ::rustpython_vm::pyobject::PyStructSequenceImpl;
+
                 #(#properties)*
-                                class.set_str_attr("__repr__", ctx.new_method(Self::repr));
+                class.set_str_attr("__repr__", ctx.new_method(Self::repr));
             }
 
             fn make_class(
-                ctx: &::rustpython_vm::pyobject::PyContext
+                ctx: &::rustpython_vm::pyobject::PyContext,
             ) -> ::rustpython_vm::obj::objtype::PyClassRef {
                 let py_class = ctx.new_class(<Self as ::rustpython_vm::pyobject::PyClassDef>::NAME, ctx.tuple_type());
                 Self::extend_class(ctx, &py_class);
