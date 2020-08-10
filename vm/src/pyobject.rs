@@ -138,7 +138,7 @@ impl PyContext {
         let exceptions = exceptions::ExceptionZoo::new(&types.type_type, &types.object_type);
 
         fn create_object<T: PyObjectPayload + PyValue>(payload: T, cls: &PyClassRef) -> PyRef<T> {
-            PyRef::from_obj_unchecked(PyObject::new(payload, cls.clone(), None))
+            PyRef::new_ref(payload, cls.clone(), None)
         }
 
         let none_type = create_type("NoneType", &types.type_type, &types.object_type);
@@ -660,7 +660,7 @@ impl PyObject<dyn PyObjectPayload> {
         self: PyRc<Self>,
     ) -> Result<PyRef<T>, PyObjectRef> {
         if self.payload_is::<T>() {
-            Ok(PyRef::from_obj_unchecked(self))
+            Ok(unsafe { PyRef::from_obj_unchecked(self) })
         } else {
             Err(self)
         }
@@ -675,7 +675,12 @@ impl PyObject<dyn PyObjectPayload> {
         vm: &VirtualMachine,
     ) -> Result<PyRef<T>, PyObjectRef> {
         if self.lease_class().is(&T::class(vm)) {
-            Ok(PyRef::from_obj_unchecked(self))
+            // TODO: is this always true?
+            assert!(
+                self.payload_is::<T>(),
+                "obj.__class__ is T::class() but payload is not T"
+            );
+            Ok(unsafe { PyRef::from_obj_unchecked(self) })
         } else {
             Err(self)
         }
@@ -726,12 +731,15 @@ impl<T> Clone for PyRef<T> {
 impl<T: PyValue> PyRef<T> {
     #[allow(clippy::new_ret_no_self)]
     pub fn new_ref(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> Self {
-        Self::from_obj_unchecked(PyObject::new(payload, typ, dict))
+        let obj = PyObject::new(payload, typ, dict);
+        // SAFETY: we just created the object from a payload of type T
+        unsafe { Self::from_obj_unchecked(obj) }
     }
 
     fn from_obj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         if obj.payload_is::<T>() {
-            Ok(Self::from_obj_unchecked(obj))
+            // SAFETY: we just checked the payload
+            Ok(unsafe { Self::from_obj_unchecked(obj) })
         } else {
             Err(vm.new_runtime_error(format!(
                 "Unexpected payload for type {:?}",
@@ -740,7 +748,8 @@ impl<T: PyValue> PyRef<T> {
         }
     }
 
-    pub(crate) fn from_obj_unchecked(obj: PyObjectRef) -> Self {
+    /// Safety: payload type of `obj` must be `T`
+    pub(crate) unsafe fn from_obj_unchecked(obj: PyObjectRef) -> Self {
         PyRef {
             obj,
             _payload: PhantomData,
@@ -767,7 +776,13 @@ where
     type Target = T;
 
     fn deref(&self) -> &T {
-        self.obj.payload().expect("unexpected payload for type")
+        self.obj.payload().unwrap_or_else(|| {
+            if cfg!(debug_assertions) {
+                panic!("PyRef.obj did not have a payload of T")
+            }
+            // SAFETY: self.obj has invariant that payload is `T`
+            unsafe { std::hint::unreachable_unchecked() }
+        })
     }
 }
 
@@ -900,7 +915,7 @@ impl<'a, T: PyObjectPayload + PyValue> PyLease<'a, T> {
     // Associated function on purpose, because of deref
     #[allow(clippy::wrong_self_convention)]
     pub fn into_pyref(zelf: Self) -> PyRef<T> {
-        PyRef::from_obj_unchecked(zelf.inner.clone() as PyObjectRef)
+        zelf.inner.clone().into_pyref()
     }
 }
 
@@ -1171,7 +1186,7 @@ where
     P: PyValue + IntoPyObject + From<T>,
 {
     fn into_pyref(self, vm: &VirtualMachine) -> PyRef<P> {
-        PyRef::from_obj_unchecked(P::from(self).into_pyobject(vm))
+        P::from(self).into_ref(vm)
     }
 }
 
@@ -1258,7 +1273,9 @@ where
     where
         T: PyValue,
     {
-        PyRef::from_obj_unchecked(self as PyObjectRef)
+        // SAFETY: we know just casted from PyRc<PyObject<T>> to PyObjectRef, so we know the
+        // payload is `T`
+        unsafe { PyRef::from_obj_unchecked(self as PyObjectRef) }
     }
 }
 
@@ -1322,7 +1339,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     fn class(vm: &VirtualMachine) -> PyClassRef;
 
     fn into_simple_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        self.into_object(vm, Self::class(vm), None)
+        self.into_ref(vm).into_object()
     }
 
     fn into_object(
@@ -1335,7 +1352,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        PyRef::from_obj_unchecked(self.into_simple_object(vm))
+        PyRef::new_ref(self, Self::class(vm), None)
     }
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
