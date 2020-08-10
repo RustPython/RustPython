@@ -67,14 +67,6 @@ pub(crate) fn module_class_name(mod_name: Option<String>, class_name: &str) -> S
     }
 }
 
-pub(crate) fn strip_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
-    if s.starts_with(prefix) {
-        Some(&s[prefix.len()..])
-    } else {
-        None
-    }
-}
-
 pub(crate) fn meta_into_nesteds(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
     match meta {
         Meta::Path(_) => Ok(Vec::new()),
@@ -84,7 +76,7 @@ pub(crate) fn meta_into_nesteds(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
 }
 
 #[derive(PartialEq)]
-pub enum ItemType {
+pub(crate) enum ItemType {
     Fn,
     Method,
     Struct,
@@ -92,13 +84,13 @@ pub enum ItemType {
     Const,
 }
 
-pub struct ItemIdent<'a> {
+pub(crate) struct ItemIdent<'a> {
     pub typ: ItemType,
     pub attrs: &'a mut Vec<Attribute>,
     pub ident: &'a Ident,
 }
 
-pub struct ItemMeta<'a> {
+pub(crate) struct ItemMeta<'a> {
     ident: &'a Ident,
     parent_type: &'static str,
     meta: HashMap<String, Option<Lit>>,
@@ -239,7 +231,7 @@ impl<'a> ItemMeta<'a> {
         } else {
             let sig_name = self.ident.to_string();
             let name = if setter {
-                if let Some(name) = strip_prefix(&sig_name, "set_") {
+                if let Some(name) = sig_name.strip_prefix("set_") {
                     if name.is_empty() {
                         bail_span!(
                             &self.ident,

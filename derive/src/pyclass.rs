@@ -1,7 +1,7 @@
 use super::Diagnostic;
 use crate::util::{
-    def_to_name, meta_into_nesteds, module_class_name, optional_attribute_arg, path_eq,
-    strip_prefix, ItemIdent, ItemMeta, ItemType,
+    def_to_name, meta_into_nesteds, module_class_name, optional_attribute_arg, path_eq, ItemIdent,
+    ItemMeta, ItemType,
 };
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
@@ -113,7 +113,7 @@ impl Class {
         }
         let slot_ident = if nesteds.is_empty() {
             let ident_str = ident.to_string();
-            if let Some(stripped) = strip_prefix(&ident_str, "tp_") {
+            if let Some(stripped) = ident_str.strip_prefix("tp_") {
                 proc_macro2::Ident::new(stripped, ident.span())
             } else {
                 ident.clone()
