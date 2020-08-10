@@ -240,7 +240,7 @@ impl PyInt {
         T: Into<BigInt> + ToPrimitive,
     {
         if cls.is(&vm.ctx.int_type()) {
-            Ok(PyRef::from_obj_unchecked(vm.ctx.new_int(value)))
+            Ok(vm.ctx.new_int(value).downcast().unwrap())
         } else {
             PyInt::from(value).into_ref_with_type(vm, cls)
         }

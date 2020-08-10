@@ -656,12 +656,26 @@ impl PyObject<dyn PyObjectPayload> {
     ///
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
-    pub fn downcast<T: PyObjectPayload>(self: PyRc<Self>) -> Result<PyRef<T>, PyObjectRef> {
+    pub fn downcast<T: PyObjectPayload + PyValue>(
+        self: PyRc<Self>,
+    ) -> Result<PyRef<T>, PyObjectRef> {
         if self.payload_is::<T>() {
-            Ok(PyRef {
-                obj: self,
-                _payload: PhantomData,
-            })
+            Ok(PyRef::from_obj_unchecked(self))
+        } else {
+            Err(self)
+        }
+    }
+
+    /// Attempt to downcast this reference to the specific class that is associated `T`.
+    ///
+    /// If the downcast fails, the original ref is returned in as `Err` so
+    /// another downcast can be attempted without unnecessary cloning.
+    pub fn downcast_exact<T: PyObjectPayload + PyValue>(
+        self: PyRc<Self>,
+        vm: &VirtualMachine,
+    ) -> Result<PyRef<T>, PyObjectRef> {
+        if self.lease_class().is(&T::class(vm)) {
+            Ok(PyRef::from_obj_unchecked(self))
         } else {
             Err(self)
         }
