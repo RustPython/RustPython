@@ -1528,10 +1528,10 @@ mod posix {
         };
         let argv: Vec<&ffi::CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
 
-        if argv.is_empty() {
-            return Err(vm.new_value_error("execv() arg 2 must not be empty".to_owned()));
-        }
-        if argv.first().unwrap().to_bytes().is_empty() {
+        let first = argv
+            .first()
+            .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty".to_owned()))?;
+        if first.to_bytes().is_empty() {
             return Err(
                 vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned())
             );
