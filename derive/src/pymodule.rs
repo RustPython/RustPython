@@ -5,8 +5,8 @@ use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
 use syn::{parse_quote, spanned::Spanned, AttributeArgs, Ident, Item, Meta, NestedMeta};
 
-#[derive(Default)]
 struct Module {
+    name: String,
     items: HashMap<(String, Vec<Meta>), ModuleItem>,
 }
 
@@ -142,15 +142,11 @@ impl Module {
         let mut items = Vec::new();
         let mut cfgs = Vec::new();
         let mut has_class = false;
-        for (i, meta) in item
-            .attrs
-            .iter()
-            .filter_map(|attr| attr.parse_meta().ok())
-            .enumerate()
-        {
+        for (i, attr) in item.attrs.iter_mut().enumerate() {
+            let meta = attr.parse_meta()?;
             let meta_span = meta.span();
             let name = match meta.path().get_ident() {
-                Some(name) => name,
+                Some(name) => name.clone(),
                 None => continue,
             };
 
@@ -205,6 +201,17 @@ impl Module {
                 }
                 attr_name @ "pyclass" | attr_name @ "pystruct_sequence" => {
                     assert!(item.typ == ItemType::Struct);
+
+                    let mut metalist = match &meta {
+                        Meta::Path(path) => parse_quote!(#path()),
+                        Meta::List(metalist) => metalist.clone(),
+                        _ => unreachable!(),
+                    };
+                    let module_name = &self.name;
+                    metalist.nested.push(parse_quote! {module = #module_name});
+
+                    *attr = parse_quote!(#[#metalist]);
+
                     if has_class {
                         Err(err_span!(
                             meta,
@@ -285,13 +292,16 @@ fn extract_module_items(
 ) -> Result<TokenStream2, Diagnostic> {
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
-    let mut module = Module::default();
+    let mut module = Module {
+        name: module_name.to_owned(),
+        items: Default::default(),
+    };
 
     for item in items.iter_mut() {
         push_diag_result!(diagnostics, module.extract_item_from_syn(item),);
     }
 
-    let functions = module
+    let items = module
         .items
         .into_iter()
         .map(|((_name, cfgs), item)| match item {
@@ -361,7 +371,7 @@ fn extract_module_items(
     Diagnostic::from_vec(diagnostics)?;
 
     Ok(quote! {
-        #(#functions)*
+        #(#items)*
     })
 }
 
