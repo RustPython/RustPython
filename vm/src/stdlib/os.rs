@@ -256,6 +256,35 @@ mod _os {
     use super::platform::OpenFlags;
     use super::*;
 
+    #[pyattr]
+    const O_RDONLY: libc::c_int = libc::O_RDONLY;
+    #[pyattr]
+    const O_WRONLY: libc::c_int = libc::O_WRONLY;
+    #[pyattr]
+    const O_RDWR: libc::c_int = libc::O_RDWR;
+    #[pyattr]
+    const O_APPEND: libc::c_int = libc::O_APPEND;
+    #[pyattr]
+    const O_EXCL: libc::c_int = libc::O_EXCL;
+    #[pyattr]
+    const O_CREAT: libc::c_int = libc::O_CREAT;
+    #[pyattr]
+    const O_TRUNC: libc::c_int = libc::O_TRUNC;
+    #[pyattr]
+    pub(super) const F_OK: u8 = 0;
+    #[pyattr]
+    pub(super) const R_OK: u8 = 4;
+    #[pyattr]
+    pub(super) const W_OK: u8 = 2;
+    #[pyattr]
+    pub(super) const X_OK: u8 = 1;
+    #[pyattr]
+    const SEEK_SET: libc::c_int = libc::SEEK_SET;
+    #[pyattr]
+    const SEEK_CUR: libc::c_int = libc::SEEK_CUR;
+    #[pyattr]
+    const SEEK_END: libc::c_int = libc::SEEK_END;
+
     #[pyfunction]
     fn close(fileno: i64) {
         //The File type automatically closes when it goes out of scope.
@@ -891,31 +920,9 @@ impl<'a> SupportFunc {
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let ctx = &vm.ctx;
-    let environ = platform::_environ(vm);
     let module = platform::make_module(vm);
 
-    extend_module!(vm, module, {
-        "environ" => environ,
-
-        "O_RDONLY" => ctx.new_int(libc::O_RDONLY),
-        "O_WRONLY" => ctx.new_int(libc::O_WRONLY),
-        "O_RDWR" => ctx.new_int(libc::O_RDWR),
-        "O_APPEND" => ctx.new_int(libc::O_APPEND),
-        "O_EXCL" => ctx.new_int(libc::O_EXCL),
-        "O_CREAT" => ctx.new_int(libc::O_CREAT),
-        "O_TRUNC" => ctx.new_int(libc::O_TRUNC),
-        "F_OK" => ctx.new_int(0),
-        "R_OK" => ctx.new_int(4),
-        "W_OK" => ctx.new_int(2),
-        "X_OK" => ctx.new_int(1),
-        "SEEK_SET" => ctx.new_int(libc::SEEK_SET),
-        "SEEK_CUR" => ctx.new_int(libc::SEEK_CUR),
-        "SEEK_END" => ctx.new_int(libc::SEEK_END),
-    });
-
     _os::extend_module(&vm, &module);
-    platform::extend_module_platform_specific(&vm, &module);
 
     let support_funcs = _os::support_funcs(vm);
     let supports_fd = PySet::default().into_ref(vm);
@@ -981,7 +988,102 @@ mod posix {
     pub(super) use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::io::RawFd;
 
+    #[pyattr]
+    const WNOHANG: libc::c_int = libc::WNOHANG;
+    #[pyattr]
+    const EX_OK: i8 = exitcode::OK as i8;
+    #[pyattr]
+    const EX_USAGE: i8 = exitcode::USAGE as i8;
+    #[pyattr]
+    const EX_DATAERR: i8 = exitcode::DATAERR as i8;
+    #[pyattr]
+    const EX_NOINPUT: i8 = exitcode::NOINPUT as i8;
+    #[pyattr]
+    const EX_NOUSER: i8 = exitcode::NOUSER as i8;
+    #[pyattr]
+    const EX_NOHOST: i8 = exitcode::NOHOST as i8;
+    #[pyattr]
+    const EX_UNAVAILABLE: i8 = exitcode::UNAVAILABLE as i8;
+    #[pyattr]
+    const EX_SOFTWARE: i8 = exitcode::SOFTWARE as i8;
+    #[pyattr]
+    const EX_OSERR: i8 = exitcode::OSERR as i8;
+    #[pyattr]
+    const EX_OSFILE: i8 = exitcode::OSFILE as i8;
+    #[pyattr]
+    const EX_CANTCREAT: i8 = exitcode::CANTCREAT as i8;
+    #[pyattr]
+    const EX_IOERR: i8 = exitcode::IOERR as i8;
+    #[pyattr]
+    const EX_TEMPFAIL: i8 = exitcode::TEMPFAIL as i8;
+    #[pyattr]
+    const EX_PROTOCOL: i8 = exitcode::PROTOCOL as i8;
+    #[pyattr]
+    const EX_NOPERM: i8 = exitcode::NOPERM as i8;
+    #[pyattr]
+    const EX_CONFIG: i8 = exitcode::CONFIG as i8;
+    #[pyattr]
+    const O_NONBLOCK: libc::c_int = libc::O_NONBLOCK;
+    #[pyattr]
+    const O_CLOEXEC: libc::c_int = libc::O_CLOEXEC;
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyattr]
+    const O_DSYNC: libc::c_int = libc::O_DSYNC;
+    #[cfg(not(target_os = "redox"))]
+    #[pyattr]
+    const O_NDELAY: libc::c_int = libc::O_NDELAY;
+    #[cfg(not(target_os = "redox"))]
+    #[pyattr]
+    const O_NOCTTY: libc::c_int = libc::O_NOCTTY;
+
+    // cfg taken from nix
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        all(
+            target_os = "linux",
+            not(any(target_env = "musl", target_arch = "mips", target_arch = "mips64"))
+        )
+    ))]
+    #[pyattr]
+    const SEEK_DATA: i8 = unistd::Whence::SeekData as i8;
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        all(
+            target_os = "linux",
+            not(any(target_env = "musl", target_arch = "mips", target_arch = "mips64"))
+        )
+    ))]
+    #[pyattr]
+    const SEEK_HOLE: i8 = unistd::Whence::SeekHole as i8;
+
+    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
+    #[pyattr]
+    const POSIX_SPAWN_OPEN: i32 = PosixSpawnFileActionIdentifier::Open as i32;
+    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
+    #[pyattr]
+    const POSIX_SPAWN_CLOSE: i32 = PosixSpawnFileActionIdentifier::Close as i32;
+    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
+    #[pyattr]
+    const POSIX_SPAWN_DUP2: i32 = PosixSpawnFileActionIdentifier::Dup2 as i32;
+
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    const _COPYFILE_DATA: u32 = 1 << 3;
+
     pub(super) type OpenFlags = i32;
+
+    // Flags for os_access
+    bitflags! {
+        pub struct AccessFlags: u8{
+            const F_OK = super::_os::F_OK;
+            const R_OK = super::_os::R_OK;
+            const W_OK = super::_os::W_OK;
+            const X_OK = super::_os::X_OK;
+        }
+    }
 
     impl PyPathLike {
         pub fn into_bytes(self) -> Vec<u8> {
@@ -1006,16 +1108,6 @@ mod posix {
         match errno {
             Errno::EPERM => vm.ctx.exceptions.permission_error.clone(),
             _ => vm.ctx.exceptions.os_error.clone(),
-        }
-    }
-
-    // Flags for os_access
-    bitflags! {
-        pub struct AccessFlags: u8{
-            const F_OK = 0;
-            const R_OK = 4;
-            const W_OK = 2;
-            const X_OK = 1;
         }
     }
 
@@ -1128,7 +1220,8 @@ mod posix {
         Ok(ffi::OsStr::from_bytes(b))
     }
 
-    pub(super) fn _environ(vm: &VirtualMachine) -> PyDictRef {
+    #[pyattr]
+    fn environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
         use std::os::unix::ffi::OsStringExt;
         for (key, value) in env::vars_os() {
@@ -2028,8 +2121,7 @@ mod posix {
             flags: u32,               // copyfile_flags_t
         ) -> libc::c_int;
     }
-    #[cfg(target_os = "macos")]
-    const COPYFILE_DATA: u32 = 1 << 3;
+
     #[cfg(target_os = "macos")]
     #[pyfunction]
     fn _fcopyfile(in_fd: i32, out_fd: i32, flags: i32, vm: &VirtualMachine) -> PyResult<()> {
@@ -2039,75 +2131,6 @@ mod posix {
         } else {
             Ok(())
         }
-    }
-
-    pub(super) fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
-        let ctx = &vm.ctx;
-
-        extend_module!(vm, module, {
-            "WNOHANG" => ctx.new_int(libc::WNOHANG),
-            "EX_OK" => ctx.new_int(exitcode::OK as i8),
-            "EX_USAGE" => ctx.new_int(exitcode::USAGE as i8),
-            "EX_DATAERR" => ctx.new_int(exitcode::DATAERR as i8),
-            "EX_NOINPUT" => ctx.new_int(exitcode::NOINPUT as i8),
-            "EX_NOUSER" => ctx.new_int(exitcode::NOUSER as i8),
-            "EX_NOHOST" => ctx.new_int(exitcode::NOHOST as i8),
-            "EX_UNAVAILABLE" => ctx.new_int(exitcode::UNAVAILABLE as i8),
-            "EX_SOFTWARE" => ctx.new_int(exitcode::SOFTWARE as i8),
-            "EX_OSERR" => ctx.new_int(exitcode::OSERR as i8),
-            "EX_OSFILE" => ctx.new_int(exitcode::OSFILE as i8),
-            "EX_CANTCREAT" => ctx.new_int(exitcode::CANTCREAT as i8),
-            "EX_IOERR" => ctx.new_int(exitcode::IOERR as i8),
-            "EX_TEMPFAIL" => ctx.new_int(exitcode::TEMPFAIL as i8),
-            "EX_PROTOCOL" => ctx.new_int(exitcode::PROTOCOL as i8),
-            "EX_NOPERM" => ctx.new_int(exitcode::NOPERM as i8),
-            "EX_CONFIG" => ctx.new_int(exitcode::CONFIG as i8),
-            "O_NONBLOCK" => ctx.new_int(libc::O_NONBLOCK),
-            "O_CLOEXEC" => ctx.new_int(libc::O_CLOEXEC),
-        });
-
-        #[cfg(not(target_os = "redox"))]
-        extend_module!(vm, module, {
-
-            "O_DSYNC" => ctx.new_int(libc::O_DSYNC),
-            "O_NDELAY" => ctx.new_int(libc::O_NDELAY),
-            "O_NOCTTY" => ctx.new_int(libc::O_NOCTTY),
-        });
-
-        // cfg taken from nix
-        #[cfg(any(
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            all(
-                target_os = "linux",
-                not(any(target_env = "musl", target_arch = "mips", target_arch = "mips64"))
-            )
-        ))]
-        extend_module!(vm, module, {
-            "SEEK_DATA" => ctx.new_int(unistd::Whence::SeekData as i8),
-            "SEEK_HOLE" => ctx.new_int(unistd::Whence::SeekHole as i8)
-        });
-        // cfg from nix
-        #[cfg(any(
-            target_os = "android",
-            target_os = "dragonfly",
-            target_os = "emscripten",
-            target_os = "freebsd",
-            target_os = "linux",
-            target_os = "netbsd",
-            target_os = "openbsd"
-        ))]
-        #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
-        extend_module!(vm, module, {
-            "POSIX_SPAWN_OPEN" => ctx.new_int(i32::from(PosixSpawnFileActionIdentifier::Open)),
-            "POSIX_SPAWN_CLOSE" => ctx.new_int(i32::from(PosixSpawnFileActionIdentifier::Close)),
-            "POSIX_SPAWN_DUP2" => ctx.new_int(i32::from(PosixSpawnFileActionIdentifier::Dup2)),
-        });
-
-        #[cfg(target_os = "macos")]
-        extend_module!(vm, module, {
-            "_COPYFILE_DATA" => ctx.new_int(COPYFILE_DATA),
-        });
     }
 
     pub(super) fn support_funcs(vm: &VirtualMachine) -> Vec<SupportFunc> {
@@ -2137,6 +2160,9 @@ mod nt {
     use std::os::windows::io::RawHandle;
     #[cfg(target_env = "msvc")]
     use winapi::vc::vcruntime::intptr_t;
+
+    #[pyattr]
+    const O_BINARY: libc::c_int = libc::O_BINARY;
 
     pub(super) type OpenFlags = u32;
 
@@ -2244,7 +2270,8 @@ mod nt {
         m
     }
 
-    pub(super) fn _environ(vm: &VirtualMachine) -> PyDictRef {
+    #[pyattr]
+    fn environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
 
         for (key, value) in env::vars() {
@@ -2479,13 +2506,6 @@ mod nt {
         }
     }
 
-    pub(super) fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
-        let ctx = &vm.ctx;
-        extend_module!(vm, module, {
-            "O_BINARY" => ctx.new_int(libc::O_BINARY),
-        });
-    }
-
     pub(super) fn support_funcs(_vm: &VirtualMachine) -> Vec<SupportFunc> {
         Vec::new()
     }
@@ -2550,11 +2570,10 @@ mod minor {
         os_unimpl("os.symlink", vm)
     }
 
-    pub(super) fn _environ(vm: &VirtualMachine) -> PyDictRef {
+    #[pyattr]
+    fn environ(vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
     }
-
-    pub fn extend_module_platform_specific(_vm: &VirtualMachine, _module: &PyObjectRef) {}
 
     pub(super) fn support_funcs(_vm: &VirtualMachine) -> Vec<SupportFunc> {
         Vec::new()
