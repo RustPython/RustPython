@@ -538,6 +538,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_more"
+version = "0.99.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1dcfabdab475c16a93d669dddfc393027803e347d09663f524447f642fbb84ba"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "diff"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1621,6 +1632,7 @@ name = "rustpython-common"
 version = "0.0.0"
 dependencies = [
  "cfg-if",
+ "derive_more",
  "hexf-parse",
  "lexical-core",
  "num-bigint",

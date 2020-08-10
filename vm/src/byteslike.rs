@@ -1,3 +1,5 @@
+use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
+use crate::common::cell::{PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::obj::objbytearray::{PyByteArray, PyByteArrayRef};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::pyobject::PyObjectRef;
@@ -23,6 +25,19 @@ impl TryFromObject for PyBytesLike {
                 obj.class()
             ))),
         })
+    }
+}
+
+impl<'a> BorrowValue<'a> for PyBytesLike {
+    type Borrowed = BorrowedValue<'a, [u8]>;
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        match self {
+            Self::Bytes(b) => b.borrow_value().into(),
+            Self::Bytearray(b) => {
+                PyRwLockReadGuard::map(b.borrow_value(), |b| b.elements.as_slice()).into()
+            }
+            Self::Array(a) => a.get_bytes().into(),
+        }
     }
 }
 
@@ -70,6 +85,18 @@ impl TryFromObject for PyRwBytesLike {
             obj =>
                 Err(vm.new_type_error(format!("a buffer object is required, not {}", obj.class()))),
         })
+    }
+}
+
+impl<'a> BorrowValue<'a> for PyRwBytesLike {
+    type Borrowed = BorrowedValueMut<'a, [u8]>;
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        match self {
+            Self::Bytearray(b) => {
+                PyRwLockWriteGuard::map(b.borrow_value_mut(), |b| b.elements.as_mut_slice()).into()
+            }
+            Self::Array(a) => a.get_bytes_mut().into(),
+        }
     }
 }
 
