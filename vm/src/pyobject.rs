@@ -1449,13 +1449,6 @@ pub trait PyStructSequenceImpl: PyClassImpl {
     const FIELD_NAMES: &'static [&'static str];
 
     fn repr(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<String> {
-        let name = if let Ok(module_name) = vm.get_attribute(zelf.as_object().clone(), "__module__")
-        {
-            format!("{}.{}", module_name, Self::NAME)
-        } else {
-            Self::NAME.to_owned()
-        };
-
         let format_field = |(value, name)| {
             let s = vm.to_repr(value)?;
             Ok(format!("{}: {}", name, s))
@@ -1478,7 +1471,7 @@ pub trait PyStructSequenceImpl: PyClassImpl {
             } else {
                 (String::new(), "...")
             };
-        Ok(format!("{}({}{})", name, body, suffix))
+        Ok(format!("{}({}{})", Self::TP_NAME, body, suffix))
     }
 }
 
