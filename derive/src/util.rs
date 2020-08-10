@@ -7,8 +7,8 @@ pub(crate) fn path_eq(path: &Path, s: &str) -> bool {
 }
 
 pub(crate) fn def_to_name(
-    ident: &Ident,
     attr_name: &'static str,
+    ident: &Ident,
     attrs: &[NestedMeta],
 ) -> Result<String, Diagnostic> {
     optional_attribute_arg(attr_name, "name", attrs)

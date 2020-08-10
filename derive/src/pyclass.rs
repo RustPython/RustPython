@@ -1,6 +1,7 @@
 use super::Diagnostic;
 use crate::util::{
-    attribute_arg, def_to_name, meta_into_nesteds, path_eq, ItemIdent, ItemMeta, ItemType,
+    attribute_arg, def_to_name, meta_into_nesteds, optional_attribute_arg, path_eq, ItemIdent,
+    ItemMeta, ItemType,
 };
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
@@ -419,6 +420,7 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diag
 fn generate_class_def(
     ident: &Ident,
     name: &str,
+    tp_name: &str,
     attrs: &[Attribute],
 ) -> Result<TokenStream2, Diagnostic> {
     let mut doc: Option<Vec<String>> = None;
@@ -447,6 +449,7 @@ fn generate_class_def(
     let ret = quote! {
         impl ::rustpython_vm::pyobject::PyClassDef for #ident {
             const NAME: &'static str = #name;
+            const TP_NAME: &'static str = #tp_name;
             const DOC: Option<&'static str> = #doc;
         }
     };
@@ -463,8 +466,14 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
         ),
     };
 
-    let class_name = def_to_name(&ident, "pyclass", &attr)?;
-    let class_def = generate_class_def(&ident, &class_name, &attrs)?;
+    let class_name = def_to_name("pyclass", &ident, &attr)?;
+    let module_class_name =
+        if let Some(module_name) = optional_attribute_arg("pystruct_sequence", "module", &attr)? {
+            format!("{}.{}", module_name, class_name)
+        } else {
+            class_name.clone()
+        };
+    let class_def = generate_class_def(&ident, &class_name, &module_class_name, &attrs)?;
 
     let ret = quote! {
         #item
@@ -482,8 +491,12 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             "#[pystruct_sequence] can only be on a struct declaration"
         )
     };
-    let class_name = def_to_name(&struc.ident, "pystruct_sequence", &attr)?;
-    let class_def = generate_class_def(&struc.ident, &class_name, &struc.attrs)?;
+    let module_name = attribute_arg("pystruct_sequence", "module", &attr)?;
+    let class_name = def_to_name("pystruct_sequence", &struc.ident, &attr)?;
+    let module_class_name = format!("{}.{}", module_name, class_name);
+
+    let class_def =
+        generate_class_def(&struc.ident, &class_name, &module_class_name, &struc.attrs)?;
     let mut properties = Vec::new();
     let mut field_names = Vec::new();
     for (i, field) in struc.fields.iter().enumerate() {

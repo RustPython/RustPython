@@ -387,7 +387,7 @@ pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Di
         Item::Mod(m) => m,
         other => bail_span!(other, "#[pymodule] can only be on a module declaration"),
     };
-    let module_name = def_to_name(&module.ident, "pymodule", &attr)?;
+    let module_name = def_to_name("pymodule", &module.ident, &attr)?;
 
     let (_, content) = match module.content.as_mut() {
         Some(c) => c,

@@ -1407,6 +1407,7 @@ where
 
 pub trait PyClassDef {
     const NAME: &'static str;
+    const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
 }
 
@@ -1415,6 +1416,7 @@ where
     T: PyClassDef,
 {
     const NAME: &'static str = T::NAME;
+    const TP_NAME: &'static str = T::TP_NAME;
     const DOC: Option<&'static str> = T::DOC;
 }
 
