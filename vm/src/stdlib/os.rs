@@ -1543,6 +1543,50 @@ mod posix {
     }
 
     #[pyfunction]
+    fn execve(
+        path: PyPathLike,
+        args: Either<PyListRef, PyTupleRef>,
+        env: PyDictRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let path = ffi::CString::new(path.into_bytes())
+            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+
+        let args: Vec<ffi::CString> = match args {
+            Either::A(list) => vm.extract_elements(list.as_object())?,
+            Either::B(tuple) => vm.extract_elements(tuple.as_object())?,
+        };
+        let args: Vec<&ffi::CStr> = args.iter().map(|entry| entry.as_c_str()).collect();
+
+        let first = args
+            .first()
+            .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty".to_owned()))?;
+
+        if first.to_bytes().is_empty() {
+            return Err(vm.new_value_error("execv() arg2 first element cannot be empty".to_owned()));
+        }
+
+        let mut env_vec = vec![];
+        for (k, v) in env {
+            let key: PyStringRef = k.downcast().map_err(|_| {
+                vm.new_type_error("expected str, bytes or os.PathLike object".to_owned())
+            })?;
+            let value: PyStringRef = v.downcast().map_err(|_| {
+                vm.new_type_error("expected str, bytes or os.PathLike object".to_owned())
+            })?;
+            env_vec.push(
+                ffi::CString::new(format!("{}={}", key, value))
+                    .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?,
+            );
+        }
+        let env: Vec<&ffi::CStr> = env_vec.iter().map(|entry| entry.as_c_str()).collect();
+
+        unistd::execve(&path, &args, &env)
+            .map(|_ok| ())
+            .map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[pyfunction]
     fn getppid(vm: &VirtualMachine) -> PyObjectRef {
         let ppid = unistd::getppid().as_raw();
         vm.ctx.new_int(ppid)
