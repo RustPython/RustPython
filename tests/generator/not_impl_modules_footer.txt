@@ -2,39 +2,27 @@
 
 def dir_of_mod_or_default(module, default=None):
     try:
-        mod=set(dir(__import__(module)))
+        mod = set(dir(__import__(module)))
         return mod
-    except:
+    except (ImportError, AttributeError):
         return default
 
-rustpymods = list(
-    map(
-        lambda mod: mod[0],
-        filter(
-            lambda mod: (mod[1] == "" or mod[1] == ".py") and "LICENSE" not in mod[0],
-            map(os.path.splitext, os.listdir(libdir)),
-        ),
-    )
-)
-rustpymods += list(sys.builtin_module_names)
+mod_names = [
+    name.decode() for name, ext in map(os.path.splitext, os.listdir(libdir))
+    if ext == b'.py' or os.path.isdir(f'{libdir}/{name}')]
+mod_names += list(sys.builtin_module_names)
 
-
-not_imported=set('not imported')
-rustpymods = dict(map(
-    lambda mod: (
-        mod,
-        dir_of_mod_or_default(mod, not_imported)
-        if mod not in ("this", "antigravity") else None
-    ),
-    rustpymods
-))
-
+not_imported = {'not imported'}
+rustpymods = {
+    mod: (dir_of_mod_or_default(mod, not_imported) if mod not in ("this", "antigravity") else None)
+    for mod in mod_names
+}
 
 for modname, cpymod in cpymods.items():
     if modname in rustpymods:
         rustpymod = rustpymods[modname]
         if rustpymod:
-            if rustpymod==not_imported:
+            if rustpymod == not_imported:
                 print(f"{modname} (existing but not importable)")
                 continue
             for item in cpymod - rustpymod:
