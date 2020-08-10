@@ -1135,7 +1135,7 @@ impl IntoPyObject for &String {
 impl TryFromObject for std::ffi::CString {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let s = PyStringRef::try_from_object(vm, obj)?;
-        Self::new(s.borrow_value().to_owned())
+        Self::new(s.owned_value())
             .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
     }
 }

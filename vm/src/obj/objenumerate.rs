@@ -35,7 +35,7 @@ impl PyEnumerate {
         vm: &VirtualMachine,
     ) -> PyResult<PyEnumerateRef> {
         let counter = match start {
-            OptionalArg::Present(start) => start.borrow_value().clone(),
+            OptionalArg::Present(start) => start.cloned_value(),
             OptionalArg::Missing => BigInt::zero(),
         };
 

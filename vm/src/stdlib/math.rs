@@ -267,7 +267,7 @@ fn math_ldexp(
     vm: &VirtualMachine,
 ) -> PyResult<f64> {
     let value = match value {
-        Either::A(f) => f.to_f64(),
+        Either::A(f) => f.copied_value(),
         Either::B(z) => objint::try_float(z.borrow_value(), vm)?,
     };
     Ok(value * (2_f64).powf(objint::try_float(i.borrow_value(), vm)?))
@@ -285,7 +285,7 @@ where
         return op(argvec[0].borrow_value(), &argvec[0]);
     }
 
-    let mut res = argvec[0].borrow_value().clone();
+    let mut res = argvec[0].cloned_value();
     for num in argvec[1..].iter() {
         res = op(&res, &num)
     }

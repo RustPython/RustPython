@@ -37,7 +37,7 @@ impl TryFromObject for PyBytesInner {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         match_class!(match obj {
             i @ PyBytes => Ok(PyBytesInner {
-                elements: i.borrow_value().to_vec()
+                elements: i.owned_value()
             }),
             j @ PyByteArray => Ok(PyBytesInner {
                 elements: j.borrow_value().elements.to_vec()
@@ -74,9 +74,7 @@ impl ByteInnerNewOptions {
             if let OptionalArg::Present(eval) = self.val_option {
                 if let Ok(input) = eval.downcast::<PyString>() {
                     let bytes = objstr::encode_string(input, Some(enc), None, vm)?;
-                    Ok(PyBytesInner {
-                        elements: bytes.borrow_value().to_vec(),
-                    })
+                    Ok(bytes.owned_value().into())
                 } else {
                     Err(vm.new_type_error("encoding without a string argument".to_owned()))
                 }
@@ -108,7 +106,7 @@ impl ByteInnerNewOptions {
                             vm.new_type_error("string argument without an encoding".to_owned())
                         );
                     }
-                    i @ PyBytes => Ok(i.borrow_value().to_vec()),
+                    i @ PyBytes => Ok(i.owned_value()),
                     j @ PyByteArray => Ok(j.borrow_value().elements.to_vec()),
                     obj => {
                         // TODO: only support this method in the bytes() constructor

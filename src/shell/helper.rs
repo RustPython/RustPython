@@ -134,10 +134,7 @@ impl<'vm> ShellHelper<'vm> {
 
         Some((
             startpos,
-            completions
-                .into_iter()
-                .map(|s| s.borrow_value().to_owned())
-                .collect(),
+            completions.into_iter().map(|s| s.owned_value()).collect(),
         ))
     }
 }

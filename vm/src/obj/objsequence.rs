@@ -265,7 +265,7 @@ pub fn is_valid_slice_arg(
 ) -> PyResult<Option<BigInt>> {
     if let OptionalArg::Present(value) = arg {
         match_class!(match value {
-            i @ PyInt => Ok(Some(i.borrow_value().clone())),
+            i @ PyInt => Ok(Some(i.cloned_value())),
             _obj @ PyNone => Ok(None),
             _ => Err(vm.new_type_error(
                 "slice indices must be integers or None or have an __index__ method".to_owned()

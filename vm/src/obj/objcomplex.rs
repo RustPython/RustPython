@@ -257,7 +257,7 @@ impl PyComplex {
                     objint::try_float(i.borrow_value(), vm)?
                 }
                 f @ PyFloat => {
-                    f.to_f64()
+                    f.copied_value()
                 }
                 s @ PyString => {
                     if imag.into_option().is_some() {

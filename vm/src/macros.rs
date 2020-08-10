@@ -122,8 +122,8 @@ macro_rules! py_namespace {
 /// let obj = PyInt::from(0).into_ref(&vm).into_object();
 ///
 /// let int_value = match_class!(match obj {
-///     i @ PyInt => i.borrow_value().clone(),
-///     f @ PyFloat => f.to_f64().to_bigint().unwrap(),
+///     i @ PyInt => i.cloned_value(),
+///     f @ PyFloat => f.borrow_value().to_bigint().unwrap(),
 ///     obj => panic!("non-numeric object {}", obj),
 /// });
 ///
