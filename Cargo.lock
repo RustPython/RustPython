@@ -1422,7 +1422,6 @@ dependencies = [
  "num-traits",
  "num_cpus",
  "num_enum",
- "once_cell",
  "openssl",
  "openssl-probe",
  "openssl-sys",

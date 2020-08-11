@@ -11,8 +11,6 @@ use std::{env, fmt};
 
 use arr_macro::arr;
 use crossbeam_utils::atomic::AtomicCell;
-use once_cell::sync::Lazy;
-use parking_lot::{Mutex, MutexGuard};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::{
     compile::{self, CompileOpts},
@@ -1491,7 +1489,9 @@ impl Default for VirtualMachine {
     }
 }
 
-static REPR_GUARDS: Lazy<Mutex<HashSet<usize>>> = Lazy::new(Mutex::default);
+thread_local! {
+    static REPR_GUARDS: RefCell<HashSet<usize>> = RefCell::default();
+}
 
 pub struct ReprGuard {
     id: usize,
@@ -1499,29 +1499,27 @@ pub struct ReprGuard {
 
 /// A guard to protect repr methods from recursion into itself,
 impl ReprGuard {
-    fn get_guards<'a>() -> MutexGuard<'a, HashSet<usize>> {
-        REPR_GUARDS.lock()
-    }
-
     /// Returns None if the guard against 'obj' is still held otherwise returns the guard. The guard
     /// which is released if dropped.
     pub fn enter(obj: &PyObjectRef) -> Option<ReprGuard> {
-        let mut guards = ReprGuard::get_guards();
+        REPR_GUARDS.with(|guards| {
+            let mut guards = guards.borrow_mut();
 
-        // Should this be a flag on the obj itself? putting it in a global variable for now until it
-        // decided the form of the PyObject. https://github.com/RustPython/RustPython/issues/371
-        let id = obj.get_id();
-        if guards.contains(&id) {
-            return None;
-        }
-        guards.insert(id);
-        Some(ReprGuard { id })
+            // Should this be a flag on the obj itself? putting it in a global variable for now until it
+            // decided the form of the PyObject. https://github.com/RustPython/RustPython/issues/371
+            let id = obj.get_id();
+            if guards.contains(&id) {
+                return None;
+            }
+            guards.insert(id);
+            Some(ReprGuard { id })
+        })
     }
 }
 
 impl Drop for ReprGuard {
     fn drop(&mut self) {
-        ReprGuard::get_guards().remove(&self.id);
+        REPR_GUARDS.with(|guards| guards.borrow_mut().remove(&self.id));
     }
 }
 
