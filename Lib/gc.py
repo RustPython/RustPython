@@ -48,7 +48,7 @@ def collect(*args, **kwargs):  # unknown args #
 
     The number of unreachable objects is returned.
     """
-    raise NotImplementedError()
+    return 0
 
 
 def disable(*args, **kwargs):  # unknown args #
