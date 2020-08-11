@@ -27,7 +27,8 @@ impl FrameRef {
 
     #[pymethod(name = "__delattr__")]
     fn delattr(self, value: PyStringRef, vm: &VirtualMachine) {
-        println!("Called: FrameRef::delattr over {:?}", value);
+        // CPython' Frame.f_trace is set to None when deleted.
+        // The strange behavior is mimicked here make bdb.py happy about it.
         if value.to_string() == "f_trace" {
             self.set_f_trace(vm.get_none());
         };
