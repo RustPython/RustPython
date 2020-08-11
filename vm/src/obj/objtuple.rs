@@ -238,15 +238,15 @@ impl PyTuple {
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
         let elements = if let OptionalArg::Present(iterable) = iterable {
-            let exact_res = if cls.is(&vm.ctx.types.tuple_type) {
-                iterable.downcast_exact::<PyTuple>(vm)
+            let iterable = if cls.is(&vm.ctx.types.tuple_type) {
+                match iterable.downcast_exact::<PyTuple>(vm) {
+                    Ok(tuple) => return Ok(tuple),
+                    Err(iterable) => iterable,
+                }
             } else {
-                Err(iterable)
+                iterable
             };
-            match exact_res {
-                Ok(tup) => return Ok(tup),
-                Err(iterable) => vm.extract_elements(&iterable)?,
-            }
+            vm.extract_elements(&iterable)?
         } else {
             vec![]
         };
