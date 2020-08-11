@@ -1566,20 +1566,19 @@ mod posix {
             return Err(vm.new_value_error("execv() arg2 first element cannot be empty".to_owned()));
         }
 
-        let mut env_vec = vec![];
-        for (k, v) in env {
-            let key: PyStringRef = k.downcast().map_err(|_| {
-                vm.new_type_error("expected str, bytes or os.PathLike object".to_owned())
-            })?;
-            let value: PyStringRef = v.downcast().map_err(|_| {
-                vm.new_type_error("expected str, bytes or os.PathLike object".to_owned())
-            })?;
-            env_vec.push(
-                ffi::CString::new(format!("{}={}", key, value))
-                    .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?,
-            );
-        }
-        let env: Vec<&ffi::CStr> = env_vec.iter().map(|entry| entry.as_c_str()).collect();
+        let env = env
+            .into_iter()
+            .map(|(k, v)| -> PyResult<_> {
+                let (key, value) = (
+                    PyPathLike::try_from_object(&vm, k)?,
+                    PyPathLike::try_from_object(&vm, v)?,
+                );
+                ffi::CString::new(format!("{}={}", key.path.display(), value.path.display()))
+                    .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let env: Vec<&ffi::CStr> = env.iter().map(|entry| entry.as_c_str()).collect();
 
         unistd::execve(&path, &args, &env)
             .map(|_ok| ())
