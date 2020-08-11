@@ -513,7 +513,7 @@ impl PySet {
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let s = if zelf.inner.len() == 0 {
             "set()".to_owned()
-        } else if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
+        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             zelf.inner.repr(vm)?
         } else {
             "set(...)".to_owned()
@@ -783,7 +783,7 @@ impl PyFrozenSet {
         let inner = &zelf.inner;
         let s = if inner.len() == 0 {
             "frozenset()".to_owned()
-        } else if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
+        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             format!("frozenset({})", inner.repr(vm)?)
         } else {
             "frozenset(...)".to_owned()

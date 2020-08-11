@@ -1454,7 +1454,7 @@ pub trait PyStructSequenceImpl: PyClassImpl {
             Ok(format!("{}: {}", name, s))
         };
         let (body, suffix) =
-            if let Some(_guard) = rustpython_vm::vm::ReprGuard::enter(zelf.as_object()) {
+            if let Some(_guard) = rustpython_vm::vm::ReprGuard::enter(vm, zelf.as_object()) {
                 if Self::FIELD_NAMES.len() == 1 {
                     let value = zelf.borrow_value().first().unwrap();
                     let formatted = format_field((value, Self::FIELD_NAMES[0]))?;
