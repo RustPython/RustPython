@@ -1563,7 +1563,9 @@ mod posix {
             .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty".to_owned()))?;
 
         if first.to_bytes().is_empty() {
-            return Err(vm.new_value_error("execv() arg2 first element cannot be empty".to_owned()));
+            return Err(
+                vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned())
+            );
         }
 
         let env = env
@@ -1580,9 +1582,8 @@ mod posix {
 
         let env: Vec<&ffi::CStr> = env.iter().map(|entry| entry.as_c_str()).collect();
 
-        unistd::execve(&path, &args, &env)
-            .map(|_ok| ())
-            .map_err(|err| err.into_pyexception(vm))
+        unistd::execve(&path, &args, &env).map_err(|err| err.into_pyexception(vm))?;
+        Ok(())
     }
 
     #[pyfunction]
