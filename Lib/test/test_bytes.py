@@ -54,8 +54,6 @@ class BaseBytesTest:
             self.assertEqual(a, b)
             self.assertEqual(type(a), type(b))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_empty_sequence(self):
         b = self.type2test()
         self.assertEqual(len(b), 0)
@@ -1291,7 +1289,8 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         del b[4]
         self.assertEqual(b, bytearray([1, 2, 3, 4, 6, 7, 8]))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setslice(self):
         b = bytearray(range(10))
         self.assertEqual(list(b), list(range(10)))

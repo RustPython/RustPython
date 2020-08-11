@@ -199,8 +199,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.checkequal(0, 'a' * 10, 'count', 'a\U00100304')
         self.checkequal(0, '\u0102' * 10, 'count', '\u0102\U00100304')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_find(self):
         string_tests.CommonTest.test_find(self)
         # test implementation details of the memchr fast path
@@ -232,8 +231,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.checkequal(-1, 'a' * 100, 'find', 'a\U00100304')
         self.checkequal(-1, '\u0102' * 100, 'find', '\u0102\U00100304')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_rfind(self):
         string_tests.CommonTest.test_rfind(self)
         # test implementation details of the memrchr fast path
@@ -473,6 +471,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.checkraises(TypeError, ' ', 'join', [1, 2, 3])
         self.checkraises(TypeError, ' ', 'join', ['1', '2', 3])
 
+    @unittest.skip("TODO: RUSTPYTHON, oom handling")
     @unittest.skipIf(sys.maxsize > 2**32,
         'needs too much memory on a 64-bit platform')
     def test_join_overflow(self):
@@ -621,8 +620,6 @@ class UnicodeTest(string_tests.CommonTest,
         for ch in ['\U00010429', '\U0001044E', '\U0001F40D', '\U0001F46F']:
             self.assertFalse(ch.istitle(), '{!a} is not title'.format(ch))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_isspace(self):
         super().test_isspace()
         self.checkequalnofix(True, '\u2000', 'isspace')
@@ -896,8 +893,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual('ß'.swapcase(), 'SS')
         self.assertEqual('\u1fd2'.swapcase(), '\u0399\u0308\u0300')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_center(self):
         string_tests.CommonTest.test_center(self)
         self.assertEqual('x'.center(2, '\U0010FFFF'),
@@ -960,8 +955,6 @@ class UnicodeTest(string_tests.CommonTest,
                 self.assertNotIn(delim * 2, fill)
                 self.assertIn(delim * 2, fill + delim * 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue18183(self):
         '\U00010000\U00100000'.lower()
         '\U00010000\U00100000'.casefold()
@@ -1280,8 +1273,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual("{!s}".format(n), 'N(data)')
         self.assertRaises(TypeError, "{}".format, n)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format_map(self):
         self.assertEqual(''.format_map({}), '')
         self.assertEqual('a'.format_map({}), 'a')
@@ -2127,8 +2118,6 @@ class UnicodeTest(string_tests.CommonTest,
         # Test whether trailing dot is preserved
         self.assertEqual("www.python.org.".encode("idna"), b"www.python.org.")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_codecs_errors(self):
         # Error handling (encoding)
         self.assertRaises(UnicodeError, 'Andr\202 x'.encode, 'ascii')
@@ -2365,6 +2354,7 @@ class UnicodeTest(string_tests.CommonTest,
     # This test only affects 32-bit platforms because expandtabs can only take
     # an int as the max value, not a 64-bit C long.  If expandtabs is changed
     # to take a 64-bit long, this test should apply to all platforms.
+    @unittest.skip("TODO: RUSTPYTHON, oom handling")
     @unittest.skipIf(sys.maxsize > (1 << 32) or struct.calcsize('P') != 4,
                      'only applies to 32-bit platforms')
     def test_expandtabs_overflows_gracefully(self):
@@ -2966,8 +2956,6 @@ class CAPITest(unittest.TestCase):
                 self.assertEqual(getargs_s_hash(s), chr(k).encode() * (i + 1))
 
 class StringModuleTest(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_formatter_parser(self):
         def parse(format):
             return list(_string.formatter_parser(format))
@@ -3001,8 +2989,6 @@ class StringModuleTest(unittest.TestCase):
 
         self.assertRaises(TypeError, _string.formatter_parser, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_formatter_field_name_split(self):
         def split(name):
             items = list(_string.formatter_field_name_split(name))

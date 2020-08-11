@@ -1805,6 +1805,7 @@ class TestWeirdBugs(unittest.TestCase):
         s.update(range(100))
         list(si)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_merge_and_mutate(self):
         class X:
             def __hash__(self):

@@ -1,12 +1,12 @@
 mod helper;
 
 use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
-use rustpython_parser::error::ParseErrorType;
+use rustpython_parser::error::{LexicalErrorType, ParseErrorType};
 use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
     exceptions::{print_exception, PyBaseExceptionRef},
     obj::objtype,
-    pyobject::{ItemProtocol, PyResult},
+    pyobject::{BorrowValue, PyResult},
     scope::Scope,
     VirtualMachine,
 };
@@ -19,19 +19,14 @@ enum ShellExecResult {
 
 fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResult {
     match vm.compile(source, compile::Mode::Single, "<stdin>".to_owned()) {
-        Ok(code) => {
-            match vm.run_code_obj(code, scope.clone()) {
-                Ok(value) => {
-                    // Save non-None values as "_"
-                    if !vm.is_none(&value) {
-                        let key = "_";
-                        scope.globals.set_item(key, value, vm).unwrap();
-                    }
-                    ShellExecResult::Ok
-                }
-                Err(err) => ShellExecResult::PyErr(err),
-            }
-        }
+        Ok(code) => match vm.run_code_obj(code, scope) {
+            Ok(_val) => ShellExecResult::Ok,
+            Err(err) => ShellExecResult::PyErr(err),
+        },
+        Err(CompileError {
+            error: CompileErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::EOF)),
+            ..
+        }) => ShellExecResult::Continue,
         Err(CompileError {
             error: CompileErrorType::Parse(ParseErrorType::EOF),
             ..
@@ -66,7 +61,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             .get_attribute(vm.sys_module.clone(), prompt_name)
             .and_then(|prompt| vm.to_str(&prompt));
         let prompt = match prompt {
-            Ok(ref s) => s.as_str(),
+            Ok(ref s) => s.borrow_value(),
             Err(_) => "",
         };
         let result = match repl.readline(prompt) {
@@ -136,7 +131,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 repl.save_history(&repl_history_path).unwrap();
                 return Err(exc);
             }
-            print_exception(vm, &exc);
+            print_exception(vm, exc);
         }
     }
     repl.save_history(&repl_history_path).unwrap();

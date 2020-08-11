@@ -2,38 +2,35 @@ use std::char;
 use std::fmt;
 use std::mem::size_of;
 use std::ops::Range;
-use std::str::FromStr;
 use std::string::ToString;
 
 use crossbeam_utils::atomic::AtomicCell;
+use itertools::Itertools;
 use num_traits::ToPrimitive;
+use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
 use unicode_casing::CharExt;
 
 use super::objbytes::{PyBytes, PyBytesRef};
 use super::objdict::PyDict;
-use super::objfloat;
-use super::objint::{self, PyInt, PyIntRef};
+use super::objint::{PyInt, PyIntRef};
 use super::objiter;
 use super::objnone::PyNone;
-use super::objsequence::PySliceableSequence;
-use super::objslice::PySliceRef;
-use super::objtuple;
+use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtype::{self, PyClassRef};
-use super::pystr::{adjust_indices, PyCommonString, StringRange};
-use crate::cformat::{
-    CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
-    CNumberType,
-};
-use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatSpec, FormatString};
-use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyhash;
+use crate::exceptions::IntoPyException;
+use crate::format::{FormatSpec, FormatString, FromTemplate};
+use crate::function::{OptionalArg, OptionalOption, PyFuncArgs};
 use crate::pyobject::{
-    Either, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
+    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
+use crate::pystr::{
+    self, adjust_indices, PyCommonString, PyCommonStringContainer, PyCommonStringWrapper,
+};
 use crate::vm::VirtualMachine;
+use rustpython_common::hash;
 
 /// str(object='') -> str
 /// str(bytes_or_buffer[, encoding[, errors]]) -> str
@@ -49,19 +46,30 @@ use crate::vm::VirtualMachine;
 #[derive(Debug)]
 pub struct PyString {
     value: String,
-    hash: AtomicCell<Option<pyhash::PyHash>>,
+    hash: AtomicCell<Option<hash::PyHash>>,
+    len: AtomicCell<Option<usize>>,
 }
 
-impl PyString {
-    #[inline]
-    pub fn as_str(&self) -> &str {
+impl<'a> BorrowValue<'a> for PyString {
+    type Borrowed = &'a str;
+
+    fn borrow_value(&'a self) -> Self::Borrowed {
         &self.value
     }
 }
 
-impl From<&str> for PyString {
-    fn from(s: &str) -> PyString {
-        s.to_owned().into()
+impl AsRef<str> for PyString {
+    fn as_ref(&self) -> &str {
+        &self.value
+    }
+}
+
+impl<T> From<&T> for PyString
+where
+    T: AsRef<str> + ?Sized,
+{
+    fn from(s: &T) -> PyString {
+        s.as_ref().to_owned().into()
     }
 }
 
@@ -70,6 +78,7 @@ impl From<String> for PyString {
         PyString {
             value: s,
             hash: AtomicCell::default(),
+            len: AtomicCell::default(),
         }
     }
 }
@@ -144,12 +153,13 @@ impl PyValue for PyStringReverseIterator {
 impl PyStringReverseIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let pos = self.position.fetch_sub(1) as usize - 1;
-        if let Some(c) = self.string.value.chars().nth(pos) {
-            Ok(c.to_string())
-        } else {
-            Err(objiter::new_stop_iteration(vm))
+        let pos = self.position.fetch_sub(1);
+        if pos > 0 {
+            if let Some(c) = self.string.value.chars().nth(pos as usize - 1) {
+                return Ok(c.to_string());
+            }
         }
+        Err(objiter::new_stop_iteration(vm))
     }
 
     #[pymethod(name = "__iter__")]
@@ -168,18 +178,6 @@ struct StrArgs {
     errors: OptionalArg<PyStringRef>,
 }
 
-#[derive(FromArgs)]
-struct SplitLineArgs {
-    #[pyarg(positional_or_keyword, optional = true)]
-    keepends: OptionalArg<bool>,
-}
-
-#[derive(FromArgs)]
-struct ExpandtabsArgs {
-    #[pyarg(positional_or_keyword, optional = true)]
-    tabsize: OptionalArg<usize>,
-}
-
 #[pyimpl(flags(BASETYPE))]
 impl PyString {
     #[pyslot]
@@ -194,7 +192,7 @@ impl PyString {
                                 "'{}' decoder returned '{}' instead of 'str'; use codecs.encode() to \
                                  encode arbitrary types",
                                 enc,
-                                obj.class().name,
+                                obj.lease_class().name,
                             ))
                         })?
                 } else {
@@ -208,15 +206,16 @@ impl PyString {
         if string.class().is(&cls) {
             Ok(string)
         } else {
-            PyString::from(string.as_str()).into_ref_with_type(vm, cls)
+            PyString::from(string.borrow_value()).into_ref_with_type(vm, cls)
         }
     }
+
     #[pymethod(name = "__add__")]
-    fn add(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            Ok(format!("{}{}", self.value, borrow_value(&rhs)))
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        if objtype::isinstance(&other, &vm.ctx.types.str_type) {
+            Ok(self.value.py_add(borrow_value(&other)))
         } else {
-            Err(vm.new_type_error(format!("Cannot add {} and {}", self, rhs)))
+            Err(vm.new_type_error(format!("Cannot add {} and {}", self, other)))
         }
     }
 
@@ -227,8 +226,8 @@ impl PyString {
 
     #[pymethod(name = "__eq__")]
     fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            vm.new_bool(self.value == borrow_value(&rhs))
+        if objtype::isinstance(&rhs, &vm.ctx.types.str_type) {
+            vm.ctx.new_bool(self.value == borrow_value(&rhs))
         } else {
             vm.ctx.not_implemented()
         }
@@ -236,8 +235,8 @@ impl PyString {
 
     #[pymethod(name = "__ne__")]
     fn ne(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            vm.new_bool(self.value != borrow_value(&rhs))
+        if objtype::isinstance(&rhs, &vm.ctx.types.str_type) {
+            vm.ctx.new_bool(self.value != borrow_value(&rhs))
         } else {
             vm.ctx.not_implemented()
         }
@@ -249,33 +248,24 @@ impl PyString {
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(&self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    fn getitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
         match needle {
-            Either::A(pos) => match pos.as_bigint().to_isize() {
-                Some(pos) => {
-                    let index: usize = if pos.is_negative() {
-                        (self.value.chars().count() as isize + pos) as usize
-                    } else {
-                        pos.abs() as usize
-                    };
+            SequenceIndex::Int(pos) => {
+                let index: usize = if pos.is_negative() {
+                    (self.value.chars().count() as isize + pos) as usize
+                } else {
+                    pos.abs() as usize
+                };
 
-                    if let Some(character) = self.value.chars().nth(index) {
-                        Ok(vm.new_str(character.to_string()))
-                    } else {
-                        Err(vm.new_index_error("string index out of range".to_owned()))
-                    }
+                if let Some(character) = self.value.chars().nth(index) {
+                    Ok(vm.ctx.new_str(character.to_string()))
+                } else {
+                    Err(vm.new_index_error("string index out of range".to_owned()))
                 }
-                None => {
-                    Err(vm
-                        .new_index_error("cannot fit 'int' into an index-sized integer".to_owned()))
-                }
-            },
-            Either::B(slice) => {
-                let string = self
-                    .value
-                    .to_owned()
-                    .get_slice_items(vm, slice.as_object())?;
-                Ok(vm.new_str(string))
+            }
+            SequenceIndex::Slice(slice) => {
+                let string = self.get_slice_items(vm, &slice)?;
+                Ok(vm.ctx.new_str(string))
             }
         }
     }
@@ -301,20 +291,22 @@ impl PyString {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self) -> pyhash::PyHash {
-        match self.hash.load() {
-            Some(hash) => hash,
-            None => {
-                let hash = pyhash::hash_value(&self.value);
-                self.hash.store(Some(hash));
-                hash
-            }
-        }
+    pub(crate) fn hash(&self) -> hash::PyHash {
+        self.hash.load().unwrap_or_else(|| {
+            let hash = hash::hash_str(&self.value);
+            self.hash.store(Some(hash));
+            hash
+        })
     }
 
     #[pymethod(name = "__len__")]
+    #[inline]
     fn len(&self) -> usize {
-        self.value.chars().count()
+        self.len.load().unwrap_or_else(|| {
+            let len = self.value.chars().count();
+            self.len.store(Some(len));
+            len
+        })
     }
 
     #[pymethod(name = "__sizeof__")]
@@ -325,7 +317,7 @@ impl PyString {
     #[pymethod(name = "__mul__")]
     #[pymethod(name = "__rmul__")]
     fn mul(&self, value: isize) -> String {
-        self.value.repeat(value.max(0) as usize)
+        self.value.repeat(value.to_usize().unwrap_or(0))
     }
 
     #[pymethod(name = "__str__")]
@@ -334,7 +326,7 @@ impl PyString {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+    pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         let in_len = self.value.len();
         let mut out_len = 0usize;
         // let mut max = 127;
@@ -457,26 +449,24 @@ impl PyString {
     #[pymethod]
     fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
         let elements = self.value.py_split(
-            args.non_empty_sep(vm)?,
-            args.maxsplit,
+            args,
             vm,
             |v, s, vm| v.split(s).map(|s| vm.ctx.new_str(s)).collect(),
             |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_str(s)).collect(),
             |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_str(s)),
-        );
+        )?;
         Ok(vm.ctx.new_list(elements))
     }
 
     #[pymethod]
     fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
         let mut elements = self.value.py_split(
-            args.non_empty_sep(vm)?,
-            args.maxsplit,
+            args,
             vm,
             |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_str(s)).collect(),
             |v, s, n, vm| v.rsplitn(n, s).map(|s| vm.ctx.new_str(s)).collect(),
             |v, n, vm| v.py_rsplit_whitespace(n, |s| vm.ctx.new_str(s)),
-        );
+        )?;
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.
         elements.reverse();
@@ -484,75 +474,86 @@ impl PyString {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalArg<Option<PyStringRef>>) -> String {
-        let chars = chars.flat_option();
-        let chars = match chars {
-            Some(ref chars) => &chars.value,
-            None => return self.value.trim().to_owned(),
-        };
-        self.value.trim_matches(|c| chars.contains(c)).to_owned()
-    }
-
-    #[pymethod]
-    fn lstrip(&self, chars: OptionalArg<Option<PyStringRef>>) -> String {
-        let chars = chars.flat_option();
-        let chars = match chars {
-            Some(ref chars) => &chars.value,
-            None => return self.value.trim_start().to_owned(),
-        };
+    fn strip(&self, chars: OptionalOption<PyStringRef>) -> String {
         self.value
-            .trim_start_matches(|c| chars.contains(c))
+            .py_strip(
+                chars,
+                |s, chars| s.trim_matches(|c| chars.contains(c)),
+                |s| s.trim(),
+            )
             .to_owned()
     }
 
     #[pymethod]
-    fn rstrip(&self, chars: OptionalArg<Option<PyStringRef>>) -> String {
-        let chars = chars.flat_option();
-        let chars = match chars {
-            Some(ref chars) => &chars.value,
-            None => return self.value.trim_end().to_owned(),
-        };
+    fn lstrip(&self, chars: OptionalOption<PyStringRef>) -> String {
         self.value
-            .trim_end_matches(|c| chars.contains(c))
+            .py_strip(
+                chars,
+                |s, chars| s.trim_start_matches(|c| chars.contains(c)),
+                |s| s.trim_start(),
+            )
             .to_owned()
     }
 
     #[pymethod]
-    fn endswith(
-        &self,
-        suffix: PyObjectRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
-        self.value.as_str().py_startsendswith(
-            suffix,
-            start,
-            end,
+    fn rstrip(&self, chars: OptionalOption<PyStringRef>) -> String {
+        self.value
+            .py_strip(
+                chars,
+                |s, chars| s.trim_end_matches(|c| chars.contains(c)),
+                |s| s.trim_end(),
+            )
+            .to_owned()
+    }
+
+    #[pymethod]
+    fn endswith(&self, args: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        self.value.py_startsendswith(
+            args,
             "endswith",
             "str",
-            |s, x: &PyStringRef| s.ends_with(x.as_str()),
+            |s, x: &PyStringRef| s.ends_with(x.borrow_value()),
             vm,
         )
     }
 
     #[pymethod]
-    fn startswith(
-        &self,
-        prefix: PyObjectRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
-        self.value.as_str().py_startsendswith(
-            prefix,
-            start,
-            end,
+    fn startswith(&self, args: pystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        self.value.py_startsendswith(
+            args,
             "startswith",
             "str",
-            |s, x: &PyStringRef| s.starts_with(x.as_str()),
+            |s, x: &PyStringRef| s.starts_with(x.borrow_value()),
             vm,
         )
+    }
+
+    /// removeprefix($self, prefix, /)
+    ///
+    ///
+    /// Return a str with the given prefix string removed if present.
+    ///
+    /// If the string starts with the prefix string, return string[len(prefix):]
+    /// Otherwise, return a copy of the original string.
+    #[pymethod]
+    fn removeprefix(&self, pref: PyStringRef) -> String {
+        self.value
+            .py_removeprefix(&pref.value, pref.value.len(), |s, p| s.starts_with(p))
+            .to_owned()
+    }
+
+    /// removesuffix(self, prefix, /)
+    ///
+    ///
+    /// Return a str with the given suffix string removed if present.
+    ///
+    /// If the string ends with the suffix string, return string[:len(suffix)]
+    /// Otherwise, return a copy of the original string.
+    #[pymethod]
+    fn removesuffix(&self, suff: PyStringRef) -> String {
+        self.value
+            .py_removesuffix(&suff.value, suff.value.len(), |s, p| s.ends_with(p))
+            .to_owned()
     }
 
     #[pymethod]
@@ -572,31 +573,23 @@ impl PyString {
             0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
         ];
 
-        if self.value.is_empty() {
-            false
-        } else {
-            self.value
+        !self.value.is_empty()
+            && self
+                .value
                 .chars()
                 .filter(|c| !c.is_digit(10))
                 .all(|c| valid_unicodes.contains(&(c as u16)))
-        }
     }
 
     #[pymethod]
     fn isdecimal(&self) -> bool {
-        if self.value.is_empty() {
-            false
-        } else {
-            self.value.chars().all(|c| c.is_ascii_digit())
-        }
+        !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii_digit())
     }
 
     #[pymethod(name = "__mod__")]
-    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let format_string_text = &self.value;
-        let format_string = CFormatString::from_str(format_string_text)
-            .map_err(|err| vm.new_value_error(err.to_string()))?;
-        do_cformat(vm, format_string, values.clone())
+    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        let formatted = self.value.py_cformat(values, vm)?;
+        Ok(formatted)
     }
 
     #[pymethod(name = "__rmod__")]
@@ -605,31 +598,10 @@ impl PyString {
     }
 
     #[pymethod]
-    fn format(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        if args.args.is_empty() {
-            return Err(vm.new_type_error(
-                "descriptor 'format' of 'str' object needs an argument".to_owned(),
-            ));
-        }
-
-        let zelf = &args.args[0];
-        if !objtype::isinstance(&zelf, &vm.ctx.str_type()) {
-            let zelf_typ = zelf.class();
-            let actual_type = vm.to_pystr(&zelf_typ)?;
-            return Err(vm.new_type_error(format!(
-                "descriptor 'format' requires a 'str' object but received a '{}'",
-                actual_type
-            )));
-        }
-        let format_string_text = borrow_value(zelf);
-        match FormatString::from_str(format_string_text) {
-            Ok(format_string) => perform_format(vm, &format_string, &args),
-            Err(err) => match err {
-                FormatParseError::UnmatchedBracket => {
-                    Err(vm.new_value_error("expected '}' before end of string".to_owned()))
-                }
-                _ => Err(vm.new_value_error("Unexpected error parsing format string".to_owned())),
-            },
+    fn format(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+        match FormatString::from_str(&self.value) {
+            Ok(format_string) => format_string.format(&args, vm),
+            Err(err) => Err(err.into_pyexception(vm)),
         }
     }
 
@@ -638,30 +610,16 @@ impl PyString {
     /// Return a formatted version of S, using substitutions from mapping.
     /// The substitutions are identified by braces ('{' and '}').
     #[pymethod]
-    fn format_map(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        if args.args.len() != 2 {
-            return Err(vm.new_type_error(format!(
-                "format_map() takes exactly one argument ({} given)",
-                args.args.len() - 1
-            )));
-        }
-
-        let zelf = &args.args[0];
-        let format_string_text = borrow_value(zelf);
-        match FormatString::from_str(format_string_text) {
-            Ok(format_string) => perform_format_map(vm, &format_string, &args.args[1]),
-            Err(err) => match err {
-                FormatParseError::UnmatchedBracket => {
-                    Err(vm.new_value_error("expected '}' before end of string".to_owned()))
-                }
-                _ => Err(vm.new_value_error("Unexpected error parsing format string".to_owned())),
-            },
+    fn format_map(&self, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        match FormatString::from_str(&self.value) {
+            Ok(format_string) => format_string.format_map(&mapping, vm),
+            Err(err) => Err(err.into_pyexception(vm)),
         }
     }
 
     #[pymethod(name = "__format__")]
     fn format_str(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatSpec::parse(spec.as_str())
+        match FormatSpec::parse(spec.borrow_value())
             .and_then(|format_spec| format_spec.format_string(&self.value))
         {
             Ok(string) => Ok(string),
@@ -756,192 +714,110 @@ impl PyString {
             .all(|c| c == '\u{0020}' || char_is_printable(c))
     }
 
-    // cpython's isspace ignores whitespace, including \t and \n, etc, unless the whole string is empty
-    // which is why isspace is using is_ascii_whitespace. Same for isupper & islower
     #[pymethod]
     fn isspace(&self) -> bool {
-        !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii_whitespace())
+        if self.value.is_empty() {
+            return false;
+        }
+        use unic_ucd_bidi::bidi_class::abbr_names::*;
+        self.value.chars().all(|c| {
+            GeneralCategory::of(c) == GeneralCategory::SpaceSeparator
+                || matches!(BidiClass::of(c), WS | B | S)
+        })
     }
 
     // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.
     #[pymethod]
     fn islower(&self) -> bool {
-        // CPython unicode_islower_impl
-        let mut cased = false;
-        for c in self.value.chars() {
-            if c.is_uppercase() {
-                return false;
-            } else if !cased && c.is_lowercase() {
-                cased = true
-            }
-        }
-        cased
+        self.value.py_iscase(char::is_lowercase, char::is_uppercase)
     }
 
     // Return true if all cased characters in the string are uppercase and there is at least one cased character, false otherwise.
     #[pymethod]
     fn isupper(&self) -> bool {
-        // CPython unicode_isupper_impl
-        let mut cased = false;
-        for c in self.value.chars() {
-            if c.is_lowercase() {
-                return false;
-            } else if !cased && c.is_uppercase() {
-                cased = true
-            }
-        }
-        cased
+        self.value.py_iscase(char::is_uppercase, char::is_lowercase)
     }
 
     #[pymethod]
     fn isascii(&self) -> bool {
-        self.value.chars().all(|c| c.is_ascii())
+        self.value.is_ascii()
     }
 
     #[pymethod]
-    fn splitlines(&self, args: SplitLineArgs, vm: &VirtualMachine) -> PyObjectRef {
-        let keepends = args.keepends.unwrap_or(false);
-        let mut elements = vec![];
-        let mut curr = "".to_owned();
-        let mut chars = self.value.chars().peekable();
-        while let Some(ch) = chars.next() {
-            if ch == '\n' || ch == '\r' {
-                if keepends {
-                    curr.push(ch);
-                }
-                if ch == '\r' && chars.peek() == Some(&'\n') {
-                    continue;
-                }
-                elements.push(vm.ctx.new_str(curr.clone()));
-                curr.clear();
-            } else {
-                curr.push(ch);
-            }
-        }
-        if !curr.is_empty() {
-            elements.push(vm.ctx.new_str(curr));
-        }
-        vm.ctx.new_list(elements)
+    fn splitlines(&self, args: pystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx
+            .new_list(self.value.py_splitlines(args, |s| vm.ctx.new_str(s)))
     }
 
     #[pymethod]
     fn join(&self, iterable: PyIterable<PyStringRef>, vm: &VirtualMachine) -> PyResult<String> {
-        let mut joined = String::new();
-
-        for (idx, elem) in iterable.iter(vm)?.enumerate() {
-            let elem = elem?;
-            if idx != 0 {
-                joined.push_str(&self.value);
-            }
-            joined.push_str(&elem.value)
-        }
-
-        Ok(joined)
+        let iter = iterable.iter(vm)?;
+        self.value.py_join(iter)
     }
 
-    fn _find<F>(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        find: F,
-    ) -> Option<usize>
+    #[inline]
+    fn _find<F>(&self, args: FindArgs, find: F) -> Option<usize>
     where
         F: Fn(&str, &str) -> Option<usize>,
     {
-        let range = adjust_indices(start, end, self.value.len());
-        if range.is_normal() {
-            if let Some(index) = find(&self.value[range.clone()], &sub.value) {
-                return Some(range.start + index);
-            }
-        }
-        None
+        let (sub, range) = args.get_value(self.len());
+        self.value.py_find(&sub.value, range, find)
     }
 
     #[pymethod]
-    fn find(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-    ) -> isize {
-        self._find(sub, start, end, |r, s| r.find(s))
+    fn find(&self, args: FindArgs) -> isize {
+        self._find(args, |r, s| r.find(s))
             .map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
-    fn rfind(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-    ) -> isize {
-        self._find(sub, start, end, |r, s| r.rfind(s))
+    fn rfind(&self, args: FindArgs) -> isize {
+        self._find(args, |r, s| r.rfind(s))
             .map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
-    fn index(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
-        self._find(sub, start, end, |r, s| r.find(s))
+    fn index(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        self._find(args, |r, s| r.find(s))
             .ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
     #[pymethod]
-    fn rindex(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
-        self._find(sub, start, end, |r, s| r.rfind(s))
+    fn rindex(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        self._find(args, |r, s| r.rfind(s))
             .ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
     }
 
     #[pymethod]
-    fn partition(&self, sub: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        if sub.value.is_empty() {
-            return Err(vm.new_value_error("empty separator".to_owned()));
-        }
-        let mut sp = self.value.splitn(2, &sub.value);
-        let front = sp.next().unwrap();
-        let elems = if let Some(back) = sp.next() {
-            [front, &sub.value, back]
-        } else {
-            [front, "", ""]
-        };
-        Ok(vm.ctx.new_tuple(
-            elems
-                .iter()
-                .map(|&s| vm.ctx.new_str(s.to_owned()))
-                .collect(),
-        ))
+    fn partition(&self, sep: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let (front, has_mid, back) =
+            self.value
+                .py_partition(&sep.value, || self.value.splitn(2, &sep.value), vm)?;
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_str(front),
+            if has_mid {
+                sep.into_object()
+            } else {
+                vm.ctx.new_str("")
+            },
+            vm.ctx.new_str(back),
+        ]))
     }
 
     #[pymethod]
-    fn rpartition(&self, sub: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        if sub.value.is_empty() {
-            return Err(vm.new_value_error("empty separator".to_owned()));
-        }
-        let mut sp = self.value.rsplitn(2, &sub.value);
-        let back = sp.next().unwrap();
-        let elems = if let Some(front) = sp.next() {
-            [front, &sub.value, back]
-        } else {
-            ["", "", back]
-        };
-        Ok(vm.ctx.new_tuple(
-            elems
-                .iter()
-                .map(|&s| vm.ctx.new_str(s.to_owned()))
-                .collect(),
-        ))
+    fn rpartition(&self, sep: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let (back, has_mid, front) =
+            self.value
+                .py_partition(&sep.value, || self.value.rsplitn(2, &sep.value), vm)?;
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_str(front),
+            if has_mid {
+                sep.into_object()
+            } else {
+                vm.ctx.new_str("")
+            },
+            vm.ctx.new_str(back),
+        ]))
     }
 
     /// Return `true` if the sequence is ASCII titlecase and the sequence is not
@@ -975,115 +851,74 @@ impl PyString {
     }
 
     #[pymethod]
-    fn count(
-        &self,
-        sub: PyStringRef,
-        start: OptionalArg<Option<isize>>,
-        end: OptionalArg<Option<isize>>,
-    ) -> usize {
-        let range = adjust_indices(start, end, self.value.len());
-        if range.is_normal() {
-            self.value[range].matches(&sub.value).count()
-        } else {
-            0
-        }
+    fn count(&self, args: FindArgs) -> usize {
+        let (needle, range) = args.get_value(self.len());
+        self.value
+            .py_count(&needle.value, range, |h, n| h.matches(n).count())
     }
 
     #[pymethod]
     fn zfill(&self, width: isize) -> String {
-        use super::objbyteinner::bytes_zfill;
-        unsafe {
-            String::from_utf8_unchecked(bytes_zfill(
-                self.value.as_bytes(),
-                width.to_usize().unwrap_or(0),
-            ))
-        }
+        // this is safe-guaranteed because the original self.value is valid utf8
+        unsafe { String::from_utf8_unchecked(self.value.py_zfill(width)) }
     }
 
-    fn get_fill_char<'a>(
-        rep: &'a OptionalArg<PyStringRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<&'a str> {
-        let rep_str = match rep {
-            OptionalArg::Present(ref st) => &st.value,
-            OptionalArg::Missing => " ",
-        };
-        if rep_str.len() == 1 {
-            Ok(rep_str)
-        } else {
-            Err(vm
-                .new_type_error("The fill character must be exactly one character long".to_owned()))
-        }
-    }
-
-    #[pymethod]
-    fn ljust(
+    #[inline]
+    fn _pad(
         &self,
-        len: usize,
-        rep: OptionalArg<PyStringRef>,
+        width: isize,
+        fillchar: OptionalArg<PyStringRef>,
+        pad: fn(&str, usize, char, usize) -> String,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        let value = &self.value;
-        let rep_char = Self::get_fill_char(&rep, vm)?;
-        if len <= value.len() {
-            Ok(value.to_owned())
+        let fillchar = match fillchar {
+            OptionalArg::Present(ref s) => s.value.chars().exactly_one().map_err(|_| {
+                vm.new_type_error(
+                    "The fill character must be exactly one character long".to_owned(),
+                )
+            }),
+            OptionalArg::Missing => Ok(' '),
+        }?;
+        Ok(if self.len() as isize >= width {
+            String::from(&self.value)
         } else {
-            Ok(format!("{}{}", value, rep_char.repeat(len - value.len())))
-        }
-    }
-
-    #[pymethod]
-    fn rjust(
-        &self,
-        len: usize,
-        rep: OptionalArg<PyStringRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
-        let value = &self.value;
-        let rep_char = Self::get_fill_char(&rep, vm)?;
-        if len <= value.len() {
-            Ok(value.to_owned())
-        } else {
-            Ok(format!("{}{}", rep_char.repeat(len - value.len()), value))
-        }
+            pad(&self.value, width as usize, fillchar, self.len())
+        })
     }
 
     #[pymethod]
     fn center(
         &self,
-        len: usize,
-        rep: OptionalArg<PyStringRef>,
+        width: isize,
+        fillchar: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        let value = &self.value;
-        let rep_char = Self::get_fill_char(&rep, vm)?;
-        let value_len = self.value.chars().count();
-
-        if len <= value_len {
-            return Ok(value.to_owned());
-        }
-        let diff: usize = len - value_len;
-        let mut left_buff: usize = diff / 2;
-        let mut right_buff: usize = left_buff;
-
-        if diff % 2 != 0 && value_len % 2 == 0 {
-            left_buff += 1
-        }
-
-        if diff % 2 != 0 && value_len % 2 != 0 {
-            right_buff += 1
-        }
-        Ok(format!(
-            "{}{}{}",
-            rep_char.repeat(left_buff),
-            value,
-            rep_char.repeat(right_buff)
-        ))
+        self._pad(width, fillchar, PyCommonString::<char>::py_center, vm)
     }
 
     #[pymethod]
-    fn expandtabs(&self, args: ExpandtabsArgs) -> String {
-        let tab_stop = args.tabsize.unwrap_or(8);
+    fn ljust(
+        &self,
+        width: isize,
+        fillchar: OptionalArg<PyStringRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        self._pad(width, fillchar, PyCommonString::<char>::py_ljust, vm)
+    }
+
+    #[pymethod]
+    fn rjust(
+        &self,
+        width: isize,
+        fillchar: OptionalArg<PyStringRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        self._pad(width, fillchar, PyCommonString::<char>::py_rjust, vm)
+    }
+
+    #[pymethod]
+    fn expandtabs(&self, args: pystr::ExpandTabsArgs) -> String {
+        let tab_stop = args.tabsize();
         let mut expanded_str = String::with_capacity(self.value.len());
         let mut tab_size = tab_stop;
         let mut col_count = 0 as usize;
@@ -1124,17 +959,17 @@ impl PyString {
     #[pymethod]
     fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         vm.get_method_or_type_error(table.clone(), "__getitem__", || {
-            format!("'{}' object is not subscriptable", table.class().name)
+            format!("'{}' object is not subscriptable", table.lease_class().name)
         })?;
 
         let mut translated = String::new();
         for c in self.value.chars() {
-            match table.get_item(&(c as u32).into_pyobject(vm)?, vm) {
+            match table.get_item((c as u32).into_pyobject(vm), vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyString>() {
                         translated.push_str(&text.value);
                     } else if let Some(bigint) = value.payload::<PyInt>() {
-                        match bigint.as_bigint().to_u32().and_then(std::char::from_u32) {
+                        match bigint.borrow_value().to_u32().and_then(std::char::from_u32) {
                             Some(ch) => translated.push(ch as char),
                             None => {
                                 return Err(vm.new_value_error(
@@ -1169,14 +1004,18 @@ impl PyString {
                 Ok(from_str) => {
                     if to_str.len() == from_str.len() {
                         for (c1, c2) in from_str.value.chars().zip(to_str.value.chars()) {
-                            new_dict.set_item(&vm.new_int(c1 as u32), vm.new_int(c2 as u32), vm)?;
+                            new_dict.set_item(
+                                vm.ctx.new_int(c1 as u32),
+                                vm.ctx.new_int(c2 as u32),
+                                vm,
+                            )?;
                         }
                         if let OptionalArg::Present(none_str) = none_str {
                             for c in none_str.value.chars() {
-                                new_dict.set_item(&vm.new_int(c as u32), vm.get_none(), vm)?;
+                                new_dict.set_item(vm.ctx.new_int(c as u32), vm.get_none(), vm)?;
                             }
                         }
-                        new_dict.into_pyobject(vm)
+                        Ok(new_dict.into_pyobject(vm))
                     } else {
                         Err(vm.new_value_error(
                             "the first two maketrans arguments must have equal length".to_owned(),
@@ -1195,14 +1034,14 @@ impl PyString {
                     for (key, val) in dict {
                         if let Some(num) = key.payload::<PyInt>() {
                             new_dict.set_item(
-                                &num.as_bigint().to_i32().into_pyobject(vm)?,
+                                num.borrow_value().to_i32().into_pyobject(vm),
                                 val,
                                 vm,
                             )?;
                         } else if let Some(string) = key.payload::<PyString>() {
                             if string.len() == 1 {
                                 let num_value = string.value.chars().next().unwrap() as u32;
-                                new_dict.set_item(&num_value.into_pyobject(vm)?, val, vm)?;
+                                new_dict.set_item(num_value.into_pyobject(vm), val, vm)?;
                             } else {
                                 return Err(vm.new_value_error(
                                     "string keys in translate table must be of length 1".to_owned(),
@@ -1210,7 +1049,7 @@ impl PyString {
                             }
                         }
                     }
-                    new_dict.into_pyobject(vm)
+                    Ok(new_dict.into_pyobject(vm))
                 }
                 _ => Err(vm.new_value_error(
                     "if you give only one argument to maketrans it must be a dict".to_owned(),
@@ -1220,13 +1059,8 @@ impl PyString {
     }
 
     #[pymethod]
-    fn encode(
-        zelf: PyRef<Self>,
-        encoding: OptionalArg<PyStringRef>,
-        errors: OptionalArg<PyStringRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyBytesRef> {
-        encode_string(zelf, encoding.into_option(), errors.into_option(), vm)
+    fn encode(zelf: PyRef<Self>, args: EncodeArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        encode_string(zelf, args.encoding, args.errors, vm)
     }
 
     #[pymethod(magic)]
@@ -1248,6 +1082,14 @@ impl PyString {
     }
 }
 
+#[derive(FromArgs)]
+struct EncodeArgs {
+    #[pyarg(positional_or_keyword, default = "None")]
+    encoding: Option<PyStringRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    errors: Option<PyStringRef>,
+}
+
 pub(crate) fn encode_string(
     s: PyStringRef,
     encoding: Option<PyStringRef>,
@@ -1260,8 +1102,8 @@ pub(crate) fn encode_string(
             vm.new_type_error(format!(
                 "'{}' encoder returned '{}' instead of 'bytes'; use codecs.encode() to \
                  encode arbitrary types",
-                encoding.as_ref().map_or("utf-8", |s| s.as_str()),
-                obj.class().name,
+                encoding.as_ref().map_or("utf-8", |s| s.borrow_value()),
+                obj.lease_class().name,
             ))
         })
 }
@@ -1273,51 +1115,56 @@ impl PyValue for PyString {
 }
 
 impl IntoPyObject for String {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self)
     }
 }
 
 impl IntoPyObject for &str {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.to_owned()))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self)
     }
 }
 
 impl IntoPyObject for &String {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_str(self.clone()))
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self.clone())
     }
 }
 
 impl TryFromObject for std::ffi::CString {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let s = PyStringRef::try_from_object(vm, obj)?;
-        Self::new(s.as_str().to_owned())
+        Self::new(s.borrow_value().to_owned())
             .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
     }
 }
 
-#[derive(FromArgs)]
-struct SplitArgs {
-    #[pyarg(positional_or_keyword, default = "None")]
-    sep: Option<PyStringRef>,
-    #[pyarg(positional_or_keyword, default = "-1")]
-    maxsplit: isize,
+impl TryFromObject for std::ffi::OsString {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        use std::str::FromStr;
+
+        let s = PyStringRef::try_from_object(vm, obj)?;
+        Ok(std::ffi::OsString::from_str(s.borrow_value()).unwrap())
+    }
 }
 
-impl SplitArgs {
-    fn non_empty_sep<'a>(&'a self, vm: &VirtualMachine) -> PyResult<Option<&'a str>> {
-        let sep = if let Some(s) = self.sep.as_ref() {
-            let sep = s.as_str();
-            if sep.is_empty() {
-                return Err(vm.new_value_error("empty separator".to_owned()));
-            }
-            Some(sep)
-        } else {
-            None
-        };
-        Ok(sep)
+type SplitArgs<'a> = pystr::SplitArgs<'a, PyStringRef, str, char>;
+
+#[derive(FromArgs)]
+pub struct FindArgs {
+    #[pyarg(positional_only, optional = false)]
+    sub: PyStringRef,
+    #[pyarg(positional_only, default = "None")]
+    start: Option<PyIntRef>,
+    #[pyarg(positional_only, default = "None")]
+    end: Option<PyIntRef>,
+}
+
+impl FindArgs {
+    fn get_value(self, len: usize) -> (PyStringRef, std::ops::Range<usize>) {
+        let range = adjust_indices(self.start, self.end, len);
+        (self.sub, range)
     }
 }
 
@@ -1336,340 +1183,21 @@ pub fn borrow_value(obj: &PyObjectRef) -> &str {
     &obj.payload::<PyString>().unwrap().value
 }
 
-fn call_getitem(vm: &VirtualMachine, container: &PyObjectRef, key: &PyObjectRef) -> PyResult {
-    vm.call_method(container, "__getitem__", vec![key.clone()])
-}
-
-fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &str) -> PyResult {
-    let (preconversor, new_format_spec) = FormatPreconversor::parse_and_consume(format_spec);
-    let argument = match preconversor {
-        Some(FormatPreconversor::Str) => vm.call_method(&argument, "__str__", vec![])?,
-        Some(FormatPreconversor::Repr) => vm.call_method(&argument, "__repr__", vec![])?,
-        Some(FormatPreconversor::Ascii) => vm.call_method(&argument, "__repr__", vec![])?,
-        Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", vec![])?,
-        None => argument,
-    };
-    let returned_type = vm.ctx.new_str(new_format_spec.to_owned());
-
-    let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
-    if !objtype::isinstance(&result, &vm.ctx.str_type()) {
-        let result_type = result.class();
-        let actual_type = vm.to_pystr(&result_type)?;
-        return Err(vm.new_type_error(format!("__format__ must return a str, not {}", actual_type)));
-    }
-    Ok(result)
-}
-
-fn do_cformat_specifier(
-    vm: &VirtualMachine,
-    format_spec: &mut CFormatSpec,
-    obj: PyObjectRef,
-) -> PyResult<String> {
-    use CNumberType::*;
-    // do the formatting by type
-    let format_type = &format_spec.format_type;
-
-    match format_type {
-        CFormatType::String(preconversor) => {
-            let result = match preconversor {
-                CFormatPreconversor::Str => vm.call_method(&obj.clone(), "__str__", vec![])?,
-                CFormatPreconversor::Repr => vm.call_method(&obj.clone(), "__repr__", vec![])?,
-                CFormatPreconversor::Ascii => vm.call_method(&obj.clone(), "__repr__", vec![])?,
-                CFormatPreconversor::Bytes => vm.call_method(&obj.clone(), "decode", vec![])?,
-            };
-            Ok(format_spec.format_string(clone_value(&result)))
-        }
-        CFormatType::Number(_) => {
-            if !objtype::isinstance(&obj, &vm.ctx.int_type()) {
-                let required_type_string = match format_type {
-                    CFormatType::Number(Decimal) => "a number",
-                    CFormatType::Number(_) => "an integer",
-                    _ => unreachable!(),
-                };
-                return Err(vm.new_type_error(format!(
-                    "%{} format: {} is required, not {}",
-                    format_spec.format_char,
-                    required_type_string,
-                    obj.class()
-                )));
-            }
-            Ok(format_spec.format_number(objint::get_value(&obj)))
-        }
-        CFormatType::Float(_) => if objtype::isinstance(&obj, &vm.ctx.float_type()) {
-            format_spec.format_float(objfloat::get_value(&obj))
-        } else if objtype::isinstance(&obj, &vm.ctx.int_type()) {
-            format_spec.format_float(objint::get_value(&obj).to_f64().unwrap())
-        } else {
-            let required_type_string = "an floating point or integer";
-            return Err(vm.new_type_error(format!(
-                "%{} format: {} is required, not {}",
-                format_spec.format_char,
-                required_type_string,
-                obj.class()
-            )));
-        }
-        .map_err(|e| vm.new_not_implemented_error(e)),
-        CFormatType::Character => {
-            let char_string = {
-                if objtype::isinstance(&obj, &vm.ctx.int_type()) {
-                    // BigInt truncation is fine in this case because only the unicode range is relevant
-                    match objint::get_value(&obj).to_u32().and_then(char::from_u32) {
-                        Some(value) => Ok(value.to_string()),
-                        None => {
-                            Err(vm.new_overflow_error("%c arg not in range(0x110000)".to_owned()))
-                        }
-                    }
-                } else if objtype::isinstance(&obj, &vm.ctx.str_type()) {
-                    let s = borrow_value(&obj);
-                    let num_chars = s.chars().count();
-                    if num_chars != 1 {
-                        Err(vm.new_type_error("%c requires int or char".to_owned()))
-                    } else {
-                        Ok(s.chars().next().unwrap().to_string())
-                    }
-                } else {
-                    // TODO re-arrange this block so this error is only created once
-                    Err(vm.new_type_error("%c requires int or char".to_owned()))
-                }
-            }?;
-            format_spec.precision = Some(CFormatQuantity::Amount(1));
-            Ok(format_spec.format_string(char_string))
-        }
-    }
-}
-
-fn try_update_quantity_from_tuple(
-    vm: &VirtualMachine,
-    elements: &mut dyn Iterator<Item = PyObjectRef>,
-    q: &mut Option<CFormatQuantity>,
-    mut tuple_index: usize,
-) -> PyResult<usize> {
-    match q {
-        Some(CFormatQuantity::FromValuesTuple) => {
-            match elements.next() {
-                Some(width_obj) => {
-                    tuple_index += 1;
-                    if !objtype::isinstance(&width_obj, &vm.ctx.int_type()) {
-                        Err(vm.new_type_error("* wants int".to_owned()))
-                    } else {
-                        // TODO: handle errors when truncating BigInt to usize
-                        *q = Some(CFormatQuantity::Amount(
-                            objint::get_value(&width_obj).to_usize().unwrap(),
-                        ));
-                        Ok(tuple_index)
-                    }
-                }
-                None => Err(vm.new_type_error("not enough arguments for format string".to_owned())),
-            }
-        }
-        _ => Ok(tuple_index),
-    }
-}
-
-pub fn do_cformat_string(
-    vm: &VirtualMachine,
-    mut format_string: CFormatString,
-    values_obj: PyObjectRef,
-) -> PyResult<String> {
-    let mut final_string = String::new();
-    let num_specifiers = format_string
-        .format_parts
-        .iter()
-        .filter(|(_, part)| CFormatPart::is_specifier(part))
-        .count();
-    let mapping_required = format_string
-        .format_parts
-        .iter()
-        .any(|(_, part)| CFormatPart::has_key(part))
-        && format_string
-            .format_parts
-            .iter()
-            .filter(|(_, part)| CFormatPart::is_specifier(part))
-            .all(|(_, part)| CFormatPart::has_key(part));
-
-    let values = if mapping_required {
-        if !objtype::isinstance(&values_obj, &vm.ctx.dict_type()) {
-            return Err(vm.new_type_error("format requires a mapping".to_owned()));
-        }
-        values_obj.clone()
-    } else {
-        // check for only literal parts, in which case only dict or empty tuple is allowed
-        if num_specifiers == 0
-            && !(objtype::isinstance(&values_obj, &vm.ctx.types.tuple_type)
-                && objtuple::get_value(&values_obj).is_empty())
-            && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
-        {
-            return Err(vm.new_type_error(
-                "not all arguments converted during string formatting".to_owned(),
-            ));
-        }
-
-        // convert `values_obj` to a new tuple if it's not a tuple
-        if !objtype::isinstance(&values_obj, &vm.ctx.tuple_type()) {
-            vm.ctx.new_tuple(vec![values_obj.clone()])
-        } else {
-            values_obj.clone()
-        }
-    };
-
-    let mut tuple_index: usize = 0;
-    for (_, part) in &mut format_string.format_parts {
-        let result_string: String = match part {
-            CFormatPart::Spec(format_spec) => {
-                // try to get the object
-                let obj: PyObjectRef = match &format_spec.mapping_key {
-                    Some(key) => {
-                        // TODO: change the KeyError message to match the one in cpython
-                        call_getitem(vm, &values, &vm.ctx.new_str(key.to_owned()))?
-                    }
-                    None => {
-                        let mut elements = objtuple::get_value(&values)
-                            .to_vec()
-                            .into_iter()
-                            .skip(tuple_index);
-
-                        tuple_index = try_update_quantity_from_tuple(
-                            vm,
-                            &mut elements,
-                            &mut format_spec.min_field_width,
-                            tuple_index,
-                        )?;
-                        tuple_index = try_update_quantity_from_tuple(
-                            vm,
-                            &mut elements,
-                            &mut format_spec.precision,
-                            tuple_index,
-                        )?;
-
-                        let obj = match elements.next() {
-                            Some(obj) => Ok(obj),
-                            None => Err(vm.new_type_error(
-                                "not enough arguments for format string".to_owned(),
-                            )),
-                        }?;
-                        tuple_index += 1;
-
-                        obj
-                    }
-                };
-                do_cformat_specifier(vm, format_spec, obj)
-            }
-            CFormatPart::Literal(literal) => Ok(literal.clone()),
-        }?;
-        final_string.push_str(&result_string);
-    }
-
-    // check that all arguments were converted
-    if (!mapping_required && objtuple::get_value(&values).get(tuple_index).is_some())
-        && !objtype::isinstance(&values_obj, &vm.ctx.types.dict_type)
-    {
-        return Err(
-            vm.new_type_error("not all arguments converted during string formatting".to_owned())
-        );
-    }
-    Ok(final_string)
-}
-
-fn do_cformat(
-    vm: &VirtualMachine,
-    format_string: CFormatString,
-    values_obj: PyObjectRef,
-) -> PyResult {
-    Ok(vm
-        .ctx
-        .new_str(do_cformat_string(vm, format_string, values_obj)?))
-}
-
-fn perform_format(
-    vm: &VirtualMachine,
-    format_string: &FormatString,
-    arguments: &PyFuncArgs,
-) -> PyResult {
-    let mut final_string = String::new();
-    if format_string.format_parts.iter().any(FormatPart::is_auto)
-        && format_string.format_parts.iter().any(FormatPart::is_index)
-    {
-        return Err(vm.new_value_error(
-            "cannot switch from automatic field numbering to manual field specification".to_owned(),
-        ));
-    }
-    let mut auto_argument_index: usize = 1;
-    for part in &format_string.format_parts {
-        let result_string: String = match part {
-            FormatPart::AutoSpec(format_spec) => {
-                let result = match arguments.args.get(auto_argument_index) {
-                    Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
-                    None => {
-                        return Err(vm.new_index_error("tuple index out of range".to_owned()));
-                    }
-                };
-                auto_argument_index += 1;
-                clone_value(&result)
-            }
-            FormatPart::IndexSpec(index, format_spec) => {
-                let result = match arguments.args.get(*index + 1) {
-                    Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
-                    None => {
-                        return Err(vm.new_index_error("tuple index out of range".to_owned()));
-                    }
-                };
-                clone_value(&result)
-            }
-            FormatPart::KeywordSpec(keyword, format_spec) => {
-                let result = match arguments.get_optional_kwarg(&keyword) {
-                    Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
-                    None => {
-                        return Err(vm.new_key_error(vm.new_str(keyword.to_owned())));
-                    }
-                };
-                clone_value(&result)
-            }
-            FormatPart::Literal(literal) => literal.clone(),
-        };
-        final_string.push_str(&result_string);
-    }
-    Ok(vm.ctx.new_str(final_string))
-}
-
-fn perform_format_map(
-    vm: &VirtualMachine,
-    format_string: &FormatString,
-    dict: &PyObjectRef,
-) -> PyResult {
-    let mut final_string = String::new();
-    for part in &format_string.format_parts {
-        let result_string: String = match part {
-            FormatPart::AutoSpec(_) | FormatPart::IndexSpec(_, _) => {
-                return Err(
-                    vm.new_value_error("Format string contains positional fields".to_owned())
-                );
-            }
-            FormatPart::KeywordSpec(keyword, format_spec) => {
-                let argument = dict.get_item(keyword, &vm)?;
-                let result = call_object_format(vm, argument.clone(), &format_spec)?;
-                clone_value(&result)
-            }
-            FormatPart::Literal(literal) => literal.clone(),
-        };
-        final_string.push_str(&result_string);
-    }
-    Ok(vm.ctx.new_str(final_string))
-}
-
-impl PySliceableSequence for String {
+impl PySliceableSequence for PyString {
     type Sliced = String;
 
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
-        self.chars()
+        self.value
+            .chars()
             .skip(range.start)
             .take(range.end - range.start)
             .collect()
     }
 
     fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
-        let count = self.chars().count();
-
-        self.chars()
+        let count = self.len();
+        self.value
+            .chars()
             .rev()
             .skip(count - range.end)
             .take(range.end - range.start)
@@ -1677,7 +1205,8 @@ impl PySliceableSequence for String {
     }
 
     fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        self.chars()
+        self.value
+            .chars()
             .skip(range.start)
             .take(range.end - range.start)
             .step_by(step)
@@ -1685,9 +1214,9 @@ impl PySliceableSequence for String {
     }
 
     fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        let count = self.chars().count();
-
-        self.chars()
+        let count = self.len();
+        self.value
+            .chars()
             .rev()
             .skip(count - range.end)
             .take(range.end - range.start)
@@ -1696,15 +1225,15 @@ impl PySliceableSequence for String {
     }
 
     fn empty() -> Self::Sliced {
-        String::default()
+        String::new()
     }
 
     fn len(&self) -> usize {
-        self.chars().count()
+        self.len()
     }
 
     fn is_empty(&self) -> bool {
-        self.is_empty()
+        self.value.is_empty()
     }
 }
 
@@ -1777,13 +1306,9 @@ mod tests {
         let vm: VirtualMachine = Default::default();
 
         let table = vm.context().new_dict();
-        table
-            .set_item("a", vm.new_str("🎅".to_owned()), &vm)
-            .unwrap();
+        table.set_item("a", vm.ctx.new_str("🎅"), &vm).unwrap();
         table.set_item("b", vm.get_none(), &vm).unwrap();
-        table
-            .set_item("c", vm.new_str("xda".to_owned()), &vm)
-            .unwrap();
+        table.set_item("c", vm.ctx.new_str("xda"), &vm).unwrap();
         let translated = PyString::maketrans(
             table.into_object(),
             OptionalArg::Missing,
@@ -1794,17 +1319,76 @@ mod tests {
         let text = PyString::from("abc");
         let translated = text.translate(translated, &vm).unwrap();
         assert_eq!(translated, "🎅xda".to_owned());
-        let translated = text.translate(vm.new_int(3), &vm);
-        assert_eq!(translated.unwrap_err().class().name, "TypeError".to_owned());
+        let translated = text.translate(vm.ctx.new_int(3), &vm);
+        assert_eq!(
+            translated.unwrap_err().lease_class().name,
+            "TypeError".to_owned()
+        );
     }
 }
 
-impl PyCommonString<'_, char> for str {
-    fn get_slice(&self, range: std::ops::Range<usize>) -> &Self {
+impl PyCommonStringWrapper<str> for PyStringRef {
+    fn as_ref(&self) -> &str {
+        self.value.as_str()
+    }
+}
+
+impl PyCommonStringContainer<str> for String {
+    fn new() -> Self {
+        String::new()
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        String::with_capacity(capacity)
+    }
+
+    fn push_str(&mut self, other: &str) {
+        String::push_str(self, other)
+    }
+}
+
+impl<'s> PyCommonString<'s, char> for str {
+    type Container = String;
+    type CharIter = std::str::Chars<'s>;
+    type ElementIter = std::str::Chars<'s>;
+
+    fn element_bytes_len(c: char) -> usize {
+        c.len_utf8()
+    }
+
+    fn to_container(&self) -> Self::Container {
+        self.to_owned()
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        self.as_bytes()
+    }
+
+    fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error> {
+        Ok(self)
+    }
+
+    fn chars(&'s self) -> Self::CharIter {
+        str::chars(self)
+    }
+
+    fn elements(&'s self) -> Self::ElementIter {
+        str::chars(self)
+    }
+
+    fn get_bytes<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
         &self[range]
     }
 
-    fn len(&self) -> usize {
+    fn get_chars<'a>(&'a self, range: std::ops::Range<usize>) -> &'a Self {
+        rustpython_common::str::get_chars(self, range)
+    }
+
+    fn is_empty(&self) -> bool {
+        Self::is_empty(self)
+    }
+
+    fn bytes_len(&self) -> usize {
         Self::len(self)
     }
 

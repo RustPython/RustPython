@@ -1,31 +1,37 @@
 [package]
 name = "rustpython"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["RustPython Team"]
 edition = "2018"
 description = "A python interpreter written in rust."
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
+include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
 
 [workspace]
-members = [".", "derive", "vm", "wasm/lib", "parser", "compiler", "bytecode", "examples/freeze"]
+members = [".", "derive", "vm", "wasm/lib", "parser", "compiler", "bytecode", "vm/pylib-crate", "common"]
 
 [[bench]]
 name = "bench"
 path = "./benchmarks/bench.rs"
 
 [features]
+default = ["threading", "pylib"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
+threading = ["rustpython-vm/threading"]
+
+ssl = ["rustpython-vm/ssl"]
 
 [dependencies]
 log = "0.4"
 env_logger = "0.7"
 clap = "2.33"
-rustpython-compiler = {path = "compiler", version = "0.1.1"}
-rustpython-parser = {path = "parser", version = "0.1.1"}
-rustpython-vm = {path = "vm", version = "0.1.1"}
-dirs = "=2.0.1"
+rustpython-compiler = { path = "compiler", version = "0.1.1" }
+rustpython-parser = { path = "parser", version = "0.1.1" }
+rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["compile-parse"] }
+pylib = { package = "rustpython-pylib", path = "vm/pylib-crate", version = "0.1.0", default-features = false, optional = true }
+dirs = { package = "dirs-next", version = "1.0" }
 num-traits = "0.2.8"
 cfg-if = "0.1"
 
@@ -43,12 +49,13 @@ version = "0.2"
 name = "rustpython"
 path = "src/main.rs"
 
+[profile.dev.package."*"]
+opt-level = 3
+
 [patch.crates-io]
 # REDOX START, Uncommment when you want to compile/check with redoxer
-# time = { git = "https://gitlab.redox-os.org/redox-os/time.git", branch = "redox-unix" }
-# nix = { git = "https://github.com/coolreader18/nix", branch = "add-redox-support" }
 # # following patches are just waiting on a new version to be released to crates.io
-# socket2 = { git = "https://github.com/alexcrichton/socket2-rs", rev = "75fe3f2fe0e3079ad9d4dfb3a19e60bea3f2f055" }
-# rustyline = { git = "https://github.com/kkawakam/rustyline" }
-# libc = { git = "https://github.com/rust-lang/libc" }
+# nix = { git = "https://github.com/nix-rust/nix" }
+# crossbeam-utils = { git = "https://github.com/crossbeam-rs/crossbeam" }
+# socket2 = { git = "https://github.com/alexcrichton/socket2-rs" }
 # REDOX END

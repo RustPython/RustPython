@@ -14,7 +14,7 @@ Suggested usage is::
 # Exports only things specified by thread documentation;
 # skipping obsolete synonyms allocate(), start_new(), exit_thread().
 __all__ = ['error', 'start_new_thread', 'exit', 'get_ident', 'allocate_lock',
-           'interrupt_main', 'LockType']
+           'interrupt_main', 'LockType', 'RLock']
 
 # A dummy value
 TIMEOUT_MAX = 2**31
@@ -161,3 +161,35 @@ def interrupt_main():
     else:
         global _interrupt
         _interrupt = True
+
+class RLock:
+    def __init__(self):
+        self.locked_count = 0
+
+    def acquire(self, waitflag=None, timeout=-1):
+        self.locked_count += 1
+        return True
+
+    __enter__ = acquire
+
+    def __exit__(self, typ, val, tb):
+        self.release()
+
+    def release(self):
+        if not self.locked_count:
+            raise error
+        self.locked_count -= 1
+        return True
+
+    def locked(self):
+        return self.locked_status != 0
+
+    def __repr__(self):
+        return "<%s %s.%s object owner=%s count=%s at %s>" % (
+            "locked" if self.locked_count else "unlocked",
+            self.__class__.__module__,
+            self.__class__.__qualname__,
+            get_ident() if self.locked_count else 0,
+            self.locked_count,
+            hex(id(self))
+        )

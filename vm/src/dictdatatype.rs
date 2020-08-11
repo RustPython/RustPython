@@ -1,45 +1,79 @@
-use crate::obj::objstr::PyString;
-use crate::pyhash;
-use crate::pyobject::{IdProtocol, IntoPyObject, PyObjectRef, PyResult};
-use crate::vm::VirtualMachine;
-use num_bigint::ToBigInt;
 /// Ordered dictionary implementation.
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
 /// And: http://code.activestate.com/recipes/578375/
-use std::collections::{hash_map::DefaultHasher, HashMap};
-use std::hash::{Hash, Hasher};
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::obj::objstr::{PyString, PyStringRef};
+use crate::pyobject::{BorrowValue, IdProtocol, IntoPyObject, PyObjectRef, PyResult};
+use crate::vm::VirtualMachine;
+use rustpython_common::hash;
+use std::collections::HashMap;
 use std::mem::size_of;
 
+// HashIndex is intended to be same size with hash::PyHash
+// but it doesn't mean the values are compatible with actual pyhash value
+
 /// hash value of an object returned by __hash__
-type HashValue = pyhash::PyHash;
+type HashValue = hash::PyHash;
 /// index calculated by resolving collision
-type HashIndex = pyhash::PyHash;
+type HashIndex = hash::PyHash;
 /// entry index mapped in indices
 type EntryIndex = usize;
 
-#[derive(Clone)]
 pub struct Dict<T = PyObjectRef> {
+    inner: PyRwLock<DictInner<T>>,
+}
+
+struct DictInner<T> {
     size: usize,
     indices: HashMap<HashIndex, EntryIndex>,
     entries: Vec<Option<DictEntry<T>>>,
 }
 
-impl<T> Default for Dict<T> {
-    fn default() -> Self {
-        Dict {
-            size: 0,
-            indices: HashMap::new(),
-            entries: Vec::new(),
+impl<T: Clone> Clone for DictInner<T> {
+    fn clone(&self) -> Self {
+        DictInner {
+            size: self.size,
+            indices: self.indices.clone(),
+            entries: self.entries.clone(),
         }
     }
 }
 
-#[derive(Clone)]
+impl<T: Clone> Clone for Dict<T> {
+    fn clone(&self) -> Self {
+        Dict {
+            inner: PyRwLock::new(self.inner.read().clone()),
+        }
+    }
+}
+
+impl<T> Default for Dict<T> {
+    fn default() -> Self {
+        Dict {
+            inner: PyRwLock::new(DictInner {
+                size: 0,
+                indices: HashMap::new(),
+                entries: Vec::new(),
+            }),
+        }
+    }
+}
+
 struct DictEntry<T> {
     hash: HashValue,
     key: PyObjectRef,
     value: T,
+}
+
+impl<T: Clone> Clone for DictEntry<T> {
+    fn clone(&self) -> Self {
+        DictEntry {
+            hash: self.hash,
+            key: self.key.clone(),
+            value: self.value.clone(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -49,10 +83,19 @@ pub struct DictSize {
 }
 
 impl<T: Clone> Dict<T> {
-    fn resize(&mut self) {
-        let mut new_indices = HashMap::with_capacity(self.size);
-        let mut new_entries = Vec::with_capacity(self.size);
-        for maybe_entry in self.entries.drain(0..) {
+    fn borrow_value(&self) -> PyRwLockReadGuard<'_, DictInner<T>> {
+        self.inner.read()
+    }
+
+    fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, DictInner<T>> {
+        self.inner.write()
+    }
+
+    fn resize(&self) {
+        let mut inner = self.borrow_value_mut();
+        let mut new_indices = HashMap::with_capacity(inner.size);
+        let mut new_entries = Vec::with_capacity(inner.size);
+        for maybe_entry in inner.entries.drain(0..) {
             if let Some(entry) = maybe_entry {
                 let mut hash_index = entry.hash;
                 // Faster version of lookup. No equality checks here.
@@ -64,12 +107,12 @@ impl<T: Clone> Dict<T> {
                 new_entries.push(Some(entry));
             }
         }
-        self.indices = new_indices;
-        self.entries = new_entries;
+        inner.indices = new_indices;
+        inner.entries = new_entries;
     }
 
     fn unchecked_push(
-        &mut self,
+        &self,
         hash_index: HashIndex,
         hash_value: HashValue,
         key: PyObjectRef,
@@ -80,49 +123,49 @@ impl<T: Clone> Dict<T> {
             key,
             value,
         };
-        let entry_index = self.entries.len();
-        self.entries.push(Some(entry));
-        self.indices.insert(hash_index, entry_index);
-        self.size += 1;
-    }
-
-    fn unchecked_delete(&mut self, entry_index: EntryIndex) {
-        self.entries[entry_index] = None;
-        self.size -= 1;
+        let mut inner = self.borrow_value_mut();
+        let entry_index = inner.entries.len();
+        inner.entries.push(Some(entry));
+        inner.indices.insert(hash_index, entry_index);
+        inner.size += 1;
     }
 
     /// Store a key
-    pub fn insert<K: DictKey + IntoPyObject + Copy>(
-        &mut self,
-        vm: &VirtualMachine,
-        key: K,
-        value: T,
-    ) -> PyResult<()> {
-        if self.indices.len() > 2 * self.size {
+    pub fn insert<K>(&self, vm: &VirtualMachine, key: K, value: T) -> PyResult<()>
+    where
+        K: DictKey,
+    {
+        // This does not need to be accurate so we can take the lock mutiple times.
+        if self.borrow_value().indices.len() > 2 * self.borrow_value().size {
             self.resize();
         }
-        match self.lookup(vm, key)? {
-            LookupResult::Existing(index) => {
-                // Update existing key
-                if let Some(ref mut entry) = self.entries[index] {
-                    entry.value = value;
-                    Ok(())
-                } else {
-                    panic!("Lookup returned invalid index into entries!");
+        loop {
+            match self.lookup(vm, &key)? {
+                LookupResult::Existing(index) => {
+                    let mut inner = self.borrow_value_mut();
+                    // Update existing key
+                    if let Some(ref mut entry) = inner.entries[index] {
+                        // They entry might have changed since we did lookup. Should we update the key?
+                        entry.value = value;
+                        break Ok(());
+                    } else {
+                        // The dict was changed since we did lookup. Let's try again.
+                        continue;
+                    }
                 }
-            }
-            LookupResult::NewIndex {
-                hash_index,
-                hash_value,
-            } => {
-                // New key:
-                self.unchecked_push(hash_index, hash_value, key.into_pyobject(vm)?, value);
-                Ok(())
+                LookupResult::NewIndex {
+                    hash_index,
+                    hash_value,
+                } => {
+                    // New key:
+                    self.unchecked_push(hash_index, hash_value, key.into_pyobject(vm), value);
+                    break Ok(());
+                }
             }
         }
     }
 
-    pub fn contains<K: DictKey + Copy>(&self, vm: &VirtualMachine, key: K) -> PyResult<bool> {
+    pub fn contains<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool> {
         if let LookupResult::Existing(_) = self.lookup(vm, key)? {
             Ok(true)
         } else {
@@ -130,32 +173,32 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    fn unchecked_get(&self, index: EntryIndex) -> T {
-        if let Some(entry) = &self.entries[index] {
-            entry.value.clone()
-        } else {
-            panic!("Lookup returned invalid index into entries!");
-        }
-    }
-
     /// Retrieve a key
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
-    pub fn get<K: DictKey + Copy>(&self, vm: &VirtualMachine, key: K) -> PyResult<Option<T>> {
-        if let LookupResult::Existing(index) = self.lookup(vm, key)? {
-            Ok(Some(self.unchecked_get(index)))
-        } else {
-            Ok(None)
+    pub fn get<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
+        loop {
+            if let LookupResult::Existing(index) = self.lookup(vm, key)? {
+                if let Some(entry) = &self.borrow_value().entries[index] {
+                    break Ok(Some(entry.value.clone()));
+                } else {
+                    // The dict was changed since we did lookup. Let's try again.
+                    continue;
+                }
+            } else {
+                break Ok(None);
+            }
         }
     }
 
-    pub fn clear(&mut self) {
-        self.entries.clear();
-        self.indices.clear();
-        self.size = 0
+    pub fn clear(&self) {
+        let mut inner = self.borrow_value_mut();
+        inner.entries.clear();
+        inner.indices.clear();
+        inner.size = 0
     }
 
     /// Delete a key
-    pub fn delete(&mut self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<()> {
+    pub fn delete(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<()> {
         if self.delete_if_exists(vm, key)? {
             Ok(())
         } else {
@@ -163,33 +206,56 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub fn delete_if_exists(&mut self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<bool> {
-        if let LookupResult::Existing(entry_index) = self.lookup(vm, key)? {
-            self.unchecked_delete(entry_index);
-            Ok(true)
-        } else {
-            Ok(false)
+    pub fn delete_if_exists(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<bool> {
+        loop {
+            if let LookupResult::Existing(entry_index) = self.lookup(vm, key)? {
+                let mut inner = self.borrow_value_mut();
+                if inner.entries[entry_index].is_some() {
+                    inner.entries[entry_index] = None;
+                    inner.size -= 1;
+                    break Ok(true);
+                } else {
+                    // The dict was changed since we did lookup. Let's try again.
+                    continue;
+                }
+            } else {
+                break Ok(false);
+            }
         }
     }
 
     pub fn delete_or_insert(
-        &mut self,
+        &self,
         vm: &VirtualMachine,
         key: &PyObjectRef,
         value: T,
     ) -> PyResult<()> {
-        match self.lookup(vm, key)? {
-            LookupResult::Existing(entry_index) => self.unchecked_delete(entry_index),
-            LookupResult::NewIndex {
-                hash_value,
-                hash_index,
-            } => self.unchecked_push(hash_index, hash_value, key.clone(), value),
-        };
-        Ok(())
+        loop {
+            match self.lookup(vm, key)? {
+                LookupResult::Existing(entry_index) => {
+                    let mut inner = self.borrow_value_mut();
+                    if inner.entries[entry_index].is_some() {
+                        inner.entries[entry_index] = None;
+                        inner.size -= 1;
+                        break Ok(());
+                    } else {
+                        // The dict was changed since we did lookup. Let's try again.
+                        continue;
+                    }
+                }
+                LookupResult::NewIndex {
+                    hash_value,
+                    hash_index,
+                } => {
+                    self.unchecked_push(hash_index, hash_value, key.clone(), value);
+                    break Ok(());
+                }
+            };
+        }
     }
 
     pub fn len(&self) -> usize {
-        self.size
+        self.borrow_value().size
     }
 
     pub fn is_empty(&self) -> bool {
@@ -197,68 +263,85 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn size(&self) -> DictSize {
+        let inner = self.borrow_value();
         DictSize {
-            size: self.size,
-            entries_size: self.entries.len(),
+            size: inner.size,
+            entries_size: inner.entries.len(),
         }
     }
 
-    pub fn next_entry(&self, position: &mut EntryIndex) -> Option<(&PyObjectRef, &T)> {
-        self.entries[*position..].iter().find_map(|entry| {
-            *position += 1;
-            entry
-                .as_ref()
-                .map(|DictEntry { key, value, .. }| (key, value))
-        })
+    pub fn next_entry(&self, position: &mut EntryIndex) -> Option<(PyObjectRef, T)> {
+        self.borrow_value().entries[*position..]
+            .iter()
+            .find_map(|entry| {
+                *position += 1;
+                entry
+                    .as_ref()
+                    .map(|DictEntry { key, value, .. }| (key.clone(), value.clone()))
+            })
     }
 
     pub fn len_from_entry_index(&self, position: EntryIndex) -> usize {
-        self.entries[position..].iter().flatten().count()
+        self.borrow_value().entries[position..]
+            .iter()
+            .flatten()
+            .count()
     }
 
     pub fn has_changed_size(&self, position: &DictSize) -> bool {
-        position.size != self.size || self.entries.len() != position.entries_size
+        let inner = self.borrow_value();
+        position.size != inner.size || inner.entries.len() != position.entries_size
     }
 
-    pub fn keys<'a>(&'a self) -> impl Iterator<Item = PyObjectRef> + 'a {
-        self.entries
+    pub fn keys(&self) -> Vec<PyObjectRef> {
+        self.borrow_value()
+            .entries
             .iter()
             .filter_map(|v| v.as_ref().map(|v| v.key.clone()))
+            .collect()
     }
 
     /// Lookup the index for the given key.
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
-    fn lookup<K: DictKey + Copy>(&self, vm: &VirtualMachine, key: K) -> PyResult<LookupResult> {
-        let hash_value = key.do_hash(vm)?;
+    fn lookup<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<LookupResult> {
+        let hash_value = key.key_hash(vm)?;
         let perturb = hash_value;
         let mut hash_index: HashIndex = hash_value;
-        loop {
-            if self.indices.contains_key(&hash_index) {
-                // Now we have an index, lets check the key.
-                let index = self.indices[&hash_index];
-                if let Some(entry) = &self.entries[index] {
-                    // Okay, we have an entry at this place
-                    if key.do_is(&entry.key) {
-                        // Literally the same object
-                        break Ok(LookupResult::Existing(index));
-                    } else if entry.hash == hash_value {
-                        if key.do_eq(vm, &entry.key)? {
-                            break Ok(LookupResult::Existing(index));
+        'outer: loop {
+            let (entry, index) = loop {
+                let inner = self.borrow_value();
+                if inner.indices.contains_key(&hash_index) {
+                    // Now we have an index, lets check the key.
+                    let index = inner.indices[&hash_index];
+                    if let Some(entry) = &inner.entries[index] {
+                        // Okay, we have an entry at this place
+                        if key.key_is(&entry.key) {
+                            // Literally the same object
+                            break 'outer Ok(LookupResult::Existing(index));
+                        } else if entry.hash == hash_value {
+                            break (entry.clone(), index);
                         } else {
                             // entry mismatch.
                         }
                     } else {
-                        // entry mismatch.
+                        // Removed entry, continue search...
                     }
                 } else {
-                    // Removed entry, continue search...
+                    // Hash not in table, we are at free slot now.
+                    break 'outer Ok(LookupResult::NewIndex {
+                        hash_value,
+                        hash_index,
+                    });
                 }
+                // Update i to next probe location:
+                hash_index = Self::next_index(perturb, hash_index)
+                // warn!("Perturb value: {}", i);
+            };
+            // This comparison needs to be done outside the lock.
+            if key.key_eq(vm, &entry.key)? {
+                break Ok(LookupResult::Existing(index));
             } else {
-                // Hash not in table, we are at free slot now.
-                break Ok(LookupResult::NewIndex {
-                    hash_value,
-                    hash_index,
-                });
+                // entry mismatch.
             }
 
             // Update i to next probe location:
@@ -275,30 +358,45 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Retrieve and delete a key
-    pub fn pop<K: DictKey + Copy>(&mut self, vm: &VirtualMachine, key: K) -> PyResult<Option<T>> {
-        if let LookupResult::Existing(index) = self.lookup(vm, key)? {
-            let value = self.unchecked_get(index);
-            self.unchecked_delete(index);
-            Ok(Some(value))
-        } else {
-            Ok(None)
+    pub fn pop<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
+        loop {
+            if let LookupResult::Existing(index) = self.lookup(vm, key)? {
+                let mut inner = self.borrow_value_mut();
+                if let Some(entry) = &inner.entries[index] {
+                    let value = entry.value.clone();
+                    inner.entries[index] = None;
+                    inner.size -= 1;
+                    break Ok(Some(value));
+                } else {
+                    // The dict was changed since we did lookup. Let's try again.
+                    continue;
+                }
+            } else {
+                break Ok(None);
+            }
         }
     }
 
-    pub fn pop_front(&mut self) -> Option<(PyObjectRef, T)> {
-        let mut entry_index = 0;
-        match self.next_entry(&mut entry_index) {
-            Some((key, value)) => {
-                let item = (key.clone(), value.clone());
-                self.unchecked_delete(entry_index - 1);
-                Some(item)
-            }
-            None => None,
+    pub fn pop_front(&self) -> Option<(PyObjectRef, T)> {
+        let mut position = 0;
+        let mut inner = self.borrow_value_mut();
+        let first_item = inner.entries.iter().find_map(|entry| {
+            position += 1;
+            entry
+                .as_ref()
+                .map(|DictEntry { key, value, .. }| (key.clone(), value.clone()))
+        });
+        if let Some(item) = first_item {
+            inner.entries[position - 1] = None;
+            inner.size -= 1;
+            Some(item)
+        } else {
+            None
         }
     }
 
     pub fn sizeof(&self) -> usize {
-        size_of::<Self>() + self.size * size_of::<DictEntry<T>>()
+        size_of::<Self>() + self.borrow_value().size * size_of::<DictEntry<T>>()
     }
 }
 
@@ -314,71 +412,72 @@ enum LookupResult {
 /// the dictionary. Typical usecases are:
 /// - PyObjectRef -> arbitrary python type used as key
 /// - str -> string reference used as key, this is often used internally
-pub trait DictKey {
-    fn do_hash(self, vm: &VirtualMachine) -> PyResult<HashValue>;
-    fn do_is(self, other: &PyObjectRef) -> bool;
-    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool>;
+pub trait DictKey: IntoPyObject {
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue>;
+    fn key_is(&self, other: &PyObjectRef) -> bool;
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool>;
 }
 
 /// Implement trait for PyObjectRef such that we can use python objects
 /// to index dictionaries.
-impl DictKey for &PyObjectRef {
-    fn do_hash(self, vm: &VirtualMachine) -> PyResult<HashValue> {
-        let raw_hash = vm._hash(self)?;
-        let mut hasher = DefaultHasher::new();
-        raw_hash.hash(&mut hasher);
-        Ok(hasher.finish() as HashValue)
+impl DictKey for PyObjectRef {
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        vm._hash(self)
     }
 
-    fn do_is(self, other: &PyObjectRef) -> bool {
+    fn key_is(&self, other: &PyObjectRef) -> bool {
         self.is(other)
     }
 
-    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         vm.identical_or_equal(self, other_key)
     }
 }
 
+impl DictKey for PyStringRef {
+    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
+        Ok(self.hash())
+    }
+
+    fn key_is(&self, other: &PyObjectRef) -> bool {
+        self.is(other)
+    }
+
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+        if self.is(other_key) {
+            Ok(true)
+        } else if let Some(py_str_value) = other_key.payload::<PyString>() {
+            Ok(py_str_value.borrow_value() == self.borrow_value())
+        } else {
+            vm.bool_eq(self.clone().into_object(), other_key.clone())
+        }
+    }
+}
+
+// AsRef<str> fit this case but not possible in rust 1.46
+
 /// Implement trait for the str type, so that we can use strings
 /// to index dictionaries.
 impl DictKey for &str {
-    fn do_hash(self, _vm: &VirtualMachine) -> PyResult<HashValue> {
+    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStringRef
-        let raw_hash = pyhash::hash_value(&self.to_owned()).to_bigint().unwrap();
-        let raw_hash = pyhash::hash_bigint(&raw_hash);
-        let mut hasher = DefaultHasher::new();
-        raw_hash.hash(&mut hasher);
-        Ok(hasher.finish() as HashValue)
+        Ok(hash::hash_str(*self))
     }
 
-    fn do_is(self, _other: &PyObjectRef) -> bool {
+    fn key_is(&self, _other: &PyObjectRef) -> bool {
         // No matter who the other pyobject is, we are never the same thing, since
         // we are a str, not a pyobject.
         false
     }
 
-    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
         if let Some(py_str_value) = other_key.payload::<PyString>() {
-            Ok(py_str_value.as_str() == self)
+            Ok(py_str_value.borrow_value() == *self)
         } else {
-            // Fall back to PyString implementation.
-            let s = vm.new_str(self.to_owned());
-            s.do_eq(vm, other_key)
+            // Fall back to PyObjectRef implementation.
+            let s = vm.ctx.new_str(*self);
+            s.key_eq(vm, other_key)
         }
-    }
-}
-
-impl DictKey for &String {
-    fn do_hash(self, vm: &VirtualMachine) -> PyResult<HashValue> {
-        self.as_str().do_hash(vm)
-    }
-
-    fn do_is(self, other: &PyObjectRef) -> bool {
-        self.as_str().do_is(other)
-    }
-
-    fn do_eq(self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
-        self.as_str().do_eq(vm, other_key)
     }
 }
 
@@ -389,32 +488,32 @@ mod tests {
     #[test]
     fn test_insert() {
         let vm: VirtualMachine = Default::default();
-        let mut dict = Dict::default();
+        let dict = Dict::default();
         assert_eq!(0, dict.len());
 
-        let key1 = vm.new_bool(true);
-        let value1 = vm.new_str("abc".to_owned());
-        dict.insert(&vm, &key1, value1.clone()).unwrap();
+        let key1 = vm.ctx.new_bool(true);
+        let value1 = vm.ctx.new_str("abc");
+        dict.insert(&vm, key1.clone(), value1.clone()).unwrap();
         assert_eq!(1, dict.len());
 
-        let key2 = vm.new_str("x".to_owned());
-        let value2 = vm.new_str("def".to_owned());
-        dict.insert(&vm, &key2, value2.clone()).unwrap();
+        let key2 = vm.ctx.new_str("x");
+        let value2 = vm.ctx.new_str("def");
+        dict.insert(&vm, key2.clone(), value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
-        dict.insert(&vm, &key1, value2.clone()).unwrap();
+        dict.insert(&vm, key1.clone(), value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
         dict.delete(&vm, &key1).unwrap();
         assert_eq!(1, dict.len());
 
-        dict.insert(&vm, &key1, value2.clone()).unwrap();
+        dict.insert(&vm, key1.clone(), value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
         assert_eq!(true, dict.contains(&vm, &key1).unwrap());
-        assert_eq!(true, dict.contains(&vm, "x").unwrap());
+        assert_eq!(true, dict.contains(&vm, &"x").unwrap());
 
-        let val = dict.get(&vm, "x").unwrap().unwrap();
+        let val = dict.get(&vm, &"x").unwrap().unwrap();
         vm.bool_eq(val, value2)
             .expect("retrieved value must be equal to inserted value.");
     }
@@ -438,10 +537,10 @@ mod tests {
     fn check_hash_equivalence(text: &str) {
         let vm: VirtualMachine = Default::default();
         let value1 = text;
-        let value2 = vm.new_str(value1.to_owned());
+        let value2 = vm.ctx.new_str(value1.to_owned());
 
-        let hash1 = value1.do_hash(&vm).expect("Hash should not fail.");
-        let hash2 = value2.do_hash(&vm).expect("Hash should not fail.");
+        let hash1 = value1.key_hash(&vm).expect("Hash should not fail.");
+        let hash2 = value2.key_hash(&vm).expect("Hash should not fail.");
         assert_eq!(hash1, hash2);
     }
 }

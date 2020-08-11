@@ -15,6 +15,7 @@ mod hashlib;
 mod imp;
 pub mod io;
 mod itertools;
+mod json;
 #[cfg(feature = "rustpython-parser")]
 mod keyword;
 mod marshal;
@@ -29,6 +30,9 @@ pub mod socket;
 mod string;
 #[cfg(feature = "rustpython-compiler")]
 mod symtable;
+mod sysconfigdata;
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "threading")]
 mod thread;
 mod time_module;
 #[cfg(feature = "rustpython-parser")]
@@ -47,16 +51,16 @@ mod faulthandler;
 mod msvcrt;
 #[cfg(not(target_arch = "wasm32"))]
 mod multiprocessing;
+#[cfg(unix)]
+mod posixsubprocess;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
 #[cfg(not(target_arch = "wasm32"))]
 mod select;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod signal;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
-#[cfg(not(target_arch = "wasm32"))]
-mod subprocess;
 #[cfg(windows)]
 mod winapi;
 #[cfg(windows)]
@@ -64,21 +68,22 @@ mod winreg;
 #[cfg(not(any(target_arch = "wasm32", target_os = "redox")))]
 mod zlib;
 
-pub type StdlibInitFunc = Box<dyn Fn(&VirtualMachine) -> PyObjectRef>;
+pub type StdlibInitFunc = Box<dyn Fn(&VirtualMachine) -> PyObjectRef + Send + Sync>;
 
 pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[allow(unused_mut)]
     let mut modules = hashmap! {
         "array".to_owned() => Box::new(array::make_module) as StdlibInitFunc,
         "binascii".to_owned() => Box::new(binascii::make_module),
-        "dis".to_owned() => Box::new(dis::make_module),
         "_collections".to_owned() => Box::new(collections::make_module),
         "_csv".to_owned() => Box::new(csv::make_module),
-        "_functools".to_owned() => Box::new(functools::make_module),
+        "dis".to_owned() => Box::new(dis::make_module),
         "errno".to_owned() => Box::new(errno::make_module),
+        "_functools".to_owned() => Box::new(functools::make_module),
         "hashlib".to_owned() => Box::new(hashlib::make_module),
         "itertools".to_owned() => Box::new(itertools::make_module),
         "_io".to_owned() => Box::new(io::make_module),
+        "_json".to_owned() => Box::new(json::make_module),
         "marshal".to_owned() => Box::new(marshal::make_module),
         "math".to_owned() => Box::new(math::make_module),
         "_operator".to_owned() => Box::new(operator::make_module),
@@ -87,12 +92,12 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "_random".to_owned() => Box::new(random::make_module),
         "_string".to_owned() => Box::new(string::make_module),
         "_struct".to_owned() => Box::new(pystruct::make_module),
-        "_thread".to_owned() => Box::new(thread::make_module),
         "time".to_owned() => Box::new(time_module::make_module),
         "_weakref".to_owned() => Box::new(weakref::make_module),
         "_imp".to_owned() => Box::new(imp::make_module),
         "unicodedata".to_owned() => Box::new(unicodedata::make_module),
         "_warnings".to_owned() => Box::new(warnings::make_module),
+        crate::sysmodule::sysconfigdata_name() => Box::new(sysconfigdata::make_module),
     };
 
     // Insert parser related modules:
@@ -125,8 +130,10 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         );
         modules.insert("signal".to_owned(), Box::new(signal::make_module));
         modules.insert("select".to_owned(), Box::new(select::make_module));
+        #[cfg(feature = "ssl")]
         modules.insert("_ssl".to_owned(), Box::new(ssl::make_module));
-        modules.insert("_subprocess".to_owned(), Box::new(subprocess::make_module));
+        #[cfg(feature = "threading")]
+        modules.insert("_thread".to_owned(), Box::new(thread::make_module));
         #[cfg(not(target_os = "redox"))]
         modules.insert("zlib".to_owned(), Box::new(zlib::make_module));
         modules.insert(
@@ -139,6 +146,14 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
     {
         modules.insert("pwd".to_owned(), Box::new(pwd::make_module));
+    }
+
+    #[cfg(unix)]
+    {
+        modules.insert(
+            "_posixsubprocess".to_owned(),
+            Box::new(posixsubprocess::make_module),
+        );
     }
 
     // Windows-only

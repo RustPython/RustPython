@@ -5,7 +5,7 @@ use rustpython_parser::parser;
 
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -30,13 +30,12 @@ fn symtable_symtable(
     vm: &VirtualMachine,
 ) -> PyResult<PySymbolTableRef> {
     let mode = mode
-        .as_str()
+        .borrow_value()
         .parse::<compile::Mode>()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
-    let symtable = source_to_symtable(source.as_str(), mode).map_err(|mut err| {
-        err.update_source_path(filename.as_str());
-        vm.new_syntax_error(&err)
-    })?;
+
+    let symtable = source_to_symtable(source.borrow_value(), mode, filename.borrow_value())
+        .map_err(|err| vm.new_syntax_error(&err))?;
 
     let py_symbol_table = to_py_symbol_table(symtable);
     Ok(py_symbol_table.into_ref(vm))
@@ -45,17 +44,20 @@ fn symtable_symtable(
 fn source_to_symtable(
     source: &str,
     mode: compile::Mode,
+    filename: &str,
 ) -> Result<symboltable::SymbolTable, CompileError> {
+    let from_parse_error = |e| CompileError::from_parse_error(e, filename.to_owned());
     let symtable = match mode {
         compile::Mode::Exec | compile::Mode::Single => {
-            let ast = parser::parse_program(source)?;
-            symboltable::make_symbol_table(&ast)?
+            let ast = parser::parse_program(source).map_err(from_parse_error)?;
+            symboltable::make_symbol_table(&ast)
         }
         compile::Mode::Eval => {
-            let statement = parser::parse_statement(source)?;
-            symboltable::statements_to_symbol_table(&statement)?
+            let statement = parser::parse_statement(source).map_err(from_parse_error)?;
+            symboltable::statements_to_symbol_table(&statement)
         }
-    };
+    }
+    .map_err(|e| CompileError::from_symbol_table_error(e, filename.to_owned()))?;
 
     Ok(symtable)
 }
@@ -103,14 +105,21 @@ impl PySymbolTable {
 
     #[pymethod(name = "lookup")]
     fn lookup(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
-        let name = name.as_str();
+        let name = name.borrow_value();
         if let Some(symbol) = self.symtable.symbols.get(name) {
             Ok(PySymbol {
                 symbol: symbol.clone(),
+                namespaces: self
+                    .symtable
+                    .sub_tables
+                    .iter()
+                    .filter(|table| table.name == name)
+                    .cloned()
+                    .collect(),
             }
             .into_ref(vm))
         } else {
-            Err(vm.new_lookup_error(name.to_owned()))
+            Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {} failed", name))))
         }
     }
 
@@ -120,7 +129,7 @@ impl PySymbolTable {
             .symtable
             .symbols
             .keys()
-            .map(|s| vm.ctx.new_str(s.to_owned()))
+            .map(|s| vm.ctx.new_str(s))
             .collect();
         Ok(vm.ctx.new_list(symbols))
     }
@@ -131,7 +140,20 @@ impl PySymbolTable {
             .symtable
             .symbols
             .values()
-            .map(|s| (PySymbol { symbol: s.clone() }).into_ref(vm).into_object())
+            .map(|s| {
+                (PySymbol {
+                    symbol: s.clone(),
+                    namespaces: self
+                        .symtable
+                        .sub_tables
+                        .iter()
+                        .filter(|&table| table.name == s.name)
+                        .cloned()
+                        .collect(),
+                })
+                .into_ref(vm)
+                .into_object()
+            })
             .collect();
         Ok(vm.ctx.new_list(symbols))
     }
@@ -156,6 +178,7 @@ impl PySymbolTable {
 #[pyclass(name = "Symbol")]
 struct PySymbol {
     symbol: symboltable::Symbol,
+    namespaces: Vec<symboltable::SymbolTable>,
 }
 
 impl fmt::Debug for PySymbol {
@@ -187,6 +210,25 @@ impl PySymbol {
         self.symbol.is_local()
     }
 
+    #[pymethod(name = "is_imported")]
+    fn is_imported(&self) -> bool {
+        self.symbol.is_imported
+    }
+
+    #[pymethod(name = "is_nested")]
+    fn is_nested(&self) -> bool {
+        // TODO
+        false
+    }
+
+    #[pymethod(name = "is_nonlocal")]
+    fn is_nonlocal(&self) -> bool {
+        match self.symbol.scope {
+            symboltable::SymbolScope::Nonlocal => true,
+            _ => false,
+        }
+    }
+
     #[pymethod(name = "is_referenced")]
     fn is_referenced(&self) -> bool {
         self.symbol.is_referenced
@@ -209,7 +251,32 @@ impl PySymbol {
 
     #[pymethod(name = "is_namespace")]
     fn is_namespace(&self) -> bool {
-        // TODO
-        false
+        !self.namespaces.is_empty()
+    }
+
+    #[pymethod(name = "is_annotated")]
+    fn is_annotated(&self) -> bool {
+        self.symbol.is_annotated
+    }
+
+    #[pymethod(name = "get_namespaces")]
+    fn get_namespaces(&self, vm: &VirtualMachine) -> PyResult {
+        let namespaces = self
+            .namespaces
+            .iter()
+            .map(|table| to_py_symbol_table(table.clone()).into_ref(vm).into_object())
+            .collect();
+        Ok(vm.ctx.new_list(namespaces))
+    }
+
+    #[pymethod(name = "get_namespace")]
+    fn get_namespace(&self, vm: &VirtualMachine) -> PyResult {
+        if self.namespaces.len() != 1 {
+            Err(vm.new_value_error("namespace is bound to multiple namespaces".to_owned()))
+        } else {
+            Ok(to_py_symbol_table(self.namespaces.first().unwrap().clone())
+                .into_ref(vm)
+                .into_object())
+        }
     }
 }

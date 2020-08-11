@@ -191,6 +191,21 @@ with assert_raises(TypeError):
 with assert_raises(TypeError):
 	a ^= [1,2,3]
 
+a = set([1, 2, 3])
+i = iter(a)
+a.add(4)
+a.remove(4)
+assert next(i) == 1
+
+a = set([1, 2, 3])
+i = iter(a)
+a.add(4)
+with assert_raises(RuntimeError):
+    next(i)
+a.remove(4)
+with assert_raises(RuntimeError):
+    next(i)
+
 # frozen set
 
 assert frozenset([1,2]) == frozenset([1,2])

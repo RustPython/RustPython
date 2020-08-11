@@ -6,22 +6,21 @@ use rand::Rng;
 use crate::bytecode::CodeObject;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtraceback::{PyTraceback, PyTracebackRef};
-use crate::obj::{objcode, objtype};
-use crate::pyobject::{ItemProtocol, PyResult, PyValue};
+use crate::obj::{objcode, objlist, objtype};
+use crate::pyobject::{ItemProtocol, PyResult, PyValue, TryFromObject};
 use crate::scope::Scope;
 use crate::version::get_git_revision;
 use crate::vm::{InitParameter, VirtualMachine};
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler::compile;
 
-pub fn init_importlib(vm: &VirtualMachine, initialize_parameter: InitParameter) -> PyResult {
+pub fn init_importlib(vm: &mut VirtualMachine, initialize_parameter: InitParameter) -> PyResult {
     flame_guard!("init importlib");
     let importlib = import_frozen(vm, "_frozen_importlib")?;
     let impmod = import_builtin(vm, "_imp")?;
     let install = vm.get_attribute(importlib.clone(), "_install")?;
     vm.invoke(&install, vec![vm.sys_module.clone(), impmod])?;
-    vm.import_func
-        .replace(vm.get_attribute(importlib.clone(), "__import__")?);
+    vm.import_func = vm.get_attribute(importlib.clone(), "__import__")?;
 
     match initialize_parameter {
         InitParameter::InitializeExternal if cfg!(feature = "rustpython-compiler") => {
@@ -37,6 +36,17 @@ pub fn init_importlib(vm: &VirtualMachine, initialize_parameter: InitParameter) 
                 magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
             }
             vm.set_attr(&importlib_external, "MAGIC_NUMBER", vm.ctx.new_bytes(magic))?;
+            let zipimport_res = (|| -> PyResult<()> {
+                let zipimport = vm.import("zipimport", &[], 0)?;
+                let zipimporter = vm.get_attribute(zipimport, "zipimporter")?;
+                let path_hooks = vm.get_attribute(vm.sys_module.clone(), "path_hooks")?;
+                let path_hooks = objlist::PyListRef::try_from_object(vm, path_hooks)?;
+                path_hooks.insert(0, zipimporter);
+                Ok(())
+            })();
+            if zipimport_res.is_err() {
+                warn!("couldn't init zipimport")
+            }
         }
         InitParameter::NoInitialize => {
             panic!("Import library initialize should be InitializeInternal or InitializeExternal");
@@ -47,18 +57,28 @@ pub fn init_importlib(vm: &VirtualMachine, initialize_parameter: InitParameter) 
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    vm.frozen
-        .borrow()
+    vm.state
+        .frozen
         .get(module_name)
-        .ok_or_else(|| vm.new_import_error(format!("Cannot import frozen module {}", module_name)))
+        .ok_or_else(|| {
+            vm.new_import_error(
+                format!("Cannot import frozen module {}", module_name),
+                module_name,
+            )
+        })
         .and_then(|frozen| import_codeobj(vm, module_name, frozen.code.clone(), false))
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    vm.stdlib_inits
-        .borrow()
+    vm.state
+        .stdlib_inits
         .get(module_name)
-        .ok_or_else(|| vm.new_import_error(format!("Cannot import bultin module {}", module_name)))
+        .ok_or_else(|| {
+            vm.new_import_error(
+                format!("Cannot import bultin module {}", module_name),
+                module_name,
+            )
+        })
         .and_then(|make_module_func| {
             let module = make_module_func(vm);
             let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
@@ -86,9 +106,9 @@ pub fn import_codeobj(
     set_file_attr: bool,
 ) -> PyResult {
     let attrs = vm.ctx.new_dict();
-    attrs.set_item("__name__", vm.new_str(module_name.to_owned()), vm)?;
+    attrs.set_item("__name__", vm.ctx.new_str(module_name), vm)?;
     if set_file_attr {
-        attrs.set_item("__file__", vm.new_str(code_obj.source_path.to_owned()), vm)?;
+        attrs.set_item("__file__", vm.ctx.new_str(&code_obj.source_path), vm)?;
     }
     let module = vm.new_module(module_name, attrs.clone());
 

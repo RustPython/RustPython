@@ -1,106 +1,3 @@
-// count number of tokens given as arguments.
-// see: https://danielkeep.github.io/tlborm/book/blk-counting.html
-#[macro_export]
-macro_rules! replace_expr {
-    ($_t:tt $sub:expr) => {
-        $sub
-    };
-}
-
-#[macro_export]
-macro_rules! count_tts {
-    ($($tts:tt)*) => {0usize $(+ $crate::replace_expr!($tts 1usize))*};
-}
-
-#[macro_export]
-macro_rules! type_check {
-    ($vm:ident, $args:ident, $arg_count:ident, $arg_name:ident, $arg_type:expr) => {
-        // None indicates that we have no type requirement (i.e. we accept any type)
-        if let Some(expected_type) = $arg_type {
-            let arg = &$args.args[$arg_count];
-
-            if !$crate::obj::objtype::isinstance(arg, &expected_type) {
-                use $crate::pyobject::TypeProtocol;
-
-                let arg_typ = arg.class();
-                let expected_type_name = $vm.to_pystr(&expected_type)?;
-                let actual_type = $vm.to_pystr(&arg_typ)?;
-                return Err($vm.new_type_error(format!(
-                    "argument of type {} is required for parameter {} ({}) (got: {})",
-                    expected_type_name,
-                    $arg_count + 1,
-                    stringify!($arg_name),
-                    actual_type
-                )));
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! arg_check {
-    ( $vm: ident, $args:ident ) => {
-        // Zero-arg case
-        if $args.args.len() != 0 {
-            return Err($vm.new_type_error(format!(
-                "Expected no arguments (got: {})", $args.args.len())));
-        }
-    };
-    ( $vm: ident, $args:ident, required=[$( ($arg_name:ident, $arg_type:expr) ),*] ) => {
-        $crate::arg_check!($vm, $args, required=[$( ($arg_name, $arg_type) ),*], optional=[]);
-    };
-    ( $vm: ident, $args:ident, required=[$( ($arg_name:ident, $arg_type:expr) ),*], optional=[$( ($optional_arg_name:ident, $optional_arg_type:expr) ),*] ) => {
-        let mut arg_count = 0;
-
-        // use macro magic to compile-time count number of required and optional arguments
-        let minimum_arg_count = $crate::count_tts!($($arg_name)*);
-        let maximum_arg_count = minimum_arg_count + $crate::count_tts!($($optional_arg_name)*);
-
-        // verify that the number of given arguments is right
-        if $args.args.len() < minimum_arg_count || $args.args.len() > maximum_arg_count {
-            let expected_str = if minimum_arg_count == maximum_arg_count {
-                format!("{}", minimum_arg_count)
-            } else {
-                format!("{}-{}", minimum_arg_count, maximum_arg_count)
-            };
-            return Err($vm.new_type_error(format!(
-                "Expected {} arguments (got: {})",
-                expected_str,
-                $args.args.len()
-            )));
-        };
-
-        // for each required parameter:
-        //  check if the type matches. If not, return with error
-        //  assign the arg to a variable
-        $(
-            $crate::type_check!($vm, $args, arg_count, $arg_name, $arg_type);
-            let $arg_name = &$args.args[arg_count];
-            #[allow(unused_assignments)]
-            {
-                arg_count += 1;
-            }
-        )*
-
-        // for each optional parameter, if there are enough positional arguments:
-        //  check if the type matches. If not, return with error
-        //  assign the arg to a variable
-        $(
-            let $optional_arg_name = if arg_count < $args.args.len() {
-                $crate::type_check!($vm, $args, arg_count, $optional_arg_name, $optional_arg_type);
-                let ret = Some(&$args.args[arg_count]);
-                #[allow(unused_assignments)]
-                {
-                    arg_count += 1;
-                }
-                ret
-            } else {
-                None
-            };
-        )*
-    };
-}
-
 #[macro_export]
 macro_rules! no_kwargs {
     ( $vm: ident, $args:ident ) => {
@@ -140,7 +37,7 @@ macro_rules! py_class {
         {
             let py_class = $ctx.new_class($class_name, $class_base);
             // FIXME: setting flag here probably wrong
-            py_class.slots.borrow_mut().flags |= $crate::slots::PyTpFlags::BASETYPE;
+            py_class.slots.write().flags |= $crate::slots::PyTpFlags::BASETYPE;
             $crate::extend_class!($ctx, &py_class, { $($name => $value),* });
             py_class
         }
@@ -157,7 +54,7 @@ macro_rules! extend_class {
     };
 
     (@set_attr($ctx:expr, $class:expr, (slot $slot_name:ident), $value:expr)) => {
-        $class.slots.borrow_mut().$slot_name = Some(
+        $class.slots.write().$slot_name = Some(
             $crate::function::IntoPyNativeFunc::into_func($value)
         );
     };
@@ -197,7 +94,7 @@ macro_rules! py_namespace {
 /// use rustpython_vm::pyobject::PyValue;
 ///
 /// let vm: VirtualMachine = Default::default();
-/// let obj = PyInt::new(0).into_ref(&vm).into_object();
+/// let obj = PyInt::from(0).into_ref(&vm).into_object();
 /// assert_eq!(
 ///     "int",
 ///     match_class!(match obj.clone() {
@@ -219,13 +116,13 @@ macro_rules! py_namespace {
 /// use rustpython_vm::match_class;
 /// use rustpython_vm::obj::objfloat::PyFloat;
 /// use rustpython_vm::obj::objint::PyInt;
-/// use rustpython_vm::pyobject::PyValue;
+/// use rustpython_vm::pyobject::{PyValue, BorrowValue};
 ///
 /// let vm: VirtualMachine = Default::default();
-/// let obj = PyInt::new(0).into_ref(&vm).into_object();
+/// let obj = PyInt::from(0).into_ref(&vm).into_object();
 ///
 /// let int_value = match_class!(match obj {
-///     i @ PyInt => i.as_bigint().clone(),
+///     i @ PyInt => i.borrow_value().clone(),
 ///     f @ PyFloat => f.to_f64().to_bigint().unwrap(),
 ///     obj => panic!("non-numeric object {}", obj),
 /// });
@@ -327,4 +224,18 @@ macro_rules! class_or_notimplemented {
             Err(_) => return Ok($vm.ctx.not_implemented()),
         }
     };
+}
+
+#[macro_export]
+macro_rules! named_function {
+    ($ctx:expr, $module:ident, $func:ident) => {{
+        paste::expr! {
+            $crate::pyobject::PyContext::new_function_named(
+                &$ctx,
+                [<$module _ $func>],
+                stringify!($module).to_owned(),
+                stringify!($func).to_owned(),
+            )
+        }
+    }};
 }

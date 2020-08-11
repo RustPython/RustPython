@@ -3,6 +3,8 @@ from io import StringIO
 from collections import OrderedDict
 from test.test_json import PyTest, CTest
 
+import unittest
+
 
 class TestDecode:
     def test_decimal(self):
@@ -55,6 +57,7 @@ class TestDecode:
         self.assertIs(a, c)
         self.assertIs(b, d)
 
+    @unittest.skip("TODO: RUSTPYTHON: cache/memoize keys")
     def test_keys_reuse(self):
         s = '[{"a_key": 1, "b_\xe9": 2}, {"a_key": 3, "b_\xe9": 4}]'
         self.check_keys_reuse(s, self.loads)

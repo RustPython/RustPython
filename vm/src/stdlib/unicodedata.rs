@@ -5,14 +5,14 @@
 use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue};
+use crate::pyobject::{BorrowValue, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use itertools::Itertools;
-use unic_bidi::BidiClass;
 use unic_char_property::EnumeratedCharProperty;
 use unic_normal::StrNormalForm;
 use unic_ucd_age::{Age, UnicodeVersion, UNICODE_VERSION};
+use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -82,9 +82,13 @@ impl PyUCD {
     }
 
     fn extract_char(&self, character: PyStringRef, vm: &VirtualMachine) -> PyResult<Option<char>> {
-        let c = character.as_str().chars().exactly_one().map_err(|_| {
-            vm.new_type_error("argument must be an unicode character, not str".to_owned())
-        })?;
+        let c = character
+            .borrow_value()
+            .chars()
+            .exactly_one()
+            .map_err(|_| {
+                vm.new_type_error("argument must be an unicode character, not str".to_owned())
+            })?;
 
         if self.check_age(c) {
             Ok(Some(c))
@@ -104,7 +108,7 @@ impl PyUCD {
 
     #[pymethod]
     fn lookup(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
-        if let Some(character) = unicode_names2::character(name.as_str()) {
+        if let Some(character) = unicode_names2::character(name.borrow_value()) {
             if self.check_age(character) {
                 return Ok(character.to_string());
             }
@@ -124,7 +128,7 @@ impl PyUCD {
         if let Some(c) = c {
             if self.check_age(c) {
                 if let Some(name) = unicode_names2::name(c) {
-                    return Ok(vm.new_str(name.to_string()));
+                    return Ok(vm.ctx.new_str(name.to_string()));
                 }
             }
         }
@@ -150,8 +154,8 @@ impl PyUCD {
         unistr: PyStringRef,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        let text = unistr.as_str();
-        let normalized_text = match form.as_str() {
+        let text = unistr.borrow_value();
+        let normalized_text = match form.borrow_value() {
             "NFC" => text.nfc().collect::<String>(),
             "NFKC" => text.nfkc().collect::<String>(),
             "NFD" => text.nfd().collect::<String>(),

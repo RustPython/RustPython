@@ -1,11 +1,11 @@
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue, ThreadSafe};
+use crate::pyobject::{BorrowValue, PyClassImpl, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 use std::fmt;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use blake2::{Blake2b, Blake2s};
 use digest::DynDigest;
@@ -17,10 +17,8 @@ use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512}; // TODO: , Shake128, Shake25
 #[pyclass(name = "hasher")]
 struct PyHasher {
     name: String,
-    buffer: RwLock<HashWrapper>,
+    buffer: PyRwLock<HashWrapper>,
 }
-
-impl ThreadSafe for PyHasher {}
 
 impl fmt::Debug for PyHasher {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -39,16 +37,16 @@ impl PyHasher {
     fn new(name: &str, d: HashWrapper) -> Self {
         PyHasher {
             name: name.to_owned(),
-            buffer: RwLock::new(d),
+            buffer: PyRwLock::new(d),
         }
     }
 
-    fn borrow_value(&self) -> RwLockReadGuard<'_, HashWrapper> {
-        self.buffer.read().unwrap()
+    fn borrow_value(&self) -> PyRwLockReadGuard<'_, HashWrapper> {
+        self.buffer.read()
     }
 
-    fn borrow_value_mut(&self) -> RwLockWriteGuard<'_, HashWrapper> {
-        self.buffer.write().unwrap()
+    fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, HashWrapper> {
+        self.buffer.write()
     }
 
     #[pyslot]
@@ -70,14 +68,13 @@ impl PyHasher {
 
     #[pymethod(name = "update")]
     fn update(&self, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
-        self.borrow_value_mut().input(data.get_value());
+        self.borrow_value_mut().input(data.borrow_value());
         Ok(vm.get_none())
     }
 
     #[pymethod(name = "digest")]
     fn digest(&self) -> PyBytes {
-        let result = self.get_digest();
-        PyBytes::new(result)
+        self.get_digest().into()
     }
 
     #[pymethod(name = "hexdigest")]
@@ -96,7 +93,7 @@ fn hashlib_new(
     data: OptionalArg<PyBytesRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyHasher> {
-    match name.as_str() {
+    match name.borrow_value() {
         "md5" => md5(data, vm),
         "sha1" => sha1(data, vm),
         "sha224" => sha224(data, vm),

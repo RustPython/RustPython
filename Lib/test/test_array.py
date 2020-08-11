@@ -341,8 +341,6 @@ class BaseTest:
             a.fromlist(data2)
             self.assertEqual(list(it), [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exhausted_iterator(self):
         a = array.array(self.typecode, self.example)
         self.assertEqual(list(a), list(self.example))
@@ -920,8 +918,6 @@ class BaseTest:
                     del a[start:stop:step]
                     self.assertEqual(a, array.array(self.typecode, L))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_index(self):
         example = 2*self.example
         a = array.array(self.typecode, example)
@@ -931,8 +927,6 @@ class BaseTest:
         self.assertRaises(ValueError, a.index, None)
         self.assertRaises(ValueError, a.index, self.outside)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_count(self):
         example = 2*self.example
         a = array.array(self.typecode, example)
@@ -942,8 +936,6 @@ class BaseTest:
         self.assertEqual(a.count(self.outside), 0)
         self.assertEqual(a.count(None), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_remove(self):
         for x in self.example:
             example = 2*self.example

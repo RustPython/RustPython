@@ -26,7 +26,7 @@ struct Compiler<O: OutputStream = BasicOutputStream> {
     output_stack: Vec<O>,
     symbol_table_stack: Vec<SymbolTable>,
     nxt_label: usize,
-    source_path: Option<String>,
+    source_path: String,
     current_source_location: ast::Location,
     current_qualified_path: Option<String>,
     done_with_future_stmts: bool,
@@ -75,17 +75,19 @@ pub fn compile(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
+    let to_compile_error =
+        |parse_error| CompileError::from_parse_error(parse_error, source_path.clone());
     match mode {
         Mode::Exec => {
-            let ast = parser::parse_program(source)?;
+            let ast = parser::parse_program(source).map_err(to_compile_error)?;
             compile_program(ast, source_path, opts)
         }
         Mode::Eval => {
-            let statement = parser::parse_statement(source)?;
+            let statement = parser::parse_statement(source).map_err(to_compile_error)?;
             compile_statement_eval(statement, source_path, opts)
         }
         Mode::Single => {
-            let ast = parser::parse_program(source)?;
+            let ast = parser::parse_program(source).map_err(to_compile_error)?;
             compile_program_single(ast, source_path, opts)
         }
     }
@@ -97,8 +99,7 @@ fn with_compiler(
     opts: CompileOpts,
     f: impl FnOnce(&mut Compiler) -> CompileResult<()>,
 ) -> CompileResult<CodeObject> {
-    let mut compiler = Compiler::new(opts);
-    compiler.source_path = Some(source_path);
+    let mut compiler = Compiler::new(opts, source_path);
     compiler.push_new_code_object("<module>".to_owned());
     f(&mut compiler)?;
     let code = compiler.pop_code_object();
@@ -112,8 +113,9 @@ pub fn compile_program(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
+    let symbol_table = make_symbol_table(&ast)
+        .map_err(|e| CompileError::from_symbol_table_error(e, source_path.clone()))?;
     with_compiler(source_path, opts, |compiler| {
-        let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program(&ast, symbol_table)
     })
 }
@@ -124,8 +126,9 @@ pub fn compile_statement_eval(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
+    let symbol_table = statements_to_symbol_table(&statement)
+        .map_err(|e| CompileError::from_symbol_table_error(e, source_path.clone()))?;
     with_compiler(source_path, opts, |compiler| {
-        let symbol_table = statements_to_symbol_table(&statement)?;
         compiler.compile_statement_eval(&statement, symbol_table)
     })
 }
@@ -136,28 +139,20 @@ pub fn compile_program_single(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
+    let symbol_table = make_symbol_table(&ast)
+        .map_err(|e| CompileError::from_symbol_table_error(e, source_path.clone()))?;
     with_compiler(source_path, opts, |compiler| {
-        let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program_single(&ast, symbol_table)
     })
 }
 
-impl<O> Default for Compiler<O>
-where
-    O: OutputStream,
-{
-    fn default() -> Self {
-        Compiler::new(CompileOpts::default())
-    }
-}
-
 impl<O: OutputStream> Compiler<O> {
-    fn new(opts: CompileOpts) -> Self {
+    fn new(opts: CompileOpts, source_path: String) -> Self {
         Compiler {
             output_stack: Vec::new(),
             symbol_table_stack: Vec::new(),
             nxt_label: 0,
-            source_path: None,
+            source_path,
             current_source_location: ast::Location::default(),
             current_qualified_path: None,
             done_with_future_stmts: false,
@@ -194,7 +189,7 @@ impl<O: OutputStream> Compiler<O> {
             None,
             Vec::new(),
             None,
-            self.source_path.clone().unwrap(),
+            self.source_path.clone(),
             line_number,
             obj_name,
         ));
@@ -303,7 +298,15 @@ impl<O: OutputStream> Compiler<O> {
             SymbolScope::Global => bytecode::NameScope::Global,
             SymbolScope::Nonlocal => bytecode::NameScope::NonLocal,
             SymbolScope::Unknown => bytecode::NameScope::Free,
-            SymbolScope::Local => bytecode::NameScope::Free,
+            SymbolScope::Local => {
+                // Only in function block, we use load local
+                // https://github.com/python/cpython/blob/master/Python/compile.c#L3582
+                if self.ctx.in_func() {
+                    bytecode::NameScope::Local
+                } else {
+                    bytecode::NameScope::Free
+                }
+            }
         }
     }
 
@@ -591,7 +594,7 @@ impl<O: OutputStream> Compiler<O> {
                         {
                             return Err(self.error_loc(
                                 CompileErrorType::AsyncReturnValue,
-                                statement.location.clone(),
+                                statement.location,
                             ));
                         }
                         self.compile_expression(v)?;
@@ -733,7 +736,7 @@ impl<O: OutputStream> Compiler<O> {
             varargs_name,
             args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
             varkeywords_name,
-            self.source_path.clone().unwrap(),
+            self.source_path.clone(),
             line_number,
             name.to_owned(),
         ));
@@ -936,7 +939,7 @@ impl<O: OutputStream> Compiler<O> {
             num_annotations += 1;
         }
 
-        for arg in args.args.iter() {
+        let mut visit_arg_annotation = |arg: &ast::Parameter| -> CompileResult<()> {
             if let Some(annotation) = &arg.annotation {
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String {
@@ -946,6 +949,19 @@ impl<O: OutputStream> Compiler<O> {
                 self.compile_expression(&annotation)?;
                 num_annotations += 1;
             }
+            Ok(())
+        };
+
+        for arg in args.args.iter().chain(args.kwonlyargs.iter()) {
+            visit_arg_annotation(arg)?;
+        }
+
+        if let ast::Varargs::Named(arg) = &args.vararg {
+            visit_arg_annotation(arg)?;
+        }
+
+        if let ast::Varargs::Named(arg) = &args.kwarg {
+            visit_arg_annotation(arg)?;
         }
 
         if num_annotations > 0 {
@@ -984,6 +1000,63 @@ impl<O: OutputStream> Compiler<O> {
         Ok(())
     }
 
+    fn find_ann(&self, body: &[ast::Statement]) -> bool {
+        use ast::StatementType::*;
+        let option_stmt_to_bool = |suit: &Option<ast::Suite>| -> bool {
+            match suit {
+                Some(stmts) => self.find_ann(stmts),
+                None => false,
+            }
+        };
+
+        for statement in body {
+            let res = match &statement.node {
+                AnnAssign {
+                    target: _,
+                    annotation: _,
+                    value: _,
+                } => true,
+                For {
+                    is_async: _,
+                    target: _,
+                    iter: _,
+                    body,
+                    orelse,
+                } => self.find_ann(body) || option_stmt_to_bool(orelse),
+                If {
+                    test: _,
+                    body,
+                    orelse,
+                } => self.find_ann(body) || option_stmt_to_bool(orelse),
+                While {
+                    test: _,
+                    body,
+                    orelse,
+                } => self.find_ann(body) || option_stmt_to_bool(orelse),
+                With {
+                    is_async: _,
+                    items: _,
+                    body,
+                } => self.find_ann(body),
+                Try {
+                    body,
+                    handlers: _,
+                    orelse,
+                    finalbody,
+                } => {
+                    self.find_ann(&body)
+                        || option_stmt_to_bool(orelse)
+                        || option_stmt_to_bool(finalbody)
+                }
+                _ => false,
+            };
+            if res {
+                return true;
+            }
+        }
+        false
+    }
+
     fn compile_class_def(
         &mut self,
         name: &str,
@@ -1012,7 +1085,7 @@ impl<O: OutputStream> Compiler<O> {
             None,
             vec![],
             None,
-            self.source_path.clone().unwrap(),
+            self.source_path.clone(),
             line_number,
             name.to_owned(),
         ));
@@ -1037,6 +1110,10 @@ impl<O: OutputStream> Compiler<O> {
             name: "__qualname__".to_owned(),
             scope: bytecode::NameScope::Free,
         });
+        // setup annotations
+        if self.find_ann(body) {
+            self.emit(Instruction::SetupAnnotation);
+        }
         self.compile_statements(new_body)?;
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::None,
@@ -1329,6 +1406,11 @@ impl<O: OutputStream> Compiler<O> {
             self.compile_store(target)?;
         }
 
+        // Annotations are only evaluated in a module or class.
+        if self.ctx.in_func() {
+            return Ok(());
+        }
+
         // Compile annotation:
         self.compile_expression(annotation)?;
 
@@ -1374,7 +1456,7 @@ impl<O: OutputStream> Compiler<O> {
                 for (i, element) in elements.iter().enumerate() {
                     if let ast::ExpressionType::Starred { .. } = &element.node {
                         if seen_star {
-                            return Err(self.error(CompileErrorType::StarArgs));
+                            return Err(self.error(CompileErrorType::MultipleStarArgs));
                         } else {
                             seen_star = true;
                             self.emit(Instruction::UnpackEx {
@@ -1399,7 +1481,14 @@ impl<O: OutputStream> Compiler<O> {
                     }
                 }
             }
-            _ => return Err(self.error(CompileErrorType::Assign(target.name()))),
+            _ => {
+                return Err(self.error(match target.node {
+                    ast::ExpressionType::Starred { .. } => CompileErrorType::SyntaxError(
+                        "starred assignment target must be in a list or tuple".to_owned(),
+                    ),
+                    _ => CompileErrorType::Assign(target.name()),
+                }))
+            }
         }
 
         Ok(())
@@ -1782,11 +1871,7 @@ impl<O: OutputStream> Compiler<O> {
                 self.compile_comprehension(kind, generators)?;
             }
             Starred { .. } => {
-                return Err(
-                    self.error(CompileErrorType::SyntaxError(std::string::String::from(
-                        "Invalid starred expression",
-                    ))),
-                );
+                return Err(self.error(CompileErrorType::InvalidStarExpr));
             }
             IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
@@ -1800,6 +1885,12 @@ impl<O: OutputStream> Compiler<O> {
                 self.compile_expression(orelse)?;
                 // End
                 self.set_label(end_label);
+            }
+
+            NamedExpression { left, right } => {
+                self.compile_expression(right)?;
+                self.emit(Instruction::Duplicate);
+                self.compile_store(left)?;
             }
         }
         Ok(())
@@ -1962,7 +2053,7 @@ impl<O: OutputStream> Compiler<O> {
             None,
             vec![],
             None,
-            self.source_path.clone().unwrap(),
+            self.source_path.clone(),
             line_number,
             name.clone(),
         ));
@@ -2031,30 +2122,43 @@ impl<O: OutputStream> Compiler<O> {
             }
         }
 
+        let mut compile_element = |element| {
+            self.compile_expression(element).map_err(|e| {
+                if let CompileErrorType::InvalidStarExpr = e.error {
+                    self.error(CompileErrorType::SyntaxError(
+                        "iterable unpacking cannot be used in comprehension".to_owned(),
+                    ))
+                } else {
+                    e
+                }
+            })
+        };
+
         match kind {
             ast::ComprehensionKind::GeneratorExpression { element } => {
-                self.compile_expression(element)?;
+                compile_element(element)?;
                 self.mark_generator();
                 self.emit(Instruction::YieldValue);
                 self.emit(Instruction::Pop);
             }
             ast::ComprehensionKind::List { element } => {
-                self.compile_expression(element)?;
+                compile_element(element)?;
                 self.emit(Instruction::ListAppend {
                     i: 1 + generators.len(),
                 });
             }
             ast::ComprehensionKind::Set { element } => {
-                self.compile_expression(element)?;
+                compile_element(element)?;
                 self.emit(Instruction::SetAdd {
                     i: 1 + generators.len(),
                 });
             }
             ast::ComprehensionKind::Dict { key, value } => {
-                self.compile_expression(value)?;
+                // changed evaluation order for Py38 named expression PEP 572
                 self.compile_expression(key)?;
+                self.compile_expression(value)?;
 
-                self.emit(Instruction::MapAdd {
+                self.emit(Instruction::MapAddRev {
                     i: 1 + generators.len(),
                 });
             }
@@ -2294,7 +2398,7 @@ fn compile_conversion_flag(conversion_flag: ast::ConversionFlag) -> bytecode::Co
 
 #[cfg(test)]
 mod tests {
-    use super::Compiler;
+    use super::{CompileOpts, Compiler};
     use crate::symboltable::make_symbol_table;
     use rustpython_bytecode::bytecode::Constant::*;
     use rustpython_bytecode::bytecode::Instruction::*;
@@ -2302,8 +2406,8 @@ mod tests {
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {
-        let mut compiler: Compiler = Default::default();
-        compiler.source_path = Some("source_path".to_owned());
+        let mut compiler: Compiler =
+            Compiler::new(CompileOpts::default(), "source_path".to_owned());
         compiler.push_new_code_object("<module>".to_owned());
         let ast = parser::parse_program(source).unwrap();
         let symbol_scope = make_symbol_table(&ast).unwrap();

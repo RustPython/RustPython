@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-/// Sourcode location.
+/// Sourcecode location.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Location {
     row: usize,
@@ -73,6 +73,10 @@ impl CodeFlags {
     pub const NAME_MAPPING: &'static [(&'static str, CodeFlags)] = &[
         ("GENERATOR", CodeFlags::IS_GENERATOR),
         ("COROUTINE", CodeFlags::IS_COROUTINE),
+        (
+            "ASYNC_GENERATOR",
+            Self::from_bits_truncate(Self::IS_GENERATOR.bits | Self::IS_COROUTINE.bits),
+        ),
         ("VARARGS", CodeFlags::HAS_VARARGS),
         ("VARKEYWORDS", CodeFlags::HAS_VARKEYWORDS),
     ];
@@ -201,6 +205,7 @@ pub enum Instruction {
     ReturnValue,
     YieldValue,
     YieldFrom,
+    SetupAnnotation,
     SetupLoop {
         start: Label,
         end: Label,
@@ -269,6 +274,7 @@ pub enum Instruction {
     MapAdd {
         i: usize,
     },
+
     PrintExpr,
     LoadBuildClass,
     UnpackSequence {
@@ -292,6 +298,13 @@ pub enum Instruction {
     },
     GetAIter,
     GetANext,
+
+    /// Reverse order evaluation in MapAdd
+    /// required to support named expressions of Python 3.8 in dict comprehension
+    /// today (including Py3.9) only required in dict comprehension.
+    MapAddRev {
+        i: usize,
+    },
 }
 
 use self::Instruction::*;
@@ -396,14 +409,15 @@ impl CodeObject {
 
     /// Load a code object from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-        let data = lz4_compress::decompress(data)?;
+        let data = lz4_compression::decompress::decompress(data)
+            .map_err(|e| format!("lz4 error: {:?}", e))?;
         bincode::deserialize::<Self>(&data).map_err(|e| e.into())
     }
 
     /// Serialize this bytecode to bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
         let data = bincode::serialize(&self).expect("Code object must be serializable");
-        lz4_compress::compress(&data)
+        lz4_compression::compress::compress(&data)
     }
 
     pub fn get_constants(&self) -> impl Iterator<Item = &Constant> {
@@ -558,6 +572,7 @@ impl Instruction {
             ReturnValue => w!(ReturnValue),
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
+            SetupAnnotation => w!(SetupAnnotation),
             SetupLoop { start, end } => w!(SetupLoop, label_map[start], label_map[end]),
             SetupExcept { handler } => w!(SetupExcept, label_map[handler]),
             SetupFinally { handler } => w!(SetupFinally, label_map[handler]),
@@ -582,7 +597,7 @@ impl Instruction {
             BuildSlice { size } => w!(BuildSlice, size),
             ListAppend { i } => w!(ListAppend, i),
             SetAdd { i } => w!(SetAdd, i),
-            MapAdd { i } => w!(MapAdd, i),
+            MapAddRev { i } => w!(MapAddRev, i),
             PrintExpr => w!(PrintExpr),
             LoadBuildClass => w!(LoadBuildClass),
             UnpackSequence { size } => w!(UnpackSequence, size),
@@ -593,6 +608,7 @@ impl Instruction {
             GetAwaitable => w!(GetAwaitable),
             GetAIter => w!(GetAIter),
             GetANext => w!(GetANext),
+            MapAdd { i } => w!(MapAdd, i),
         }
     }
 }

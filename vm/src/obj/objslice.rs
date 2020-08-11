@@ -2,7 +2,8 @@ use super::objint::PyInt;
 use super::objtype::PyClassRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
+    BorrowValue, IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryIntoRef,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
@@ -61,9 +62,9 @@ impl PySlice {
 
         Ok(format!(
             "slice({}, {}, {})",
-            start_repr.as_str(),
-            stop_repr.as_str(),
-            step_repr.as_str()
+            start_repr.borrow_value(),
+            stop_repr.borrow_value(),
+            step_repr.borrow_value()
         ))
     }
 
@@ -169,7 +170,7 @@ impl PySlice {
         } else {
             // Clone the value, not the reference.
             let this_step: PyRef<PyInt> = self.step(vm).try_into_ref(vm)?;
-            step = this_step.as_bigint().clone();
+            step = this_step.borrow_value().clone();
 
             if step.is_zero() {
                 return Err(vm.new_value_error("slice step cannot be zero.".to_owned()));
@@ -203,7 +204,7 @@ impl PySlice {
             };
         } else {
             let this_start: PyRef<PyInt> = self.start(vm).try_into_ref(vm)?;
-            start = this_start.as_bigint().clone();
+            start = this_start.borrow_value().clone();
 
             if start < Zero::zero() {
                 // From end of array
@@ -223,7 +224,7 @@ impl PySlice {
             stop = if backwards { lower } else { upper };
         } else {
             let this_stop: PyRef<PyInt> = self.stop(vm).try_into_ref(vm)?;
-            stop = this_stop.as_bigint().clone();
+            stop = this_stop.borrow_value().clone();
 
             if stop < Zero::zero() {
                 // From end of array
@@ -307,10 +308,12 @@ impl PySlice {
     #[pymethod(name = "indices")]
     fn indices(&self, length: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(length) = length.payload::<PyInt>() {
-            let (start, stop, step) = self.inner_indices(length.as_bigint(), vm)?;
-            Ok(vm
-                .ctx
-                .new_tuple(vec![vm.new_int(start), vm.new_int(stop), vm.new_int(step)]))
+            let (start, stop, step) = self.inner_indices(length.borrow_value(), vm)?;
+            Ok(vm.ctx.new_tuple(vec![
+                vm.ctx.new_int(start),
+                vm.ctx.new_int(stop),
+                vm.ctx.new_int(step),
+            ]))
         } else {
             Ok(vm.ctx.not_implemented())
         }
@@ -327,7 +330,7 @@ fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<Big
             "slice indices must be integers or None or have an __index__ method".to_owned(),
         ))
     })?;
-    Ok(Some(result.as_bigint().clone()))
+    Ok(Some(result.borrow_value().clone()))
 }
 
 pub fn init(context: &PyContext) {

@@ -5,14 +5,18 @@ use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
-    Either, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    ThreadSafe, TryFromObject,
+    BorrowValue, Either, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
 
-use std::cell::Cell;
+use crate::common::cell::{
+    PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
+    PyRwLockWriteGuard,
+};
 use std::fmt;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+use crossbeam_utils::atomic::AtomicCell;
 
 struct ArrayTypeSpecifierError {
     _priv: (),
@@ -77,7 +81,7 @@ macro_rules! def_array_enum {
                 Ok(())
             }
 
-            fn pop(&mut self, i: usize, vm: &VirtualMachine) -> PyResult {
+            fn pop(&mut self, i: usize, vm: &VirtualMachine) -> PyObjectRef {
                 match self {
                     $(ArrayContentType::$n(v) => {
                         v.remove(i).into_pyobject(vm)
@@ -98,10 +102,29 @@ macro_rules! def_array_enum {
             fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let val = $t::try_from_object(vm, obj)?;
-                        Ok(v.iter().filter(|&&a| a == val).count())
+                        Ok(<Option<$t>>::try_from_object(vm, obj)?.map_or(0, |val| {
+                            v.iter().filter(|&&a| a == val).count()
+                        }))
                     })*
                 }
+            }
+
+            fn remove(&mut self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()>{
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        let pos = <Option<$t>>::try_from_object(vm, obj)?.map_or(None, |val| {
+                            v.iter().position(|&a| a == val)
+                        });
+
+                        match pos {
+                            Some(x) => {
+                                v.remove(x);
+                            },
+                            None => return Err(vm.new_value_error("array.remove(x): x not in array".to_owned()))
+                        }
+                    })*
+                }
+                Ok(())
             }
 
             fn frombytes(&mut self, b: &[u8]) {
@@ -117,14 +140,24 @@ macro_rules! def_array_enum {
                 }
             }
 
-            fn tobytes(&self) -> Vec<u8> {
+            fn get_bytes(&self) -> &[u8] {
                 match self {
                     $(ArrayContentType::$n(v) => {
                         // safe because we're just reading memory as bytes
                         let ptr = v.as_ptr() as *const u8;
                         let ptr_len = v.len() * std::mem::size_of::<$t>();
-                        let slice = unsafe { std::slice::from_raw_parts(ptr, ptr_len) };
-                        slice.to_vec()
+                        unsafe { std::slice::from_raw_parts(ptr, ptr_len) }
+                    })*
+                }
+            }
+
+            fn get_bytes_mut(&mut self) -> &mut [u8] {
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        // safe because we're just reading memory as bytes
+                        let ptr = v.as_ptr() as *mut u8;
+                        let ptr_len = v.len() * std::mem::size_of::<$t>();
+                        unsafe { std::slice::from_raw_parts_mut(ptr, ptr_len) }
                     })*
                 }
             }
@@ -132,8 +165,9 @@ macro_rules! def_array_enum {
             fn index(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<usize>> {
                 match self {
                     $(ArrayContentType::$n(v) => {
-                        let val = $t::try_from_object(vm, x)?;
-                        Ok(v.iter().position(|&a| a == val))
+                        Ok(<Option<$t>>::try_from_object(vm, x)?.map_or(None, |val| {
+                            v.iter().position(|&a| a == val)
+                        }))
                     })*
                 }
             }
@@ -161,7 +195,7 @@ macro_rules! def_array_enum {
                 Ok(i)
             }
 
-            fn getitem_by_idx(&self, i: usize, vm: &VirtualMachine) -> Option<PyResult> {
+            fn getitem_by_idx(&self, i: usize, vm: &VirtualMachine) -> Option<PyObjectRef> {
                 match self {
                     $(ArrayContentType::$n(v) => v.get(i).map(|x| x.into_pyobject(vm)),)*
                 }
@@ -170,11 +204,9 @@ macro_rules! def_array_enum {
             fn getitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult {
                 match needle {
                     Either::A(i) => {
-                        let i = match self.idx(i, "array", vm) {
-                            Ok(v) => v,
-                            Err(e) => return Err(e),
-                        };
-                        self.getitem_by_idx(i, vm).unwrap()
+                        self.idx(i, "array", vm).map(|i| {
+                            self.getitem_by_idx(i, vm).unwrap()
+                        })
                     }
                     Either::B(_slice) => Err(vm.new_not_implemented_error("array slice is not implemented".to_owned())),
                 }
@@ -193,7 +225,7 @@ macro_rules! def_array_enum {
                 }
             }
 
-            fn iter<'a>(&'a self, vm: &'a VirtualMachine) -> impl Iterator<Item = PyResult> + 'a {
+            fn iter<'a>(&'a self, vm: &'a VirtualMachine) -> impl Iterator<Item = PyObjectRef> + 'a {
                 let mut i = 0;
                 std::iter::from_fn(move || {
                     let ret = self.getitem_by_idx(i, vm);
@@ -224,10 +256,8 @@ def_array_enum!(
 #[pyclass(name = "array")]
 #[derive(Debug)]
 pub struct PyArray {
-    array: RwLock<ArrayContentType>,
+    array: PyRwLock<ArrayContentType>,
 }
-
-impl ThreadSafe for PyArray {}
 
 pub type PyArrayRef = PyRef<PyArray>;
 
@@ -239,12 +269,12 @@ impl PyValue for PyArray {
 
 #[pyimpl(flags(BASETYPE))]
 impl PyArray {
-    fn borrow_value(&self) -> RwLockReadGuard<'_, ArrayContentType> {
-        self.array.read().unwrap()
+    fn borrow_value(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
+        self.array.read()
     }
 
-    fn borrow_value_mut(&self) -> RwLockWriteGuard<'_, ArrayContentType> {
-        self.array.write().unwrap()
+    fn borrow_value_mut(&self) -> PyRwLockWriteGuard<'_, ArrayContentType> {
+        self.array.write()
     }
 
     #[pyslot]
@@ -254,8 +284,8 @@ impl PyArray {
         init: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyArrayRef> {
-        let spec = match spec.as_str().len() {
-            1 => spec.as_str().chars().next().unwrap(),
+        let spec = match spec.borrow_value().len() {
+            1 => spec.borrow_value().chars().next().unwrap(),
             _ => {
                 return Err(vm.new_type_error(
                     "array() argument 1 must be a unicode character, not str".to_owned(),
@@ -265,7 +295,7 @@ impl PyArray {
         let array =
             ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err.to_string()))?;
         let zelf = PyArray {
-            array: RwLock::new(array),
+            array: PyRwLock::new(array),
         };
         if let OptionalArg::Present(init) = init {
             zelf.extend(init, vm)?;
@@ -300,6 +330,11 @@ impl PyArray {
     }
 
     #[pymethod]
+    fn remove(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.borrow_value_mut().remove(x, vm)
+    }
+
+    #[pymethod]
     fn extend(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let mut array = self.borrow_value_mut();
         for elem in iter.iter(vm)? {
@@ -310,7 +345,7 @@ impl PyArray {
 
     #[pymethod]
     fn frombytes(&self, b: PyBytesRef, vm: &VirtualMachine) -> PyResult<()> {
-        let b = b.get_value();
+        let b = b.borrow_value();
         let itemsize = self.borrow_value().itemsize();
         if b.len() % itemsize != 0 {
             return Err(vm.new_value_error("bytes length not a multiple of item size".to_owned()));
@@ -355,13 +390,21 @@ impl PyArray {
             Err(vm.new_index_error("pop from empty array".to_owned()))
         } else {
             let i = self.borrow_value().idx(i.unwrap_or(-1), "pop", vm)?;
-            self.borrow_value_mut().pop(i, vm)
+            Ok(self.borrow_value_mut().pop(i, vm))
         }
     }
 
     #[pymethod]
     pub(crate) fn tobytes(&self) -> Vec<u8> {
-        self.borrow_value().tobytes()
+        self.borrow_value().get_bytes().to_vec()
+    }
+
+    pub(crate) fn get_bytes(&self) -> PyMappedRwLockReadGuard<'_, [u8]> {
+        PyRwLockReadGuard::map(self.borrow_value(), |a| a.get_bytes())
+    }
+
+    pub(crate) fn get_bytes_mut(&self) -> PyMappedRwLockWriteGuard<'_, [u8]> {
+        PyRwLockWriteGuard::map(self.borrow_value_mut(), |a| a.get_bytes_mut())
     }
 
     #[pymethod]
@@ -369,7 +412,7 @@ impl PyArray {
         let array = self.borrow_value();
         let mut v = Vec::with_capacity(array.len());
         for obj in array.iter(vm) {
-            v.push(obj?);
+            v.push(obj);
         }
         Ok(vm.ctx.new_list(v))
     }
@@ -401,27 +444,99 @@ impl PyArray {
         let lhs = lhs.borrow_value();
         let rhs = rhs.borrow_value();
         if lhs.len() != rhs.len() {
-            Ok(vm.new_bool(false))
+            Ok(vm.ctx.new_bool(false))
         } else {
             for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
-                let ne = objbool::boolval(vm, vm._ne(a?, b?)?)?;
+                let ne = objbool::boolval(vm, vm._ne(a, b)?)?;
                 if ne {
-                    return Ok(vm.new_bool(false));
+                    return Ok(vm.ctx.new_bool(false));
                 }
             }
-            Ok(vm.new_bool(true))
+            Ok(vm.ctx.new_bool(true))
         }
     }
 
+    #[pymethod(name = "__lt__")]
+    fn lt(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let lhs = class_or_notimplemented!(vm, Self, lhs);
+        let rhs = class_or_notimplemented!(vm, Self, rhs);
+        let lhs = lhs.borrow_value();
+        let rhs = rhs.borrow_value();
+
+        for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
+            let lt = objbool::boolval(vm, vm._lt(a, b)?)?;
+
+            if lt {
+                return Ok(vm.ctx.new_bool(true));
+            }
+        }
+
+        Ok(vm.ctx.new_bool(lhs.len() < rhs.len()))
+    }
+
+    #[pymethod(name = "__le__")]
+    fn le(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let lhs = class_or_notimplemented!(vm, Self, lhs);
+        let rhs = class_or_notimplemented!(vm, Self, rhs);
+        let lhs = lhs.borrow_value();
+        let rhs = rhs.borrow_value();
+
+        for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
+            let le = objbool::boolval(vm, vm._le(a, b)?)?;
+
+            if le {
+                return Ok(vm.ctx.new_bool(true));
+            }
+        }
+
+        Ok(vm.ctx.new_bool(lhs.len() <= rhs.len()))
+    }
+
+    #[pymethod(name = "__gt__")]
+    fn gt(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let lhs = class_or_notimplemented!(vm, Self, lhs);
+        let rhs = class_or_notimplemented!(vm, Self, rhs);
+        let lhs = lhs.borrow_value();
+        let rhs = rhs.borrow_value();
+
+        for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
+            let gt = objbool::boolval(vm, vm._gt(a, b)?)?;
+
+            if gt {
+                return Ok(vm.ctx.new_bool(true));
+            }
+        }
+
+        Ok(vm.ctx.new_bool(lhs.len() > rhs.len()))
+    }
+
+    #[pymethod(name = "__ge__")]
+    fn ge(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let lhs = class_or_notimplemented!(vm, Self, lhs);
+        let rhs = class_or_notimplemented!(vm, Self, rhs);
+        let lhs = lhs.borrow_value();
+        let rhs = rhs.borrow_value();
+
+        for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
+            let ge = objbool::boolval(vm, vm._ge(a, b)?)?;
+
+            if ge {
+                return Ok(vm.ctx.new_bool(true));
+            }
+        }
+
+        Ok(vm.ctx.new_bool(lhs.len() >= rhs.len()))
+    }
+
     #[pymethod(name = "__len__")]
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.borrow_value().len()
     }
 
     #[pymethod(name = "__iter__")]
     fn iter(zelf: PyRef<Self>) -> PyArrayIter {
         PyArrayIter {
-            position: Cell::new(0),
+            position: AtomicCell::new(0),
             array: zelf,
         }
     }
@@ -430,7 +545,7 @@ impl PyArray {
 #[pyclass]
 #[derive(Debug)]
 pub struct PyArrayIter {
-    position: Cell<usize>,
+    position: AtomicCell<usize>,
     array: PyArrayRef,
 }
 
@@ -444,14 +559,9 @@ impl PyValue for PyArrayIter {
 impl PyArrayIter {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.position.get() < self.array.borrow_value().len() {
-            let ret = self
-                .array
-                .borrow_value()
-                .getitem_by_idx(self.position.get(), vm)
-                .unwrap()?;
-            self.position.set(self.position.get() + 1);
-            Ok(ret)
+        let pos = self.position.fetch_add(1);
+        if let Some(item) = self.array.borrow_value().getitem_by_idx(pos, vm) {
+            Ok(item)
         } else {
             Err(objiter::new_stop_iteration(vm))
         }

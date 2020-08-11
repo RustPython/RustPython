@@ -446,8 +446,6 @@ class BuiltinTest(unittest.TestCase):
         # test that object has a __dir__()
         self.assertEqual(sorted([].__dir__()), dir([]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_divmod(self):
         self.assertEqual(divmod(12, 7), (1, 5))
         self.assertEqual(divmod(-12, 7), (-2, 2))
@@ -693,8 +691,6 @@ class BuiltinTest(unittest.TestCase):
                 raise ValueError
         self.assertRaises(ValueError, hasattr, B(), "b")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hash(self):
         hash(None)
         self.assertEqual(hash(1), hash(1))
@@ -776,8 +772,6 @@ class BuiltinTest(unittest.TestCase):
         self.assertRaises(TypeError, issubclass, E, 'foo')
         self.assertRaises(TypeError, issubclass)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_len(self):
         self.assertEqual(len('123'), 3)
         self.assertEqual(len(()), 0)

@@ -1,18 +1,46 @@
+use generational_arena::Arena;
+use std::cell::RefCell;
+
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
-use serde_wasm_bindgen;
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use rustpython_compiler::error::{CompileError, CompileErrorType};
 use rustpython_parser::error::ParseErrorType;
+use rustpython_vm::byteslike::PyBytesLike;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::obj::{objbyteinner::PyBytesLike, objtype};
+use rustpython_vm::obj::objtype;
 use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject};
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{exceptions, py_serde};
 
 use crate::browser_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
+
+// Currently WASM do not support multithreading. We should change this once it is enabled.
+thread_local!(static JS_HANDLES: RefCell<Arena<JsValue>> = RefCell::new(Arena::new()));
+
+pub struct JsHandle(generational_arena::Index);
+impl JsHandle {
+    pub fn new(js: JsValue) -> Self {
+        let idx = JS_HANDLES.with(|arena| arena.borrow_mut().insert(js));
+        JsHandle(idx)
+    }
+    pub fn get(&self) -> JsValue {
+        JS_HANDLES.with(|arena| {
+            arena
+                .borrow()
+                .get(self.0)
+                .expect("index was removed")
+                .clone()
+        })
+    }
+}
+impl Drop for JsHandle {
+    fn drop(&mut self) {
+        JS_HANDLES.with(|arena| arena.borrow_mut().remove(self.0));
+    }
+}
 
 #[wasm_bindgen(inline_js = r"
 export class PyError extends Error {
@@ -67,7 +95,7 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
 
 pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     if let Some(ref wasm_id) = vm.wasm_id {
-        if objtype::isinstance(&py_obj, &vm.ctx.function_type()) {
+        if objtype::isinstance(&py_obj, &vm.ctx.types.function_type) {
             let wasm_vm = WASMVirtualMachine {
                 id: wasm_id.clone(),
             };
@@ -185,16 +213,19 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             for pair in object_entries(&Object::from(js_val)) {
                 let (key, val) = pair.expect("iteration over object to not fail");
                 let py_val = js_to_py(vm, val);
-                dict.set_item(&String::from(js_sys::JsString::from(key)), py_val, vm)
-                    .unwrap();
+                dict.set_item(
+                    String::from(js_sys::JsString::from(key)).as_str(),
+                    py_val,
+                    vm,
+                )
+                .unwrap();
             }
             dict.into_object()
         }
     } else if js_val.is_function() {
-        let func = js_sys::Function::from(js_val);
+        let js_handle = JsHandle::new(js_val);
         vm.ctx
             .new_method(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
-                let func = func.clone();
                 let this = Object::new();
                 for (k, v) in args.kwargs {
                     Reflect::set(&this, &k.into(), &py_to_js(vm, v))
@@ -204,6 +235,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
                 for v in args.args {
                     js_args.push(&py_to_js(vm, v));
                 }
+                let func = js_sys::Function::from(js_handle.get());
                 func.apply(&this, &js_args)
                     .map(|val| js_to_py(vm, val))
                     .map_err(|err| js_err_to_py_err(vm, &err))

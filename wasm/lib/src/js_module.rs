@@ -1,8 +1,11 @@
 use js_sys::{Array, Object, Reflect};
+use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::Args;
 use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStringRef, objtype::PyClassRef};
-use rustpython_vm::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use rustpython_vm::pyobject::{
+    BorrowValue, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 use rustpython_vm::types::create_type;
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
@@ -34,6 +37,10 @@ pub struct PyJsValue {
 }
 type PyJsValueRef = PyRef<PyJsValue>;
 
+// TODO: Fix this when threading is supported in WASM.
+unsafe impl Send for PyJsValue {}
+unsafe impl Sync for PyJsValue {}
+
 impl PyValue for PyJsValue {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("_js", "JsValue")
@@ -56,7 +63,7 @@ impl TryFromObject for JsProperty {
 impl JsProperty {
     fn into_jsvalue(self) -> JsValue {
         match self {
-            JsProperty::Str(s) => s.as_str().into(),
+            JsProperty::Str(s) => s.borrow_value().into(),
             JsProperty::Js(value) => value.value.clone(),
         }
     }
@@ -83,7 +90,7 @@ impl PyJsValue {
 
     #[pymethod]
     fn new_from_str(&self, s: PyStringRef) -> PyJsValue {
-        PyJsValue::new(s.as_str())
+        PyJsValue::new(s.borrow_value())
     }
 
     #[pymethod]
@@ -253,8 +260,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     })
 }
 
-pub fn setup_js_module(vm: &VirtualMachine) {
-    vm.stdlib_inits
-        .borrow_mut()
+pub fn setup_js_module(vm: &mut VirtualMachine) {
+    let state = PyRc::get_mut(&mut vm.state).unwrap();
+    state
+        .stdlib_inits
         .insert("_js".to_owned(), Box::new(make_module));
 }

@@ -3,11 +3,11 @@
 if __name__ != 'test.support':
     raise ImportError('support must be imported from the test package')
 
-# import asyncio.events
+import asyncio.events
 import collections.abc
 import contextlib
 import errno
-# import faulthandler
+import faulthandler
 import fnmatch
 import functools
 # import gc
@@ -16,7 +16,7 @@ import hashlib
 import importlib
 import importlib.util
 import locale
-# import logging.handlers
+import logging.handlers
 # import nntplib
 import os
 import platform
@@ -28,13 +28,13 @@ import struct
 import subprocess
 import sys
 import sysconfig
-# import tempfile
+import tempfile
 import _thread
-# import threading
+import threading
 import time
 import types
 import unittest
-# import urllib.error
+import urllib.error
 import warnings
 
 from .testresult import get_test_runner
@@ -2442,7 +2442,8 @@ def strip_python_stderr(stderr):
     This will typically be run on the result of the communicate() method
     of a subprocess.Popen object.
     """
-    stderr = re.sub(br"\[\d+ refs, \d+ blocks\]\r?\n?", b"", stderr).strip()
+    # XXX RustPython TODO: bytes regexes
+    # stderr = re.sub(br"\[\d+ refs, \d+ blocks\]\r?\n?", b"", stderr).strip()
     return stderr
 
 requires_type_collecting = unittest.skipIf(hasattr(sys, 'getcounts'),
@@ -2566,6 +2567,31 @@ def skip_if_buggy_ucrt_strfptime(test):
         else:
             _buggy_ucrt = False
     return unittest.skip("buggy MSVC UCRT strptime/strftime")(test) if _buggy_ucrt else test
+
+
+def skip_if_broken_multiprocessing_synchronize():
+    """
+    Skip tests if the multiprocessing.synchronize module is missing, if there
+    is no available semaphore implementation, or if creating a lock raises an
+    OSError (on Linux only).
+    """
+
+    # Skip tests if the _multiprocessing extension is missing.
+    import_module('_multiprocessing')
+
+    # Skip tests if there is no available semaphore implementation:
+    # multiprocessing.synchronize requires _multiprocessing.SemLock.
+    synchronize = import_module('multiprocessing.synchronize')
+
+    if sys.platform == "linux":
+        try:
+            # bpo-38377: On Linux, creating a semaphore fails with OSError
+            # if the current user does not have the permission to create
+            # a file in /dev/shm/ directory.
+            synchronize.Lock(ctx=None)
+        except OSError as exc:
+            raise unittest.SkipTest(f"broken multiprocessing SemLock: {exc!r}")
+
 
 class PythonSymlink:
     """Creates a symlink for the current Python executable"""

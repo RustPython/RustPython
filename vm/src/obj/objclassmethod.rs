@@ -33,8 +33,8 @@ pub struct PyClassMethod {
 }
 pub type PyClassMethodRef = PyRef<PyClassMethod>;
 
-impl PyClassMethod {
-    pub fn new(value: PyObjectRef) -> Self {
+impl From<PyObjectRef> for PyClassMethod {
+    fn from(value: PyObjectRef) -> Self {
         Self { callable: value }
     }
 }

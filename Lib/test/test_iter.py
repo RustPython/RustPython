@@ -226,8 +226,6 @@ class TestCase(unittest.TestCase):
         self.assertEqual(list(a), [0, 1, 2, 3, 4, 5, 6])
 
     # Test a new_style class with __iter__ but no next() method
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_style_iter_class(self):
         class IterClass(object):
             def __iter__(self):
@@ -366,8 +364,6 @@ class TestCase(unittest.TestCase):
                 pass
 
     # Test list()'s use of iterators.
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_builtin_list(self):
         self.assertEqual(list(SequenceClass(5)), list(range(5)))
         self.assertEqual(list(SequenceClass(0)), [])
@@ -399,8 +395,6 @@ class TestCase(unittest.TestCase):
                 pass
 
     # Test tuples()'s use of iterators.
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_builtin_tuple(self):
         self.assertEqual(tuple(SequenceClass(5)), (0, 1, 2, 3, 4))
         self.assertEqual(tuple(SequenceClass(0)), ())
@@ -479,8 +473,6 @@ class TestCase(unittest.TestCase):
         self.assertEqual(list(filter(lambda x: not x, iter(seq))), [bFalse]*25)
 
     # Test max() and min()'s use of iterators.
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_builtin_max_min(self):
         self.assertEqual(max(SequenceClass(5)), 4)
         self.assertEqual(min(SequenceClass(5)), 0)
@@ -664,8 +656,6 @@ class TestCase(unittest.TestCase):
                 pass
 
     # Test iterators with 'x in y' and 'x not in y'.
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_in_and_not_in(self):
         for sc5 in IteratingSequenceClass(5), SequenceClass(5):
             for i in range(5):
@@ -707,8 +697,6 @@ class TestCase(unittest.TestCase):
                 pass
 
     # Test iterators with operator.countOf (PySequence_Count).
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_countOf(self):
         from operator import countOf
         self.assertEqual(countOf([1,2,2,3,2,5], 2), 3)

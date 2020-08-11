@@ -148,8 +148,26 @@ TestOrStarExprList: ast::Expression = {
     }
 };
 
+TestOrStarNamedExprList: ast::Expression = {
+    <location:@L> <elements:OneOrMore<TestOrStarNamedExpr>> <comma:","?> => {
+        if elements.len() == 1 && comma.is_none() {
+            elements.into_iter().next().unwrap()
+        } else {
+            ast::Expression {
+                location,
+                node: ast::ExpressionType::Tuple { elements }
+            }
+        }
+    }
+};
+
 TestOrStarExpr: ast::Expression = {
     Test,
+    StarExpr,
+};
+
+TestOrStarNamedExpr: ast::Expression = {
+    NamedExpressionTest,
     StarExpr,
 };
 
@@ -314,7 +332,7 @@ CompoundStatement: ast::Statement = {
 };
 
 IfStatement: ast::Statement = {
-    <location:@L> "if" <test:Test> ":" <body:Suite> <s2:(@L "elif" Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
+    <location:@L> "if" <test:NamedExpressionTest> ":" <body:Suite> <s2:(@L "elif" NamedExpressionTest ":" Suite)*> <s3:("else" ":" Suite)?> => {
         // Determine last else:
         let mut last = s3.map(|s| s.2);
 
@@ -335,7 +353,7 @@ IfStatement: ast::Statement = {
 };
 
 WhileStatement: ast::Statement = {
-    <location:@L> "while" <test:Test> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
+    <location:@L> "while" <test:NamedExpressionTest> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
         let orelse = s2.map(|s| s.2);
         ast::Statement {
             location,
@@ -606,20 +624,8 @@ Path: ast::Expression = {
 
 // Decorators:
 Decorator: ast::Expression = {
-    "@" <p:Path> <a: (@L "(" ArgumentList ")")?> "\n" => {
-        match a {
-            Some((location, _, arg, _)) => {
-                ast::Expression {
-                    location,
-                    node: ast::ExpressionType::Call {
-                        function: Box::new(p),
-                        args: arg.args,
-                        keywords: arg.keywords,
-                    }
-                }
-            },
-            None => p,
-        }
+    <location:@L>"@" <p:Test> "\n" => {
+        p
     },
 };
 
@@ -651,6 +657,26 @@ Test: ast::Expression = {
     },
     LambdaDef,
 };
+
+NamedExpressionTest: ast::Expression = {
+    <location:@L><left: (Identifier ":=")?> <right:Test> => {
+        if let Some(l) = left {
+            ast::Expression {
+                location: location,
+                node: ast::ExpressionType::NamedExpression {
+                        left: Box::new(
+                            ast::Expression {
+                                location: location,
+                                node: ast::ExpressionType::Identifier { name: l.0, },
+                            }),
+                        right: Box::new(right),
+                }
+            }
+        } else {
+            right
+        }
+    }
+}
 
 LambdaDef: ast::Expression = {
     <location:@L> "lambda" <p:ParameterList<UntypedParameter>?> ":" <body:Test> =>
@@ -912,7 +938,7 @@ Atom: ast::Expression = {
             node: ast::ExpressionType::List { elements }
         }
     },
-    <location:@L> "[" <element:TestOrStarExpr> <generators:CompFor> "]" => {
+    <location:@L> "[" <element:TestOrStarNamedExpr> <generators:CompFor> "]" => {
         ast::Expression {
             location,
             node: ast::ExpressionType::Comprehension {
@@ -921,7 +947,7 @@ Atom: ast::Expression = {
             }
         }
     },
-    <location:@L> "(" <elements:TestOrStarExprList?> ")" => {
+    <location:@L> "(" <elements:TestOrStarNamedExprList?> ")" => {
         elements.unwrap_or(ast::Expression {
              location,
              node: ast::ExpressionType::Tuple { elements: Vec::new() }
@@ -970,7 +996,7 @@ Atom: ast::Expression = {
 };
 
 ListLiteralValues: Vec<ast::Expression> = {
-    <e:OneOrMore<TestOrStarExpr>> ","? => e,
+    <e:OneOrMore<TestOrStarNamedExpr>> ","? => e,
 };
 
 DictLiteralValues: Vec<(Option<ast::Expression>, ast::Expression)> = {
@@ -987,7 +1013,7 @@ DictElement: (Option<ast::Expression>, ast::Expression) = {
 };
 
 SetLiteralValues: Vec<ast::Expression> = {
-    <e1:OneOrMore<TestOrStarExpr>> ","? => e1
+    <e1:OneOrMore<TestOrStarNamedExpr>> ","? => e1
 };
 
 ExpressionOrStarExpression = {
@@ -1058,7 +1084,7 @@ ArgumentList: ast::ArgumentList = {
 };
 
 FunctionArgument: (Option<Option<String>>, ast::Expression) = {
-    <e:Test> <c:CompFor?> => {
+    <e:NamedExpressionTest> <c:CompFor?> => {
         let expr = match c {
             Some(c) => ast::Expression {
                 location: e.location,
@@ -1176,6 +1202,7 @@ extern {
         ">>=" => lexer::Tok::RightShiftEqual,
         "**=" => lexer::Tok::DoubleStarEqual,
         "//=" => lexer::Tok::DoubleSlashEqual,
+        ":=" => lexer::Tok::ColonEqual,
         "==" => lexer::Tok::EqEqual,
         "!=" => lexer::Tok::NotEqual,
         "<" => lexer::Tok::Less,

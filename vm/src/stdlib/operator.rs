@@ -1,13 +1,13 @@
+use crate::byteslike::PyBytesLike;
 use crate::function::OptionalArg;
-use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::{objiter, objtype};
-use crate::pyobject::{Either, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 use volatile::Volatile;
 
 fn operator_length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
-    let default = default.unwrap_or_else(|| vm.new_int(0));
+    let default = default.unwrap_or_else(|| vm.ctx.new_int(0));
     if !objtype::isinstance(&default, &vm.ctx.types.int_type) {
         return Err(vm.new_type_error(format!(
             "'{}' type cannot be interpreted as an integer",
@@ -15,7 +15,7 @@ fn operator_length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMach
         )));
     }
     let hint = objiter::length_hint(vm, obj)?
-        .map(|i| vm.new_int(i))
+        .map(|i| vm.ctx.new_int(i))
         .unwrap_or(default);
     Ok(hint)
 }
@@ -76,12 +76,12 @@ fn operator_compare_digest(
 ) -> PyResult<bool> {
     let res = match (a, b) {
         (Either::A(a), Either::A(b)) => {
-            if !a.as_str().is_ascii() || !b.as_str().is_ascii() {
+            if !a.borrow_value().is_ascii() || !b.borrow_value().is_ascii() {
                 return Err(vm.new_type_error(
                     "comparing strings with non-ASCII characters is not supported".to_owned(),
                 ));
             }
-            timing_safe_cmp(a.as_str().as_bytes(), b.as_str().as_bytes())
+            timing_safe_cmp(a.borrow_value().as_bytes(), b.borrow_value().as_bytes())
         }
         (Either::B(a), Either::B(b)) => a.with_ref(|a| b.with_ref(|b| timing_safe_cmp(a, b))),
         _ => {

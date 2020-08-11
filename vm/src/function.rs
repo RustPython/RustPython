@@ -10,7 +10,7 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{
-    IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyResult, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -62,6 +62,15 @@ impl From<(&Args, &KwArgs)> for PyFuncArgs {
         PyFuncArgs {
             args: args.clone(),
             kwargs: kwargs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        }
+    }
+}
+
+impl From<KwArgs> for PyFuncArgs {
+    fn from(kwargs: KwArgs) -> Self {
+        PyFuncArgs {
+            args: Vec::new(),
+            kwargs: kwargs.into_iter().collect(),
         }
     }
 }
@@ -261,8 +270,22 @@ pub trait FromArgs: Sized {
 pub struct KwArgs<T = PyObjectRef>(HashMap<String, T>);
 
 impl<T> KwArgs<T> {
+    pub fn new(map: HashMap<String, T>) -> Self {
+        KwArgs(map)
+    }
+
     pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
         self.0.remove(name)
+    }
+}
+impl<T> From<HashMap<String, T>> for KwArgs<T> {
+    fn from(map: HashMap<String, T>) -> Self {
+        KwArgs(map)
+    }
+}
+impl<T> Default for KwArgs<T> {
+    fn default() -> Self {
+        KwArgs(HashMap::new())
     }
 }
 
@@ -381,7 +404,7 @@ pub type OptionalOption<T> = OptionalArg<Option<T>>;
 
 impl<T> OptionalOption<T> {
     #[inline]
-    pub fn flat_option(self) -> Option<T> {
+    pub fn flatten(self) -> Option<T> {
         match self {
             Present(Some(value)) => Some(value),
             _ => None,
@@ -458,8 +481,8 @@ tuple_from_py_func_args!(A, B, C, D, E, F);
 pub type FunctionBox<T> = SmallBox<T, S1>;
 
 /// A built-in Python function.
-pub type PyNativeFunc = FunctionBox<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
-// TODO: + Send + Sync
+pub type PyNativeFunc =
+    FunctionBox<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static + Send + Sync>;
 
 /// Implemented by types that are or can generate built-in functions.
 ///
@@ -481,7 +504,7 @@ pub trait IntoPyNativeFunc<T, R, VM> {
 
 impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult, VirtualMachine> for F
 where
-    F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static,
+    F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static + Send + Sync,
 {
     fn into_func(self) -> PyNativeFunc {
         smallbox!(self)
@@ -499,40 +522,40 @@ macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),*) => {
         impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
-            F: Fn($($T,)* &VirtualMachine) -> R + 'static,
+            F: Fn($($T,)* &VirtualMachine) -> R + 'static + Send + Sync,
             $($T: FromArgs,)*
-            R: IntoPyObject,
+            R: IntoPyResult,
         {
             fn into_func(self) -> PyNativeFunc {
                 smallbox!(move |vm: &VirtualMachine, args: PyFuncArgs| {
                     let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
-                    (self)($($n,)* vm).into_pyobject(vm)
+                    (self)($($n,)* vm).into_pyresult(vm)
                 })
             }
         }
 
         impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
-            F: Fn(&S, $($T,)* &VirtualMachine) -> R + 'static,
+            F: Fn(&S, $($T,)* &VirtualMachine) -> R + 'static  + Send + Sync,
             S: PyValue,
             $($T: FromArgs,)*
-            R: IntoPyObject,
+            R: IntoPyResult,
         {
             fn into_func(self) -> PyNativeFunc {
                 smallbox!(move |vm: &VirtualMachine, args: PyFuncArgs| {
                     let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
 
-                    (self)(&zelf, $($n,)* vm).into_pyobject(vm)
+                    (self)(&zelf, $($n,)* vm).into_pyresult(vm)
                 })
             }
         }
 
         impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, ()> for F
         where
-            F: Fn($($T,)*) -> R + 'static,
+            F: Fn($($T,)*) -> R + 'static  + Send + Sync,
             $($T: FromArgs,)*
-            R: IntoPyObject,
+            R: IntoPyResult,
         {
             fn into_func(self) -> PyNativeFunc {
                 IntoPyNativeFunc::into_func(move |$($n,)* _vm: &VirtualMachine| (self)($($n,)*))
@@ -541,10 +564,10 @@ macro_rules! into_py_native_func_tuple {
 
         impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
         where
-            F: Fn(&S, $($T,)*) -> R + 'static,
+            F: Fn(&S, $($T,)*) -> R + 'static  + Send + Sync,
             S: PyValue,
             $($T: FromArgs,)*
-            R: IntoPyObject,
+            R: IntoPyResult,
         {
             fn into_func(self) -> PyNativeFunc {
                 IntoPyNativeFunc::into_func(move |zelf: &S, $($n,)* _vm: &VirtualMachine| (self)(zelf, $($n,)*))
@@ -554,11 +577,11 @@ macro_rules! into_py_native_func_tuple {
 }
 
 into_py_native_func_tuple!();
-into_py_native_func_tuple!((a, A));
-into_py_native_func_tuple!((a, A), (b, B));
-into_py_native_func_tuple!((a, A), (b, B), (c, C));
-into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D));
-into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
+into_py_native_func_tuple!((v1, T1));
+into_py_native_func_tuple!((v1, T1), (v2, T2));
+into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3));
+into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4));
+into_py_native_func_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5));
 
 /// Tests that the predicate is True on a single value, or if the value is a tuple a tuple, then
 /// test that any of the values contained within the tuples satisfies the predicate. Type parameter
@@ -597,7 +620,7 @@ where
                 Err(_) => {
                     let tuple = PyTupleRef::try_from_object(vm, obj.clone())
                         .map_err(|_| vm.new_type_error((self.message)(&obj)))?;
-                    for obj in tuple.as_slice().iter() {
+                    for obj in tuple.borrow_value().iter() {
                         if self.check(&obj, vm)? {
                             return Ok(true);
                         }

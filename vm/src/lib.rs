@@ -6,13 +6,13 @@
 //! - Base objects
 
 // for methods like vm.to_str(), not the typical use of 'to' as a method prefix
-#![allow(
-    clippy::wrong_self_convention,
-    clippy::let_and_return,
-    clippy::implicit_hasher
-)]
+#![allow(clippy::wrong_self_convention, clippy::implicit_hasher)]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
+#![cfg_attr(
+    target_os = "redox",
+    feature(matches_macro, proc_macro_hygiene, result_map_or)
+)]
 
 #[cfg(feature = "flame-it")]
 #[macro_use]
@@ -20,7 +20,6 @@ extern crate flamer;
 
 #[macro_use]
 extern crate bitflags;
-extern crate lexical;
 #[macro_use]
 extern crate log;
 #[macro_use]
@@ -34,20 +33,6 @@ extern crate self as rustpython_vm;
 
 pub use rustpython_derive::*;
 
-#[doc(hidden)]
-pub use rustpython_derive::py_compile_bytecode as _py_compile_bytecode;
-
-#[macro_export]
-macro_rules! py_compile_bytecode {
-    ($($arg:tt)*) => {{
-        #[macro_use]
-        mod __m {
-            $crate::_py_compile_bytecode!($($arg)*);
-        }
-        __proc_macro_call!()
-    }};
-}
-
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};
 
@@ -56,20 +41,23 @@ macro_rules! py_compile_bytecode {
 pub mod macros;
 
 mod builtins;
+mod bytesinner;
+pub mod byteslike;
 pub mod cformat;
 mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;
 pub mod exceptions;
 pub mod format;
-mod frame;
+pub mod frame;
 mod frozen;
 pub mod function;
 pub mod import;
 pub mod obj;
+mod py_io;
 pub mod py_serde;
-mod pyhash;
 pub mod pyobject;
+mod pystr;
 pub mod readline;
 pub mod scope;
 mod sequence;
@@ -84,9 +72,9 @@ mod vm;
 // pub use self::pyobject::Executor;
 pub use self::vm::{InitParameter, PySettings, VirtualMachine};
 pub use rustpython_bytecode::*;
+pub use rustpython_common as common;
 
 #[doc(hidden)]
 pub mod __exports {
-    pub use maplit::hashmap;
     pub use smallbox::smallbox;
 }

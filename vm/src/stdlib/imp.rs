@@ -1,36 +1,58 @@
 use crate::import;
+use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCode;
 use crate::obj::objmodule::PyModuleRef;
 use crate::obj::objstr;
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
+use crate::pyobject::{BorrowValue, ItemProtocol, PyObjectRef, PyResult};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::stdlib::thread::RawRMutex;
 use crate::vm::VirtualMachine;
+
+#[cfg(not(target_arch = "wasm32"))]
+static IMP_LOCK: RawRMutex = RawRMutex::INIT;
 
 fn imp_extension_suffixes(vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_list(vec![]))
 }
 
-fn imp_acquire_lock(_vm: &VirtualMachine) -> PyResult<()> {
-    // TODO
-    Ok(())
+#[cfg(not(target_arch = "wasm32"))]
+fn imp_acquire_lock(_vm: &VirtualMachine) {
+    IMP_LOCK.lock()
 }
 
-fn imp_release_lock(_vm: &VirtualMachine) -> PyResult<()> {
-    // TODO
-    Ok(())
+#[cfg(target_arch = "wasm32")]
+fn imp_acquire_lock(_vm: &VirtualMachine) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn imp_release_lock(vm: &VirtualMachine) -> PyResult<()> {
+    if !IMP_LOCK.is_locked() {
+        Err(vm.new_runtime_error("Global import lock not held".to_owned()))
+    } else {
+        unsafe { IMP_LOCK.unlock() };
+        Ok(())
+    }
 }
 
-fn imp_lock_held(_vm: &VirtualMachine) -> PyResult<()> {
-    // TODO
-    Ok(())
+#[cfg(target_arch = "wasm32")]
+fn imp_release_lock(_vm: &VirtualMachine) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn imp_lock_held(_vm: &VirtualMachine) -> bool {
+    IMP_LOCK.is_locked()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn imp_lock_held(_vm: &VirtualMachine) -> bool {
+    false
 }
 
 fn imp_is_builtin(name: PyStringRef, vm: &VirtualMachine) -> bool {
-    vm.stdlib_inits.borrow().contains_key(name.as_str())
+    vm.state.stdlib_inits.contains_key(name.borrow_value())
 }
 
 fn imp_is_frozen(name: PyStringRef, vm: &VirtualMachine) -> bool {
-    vm.frozen.borrow().contains_key(name.as_str())
+    vm.state.frozen.contains_key(name.borrow_value())
 }
 
 fn imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -40,7 +62,7 @@ fn imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 
     if let Ok(module) = sys_modules.get_item(name, vm) {
         Ok(module)
-    } else if let Some(make_module_func) = vm.stdlib_inits.borrow().get(name) {
+    } else if let Some(make_module_func) = vm.state.stdlib_inits.get(name) {
         Ok(make_module_func(vm))
     } else {
         Ok(vm.get_none())
@@ -53,40 +75,43 @@ fn imp_exec_builtin(_mod: PyModuleRef) -> i32 {
 }
 
 fn imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyCode> {
-    vm.frozen
-        .borrow()
-        .get(name.as_str())
+    let name = name.borrow_value();
+    vm.state
+        .frozen
+        .get(name)
         .map(|frozen| {
             let mut frozen = frozen.code.clone();
-            frozen.source_path = format!("frozen {}", name.as_str());
+            frozen.source_path = format!("frozen {}", name);
             PyCode::new(frozen)
         })
-        .ok_or_else(|| {
-            vm.new_import_error(format!("No such frozen object named {}", name.as_str()))
-        })
+        .ok_or_else(|| vm.new_import_error(format!("No such frozen object named {}", name), name))
 }
 
 fn imp_init_frozen(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    import::import_frozen(vm, name.as_str())
+    import::import_frozen(vm, name.borrow_value())
 }
 
 fn imp_is_frozen_package(name: PyStringRef, vm: &VirtualMachine) -> PyResult<bool> {
-    vm.frozen
-        .borrow()
-        .get(name.as_str())
+    let name = name.borrow_value();
+    vm.state
+        .frozen
+        .get(name)
         .map(|frozen| frozen.package)
-        .ok_or_else(|| {
-            vm.new_import_error(format!("No such frozen object named {}", name.as_str()))
-        })
+        .ok_or_else(|| vm.new_import_error(format!("No such frozen object named {}", name), name))
 }
 
 fn imp_fix_co_filename(_code: PyObjectRef, _path: PyStringRef) {
     // TODO:
 }
 
+fn imp_source_hash(_key: u64, _source: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    // TODO:
+    Ok(vm.get_none())
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
-    let module = py_module!(vm, "_imp", {
+    py_module!(vm, "_imp", {
         "extension_suffixes" => ctx.new_function(imp_extension_suffixes),
         "acquire_lock" => ctx.new_function(imp_acquire_lock),
         "release_lock" => ctx.new_function(imp_release_lock),
@@ -99,7 +124,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "init_frozen" => ctx.new_function(imp_init_frozen),
         "is_frozen_package" => ctx.new_function(imp_is_frozen_package),
         "_fix_co_filename" => ctx.new_function(imp_fix_co_filename),
-    });
-
-    module
+        "source_hash" => ctx.new_function(imp_source_hash)
+    })
 }

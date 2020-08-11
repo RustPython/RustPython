@@ -5,14 +5,14 @@ use super::objiter;
 use super::objsequence::get_item;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
-use crate::pyhash;
 use crate::pyobject::{
-    IntoPyObject,
+    self, BorrowValue, IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, ThreadSafe,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::sequence::{self, SimpleSeq};
 use crate::vm::{ReprGuard, VirtualMachine};
+use rustpython_common::hash::PyHash;
 
 /// tuple() -> empty tuple
 /// tuple(iterable) -> tuple initialized from iterable's items
@@ -22,8 +22,6 @@ use crate::vm::{ReprGuard, VirtualMachine};
 pub struct PyTuple {
     elements: Vec<PyObjectRef>,
 }
-
-impl ThreadSafe for PyTuple {}
 
 impl fmt::Debug for PyTuple {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -38,6 +36,14 @@ impl From<Vec<PyObjectRef>> for PyTuple {
     }
 }
 
+impl<'a> BorrowValue<'a> for PyTuple {
+    type Borrowed = &'a [PyObjectRef];
+
+    fn borrow_value(&'a self) -> Self::Borrowed {
+        &self.elements
+    }
+}
+
 impl PyValue for PyTuple {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.tuple_type()
@@ -47,8 +53,8 @@ impl PyValue for PyTuple {
 macro_rules! impl_intopyobj_tuple {
     ($(($T:ident, $idx:tt)),+) => {
         impl<$($T: IntoPyObject),*> IntoPyObject for ($($T,)*) {
-            fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-                Ok(vm.ctx.new_tuple(vec![$(self.$idx.into_pyobject(vm)?),*]))
+            fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+                vm.ctx.new_tuple(vec![$(self.$idx.into_pyobject(vm)),*])
             }
         }
     };
@@ -66,16 +72,12 @@ impl PyTuple {
     pub(crate) fn fast_getitem(&self, idx: usize) -> PyObjectRef {
         self.elements[idx].clone()
     }
-
-    pub fn as_slice(&self) -> &[PyObjectRef] {
-        &self.elements
-    }
 }
 
 pub type PyTupleRef = PyRef<PyTuple>;
 
 pub(crate) fn get_value(obj: &PyObjectRef) -> &[PyObjectRef] {
-    obj.payload::<PyTuple>().unwrap().as_slice()
+    obj.payload::<PyTuple>().unwrap().borrow_value()
 }
 
 #[pyimpl(flags(BASETYPE))]
@@ -83,10 +85,13 @@ impl PyTuple {
     #[inline]
     fn cmp<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult<PyComparisonValue>
     where
-        F: Fn(&Vec<PyObjectRef>, &Vec<PyObjectRef>) -> PyResult<bool>,
+        F: Fn(sequence::DynPyIter, sequence::DynPyIter) -> PyResult<bool>,
     {
         let r = if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
-            Implemented(op(&self.elements, &other.elements)?)
+            Implemented(op(
+                self.borrow_value().boxed_iter(),
+                other.borrow_value().boxed_iter(),
+            )?)
         } else {
             NotImplemented
         };
@@ -118,8 +123,8 @@ impl PyTuple {
         if let Some(other) = other.payload_if_subclass::<PyTuple>(vm) {
             let elements: Vec<_> = self
                 .elements
-                .iter()
-                .chain(other.as_slice().iter())
+                .boxed_iter()
+                .chain(other.borrow_value().boxed_iter())
                 .cloned()
                 .collect();
             Implemented(elements.into())
@@ -155,8 +160,8 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
-        pyhash::hash_iter(self.elements.iter(), vm)
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
+        pyobject::hash_iter(self.elements.iter(), vm)
     }
 
     #[pymethod(name = "__iter__")]
@@ -174,11 +179,11 @@ impl PyTuple {
 
     #[pymethod(name = "__repr__")]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
+        let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let mut str_parts = Vec::with_capacity(zelf.elements.len());
             for elem in zelf.elements.iter() {
                 let s = vm.to_repr(elem)?;
-                str_parts.push(s.as_str().to_owned());
+                str_parts.push(s.borrow_value().to_owned());
             }
 
             if str_parts.len() == 1 {
@@ -233,6 +238,10 @@ impl PyTuple {
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
         let elements = if let OptionalArg::Present(iterable) = iterable {
+            if iterable.lease_class().is(&cls) {
+                return Ok(PyRef::from_obj_unchecked(iterable));
+            }
+
             vm.extract_elements(&iterable)?
         } else {
             vec![]
@@ -249,8 +258,6 @@ pub struct PyTupleIterator {
     tuple: PyTupleRef,
 }
 
-impl ThreadSafe for PyTupleIterator {}
-
 impl PyValue for PyTupleIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.tupleiterator_type()
@@ -262,7 +269,7 @@ impl PyTupleIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         let pos = self.position.fetch_add(1);
-        if let Some(obj) = self.tuple.as_slice().get(pos) {
+        if let Some(obj) = self.tuple.borrow_value().get(pos) {
             Ok(obj.clone())
         } else {
             Err(objiter::new_stop_iteration(vm))
