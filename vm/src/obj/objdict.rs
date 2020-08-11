@@ -194,7 +194,7 @@ impl PyDictRef {
 
     #[pymethod(magic)]
     fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
+        let s = if let Some(_guard) = ReprGuard::enter(vm, self.as_object()) {
             let mut str_parts = vec![];
             for (key, value) in self {
                 let key_repr = vm.to_repr(&key)?;
@@ -571,7 +571,7 @@ macro_rules! dict_iterator {
             #[pymethod(name = "__repr__")]
             #[allow(clippy::redundant_closure_call)]
             fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-                let s = if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
+                let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                     let mut str_parts = vec![];
                     for (key, value) in zelf.dict.clone() {
                         let s = vm.to_repr(&$result_fn(vm, key, value))?;

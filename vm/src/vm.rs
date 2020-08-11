@@ -63,6 +63,7 @@ pub struct VirtualMachine {
     pub use_tracing: Cell<bool>,
     pub recursion_limit: Cell<usize>,
     pub signal_handlers: Option<Box<RefCell<[PyObjectRef; NSIG]>>>,
+    pub repr_guards: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
 }
@@ -199,6 +200,7 @@ impl VirtualMachine {
             use_tracing: Cell::new(false),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
             signal_handlers: Some(Box::new(signal_handlers)),
+            repr_guards: RefCell::default(),
             state: PyRc::new(PyGlobalState {
                 settings,
                 stdlib_inits,
@@ -293,6 +295,7 @@ impl VirtualMachine {
             use_tracing: Cell::new(false),
             recursion_limit: self.recursion_limit.clone(),
             signal_handlers: None,
+            repr_guards: RefCell::default(),
             state: self.state.clone(),
             initialized: self.initialized,
         }
@@ -1489,37 +1492,32 @@ impl Default for VirtualMachine {
     }
 }
 
-thread_local! {
-    static REPR_GUARDS: RefCell<HashSet<usize>> = RefCell::default();
-}
-
-pub struct ReprGuard {
+pub struct ReprGuard<'vm> {
+    vm: &'vm VirtualMachine,
     id: usize,
 }
 
 /// A guard to protect repr methods from recursion into itself,
-impl ReprGuard {
+impl<'vm> ReprGuard<'vm> {
     /// Returns None if the guard against 'obj' is still held otherwise returns the guard. The guard
     /// which is released if dropped.
-    pub fn enter(obj: &PyObjectRef) -> Option<ReprGuard> {
-        REPR_GUARDS.with(|guards| {
-            let mut guards = guards.borrow_mut();
+    pub fn enter(vm: &'vm VirtualMachine, obj: &PyObjectRef) -> Option<Self> {
+        let mut guards = vm.repr_guards.borrow_mut();
 
-            // Should this be a flag on the obj itself? putting it in a global variable for now until it
-            // decided the form of the PyObject. https://github.com/RustPython/RustPython/issues/371
-            let id = obj.get_id();
-            if guards.contains(&id) {
-                return None;
-            }
-            guards.insert(id);
-            Some(ReprGuard { id })
-        })
+        // Should this be a flag on the obj itself? putting it in a global variable for now until it
+        // decided the form of the PyObject. https://github.com/RustPython/RustPython/issues/371
+        let id = obj.get_id();
+        if guards.contains(&id) {
+            return None;
+        }
+        guards.insert(id);
+        Some(ReprGuard { vm, id })
     }
 }
 
-impl Drop for ReprGuard {
+impl<'vm> Drop for ReprGuard<'vm> {
     fn drop(&mut self) {
-        REPR_GUARDS.with(|guards| guards.borrow_mut().remove(&self.id));
+        self.vm.repr_guards.borrow_mut().remove(&self.id);
     }
 }
 

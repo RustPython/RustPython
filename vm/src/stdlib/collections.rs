@@ -248,7 +248,7 @@ mod _collections {
 
         #[pymethod(name = "__repr__")]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let repr = if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
+            let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 let elements = zelf
                     .borrow_deque()
                     .iter()

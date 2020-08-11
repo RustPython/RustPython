@@ -179,7 +179,7 @@ impl PyTuple {
 
     #[pymethod(name = "__repr__")]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
+        let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let mut str_parts = Vec::with_capacity(zelf.elements.len());
             for elem in zelf.elements.iter() {
                 let s = vm.to_repr(elem)?;

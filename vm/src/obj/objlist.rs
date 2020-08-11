@@ -420,7 +420,7 @@ impl PyList {
 
     #[pymethod(name = "__repr__")]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
+        let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let elements = zelf.borrow_value().clone();
             let mut str_parts = Vec::with_capacity(elements.len());
             for elem in elements.iter() {
