@@ -298,7 +298,15 @@ impl<O: OutputStream> Compiler<O> {
             SymbolScope::Global => bytecode::NameScope::Global,
             SymbolScope::Nonlocal => bytecode::NameScope::NonLocal,
             SymbolScope::Unknown => bytecode::NameScope::Free,
-            SymbolScope::Local => bytecode::NameScope::Free,
+            SymbolScope::Local => {
+                // Only in function block, we use load local
+                // https://github.com/python/cpython/blob/master/Python/compile.c#L3582
+                if self.ctx.in_func() {
+                    bytecode::NameScope::Local
+                } else {
+                    bytecode::NameScope::Free
+                }
+            }
         }
     }
 
