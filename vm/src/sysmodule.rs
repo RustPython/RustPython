@@ -69,7 +69,7 @@ fn getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRe
 /// sys.flags
 ///
 /// Flags provided through command line arguments or environment vars.
-#[pystruct_sequence(name = "flags")]
+#[pystruct_sequence(name = "flags", module = "sys")]
 #[derive(Default, Debug)]
 struct SysFlags {
     /// -d

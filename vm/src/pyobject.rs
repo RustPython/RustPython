@@ -1407,6 +1407,7 @@ where
 
 pub trait PyClassDef {
     const NAME: &'static str;
+    const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
 }
 
@@ -1415,6 +1416,7 @@ where
     T: PyClassDef,
 {
     const NAME: &'static str = T::NAME;
+    const TP_NAME: &'static str = T::TP_NAME;
     const DOC: Option<&'static str> = T::DOC;
 }
 
@@ -1440,6 +1442,36 @@ pub trait PyClassImpl: PyClassDef {
         let py_class = ctx.new_class(Self::NAME, base);
         Self::extend_class(ctx, &py_class);
         py_class
+    }
+}
+
+pub trait PyStructSequenceImpl: PyClassImpl {
+    const FIELD_NAMES: &'static [&'static str];
+
+    fn repr(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<String> {
+        let format_field = |(value, name)| {
+            let s = vm.to_repr(value)?;
+            Ok(format!("{}: {}", name, s))
+        };
+        let (body, suffix) =
+            if let Some(_guard) = rustpython_vm::vm::ReprGuard::enter(zelf.as_object()) {
+                if Self::FIELD_NAMES.len() == 1 {
+                    let value = zelf.borrow_value().first().unwrap();
+                    let formatted = format_field((value, Self::FIELD_NAMES[0]))?;
+                    (formatted, ",")
+                } else {
+                    let fields: PyResult<Vec<_>> = zelf
+                        .borrow_value()
+                        .iter()
+                        .zip(Self::FIELD_NAMES.iter().copied())
+                        .map(format_field)
+                        .collect();
+                    (fields?.join(", "), "")
+                }
+            } else {
+                (String::new(), "...")
+            };
+        Ok(format!("{}({}{})", Self::TP_NAME, body, suffix))
     }
 }
 
