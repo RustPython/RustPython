@@ -8,7 +8,7 @@ use crate::function::OptionalArg;
 use crate::pyobject::{
     self, BorrowValue, IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::sequence::{self, SimpleSeq};
 use crate::vm::{ReprGuard, VirtualMachine};
@@ -238,10 +238,14 @@ impl PyTuple {
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
         let elements = if let OptionalArg::Present(iterable) = iterable {
-            if iterable.lease_class().is(&cls) {
-                return Ok(PyRef::from_obj_unchecked(iterable));
-            }
-
+            let iterable = if cls.is(&vm.ctx.types.tuple_type) {
+                match iterable.downcast_exact::<PyTuple>(vm) {
+                    Ok(tuple) => return Ok(tuple),
+                    Err(iterable) => iterable,
+                }
+            } else {
+                iterable
+            };
             vm.extract_elements(&iterable)?
         } else {
             vec![]
