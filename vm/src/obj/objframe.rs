@@ -82,12 +82,12 @@ impl FrameRef {
     #[pyproperty]
     fn f_trace(self) -> PyObjectRef {
         let boxed = self.trace.lock();
-        boxed.unwrap().clone()
+        boxed.clone()
     }
 
     #[pyproperty(setter)]
     fn set_f_trace(self, value: PyObjectRef) {
-        let mut storage = self.trace.lock().unwrap();
+        let mut storage = self.trace.lock();
         *storage = value;
     }
 }
