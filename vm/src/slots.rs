@@ -45,7 +45,9 @@ pub trait SlotCall: PyValue {
 }
 
 pub type PyDescrGetFunc = FunctionBox<
-    dyn Fn(&VirtualMachine, PyObjectRef, Option<PyObjectRef>, OptionalArg<PyObjectRef>) -> PyResult,
+    dyn Fn(&VirtualMachine, PyObjectRef, Option<PyObjectRef>, OptionalArg<PyObjectRef>) -> PyResult
+        + Send
+        + Sync,
 >;
 
 #[pyimpl]

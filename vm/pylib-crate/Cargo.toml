@@ -1,0 +1,17 @@
+[package]
+name = "rustpython-pylib"
+version = "0.1.0"
+authors = ["RustPython Team"]
+description = "A subset of the Python standard library for use with RustPython"
+repository = "https://github.com/RustPython/RustPython"
+license-file = "Lib/PSF-LICENSE"
+edition = "2018"
+include = ["Cargo.toml", "src/**/*.rs", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"]
+
+[features]
+default = ["compiled-bytecode"]
+compiled-bytecode = ["rustpython-derive", "rustpython-bytecode"]
+
+[dependencies]
+rustpython-derive = { version = "0.1.2", path = "../../derive", optional = true }
+rustpython-bytecode = { version = "0.1.2", path = "../../bytecode", optional = true }

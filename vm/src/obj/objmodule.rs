@@ -1,9 +1,9 @@
 use super::objdict::PyDictRef;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::PyClassRef;
-use crate::function::OptionalOption;
+use crate::function::{OptionalOption, PyFuncArgs};
 use crate::pyobject::{
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    BorrowValue, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::VirtualMachine;
 
@@ -46,35 +46,43 @@ pub fn init_module_dict(
 #[pyimpl(flags(BASETYPE))]
 impl PyModuleRef {
     #[pyslot]
-    fn tp_new(
-        cls: PyClassRef,
+    fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyModuleRef> {
+        PyModule {}.into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(magic)]
+    fn init(
+        self,
         name: PyStringRef,
         doc: OptionalOption<PyStringRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyModuleRef> {
-        let zelf = PyModule {}.into_ref_with_type(vm, cls)?;
+    ) -> PyResult<()> {
         init_module_dict(
             vm,
-            &zelf.as_object().dict().unwrap(),
+            &self.as_object().dict().unwrap(),
             name.into_object(),
-            doc.flat_option()
+            doc.flatten()
                 .map_or_else(|| vm.get_none(), PyRef::into_object),
         );
-        Ok(zelf)
+        Ok(())
     }
 
     fn name(self, vm: &VirtualMachine) -> Option<String> {
         vm.generic_getattribute_opt(
             self.as_object().clone(),
             PyString::from("__name__").into_ref(vm),
+            None,
         )
         .unwrap_or(None)
-        .and_then(|obj| obj.payload::<PyString>().map(|s| s.as_str().to_owned()))
+        .and_then(|obj| {
+            obj.payload::<PyString>()
+                .map(|s| s.borrow_value().to_owned())
+        })
     }
 
     #[pymethod(magic)]
     fn getattribute(self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        vm.generic_getattribute_opt(self.as_object().clone(), name.clone())?
+        vm.generic_getattribute_opt(self.as_object().clone(), name.clone(), None)?
             .ok_or_else(|| {
                 let module_name = if let Some(name) = self.name(vm) {
                     format!(" '{}'", name)

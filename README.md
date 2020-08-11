@@ -1,6 +1,6 @@
 <img src="./logo.png" width="125" height="125" align="right" />
 
-# RustPython
+# [RustPython](https://rustpython.github.io/)
 
 A Python-3 (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream:
 :metal:.
@@ -20,7 +20,7 @@ A Python-3 (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream:
 
 #### Check out our [online demo](https://rustpython.github.io/demo/) running on WebAssembly.
 
-RustPython requires Rust latest stable version (e.g 1.38.0 at Oct 1st 2019). 
+RustPython requires Rust latest stable version (e.g 1.43.0 at May 24th 2020). 
 To check Rust version: `rustc --version` If you wish to update,
 `rustup update stable`.
 
@@ -28,6 +28,8 @@ To test RustPython, do the following:
 
     $ git clone https://github.com/RustPython/RustPython
     $ cd RustPython
+    # if you're on windows:
+    $ powershell scripts\symlinks-to-hardlinks.ps1
     $ cargo run demo.py
     Hello, RustPython!
 
@@ -140,26 +142,28 @@ Most tasks are listed in the
 [issue tracker](https://github.com/RustPython/RustPython/issues). Check issues
 labeled with `good first issue` if you wish to start coding.
 
+To enhance CPython compatibility, try to increase unittest coverage by checking this article: [How to contribute to RustPython by CPython unittest](https://rustpython.github.io/guideline/2020/04/04/how-to-contribute-by-cpython-unittest.html)
+
 Another approach is to checkout the source code: builtin functions and object
 methods are often the simplest and easiest way to contribute.
 
 You can also simply run `./whats_left.sh` to assist in finding any unimplemented
 method.
 
-## Using a standard library
+## Using a different standard library
 
-As of now the standard library is under construction. You can use a standard
+As of now the standard library is under construction. You can change a standard
 library by setting the RUSTPYTHONPATH environment variable.
 
 To do this, follow this method:
 
 ```shell
-$ export RUSTPYTHONPATH=~/GIT/RustPython/Lib
+$ export RUSTPYTHONPATH=./Lib  # this is same as the default value
 $ cargo run -- -c 'import xdrlib'
 ```
 
 You can play around with other standard libraries for python. For example, the
-[ouroboros library](https://github.com/pybee/ouroboros).
+[ouroboros library](https://github.com/pybee/ouroboros) or CPython Lib.
 
 ## Compiling to WebAssembly
 

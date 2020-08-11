@@ -9,12 +9,13 @@ use statrs::function::gamma::{gamma, ln_gamma};
 use num_bigint::BigInt;
 use num_traits::{One, Zero};
 
-use crate::function::OptionalArg;
+use crate::function::{Args, OptionalArg};
 use crate::obj::objfloat::{self, IntoPyFloat, PyFloatRef};
-use crate::obj::objint::{self, PyIntRef};
+use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objtype;
-use crate::pyobject::{Either, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{BorrowValue, Either, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
+use rustpython_common::float_ops;
 
 #[cfg(not(target_arch = "wasm32"))]
 use libc::c_double;
@@ -207,7 +208,7 @@ fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -
     let method = vm.get_method_or_type_error(value.clone(), func_name, || {
         format!(
             "type '{}' doesn't define '{}' method",
-            value.class().name,
+            value.lease_class().name,
             func_name,
         )
     })?;
@@ -225,7 +226,7 @@ fn math_trunc(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
 fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if objtype::isinstance(&value, &vm.ctx.float_type()) {
+    if objtype::isinstance(&value, &vm.ctx.types.float_type) {
         let v = objfloat::get_value(&value);
         let v = objfloat::try_bigint(v.ceil(), vm)?;
         Ok(vm.ctx.new_int(v))
@@ -241,7 +242,7 @@ fn math_ceil(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 /// * `value` - Either a float or a python object which implements __ceil__
 /// * `vm` - Represents the python state.
 fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if objtype::isinstance(&value, &vm.ctx.float_type()) {
+    if objtype::isinstance(&value, &vm.ctx.types.float_type) {
         let v = objfloat::get_value(&value);
         let v = objfloat::try_bigint(v.floor(), vm)?;
         Ok(vm.ctx.new_int(v))
@@ -253,7 +254,7 @@ fn math_floor(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn math_frexp(value: IntoPyFloat) -> (f64, i32) {
     let value = value.to_f64();
     if value.is_finite() {
-        let (m, e) = objfloat::ufrexp(value);
+        let (m, e) = float_ops::ufrexp(value);
         (m * value.signum(), e)
     } else {
         (value, 0)
@@ -267,18 +268,42 @@ fn math_ldexp(
 ) -> PyResult<f64> {
     let value = match value {
         Either::A(f) => f.to_f64(),
-        Either::B(z) => objint::try_float(z.as_bigint(), vm)?,
+        Either::B(z) => objint::try_float(z.borrow_value(), vm)?,
     };
-    Ok(value * (2_f64).powf(objint::try_float(i.as_bigint(), vm)?))
+    Ok(value * (2_f64).powf(objint::try_float(i.borrow_value(), vm)?))
 }
 
-fn math_gcd(a: PyIntRef, b: PyIntRef) -> BigInt {
+fn math_perf_arb_len_int_op<F>(args: Args<PyIntRef>, op: F, default: BigInt) -> BigInt
+where
+    F: Fn(&BigInt, &PyInt) -> BigInt,
+{
+    let argvec = args.into_vec();
+
+    if argvec.is_empty() {
+        return default;
+    } else if argvec.len() == 1 {
+        return op(argvec[0].borrow_value(), &argvec[0]);
+    }
+
+    let mut res = argvec[0].borrow_value().clone();
+    for num in argvec[1..].iter() {
+        res = op(&res, &num)
+    }
+    res
+}
+
+fn math_gcd(args: Args<PyIntRef>) -> BigInt {
     use num_integer::Integer;
-    a.as_bigint().gcd(b.as_bigint())
+    math_perf_arb_len_int_op(args, |x, y| x.gcd(y.borrow_value()), BigInt::zero())
+}
+
+fn math_lcm(args: Args<PyIntRef>) -> BigInt {
+    use num_integer::Integer;
+    math_perf_arb_len_int_op(args, |x, y| x.lcm(y.borrow_value()), BigInt::one())
 }
 
 fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-    let value = value.as_bigint();
+    let value = value.borrow_value();
     if *value < BigInt::zero() {
         return Err(vm.new_value_error("factorial() not defined for negative values".to_owned()));
     } else if *value <= BigInt::one() {
@@ -436,6 +461,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
         // Gcd function
         "gcd" => ctx.new_function(math_gcd),
+        "lcm" => ctx.new_function(math_lcm),
 
         // Factorial function
         "factorial" => ctx.new_function(math_factorial),

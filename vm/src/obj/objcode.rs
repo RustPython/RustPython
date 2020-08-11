@@ -45,8 +45,7 @@ impl PyValue for PyCode {
 #[pyimpl]
 impl PyCodeRef {
     #[pyslot]
-    #[allow(clippy::new_ret_no_self)]
-    fn new(_cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
+    fn new(_cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Err(vm.new_type_error("Cannot directly create code object".to_owned()))
     }
 
@@ -109,11 +108,7 @@ impl PyCodeRef {
 
     #[pyproperty]
     fn co_varnames(self, vm: &VirtualMachine) -> PyObjectRef {
-        let varnames = self
-            .code
-            .varnames()
-            .map(|s| vm.new_str(s.to_owned()))
-            .collect();
+        let varnames = self.code.varnames().map(|s| vm.ctx.new_str(s)).collect();
         vm.ctx.new_tuple(varnames)
     }
 }

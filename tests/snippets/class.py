@@ -253,3 +253,9 @@ except TypeError:
     pass
 else:
     assert False, "Managed to create a class without local type precedence."
+
+
+class A():
+    a: int
+
+assert A.__annotations__['a'] == int

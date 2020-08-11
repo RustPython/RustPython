@@ -1,6 +1,5 @@
-use std::fmt;
-
-use serde;
+use num_traits::cast::ToPrimitive;
+use num_traits::sign::Signed;
 use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
@@ -8,10 +7,8 @@ use crate::obj::{
     objbool, objdict::PyDictRef, objfloat, objint, objlist::PyList, objstr, objtuple::PyTuple,
     objtype,
 };
-use crate::pyobject::{IdProtocol, ItemProtocol, PyObjectRef, TypeProtocol};
+use crate::pyobject::{BorrowValue, IdProtocol, ItemProtocol, PyObjectRef, TypeProtocol};
 use crate::VirtualMachine;
-use num_traits::cast::ToPrimitive;
-use num_traits::sign::Signed;
 
 #[inline]
 pub fn serialize<S>(
@@ -69,13 +66,13 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 }
                 seq.end()
             };
-        if objtype::isinstance(self.pyobject, &self.vm.ctx.str_type()) {
+        if objtype::isinstance(self.pyobject, &self.vm.ctx.types.str_type) {
             serializer.serialize_str(objstr::borrow_value(&self.pyobject))
-        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.float_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.types.float_type) {
             serializer.serialize_f64(objfloat::get_value(self.pyobject))
-        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.bool_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.types.bool_type) {
             serializer.serialize_bool(objbool::get_value(self.pyobject))
-        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.int_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.types.int_type) {
             let v = objint::get_value(self.pyobject);
             let int_too_large = || serde::ser::Error::custom("int too large to serialize");
             // TODO: serialize BigInt when it does not fit into i64
@@ -88,10 +85,10 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 serializer.serialize_i64(v.to_i64().ok_or_else(int_too_large)?)
             }
         } else if let Some(list) = self.pyobject.payload_if_subclass::<PyList>(self.vm) {
-            serialize_seq_elements(serializer, &list.borrow_elements())
+            serialize_seq_elements(serializer, &list.borrow_value())
         } else if let Some(tuple) = self.pyobject.payload_if_subclass::<PyTuple>(self.vm) {
-            serialize_seq_elements(serializer, tuple.as_slice())
-        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.dict_type()) {
+            serialize_seq_elements(serializer, tuple.borrow_value())
+        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.types.dict_type) {
             let dict: PyDictRef = self.pyobject.clone().downcast().unwrap();
             let pairs: Vec<_> = dict.into_iter().collect();
             let mut map = serializer.serialize_map(Some(pairs.len()))?;
@@ -103,8 +100,8 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             serializer.serialize_none()
         } else {
             Err(serde::ser::Error::custom(format!(
-                "Object of type '{:?}' is not serializable",
-                self.pyobject.class()
+                "Object of type '{}' is not serializable",
+                self.pyobject.lease_class()
             )))
         }
     }
@@ -137,7 +134,7 @@ impl<'de> DeserializeSeed<'de> for PyObjectDeserializer<'de> {
 impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     type Value = PyObjectRef;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         formatter.write_str("a type that can deserialise in Python")
     }
 
@@ -212,7 +209,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         // Although JSON keys must be strings, implementation accepts any keys
         // and can be reused by other deserializers without such limit
         while let Some((key_obj, value)) = access.next_entry_seed(self.clone(), self.clone())? {
-            dict.set_item(&key_obj, value, self.vm).unwrap();
+            dict.set_item(key_obj, value, self.vm).unwrap();
         }
         Ok(dict.into_object())
     }

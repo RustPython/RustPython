@@ -1149,12 +1149,21 @@ def _setup(sys_module, _imp_module):
 
     # Directly load built-in modules needed during bootstrap.
     self_module = sys.modules[__name__]
-    for builtin_name in ('_thread', '_warnings', '_weakref'):
+    for builtin_name in ('_warnings', '_weakref'):
         if builtin_name not in sys.modules:
             builtin_module = _builtin_from_name(builtin_name)
         else:
             builtin_module = sys.modules[builtin_name]
         setattr(self_module, builtin_name, builtin_module)
+    # _thread was part of the above loop, but other parts of the code allow for it
+    # to be None, so we handle it separately here
+    builtin_name = '_thread'
+    if builtin_name in sys.modules:
+        builtin_module = sys.modules[builtin_name]
+    else:
+        builtin_spec = BuiltinImporter.find_spec(builtin_name)
+        builtin_module = builtin_spec and _load_unlocked(builtin_spec)
+    setattr(self_module, builtin_name, builtin_module)
 
 
 def _install(sys_module, _imp_module):

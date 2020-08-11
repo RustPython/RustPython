@@ -530,7 +530,7 @@ where
         loop {
             match self.next_char() {
                 Some('\\') => {
-                    if self.chr0 == Some(quote_char) {
+                    if self.chr0 == Some(quote_char) && !is_raw {
                         string_content.push(quote_char);
                         self.next_char();
                     } else if is_raw {
@@ -1075,7 +1075,16 @@ where
                 self.nesting -= 1;
             }
             ':' => {
-                self.eat_single_char(Tok::Colon);
+                let tok_start = self.get_pos();
+                self.next_char();
+                if let Some('=') = self.chr0 {
+                    self.next_char();
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::ColonEqual, tok_end));
+                } else {
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::Colon, tok_end));
+                }
             }
             ';' => {
                 self.eat_single_char(Tok::Semi);
@@ -1188,6 +1197,13 @@ where
                 } else {
                     return Err(LexicalError {
                         error: LexicalErrorType::LineContinuationError,
+                        location: self.get_pos(),
+                    });
+                }
+
+                if self.chr0.is_none() {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::EOF,
                         location: self.get_pos(),
                     });
                 }
@@ -1625,7 +1641,7 @@ mod tests {
                     is_fstring: false,
                 },
                 Tok::String {
-                    value: String::from("raw\'"),
+                    value: String::from("raw\\'"),
                     is_fstring: false,
                 },
                 Tok::String {

@@ -8,7 +8,6 @@ use arr_macro::arr;
 #[cfg(unix)]
 use nix::unistd::alarm as sig_alarm;
 
-use libc;
 #[cfg(not(windows))]
 use libc::{SIG_DFL, SIG_ERR, SIG_IGN};
 
@@ -39,6 +38,10 @@ fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
 
 fn signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     assert_in_range(signalnum, vm)?;
+    let signal_handlers = vm
+        .signal_handlers
+        .as_ref()
+        .ok_or_else(|| vm.new_value_error("signal only works in main thread".to_owned()))?;
 
     let sig_handler = match usize::try_from_object(vm, handler.clone()).ok() {
         Some(SIG_DFL) => SIG_DFL,
@@ -69,7 +72,7 @@ fn signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult
 
     let mut old_handler = handler;
     std::mem::swap(
-        &mut vm.signal_handlers.borrow_mut()[signalnum as usize],
+        &mut signal_handlers.borrow_mut()[signalnum as usize],
         &mut old_handler,
     );
     Ok(old_handler)
@@ -77,7 +80,11 @@ fn signal(signalnum: i32, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult
 
 fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult {
     assert_in_range(signalnum, vm)?;
-    Ok(vm.signal_handlers.borrow()[signalnum as usize].clone())
+    let signal_handlers = vm
+        .signal_handlers
+        .as_ref()
+        .ok_or_else(|| vm.new_value_error("getsignal only works in main thread".to_owned()))?;
+    Ok(signal_handlers.borrow()[signalnum as usize].clone())
 }
 
 #[cfg(unix)]
@@ -92,15 +99,20 @@ fn alarm(time: u32) -> u32 {
 
 #[cfg_attr(feature = "flame-it", flame)]
 pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
+    let signal_handlers = match vm.signal_handlers {
+        Some(ref h) => h.borrow(),
+        None => return Ok(()),
+    };
+
     if !ANY_TRIGGERED.swap(false, Ordering::Relaxed) {
         return Ok(());
     }
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
         let triggerd = trigger.swap(false, Ordering::Relaxed);
         if triggerd {
-            let handler = &vm.signal_handlers.borrow()[signum];
+            let handler = &signal_handlers[signum];
             if vm.is_callable(handler) {
-                vm.invoke(handler, vec![vm.new_int(signum), vm.get_none()])?;
+                vm.invoke(handler, vec![vm.ctx.new_int(signum), vm.get_none()])?;
             }
         }
     }
@@ -146,7 +158,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         } else {
             vm.get_none()
         };
-        vm.signal_handlers.borrow_mut()[signum] = py_handler;
+        vm.signal_handlers.as_ref().unwrap().borrow_mut()[signum] = py_handler;
     }
 
     signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
@@ -185,7 +197,7 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
         "SIGSYS" => ctx.new_int(libc::SIGSYS as u8),
     });
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "openbsd")))]
     {
         extend_module!(vm, module, {
             "SIGPWR" => ctx.new_int(libc::SIGPWR as u8),

@@ -10,8 +10,8 @@ use crate::obj::objasyncgenerator::PyAsyncGen;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objgenerator::PyGenerator;
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
@@ -91,7 +91,7 @@ impl PyFunction {
         for i in 0..n {
             let arg_name = &code_object.arg_names[i];
             let arg = &func_args.args[i];
-            locals.set_item(arg_name, arg.clone(), vm)?;
+            locals.set_item(arg_name.as_str(), arg.clone(), vm)?;
         }
 
         // Pack other positional arguments in to *args:
@@ -103,7 +103,7 @@ impl PyFunction {
             }
             let vararg_value = vm.ctx.new_tuple(last_args);
 
-            locals.set_item(vararg_name, vararg_value, vm)?;
+            locals.set_item(vararg_name.as_str(), vararg_value, vm)?;
         } else {
             // Check the number of positional arguments
             if nargs > nexpected_args {
@@ -121,7 +121,7 @@ impl PyFunction {
         {
             let d = vm.ctx.new_dict();
             if let Some(ref kwargs_name) = code_object.varkeywords_name {
-                locals.set_item(kwargs_name, d.as_object().clone(), vm)?;
+                locals.set_item(kwargs_name.as_str(), d.as_object().clone(), vm)?;
             }
             Some(d)
         } else {
@@ -143,9 +143,9 @@ impl PyFunction {
                     );
                 }
 
-                locals.set_item(&name, value, vm)?;
+                locals.set_item(name.as_str(), value, vm)?;
             } else if let Some(d) = &kwargs {
-                d.set_item(&name, value, vm)?;
+                d.set_item(name.as_str(), value, vm)?;
             } else {
                 return Err(
                     vm.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
@@ -163,7 +163,8 @@ impl PyFunction {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let num_defaults_available = self.defaults.as_ref().map_or(0, |d| d.as_slice().len());
+            let num_defaults_available =
+                self.defaults.as_ref().map_or(0, |d| d.borrow_value().len());
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
@@ -183,13 +184,13 @@ impl PyFunction {
                 )));
             }
             if let Some(defaults) = &self.defaults {
-                let defaults = defaults.as_slice();
+                let defaults = defaults.borrow_value();
                 // We have sufficient defaults, so iterate over the corresponding names and use
                 // the default if we don't already have a value
                 for (default_index, i) in (required_args..nexpected_args).enumerate() {
                     let arg_name = &code_object.arg_names[i];
                     if !locals.contains_key(arg_name, vm) {
-                        locals.set_item(arg_name, defaults[default_index].clone(), vm)?;
+                        locals.set_item(arg_name.as_str(), defaults[default_index].clone(), vm)?;
                     }
                 }
             }
@@ -199,8 +200,10 @@ impl PyFunction {
         for arg_name in &code_object.kwonlyarg_names {
             if !locals.contains_key(arg_name, vm) {
                 if let Some(kw_only_defaults) = &self.kw_only_defaults {
-                    if let Some(default) = kw_only_defaults.get_item_option(arg_name, vm)? {
-                        locals.set_item(arg_name, default, vm)?;
+                    if let Some(default) =
+                        kw_only_defaults.get_item_option(arg_name.as_str(), vm)?
+                    {
+                        locals.set_item(arg_name.as_str(), default, vm)?;
                         continue;
                     }
                 }
@@ -312,7 +315,7 @@ impl PyBoundMethod {
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
             "<bound method of {}>",
-            vm.to_repr(&self.object)?.as_str()
+            vm.to_repr(&self.object)?.borrow_value()
         ))
     }
 
@@ -323,7 +326,7 @@ impl PyBoundMethod {
 
     #[pymethod(magic)]
     fn getattribute(zelf: PyRef<Self>, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(obj) = zelf.class().get_attr(name.as_str()) {
+        if let Some(obj) = zelf.get_class_attr(name.borrow_value()) {
             return vm.call_if_get_descriptor(obj, zelf.into_object());
         }
         vm.get_attribute(zelf.function.clone(), name)
@@ -332,6 +335,11 @@ impl PyBoundMethod {
     #[pyproperty(magic)]
     fn func(&self) -> PyObjectRef {
         self.function.clone()
+    }
+
+    #[pyproperty(magic)]
+    fn module(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        vm.get_attribute(self.function.clone(), "__module__").ok()
     }
 }
 

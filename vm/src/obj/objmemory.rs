@@ -1,7 +1,7 @@
-use super::objbyteinner::try_as_byte;
 use super::objtype::{issubclass, PyClassRef};
+use crate::bytesinner::try_as_bytes;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
@@ -16,8 +16,11 @@ pub type PyMemoryViewRef = PyRef<PyMemoryView>;
 
 #[pyimpl]
 impl PyMemoryView {
-    pub fn try_value(&self) -> Option<Vec<u8>> {
-        try_as_byte(&self.obj_ref)
+    pub fn try_bytes<F, R>(&self, f: F) -> Option<R>
+    where
+        F: Fn(&[u8]) -> R,
+    {
+        try_as_bytes(self.obj_ref.clone(), f)
     }
 
     #[pyslot]
@@ -26,7 +29,7 @@ impl PyMemoryView {
         bytes_object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyMemoryViewRef> {
-        let object_type = bytes_object.class();
+        let object_type = bytes_object.lease_class();
 
         if issubclass(&object_type, &vm.ctx.types.memoryview_type)
             || issubclass(&object_type, &vm.ctx.types.bytes_type)
@@ -57,7 +60,7 @@ impl PyMemoryView {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(&self.obj_ref, "__getitem__", vec![needle])
+        self.obj_ref.get_item(needle, vm)
     }
 
     #[pymethod(magic)]

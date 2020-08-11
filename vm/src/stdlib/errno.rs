@@ -7,9 +7,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "errorcode" => errorcode.clone(),
     });
     for (name, code) in ERROR_CODES {
-        let name = vm.new_str((*name).to_owned());
+        let name = vm.ctx.new_str((*name).to_owned());
         let code = vm.ctx.new_int(*code);
-        errorcode.set_item(&code, name.clone(), vm).unwrap();
+        errorcode.set_item(code.clone(), name.clone(), vm).unwrap();
         vm.set_attr(&module, name, code).unwrap();
     }
     module
@@ -88,7 +88,7 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(ENODEV),
     e!(EHOSTUNREACH),
     e!(cfg(not(windows)), ENOMSG),
-    e!(cfg(not(windows)), ENODATA),
+    e!(cfg(not(any(target_os = "openbsd", windows))), ENODATA),
     e!(cfg(not(windows)), ENOTBLK),
     e!(ENOSYS),
     e!(EPIPE),
@@ -115,7 +115,7 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(EISCONN),
     e!(ESHUTDOWN),
     e!(EBADF),
-    e!(cfg(not(windows)), EMULTIHOP),
+    e!(cfg(not(any(target_os = "openbsd", windows))), EMULTIHOP),
     e!(EIO),
     e!(EPROTOTYPE),
     e!(ENOSPC),
@@ -136,13 +136,13 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(cfg(not(windows)), EBADMSG),
     e!(ENFILE),
     e!(ESPIPE),
-    e!(cfg(not(windows)), ENOLINK),
+    e!(cfg(not(any(target_os = "openbsd", windows))), ENOLINK),
     e!(ENETRESET),
     e!(ETIMEDOUT),
     e!(ENOENT),
     e!(EEXIST),
     e!(EDQUOT),
-    e!(cfg(not(windows)), ENOSTR),
+    e!(cfg(not(any(target_os = "openbsd", windows))), ENOSTR),
     e!(EFAULT),
     e!(EFBIG),
     e!(ENOTCONN),
@@ -151,7 +151,7 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(ECONNABORTED),
     e!(ENETUNREACH),
     e!(ESTALE),
-    e!(cfg(not(windows)), ENOSR),
+    e!(cfg(not(any(target_os = "openbsd", windows))), ENOSR),
     e!(ENOMEM),
     e!(ENOTSOCK),
     e!(EMLINK),
@@ -162,7 +162,7 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(ENAMETOOLONG),
     e!(ENOTTY),
     e!(ESOCKTNOSUPPORT),
-    e!(cfg(not(windows)), ETIME),
+    e!(cfg(not(any(target_os = "openbsd", windows))), ETIME),
     e!(ETOOMANYREFS),
     e!(EMFILE),
     e!(cfg(not(windows)), ETXTBSY),

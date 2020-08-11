@@ -1,3 +1,6 @@
+import platform
+import sys
+
 def assert_raises(expected, *args, _msg=None, **kw):
     if args:
         f, f_args = args[0], args[1:]
@@ -67,3 +70,25 @@ def assert_isinstance(obj, klass):
 
 def assert_in(a, b):
     _assert_print(lambda: a in b, [a, 'in', b])
+
+def skip_if_unsupported(req_maj_vers, req_min_vers, test_fct):
+    def exec():
+        test_fct()
+
+    if platform.python_implementation() == 'RustPython':
+        exec()
+    elif sys.version_info.major>=req_maj_vers and sys.version_info.minor>=req_min_vers:
+        exec()
+    else:
+        print(f'Skipping test as a higher python version is required. Using {platform.python_implementation()} {platform.python_version()}')
+
+def fail_if_unsupported(req_maj_vers, req_min_vers, test_fct):
+    def exec():
+        test_fct()
+
+    if platform.python_implementation() == 'RustPython':
+        exec()
+    elif sys.version_info.major>=req_maj_vers and sys.version_info.minor>=req_min_vers:
+        exec()
+    else:
+        assert False, f'Test cannot performed on this python version. {platform.python_implementation()} {platform.python_version()}'

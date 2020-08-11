@@ -210,6 +210,7 @@ class CustomTextTestResult(result.TestResult):
                             'num_passed': 0,
                             'num_failed': 0,
                             'num_skipped': 0,
+                            'num_expected_failures': 0,
                             'execution_time': None}
         self.suite_number = int(sorted(self.results['suites'].keys())[-1]) + 1 if len(self.results['suites']) else 0
         self.case_number = 0
@@ -264,12 +265,14 @@ class CustomTextTestResult(result.TestResult):
                 'num_passed': 0,
                 'num_failed': 0,
                 'num_skipped': 0,
+                'num_expected_failures': 0,
                 'execution_time': None}
             self.suite_number += 1
             self.num_cases = 0
             self.num_passed = 0
             self.num_failed = 0
             self.num_skipped = 0
+            self.num_expected_failures = 0
         self.results['suites'][self.suite_map[self.suite]]['cases'][self.case_number] = {
             'name': self.case,
             'method': test._testMethodName,
@@ -306,10 +309,12 @@ class CustomTextTestResult(result.TestResult):
         self.results['suites'][self.suite_map[self.suite]]['num_passed'] = self.num_passed
         self.results['suites'][self.suite_map[self.suite]]['num_failed'] = self.num_failed
         self.results['suites'][self.suite_map[self.suite]]['num_skipped'] = self.num_skipped
+        self.results['suites'][self.suite_map[self.suite]]['num_expected_failures'] = self.num_expected_failures
         self.results['suites'][self.suite_map[self.suite]]['cases'][self.current_case_number]['execution_time']= format(self.execution_time, '.%sf' %CustomTextTestResult._execution_time_significant_digits)
         self.results['num_passed'] += self.num_passed
         self.results['num_failed'] += self.num_failed
         self.results['num_skipped'] += self.num_skipped
+        self.results['num_expected_failures'] += self.num_expected_failures
         self.case_number += 1
 
     def print_error_string(self, err):
@@ -374,7 +379,8 @@ class CustomTextTestResult(result.TestResult):
             self.stream.writeln(self.separator_pre_result)
             self.stream.writeln("EXPECTED FAILURE")
         self.stream.flush()
-        self.num_passed += 1
+        self.results['suites'][self.suite_map[self.suite]]['cases'][self.current_case_number]['result'] = 'expected_failure'
+        self.num_expected_failures += 1
         self.addScreenshots(test)
 
     def addUnexpectedSuccess(self, test):
@@ -405,6 +411,7 @@ class CustomTextTestResult(result.TestResult):
                                    'passed': r[x]['num_passed'],
                                    'failed': r[x]['num_failed'],
                                    'skipped': r[x]['num_skipped'],
+                                   'expected_failures': r[x]['num_expected_failures'],
                                    'percentage': float(r[x]['num_passed'])/(r[x]['num_passed'] + r[x]['num_failed']) * 100 if (r[x]['num_passed'] + r[x]['num_failed']) > 0 else 0,
                                    'time': r[x]['execution_time']})
         total_suites_passed = len([x for x in data if not x['failed']])

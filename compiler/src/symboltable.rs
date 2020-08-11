@@ -66,6 +66,7 @@ pub enum SymbolTableType {
     Module,
     Class,
     Function,
+    Comprehension,
 }
 
 impl fmt::Display for SymbolTableType {
@@ -74,6 +75,7 @@ impl fmt::Display for SymbolTableType {
             SymbolTableType::Module => write!(f, "module"),
             SymbolTableType::Class => write!(f, "class"),
             SymbolTableType::Function => write!(f, "function"),
+            SymbolTableType::Comprehension => write!(f, "comprehension"),
         }
     }
 }
@@ -95,11 +97,21 @@ pub struct Symbol {
     pub name: String,
     // pub table: SymbolTableRef,
     pub scope: SymbolScope,
-    pub is_param: bool,
+    // TODO: Use bitflags replace
     pub is_referenced: bool,
     pub is_assigned: bool,
     pub is_parameter: bool,
     pub is_free: bool,
+    pub is_annotated: bool,
+    pub is_imported: bool,
+
+    // indicates if the symbol gets a value assigned by a named expression in a comprehension
+    // this is required to correct the scope in the analysis.
+    pub is_assign_namedexpr_in_comprehension: bool,
+
+    // inidicates that the symbol is used a bound iterator variable. We distinguish this case
+    // from normal assignment to detect unallowed re-assignment to iterator variables.
+    pub is_iter: bool,
 }
 
 impl Symbol {
@@ -108,11 +120,14 @@ impl Symbol {
             name: name.to_owned(),
             // table,
             scope: SymbolScope::Unknown,
-            is_param: false,
             is_referenced: false,
             is_assigned: false,
             is_parameter: false,
             is_free: false,
+            is_annotated: false,
+            is_imported: false,
+            is_assign_namedexpr_in_comprehension: false,
+            is_iter: false,
         }
     }
 
@@ -139,13 +154,13 @@ pub struct SymbolTableError {
     location: Location,
 }
 
-impl From<SymbolTableError> for CompileError {
-    fn from(error: SymbolTableError) -> Self {
+impl CompileError {
+    pub fn from_symbol_table_error(error: SymbolTableError, source_path: String) -> Self {
         CompileError {
             statement: None,
             error: CompileErrorType::SyntaxError(error.error),
             location: error.location,
-            source_path: None,
+            source_path,
         }
     }
 }
@@ -195,71 +210,183 @@ impl<'a> SymbolTableAnalyzer<'a> {
         for sub_table in sub_tables {
             self.analyze_symbol_table(sub_table)?;
         }
-        let (symbols, _) = self.tables.pop().unwrap();
+        let (symbols, st_typ) = self.tables.pop().unwrap();
 
         // Analyze symbols:
         for symbol in symbols.values_mut() {
-            self.analyze_symbol(symbol)?;
+            self.analyze_symbol(symbol, st_typ)?;
         }
-
         Ok(())
     }
 
-    fn analyze_symbol(&self, symbol: &mut Symbol) -> SymbolTableResult {
-        match symbol.scope {
-            SymbolScope::Nonlocal => {
-                // check if name is defined in parent table!
-                let parent_symbol_table = self.tables.last();
-                // symbol.table.borrow().parent.clone();
-
-                if let Some((symbols, _)) = parent_symbol_table {
+    fn analyze_symbol(
+        &mut self,
+        symbol: &mut Symbol,
+        curr_st_typ: SymbolTableType,
+    ) -> SymbolTableResult {
+        if symbol.is_assign_namedexpr_in_comprehension
+            && curr_st_typ == SymbolTableType::Comprehension
+        {
+            // propagate symbol to next higher level that can hold it,
+            // i.e., function or module. Comprehension is skipped and
+            // Class is not allowed and detected as error.
+            //symbol.scope = SymbolScope::Nonlocal;
+            self.analyze_symbol_comprehension(symbol, 0)?
+        } else {
+            match symbol.scope {
+                SymbolScope::Nonlocal => {
                     let scope_depth = self.tables.len();
-                    if !symbols.contains_key(&symbol.name) || scope_depth < 2 {
+                    if scope_depth > 0 {
+                        // check if the name is already defined in any outer scope
+                        // therefore
+                        if scope_depth < 2
+                            || !self
+                                .tables
+                                .iter()
+                                .skip(1) // omit the global scope as it is not non-local
+                                .rev() // revert the order for better performance
+                                .any(|t| t.0.contains_key(&symbol.name))
+                        // true when any of symbol tables contains the name -> then negate
+                        {
+                            return Err(SymbolTableError {
+                                error: format!("no binding for nonlocal '{}' found", symbol.name),
+                                location: Default::default(),
+                            });
+                        }
+                    } else {
                         return Err(SymbolTableError {
-                            error: format!("no binding for nonlocal '{}' found", symbol.name),
+                            error: format!(
+                                "nonlocal {} defined at place without an enclosing scope",
+                                symbol.name
+                            ),
                             location: Default::default(),
                         });
                     }
-                } else {
-                    return Err(SymbolTableError {
-                        error: format!(
-                            "nonlocal {} defined at place without an enclosing scope",
-                            symbol.name
-                        ),
-                        location: Default::default(),
-                    });
+                }
+                SymbolScope::Global => {
+                    // TODO: add more checks for globals?
+                }
+                SymbolScope::Local => {
+                    // all is well
+                }
+                SymbolScope::Unknown => {
+                    // Try hard to figure out what the scope of this symbol is.
+                    self.analyze_unknown_symbol(symbol);
                 }
             }
-            SymbolScope::Global => {
-                // TODO: add more checks for globals?
-            }
-            SymbolScope::Local => {
-                // all is well
-            }
-            SymbolScope::Unknown => {
-                // Try hard to figure out what the scope of this symbol is.
+        }
+        Ok(())
+    }
 
-                if symbol.is_assigned || symbol.is_parameter {
-                    symbol.scope = SymbolScope::Local;
+    fn analyze_unknown_symbol(&self, symbol: &mut Symbol) {
+        if symbol.is_assigned || symbol.is_parameter {
+            symbol.scope = SymbolScope::Local;
+        } else {
+            // Interesting stuff about the __class__ variable:
+            // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
+            let found_in_outer_scope = symbol.name == "__class__"
+                || self.tables.iter().skip(1).any(|(symbols, typ)| {
+                    *typ != SymbolTableType::Class && symbols.contains_key(&symbol.name)
+                });
+
+            if found_in_outer_scope {
+                // Symbol is in some outer scope.
+                symbol.is_free = true;
+            } else if self.tables.is_empty() {
+                // Don't make assumptions when we don't know.
+                symbol.scope = SymbolScope::Unknown;
+            } else {
+                // If there are scopes above we can assume global.
+                symbol.scope = SymbolScope::Global;
+            }
+        }
+    }
+
+    // Implements the symbol analysis and scope extension for names
+    // assigned by a named expression in a comprehension. See:
+    // https://github.com/python/cpython/blob/7b78e7f9fd77bb3280ee39fb74b86772a7d46a70/Python/symtable.c#L1435
+    fn analyze_symbol_comprehension(
+        &mut self,
+        symbol: &mut Symbol,
+        parent_offset: usize,
+    ) -> SymbolTableResult {
+        // TODO: quite C-ish way to implement the iteration
+        // when this is called, we expect to be in the direct parent scope of the scope that contains 'symbol'
+        let offs = self.tables.len() - 1 - parent_offset;
+        let last = self.tables.get_mut(offs).unwrap();
+        let symbols = &mut last.0;
+        let table_type = last.1;
+
+        // it is not allowed to use an iterator variable as assignee in a named expression
+        if symbol.is_iter {
+            return Err(SymbolTableError {
+                error: format!(
+                    "assignment expression cannot rebind comprehension iteration variable {}",
+                    symbol.name
+                ),
+                location: Default::default(),
+            });
+        }
+
+        match table_type {
+            SymbolTableType::Module => {
+                symbol.scope = SymbolScope::Global;
+            }
+            SymbolTableType::Class => {
+                // named expressions are forbidden in comprehensions on class scope
+                return Err(SymbolTableError {
+                    error: "assignment expression within a comprehension cannot be used in a class body".to_string(),
+                    location: Default::default(),
+                } );
+            }
+            SymbolTableType::Function => {
+                if let Some(parent_symbol) = symbols.get_mut(&symbol.name) {
+                    if let SymbolScope::Unknown = parent_symbol.scope {
+                        parent_symbol.is_assigned = true; // this information is new, as the asignment is done in inner scope
+                                                          //self.analyze_unknown_symbol(symbol); // not needed, symbol is analyzed anyhow when its scope is analyzed
+                    }
+
+                    match symbol.scope {
+                        SymbolScope::Global => {
+                            symbol.scope = SymbolScope::Global;
+                        }
+                        _ => {
+                            symbol.scope = SymbolScope::Nonlocal;
+                        }
+                    }
                 } else {
-                    // Interesting stuff about the __class__ variable:
-                    // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
-                    let found_in_outer_scope = symbol.name == "__class__"
-                        || self.tables.iter().skip(1).any(|(symbols, typ)| {
-                            *typ != SymbolTableType::Class && symbols.contains_key(&symbol.name)
-                        });
+                    let mut cloned_sym = symbol.clone();
+                    cloned_sym.scope = SymbolScope::Local;
+                    last.0.insert(cloned_sym.name.to_owned(), cloned_sym);
+                }
+            }
+            SymbolTableType::Comprehension => {
+                // TODO check for conflicts - requires more context information about variables
+                match symbols.get_mut(&symbol.name) {
+                    Some(parent_symbol) => {
+                        // check if assignee is an iterator in top scope
+                        if parent_symbol.is_iter {
+                            return Err(SymbolTableError {
+                                error: format!("assignment expression cannot rebind comprehension iteration variable {}", symbol.name),
+                                location: Default::default(),
+                            });
+                        }
 
-                    if found_in_outer_scope {
-                        // Symbol is in some outer scope.
-                        symbol.is_free = true;
-                    } else if self.tables.is_empty() {
-                        // Don't make assumptions when we don't know.
-                        symbol.scope = SymbolScope::Unknown;
-                    } else {
-                        // If there are scopes above we can assume global.
-                        symbol.scope = SymbolScope::Global;
+                        // we synthesize the assignment to the symbol from inner scope
+                        parent_symbol.is_assigned = true; // more checks are required
+                    }
+                    None => {
+                        // extend the scope of the inner symbol
+                        // as we are in a nested comprehension, we expect that the symbol is needed
+                        // ouside, too, and set it therefore to non-local scope. I.e., we expect to
+                        // find a definition on a higher level
+                        let mut cloned_sym = symbol.clone();
+                        cloned_sym.scope = SymbolScope::Nonlocal;
+                        last.0.insert(cloned_sym.name.to_owned(), cloned_sym);
                     }
                 }
+
+                self.analyze_symbol_comprehension(symbol, parent_offset + 1)?;
             }
         }
         Ok(())
@@ -272,7 +399,12 @@ enum SymbolUsage {
     Nonlocal,
     Used,
     Assigned,
+    Imported,
+    AnnotationAssigned,
     Parameter,
+    AnnotationParameter,
+    AssignedNamedExprInCompr,
+    Iter,
 }
 
 #[derive(Default)]
@@ -289,6 +421,8 @@ enum ExpressionContext {
     Load,
     Store,
     Delete,
+    Iter,
+    IterDefinitionExp,
 }
 
 impl SymbolTableBuilder {
@@ -334,7 +468,12 @@ impl SymbolTableBuilder {
     }
 
     fn scan_parameter(&mut self, parameter: &ast::Parameter) -> SymbolTableResult {
-        self.register_name(&parameter.arg, SymbolUsage::Parameter)
+        let usage = if parameter.annotation.is_some() {
+            SymbolUsage::AnnotationParameter
+        } else {
+            SymbolUsage::Parameter
+        };
+        self.register_name(&parameter.arg, usage)
     }
 
     fn scan_parameters_annotations(&mut self, parameters: &[ast::Parameter]) -> SymbolTableResult {
@@ -438,12 +577,12 @@ impl SymbolTableBuilder {
                 for name in names {
                     if let Some(alias) = &name.alias {
                         // `import mymodule as myalias`
-                        self.register_name(alias, SymbolUsage::Assigned)?;
+                        self.register_name(alias, SymbolUsage::Imported)?;
                     } else {
                         // `import module`
                         self.register_name(
                             name.symbol.split('.').next().unwrap(),
-                            SymbolUsage::Assigned,
+                            SymbolUsage::Imported,
                         )?;
                     }
                 }
@@ -475,7 +614,12 @@ impl SymbolTableBuilder {
                 annotation,
                 value,
             } => {
-                self.scan_expression(target, &ExpressionContext::Store)?;
+                // https://github.com/python/cpython/blob/master/Python/symtable.c#L1233
+                if let ast::ExpressionType::Identifier { ref name } = target.node {
+                    self.register_name(name, SymbolUsage::AnnotationAssigned)?;
+                } else {
+                    self.scan_expression(target, &ExpressionContext::Store)?;
+                }
                 self.scan_expression(annotation, &ExpressionContext::Load)?;
                 if let Some(value) = value {
                     self.scan_expression(value, &ExpressionContext::Load)?;
@@ -554,11 +698,11 @@ impl SymbolTableBuilder {
                 self.scan_expressions(vals, context)?;
             }
             Subscript { a, b } => {
-                self.scan_expression(a, context)?;
-                self.scan_expression(b, context)?;
+                self.scan_expression(a, &ExpressionContext::Load)?;
+                self.scan_expression(b, &ExpressionContext::Load)?;
             }
             Attribute { value, .. } => {
-                self.scan_expression(value, context)?;
+                self.scan_expression(value, &ExpressionContext::Load)?;
             }
             Dict { elements } => {
                 for (key, value) in elements {
@@ -604,7 +748,7 @@ impl SymbolTableBuilder {
 
                 self.enter_scope(
                     scope_name,
-                    SymbolTableType::Function,
+                    SymbolTableType::Comprehension,
                     expression.location.row(),
                 );
 
@@ -625,11 +769,14 @@ impl SymbolTableBuilder {
 
                 let mut is_first_generator = true;
                 for generator in generators {
-                    self.scan_expression(&generator.target, &ExpressionContext::Store)?;
+                    self.scan_expression(&generator.target, &ExpressionContext::Iter)?;
                     if is_first_generator {
                         is_first_generator = false;
                     } else {
-                        self.scan_expression(&generator.iter, &ExpressionContext::Load)?;
+                        self.scan_expression(
+                            &generator.iter,
+                            &ExpressionContext::IterDefinitionExp,
+                        )?;
                     }
 
                     for if_expr in &generator.ifs {
@@ -641,14 +788,22 @@ impl SymbolTableBuilder {
 
                 // The first iterable is passed as an argument into the created function:
                 assert!(!generators.is_empty());
-                self.scan_expression(&generators[0].iter, &ExpressionContext::Load)?;
+                self.scan_expression(&generators[0].iter, &ExpressionContext::IterDefinitionExp)?;
             }
             Call {
                 function,
                 args,
                 keywords,
             } => {
-                self.scan_expression(function, &ExpressionContext::Load)?;
+                match *context {
+                    ExpressionContext::IterDefinitionExp => {
+                        self.scan_expression(function, &ExpressionContext::IterDefinitionExp)?;
+                    }
+                    _ => {
+                        self.scan_expression(function, &ExpressionContext::Load)?;
+                    }
+                }
+
                 self.scan_expressions(args, &ExpressionContext::Load)?;
                 for keyword in keywords {
                     self.scan_expression(&keyword.value, &ExpressionContext::Load)?;
@@ -663,23 +818,64 @@ impl SymbolTableBuilder {
                     ExpressionContext::Delete => {
                         self.register_name(name, SymbolUsage::Used)?;
                     }
-                    ExpressionContext::Load => {
+                    ExpressionContext::Load | ExpressionContext::IterDefinitionExp => {
                         self.register_name(name, SymbolUsage::Used)?;
                     }
                     ExpressionContext::Store => {
                         self.register_name(name, SymbolUsage::Assigned)?;
                     }
+                    ExpressionContext::Iter => {
+                        self.register_name(name, SymbolUsage::Iter)?;
+                    }
                 }
             }
             Lambda { args, body } => {
                 self.enter_function("lambda", args, expression.location.row())?;
-                self.scan_expression(body, &ExpressionContext::Load)?;
+                match *context {
+                    ExpressionContext::IterDefinitionExp => {
+                        self.scan_expression(body, &ExpressionContext::IterDefinitionExp)?;
+                    }
+                    _ => {
+                        self.scan_expression(body, &ExpressionContext::Load)?;
+                    }
+                }
                 self.leave_scope();
             }
             IfExpression { test, body, orelse } => {
                 self.scan_expression(test, &ExpressionContext::Load)?;
                 self.scan_expression(body, &ExpressionContext::Load)?;
                 self.scan_expression(orelse, &ExpressionContext::Load)?;
+            }
+
+            NamedExpression { left, right } => {
+                // named expressions are not allowed in the definiton of
+                // comprehension iterator definitions
+                if let ExpressionContext::IterDefinitionExp = *context {
+                    return Err(SymbolTableError {
+                        error: "assignment expression cannot be used in a comprehension iterable expression".to_string(),
+                        location: Default::default(),
+                    });
+                }
+
+                self.scan_expression(right, &ExpressionContext::Load)?;
+
+                // special handling for assigned identifier in named expressions
+                // that are used in comprehensions. This required to correctly
+                // propagate the scope of the named assigned named and not to
+                // propagate inner names.
+                if let Identifier { name } = &left.node {
+                    let table = self.tables.last().unwrap();
+                    if table.typ == SymbolTableType::Comprehension {
+                        self.register_name(name, SymbolUsage::AssignedNamedExprInCompr)?;
+                    } else {
+                        // omit one recursion. When the handling of an store changes for
+                        // Identifiers this needs adapted - more forward safe would be
+                        // calling scan_expression directly.
+                        self.register_name(name, SymbolUsage::Assigned)?;
+                    }
+                } else {
+                    self.scan_expression(left, &ExpressionContext::Store)?;
+                }
             }
         }
         Ok(())
@@ -741,7 +937,6 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
-    #[allow(clippy::single_match)]
     fn register_name(&mut self, name: &str, role: SymbolUsage) -> SymbolTableResult {
         let scope_depth = self.tables.len();
         let table = self.tables.last_mut().unwrap();
@@ -777,13 +972,11 @@ impl SymbolTableBuilder {
 
         // Some more checks:
         match role {
-            SymbolUsage::Nonlocal => {
-                if scope_depth < 2 {
-                    return Err(SymbolTableError {
-                        error: format!("cannot define nonlocal '{}' at top level.", name),
-                        location,
-                    });
-                }
+            SymbolUsage::Nonlocal if scope_depth < 2 => {
+                return Err(SymbolTableError {
+                    error: format!("cannot define nonlocal '{}' at top level.", name),
+                    location,
+                })
             }
             _ => {
                 // Ok!
@@ -809,11 +1002,27 @@ impl SymbolTableBuilder {
                     });
                 }
             }
+            SymbolUsage::Imported => {
+                symbol.is_assigned = true;
+                symbol.is_imported = true;
+            }
             SymbolUsage::Parameter => {
                 symbol.is_parameter = true;
             }
+            SymbolUsage::AnnotationParameter => {
+                symbol.is_parameter = true;
+                symbol.is_annotated = true;
+            }
+            SymbolUsage::AnnotationAssigned => {
+                symbol.is_assigned = true;
+                symbol.is_annotated = true;
+            }
             SymbolUsage::Assigned => {
                 symbol.is_assigned = true;
+            }
+            SymbolUsage::AssignedNamedExprInCompr => {
+                symbol.is_assigned = true;
+                symbol.is_assign_namedexpr_in_comprehension = true;
             }
             SymbolUsage::Global => {
                 if let SymbolScope::Unknown = symbol.scope {
@@ -830,8 +1039,24 @@ impl SymbolTableBuilder {
             SymbolUsage::Used => {
                 symbol.is_referenced = true;
             }
+            SymbolUsage::Iter => {
+                symbol.is_iter = true;
+                symbol.scope = SymbolScope::Local;
+            }
         }
 
+        // and even more checking
+        // it is not allowed to assign to iterator variables (by named expressions)
+        if symbol.is_iter && symbol.is_assigned
+        /*&& symbol.is_assign_namedexpr_in_comprehension*/
+        {
+            return Err(SymbolTableError {
+                error:
+                    "assignment expression cannot be used in a comprehension iterable expression"
+                        .to_string(),
+                location,
+            });
+        }
         Ok(())
     }
 }

@@ -10,8 +10,8 @@ use super::objsequence;
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::pyobject::{
-    PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    BorrowValue, PyCallable, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -23,10 +23,21 @@ use crate::vm::VirtualMachine;
 pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
     if let Some(method_or_err) = vm.get_method(iter_target.clone(), "__iter__") {
         let method = method_or_err?;
-        vm.invoke(&method, vec![])
+        let iter = vm.invoke(&method, vec![])?;
+        if iter.has_class_attr("__next__") {
+            Ok(iter)
+        } else {
+            Err(vm.new_type_error(format!(
+                "iter() returned non-iterator of type '{}'",
+                iter.lease_class().name
+            )))
+        }
     } else {
         vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
-            format!("Cannot iterate over {}", iter_target.class().name)
+            format!(
+                "'{}' object is not iterable",
+                iter_target.lease_class().name
+            )
         })?;
         Ok(PySequenceIterator::new_forward(iter_target.clone())
             .into_ref(vm)
@@ -80,11 +91,15 @@ pub fn new_stop_iteration(vm: &VirtualMachine) -> PyBaseExceptionRef {
     let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
     vm.new_exception_empty(stop_iteration_type)
 }
+pub fn stop_iter_with_value(val: PyObjectRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
+    vm.new_exception(stop_iteration_type, vec![val])
+}
 
 pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyResult {
     let args = exc.args();
     let val = args
-        .as_slice()
+        .borrow_value()
         .first()
         .cloned()
         .unwrap_or_else(|| vm.get_none());
@@ -121,10 +136,10 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
         .ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
-                result.class().name
+                result.lease_class().name
             ))
         })?
-        .as_bigint();
+        .borrow_value();
     if result.is_negative() {
         return Err(vm.new_value_error("__length_hint__() should return >= 0".to_owned()));
     }
@@ -171,7 +186,7 @@ impl PySequenceIterator {
         let step: isize = if self.reversed { -1 } else { 1 };
         let pos = self.position.fetch_add(step);
         if pos >= 0 {
-            match vm.call_method(&self.obj, "__getitem__", vec![vm.new_int(pos)]) {
+            match vm.call_method(&self.obj, "__getitem__", vec![vm.ctx.new_int(pos)]) {
                 Err(ref e) if objtype::isinstance(&e, &vm.ctx.exceptions.index_error) => {
                     Err(new_stop_iteration(vm))
                 }

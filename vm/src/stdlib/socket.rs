@@ -1,27 +1,26 @@
-use std::cell::{Cell, Ref, RefCell};
+use crate::common::cell::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use std::io::{self, prelude::*};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 use byteorder::{BigEndian, ByteOrder};
+use crossbeam_utils::atomic::AtomicCell;
 use gethostname::gethostname;
 #[cfg(all(unix, not(target_os = "redox")))]
 use nix::unistd::sethostname;
 use socket2::{Domain, Protocol, Socket, Type as SocketType};
 
-use super::os::convert_io_error;
-#[cfg(unix)]
-use super::os::convert_nix_error;
-use crate::exceptions::PyBaseExceptionRef;
+use crate::byteslike::PyBytesLike;
+use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytearray::PyByteArrayRef;
-use crate::obj::objbyteinner::PyBytesLike;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BorrowValue, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -31,7 +30,21 @@ type RawSocket = std::os::unix::io::RawFd;
 type RawSocket = std::os::windows::raw::SOCKET;
 
 #[cfg(unix)]
-use libc as c;
+mod c {
+    pub use libc::*;
+    // https://gitlab.redox-os.org/redox-os/relibc/-/blob/master/src/header/netdb/mod.rs
+    #[cfg(target_os = "redox")]
+    pub const AI_PASSIVE: c_int = 0x01;
+    #[cfg(target_os = "redox")]
+    pub const AI_ALL: c_int = 0x10;
+    // https://gitlab.redox-os.org/redox-os/relibc/-/blob/master/src/header/sys_socket/constants.rs
+    #[cfg(target_os = "redox")]
+    pub const SO_TYPE: c_int = 3;
+    #[cfg(target_os = "redox")]
+    pub const MSG_OOB: c_int = 1;
+    #[cfg(target_os = "redox")]
+    pub const MSG_WAITALL: c_int = 256;
+}
 #[cfg(windows)]
 mod c {
     pub use winapi::shared::ws2def::*;
@@ -44,10 +57,10 @@ mod c {
 #[pyclass]
 #[derive(Debug)]
 pub struct PySocket {
-    kind: Cell<i32>,
-    family: Cell<i32>,
-    proto: Cell<i32>,
-    sock: RefCell<Socket>,
+    kind: AtomicCell<i32>,
+    family: AtomicCell<i32>,
+    proto: AtomicCell<i32>,
+    sock: PyRwLock<Socket>,
 }
 
 impl PyValue for PySocket {
@@ -60,17 +73,21 @@ pub type PySocketRef = PyRef<PySocket>;
 
 #[pyimpl(flags(BASETYPE))]
 impl PySocket {
-    fn sock(&self) -> Ref<Socket> {
-        self.sock.borrow()
+    fn sock(&self) -> PyRwLockReadGuard<'_, Socket> {
+        self.sock.read()
+    }
+
+    fn sock_mut(&self) -> PyRwLockWriteGuard<'_, Socket> {
+        self.sock.write()
     }
 
     #[pyslot]
     fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PySocket {
-            kind: Cell::default(),
-            family: Cell::default(),
-            proto: Cell::default(),
-            sock: RefCell::new(invalid_sock()),
+            kind: AtomicCell::default(),
+            family: AtomicCell::default(),
+            proto: AtomicCell::default(),
+            sock: PyRwLock::new(invalid_sock()),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -103,12 +120,12 @@ impl PySocket {
             )
             .map_err(|err| convert_sock_error(vm, err))?;
 
-            self.family.set(family);
-            self.kind.set(socket_kind);
-            self.proto.set(proto);
+            self.family.store(family);
+            self.kind.store(socket_kind);
+            self.proto.store(proto);
             sock
         };
-        self.sock.replace(sock);
+        *self.sock.write() = sock;
         Ok(())
     }
 
@@ -191,7 +208,7 @@ impl PySocket {
     #[pymethod]
     fn sendall(&self, bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<()> {
         bytes
-            .with_ref(|b| self.sock.borrow_mut().write_all(b))
+            .with_ref(|b| self.sock_mut().write_all(b))
             .map_err(|err| convert_sock_error(vm, err))
     }
 
@@ -206,11 +223,11 @@ impl PySocket {
 
     #[pymethod]
     fn close(&self) {
-        self.sock.replace(invalid_sock());
+        *self.sock_mut() = invalid_sock();
     }
     #[pymethod]
     fn detach(&self) -> RawSocket {
-        into_sock_fileno(self.sock.replace(invalid_sock()))
+        into_sock_fileno(std::mem::replace(&mut *self.sock_mut(), invalid_sock()))
     }
 
     #[pymethod]
@@ -307,7 +324,7 @@ impl PySocket {
             if ret < 0 {
                 Err(convert_sock_error(vm, io::Error::last_os_error()))
             } else {
-                Ok(vm.new_int(flag))
+                Ok(vm.ctx.new_int(flag))
             }
         } else {
             if buflen <= 0 || buflen > 1024 {
@@ -384,29 +401,29 @@ impl PySocket {
 
     #[pyproperty(name = "type")]
     fn kind(&self) -> i32 {
-        self.kind.get()
+        self.kind.load()
     }
     #[pyproperty]
     fn family(&self) -> i32 {
-        self.family.get()
+        self.family.load()
     }
     #[pyproperty]
     fn proto(&self) -> i32 {
-        self.proto.get()
+        self.proto.load()
     }
 }
 
 impl io::Read for PySocketRef {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        <Socket as io::Read>::read(&mut self.sock.borrow_mut(), buf)
+        <Socket as io::Read>::read(&mut self.sock_mut(), buf)
     }
 }
 impl io::Write for PySocketRef {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        <Socket as io::Write>::write(&mut self.sock.borrow_mut(), buf)
+        <Socket as io::Write>::write(&mut self.sock_mut(), buf)
     }
     fn flush(&mut self) -> io::Result<()> {
-        <Socket as io::Write>::flush(&mut self.sock.borrow_mut())
+        <Socket as io::Write>::flush(&mut self.sock_mut())
     }
 }
 
@@ -418,23 +435,23 @@ struct Address {
 impl ToSocketAddrs for Address {
     type Iter = std::vec::IntoIter<SocketAddr>;
     fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
-        (self.host.as_str(), self.port).to_socket_addrs()
+        (self.host.borrow_value(), self.port).to_socket_addrs()
     }
 }
 
 impl TryFromObject for Address {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let tuple = PyTupleRef::try_from_object(vm, obj)?;
-        if tuple.as_slice().len() != 2 {
+        if tuple.borrow_value().len() != 2 {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_owned()))
         } else {
-            let host = PyStringRef::try_from_object(vm, tuple.as_slice()[0].clone())?;
-            let host = if host.as_str().is_empty() {
+            let host = PyStringRef::try_from_object(vm, tuple.borrow_value()[0].clone())?;
+            let host = if host.borrow_value().is_empty() {
                 PyString::from("0.0.0.0").into_ref(vm)
             } else {
                 host
             };
-            let port = u16::try_from_object(vm, tuple.as_slice()[1].clone())?;
+            let port = u16::try_from_object(vm, tuple.borrow_value()[1].clone())?;
             Ok(Address { host, port })
         }
     }
@@ -456,18 +473,18 @@ fn get_addr_tuple<A: Into<socket2::SockAddr>>(addr: A) -> AddrTuple {
 fn socket_gethostname(vm: &VirtualMachine) -> PyResult {
     gethostname()
         .into_string()
-        .map(|hostname| vm.new_str(hostname))
+        .map(|hostname| vm.ctx.new_str(hostname))
         .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
 fn socket_sethostname(hostname: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    sethostname(hostname.as_str()).map_err(|err| convert_nix_error(vm, err))
+    sethostname(hostname.borrow_value()).map_err(|err| err.into_pyexception(vm))
 }
 
 fn socket_inet_aton(ip_string: PyStringRef, vm: &VirtualMachine) -> PyResult {
     ip_string
-        .as_str()
+        .borrow_value()
         .parse::<Ipv4Addr>()
         .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
         .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_owned()))
@@ -478,7 +495,7 @@ fn socket_inet_ntoa(packed_ip: PyBytesRef, vm: &VirtualMachine) -> PyResult {
         return Err(vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()));
     }
     let ip_num = BigEndian::read_u32(&packed_ip);
-    Ok(vm.new_str(Ipv4Addr::from(ip_num).to_string()))
+    Ok(vm.ctx.new_str(Ipv4Addr::from(ip_num).to_string()))
 }
 
 #[derive(FromArgs)]
@@ -507,10 +524,10 @@ fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
         flags: opts.flags,
     };
 
-    let host = opts.host.as_ref().map(|s| s.as_str());
+    let host = opts.host.as_ref().map(|s| s.borrow_value());
     let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<str> {
         match p {
-            Either::A(ref s) => s.as_str().into(),
+            Either::A(ref s) => s.borrow_value().into(),
             Either::B(i) => i.to_string().into(),
         }
     });
@@ -525,14 +542,14 @@ fn socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
         .map(|ai| {
             ai.map(|ai| {
                 vm.ctx.new_tuple(vec![
-                    vm.new_int(ai.address),
-                    vm.new_int(ai.socktype),
-                    vm.new_int(ai.protocol),
+                    vm.ctx.new_int(ai.address),
+                    vm.ctx.new_int(ai.socktype),
+                    vm.ctx.new_int(ai.protocol),
                     match ai.canonname {
-                        Some(s) => vm.new_str(s),
+                        Some(s) => vm.ctx.new_str(s),
                         None => vm.get_none(),
                     },
-                    get_addr_tuple(ai.sockaddr).into_pyobject(vm).unwrap(),
+                    get_addr_tuple(ai.sockaddr).into_pyobject(vm),
                 ])
             })
         })
@@ -547,7 +564,7 @@ fn socket_gethostbyaddr(
     vm: &VirtualMachine,
 ) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
     // TODO: figure out how to do this properly
-    let ai = dns_lookup::getaddrinfo(Some(addr.as_str()), None, None)
+    let ai = dns_lookup::getaddrinfo(Some(addr.borrow_value()), None, None)
         .map_err(|e| convert_sock_error(vm, e.into()))?
         .next()
         .unwrap()
@@ -558,7 +575,7 @@ fn socket_gethostbyaddr(
         hostname,
         vm.ctx.new_list(vec![]),
         vm.ctx
-            .new_list(vec![vm.new_str(ai.sockaddr.ip().to_string())]),
+            .new_list(vec![vm.ctx.new_str(ai.sockaddr.ip().to_string())]),
     ))
 }
 
@@ -629,7 +646,7 @@ fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef
         let socket_timeout = vm.class("_socket", "timeout");
         vm.new_exception_msg(socket_timeout, "Timed out".to_owned())
     } else {
-        convert_io_error(vm, err)
+        err.into_pyexception(vm)
     }
 }
 
@@ -662,6 +679,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SHUT_WR" => ctx.new_int(c::SHUT_WR),
         "SHUT_RDWR" => ctx.new_int(c::SHUT_RDWR),
         "MSG_PEEK" => ctx.new_int(c::MSG_PEEK),
+        "MSG_OOB" => ctx.new_int(c::MSG_OOB),
+        "MSG_WAITALL" => ctx.new_int(c::MSG_WAITALL),
         "IPPROTO_TCP" => ctx.new_int(c::IPPROTO_TCP),
         "IPPROTO_UDP" => ctx.new_int(c::IPPROTO_UDP),
         "IPPROTO_IP" => ctx.new_int(c::IPPROTO_IP),
@@ -669,20 +688,17 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "IPPROTO_IPV6" => ctx.new_int(c::IPPROTO_IPV6),
         "SOL_SOCKET" => ctx.new_int(c::SOL_SOCKET),
         "SO_REUSEADDR" => ctx.new_int(c::SO_REUSEADDR),
-        "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
-        "SO_BROADCAST" => ctx.new_int(c::SO_BROADCAST),
         "SO_TYPE" => ctx.new_int(c::SO_TYPE),
+        "SO_BROADCAST" => ctx.new_int(c::SO_BROADCAST),
+        "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
+        "AI_ALL" => ctx.new_int(c::AI_ALL),
+        "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
     });
 
     #[cfg(not(target_os = "redox"))]
     extend_module!(vm, module, {
         "getaddrinfo" => ctx.new_function(socket_getaddrinfo),
         "gethostbyaddr" => ctx.new_function(socket_gethostbyaddr),
-        // non-redox constants
-        "MSG_OOB" => ctx.new_int(c::MSG_OOB),
-        "MSG_WAITALL" => ctx.new_int(c::MSG_WAITALL),
-        "AI_ALL" => ctx.new_int(c::AI_ALL),
-        "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
     });
 
     extend_module_platform_specific(vm, &module);

@@ -12,6 +12,7 @@ mod error;
 mod compile_bytecode;
 mod from_args;
 mod pyclass;
+mod pymodule;
 mod util;
 
 use error::{extract_spans, Diagnostic};
@@ -45,23 +46,20 @@ pub fn pyimpl(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
+pub fn pymodule(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr = parse_macro_input!(attr as AttributeArgs);
+    let item = parse_macro_input!(item as Item);
+    result_to_tokens(pymodule::impl_pymodule(attr, item))
+}
+
+#[proc_macro_attribute]
 pub fn pystruct_sequence(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr as AttributeArgs);
     let item = parse_macro_input!(item as Item);
     result_to_tokens(pyclass::impl_pystruct_sequence(attr, item))
 }
 
-fn result_to_tokens_expr(result: Result<TokenStream2, Diagnostic>) -> TokenStream {
-    let tokens2 = result.unwrap_or_else(ToTokens::into_token_stream);
-    let ret = quote::quote! {
-        macro_rules! __proc_macro_call {
-            () => {{ #tokens2 }}
-        }
-    };
-    ret.into()
-}
-
 #[proc_macro]
 pub fn py_compile_bytecode(input: TokenStream) -> TokenStream {
-    result_to_tokens_expr(compile_bytecode::impl_py_compile_bytecode(input.into()))
+    result_to_tokens(compile_bytecode::impl_py_compile_bytecode(input.into()))
 }

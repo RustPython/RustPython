@@ -16,13 +16,9 @@ impl fmt::Display for Location {
 }
 
 impl Location {
-    pub fn visualize(&self, desc: &str) -> String {
-        format!(
-            "{}↑\n{}{}",
-            " ".repeat(self.column - 1),
-            " ".repeat(self.column - 1),
-            desc
-        )
+    pub fn visualize(&self, line: &str, desc: &str) -> String {
+        // desc.to_owned()
+        format!("{}\n{}\n{}↑", desc, line, " ".repeat(self.column - 1))
     }
 }
 

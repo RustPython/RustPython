@@ -490,6 +490,8 @@ assert float(1.2345678901234567890e308).__repr__() == "1.2345678901234567e+308"
 assert float('0_0') == 0.0
 assert float('.0') == 0.0
 assert float('0.') == 0.0
+assert float('-.0') == 0.0
+assert float('+.0') == 0.0
 
 assert_raises(ValueError, lambda: float('0._0'))
 assert_raises(ValueError, lambda: float('0_.0'))

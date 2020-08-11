@@ -24,3 +24,7 @@ def func2():
     return 20
 
 assert ret(func1() or func2()) == 20
+
+a, b = (1, 2) if True else (3, 4)
+assert a == 1
+assert b == 2

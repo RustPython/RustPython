@@ -1,12 +1,12 @@
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
 
 use indexmap::IndexMap;
 use itertools::Itertools;
 
 use crate::builtins::builtin_isinstance;
 use crate::bytecode;
+use crate::common::cell::PyMutex;
 use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
 use crate::function::PyFuncArgs;
 use crate::obj::objasyncgenerator::PyAsyncGenWrappedValue;
@@ -24,7 +24,8 @@ use crate::obj::objtraceback::PyTraceback;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::scope::{NameProtocol, Scope};
 use crate::vm::VirtualMachine;
@@ -92,9 +93,9 @@ pub struct Frame {
     pub scope: Scope,
     /// index of last instruction ran
     pub lasti: AtomicUsize,
-    /// marker to know if this frame is being traced
-    pub trace: Mutex<PyObjectRef>,
-    state: Mutex<FrameState>,
+    /// tracer function for this frame (usually is None)
+    pub trace: PyMutex<PyObjectRef>,
+    state: PyMutex<FrameState>,
 }
 
 impl PyValue for Frame {
@@ -165,18 +166,18 @@ impl Frame {
             code,
             scope,
             lasti: AtomicUsize::new(0),
-            state: Mutex::new(FrameState {
+            state: PyMutex::new(FrameState {
                 stack: Vec::new(),
                 blocks: Vec::new(),
             }),
-            trace: Mutex::new(vm.get_none()),
+            trace: PyMutex::new(vm.get_none()),
         }
     }
 }
 
 impl FrameRef {
     fn with_exec<R>(&self, f: impl FnOnce(ExecutingFrame) -> R) -> R {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock();
         let exec = ExecutingFrame {
             code: &self.code,
             scope: &self.scope,
@@ -259,7 +260,7 @@ impl ExecutingFrame<'_> {
                     let new_traceback =
                         PyTraceback::new(next, self.object.clone(), self.lasti(), loc.row());
                     exception.set_traceback(Some(new_traceback.into_ref(vm)));
-                    vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, lineno);
+                    vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row);
 
                     match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
                         Ok(None) => {}
@@ -429,6 +430,14 @@ impl ExecutingFrame<'_> {
                 vm.call_method(&dict_obj, "__setitem__", vec![key, value])?;
                 Ok(None)
             }
+            bytecode::Instruction::MapAddRev { i } => {
+                // change order of evalutio of key and value to support Py3.8 Named expressions in dict comprehension
+                let dict_obj = self.nth_value(*i + 1);
+                let value = self.pop_value();
+                let key = self.pop_value();
+                vm.call_method(&dict_obj, "__setitem__", vec![key, value])?;
+                Ok(None)
+            }
             bytecode::Instruction::BinaryOperation { ref op, inplace } => {
                 self.execute_binop(vm, op, *inplace)
             }
@@ -451,6 +460,13 @@ impl ExecutingFrame<'_> {
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
+            bytecode::Instruction::SetupAnnotation => {
+                let locals = self.scope.get_locals();
+                if !locals.contains_key("__annotations__", vm) {
+                    locals.set_item("__annotations__", vm.ctx.new_dict().into_object(), vm)?;
+                }
+                Ok(None)
+            }
             bytecode::Instruction::SetupLoop { start, end } => {
                 self.push_block(BlockType::Loop {
                     start: *start,
@@ -572,7 +588,7 @@ impl ExecutingFrame<'_> {
                         vm.get_method_or_type_error(awaited_obj.clone(), "__await__", || {
                             format!(
                                 "object {} can't be used in 'await' expression",
-                                awaited_obj.class().name,
+                                awaited_obj.lease_class().name,
                             )
                         })?;
                     vm.invoke(&await_method, vec![])?
@@ -650,13 +666,12 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::Continue => self.unwind_blocks(vm, UnwindReason::Continue),
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
-                if !expr.is(&vm.get_none()) {
-                    let repr = vm.to_repr(&expr)?;
-                    // TODO: implement sys.displayhook
-                    if let Ok(ref print) = vm.get_attribute(vm.builtins.clone(), "print") {
-                        vm.invoke(print, vec![repr.into_object()])?;
-                    }
-                }
+
+                let displayhook = vm
+                    .get_attribute(vm.sys_module.clone(), "displayhook")
+                    .map_err(|_| vm.new_runtime_error("lost sys.displayhook".to_owned()))?;
+                vm.invoke(&displayhook, vec![expr])?;
+
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
@@ -665,13 +680,35 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::UnpackSequence { size } => {
                 let value = self.pop_value();
-                let elements = vm.extract_elements(&value)?;
-                if elements.len() != *size {
-                    Err(vm.new_value_error("Wrong number of values to unpack".to_owned()))
-                } else {
-                    for element in elements.into_iter().rev() {
-                        self.push_value(element);
+                let elements = vm.extract_elements(&value).map_err(|e| {
+                    if e.lease_class().is(&vm.ctx.exceptions.type_error) {
+                        vm.new_type_error(format!(
+                            "cannot unpack non-iterable {} object",
+                            value.lease_class().name
+                        ))
+                    } else {
+                        e
                     }
+                })?;
+                let msg = match elements.len().cmp(size) {
+                    std::cmp::Ordering::Equal => {
+                        for element in elements.into_iter().rev() {
+                            self.push_value(element);
+                        }
+                        None
+                    }
+                    std::cmp::Ordering::Greater => {
+                        Some(format!("too many values to unpack (expected {})", size))
+                    }
+                    std::cmp::Ordering::Less => Some(format!(
+                        "not enough values to unpack (expected {}, got {})",
+                        size,
+                        elements.len()
+                    )),
+                };
+                if let Some(msg) = msg {
+                    Err(vm.new_value_error(msg))
+                } else {
                     Ok(None)
                 }
             }
@@ -749,7 +786,7 @@ impl ExecutingFrame<'_> {
         // Load attribute, and transform any error into import error.
         let obj = vm
             .get_attribute(module, name)
-            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name)))?;
+            .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", name), name))?;
         self.push_value(obj);
         Ok(None)
     }
@@ -762,7 +799,7 @@ impl ExecutingFrame<'_> {
         if let Some(dict) = module.dict() {
             for (k, v) in &dict {
                 let k = vm.to_str(&k)?;
-                let k = k.as_str();
+                let k = k.borrow_value();
                 if !k.starts_with('_') {
                     self.scope.store_name(&vm, k, v);
                 }
@@ -914,7 +951,7 @@ impl ExecutingFrame<'_> {
     fn execute_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
-        let value = a_ref.get_item(&b_ref, vm)?;
+        let value = a_ref.get_item(b_ref, vm)?;
         self.push_value(value);
         Ok(None)
     }
@@ -923,14 +960,14 @@ impl ExecutingFrame<'_> {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        obj.set_item(&idx, value, vm)?;
+        obj.set_item(idx, value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        obj.del_item(&idx, vm)?;
+        obj.del_item(idx, vm)?;
         Ok(None)
     }
 
@@ -946,24 +983,29 @@ impl ExecutingFrame<'_> {
         if unpack {
             for obj in self.pop_multiple(size) {
                 // Take all key-value pairs from the dict:
-                let dict: PyDictRef = obj.downcast().expect("Need a dictionary to build a map.");
+                let dict: PyDictRef = obj.downcast().map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "'{}' object is not a mapping",
+                        obj.lease_class().name
+                    ))
+                })?;
                 for (key, value) in dict {
                     if for_call {
-                        if map_obj.contains_key(&key, vm) {
+                        if map_obj.contains_key(key.clone(), vm) {
                             let key_repr = vm.to_repr(&key)?;
                             let msg = format!(
                                 "got multiple values for keyword argument {}",
-                                key_repr.as_str()
+                                key_repr.borrow_value()
                             );
                             return Err(vm.new_type_error(msg));
                         }
                     }
-                    map_obj.set_item(&key, value, vm).unwrap();
+                    map_obj.set_item(key, value, vm).unwrap();
                 }
             }
         } else {
             for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
-                map_obj.set_item(&key, value, vm).unwrap();
+                map_obj.set_item(key, value, vm).unwrap();
             }
         }
 
@@ -1020,6 +1062,7 @@ impl ExecutingFrame<'_> {
                 let kwargs = if *has_kwargs {
                     let kw_dict: PyDictRef = match self.pop_value().downcast() {
                         Err(_) => {
+                            // TODO: check collections.abc.Mapping
                             return Err(vm.new_type_error("Kwargs must be a dict.".to_owned()));
                         }
                         Ok(x) => x,
@@ -1027,7 +1070,7 @@ impl ExecutingFrame<'_> {
                     let mut kwargs = IndexMap::new();
                     for (key, value) in kw_dict.into_iter() {
                         if let Some(key) = key.payload_if_subclass::<objstr::PyString>(vm) {
-                            kwargs.insert(key.as_str().to_owned(), value);
+                            kwargs.insert(key.borrow_value().to_owned(), value);
                         } else {
                             return Err(vm.new_type_error("keywords must be strings".to_owned()));
                         }
@@ -1143,7 +1186,7 @@ impl ExecutingFrame<'_> {
         let min_expected = before + after;
         if elements.len() < min_expected {
             Err(vm.new_value_error(format!(
-                "Not enough values to unpack (expected at least {}, got {}",
+                "not enough values to unpack (expected at least {}, got {})",
                 min_expected,
                 elements.len()
             )))
@@ -1246,8 +1289,12 @@ impl ExecutingFrame<'_> {
             .ctx
             .new_pyfunction(code_obj, scope, defaults, kw_only_defaults);
 
-        let name = qualified_name.as_str().split('.').next_back().unwrap();
-        vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_owned()))?;
+        let name = qualified_name
+            .borrow_value()
+            .split('.')
+            .next_back()
+            .unwrap();
+        vm.set_attr(&func_obj, "__name__", vm.ctx.new_str(name))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
         let module = self
             .scope
@@ -1372,12 +1419,12 @@ impl ExecutingFrame<'_> {
             bytecode::ComparisonOperator::LessOrEqual => vm._le(a, b)?,
             bytecode::ComparisonOperator::Greater => vm._gt(a, b)?,
             bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(a, b)?,
-            bytecode::ComparisonOperator::Is => vm.new_bool(self._is(a, b)),
-            bytecode::ComparisonOperator::IsNot => vm.new_bool(self._is_not(a, b)),
-            bytecode::ComparisonOperator::In => vm.new_bool(self._in(vm, a, b)?),
-            bytecode::ComparisonOperator::NotIn => vm.new_bool(self._not_in(vm, a, b)?),
+            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
+            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)),
+            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
+            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
             bytecode::ComparisonOperator::ExceptionMatch => {
-                vm.new_bool(builtin_isinstance(a, b, vm)?)
+                vm.ctx.new_bool(builtin_isinstance(a, b, vm)?)
             }
         };
 
@@ -1395,13 +1442,13 @@ impl ExecutingFrame<'_> {
     fn store_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let value = self.pop_value();
-        vm.set_attr(&parent, vm.new_str(attr_name.to_owned()), value)?;
+        vm.set_attr(&parent, vm.ctx.new_str(attr_name), value)?;
         Ok(None)
     }
 
     fn delete_attr(&mut self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
-        let name = vm.ctx.new_str(attr_name.to_owned());
+        let name = vm.ctx.new_str(attr_name);
         vm.del_attr(&parent, name)?;
         Ok(None)
     }
@@ -1464,10 +1511,7 @@ impl ExecutingFrame<'_> {
 
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let state = match self.state.lock() {
-            Ok(state) => state,
-            Err(_posion) => return f.pad("Frame Object {{ poisoned }}"),
-        };
+        let state = self.state.lock();
         let stack_str = state
             .stack
             .iter()

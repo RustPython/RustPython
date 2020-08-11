@@ -1,16 +1,17 @@
 import os
 import json
-# import doctest
+import doctest
 import unittest
 
 from test import support
 
 # import json with and without accelerations
-cjson = support.import_fresh_module('json', fresh=['_json'])
+# XXX RUSTPYTHON: we don't import _json as fresh since the fresh module isn't placed
+# into the sys.modules cache, and therefore the vm can't recognize the _json.Scanner class
+cjson = support.import_fresh_module('json') #, fresh=['_json'])
 pyjson = support.import_fresh_module('json', blocked=['_json'])
 # JSONDecodeError is cached inside the _json module
-# XXX RustPython TODO: _json module
-# cjson.JSONDecodeError = cjson.decoder.JSONDecodeError = json.JSONDecodeError
+cjson.JSONDecodeError = cjson.decoder.JSONDecodeError = json.JSONDecodeError
 
 # create two base classes that will be used by the other tests
 class PyTest(unittest.TestCase):
@@ -38,6 +39,7 @@ class TestPyTest(PyTest):
                          'json.encoder')
 
 class TestCTest(CTest):
+    @unittest.expectedFailure
     def test_cjson(self):
         self.assertEqual(self.json.scanner.make_scanner.__module__, '_json')
         self.assertEqual(self.json.decoder.scanstring.__module__, '_json')
@@ -48,8 +50,8 @@ class TestCTest(CTest):
 
 def load_tests(loader, _, pattern):
     suite = unittest.TestSuite()
-    # for mod in (json, json.encoder, json.decoder):
-    #     suite.addTest(doctest.DocTestSuite(mod))
+    for mod in (json, json.encoder, json.decoder):
+        suite.addTest(doctest.DocTestSuite(mod))
     suite.addTest(TestPyTest('test_pyjson'))
     suite.addTest(TestCTest('test_cjson'))
 

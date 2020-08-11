@@ -37,8 +37,7 @@ __all__ = ['BASIC_FORMAT', 'BufferingFormatter', 'CRITICAL', 'DEBUG', 'ERROR',
            'warn', 'warning', 'getLogRecordFactory', 'setLogRecordFactory',
            'lastResort', 'raiseExceptions']
 
-#  TODO: import threading
-import _thread
+import threading
 
 __author__  = "Vinay Sajip <vinay_sajip@red-dove.com>"
 __status__  = "production"
@@ -208,7 +207,7 @@ def _checkLevel(level):
 #the lock would already have been acquired - so we need an RLock.
 #The same argument applies to Loggers and Manager.loggerDict.
 #
-_lock = _thread.RLock()
+_lock = threading.RLock()
 
 def _acquireLock():
     """
@@ -844,7 +843,7 @@ class Handler(Filterer):
         """
         Acquire a thread lock for serializing access to the underlying I/O.
         """
-        self.lock = _thread.RLock()
+        self.lock = threading.RLock()
         _register_at_fork_acquire_release(self)
 
     def acquire(self):
