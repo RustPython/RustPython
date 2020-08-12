@@ -445,7 +445,7 @@ impl SymbolTableBuilder {
         let is_nested = self
             .tables
             .last()
-            .and_then(|table| Some(table.is_nested || table.typ == SymbolTableType::Function))
+            .map(|table| table.is_nested || table.typ == SymbolTableType::Function)
             .unwrap_or(false);
         let table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
         self.tables.push(table);
