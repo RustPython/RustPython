@@ -782,10 +782,10 @@ where
             PyRef::from_obj(obj, vm)
         } else {
             let class = T::class(vm);
-            let expected_type = vm.to_pystr(&class)?;
-            let actual_type = vm.to_pystr(&obj.class())?;
+            let expected_type = &class.name;
+            let actual_type = &obj.lease_class().name;
             Err(vm.new_type_error(format!(
-                "Expected type {}, not {}",
+                "Expected type '{}', not '{}'",
                 expected_type, actual_type,
             )))
         }
