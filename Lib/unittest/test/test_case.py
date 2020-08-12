@@ -771,6 +771,7 @@ class Test_TestCase(unittest.TestCase, TestEquality, TestHashing):
         self.assertRaises(self.failureException, self.assertDictEqual, [], d)
         self.assertRaises(self.failureException, self.assertDictEqual, 1, 1)
 
+    @unittest.skip("TODO: RUSTPYTHON; improve sre performance")
     def testAssertSequenceEqualMaxDiff(self):
         self.assertEqual(self.maxDiff, 80*8)
         seq1 = 'a' + 'x' * 80**2
@@ -1402,6 +1403,7 @@ test case
             with self.assertRaises(RuntimeWarning):
                 self.assertWarns(DeprecationWarning, _runtime_warn)
 
+    @unittest.skip("TODO: RUSTPYTHON; tokenize.generate_tokens")
     def testAssertWarnsContext(self):
         # Believe it or not, it is preferable to duplicate all tests above,
         # to make sure the __warningregistry__ $@ is circumvented correctly.
@@ -1498,6 +1500,7 @@ test case
                 self.assertWarnsRegex(RuntimeWarning, "o+",
                                       _runtime_warn, "barz")
 
+    @unittest.skip("TODO: RUSTPYTHON; tokenize.generate_tokens")
     def testAssertWarnsRegexContext(self):
         # Same as above, but with assertWarnsRegex as a context manager
         def _runtime_warn(msg):
@@ -1802,6 +1805,8 @@ test case
             del case
             self.assertFalse(wr())
 
+    # TODO: RUSTPYTHON; destructors
+    @unittest.expectedFailure
     def test_no_exception_leak(self):
         # Issue #19880: TestCase.run() should not keep a reference
         # to the exception

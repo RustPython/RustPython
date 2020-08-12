@@ -1,6 +1,6 @@
 import unittest
 
-import gc
+# import gc
 import sys
 import weakref
 from unittest.test.support import LoggingResult, TestEquality
@@ -370,7 +370,8 @@ class Test_TestSuite(unittest.TestCase, TestEquality):
         del test
 
         # for the benefit of non-reference counting implementations
-        gc.collect()
+        # XXX RUSTPYTHON TODO: gc module
+        # gc.collect()
 
         self.assertEqual(suite._tests, [None])
         self.assertIsNone(wref())

@@ -1,4 +1,4 @@
-import gc
+# import gc
 import io
 import os
 import sys
@@ -165,7 +165,8 @@ class TestBreak(unittest.TestCase):
         del result
 
         # For non-reference counting implementations
-        gc.collect();gc.collect()
+        # XXX RUSTPYTHON TODO: gc module
+        # gc.collect();gc.collect()
         self.assertIsNone(ref())
 
 
