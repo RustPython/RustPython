@@ -176,7 +176,10 @@ impl PyClassRef {
                 ],
             )
         } else {
-            Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
+            Err(vm.new_attribute_error(format!(
+                "type object '{}' has no attribute '{}'",
+                self, name
+            )))
         }
     }
 
