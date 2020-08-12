@@ -13,8 +13,6 @@ pub struct PyModule {}
 pub type PyModuleRef = PyRef<PyModule>;
 
 impl PyValue for PyModule {
-    const HAVE_DICT: bool = true;
-
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.module_type()
     }
@@ -43,7 +41,7 @@ pub fn init_module_dict(
         .expect("Failed to set __spec__ on module");
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE, HAS_DICT))]
 impl PyModuleRef {
     #[pyslot]
     fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyModuleRef> {

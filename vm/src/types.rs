@@ -264,6 +264,8 @@ pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyC
         base.clone(),
         vec![base.clone()],
         dict,
+        Default::default(),
+        None,
     )
     .expect("Failed to create a new type in internal code.")
 }

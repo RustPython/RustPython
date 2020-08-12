@@ -20,7 +20,6 @@ impl PyValue for PyBuiltinFunction {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.builtin_function_or_method_type()
     }
-    const HAVE_DICT: bool = true;
 }
 
 impl fmt::Debug for PyBuiltinFunction {
@@ -59,7 +58,7 @@ impl SlotCall for PyBuiltinFunction {
     }
 }
 
-#[pyimpl(with(SlotCall))]
+#[pyimpl(with(SlotCall), flags(HAS_DICT))]
 impl PyBuiltinFunction {
     #[pyproperty(magic)]
     fn module(&self) -> Option<PyStringRef> {

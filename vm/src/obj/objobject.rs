@@ -151,10 +151,7 @@ impl PyBaseObject {
 
         // Get instance attributes:
         if let Some(object_dict) = obj.dict() {
-            vm.invoke(
-                &vm.get_attribute(dict.clone().into_object(), "update")?,
-                object_dict.into_object(),
-            )?;
+            vm.call_method(dict.as_object(), "update", vec![object_dict.into_object()])?;
         }
 
         let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k).collect();
@@ -211,26 +208,6 @@ impl PyBaseObject {
         }
     }
 
-    #[pyproperty(magic)]
-    fn dict(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        object.dict().ok_or_else(|| {
-            vm.new_attribute_error(format!(
-                "'{}' object has no attribute '__dict__'",
-                object.lease_class().name
-            ))
-        })
-    }
-
-    #[pyproperty(magic, setter)]
-    fn set_dict(instance: PyObjectRef, value: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
-        instance.set_dict(value).map_err(|_| {
-            vm.new_attribute_error(format!(
-                "'{}' object has no attribute '__dict__'",
-                instance.lease_class().name
-            ))
-        })
-    }
-
     #[pymethod(magic)]
     fn getattribute(obj: PyObjectRef, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
@@ -252,6 +229,15 @@ impl PyBaseObject {
         }
         common_reduce(obj, proto, vm)
     }
+}
+
+pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    obj.dict()
+        .ok_or_else(|| vm.new_attribute_error("This object has no __dict__".to_owned()))
+}
+pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+    obj.set_dict(dict)
+        .map_err(|_| vm.new_attribute_error("This object has no __dict__".to_owned()))
 }
 
 #[cfg_attr(feature = "flame-it", flame)]

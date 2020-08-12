@@ -40,8 +40,6 @@ impl From<PyObjectRef> for PyClassMethod {
 }
 
 impl PyValue for PyClassMethod {
-    const HAVE_DICT: bool = true;
-
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.classmethod_type()
     }
@@ -60,7 +58,7 @@ impl SlotDescriptor for PyClassMethod {
     }
 }
 
-#[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
+#[pyimpl(with(SlotDescriptor), flags(BASETYPE, HAS_DICT))]
 impl PyClassMethod {
     #[pyslot]
     fn tp_new(

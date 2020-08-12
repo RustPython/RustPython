@@ -6,13 +6,14 @@ use super::objclassmethod::PyClassMethod;
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objmappingproxy::PyMappingProxy;
+use super::objobject;
 use super::objstaticmethod::PyStaticMethod;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease, PyObject,
+    BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
     PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::slots::{PyClassSlots, PyTpFlags};
@@ -311,16 +312,41 @@ impl PyClassRef {
             }
         }
 
+        if !attributes.contains_key("__dict__") {
+            attributes.insert(
+                "__dict__".to_owned(),
+                vm.ctx.new_getset(
+                    "__dict__",
+                    objobject::object_get_dict,
+                    objobject::object_set_dict,
+                ),
+            );
+        }
+
+        let slots = PyClassSlots {
+            // TODO: how do we know if it should have a dict?
+            flags: base.slots.read().flags | PyTpFlags::HAS_DICT,
+            ..Default::default()
+        };
+
+        // TODO: is this correct behavior?
+        let cls_dict = if metatype.is(&vm.ctx.types.type_type) {
+            None
+        } else {
+            Some(vm.ctx.new_dict())
+        };
+
         let typ = new(
             metatype,
             name.borrow_value(),
-            base.clone(),
+            base,
             bases,
             attributes,
+            slots,
+            cls_dict,
         )
         .map_err(|e| vm.new_type_error(e))?;
 
-        typ.slots.write().flags = base.slots.read().flags;
         vm.ctx.add_tp_new_wrapper(&typ);
 
         for (name, obj) in typ.attributes.read().clone().iter() {
@@ -582,9 +608,11 @@ fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Result<Vec<PyClassRef>, Str
 pub fn new(
     typ: PyClassRef,
     name: &str,
-    _base: PyClassRef,
+    base: PyClassRef,
     bases: Vec<PyClassRef>,
-    dict: HashMap<String, PyObjectRef>,
+    attrs: HashMap<String, PyObjectRef>,
+    mut slots: PyClassSlots,
+    dict: Option<PyDictRef>,
 ) -> Result<PyClassRef, String> {
     // Check for duplicates in bases.
     let mut unique_bases = HashSet::new();
@@ -599,21 +627,21 @@ pub fn new(
         .map(|x| x.iter_mro().cloned().collect())
         .collect();
     let mro = linearise_mro(mros)?;
-    let new_type = PyObject {
-        payload: PyClass {
+    if base.slots.read().flags.has_feature(PyTpFlags::HAS_DICT) {
+        slots.flags |= PyTpFlags::HAS_DICT
+    }
+    let new_type = PyRef::new_ref(
+        PyClass {
             name: String::from(name),
             bases,
             mro,
             subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(dict),
-            slots: PyRwLock::default(),
+            attributes: PyRwLock::new(attrs),
+            slots: PyRwLock::new(slots),
         },
-        dict: None,
-        typ: PyRwLock::new(typ.into_typed_pyobj()),
-    }
-    .into_ref();
-
-    let new_type: PyClassRef = new_type.downcast().unwrap();
+        typ,
+        dict,
+    );
 
     for base in &new_type.bases {
         base.subclasses
@@ -718,6 +746,8 @@ mod tests {
             object.clone(),
             vec![object.clone()],
             HashMap::new(),
+            Default::default(),
+            None,
         )
         .unwrap();
         let b = new(
@@ -726,6 +756,8 @@ mod tests {
             object.clone(),
             vec![object.clone()],
             HashMap::new(),
+            Default::default(),
+            None,
         )
         .unwrap();
 

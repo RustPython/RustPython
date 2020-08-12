@@ -1334,8 +1334,6 @@ cfg_if::cfg_if! {
 }
 
 pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
-    const HAVE_DICT: bool = false;
-
     fn class(vm: &VirtualMachine) -> PyClassRef;
 
     fn into_simple_object(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -1352,24 +1350,28 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        PyRef::new_ref(self, Self::class(vm), None)
+        pyvalue_into_ref(self, Self::class(vm), vm)
     }
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
         let class = Self::class(vm);
         if objtype::issubclass(&cls, &class) {
-            let dict = if !Self::HAVE_DICT && cls.is(&class) {
-                None
-            } else {
-                Some(vm.ctx.new_dict())
-            };
-            PyRef::from_obj(self.into_object(vm, cls, dict), vm)
+            Ok(pyvalue_into_ref(self, cls, vm))
         } else {
             let subtype = vm.to_str(&cls.obj)?;
             let basetype = vm.to_str(&class.obj)?;
             Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
         }
     }
+}
+
+fn pyvalue_into_ref<T: PyValue>(value: T, cls: PyClassRef, vm: &VirtualMachine) -> PyRef<T> {
+    let dict = if cls.slots.read().flags.has_feature(PyTpFlags::HAS_DICT) {
+        Some(vm.ctx.new_dict())
+    } else {
+        None
+    };
+    PyRef::new_ref(value, cls, dict)
 }
 
 pub trait BorrowValue<'a>: PyValue {
@@ -1457,6 +1459,16 @@ pub trait PyClassImpl: PyClassDef {
     fn impl_extend_class(ctx: &PyContext, class: &PyClassRef);
 
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
+        if Self::TP_FLAGS.has_feature(PyTpFlags::HAS_DICT) {
+            class.set_str_attr(
+                "__dict__",
+                ctx.new_getset(
+                    "__dict__",
+                    objobject::object_get_dict,
+                    objobject::object_set_dict,
+                ),
+            );
+        }
         Self::impl_extend_class(ctx, class);
         class.slots.write().flags = Self::TP_FLAGS;
         ctx.add_tp_new_wrapper(&class);
