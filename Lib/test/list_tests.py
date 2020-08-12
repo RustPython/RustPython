@@ -33,8 +33,6 @@ class CommonTest(seq_tests.CommonTest):
         self.assertNotEqual(id(a), id(b))
         self.assertEqual(a, b)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getitem_error(self):
         a = []
         msg = "list indices must be integers or slices"
