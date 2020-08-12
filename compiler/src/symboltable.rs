@@ -41,6 +41,9 @@ pub struct SymbolTable {
     /// The line number in the sourcecode where this symboltable begins.
     pub line_number: usize,
 
+    // Return True if the block is a nested class or function
+    pub is_nested: bool,
+
     /// A set of symbols present on this scope level.
     pub symbols: IndexMap<String, Symbol>,
 
@@ -50,11 +53,12 @@ pub struct SymbolTable {
 }
 
 impl SymbolTable {
-    fn new(name: String, typ: SymbolTableType, line_number: usize) -> Self {
+    fn new(name: String, typ: SymbolTableType, line_number: usize, is_nested: bool) -> Self {
         SymbolTable {
             name,
             typ,
             line_number,
+            is_nested,
             symbols: Default::default(),
             sub_tables: vec![],
         }
@@ -438,7 +442,12 @@ impl SymbolTableBuilder {
     }
 
     fn enter_scope(&mut self, name: &str, typ: SymbolTableType, line_number: usize) {
-        let table = SymbolTable::new(name.to_owned(), typ, line_number);
+        let is_nested = self
+            .tables
+            .last()
+            .map(|table| table.is_nested || table.typ == SymbolTableType::Function)
+            .unwrap_or(false);
+        let table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
         self.tables.push(table);
     }
 
