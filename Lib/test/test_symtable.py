@@ -71,13 +71,11 @@ class SymtableTest(unittest.TestCase):
         self.assertGreater(self.spam.get_id(), 0)
         self.assertGreater(self.internal.get_id(), 0)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_optimized(self):
         self.assertFalse(self.top.is_optimized())
 
         self.assertTrue(self.spam.is_optimized())
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_nested(self):
         self.assertFalse(self.top.is_nested())
         self.assertFalse(self.Mine.is_nested())
@@ -229,7 +227,6 @@ class SymtableTest(unittest.TestCase):
     def test_eval(self):
         symbols = symtable.symtable("42", "?", "eval")
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_single(self):
         symbols = symtable.symtable("42", "?", "single")
 

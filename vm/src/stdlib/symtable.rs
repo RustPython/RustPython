@@ -103,6 +103,16 @@ impl PySymbolTable {
         self.symtable.line_number
     }
 
+    #[pymethod(name = "is_nested")]
+    fn is_nested(&self) -> bool {
+        self.symtable.is_nested
+    }
+
+    #[pymethod(name = "is_optimized")]
+    fn is_optimized(&self) -> bool {
+        self.symtable.typ == symboltable::SymbolTableType::Function
+    }
+
     #[pymethod(name = "lookup")]
     fn lookup(&self, name: PyStringRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
         let name = name.borrow_value();
