@@ -1,9 +1,10 @@
 from testutils import assert_raises
 
-try:
-    import gc
-except ImportError:
+import platform
+if platform.python_implementation() == 'RustPython':
     gc = None
+else:
+    import gc
 
 assert type(type) is type
 assert type(object) is type

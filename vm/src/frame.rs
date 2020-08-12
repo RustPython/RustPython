@@ -93,6 +93,8 @@ pub struct Frame {
     pub scope: Scope,
     /// index of last instruction ran
     pub lasti: AtomicUsize,
+    /// tracer function for this frame (usually is None)
+    pub trace: PyMutex<PyObjectRef>,
     state: PyMutex<FrameState>,
 }
 
@@ -148,7 +150,7 @@ impl ExecutionResult {
 pub type FrameResult = PyResult<Option<ExecutionResult>>;
 
 impl Frame {
-    pub fn new(code: PyCodeRef, scope: Scope) -> Frame {
+    pub fn new(code: PyCodeRef, scope: Scope, vm: &VirtualMachine) -> Frame {
         //populate the globals and locals
         //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
         /*
@@ -168,6 +170,7 @@ impl Frame {
                 stack: Vec::new(),
                 blocks: Vec::new(),
             }),
+            trace: PyMutex::new(vm.get_none()),
         }
     }
 }
@@ -212,7 +215,7 @@ impl FrameRef {
     }
 
     pub fn current_location(&self) -> bytecode::Location {
-        self.code.locations[self.lasti.load(Ordering::Relaxed)]
+        self.code.locations[self.lasti.load(Ordering::Relaxed) - 1]
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {

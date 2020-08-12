@@ -302,7 +302,7 @@ impl VirtualMachine {
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
-        let frame = Frame::new(code, scope).into_ref(self);
+        let frame = Frame::new(code, scope, self).into_ref(self);
         self.run_frame_full(frame)
     }
 
@@ -845,14 +845,24 @@ impl VirtualMachine {
     /// Call registered trace function.
     fn trace_event(&self, event: TraceEvent) -> PyResult<()> {
         if self.use_tracing.get() {
-            let frame = self.get_none();
+            let trace_func = self.trace_func.borrow().clone();
+            let profile_func = self.profile_func.borrow().clone();
+            if self.is_none(&trace_func) && self.is_none(&profile_func) {
+                return Ok(());
+            }
+
+            let frame_ref = self.current_frame();
+            if frame_ref.is_none() {
+                return Ok(());
+            }
+
+            let frame = frame_ref.unwrap().as_object().clone();
             let event = self.ctx.new_str(event.to_string());
             let arg = self.get_none();
             let args = vec![frame, event, arg];
 
             // temporarily disable tracing, during the call to the
             // tracing function itself.
-            let trace_func = self.trace_func.borrow().clone();
             if !self.is_none(&trace_func) {
                 self.use_tracing.set(false);
                 let res = self.invoke(&trace_func, args.clone());
@@ -860,7 +870,6 @@ impl VirtualMachine {
                 res?;
             }
 
-            let profile_func = self.profile_func.borrow().clone();
             if !self.is_none(&profile_func) {
                 self.use_tracing.set(false);
                 let res = self.invoke(&profile_func, args);
