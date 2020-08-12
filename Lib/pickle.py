@@ -201,7 +201,10 @@ class _Framer:
         if self.current_frame:
             f = self.current_frame
             if f.tell() >= self._FRAME_SIZE_TARGET or force:
-                with f.getbuffer() as data:
+                # XXX RUSTPYTHON TODO: memoryview + BytesIO.getbuffer()
+                # with f.getbuffer() as data:
+                data = f.getvalue()
+                if True:
                     n = len(data)
                     write = self.file_write
                     write(FRAME)
