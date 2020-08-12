@@ -25,7 +25,6 @@ use std::ops::Deref;
 /// type(object) -> the object's type
 /// type(name, bases, dict) -> a new type
 #[pyclass(name = "type")]
-#[derive(Debug)]
 pub struct PyClass {
     pub name: String,
     pub bases: Vec<PyClassRef>,
@@ -38,6 +37,12 @@ pub struct PyClass {
 impl fmt::Display for PyClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.name, f)
+    }
+}
+
+impl fmt::Debug for PyClass {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[PyClass {}]", &self.name)
     }
 }
 
