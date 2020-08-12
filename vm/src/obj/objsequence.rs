@@ -252,8 +252,8 @@ pub fn get_item(
         }
     } else {
         Err(vm.new_type_error(format!(
-            "indexing type {:?} with index {:?} is not supported (yet?)",
-            sequence, subscript
+            "{} indices must be integers or slices",
+            sequence.lease_class().name
         )))
     }
 }
