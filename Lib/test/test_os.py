@@ -1817,8 +1817,6 @@ class ExecTests(unittest.TestCase):
         if os.name != "nt":
             self._test_internal_execvpe(bytes)
 
-    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'execve')
-    @unittest.expectedFailure
     def test_execve_invalid_env(self):
         args = [sys.executable, '-c', 'pass']
 

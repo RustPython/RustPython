@@ -1543,6 +1543,50 @@ mod posix {
     }
 
     #[pyfunction]
+    fn execve(
+        path: PyPathLike,
+        args: Either<PyListRef, PyTupleRef>,
+        env: PyDictRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let path = ffi::CString::new(path.into_bytes())
+            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+
+        let args: Vec<ffi::CString> = match args {
+            Either::A(list) => vm.extract_elements(list.as_object())?,
+            Either::B(tuple) => vm.extract_elements(tuple.as_object())?,
+        };
+        let args: Vec<&ffi::CStr> = args.iter().map(|entry| entry.as_c_str()).collect();
+
+        let first = args
+            .first()
+            .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty".to_owned()))?;
+
+        if first.to_bytes().is_empty() {
+            return Err(
+                vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned())
+            );
+        }
+
+        let env = env
+            .into_iter()
+            .map(|(k, v)| -> PyResult<_> {
+                let (key, value) = (
+                    PyPathLike::try_from_object(&vm, k)?,
+                    PyPathLike::try_from_object(&vm, v)?,
+                );
+                ffi::CString::new(format!("{}={}", key.path.display(), value.path.display()))
+                    .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let env: Vec<&ffi::CStr> = env.iter().map(|entry| entry.as_c_str()).collect();
+
+        unistd::execve(&path, &args, &env).map_err(|err| err.into_pyexception(vm))?;
+        Ok(())
+    }
+
+    #[pyfunction]
     fn getppid(vm: &VirtualMachine) -> PyObjectRef {
         let ppid = unistd::getppid().as_raw();
         vm.ctx.new_int(ppid)
