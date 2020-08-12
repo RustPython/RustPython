@@ -444,33 +444,6 @@ def enablerlcompleter():
 
     sys.__interactivehook__ = register_readline
 
-
-def enabledisplayhook():
-    """
-    Enable default value exibition on interactive prompts, by
-    registering a sys.__displayhook__.
-    """
-    def displayhook(value):
-        if value is None:
-            return
-        # Set '_' to None to avoid recursion
-        builtins._ = None
-        text = repr(value)
-        try:
-            sys.stdout.write(text)
-        except UnicodeEncodeError:
-            bytes = text.encode(sys.stdout.encoding, 'backslashreplace')
-            if hasattr(sys.stdout, 'buffer'):
-                sys.stdout.buffer.write(bytes)
-            else:
-                text = bytes.decode(sys.stdout.encoding, 'strict')
-                sys.stdout.write(text)
-        sys.stdout.write("\n")
-        builtins._ = value
-
-    sys.__displayhook__ = displayhook
-
-
 def venv(known_paths):
     global PREFIXES, ENABLE_USER_SITE
 
@@ -588,7 +561,6 @@ def main():
     sethelper()
     if not sys.flags.isolated:
         enablerlcompleter()
-        enabledisplayhook()
     execsitecustomize()
     if ENABLE_USER_SITE:
         execusercustomize()
