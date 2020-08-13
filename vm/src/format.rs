@@ -910,9 +910,10 @@ fn call_object_format(
 
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.types.str_type) {
-        let result_type = result.class();
-        let actual_type = vm.to_pystr(&result_type)?;
-        return Err(vm.new_type_error(format!("__format__ must return a str, not {}", actual_type)));
+        return Err(vm.new_type_error(format!(
+            "__format__ must return a str, not {}",
+            &result.class().name
+        )));
     }
     Ok(result)
 }
