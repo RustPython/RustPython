@@ -194,7 +194,7 @@ impl PyBaseObject {
                     Ok(())
                 }
                 Err(value) => {
-                    let type_repr = vm.to_pystr(&value.class())?;
+                    let type_repr = &value.class().name;
                     Err(vm.new_type_error(format!(
                         "__class__ must be set to a class, not '{}' object",
                         type_repr
