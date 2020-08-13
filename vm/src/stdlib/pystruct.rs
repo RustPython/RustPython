@@ -16,6 +16,7 @@ use crate::VirtualMachine;
 mod _struct {
     use byteorder::{ReadBytesExt, WriteBytesExt};
     use crossbeam_utils::atomic::AtomicCell;
+    use itertools::Itertools;
     use num_bigint::BigInt;
     use num_traits::ToPrimitive;
     use std::io::{Cursor, Read, Write};
@@ -469,15 +470,14 @@ mod _struct {
 
     fn pack_char(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
         let v = PyBytesRef::try_from_object(vm, arg.clone())?;
-        if v.len() == 1 {
-            data.write_u8(v[0]).unwrap();
-            Ok(())
-        } else {
-            Err(new_struct_error(
+        let ch = *v.borrow_value().iter().exactly_one().map_err(|_| {
+            new_struct_error(
                 vm,
                 "char format requires a bytes object of length 1".to_owned(),
-            ))
-        }
+            )
+        })?;
+        data.write_u8(ch).unwrap();
+        Ok(())
     }
 
     fn pack_item<Endianness>(

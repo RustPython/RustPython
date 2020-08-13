@@ -1,3 +1,7 @@
+use crate::common::cell::{
+    PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
+    PyRwLockWriteGuard,
+};
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objslice::PySliceRef;
@@ -9,14 +13,9 @@ use crate::pyobject::{
     PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
-
-use crate::common::cell::{
-    PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
-    PyRwLockWriteGuard,
-};
-use std::fmt;
-
 use crossbeam_utils::atomic::AtomicCell;
+use itertools::Itertools;
+use std::fmt;
 
 struct ArrayTypeSpecifierError {
     _priv: (),
@@ -284,14 +283,9 @@ impl PyArray {
         init: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyArrayRef> {
-        let spec = match spec.borrow_value().len() {
-            1 => spec.borrow_value().chars().next().unwrap(),
-            _ => {
-                return Err(vm.new_type_error(
-                    "array() argument 1 must be a unicode character, not str".to_owned(),
-                ))
-            }
-        };
+        let spec = spec.borrow_value().chars().exactly_one().map_err(|_| {
+            vm.new_type_error("array() argument 1 must be a unicode character, not str".to_owned())
+        })?;
         let array =
             ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err.to_string()))?;
         let zelf = PyArray {
