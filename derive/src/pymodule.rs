@@ -354,11 +354,7 @@ fn extract_module_items(
                         #item_ident::make_class(&vm.ctx));
                 quote! {
                     #( #[ #cfgs ])*
-                    {
-                        let new_class = #new_class;
-                        new_class.set_str_attr("__module__", vm.ctx.new_str(#module_name));
-                        vm.__module_set_attr(&module, #py_name, new_class).unwrap();
-                    }
+                    vm.__module_set_attr(&module, #py_name, #new_class).unwrap();
                 }
             }
 
