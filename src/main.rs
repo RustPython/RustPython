@@ -169,6 +169,12 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
                 .short("X")
                 .takes_value(true)
                 .help("set implementation-specific option"),
+        )
+        .arg(
+            Arg::with_name("warning-control")
+                .short("W")
+                .takes_value(true)
+                .help("warning control; arg is action:message:category:module:lineno"),
         );
     #[cfg(feature = "flame-it")]
     let app = app

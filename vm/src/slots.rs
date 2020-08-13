@@ -5,6 +5,7 @@ use crate::VirtualMachine;
 bitflags! {
     pub struct PyTpFlags: u64 {
         const BASETYPE = 1 << 10;
+        const HAS_DICT = 1 << 40;
     }
 }
 

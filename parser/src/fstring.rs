@@ -81,8 +81,7 @@ impl<'a> FStringParser<'a> {
 
                 // match a python 3.8 self documenting expression
                 // format '{' PYTHON_EXPRESSION '=' FORMAT_SPECIFIER? '}'
-                '=' if self.chars.peek() != Some(&'=') => {
-                    // check for delims empty?
+                '=' if self.chars.peek() != Some(&'=') && delims.is_empty() => {
                     pred_expression_text = expression.to_string(); // safe expression before = to print it
                 }
 

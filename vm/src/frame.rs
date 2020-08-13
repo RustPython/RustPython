@@ -1289,6 +1289,8 @@ impl ExecutingFrame<'_> {
             .ctx
             .new_pyfunction(code_obj, scope, defaults, kw_only_defaults);
 
+        vm.set_attr(&func_obj, "__doc__", vm.get_none())?;
+
         let name = qualified_name
             .borrow_value()
             .split('.')

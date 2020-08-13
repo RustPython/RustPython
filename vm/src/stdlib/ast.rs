@@ -12,6 +12,7 @@ use rustpython_parser::{ast, mode::Mode, parser};
 use crate::obj::objlist::PyListRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue};
+use crate::slots::PyTpFlags;
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
@@ -644,6 +645,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let ast_base = py_class!(ctx, "AST", ctx.object(), {});
+    ast_base.slots.write().flags |= PyTpFlags::HAS_DICT;
     py_module!(vm, MODULE_NAME, {
         // TODO: There's got to be a better way!
         "alias" => py_class!(ctx, "alias", ast_base.clone(), {}),

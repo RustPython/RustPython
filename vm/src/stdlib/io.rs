@@ -1324,6 +1324,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     //StringIO: in-memory text
     let string_io = py_class!(ctx, "StringIO", text_io_base.clone(), {
+        "__module__" => ctx.new_str("_io"),
         (slot new) => string_io_new,
         "seek" => ctx.new_method(PyStringIORef::seek),
         "seekable" => ctx.new_method(PyStringIORef::seekable),

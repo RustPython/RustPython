@@ -35,7 +35,7 @@ impl From<PyObjectRef> for PyStaticMethod {
     }
 }
 
-#[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
+#[pyimpl(with(SlotDescriptor), flags(BASETYPE, HAS_DICT))]
 impl PyStaticMethod {
     #[pyslot]
     fn tp_new(
