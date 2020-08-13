@@ -57,24 +57,18 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
             Some(method_or_err) => {
                 let method = method_or_err?;
                 let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
-                match bool_obj.payload::<PyInt>() {
-                    Some(int_obj) => {
-                        let len_val = int_obj.borrow_value();
-                        if len_val.sign() == Sign::Minus {
-                            return Err(
-                                vm.new_value_error("__len__() should return >= 0".to_owned())
-                            );
-                        }
+                let int_obj = bool_obj.payload::<PyInt>().ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "'{}' object cannot be interpreted as an integer",
+                        bool_obj.lease_class().name
+                    ))
+                })?;
 
-                        !len_val.is_zero()
-                    }
-                    None => {
-                        return Err(vm.new_type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
-                            bool_obj.lease_class().name
-                        )))
-                    }
+                let len_val = int_obj.borrow_value();
+                if len_val.sign() == Sign::Minus {
+                    return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
                 }
+                !len_val.is_zero()
             }
             None => true,
         },

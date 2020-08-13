@@ -228,12 +228,10 @@ impl PyClassRef {
             }
         }
 
-        if self.get_attr(attr_name.borrow_value()).is_some() {
-            self.attributes.write().remove(attr_name.borrow_value());
-            Ok(())
-        } else {
-            Err(vm.new_attribute_error(attr_name.borrow_value().to_owned()))
-        }
+        self.get_attr(attr_name.borrow_value())
+            .ok_or_else(|| vm.new_attribute_error(attr_name.borrow_value().to_owned()))?;
+        self.attributes.write().remove(attr_name.borrow_value());
+        Ok(())
     }
 
     // This is used for class initialisation where the vm is not yet available.
@@ -404,7 +402,7 @@ impl PyClassRef {
         if let Some(init_method_or_err) = vm.get_method(obj.clone(), "__init__") {
             let init_method = init_method_or_err?;
             let res = vm.invoke(&init_method, args)?;
-            if !res.is(&vm.get_none()) {
+            if !vm.is_none(&res) {
                 return Err(vm.new_type_error("__init__ must return None".to_owned()));
             }
         }
@@ -642,14 +640,14 @@ fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Result<Vec<PyClassRef>, Str
             break;
         }
         let (head, new_bases) = take_next_base(bases);
-        if head.is_none() {
+        let head = head.ok_or_else(|| {
             // Take the head class of each class here. Now that we have reached the problematic bases.
             // Because this failed, we assume the lists cannot be empty.
-            return Err(format!(
+            format!(
                 "Cannot create a consistent method resolution order (MRO) for bases {}",
                 new_bases.iter().map(|x| x.first().unwrap()).join(", ")
-            ));
-        }
+            )
+        });
 
         result.push(head.unwrap());
         bases = new_bases;

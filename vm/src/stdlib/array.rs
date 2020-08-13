@@ -113,14 +113,8 @@ macro_rules! def_array_enum {
                     $(ArrayContentType::$n(v) => {
                         let pos = <Option<$t>>::try_from_object(vm, obj)?.map_or(None, |val| {
                             v.iter().position(|&a| a == val)
-                        });
-
-                        match pos {
-                            Some(x) => {
-                                v.remove(x);
-                            },
-                            None => return Err(vm.new_value_error("array.remove(x): x not in array".to_owned()))
-                        }
+                        }).ok_or_else(||vm.new_value_error("array.remove(x): x not in array".to_owned()) )?;
+                        v.remove(pos);
                     })*
                 }
                 Ok(())

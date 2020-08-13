@@ -254,13 +254,14 @@ mod _struct {
             let c = chars.next();
             match c {
                 Some('n') | Some('N') if size_and_align == SizeAndAlignment::Standard => {
-                    return Err("bad char in struct format".to_owned())
+                    Err("bad char in struct format".to_owned())
                 }
                 Some(c) if is_supported_format_character(c) => {
-                    codes.push(FormatCode { repeat, code: c })
+                    codes.push(FormatCode { repeat, code: c });
+                    Ok(())
                 }
-                _ => return Err(format!("Illegal format code {:?}", c)),
-            }
+                _ => Err(format!("Illegal format code {:?}", c)),
+            }?
         }
 
         Ok(codes)

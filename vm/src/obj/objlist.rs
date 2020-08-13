@@ -76,22 +76,19 @@ impl PyList {
     pub(crate) fn to_byte_inner(&self, vm: &VirtualMachine) -> PyResult<bytesinner::PyBytesInner> {
         let mut elements = Vec::<u8>::with_capacity(self.borrow_value().len());
         for elem in self.borrow_value().iter() {
-            match PyIntRef::try_from_object(vm, elem.clone()) {
-                Ok(result) => match result.borrow_value().to_u8() {
-                    Some(result) => elements.push(result),
-                    None => {
-                        return Err(vm.new_value_error("bytes must be in range (0, 256)".to_owned()))
-                    }
-                },
-                _ => {
-                    return Err(vm.new_type_error(format!(
-                        "'{}' object cannot be interpreted as an integer",
-                        elem.class().name
-                    )))
-                }
-            }
+            let py_int = PyIntRef::try_from_object(vm, elem.clone()).map_err(|_| {
+                vm.new_type_error(format!(
+                    "'{}' object cannot be interpreted as an integer",
+                    elem.class().name
+                ))
+            })?;
+            let result = py_int
+                .borrow_value()
+                .to_u8()
+                .ok_or_else(|| vm.new_value_error("bytes must be in range (0, 256)".to_owned()))?;
+            elements.push(result);
         }
-        Ok(bytesinner::PyBytesInner { elements })
+        Ok(elements.into())
     }
 }
 

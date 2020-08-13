@@ -370,7 +370,7 @@ impl PySslContext {
         args: LoadVerifyLocationsArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if args.cafile.is_none() && args.capath.is_none() && args.cadata.is_none() {
+        if let (None, None, None) = (&args.cafile, &args.capath, &args.cadata) {
             return Err(
                 vm.new_type_error("cafile, capath and cadata cannot be all omitted".to_owned())
             );

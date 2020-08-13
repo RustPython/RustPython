@@ -127,13 +127,10 @@ impl ByteInnerNewOptions {
                         let mut data_bytes = vec![];
                         for elem in elements {
                             let v = objint::to_int(vm, &elem)?;
-                            if let Some(i) = v.to_u8() {
-                                data_bytes.push(i);
-                            } else {
-                                return Err(
-                                    vm.new_value_error("bytes must be in range(0, 256)".to_owned())
-                                );
-                            }
+                            let i = v.to_u8().ok_or_else(|| {
+                                vm.new_value_error("bytes must be in range(0, 256)".to_owned())
+                            })?;
+                            data_bytes.push(i);
                         }
                         Ok(data_bytes)
                     }
