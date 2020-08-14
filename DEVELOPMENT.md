@@ -46,7 +46,16 @@ Python code should follow the
 
 ## Testing
 
-To test RustPython's functionality, a collection of Python snippets is located
+RustPython uses three classes of tests. First, rust unit tests, second, our 
+own tests written in python, and last, tests imported from CPython. 
+
+Rust unit tests can be run with `cargo`:
+
+```shell
+$ cargo test --all
+```
+
+Our own collection of tests, called snippets, to test RustPython's functionality is located
 in the `tests/snippets` directory and can be run using `pytest`:
 
 ```shell
@@ -54,11 +63,32 @@ $ cd tests
 $ pytest -v
 ```
 
-Rust unit tests can be run with `cargo`:
+A set of annotated CPython tests are located in `Lib/tests`. Execute them by
 
 ```shell
-$ cargo test --all
+$ cargo run --release -- -m test
 ```
+
+
+### Creating tests
+When importing tests from CPython, please follow the following rules.
+1. Import complete files and document the version of the imported file and the major version this file relates to, e.g., 3.8.
+2. In any case, keep the name of the original tests and test cases unmodified, such that it can always be traced to the original one from CPython.
+3. Modify or substitute test cases, if required, to make them pass. We propose to
+ - modify test cases only when there is only a minor deviation from the original behaviour. E.g., when the text of an error message does not match.
+ - substitute test cases when severe deviations from the original is required. E.g., when it is necessary to introduce new variables or change the logic of the test or split a test case in several test cases.
+4. Add further test cases.
+5. Annotate each test case with:
+ - Original and unmodified test case that is supposed to be passed: no annotation is required, but when you want to be more verbose you can use @rpt.imported.original
+ - Original and unmodified test case that is supposed to be failed: @rpt.imported.fail
+ - Original and unmodified test case that is not executing, causes panic, breaks RustPython, etc.: @rpt.imported.skip
+ - Original but modified test case: @rpt.imported.modified
+ - Substituted test cases: @prt.imported.substituted (Note: this leads to skipping this test as it is considered as distirbung, by setting the parameter `run=True` it is executed but expected to fail.)
+ - New test cases that substitute for an original test case: @rpt.ours.subst and refer to the substituted original test cases.
+ - New test cases that extend an existing test case: @rpt.ours.extends and refers to the extended test case.
+ - New test cases without direct relation to an original CPython test case: @rpt.ours.new
+ 
+
 
 ## Profiling
 
@@ -82,7 +112,6 @@ exists a raw html viewer which is currently broken, and we welcome a PR to fix i
 
 Understanding a new codebase takes time. Here's a brief view of the
 repository's structure:
-
 - `bytecode/src`: python bytecode representation in rust structures
 - `compiler/src`: python compilation to bytecode
 - `derive/src`: Rust language extensions and macros specific to rustpython
