@@ -1374,7 +1374,7 @@ mod decl {
             PyItertoolsPermutations {
                 pool,
                 indices: PyRwLock::new((0..n).collect()),
-                cycles: PyRwLock::new((0..r).map(|i| n - i).collect()),
+                cycles: PyRwLock::new((0..r.min(n)).map(|i| n - i).collect()),
                 result: PyRwLock::new(None),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(r > n),
@@ -1417,7 +1417,7 @@ mod decl {
                         // rotation: indices[i:] = indices[i+1:] + indices[i:i+1]
                         let index = indices[i];
                         for j in i..n - 1 {
-                            indices[j] = indices[j + i];
+                            indices[j] = indices[j + 1];
                         }
                         indices[n - 1] = index;
                         cycles[i] = n - i;
