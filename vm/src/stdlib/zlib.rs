@@ -10,7 +10,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "Z_NO_COMPRESSION" => ctx.new_int(libz::Z_NO_COMPRESSION),
         "Z_BEST_SPEED" => ctx.new_int(libz::Z_BEST_SPEED),
         "Z_BEST_COMPRESSION" => ctx.new_int(libz::Z_BEST_COMPRESSION),
-        "DEFLATED" => ctx.new_int(libz::Z_DEFLATED),
     });
     module
 }
@@ -42,6 +41,8 @@ mod decl {
     const MAX_WBITS: u8 = 15;
     #[pyattr]
     const DEF_BUF_SIZE: usize = 16 * 1024;
+    #[pyattr]
+    use libz::Z_DEFLATED;
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyClassRef {
