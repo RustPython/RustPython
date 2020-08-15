@@ -84,6 +84,7 @@ pub(crate) enum ItemType {
     Struct,
     Enum,
     Const,
+    Use,
 }
 
 pub(crate) struct ItemIdent<'a> {

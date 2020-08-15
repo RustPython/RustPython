@@ -1,19 +1,4 @@
-use crate::pyobject::PyObjectRef;
-use crate::vm::VirtualMachine;
-
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    use libz_sys as libz;
-    let module = decl::make_module(vm);
-    let ctx = &vm.ctx;
-    extend_module!(vm, module, {
-        "Z_DEFAULT_COMPRESSION" => ctx.new_int(libz::Z_DEFAULT_COMPRESSION),
-        "Z_NO_COMPRESSION" => ctx.new_int(libz::Z_NO_COMPRESSION),
-        "Z_BEST_SPEED" => ctx.new_int(libz::Z_BEST_SPEED),
-        "Z_BEST_COMPRESSION" => ctx.new_int(libz::Z_BEST_COMPRESSION),
-        "DEFLATED" => ctx.new_int(libz::Z_DEFLATED),
-    });
-    module
-}
+pub(crate) use decl::make_module;
 
 #[pymodule(name = "zlib")]
 mod decl {
@@ -36,6 +21,17 @@ mod decl {
     };
     use libz_sys as libz;
     use std::io::Write;
+
+    #[pyattr]
+    use libz::Z_BEST_COMPRESSION;
+    #[pyattr]
+    use libz::Z_BEST_SPEED;
+    #[pyattr]
+    use libz::Z_DEFAULT_COMPRESSION;
+    #[pyattr]
+    use libz::Z_DEFLATED;
+    #[pyattr]
+    use libz::Z_NO_COMPRESSION;
 
     // copied from zlibmodule.c (commit 530f506ac91338)
     #[pyattr]

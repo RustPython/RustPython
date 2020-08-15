@@ -5,7 +5,7 @@ use crate::util::{
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
-use syn::{parse_quote, spanned::Spanned, AttributeArgs, Ident, Item, Meta, NestedMeta};
+use syn::{parse_quote, spanned::Spanned, AttributeArgs, Ident, Item, Meta, NestedMeta, UseTree};
 
 struct Module {
     name: String,
@@ -173,33 +173,22 @@ impl Module {
                 }
                 "pyattr" => {
                     attr_idxs.push(i);
-                    match item.typ {
-                        ItemType::Fn => {
-                            items.push((
-                                Self::extract_evaluated_attr(item.ident, into_nested()?)?,
-                                meta_span,
-                            ));
-                        }
-                        ItemType::Const => {
-                            items.push((
-                                Self::extract_const_attr(item.ident, into_nested()?)?,
-                                meta_span,
-                            ));
-                        }
-                        ItemType::Struct => {
+                    let item = match item.typ {
+                        ItemType::Fn => Self::extract_evaluated_attr(item.ident, into_nested()?)?,
+                        ItemType::Const => Self::extract_const_attr(item.ident, into_nested()?)?,
+                        ItemType::Struct | ItemType::Enum => {
                             if has_class {
                                 return Err(err_span!(
                                     meta,
                                     "#[pyattr] must be placed on top of #[pyclass] or #[pystruct_sequence]",
                                 ));
                             }
-                            items.push((
-                                Self::extract_class_attr(item.ident, into_nested()?)?,
-                                meta_span,
-                            ));
+                            Self::extract_class_attr(item.ident, into_nested()?)?
                         }
-                        _ => unreachable!(),
-                    }
+                        ItemType::Use => Self::extract_const_attr(item.ident, into_nested()?)?,
+                        ItemType::Method => unreachable!(),
+                    };
+                    items.push((item, meta_span));
                 }
                 attr_name @ "pyclass" | attr_name @ "pystruct_sequence" => {
                     assert!(item.typ == ItemType::Struct);
@@ -399,28 +388,46 @@ pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Di
 
     let items = content
         .iter_mut()
-        .filter_map(|item| match item {
-            Item::Fn(syn::ItemFn { attrs, sig, .. }) => Some(ItemIdent {
-                typ: ItemType::Fn,
-                attrs,
-                ident: &sig.ident,
-            }),
-            Item::Struct(syn::ItemStruct { attrs, ident, .. }) => Some(ItemIdent {
-                typ: ItemType::Struct,
-                attrs,
-                ident,
-            }),
-            Item::Enum(syn::ItemEnum { attrs, ident, .. }) => Some(ItemIdent {
-                typ: ItemType::Enum,
-                attrs,
-                ident,
-            }),
-            Item::Const(syn::ItemConst { attrs, ident, .. }) => Some(ItemIdent {
-                typ: ItemType::Const,
-                attrs,
-                ident,
-            }),
-            _ => None,
+        .filter_map(|item| {
+            let item = match item {
+                Item::Fn(syn::ItemFn { attrs, sig, .. }) => ItemIdent {
+                    typ: ItemType::Fn,
+                    attrs,
+                    ident: &sig.ident,
+                },
+                Item::Struct(syn::ItemStruct { attrs, ident, .. }) => ItemIdent {
+                    typ: ItemType::Struct,
+                    attrs,
+                    ident,
+                },
+                Item::Enum(syn::ItemEnum { attrs, ident, .. }) => ItemIdent {
+                    typ: ItemType::Enum,
+                    attrs,
+                    ident,
+                },
+                Item::Const(syn::ItemConst { attrs, ident, .. }) => ItemIdent {
+                    typ: ItemType::Const,
+                    attrs,
+                    ident,
+                },
+                Item::Use(syn::ItemUse { attrs, tree, .. }) => {
+                    let ident = match tree {
+                        UseTree::Path(path) => match &*path.tree {
+                            UseTree::Name(name) => &name.ident,
+                            UseTree::Rename(rename) => &rename.rename,
+                            _ => return None,
+                        },
+                        _ => return None,
+                    };
+                    ItemIdent {
+                        typ: ItemType::Use,
+                        attrs,
+                        ident,
+                    }
+                }
+                _ => return None,
+            };
+            Some(item)
         })
         .collect();
 
