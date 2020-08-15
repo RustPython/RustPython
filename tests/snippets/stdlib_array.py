@@ -16,7 +16,7 @@ assert a1 == array("h", [3, 2, 1, 0, 4, 5, 6, 7])
 
 # eq, ne
 a = array("b", [0, 1, 2, 3])
-b = a.copy()
+b = a
 assert a.__ne__(b) is False
 b = array("B", [3, 2, 1, 0])
 assert a.__ne__(b) is True
