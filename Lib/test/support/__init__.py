@@ -842,6 +842,7 @@ SOCK_MAX_SIZE = 16 * 1024 * 1024 + 1
 # requires_IEEE_754 = unittest.skipUnless(
 #     float.__getformat__("double").startswith("IEEE"),
 #     "test requires IEEE 754 doubles")
+requires_IEEE_754 = unittest.skip("TODO: RustPython doesn't run IEEE754 tests")
 
 requires_zlib = unittest.skipUnless(zlib, 'requires zlib')
 
