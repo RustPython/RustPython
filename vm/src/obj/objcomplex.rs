@@ -2,8 +2,7 @@ use num_complex::Complex64;
 use num_traits::Zero;
 use std::str::FromStr;
 
-use super::objfloat::{self, IntoPyFloat, PyFloat};
-use super::objint::{self, PyInt};
+use super::objfloat;
 use super::objstr::PyString;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
@@ -247,19 +246,15 @@ impl PyComplex {
     fn tp_new(
         cls: PyClassRef,
         real: OptionalArg<PyObjectRef>,
-        imag: OptionalArg<IntoPyFloat>,
+        imag: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyComplexRef> {
         let real = match real {
-            OptionalArg::Missing => 0.0,
-            OptionalArg::Present(obj) => match_class!(match obj {
-                i @ PyInt => {
-                    objint::try_float(i.borrow_value(), vm)?
-                }
-                f @ PyFloat => {
-                    f.to_f64()
-                }
-                s @ PyString => {
+            OptionalArg::Missing => Complex64::new(0.0, 0.0),
+            OptionalArg::Present(obj) => {
+                if let Some(c) = try_complex(&obj, vm)? {
+                    c
+                } else if let Some(s) = obj.payload_if_subclass::<PyString>(vm) {
                     if imag.into_option().is_some() {
                         return Err(vm.new_type_error(
                             "complex() can't take second arg if first is a string".to_owned(),
@@ -268,22 +263,34 @@ impl PyComplex {
                     let value = Complex64::from_str(s.borrow_value())
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
                     return Self::from(value).into_ref_with_type(vm, cls);
-                }
-                obj => {
+                } else {
                     return Err(vm.new_type_error(format!(
                         "complex() first argument must be a string or a number, not '{}'",
                         obj.class()
                     )));
                 }
-            }),
+            }
         };
 
         let imag = match imag {
-            OptionalArg::Missing => 0.0,
-            OptionalArg::Present(ref value) => value.to_f64(),
+            OptionalArg::Missing => Complex64::new(0.0, 0.0),
+            OptionalArg::Present(obj) => {
+                if let Some(c) = try_complex(&obj, vm)? {
+                    c
+                } else if let Some(_s) = obj.payload_if_subclass::<PyString>(vm) {
+                    return Err(
+                        vm.new_type_error("complex() second arg can't be a string".to_owned())
+                    );
+                } else {
+                    return Err(vm.new_type_error(format!(
+                        "complex() second argument must be a number, not '{}'",
+                        obj.class()
+                    )));
+                }
+            }
         };
 
-        let value = Complex64::new(real, imag);
+        let value = Complex64::new(real.re - imag.im, real.im + imag.re);
         Self::from(value).into_ref_with_type(vm, cls)
     }
 
