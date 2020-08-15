@@ -151,14 +151,10 @@ class TestCase(unittest.TestCase):
         self.assertEqual(res, TRIPLETS)
 
     # Test a class with __iter__ in a for loop
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_class_for(self):
         self.check_for_loop(IteratingSequenceClass(10), list(range(10)))
 
     # Test a class with __iter__ with explicit iter()
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_class_iter(self):
         self.check_iterator(iter(IteratingSequenceClass(10)), list(range(10)))
 
