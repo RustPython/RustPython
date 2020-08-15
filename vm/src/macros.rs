@@ -221,7 +221,7 @@ macro_rules! class_or_notimplemented {
     ($vm:expr, $t:ty, $obj:expr) => {
         match $crate::pyobject::PyObject::downcast::<$t>($obj) {
             Ok(pyref) => pyref,
-            Err(_) => return Ok($vm.ctx.not_implemented()),
+            Err(_) => return Ok(PyArithmaticValue::NotImplemented),
         }
     };
 }

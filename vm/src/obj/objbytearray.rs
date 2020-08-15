@@ -123,6 +123,11 @@ impl PyByteArray {
         self.borrow_value().eq(other, vm)
     }
 
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
+        self.borrow_value().ne(other, vm)
+    }
+
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.borrow_value().ge(other, vm)

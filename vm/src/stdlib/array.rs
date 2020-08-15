@@ -5,8 +5,8 @@ use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject,
+    BorrowValue, Either, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue,
+    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
 
@@ -438,94 +438,94 @@ impl PyArray {
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let lhs = class_or_notimplemented!(vm, Self, lhs);
-        let rhs = class_or_notimplemented!(vm, Self, rhs);
-        let lhs = lhs.borrow_value();
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        let lhs = self.borrow_value();
+        let rhs = class_or_notimplemented!(vm, Self, other);
         let rhs = rhs.borrow_value();
         if lhs.len() != rhs.len() {
-            Ok(vm.ctx.new_bool(false))
+            Ok(PyArithmaticValue::Implemented(false))
         } else {
             for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
                 let ne = objbool::boolval(vm, vm._ne(a, b)?)?;
                 if ne {
-                    return Ok(vm.ctx.new_bool(false));
+                    return Ok(PyArithmaticValue::Implemented(false));
                 }
             }
-            Ok(vm.ctx.new_bool(true))
+            Ok(PyArithmaticValue::Implemented(true))
         }
     }
 
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        Ok(self.eq(other, vm)?.map(|v| !v))
+    }
+
     #[pymethod(name = "__lt__")]
-    fn lt(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let lhs = class_or_notimplemented!(vm, Self, lhs);
-        let rhs = class_or_notimplemented!(vm, Self, rhs);
-        let lhs = lhs.borrow_value();
+    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        let lhs = self.borrow_value();
+        let rhs = class_or_notimplemented!(vm, Self, other);
         let rhs = rhs.borrow_value();
 
         for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
             let lt = objbool::boolval(vm, vm._lt(a, b)?)?;
 
             if lt {
-                return Ok(vm.ctx.new_bool(true));
+                return Ok(PyArithmaticValue::Implemented(true));
             }
         }
 
-        Ok(vm.ctx.new_bool(lhs.len() < rhs.len()))
+        Ok(PyArithmaticValue::Implemented(lhs.len() < rhs.len()))
     }
 
     #[pymethod(name = "__le__")]
-    fn le(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let lhs = class_or_notimplemented!(vm, Self, lhs);
-        let rhs = class_or_notimplemented!(vm, Self, rhs);
-        let lhs = lhs.borrow_value();
+    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        let lhs = self.borrow_value();
+        let rhs = class_or_notimplemented!(vm, Self, other);
         let rhs = rhs.borrow_value();
 
         for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
             let le = objbool::boolval(vm, vm._le(a, b)?)?;
 
             if le {
-                return Ok(vm.ctx.new_bool(true));
+                return Ok(PyArithmaticValue::Implemented(true));
             }
         }
 
-        Ok(vm.ctx.new_bool(lhs.len() <= rhs.len()))
+        Ok(PyArithmaticValue::Implemented(lhs.len() <= rhs.len()))
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let lhs = class_or_notimplemented!(vm, Self, lhs);
-        let rhs = class_or_notimplemented!(vm, Self, rhs);
-        let lhs = lhs.borrow_value();
+    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        let lhs = self.borrow_value();
+        let rhs = class_or_notimplemented!(vm, Self, other);
         let rhs = rhs.borrow_value();
 
         for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
             let gt = objbool::boolval(vm, vm._gt(a, b)?)?;
 
             if gt {
-                return Ok(vm.ctx.new_bool(true));
+                return Ok(PyArithmaticValue::Implemented(true));
             }
         }
 
-        Ok(vm.ctx.new_bool(lhs.len() > rhs.len()))
+        Ok(PyArithmaticValue::Implemented(lhs.len() > rhs.len()))
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let lhs = class_or_notimplemented!(vm, Self, lhs);
-        let rhs = class_or_notimplemented!(vm, Self, rhs);
-        let lhs = lhs.borrow_value();
+    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        let lhs = self.borrow_value();
+        let rhs = class_or_notimplemented!(vm, Self, other);
         let rhs = rhs.borrow_value();
 
         for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
             let ge = objbool::boolval(vm, vm._ge(a, b)?)?;
 
             if ge {
-                return Ok(vm.ctx.new_bool(true));
+                return Ok(PyArithmaticValue::Implemented(true));
             }
         }
 
-        Ok(vm.ctx.new_bool(lhs.len() >= rhs.len()))
+        Ok(PyArithmaticValue::Implemented(lhs.len() >= rhs.len()))
     }
 
     #[pymethod(name = "__len__")]
