@@ -46,7 +46,7 @@ __all__ = ['register', 'lookup', 'lookup_error', 'register_error', 'encode', 'de
            'latin_1_encode', 'mbcs_decode', 'readbuffer_encode', 'escape_encode',
            'utf_8_decode', 'raw_unicode_escape_decode', 'utf_7_decode',
            'unicode_escape_encode', 'latin_1_decode', 'utf_16_decode',
-           'unicode_escape_decode', 'ascii_decode', 'charmap_encode',
+           'unicode_escape_decode', 'ascii_decode', 'charmap_encode', 'charmap_build',
            'unicode_internal_encode', 'unicode_internal_decode', 'utf_16_ex_decode',
            'escape_decode', 'charmap_decode', 'utf_7_encode', 'mbcs_encode',
            'ascii_encode', 'utf_16_encode', 'raw_unicode_escape_encode', 'utf_8_encode',
