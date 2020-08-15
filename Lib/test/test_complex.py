@@ -82,6 +82,8 @@ class ComplexTest(unittest.TestCase):
             q = z.__truediv__(y)
             self.assertClose(q, x)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_truediv(self):
         simple_real = [float(i) for i in range(-5, 6)]
         simple_complex = [complex(x, y) for x in simple_real for y in simple_real]
@@ -140,6 +142,8 @@ class ComplexTest(unittest.TestCase):
         self.assertIs(operator.ne(1+1j, 1+1j), False)
         self.assertIs(operator.ne(1+1j, 2+2j), True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_richcompare_boundaries(self):
         def check(n, deltas, is_equal, imag = 0.0):
             for delta in deltas:
@@ -167,6 +171,8 @@ class ComplexTest(unittest.TestCase):
         self.assertRaises(TypeError, divmod, 1+1j, 1+0j)
         self.assertRaises(TypeError, divmod, 1+1j, 0+0j)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pow(self):
         self.assertAlmostEqual(pow(1+1j, 0+0j), 1.0)
         self.assertAlmostEqual(pow(0+0j, 2+0j), 0.0)
@@ -214,6 +220,8 @@ class ComplexTest(unittest.TestCase):
     def test_conjugate(self):
         self.assertClose(complex(5.3, 9.8).conjugate(), 5.3-9.8j)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_constructor(self):
         class OS:
             def __init__(self, value): self.value = value
@@ -431,6 +439,8 @@ class ComplexTest(unittest.TestCase):
                     self.assertFloatsAreIdentical(z.real, x)
                     self.assertFloatsAreIdentical(z.imag, y)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_underscores(self):
         # check underscores
         for lit in VALID_UNDERSCORE_LITERALS:
@@ -449,11 +459,15 @@ class ComplexTest(unittest.TestCase):
             x /= 3.0    # now check against floating point
             self.assertEqual(hash(x), hash(complex(x, 0.)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_abs(self):
         nums = [complex(x/3., y/7.) for x in range(-9,9) for y in range(-9,9)]
         for num in nums:
             self.assertAlmostEqual((num.real**2 + num.imag**2)  ** 0.5, abs(num))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_repr_str(self):
         def test(v, expected, test_fn=self.assertEqual):
             test_fn(repr(v), expected)
@@ -581,6 +595,8 @@ class ComplexTest(unittest.TestCase):
                 self.assertFloatsAreIdentical(0.0 + z.imag,
                                               0.0 + roundtrip.imag)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_format(self):
         # empty format string is same as str()
         self.assertEqual(format(1+3j, ''), str(1+3j))
