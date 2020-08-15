@@ -5,8 +5,8 @@ use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
-    Either, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, PyComparisonValue, PyArithmaticValue,
+    BorrowValue, Either, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyIterable,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
 
@@ -448,7 +448,7 @@ impl PyArray {
             for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
                 let ne = objbool::boolval(vm, vm._ne(a, b)?)?;
                 if ne {
-                    return Ok(PyArithmaticValue::Implemented(false))
+                    return Ok(PyArithmaticValue::Implemented(false));
                 }
             }
             Ok(PyArithmaticValue::Implemented(true))
