@@ -802,7 +802,7 @@ impl ExecutingFrame<'_> {
                     let all: Vec<PyStringRef> = vm.extract_elements(&all)?;
                     let all: Vec<String> = all
                         .into_iter()
-                        .map(|name| name.as_str().to_owned())
+                        .map(|name| name.as_ref().to_owned())
                         .collect();
                     Box::new(move |name| all.contains(&name.to_owned()))
                 } else {
@@ -810,7 +810,7 @@ impl ExecutingFrame<'_> {
                 };
             for (k, v) in &dict {
                 let k = PyStringRef::try_from_object(vm, k)?;
-                let k = k.as_str();
+                let k = k.as_ref();
                 if filter_pred(k) {
                     self.scope.store_name(&vm, k, v);
                 }
