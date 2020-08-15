@@ -786,6 +786,7 @@ mod _struct {
             .with_ref(|buf| format_spec.unpack(&buf[offset..offset + size], vm))
     }
 
+    #[pyattr]
     #[pyclass(name = "unpack_iterator")]
     #[derive(Debug)]
     struct UnpackIterator {
@@ -870,6 +871,7 @@ mod _struct {
         Ok(format_spec.size())
     }
 
+    #[pyattr]
     #[pyclass(name = "Struct")]
     #[derive(Debug)]
     struct PyStruct {

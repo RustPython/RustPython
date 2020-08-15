@@ -1340,6 +1340,7 @@ dependencies = [
  "rustpython-bytecode",
  "rustpython-compiler",
  "syn",
+ "syn-ext",
 ]
 
 [[package]]
@@ -1686,6 +1687,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-xid",
+]
+
+[[package]]
+name = "syn-ext"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ba44d62b41442cbed900f2f3a39b3d8240b56bd34fcc574bc684bfd43a1a8c9"
+dependencies = [
+ "syn",
 ]
 
 [[package]]

@@ -1,443 +1,63 @@
-use super::Diagnostic;
+use crate::error::Diagnostic;
 use crate::util::{
-    def_to_name, meta_into_nesteds, optional_attribute_arg, ItemIdent, ItemMeta, ItemType,
+    AttributeExt, ContentItem, ContentItemInner, ItemMeta, ItemMetaInner, ItemNursery,
+    SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
-use std::collections::HashMap;
-use syn::{parse_quote, spanned::Spanned, AttributeArgs, Ident, Item, Meta, NestedMeta, UseTree};
+use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Result, UseTree};
+use syn_ext::ext::*;
 
 struct Module {
     name: String,
-    items: HashMap<(String, Vec<Meta>), ModuleItem>,
+    items: ItemNursery,
 }
 
-#[derive(PartialEq, Eq, Hash)]
-enum ModuleItem {
-    Function {
-        item_ident: Ident,
-        py_name: String,
-    },
-    EvaluatedAttr {
-        item_ident: Ident,
-        py_name: String,
-    },
-    ConstAttr {
-        item_ident: Ident,
-        py_name: String,
-    },
-    ClassAttr {
-        item_ident: Ident,
-        py_name: Option<String>,
-    },
-    Class {
-        item_ident: Ident,
-        py_name: String,
-    },
-}
-
-impl ModuleItem {
-    fn name(&self) -> String {
-        use ModuleItem::*;
-        match self {
-            Function { py_name, .. } => py_name.clone(),
-            EvaluatedAttr { py_name, .. } => py_name.clone(),
-            ConstAttr { py_name, .. } => py_name.clone(),
-            ClassAttr { py_name, .. } => py_name.clone().unwrap_or_else(String::new),
-            Class { py_name, .. } => py_name.clone(),
-        }
-    }
-}
-
-impl Module {
-    fn add_item(
-        &mut self,
-        item: ModuleItem,
-        cfgs: Vec<Meta>,
-        span: Span,
-    ) -> Result<(), Diagnostic> {
-        if let Some(existing) = self.items.insert((item.name(), cfgs), item) {
-            Err(Diagnostic::span_error(
-                span,
-                format!(
-                    "Duplicate #[py*] attribute on pymodule: {}",
-                    existing.name()
-                ),
-            ))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn extract_function(ident: &Ident, nesteds: Vec<NestedMeta>) -> Result<ModuleItem, Diagnostic> {
-        let item_meta =
-            ItemMeta::from_nested_meta("pyfunction", &ident, &nesteds, ItemMeta::SIMPLE_NAMES)?;
-        Ok(ModuleItem::Function {
-            item_ident: ident.clone(),
-            py_name: item_meta.simple_name()?,
-        })
-    }
-
-    fn extract_class(ident: &Ident, nesteds: Vec<NestedMeta>) -> Result<ModuleItem, Diagnostic> {
-        let item_meta =
-            ItemMeta::from_nested_meta("pyclass", &ident, &nesteds, ItemMeta::SIMPLE_NAMES)?;
-        Ok(ModuleItem::Class {
-            item_ident: ident.clone(),
-            py_name: item_meta.simple_name()?,
-        })
-    }
-
-    fn extract_struct_sequence(
-        ident: &Ident,
-        nesteds: Vec<NestedMeta>,
-    ) -> Result<ModuleItem, Diagnostic> {
-        let item_meta = ItemMeta::from_nested_meta(
-            "pystruct_sequence",
-            &ident,
-            &nesteds,
-            ItemMeta::STRUCT_SEQUENCE_NAMES,
-        )?;
-        Ok(ModuleItem::Class {
-            item_ident: ident.clone(),
-            py_name: item_meta.simple_name()?,
-        })
-    }
-
-    fn extract_evaluated_attr(
-        ident: &Ident,
-        nesteds: Vec<NestedMeta>,
-    ) -> Result<ModuleItem, Diagnostic> {
-        let item_meta =
-            ItemMeta::from_nested_meta("pyattr", &ident, &nesteds, ItemMeta::SIMPLE_NAMES)?;
-        Ok(ModuleItem::EvaluatedAttr {
-            item_ident: ident.clone(),
-            py_name: item_meta.simple_name()?,
-        })
-    }
-
-    fn extract_const_attr(
-        ident: &Ident,
-        nesteds: Vec<NestedMeta>,
-    ) -> Result<ModuleItem, Diagnostic> {
-        let item_meta =
-            ItemMeta::from_nested_meta("pyattr", &ident, &nesteds, ItemMeta::SIMPLE_NAMES)?;
-        Ok(ModuleItem::ConstAttr {
-            item_ident: ident.clone(),
-            py_name: item_meta.simple_name()?,
-        })
-    }
-
-    fn extract_class_attr(
-        ident: &Ident,
-        nesteds: Vec<NestedMeta>,
-    ) -> Result<ModuleItem, Diagnostic> {
-        let item_meta =
-            ItemMeta::from_nested_meta("pyattr", &ident, &nesteds, ItemMeta::SIMPLE_NAMES)?;
-        Ok(ModuleItem::ClassAttr {
-            item_ident: ident.clone(),
-            py_name: item_meta.optional_name(),
-        })
-    }
-
-    fn extract_item_from_syn(&mut self, item: &mut ItemIdent) -> Result<(), Diagnostic> {
-        let mut attr_idxs = Vec::new();
-        let mut items = Vec::new();
-        let mut cfgs = Vec::new();
-        let mut has_class = false;
-        for (i, attr) in item.attrs.iter_mut().enumerate() {
-            let meta = attr.parse_meta()?;
-            let meta_span = meta.span();
-            let name = match meta.path().get_ident() {
-                Some(name) => name.clone(),
-                None => continue,
-            };
-
-            let into_nested = || {
-                meta_into_nesteds(meta.clone()).map_err(|meta| {
-                    err_span!(
-                        meta,
-                        "#[{name} = \"...\"] cannot be a name/value, you probably meant \
-                         #[{name}(name = \"...\")]",
-                        name = name.to_string(),
-                    )
-                })
-            };
-            match name.to_string().as_str() {
-                "pyfunction" => {
-                    assert!(item.typ == ItemType::Fn);
-                    attr_idxs.push(i);
-                    items.push((
-                        Self::extract_function(item.ident, into_nested()?)?,
-                        meta_span,
-                    ));
-                }
-                "pyattr" => {
-                    attr_idxs.push(i);
-                    let item = match item.typ {
-                        ItemType::Fn => Self::extract_evaluated_attr(item.ident, into_nested()?)?,
-                        ItemType::Const => Self::extract_const_attr(item.ident, into_nested()?)?,
-                        ItemType::Struct | ItemType::Enum => {
-                            if has_class {
-                                return Err(err_span!(
-                                    meta,
-                                    "#[pyattr] must be placed on top of #[pyclass] or #[pystruct_sequence]",
-                                ));
-                            }
-                            Self::extract_class_attr(item.ident, into_nested()?)?
-                        }
-                        ItemType::Use => Self::extract_const_attr(item.ident, into_nested()?)?,
-                        ItemType::Method => unreachable!(),
-                    };
-                    items.push((item, meta_span));
-                }
-                attr_name @ "pyclass" | attr_name @ "pystruct_sequence" => {
-                    assert!(item.typ == ItemType::Struct);
-
-                    let nested_or = into_nested();
-                    let mut metalist = match &meta {
-                        Meta::Path(path) => parse_quote!(#path()),
-                        Meta::List(metalist) => metalist.clone(),
-                        _ => unreachable!(),
-                    };
-
-                    if let Ok(nested) = &nested_or {
-                        if optional_attribute_arg("py..", "module", &nested)?.is_none() {
-                            let module_name = &self.name;
-                            metalist.nested.push(parse_quote! {module = #module_name});
-                            *attr = parse_quote!(#[#metalist]);
-                        }
-                    }
-
-                    if has_class {
-                        Err(err_span!(
-                            meta,
-                            "#[{}] in module cannot be duplicated",
-                            attr_name,
-                        ))
-                    } else if !items
-                        .iter()
-                        .all(|(item, _span)| matches!(item, ModuleItem::ClassAttr{..}))
-                    {
-                        Err(err_span!(
-                            meta,
-                            "#[{}] is allowed to have only #[pyattr] as siblings",
-                            attr_name,
-                        ))
-                    } else {
-                        has_class = true;
-                        Ok(())
-                    }?;
-
-                    let class = match attr_name {
-                        "pyclass" => Self::extract_class(item.ident, nested_or?)?,
-                        "pystruct_sequence" => {
-                            // TODO: validate pystruct_sequence doesn't have module
-                            Self::extract_struct_sequence(item.ident, nested_or?)?
-                        }
-                        _ => unreachable!(),
-                    };
-
-                    if items.is_empty() {
-                        items.push((class, meta_span));
-                    } else {
-                        for (attr, _) in items.iter_mut() {
-                            match attr {
-                                ModuleItem::ClassAttr { py_name, .. } => {
-                                    if py_name.is_none() {
-                                        *py_name = Some(class.name());
-                                    }
-                                }
-                                _ => unreachable!(),
-                            }
-                        }
-                    }
-                }
-                "cfg" => {
-                    cfgs.push(meta);
-                    continue;
-                }
-                _ => {
-                    continue;
-                }
-            };
-        }
-        for (item, meta) in items {
-            self.add_item(item, cfgs.clone(), meta)?;
-        }
-        let mut i = 0;
-        let mut attr_idxs = &*attr_idxs;
-        item.attrs.retain(|_| {
-            let drop = attr_idxs.first().copied() == Some(i);
-            if drop {
-                attr_idxs = &attr_idxs[1..];
-            }
-            i += 1;
-            !drop
-        });
-        for (i, idx) in attr_idxs.iter().enumerate() {
-            item.attrs.remove(idx - i);
-        }
-        // TODO: Add module to pystruct_sequence
-        Ok(())
-    }
-}
-
-fn extract_module_items(
-    mut items: Vec<ItemIdent>,
-    module_name: &str,
-) -> Result<TokenStream2, Diagnostic> {
-    let mut diagnostics: Vec<Diagnostic> = Vec::new();
-
-    let mut module = Module {
-        name: module_name.to_owned(),
-        items: Default::default(),
-    };
-
-    for item in items.iter_mut() {
-        push_diag_result!(diagnostics, module.extract_item_from_syn(item),);
-    }
-
-    let items = module
-        .items
-        .into_iter()
-        .map(|((_name, cfgs), item)| match item {
-            ModuleItem::Function {
-                item_ident,
-                py_name,
-            } => {
-                let new_func = quote_spanned!(
-                    item_ident.span() =>
-                        vm.ctx.new_function_named(#item_ident, #module_name.to_owned(), #py_name.to_owned()));
-                quote! {
-                    #( #[ #cfgs ])*
-                    vm.__module_set_attr(&module, #py_name, #new_func).unwrap();
-                }
-            }
-            ModuleItem::EvaluatedAttr {
-                item_ident,
-                py_name,
-            } => {
-                let new_attr = quote_spanned!(
-                    item_ident.span() =>
-                        vm.new_pyobj(#item_ident(vm)));
-                quote! {
-                    #( #[ #cfgs ])*
-                    vm.__module_set_attr(&module, #py_name, #new_attr).unwrap();
-                }
-            }
-            ModuleItem::ConstAttr {
-                item_ident,
-                py_name,
-            } => {
-                let new_attr = quote_spanned!(
-                    item_ident.span() =>
-                        vm.new_pyobj(#item_ident));
-                quote! {
-                    #( #[ #cfgs ])*
-                    vm.__module_set_attr(&module, #py_name, #new_attr).unwrap();
-                }
-            }
-            class => {
-                let (item_ident, py_name) = match class {
-                    ModuleItem::ClassAttr {
-                        item_ident,
-                        py_name: Some(py_name),
-                    }   => (item_ident, py_name),
-                    ModuleItem::Class {
-                        item_ident,
-                        py_name,
-                    }   => (item_ident, py_name),
-                    _ => unreachable!()
-                };
-                let new_class = quote_spanned!(
-                    item_ident.span() =>
-                        #item_ident::make_class(&vm.ctx));
-                quote! {
-                    #( #[ #cfgs ])*
-                    vm.__module_set_attr(&module, #py_name, #new_class).unwrap();
-                }
-            }
-
-        });
-
-    Diagnostic::from_vec(diagnostics)?;
-
-    Ok(quote! {
-        #(#items)*
-    })
-}
-
-pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
-    let mut module = match item {
+pub fn impl_pymodule(
+    attr: AttributeArgs,
+    module_item: Item,
+) -> std::result::Result<TokenStream, Diagnostic> {
+    let mut module_item = match module_item {
         Item::Mod(m) => m,
         other => bail_span!(other, "#[pymodule] can only be on a module declaration"),
     };
-    let module_name = def_to_name("pymodule", &module.ident, &attr)?;
-
-    let (_, content) = match module.content.as_mut() {
-        Some(c) => c,
-        None => bail_span!(
-            module,
-            "#[pymodule] can only be on a module declaration with body"
-        ),
+    let module_meta =
+        SimpleItemMeta::from_nested("pymodule", &module_item.ident, attr.into_iter())?;
+    let mut module_context = Module {
+        name: module_meta.simple_name()?,
+        items: ItemNursery::default(),
     };
+    let content = module_item.unbraced_content_mut()?;
 
-    let items = content
-        .iter_mut()
-        .filter_map(|item| {
-            let item = match item {
-                Item::Fn(syn::ItemFn { attrs, sig, .. }) => ItemIdent {
-                    typ: ItemType::Fn,
-                    attrs,
-                    ident: &sig.ident,
-                },
-                Item::Struct(syn::ItemStruct { attrs, ident, .. }) => ItemIdent {
-                    typ: ItemType::Struct,
-                    attrs,
-                    ident,
-                },
-                Item::Enum(syn::ItemEnum { attrs, ident, .. }) => ItemIdent {
-                    typ: ItemType::Enum,
-                    attrs,
-                    ident,
-                },
-                Item::Const(syn::ItemConst { attrs, ident, .. }) => ItemIdent {
-                    typ: ItemType::Const,
-                    attrs,
-                    ident,
-                },
-                Item::Use(syn::ItemUse { attrs, tree, .. }) => {
-                    let ident = match tree {
-                        UseTree::Path(path) => match &*path.tree {
-                            UseTree::Name(name) => &name.ident,
-                            UseTree::Rename(rename) => &rename.rename,
-                            _ => return None,
-                        },
-                        _ => return None,
-                    };
-                    ItemIdent {
-                        typ: ItemType::Use,
-                        attrs,
-                        ident,
-                    }
-                }
-                _ => return None,
-            };
-            Some(item)
-        })
-        .collect();
+    for item in content.iter_mut() {
+        let (attrs, ident) = if let Some(v) = item_declaration(item) {
+            v
+        } else {
+            continue;
+        };
+        let (pyitems, cfgs) = attrs_to_items(attrs, new_item)?;
+        for pyitem in pyitems.iter().rev() {
+            pyitem.gen_module_item(ModuleItemArgs {
+                ident: ident.clone(),
+                item,
+                module: &mut module_context,
+                cfgs: cfgs.as_slice(),
+            })?;
+        }
+    }
 
-    let extend_mod = extract_module_items(items, &module_name)?;
+    let module_name = module_context.name.as_str();
+    let items = module_context.items;
     content.extend(vec![
         parse_quote! {
-            pub(crate) const MODULE_NAME: &str = #module_name;
+            pub(crate) const MODULE_NAME: &'static str = #module_name;
         },
         parse_quote! {
             pub(crate) fn extend_module(
                 vm: &::rustpython_vm::vm::VirtualMachine,
                 module: &::rustpython_vm::pyobject::PyObjectRef,
             ) {
-                #extend_mod
+                #items
             }
         },
         parse_quote! {
@@ -452,5 +72,346 @@ pub fn impl_pymodule(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Di
         },
     ]);
 
-    Ok(module.into_token_stream())
+    Ok(module_item.into_token_stream())
+}
+
+fn item_declaration(item: &syn::Item) -> Option<(&[syn::Attribute], Ident)> {
+    let (attrs, ident) = match &item {
+        Item::Fn(i @ syn::ItemFn { .. }) => (i.attrs.as_slice(), &i.sig.ident),
+        Item::Struct(syn::ItemStruct { attrs, ident, .. }) => (attrs.as_slice(), ident),
+        Item::Enum(syn::ItemEnum { attrs, ident, .. }) => (attrs.as_slice(), ident),
+        Item::Const(syn::ItemConst { attrs, ident, .. }) => (attrs.as_slice(), ident),
+        Item::Use(syn::ItemUse { attrs, tree, .. }) => {
+            let ident = match tree {
+                UseTree::Path(path) => match &*path.tree {
+                    UseTree::Name(name) => &name.ident,
+                    UseTree::Rename(rename) => &rename.rename,
+                    _ => return None,
+                },
+                _ => return None,
+            };
+            (attrs.as_slice(), ident)
+        }
+        _ => return None,
+    };
+    Some((attrs, ident.clone()))
+}
+
+fn new_item(index: usize, attr_name: String, pyattrs: Option<Vec<usize>>) -> Box<dyn ModuleItem> {
+    assert!(ALL_ALLOWED_NAMES.contains(&attr_name.as_str()));
+    match attr_name.as_str() {
+        "pyfunction" => Box::new(FunctionItem {
+            inner: ContentItemInner { index, attr_name },
+        }),
+        "pyattr" => Box::new(AttributeItem {
+            inner: ContentItemInner { index, attr_name },
+        }),
+        "pystruct_sequence" | "pyclass" => Box::new(ClassItem {
+            inner: ContentItemInner { index, attr_name },
+            pyattrs: pyattrs.unwrap_or_else(Vec::new),
+        }),
+        other => unreachable!("#[pymodule] doesn't accept #[{}]", other),
+    }
+}
+
+fn attrs_to_items<F, R>(attrs: &[Attribute], new_item: F) -> Result<(Vec<R>, Vec<Attribute>)>
+where
+    F: Fn(usize, String, Option<Vec<usize>>) -> R,
+{
+    let mut cfgs: Vec<Attribute> = Vec::new();
+    let mut result = Vec::new();
+
+    let mut iter = attrs.iter().enumerate().peekable();
+    while let Some((_, attr)) = iter.peek() {
+        // take all cfgs but no py items
+        let attr = *attr;
+        let attr_name = if let Some(ident) = attr.get_ident() {
+            ident.to_string()
+        } else {
+            continue;
+        };
+        if attr_name == "cfg" {
+            cfgs.push(attr.clone());
+        } else if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
+            break;
+        }
+        iter.next();
+    }
+
+    let mut closed = false;
+    let mut pyattrs = Vec::new();
+    for (i, attr) in iter {
+        // take py items but no cfgs
+        let attr_name = if let Some(ident) = attr.get_ident() {
+            ident.to_string()
+        } else {
+            continue;
+        };
+        if attr_name == "cfg" {
+            return Err(syn::Error::new_spanned(
+                attr,
+                "#[py*] items must be placed under `cfgs`",
+            ));
+        }
+        if !ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
+            continue;
+        } else if closed {
+            return Err(syn::Error::new_spanned(
+                attr,
+                "Only one #[pyattr] annotated #[py*] item can exist",
+            ));
+        }
+
+        if attr_name == "pyattr" {
+            if !result.is_empty() {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "#[pyattr] must be placed on top of other #[py*] items",
+                ));
+            }
+            pyattrs.push((i, attr_name));
+            continue;
+        }
+
+        if pyattrs.is_empty() {
+            result.push(new_item(i, attr_name, None));
+        } else {
+            if !["pyclass", "pystruct_sequence"].contains(&attr_name.as_str()) {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "#[pyattr] #[pyclass] is the only supported composition",
+                ));
+            }
+            let pyattr_indexes = pyattrs.iter().map(|(i, _)| i).copied().collect();
+            result.push(new_item(i, attr_name, Some(pyattr_indexes)));
+            pyattrs = Vec::new();
+            closed = true;
+        }
+    }
+    for (index, attr_name) in pyattrs {
+        assert!(!closed);
+        result.push(new_item(index, attr_name, None));
+    }
+    Ok((result, cfgs))
+}
+
+struct ClassItemMeta(ItemMetaInner);
+
+impl ItemMeta for ClassItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["module", "name"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
+/// #[pyfunction]
+struct FunctionItem {
+    inner: ContentItemInner,
+}
+
+/// #[pyclass] or #[pystruct_sequence]
+struct ClassItem {
+    inner: ContentItemInner,
+    pyattrs: Vec<usize>,
+}
+
+/// #[pyattr]
+struct AttributeItem {
+    inner: ContentItemInner,
+}
+
+impl ContentItem for FunctionItem {
+    fn inner(&self) -> &ContentItemInner {
+        &self.inner
+    }
+}
+
+impl ContentItem for ClassItem {
+    fn inner(&self) -> &ContentItemInner {
+        &self.inner
+    }
+}
+
+impl ContentItem for AttributeItem {
+    fn inner(&self) -> &ContentItemInner {
+        &self.inner
+    }
+}
+
+struct ModuleItemArgs<'a> {
+    ident: Ident,
+    item: &'a mut Item,
+    module: &'a mut Module,
+    cfgs: &'a [Attribute],
+}
+
+impl<'a> ModuleItemArgs<'a> {
+    fn module_name(&'a self) -> &'a str {
+        self.module.name.as_str()
+    }
+    fn with_quote_args<F>(&self, f: F) -> TokenStream
+    where
+        F: Fn(&Ident, &str) -> TokenStream,
+    {
+        f(&self.ident, self.module_name())
+    }
+}
+
+trait ModuleItem: ContentItem {
+    fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()>;
+}
+
+impl ModuleItem for FunctionItem {
+    fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
+        let attrs = match args.item {
+            Item::Fn(syn::ItemFn { ref mut attrs, .. }) => attrs,
+            other => return Err(self.new_syn_error(other.span(), "can only be on a function")),
+        };
+        let item_attr = attrs.remove(self.index());
+        let item_meta = SimpleItemMeta::from_nested(
+            "pyfunction",
+            &args.ident,
+            item_attr.promoted_nested()?.into_iter(),
+        )?;
+
+        let py_name = item_meta.simple_name()?;
+        let item = args.with_quote_args(|ident, module| {
+            let new_func = quote_spanned!(
+                args.ident.span() => vm.ctx.new_function_named(#ident, #module.to_owned(), #py_name.to_owned())
+            );
+            quote! {
+                vm.__module_set_attr(&module, #py_name, #new_func).unwrap();
+            }
+        });
+
+        args.module
+            .items
+            .add_item(py_name, args.cfgs.to_vec(), item)?;
+        Ok(())
+    }
+}
+
+impl ModuleItem for ClassItem {
+    fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
+        let attrs = match args.item {
+            Item::Struct(syn::ItemStruct { ref mut attrs, .. }) => attrs,
+            Item::Enum(syn::ItemEnum { ref mut attrs, .. }) => attrs,
+            other => {
+                return Err(
+                    self.new_syn_error(other.span(), "can only be on a struct or enum declaration")
+                );
+            }
+        };
+        let (module_name, class_name) = {
+            let class_attr = &mut attrs[self.inner.index];
+            if self.pyattrs.is_empty() {
+                // check noattr before ClassItemMeta::from_nested
+                let noattr = class_attr.try_remove_name("noattr")?;
+                if noattr.is_none() {
+                    return Err(syn::Error::new_spanned(
+                        class_attr,
+                        format!(
+                            "#[{name}] requires #[pyattr] to be a module attribute. \
+                         To keep it free type, try #[{name}(noattr)]",
+                            name = self.attr_name()
+                        ),
+                    ));
+                }
+            }
+            let class_meta = ClassItemMeta::from_nested(
+                "pyclass/pystruct_sequence",
+                &args.ident,
+                class_attr.promoted_nested()?.into_iter(),
+            )?;
+            let module_name = args.module.name.clone();
+            class_attr.fill_nested_meta("module", || {
+                parse_quote! {module = #module_name}
+            })?;
+            let class_name = class_meta.simple_name()?;
+            (module_name, class_name)
+        };
+        for attr_index in self.pyattrs.iter().rev() {
+            let attr_attr = attrs.remove(*attr_index);
+            let nested = attr_attr.promoted_nested()?;
+            let item_meta = SimpleItemMeta::from_nested("pyattr", &args.ident, nested.into_iter())?;
+
+            let py_name = item_meta
+                .optional_name()
+                .unwrap_or_else(|| class_name.clone());
+            let ident = &args.ident;
+            let new_class = quote_spanned!(ident.span() =>
+                #ident::make_class(&vm.ctx);
+            );
+            let item = quote! {
+                let new_class = #new_class;
+                new_class.set_str_attr("__module__", vm.ctx.new_str(#module_name));
+                vm.__module_set_attr(&module, #py_name, new_class).unwrap();
+            };
+
+            args.module
+                .items
+                .add_item(py_name.clone(), args.cfgs.to_vec(), item)?;
+        }
+        Ok(())
+    }
+}
+
+impl ModuleItem for AttributeItem {
+    fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
+        let ident = &args.ident;
+        let get_py_name = |attrs: &mut Vec<Attribute>| -> Result<_> {
+            let nested = attrs[self.inner.index].promoted_nested()?;
+            let item_meta = SimpleItemMeta::from_nested("pyattr", &ident, nested.into_iter())?;
+            let py_name = item_meta.simple_name()?;
+            Ok(py_name)
+        };
+        let (attrs, py_name, tokens) = match args.item {
+            Item::Fn(syn::ItemFn { ref mut attrs, .. }) => {
+                let py_name = get_py_name(attrs)?;
+                (
+                    attrs,
+                    py_name.clone(),
+                    quote! {
+                        vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident(vm))).unwrap();
+                    },
+                )
+            }
+            Item::Const(syn::ItemConst { ref mut attrs, .. }) => {
+                let py_name = get_py_name(attrs)?;
+                (
+                    attrs,
+                    py_name.clone(),
+                    quote! {
+                        vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident)).unwrap();
+                    },
+                )
+            }
+            Item::Use(syn::ItemUse { ref mut attrs, .. }) => {
+                let py_name = get_py_name(attrs)?;
+                (
+                    attrs,
+                    py_name.clone(),
+                    quote! {
+                        vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident)).unwrap();
+                    },
+                )
+            }
+            other => {
+                return Err(
+                    self.new_syn_error(other.span(), "can only be on a function, const and use")
+                )
+            }
+        };
+        attrs.remove(self.index());
+
+        args.module
+            .items
+            .add_item(py_name, args.cfgs.to_vec(), tokens)?;
+
+        Ok(())
+    }
 }

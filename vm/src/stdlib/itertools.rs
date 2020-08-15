@@ -22,6 +22,7 @@ mod decl {
     };
     use crate::vm::VirtualMachine;
 
+    #[pyattr]
     #[pyclass(name = "chain")]
     #[derive(Debug)]
     struct PyItertoolsChain {
@@ -107,6 +108,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "compress")]
     #[derive(Debug)]
     struct PyItertoolsCompress {
@@ -158,6 +160,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "count")]
     #[derive(Debug)]
     struct PyItertoolsCount {
@@ -210,6 +213,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "cycle")]
     #[derive(Debug)]
     struct PyItertoolsCycle {
@@ -271,6 +275,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "repeat")]
     #[derive(Debug)]
     struct PyItertoolsRepeat {
@@ -328,6 +333,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "starmap")]
     #[derive(Debug)]
     struct PyItertoolsStarmap {
@@ -369,6 +375,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "takewhile")]
     #[derive(Debug)]
     struct PyItertoolsTakewhile {
@@ -428,6 +435,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "dropwhile")]
     #[derive(Debug)]
     struct PyItertoolsDropwhile {
@@ -512,6 +520,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "groupby")]
     struct PyItertoolsGroupBy {
         iterable: PyObjectRef,
@@ -620,6 +629,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "_grouper")]
     #[derive(Debug)]
     struct PyItertoolsGrouper {
@@ -671,6 +681,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "islice")]
     #[derive(Debug)]
     struct PyItertoolsIslice {
@@ -797,6 +808,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "filterfalse")]
     #[derive(Debug)]
     struct PyItertoolsFilterFalse {
@@ -853,6 +865,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "accumulate")]
     #[derive(Debug)]
     struct PyItertoolsAccumulate {
@@ -937,6 +950,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "tee")]
     #[derive(Debug)]
     struct PyItertoolsTee {
@@ -1015,6 +1029,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "product")]
     #[derive(Debug)]
     struct PyItertoolsProduct {
@@ -1132,6 +1147,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "combinations")]
     #[derive(Debug)]
     struct PyItertoolsCombinations {
@@ -1231,6 +1247,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "combinations_with_replacement")]
     #[derive(Debug)]
     struct PyItertoolsCombinationsWithReplacement {
@@ -1325,6 +1342,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "permutations")]
     #[derive(Debug)]
     struct PyItertoolsPermutations {
@@ -1455,6 +1473,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "zip_longest")]
     #[derive(Debug)]
     struct PyItertoolsZipLongest {

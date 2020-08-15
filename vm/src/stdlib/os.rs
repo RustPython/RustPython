@@ -293,8 +293,8 @@ mod _os {
         rust_file(fileno);
     }
 
-    #[pyfunction]
     #[cfg(any(unix, windows, target_os = "wasi"))]
+    #[pyfunction]
     pub(crate) fn open(
         name: PyPathLike,
         flags: OpenFlags,
@@ -350,8 +350,8 @@ mod _os {
         Ok(raw_file_number(handle))
     }
 
-    #[pyfunction]
     #[cfg(not(any(unix, windows, target_os = "wasi")))]
+    #[pyfunction]
     pub(crate) fn open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         Err(vm.new_os_error("os.open not implemented on this platform".to_owned()))
     }
@@ -474,6 +474,7 @@ mod _os {
         mode.process_path(path, vm)
     }
 
+    #[pyattr]
     #[pyclass]
     #[derive(Debug)]
     struct DirEntry {
@@ -557,6 +558,7 @@ mod _os {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "ScandirIter")]
     #[derive(Debug)]
     struct ScandirIterator {
@@ -634,6 +636,7 @@ mod _os {
         .into_object())
     }
 
+    #[pyattr]
     #[pystruct_sequence(module = "os", name = "stat_result")]
     #[derive(Debug)]
     pub(super) struct StatResult {
@@ -830,6 +833,7 @@ mod _os {
             .into_owned()
     }
 
+    #[pyattr]
     #[pystruct_sequence(module = "os", name = "terminal_size")]
     #[allow(dead_code)]
     pub(super) struct PyTerminalSize {
@@ -1739,6 +1743,7 @@ mod posix {
         Ok(ret_mask)
     }
 
+    #[pyattr]
     #[pystruct_sequence(module = "os", name = "uname_result")]
     #[derive(Debug)]
     struct UnameResult {

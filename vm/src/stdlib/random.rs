@@ -53,6 +53,7 @@ mod _random {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "Random")]
     #[derive(Debug)]
     struct PyRandom {

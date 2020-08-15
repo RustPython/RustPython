@@ -1,7 +1,7 @@
 use super::Diagnostic;
 use crate::util::{
-    attribute_arg, def_to_name, meta_into_nesteds, optional_attribute_arg, path_eq, ItemIdent,
-    ItemMeta, ItemType,
+    attribute_arg, def_to_name, optional_attribute_arg, path_eq, AttributeExt, ContentItem,
+    ContentItemInner, ItemIdent, ItemMeta, ItemMetaInner,
 };
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
@@ -10,6 +10,25 @@ use syn::{
     parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Index, Item, Lit, Meta,
     NestedMeta,
 };
+use syn_ext::types::*;
+
+struct MethodItem {
+    pub inner: ContentItemInner,
+}
+struct PropertyItem {
+    pub inner: ContentItemInner,
+}
+
+impl ContentItem for MethodItem {
+    fn inner(&self) -> &ContentItemInner {
+        &self.inner
+    }
+}
+impl ContentItem for PropertyItem {
+    fn inner(&self) -> &ContentItemInner {
+        &self.inner
+    }
+}
 
 #[derive(Default)]
 struct Class {
@@ -70,9 +89,11 @@ impl Class {
         }
     }
 
-    fn extract_method(ident: &Ident, nesteds: Vec<NestedMeta>) -> Result<ClassItem, Diagnostic> {
-        let item_meta =
-            ItemMeta::from_nested_meta("pymethod", &ident, &nesteds, ItemMeta::ATTRIBUTE_NAMES)?;
+    fn extract_method(
+        ident: &Ident,
+        nested: PunctuatedNestedMeta,
+    ) -> Result<ClassItem, Diagnostic> {
+        let item_meta = MethodItemMeta::from_nested("pymethod", &ident, nested.into_iter())?;
         Ok(ClassItem::Method {
             item_ident: ident.clone(),
             py_name: item_meta.method_name()?,
@@ -81,23 +102,20 @@ impl Class {
 
     fn extract_classmethod(
         ident: &Ident,
-        nesteds: Vec<NestedMeta>,
+        nested: PunctuatedNestedMeta,
     ) -> Result<ClassItem, Diagnostic> {
-        let item_meta = ItemMeta::from_nested_meta(
-            "pyclassmethod",
-            &ident,
-            &nesteds,
-            ItemMeta::ATTRIBUTE_NAMES,
-        )?;
+        let item_meta = MethodItemMeta::from_nested("pyclassmethod", &ident, nested.into_iter())?;
         Ok(ClassItem::ClassMethod {
             item_ident: ident.clone(),
             py_name: item_meta.method_name()?,
         })
     }
 
-    fn extract_property(ident: &Ident, nesteds: Vec<NestedMeta>) -> Result<ClassItem, Diagnostic> {
-        let item_meta =
-            ItemMeta::from_nested_meta("pyproperty", &ident, &nesteds, ItemMeta::PROPERTY_NAMES)?;
+    fn extract_property(
+        ident: &Ident,
+        nested: PunctuatedNestedMeta,
+    ) -> Result<ClassItem, Diagnostic> {
+        let item_meta = PropertyItemMeta::from_nested("pyproperty", &ident, nested.into_iter())?;
         Ok(ClassItem::Property {
             py_name: item_meta.property_name()?,
             item_ident: ident.clone(),
@@ -105,13 +123,12 @@ impl Class {
         })
     }
 
-    fn extract_slot(ident: &Ident, meta: Meta) -> Result<ClassItem, Diagnostic> {
+    fn extract_slot(ident: &Ident, nested: PunctuatedNestedMeta) -> Result<ClassItem, Diagnostic> {
         let pyslot_err = "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]";
-        let nesteds = meta_into_nesteds(meta).map_err(|meta| err_span!(meta, "{}", pyslot_err))?;
-        if nesteds.len() > 1 {
-            return Err(Diagnostic::spanned_error(&quote!(#(#nesteds)*), pyslot_err));
+        if nested.len() > 1 {
+            return Err(Diagnostic::spanned_error(&quote!(#nested), pyslot_err));
         }
-        let slot_ident = if nesteds.is_empty() {
+        let slot_ident = if nested.is_empty() {
             let ident_str = ident.to_string();
             if let Some(stripped) = ident_str.strip_prefix("tp_") {
                 proc_macro2::Ident::new(stripped, ident.span())
@@ -119,7 +136,7 @@ impl Class {
                 ident.clone()
             }
         } else {
-            match nesteds.into_iter().next().unwrap() {
+            match nested.into_iter().next().unwrap() {
                 NestedMeta::Meta(Meta::Path(path)) => path
                     .get_ident()
                     .cloned()
@@ -135,39 +152,22 @@ impl Class {
 
     fn extract_item_from_syn(&mut self, item: &mut ItemIdent) -> Result<(), Diagnostic> {
         let mut attr_idxs = Vec::new();
-        for (i, meta) in item
-            .attrs
-            .iter()
-            .filter_map(|attr| attr.parse_meta().ok())
-            .enumerate()
-        {
-            let meta_span = meta.span();
-            let name = match meta.path().get_ident() {
+        for (i, attr) in item.attrs.iter_mut().enumerate() {
+            let name = match attr.path.get_ident() {
                 Some(name) => name,
                 None => continue,
             };
-            assert!(item.typ == ItemType::Method);
 
-            let into_nested = || {
-                meta_into_nesteds(meta.clone()).map_err(|meta| {
-                    err_span!(
-                        meta,
-                        "#[{name} = \"...\"] cannot be a name/value, you probably meant \
-                         #[{name}(name = \"...\")]",
-                        name = name.to_string(),
-                    )
-                })
-            };
             let item = match name.to_string().as_str() {
-                "pymethod" => Self::extract_method(item.ident, into_nested()?)?,
-                "pyclassmethod" => Self::extract_classmethod(item.ident, into_nested()?)?,
-                "pyproperty" => Self::extract_property(item.ident, into_nested()?)?,
-                "pyslot" => Self::extract_slot(item.ident, meta)?,
+                "pymethod" => Self::extract_method(item.ident, attr.promoted_nested()?)?,
+                "pyclassmethod" => Self::extract_classmethod(item.ident, attr.promoted_nested()?)?,
+                "pyproperty" => Self::extract_property(item.ident, attr.promoted_nested()?)?,
+                "pyslot" => Self::extract_slot(item.ident, attr.promoted_nested()?)?,
                 _ => {
                     continue;
                 }
             };
-            self.add_item(item, meta_span)?;
+            self.add_item(item, attr.span())?;
             attr_idxs.push(i);
         }
         let mut i = 0;
@@ -184,6 +184,96 @@ impl Class {
             item.attrs.remove(idx - i);
         }
         Ok(())
+    }
+}
+
+struct MethodItemMeta(ItemMetaInner);
+
+impl ItemMeta for MethodItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
+impl MethodItemMeta {
+    fn method_name(&self) -> Result<String, Diagnostic> {
+        let inner = self.inner();
+        let name = inner._optional_str("name")?;
+        let magic = inner._bool("magic")?;
+        Ok(if let Some(name) = name {
+            name
+        } else {
+            let name = inner.ident.to_string();
+            if magic {
+                format!("__{}__", name)
+            } else {
+                name
+            }
+        })
+    }
+}
+
+struct PropertyItemMeta(ItemMetaInner);
+
+impl ItemMeta for PropertyItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "setter"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
+impl PropertyItemMeta {
+    fn property_name(&self) -> Result<String, Diagnostic> {
+        let inner = self.inner();
+        let magic = inner._bool("magic")?;
+        let setter = inner._bool("setter")?;
+        let name = inner._optional_str("name")?;
+
+        Ok(if let Some(name) = name {
+            name
+        } else {
+            let sig_name = inner.ident.to_string();
+            let name = if setter {
+                if let Some(name) = sig_name.strip_prefix("set_") {
+                    if name.is_empty() {
+                        bail_span!(
+                            &inner.ident,
+                            "A #[{}(setter)] fn with a set_* name must \
+                             have something after \"set_\"",
+                            inner.parent_type
+                        )
+                    }
+                    name.to_string()
+                } else {
+                    bail_span!(
+                        &inner.ident,
+                        "A #[{}(setter)] fn must either have a `name` \
+                         parameter or a fn name along the lines of \"set_*\"",
+                        inner.parent_type
+                    )
+                }
+            } else {
+                sig_name
+            };
+            if magic {
+                format!("__{}__", name)
+            } else {
+                name
+            }
+        })
+    }
+
+    fn setter(&self) -> syn::Result<bool> {
+        self.inner()._bool("setter")
     }
 }
 
@@ -365,7 +455,6 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diag
                 .filter_map(|item| match item {
                     syn::ImplItem::Method(syn::ImplItemMethod { attrs, sig, .. }) => {
                         Some(ItemIdent {
-                            typ: ItemType::Method,
                             attrs,
                             ident: &sig.ident,
                         })
@@ -399,7 +488,6 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diag
                 .filter_map(|item| match item {
                     syn::TraitItem::Method(syn::TraitItemMethod { attrs, sig, .. }) => {
                         Some(ItemIdent {
-                            typ: ItemType::Method,
                             attrs,
                             ident: &sig.ident,
                         })
