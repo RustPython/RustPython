@@ -5,8 +5,8 @@ use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    BorrowValue, Either, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue,
+    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
 
