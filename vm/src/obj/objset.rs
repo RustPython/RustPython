@@ -266,11 +266,11 @@ impl PySetInner {
     }
 
     fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.content.delete(vm, &item)
+        self.content.delete(vm, item)
     }
 
     fn discard(&self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.content.delete_if_exists(vm, &item)
+        self.content.delete_if_exists(vm, item)
     }
 
     fn clear(&self) {

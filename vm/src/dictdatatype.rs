@@ -136,7 +136,11 @@ impl<T: Clone> Dict<T> {
         K: DictKey,
     {
         // This does not need to be accurate so we can take the lock mutiple times.
-        if self.borrow_value().indices.len() > 2 * self.borrow_value().size {
+        let (indices_len, size) = {
+            let borrowed = self.borrow_value();
+            (borrowed.indices.len(), borrowed.size)
+        };
+        if indices_len > 2 * size {
             self.resize();
         }
         loop {
@@ -198,30 +202,39 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Delete a key
-    pub fn delete(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<()> {
-        if self.delete_if_exists(vm, key)? {
+    pub fn delete<K>(&self, vm: &VirtualMachine, key: K) -> PyResult<()>
+    where
+        K: DictKey,
+    {
+        if self.delete_if_exists(vm, &key)? {
             Ok(())
         } else {
-            Err(vm.new_key_error(key.clone()))
+            Err(vm.new_key_error(key.into_pyobject(vm)))
         }
     }
 
-    pub fn delete_if_exists(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<bool> {
-        loop {
+    pub fn delete_if_exists<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool>
+    where
+        K: DictKey,
+    {
+        let deleted = loop {
             if let LookupResult::Existing(entry_index) = self.lookup(vm, key)? {
                 let mut inner = self.borrow_value_mut();
-                if inner.entries[entry_index].is_some() {
-                    inner.entries[entry_index] = None;
+                let entry = inner.entries.get_mut(entry_index).unwrap();
+                if entry.is_some() {
+                    // defer rc out of borrow
+                    let deleted = std::mem::replace(entry, None);
                     inner.size -= 1;
-                    break Ok(true);
+                    break deleted;
                 } else {
                     // The dict was changed since we did lookup. Let's try again.
                     continue;
                 }
             } else {
-                break Ok(false);
+                break None;
             }
-        }
+        };
+        Ok(deleted.is_some())
     }
 
     pub fn delete_or_insert(
