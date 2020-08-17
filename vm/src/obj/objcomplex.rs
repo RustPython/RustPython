@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::Zero;
 
@@ -325,8 +324,8 @@ fn parse_str(s: &str) -> Option<Complex64> {
         Some(mut s) => {
             let mut real = 0.0;
             // Find the central +/- operator. If it exists, parse the real part.
-            for (i, (a, b)) in s.chars().tuple_windows().enumerate() {
-                if (b == '+' || b == '-') && !(a == 'e' || a == 'E') {
+            for (i, w) in s.as_bytes().windows(2).enumerate() {
+                if (w[1] == b'+' || w[1] == b'-') && !(w[0] == b'e' || w[0] == b'E') {
                     real = float_ops::parse_str(&s[..=i])?;
                     s = &s[i + 1..];
                 }
