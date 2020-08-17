@@ -407,6 +407,11 @@ fn io_base_cm_enter(instance: PyObjectRef) -> PyObjectRef {
     instance.clone()
 }
 
+fn io_base_cm_del(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    vm.call_method(&instance, "close", vec![])?;
+    Ok(())
+}
+
 fn io_base_cm_exit(instance: PyObjectRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
     vm.call_method(&instance, "close", vec![])?;
     Ok(())
@@ -1249,6 +1254,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     // IOBase the abstract base class of the IO Module
     let io_base = py_class!(ctx, "_IOBase", ctx.object(), {
         "__enter__" => ctx.new_method(io_base_cm_enter),
+        "__del__" => ctx.new_method(io_base_cm_del),
         "__exit__" => ctx.new_method(io_base_cm_exit),
         "seekable" => ctx.new_method(io_base_seekable),
         "readable" => ctx.new_method(io_base_readable),
