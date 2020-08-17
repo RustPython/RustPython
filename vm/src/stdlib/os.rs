@@ -1575,6 +1575,11 @@ mod posix {
                     PyPathLike::try_from_object(&vm, k)?,
                     PyPathLike::try_from_object(&vm, v)?,
                 );
+
+                if key.path.display().to_string().contains('=') {
+                    return Err(vm.new_value_error("illegal environment variable name".to_owned()));
+                }
+
                 ffi::CString::new(format!("{}={}", key.path.display(), value.path.display()))
                     .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
             })
