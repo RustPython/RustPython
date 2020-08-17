@@ -1,33 +1,32 @@
 use super::objtype::PyClassRef;
+use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
+use crate::pyobjectrc::{PyObjectRc, PyObjectWeak};
 use crate::slots::{Hashable, SlotCall};
 use crate::vm::VirtualMachine;
-use rustpython_common::hash::PyHash;
-use rustpython_common::rc::{PyRc, PyWeak as Weak};
 
 use crossbeam_utils::atomic::AtomicCell;
 
 #[pyclass(module = false, name = "weakref")]
 #[derive(Debug)]
 pub struct PyWeak {
-    referent: Weak<PyObject<dyn PyObjectPayload>>,
+    referent: PyObjectWeak,
     hash: AtomicCell<Option<PyHash>>,
 }
 
 impl PyWeak {
     pub fn downgrade(obj: &PyObjectRef) -> PyWeak {
         PyWeak {
-            referent: PyRc::downgrade(obj),
+            referent: PyObjectRc::downgrade(obj),
             hash: AtomicCell::new(None),
         }
     }
 
     pub fn upgrade(&self) -> Option<PyObjectRef> {
-        self.referent.upgrade()
+        PyObjectRc::upgrade_weak(&self.referent)
     }
 }
 
@@ -42,7 +41,7 @@ pub type PyWeakRef = PyRef<PyWeak>;
 impl SlotCall for PyWeak {
     fn call(&self, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         args.bind::<()>(vm)?;
-        Ok(self.referent.upgrade().unwrap_or_else(|| vm.get_none()))
+        Ok(self.upgrade().unwrap_or_else(|| vm.get_none()))
     }
 }
 

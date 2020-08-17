@@ -6,11 +6,11 @@
 //!
 
 use crate::pyobject::PyObjectRef;
+use crate::pyobjectrc::PyObjectRc;
 use crate::vm::VirtualMachine;
-use rustpython_common::rc::PyRc;
 
 fn weakref_getweakrefcount(obj: PyObjectRef) -> usize {
-    PyRc::weak_count(&obj)
+    PyObjectRc::weak_count(&obj)
 }
 
 fn weakref_getweakrefs(_obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {

@@ -39,7 +39,7 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
-use crate::pyobject::{PyAttributes, PyClassDef, PyClassImpl, PyContext, PyObject};
+use crate::pyobject::{PyAttributes, PyClassDef, PyClassImpl, PyContext, PyObject, PyObjectRef};
 use crate::slots::PyClassSlots;
 use rustpython_common::{cell::PyRwLock, rc::PyRc};
 use std::mem::MaybeUninit;
@@ -309,8 +309,9 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
                 PyRwLock::new(type_type),
             );
 
-            let type_type = PyClassRef::from_obj_unchecked(PyRc::from_raw(type_type_ptr));
-            let object_type = PyClassRef::from_obj_unchecked(PyRc::from_raw(object_type_ptr));
+            let type_type = PyClassRef::from_obj_unchecked(PyObjectRef::from_raw(type_type_ptr));
+            let object_type =
+                PyClassRef::from_obj_unchecked(PyObjectRef::from_raw(object_type_ptr));
 
             (*type_type_ptr).payload.mro = vec![object_type.clone()];
             (*type_type_ptr).payload.bases = vec![object_type.clone()];

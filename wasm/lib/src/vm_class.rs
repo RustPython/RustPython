@@ -179,7 +179,7 @@ impl WASMVirtualMachine {
         obj: PyObjectRef,
     ) -> Result<PyWeak<PyObject<dyn PyObjectPayload>>, JsValue> {
         self.with(|stored_vm| {
-            let weak = PyRc::downgrade(&obj);
+            let weak = PyObjectRef::downgrade(&obj);
             stored_vm.held_objects.borrow_mut().push(obj);
             weak
         })

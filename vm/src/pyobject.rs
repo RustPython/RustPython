@@ -35,6 +35,7 @@ use crate::obj::objstaticmethod::PyStaticMethod;
 use crate::obj::objstr;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
+pub use crate::pyobjectrc::PyObjectRc;
 use crate::scope::Scope;
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::types::{create_type, create_type_with_slots, initialize_types, TypeZoo};
@@ -61,7 +62,7 @@ Basically reference counting, but then done by rust.
 /// this reference counting is accounted for by this type. Use the `.clone()`
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
-pub type PyObjectRef = PyRc<PyObject<dyn PyObjectPayload>>;
+pub type PyObjectRef = PyObjectRc;
 
 /// Use this type for functions which return a python object or an exception.
 /// Both the python object and the python exception are `PyObjectRef` types
@@ -466,6 +467,8 @@ where
     pub payload: T,
 }
 
+pub(crate) type DynPyObject = PyObject<dyn PyObjectPayload>;
+
 impl PyObject<dyn PyObjectPayload> {
     /// Attempt to downcast this reference to a subclass.
     ///
@@ -475,9 +478,9 @@ impl PyObject<dyn PyObjectPayload> {
         self: PyRc<Self>,
     ) -> Result<PyRef<T>, PyObjectRef> {
         if self.payload_is::<T>() {
-            Ok(unsafe { PyRef::from_obj_unchecked(self) })
+            Ok(unsafe { PyRef::from_obj_unchecked(self.into()) })
         } else {
-            Err(self)
+            Err(self.into())
         }
     }
 
@@ -495,9 +498,9 @@ impl PyObject<dyn PyObjectPayload> {
                 self.payload_is::<T>(),
                 "obj.__class__ is T::class() but payload is not T"
             );
-            Ok(unsafe { PyRef::from_obj_unchecked(self) })
+            Ok(unsafe { PyRef::from_obj_unchecked(self.into()) })
         } else {
-            Err(self)
+            Err(self.into())
         }
     }
 
@@ -512,7 +515,7 @@ impl PyObject<dyn PyObjectPayload> {
             let ret = unsafe { PyRc::from_raw(ptr) };
             Ok(ret)
         } else {
-            Err(self)
+            Err(self.into())
         }
     }
 }
@@ -1081,7 +1084,7 @@ where
 
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
-        PyRc::new(self)
+        PyRc::new(self).into()
     }
 
     pub fn into_pyref(self: PyRc<Self>) -> PyRef<T>
@@ -1090,7 +1093,7 @@ where
     {
         // SAFETY: we know just casted from PyRc<PyObject<T>> to PyObjectRef, so we know the
         // payload is `T`
-        unsafe { PyRef::from_obj_unchecked(self as PyObjectRef) }
+        unsafe { PyRef::from_obj_unchecked(self.into()) }
     }
 }
 

@@ -76,9 +76,11 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
             let closure =
                 move |args: Option<Array>, kwargs: Option<Object>| -> Result<JsValue, JsValue> {
                     let py_obj = match wasm_vm.assert_valid() {
-                        Ok(_) => weak_py_obj
-                            .upgrade()
-                            .expect("weak_py_obj to be valid if VM is valid"),
+                        Ok(_) => PyObjectRef::from(
+                            weak_py_obj
+                                .upgrade()
+                                .expect("weak_py_obj to be valid if VM is valid"),
+                        ),
                         Err(err) => {
                             return Err(err);
                         }
