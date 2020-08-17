@@ -1,8 +1,8 @@
-use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use indexmap::IndexMap;
 use itertools::Itertools;
+use std::cell::Cell;
+use std::fmt;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::builtins::builtin_isinstance;
 use crate::bytecode;
@@ -237,11 +237,17 @@ struct ExecutingFrame<'a> {
     state: &'a mut FrameState,
 }
 
+thread_local! {
+    pub static EXECUTING_VM: Cell<*const VirtualMachine> = Cell::new(std::ptr::null());
+}
+
 impl ExecutingFrame<'_> {
     fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
+
+        let prior_vm = EXECUTING_VM.with(|evm| evm.replace(vm as *const _));
         // Execute until return or exception:
-        loop {
+        let result = loop {
             let loc = self.current_location();
             let result = self.execute_instruction(vm);
             match result {
@@ -275,7 +281,11 @@ impl ExecutingFrame<'_> {
                     }
                 }
             }
-        }
+        };
+        EXECUTING_VM.with(|evm| {
+            evm.set(prior_vm);
+        });
+        result
     }
 
     fn yield_from_target(&self) -> Option<PyObjectRef> {

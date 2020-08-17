@@ -651,6 +651,61 @@ where
     pub payload: T,
 }
 
+impl<T> Drop for PyObject<T>
+where
+    T: ?Sized + PyObjectPayload,
+{
+    fn drop(&mut self) {
+        // Incomplete drop implementation of PyObject
+        // 1. The object shouldn't access payload during __del__
+        // 2. __del__ shouldn't raise exception
+        use crate::obj::objobject::PyBaseObject;
+
+        #[allow(invalid_value)] // this is a false warning
+        unsafe {
+            let mut temp_typ = std::mem::MaybeUninit::uninit().assume_init();
+            let mut temp_dict = std::mem::MaybeUninit::uninit().assume_init();
+
+            std::mem::swap(&mut self.typ, &mut temp_typ);
+            std::mem::swap(&mut self.dict, &mut temp_dict);
+
+            let temp_ref = PyObject {
+                typ: temp_typ,
+                dict: temp_dict,
+                payload: PyBaseObject,
+            }
+            .into_ref();
+
+            if let Some(del_method) = temp_ref.get_class_attr("__del__") {
+                crate::frame::EXECUTING_VM.with(|evm| {
+                    // vm is guaranteed to be existing unless it is not null
+                    let vm = evm.get();
+                    debug_assert!(!vm.is_null());
+                    if let Err(e) = (*vm).invoke(&del_method, vec![temp_ref.clone()]) {
+                        println!(
+                            "{} __del__ error: {}",
+                            &temp_ref.class().name,
+                            (*vm).to_repr(e.as_object()).unwrap().borrow_value()
+                        );
+                        let tb_module = (*vm).import("traceback", &[], 0).unwrap();
+                        let print_stack = (*vm).get_attribute(tb_module, "print_stack").unwrap();
+                        (*vm).invoke(&print_stack, vec![]).unwrap();
+                        unreachable!(); // FIXME: __del__ exception is not allowed
+                    }
+                });
+            }
+
+            let raw_ref = PyRc::into_raw(temp_ref);
+            let temp_obj = &mut *(raw_ref as *mut PyObject<PyBaseObject>);
+
+            std::mem::swap(&mut self.typ, &mut temp_obj.typ);
+            std::mem::swap(&mut self.dict, &mut temp_obj.dict);
+
+            std::mem::forget(PyRc::from_raw(raw_ref));
+        }
+    }
+}
+
 impl PyObject<dyn PyObjectPayload> {
     /// Attempt to downcast this reference to a subclass.
     ///
