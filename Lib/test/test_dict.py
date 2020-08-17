@@ -138,7 +138,8 @@ class DictTest(unittest.TestCase):
 
         self.assertRaises(TypeError, d.clear, None)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_update(self):
         d = {}
         d.update({1:100})
@@ -288,7 +289,6 @@ class DictTest(unittest.TestCase):
         self.assertEqual({}.copy(), {})
         self.assertRaises(TypeError, d.copy, None)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_copy_fuzz(self):
         for dict_size in [10, 100, 1000, 10000, 100000]:
             dict_size = random.randrange(
@@ -512,7 +512,6 @@ class DictTest(unittest.TestCase):
                 del d[0]
                 d[0] = 0
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_mutating_lookup(self):
         # changing dict during a lookup (issue #14417)
         class NastyKey:
@@ -656,7 +655,8 @@ class DictTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             d3.items() > d2.items()
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dictview_set_operations_on_keys(self):
         k1 = {1:1, 2:2}.keys()
         k2 = {1:1, 2:2, 3:3}.keys()
@@ -672,7 +672,8 @@ class DictTest(unittest.TestCase):
         self.assertEqual(k1 ^ k2, {3})
         self.assertEqual(k1 ^ k3, {1,2,4})
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dictview_set_operations_on_items(self):
         k1 = {1:1, 2:2}.items()
         k2 = {1:1, 2:2, 3:3}.items()
@@ -1308,7 +1309,8 @@ class DictTest(unittest.TestCase):
         except RuntimeError:  # implementation defined
             pass
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dictitems_contains_use_after_free(self):
         class X:
             def __eq__(self, other):
@@ -1343,7 +1345,8 @@ class DictTest(unittest.TestCase):
 
         self.assertRaises(RuntimeError, iter_and_mutate)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_reversed(self):
         d = {"a": 1, "b": 2, "foo": 0, "c": 3, "d": 4}
         del d["foo"]
@@ -1351,7 +1354,8 @@ class DictTest(unittest.TestCase):
         self.assertEqual(list(r), list('dcba'))
         self.assertRaises(StopIteration, next, r)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dict_copy_order(self):
         # bpo-34320
         od = collections.OrderedDict([('a', 1), ('b', 2)])
