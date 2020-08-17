@@ -164,3 +164,48 @@ assert complex("5-2j") == 5 - 2j
 assert complex("-2j") == -2j
 assert_raises(TypeError, lambda: complex("5+2j", 1))
 assert_raises(ValueError, lambda: complex("abc"))
+
+assert complex("1+10j") == 1+10j
+assert complex(10) == 10+0j
+assert complex(10.0) == 10+0j
+assert complex(10) == 10+0j
+assert complex(10+0j) == 10+0j
+assert complex(1, 10) == 1+10j
+assert complex(1, 10) == 1+10j
+assert complex(1, 10.0) == 1+10j
+assert complex(1, 10) == 1+10j
+assert complex(1, 10) == 1+10j
+assert complex(1, 10.0) == 1+10j
+assert complex(1.0, 10) == 1+10j
+assert complex(1.0, 10) == 1+10j
+assert complex(1.0, 10.0) == 1+10j
+assert complex(3.14+0j) == 3.14+0j
+assert complex(3.14) == 3.14+0j
+assert complex(314) == 314.0+0j
+assert complex(314) == 314.0+0j
+assert complex(3.14+0j, 0j) == 3.14+0j
+assert complex(3.14, 0.0) == 3.14+0j
+assert complex(314, 0) == 314.0+0j
+assert complex(314, 0) == 314.0+0j
+assert complex(0j, 3.14j) == -3.14+0j
+assert complex(0.0, 3.14j) == -3.14+0j
+assert complex(0j, 3.14) == 3.14j
+assert complex(0.0, 3.14) == 3.14j
+assert complex("1") == 1+0j
+assert complex("1j") == 1j
+assert complex() == 0
+assert complex("-1") == -1
+assert complex("+1") == +1
+assert complex("(1+2j)") == 1+2j
+assert complex("(1.3+2.2j)") == 1.3+2.2j
+assert complex("3.14+1J") == 3.14+1j
+assert complex(" ( +3.14-6J )") == 3.14-6j
+assert complex(" ( +3.14-J )") == 3.14-1j
+assert complex(" ( +3.14+j )") == 3.14+1j
+assert complex("J") == 1j
+assert complex("( j )") == 1j
+assert complex("+J") == 1j
+assert complex("( -j)") == -1j
+assert complex('1e-500') == 0.0 + 0.0j
+assert complex('-1e-500j') == 0.0 - 0.0j
+assert complex('-1e-500+1e-500j') == -0.0 + 0.0j

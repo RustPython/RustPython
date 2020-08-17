@@ -1,6 +1,5 @@
 use num_complex::Complex64;
 use num_traits::Zero;
-use std::str::FromStr;
 
 use super::objfloat;
 use super::objstr::PyString;
@@ -10,7 +9,7 @@ use crate::pyobject::{
     PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use rustpython_common::hash;
+use rustpython_common::{float_ops, hash};
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///
@@ -254,8 +253,9 @@ impl PyComplex {
                             "complex() can't take second arg if first is a string".to_owned(),
                         ));
                     }
-                    let value = Complex64::from_str(s.borrow_value())
-                        .map_err(|err| vm.new_value_error(err.to_string()))?;
+                    let value = parse_str(s.borrow_value().trim()).ok_or_else(|| {
+                        vm.new_value_error("complex() arg is a malformed string".to_owned())
+                    })?;
                     return Self::from(value).into_ref_with_type(vm, cls);
                 } else {
                     return Err(vm.new_type_error(format!(
@@ -307,4 +307,41 @@ struct ComplexArgs {
     real: Option<PyObjectRef>,
     #[pyarg(positional_or_keyword, default = "None")]
     imag: Option<PyObjectRef>,
+}
+
+fn parse_str(s: &str) -> Option<Complex64> {
+    // Handle parentheses
+    let s = match s.strip_prefix('(') {
+        None => s,
+        Some(s) => match s.strip_suffix(')') {
+            None => return None,
+            Some(s) => s.trim(),
+        },
+    };
+
+    let value = match s.strip_suffix(|c| c == 'j' || c == 'J') {
+        None => Complex64::new(float_ops::parse_str(s)?, 0.0),
+        Some(mut s) => {
+            let mut real = 0.0;
+            // Find the central +/- operator. If it exists, parse the real part.
+            for (i, w) in s.as_bytes().windows(2).enumerate() {
+                if (w[1] == b'+' || w[1] == b'-') && !(w[0] == b'e' || w[0] == b'E') {
+                    real = float_ops::parse_str(&s[..=i])?;
+                    s = &s[i + 1..];
+                    break;
+                }
+            }
+
+            let imag = match s {
+                // "j", "+j"
+                "" | "+" => 1.0,
+                // "-j"
+                "-" => -1.0,
+                s => float_ops::parse_str(s)?,
+            };
+
+            Complex64::new(real, imag)
+        }
+    };
+    Some(value)
 }
