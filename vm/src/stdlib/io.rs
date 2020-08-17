@@ -702,6 +702,14 @@ mod fileio {
         Ok(vm.get_none())
     }
 
+    fn file_io_del(file_io: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let closed = bool::try_from_object(vm, vm.get_attribute(file_io.clone(), "__closed")?)?;
+        if !closed {
+            file_io_close(file_io, vm)?;
+        }
+        Ok(())
+    }
+
     fn fio_get_fileno(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult<fs::File> {
         io_base_checkclosed(instance.clone(), OptionalArg::Missing, vm)?;
         let fileno = i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
@@ -840,6 +848,7 @@ mod fileio {
     pub fn make_fileio(ctx: &crate::pyobject::PyContext, raw_io_base: PyClassRef) -> PyClassRef {
         py_class!(ctx, "FileIO", raw_io_base, {
             "__init__" => ctx.new_method(file_io_init),
+            "__del__" => ctx.new_method(file_io_del),
             "name" => ctx.str_type(),
             "read" => ctx.new_method(file_io_read),
             "readinto" => ctx.new_method(file_io_readinto),
