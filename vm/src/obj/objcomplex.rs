@@ -328,6 +328,7 @@ fn parse_str(s: &str) -> Option<Complex64> {
                 if (w[1] == b'+' || w[1] == b'-') && !(w[0] == b'e' || w[0] == b'E') {
                     real = float_ops::parse_str(&s[..=i])?;
                     s = &s[i + 1..];
+                    break;
                 }
             }
 
