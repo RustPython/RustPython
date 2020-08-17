@@ -4,8 +4,7 @@ use std::str::FromStr;
 
 use super::objfloat;
 use super::objstr::PyString;
-use super::objtype::PyClassRef;
-use crate::function::OptionalArg;
+use super::objtype::{self, PyClassRef};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, Never, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
     PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
@@ -243,19 +242,14 @@ impl PyComplex {
     }
 
     #[pyslot]
-    fn tp_new(
-        cls: PyClassRef,
-        real: OptionalArg<PyObjectRef>,
-        imag: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComplexRef> {
-        let real = match real {
-            OptionalArg::Missing => Complex64::new(0.0, 0.0),
-            OptionalArg::Present(obj) => {
+    fn tp_new(cls: PyClassRef, args: ComplexArgs, vm: &VirtualMachine) -> PyResult<PyComplexRef> {
+        let real = match args.real {
+            None => Complex64::new(0.0, 0.0),
+            Some(obj) => {
                 if let Some(c) = try_complex(&obj, vm)? {
                     c
                 } else if let Some(s) = obj.payload_if_subclass::<PyString>(vm) {
-                    if imag.into_option().is_some() {
+                    if args.imag.is_some() {
                         return Err(vm.new_type_error(
                             "complex() can't take second arg if first is a string".to_owned(),
                         ));
@@ -272,12 +266,12 @@ impl PyComplex {
             }
         };
 
-        let imag = match imag {
-            OptionalArg::Missing => Complex64::new(0.0, 0.0),
-            OptionalArg::Present(obj) => {
+        let imag = match args.imag {
+            None => Complex64::new(0.0, 0.0),
+            Some(obj) => {
                 if let Some(c) = try_complex(&obj, vm)? {
                     c
-                } else if let Some(_s) = obj.payload_if_subclass::<PyString>(vm) {
+                } else if objtype::issubclass(obj.lease_class(), &vm.ctx.types.str_type) {
                     return Err(
                         vm.new_type_error("complex() second arg can't be a string".to_owned())
                     );
@@ -305,4 +299,12 @@ impl PyComplex {
         vm.ctx
             .new_tuple(vec![vm.ctx.new_float(re), vm.ctx.new_float(im)])
     }
+}
+
+#[derive(FromArgs)]
+struct ComplexArgs {
+    #[pyarg(positional_or_keyword, default = "None")]
+    real: Option<PyObjectRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    imag: Option<PyObjectRef>,
 }
