@@ -168,7 +168,7 @@ impl PyList {
 
     #[pymethod]
     fn clear(&self) {
-        self.borrow_value_mut().clear();
+        let _ = std::mem::replace(self.borrow_value_mut().deref_mut(), Vec::new());
     }
 
     #[pymethod]
@@ -231,10 +231,10 @@ impl PyList {
         }
     }
 
-    fn setindex(&self, index: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn setindex(&self, index: isize, mut value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let mut elements = self.borrow_value_mut();
         if let Some(pos_index) = get_pos(index, elements.len()) {
-            elements[pos_index] = value;
+            std::mem::swap(&mut elements[pos_index], &mut value);
             Ok(vm.get_none())
         } else {
             Err(vm.new_index_error("list assignment index out of range".to_owned()))
@@ -521,13 +521,13 @@ impl PyList {
         }
 
         if let Some(index) = ri {
-            // TODO: Check if value was removed after lock released
-            self.borrow_value_mut().remove(index);
-            Ok(())
+            // defer delete out of borrow
+            Ok(self.borrow_value_mut().remove(index))
         } else {
             let needle_str = vm.to_str(&needle)?;
             Err(vm.new_value_error(format!("'{}' is not in list", needle_str.borrow_value())))
         }
+        .map(|_| ())
     }
 
     #[inline]
@@ -597,13 +597,16 @@ impl PyList {
     }
 
     fn delindex(&self, index: isize, vm: &VirtualMachine) -> PyResult<()> {
-        let mut elements = self.borrow_value_mut();
-        if let Some(pos_index) = get_pos(index, elements.len()) {
-            elements.remove(pos_index);
-            Ok(())
-        } else {
-            Err(vm.new_index_error("Index out of bounds!".to_owned()))
-        }
+        let removed = {
+            let mut elements = self.borrow_value_mut();
+            if let Some(pos_index) = get_pos(index, elements.len()) {
+                // defer delete out of borrow
+                Ok(elements.remove(pos_index))
+            } else {
+                Err(vm.new_index_error("Index out of bounds!".to_owned()))
+            }
+        };
+        removed.map(|_| ())
     }
 
     fn delslice(&self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
