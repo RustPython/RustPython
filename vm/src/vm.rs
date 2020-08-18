@@ -321,7 +321,8 @@ impl VirtualMachine {
         self.check_recursive_call("")?;
         self.frames.borrow_mut().push(frame.clone());
         let result = f(frame);
-        self.frames.borrow_mut().pop();
+        // defer dec frame
+        let _ = self.frames.borrow_mut().pop();
         result
     }
 

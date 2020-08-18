@@ -47,7 +47,8 @@ class TestJointOps:
         self.s = self.thetype(word)
         self.d = dict.fromkeys(word)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_new_or_init(self):
         self.assertRaises(TypeError, self.thetype, [], 2)
         self.assertRaises(TypeError, set().__init__, a=1)
@@ -260,7 +261,8 @@ class TestJointOps:
             it = pickle.loads(d)
             self.assertEqual(self.thetype(it), data - self.thetype((drop,)))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_deepcopy(self):
         class Tracer:
             def __init__(self, value):
@@ -337,7 +339,8 @@ class TestJointOps:
             fo.close()
             support.unlink(support.TESTFN)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_do_not_rehash_dict_keys(self):
         n = 10
         d = dict.fromkeys(map(HashCountingInt, range(n)))
@@ -378,7 +381,8 @@ class TestSet(TestJointOps, unittest.TestCase):
     thetype = set
     basetype = set
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_init(self):
         s = self.thetype()
         s.__init__(self.word)
@@ -435,7 +439,8 @@ class TestSet(TestJointOps, unittest.TestCase):
         self.assertEqual(self.s, dup)
         self.assertRaises(TypeError, self.s.add, [])
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_remove(self):
         self.s.remove('a')
         self.assertNotIn('a', self.s)
@@ -458,7 +463,8 @@ class TestSet(TestJointOps, unittest.TestCase):
             else:
                 self.fail()
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_remove_keyerror_set(self):
         key = self.thetype([3, 4])
         try:
@@ -470,7 +476,8 @@ class TestSet(TestJointOps, unittest.TestCase):
         else:
             self.fail()
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_discard(self):
         self.s.discard('a')
         self.assertNotIn('a', self.s)
@@ -602,7 +609,8 @@ class TestSet(TestJointOps, unittest.TestCase):
             else:
                 self.assertNotIn(c, self.s)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inplace_on_self(self):
         t = self.s.copy()
         t |= t
@@ -615,7 +623,8 @@ class TestSet(TestJointOps, unittest.TestCase):
         t ^= t
         self.assertEqual(t, self.thetype())
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weakref(self):
         s = self.thetype('gallahad')
         p = weakref.proxy(s)
@@ -702,7 +711,8 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
         # All of the empty frozensets should have just one id()
         self.assertEqual(len(set(map(id, efs))), 1)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_constructor_identity(self):
         s = self.thetype(range(3))
         t = self.thetype(s)
@@ -721,7 +731,8 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
             results.add(hash(self.thetype(seq)))
         self.assertEqual(len(results), 1)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copy(self):
         dup = self.s.copy()
         self.assertEqual(id(self.s), id(dup))
@@ -740,7 +751,8 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
         f = self.thetype('abcdcda')
         self.assertEqual(hash(f), hash(f))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hash_effectiveness(self):
         n = 13
         hashvalues = set()
@@ -790,7 +802,6 @@ class TestFrozenSetSubclass(TestFrozenSet):
         t = self.thetype(s)
         self.assertEqual(s, t)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_singleton_empty_frozenset(self):
         Frozenset = self.thetype
         f = frozenset()
@@ -1043,7 +1054,6 @@ class TestExceptionPropagation(unittest.TestCase):
         set('abc')
         set(gooditer())
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_changingSizeWhileIterating(self):
         s = set([1,2,3])
         try:

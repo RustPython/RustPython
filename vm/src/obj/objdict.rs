@@ -220,7 +220,7 @@ impl PyDictRef {
 
     #[pymethod(magic)]
     fn delitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.entries.delete(vm, &key)
+        self.entries.delete(vm, key)
     }
 
     #[pymethod]
@@ -494,7 +494,12 @@ where
     }
 
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        self.as_object().del_item(key, vm)
+        if self.lease_class().is(&vm.ctx.dict_type()) {
+            self.entries.delete(vm, key).map(|_| vm.ctx.none())
+        } else {
+            // Fall back to slow path if we are in a dict subclass:
+            self.as_object().del_item(key, vm)
+        }
     }
 }
 
