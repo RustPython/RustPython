@@ -322,7 +322,7 @@ impl VirtualMachine {
         self.frames.borrow_mut().push(frame.clone());
         let result = f(frame);
         // defer dec frame
-        let _ = self.frames.borrow_mut().pop();
+        let _popped = self.frames.borrow_mut().pop();
         result
     }
 

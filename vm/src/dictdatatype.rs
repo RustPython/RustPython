@@ -143,7 +143,7 @@ impl<T: Clone> Dict<T> {
         if indices_len > 2 * size {
             self.resize();
         }
-        let _ = loop {
+        let _removed = loop {
             match self.lookup(vm, &key)? {
                 LookupResult::Existing(index) => {
                     let mut inner = self.borrow_value_mut();
@@ -197,7 +197,7 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn clear(&self) {
-        let _ = {
+        let _removed = {
             let mut inner = self.borrow_value_mut();
             inner.indices.clear();
             inner.size = 0;
@@ -248,7 +248,7 @@ impl<T: Clone> Dict<T> {
         key: &PyObjectRef,
         value: T,
     ) -> PyResult<()> {
-        let _ = loop {
+        let _removed = loop {
             match self.lookup(vm, key)? {
                 LookupResult::Existing(entry_index) => {
                     let mut inner = self.borrow_value_mut();
