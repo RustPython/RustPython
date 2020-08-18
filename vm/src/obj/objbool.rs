@@ -53,7 +53,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
 
             get_value(&bool_obj)
         }
-        None => match vm.get_method(obj.clone(), "__len__") {
+        None => match vm.get_method(obj, "__len__") {
             Some(method_or_err) => {
                 let method = method_or_err?;
                 let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
@@ -120,7 +120,7 @@ impl PyBool {
             let rhs = get_value(&rhs);
             (lhs || rhs).into_pyobject(vm)
         } else {
-            get_py_int(&lhs).or(rhs.clone(), vm).into_pyobject(vm)
+            get_py_int(&lhs).or(rhs, vm).into_pyobject(vm)
         }
     }
 
@@ -134,7 +134,7 @@ impl PyBool {
             let rhs = get_value(&rhs);
             (lhs && rhs).into_pyobject(vm)
         } else {
-            get_py_int(&lhs).and(rhs.clone(), vm).into_pyobject(vm)
+            get_py_int(&lhs).and(rhs, vm).into_pyobject(vm)
         }
     }
 
@@ -148,7 +148,7 @@ impl PyBool {
             let rhs = get_value(&rhs);
             (lhs ^ rhs).into_pyobject(vm)
         } else {
-            get_py_int(&lhs).xor(rhs.clone(), vm).into_pyobject(vm)
+            get_py_int(&lhs).xor(rhs, vm).into_pyobject(vm)
         }
     }
 
@@ -162,7 +162,7 @@ impl PyBool {
             )));
         }
         let val = match x {
-            OptionalArg::Present(val) => boolval(vm, val.clone())?,
+            OptionalArg::Present(val) => boolval(vm, val)?,
             OptionalArg::Missing => false,
         };
         Ok(vm.ctx.new_bool(val))

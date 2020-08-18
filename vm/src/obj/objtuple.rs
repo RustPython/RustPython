@@ -208,7 +208,7 @@ impl PyTuple {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        get_item(vm, zelf.as_object(), &zelf.elements, needle.clone())
+        get_item(vm, zelf.as_object(), &zelf.elements, needle)
     }
 
     #[pymethod(name = "index")]

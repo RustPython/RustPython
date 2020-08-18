@@ -188,8 +188,8 @@ impl VirtualMachine {
         let frozen = frozen::get_module_inits();
 
         let mut vm = VirtualMachine {
-            builtins: builtins.clone(),
-            sys_module: sysmod.clone(),
+            builtins,
+            sys_module: sysmod,
             ctx: PyRc::new(ctx),
             frames: RefCell::new(vec![]),
             wasm_id: None,
@@ -947,7 +947,7 @@ impl VirtualMachine {
         F: FnOnce() -> String,
     {
         match obj.get_class_attr(method_name) {
-            Some(method) => self.call_if_get_descriptor(method, obj.clone()),
+            Some(method) => self.call_if_get_descriptor(method, obj),
             None => Err(self.new_type_error(err_msg())),
         }
     }
@@ -955,7 +955,7 @@ impl VirtualMachine {
     /// May return exception, if `__get__` descriptor raises one
     pub fn get_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
         let method = obj.get_class_attr(method_name)?;
-        Some(self.call_if_get_descriptor(method, obj.clone()))
+        Some(self.call_if_get_descriptor(method, obj))
     }
 
     /// Calls a method on `obj` passing `arg`, if the method exists.

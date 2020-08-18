@@ -171,7 +171,7 @@ fn supercheck(ty: PyClassRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult
     if objtype::isinstance(&obj, &ty) {
         return Ok(obj.class());
     }
-    let class_attr = vm.get_attribute(obj.clone(), "__class__")?;
+    let class_attr = vm.get_attribute(obj, "__class__")?;
     if let Ok(cls) = class_attr.downcast::<PyClass>() {
         if !cls.is(&ty) && objtype::issubclass(&cls, &ty) {
             return Ok(cls);

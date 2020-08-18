@@ -655,6 +655,6 @@ settrace() -- set the global debug tracing function
         })
     }
 
-    modules.set_item("sys", module.clone(), vm).unwrap();
-    modules.set_item("builtins", builtins.clone(), vm).unwrap();
+    modules.set_item("sys", module, vm).unwrap();
+    modules.set_item("builtins", builtins, vm).unwrap();
 }

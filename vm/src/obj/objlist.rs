@@ -131,7 +131,7 @@ impl PyList {
         };
         // Bound it by [0, vec.len()]
         let position = unbounded_position.min(vec_len).to_usize().unwrap_or(0);
-        elements.insert(position, element.clone());
+        elements.insert(position, element);
     }
 
     #[pymethod(name = "__add__")]
@@ -202,7 +202,7 @@ impl PyList {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        get_item(vm, zelf.as_object(), &zelf.borrow_value(), needle.clone())
+        get_item(vm, zelf.as_object(), &zelf.borrow_value(), needle)
     }
 
     #[pymethod(name = "__iter__")]

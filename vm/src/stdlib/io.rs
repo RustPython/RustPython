@@ -404,7 +404,7 @@ fn bytes_io_new(
 }
 
 fn io_base_cm_enter(instance: PyObjectRef) -> PyObjectRef {
-    instance.clone()
+    instance
 }
 
 fn io_base_cm_exit(instance: PyObjectRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<()> {
@@ -561,7 +561,7 @@ fn buffered_io_base_init(
     buffer_size: OptionalArg<usize>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    vm.set_attr(&instance, "raw", raw.clone())?;
+    vm.set_attr(&instance, "raw", raw)?;
     vm.set_attr(
         &instance,
         "buffer_size",
@@ -591,7 +591,7 @@ fn buffered_reader_read(
     vm: &VirtualMachine,
 ) -> PyResult {
     vm.call_method(
-        &vm.get_attribute(instance.clone(), "raw")?,
+        &vm.get_attribute(instance, "raw")?,
         "read",
         vec![size.to_usize().into_pyobject(vm)],
     )
@@ -857,7 +857,7 @@ fn buffered_writer_write(instance: PyObjectRef, obj: PyObjectRef, vm: &VirtualMa
     let raw = vm.get_attribute(instance, "raw").unwrap();
 
     //This should be replaced with a more appropriate chunking implementation
-    vm.call_method(&raw, "write", vec![obj.clone()])
+    vm.call_method(&raw, "write", vec![obj])
 }
 
 fn buffered_writer_seekable(_self: PyObjectRef) -> bool {
@@ -936,7 +936,7 @@ fn text_io_wrapper_init(
         self_encoding.map_or_else(|| vm.get_none(), |s| vm.ctx.new_str(s)),
     )?;
     vm.set_attr(&instance, "errors", errors)?;
-    vm.set_attr(&instance, "buffer", args.buffer.clone())?;
+    vm.set_attr(&instance, "buffer", args.buffer)?;
 
     Ok(())
 }
@@ -982,7 +982,7 @@ fn text_io_wrapper_read(
     vm: &VirtualMachine,
 ) -> PyResult<String> {
     let buffered_reader_class = vm.try_class("_io", "BufferedReader")?;
-    let raw = vm.get_attribute(instance.clone(), "buffer").unwrap();
+    let raw = vm.get_attribute(instance, "buffer").unwrap();
 
     if !objtype::isinstance(&raw, &buffered_reader_class) {
         // TODO: this should be io.UnsupportedOperation error which derives both from ValueError *and* OSError
@@ -1013,7 +1013,7 @@ fn text_io_wrapper_write(
     use std::str::from_utf8;
 
     let buffered_writer_class = vm.try_class("_io", "BufferedWriter")?;
-    let raw = vm.get_attribute(instance.clone(), "buffer").unwrap();
+    let raw = vm.get_attribute(instance, "buffer").unwrap();
 
     if !objtype::isinstance(&raw, &buffered_writer_class) {
         // TODO: this should be io.UnsupportedOperation error which derives from ValueError and OSError
@@ -1041,7 +1041,7 @@ fn text_io_wrapper_readline(
     vm: &VirtualMachine,
 ) -> PyResult<String> {
     let buffered_reader_class = vm.try_class("_io", "BufferedReader")?;
-    let raw = vm.get_attribute(instance.clone(), "buffer").unwrap();
+    let raw = vm.get_attribute(instance, "buffer").unwrap();
 
     if !objtype::isinstance(&raw, &buffered_reader_class) {
         // TODO: this should be io.UnsupportedOperation error which derives both from ValueError *and* OSError
@@ -1197,7 +1197,7 @@ pub fn io_open(
     let file_io_obj = vm.invoke(
         &file_io_class,
         PyFuncArgs::from((
-            Args::new(vec![file.clone(), vm.ctx.new_str(mode.clone())]),
+            Args::new(vec![file, vm.ctx.new_str(mode.clone())]),
             KwArgs::new(maplit::hashmap! {
                 "closefd".to_owned() => vm.ctx.new_bool(opts.closefd),
                 "opener".to_owned() => opts.opener.unwrap_or_else(|| vm.get_none()),
@@ -1216,13 +1216,13 @@ pub fn io_open(
             let buffered_writer_class = vm
                 .get_attribute(io_module.clone(), "BufferedWriter")
                 .unwrap();
-            vm.invoke(&buffered_writer_class, vec![file_io_obj.clone()])
+            vm.invoke(&buffered_writer_class, vec![file_io_obj])
         }
         'r' => {
             let buffered_reader_class = vm
                 .get_attribute(io_module.clone(), "BufferedReader")
                 .unwrap();
-            vm.invoke(&buffered_reader_class, vec![file_io_obj.clone()])
+            vm.invoke(&buffered_reader_class, vec![file_io_obj])
         }
         //TODO: updating => PyBufferedRandom
         _ => unimplemented!("'+' modes is not yet implemented"),

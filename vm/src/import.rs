@@ -25,8 +25,7 @@ pub fn init_importlib(vm: &mut VirtualMachine, initialize_parameter: InitParamet
     match initialize_parameter {
         InitParameter::InitializeExternal if cfg!(feature = "rustpython-compiler") => {
             flame_guard!("install_external");
-            let install_external =
-                vm.get_attribute(importlib.clone(), "_install_external_importers")?;
+            let install_external = vm.get_attribute(importlib, "_install_external_importers")?;
             vm.invoke(&install_external, vec![])?;
             // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
             let importlib_external = vm.import("_frozen_importlib_external", &[], 0)?;

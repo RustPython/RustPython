@@ -86,7 +86,7 @@ impl ByteInnerNewOptions {
         // Only one argument
         } else {
             let value = if let OptionalArg::Present(ival) = self.val_option {
-                match_class!(match ival.clone() {
+                match_class!(match ival {
                     i @ PyInt => {
                         let size =
                             objint::get_value(&i.into_object())

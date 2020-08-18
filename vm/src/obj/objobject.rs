@@ -103,7 +103,7 @@ impl PyBaseObject {
     fn delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(attr) = obj.get_class_attr(attr_name.borrow_value()) {
             if let Some(descriptor) = attr.get_class_attr("__delete__") {
-                return vm.invoke(&descriptor, vec![attr, obj.clone()]).map(|_| ());
+                return vm.invoke(&descriptor, vec![attr, obj]).map(|_| ());
             }
         }
 
@@ -251,9 +251,7 @@ pub(crate) fn setattr(
 
     if let Some(attr) = obj.get_class_attr(attr_name.borrow_value()) {
         if let Some(descriptor) = attr.get_class_attr("__set__") {
-            return vm
-                .invoke(&descriptor, vec![attr, obj.clone(), value])
-                .map(|_| ());
+            return vm.invoke(&descriptor, vec![attr, obj, value]).map(|_| ());
         }
     }
 

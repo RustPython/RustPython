@@ -235,7 +235,7 @@ mod decl {
             let iter = get_iter(vm, &iterable)?;
 
             PyItertoolsCycle {
-                iter: iter.clone(),
+                iter,
                 saved: PyRwLock::new(Vec::new()),
                 index: AtomicCell::new(0),
             }
@@ -298,11 +298,7 @@ mod decl {
                 None => None,
             };
 
-            PyItertoolsRepeat {
-                object: object.clone(),
-                times,
-            }
-            .into_ref_with_type(vm, cls)
+            PyItertoolsRepeat { object, times }.into_ref_with_type(vm, cls)
         }
 
         #[pymethod(name = "__next__")]
@@ -898,12 +894,12 @@ mod decl {
             let acc_value = self.acc_value.read().clone();
 
             let next_acc_value = match acc_value {
-                None => obj.clone(),
+                None => obj,
                 Some(value) => {
                     if self.binop.is(&vm.get_none()) {
-                        vm._add(value.clone(), obj.clone())?
+                        vm._add(value, obj)?
                     } else {
-                        vm.invoke(&self.binop, vec![value.clone(), obj.clone()])?
+                        vm.invoke(&self.binop, vec![value, obj])?
                     }
                 }
             };
