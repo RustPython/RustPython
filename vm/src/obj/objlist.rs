@@ -527,7 +527,7 @@ impl PyList {
             let needle_str = vm.to_str(&needle)?;
             Err(vm.new_value_error(format!("'{}' is not in list", needle_str.borrow_value())))
         }
-        .map(|_| ())
+        .map(drop)
     }
 
     #[inline]
@@ -606,7 +606,7 @@ impl PyList {
                 Err(vm.new_index_error("Index out of bounds!".to_owned()))
             }
         };
-        removed.map(|_| ())
+        removed.map(drop)
     }
 
     fn delslice(&self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
