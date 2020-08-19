@@ -20,6 +20,7 @@ use crate::obj::objcode;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objcomplex::PyComplex;
 use crate::obj::objdict::{PyDict, PyDictRef};
+use crate::obj::objellipsis::PyEllipsis;
 use crate::obj::objfloat::PyFloat;
 use crate::obj::objfunction::{PyBoundMethod, PyFunction};
 use crate::obj::objgetset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet};
@@ -95,7 +96,7 @@ pub struct PyContext {
     pub false_value: PyIntRef,
     pub none: PyNoneRef,
     pub empty_tuple: PyTupleRef,
-    pub ellipsis: PyEllipsisRef,
+    pub ellipsis: PyRef<PyEllipsis>,
     pub not_implemented: PyNotImplementedRef,
 
     pub types: TypeZoo,
@@ -112,18 +113,6 @@ pub struct PyNotImplemented;
 impl PyValue for PyNotImplemented {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.not_implemented().class()
-    }
-}
-
-pub type PyEllipsisRef = PyRef<PyEllipsis>;
-
-#[pyclass(name = "EllipsisType")]
-#[derive(Debug)]
-pub struct PyEllipsis;
-
-impl PyValue for PyEllipsis {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.ellipsis_type()
     }
 }
 
