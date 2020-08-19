@@ -3,14 +3,14 @@ use crate::pyobject::{PyClassImpl, PyContext, PyEllipsis, PyResult};
 use crate::vm::VirtualMachine;
 
 pub(crate) fn init(context: &PyContext) {
-    PyEllipsis::extend_class(context, &context.ellipsis_type);
+    PyEllipsis::extend_class(context, &context.ellipsis_type());
 }
 
 #[pyimpl]
 impl PyEllipsis {
     #[pyslot]
     fn tp_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
-        if issubclass(&cls, &vm.ctx.ellipsis_type) {
+        if issubclass(&cls, &vm.ctx.ellipsis_type()) {
             Ok(vm.ctx.ellipsis())
         } else {
             Err(vm.new_type_error(format!(
