@@ -29,7 +29,7 @@ mod decl {
     #[pyattr]
     use libz::Z_DEFAULT_COMPRESSION;
     #[pyattr]
-    use libz::Z_DEFLATED;
+    use libz::Z_DEFLATED as DEFLATED;
     #[pyattr]
     use libz::Z_NO_COMPRESSION;
 
