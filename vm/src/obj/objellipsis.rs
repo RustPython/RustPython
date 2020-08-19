@@ -1,9 +1,19 @@
 use super::objtype::{issubclass, PyClassRef};
-use crate::pyobject::{PyClassImpl, PyContext, PyEllipsis, PyResult};
+use crate::pyobject::{PyClassImpl, PyContext, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 pub(crate) fn init(context: &PyContext) {
     PyEllipsis::extend_class(context, &context.ellipsis_type());
+}
+
+#[pyclass(name = "EllipsisType")]
+#[derive(Debug)]
+pub struct PyEllipsis;
+
+impl PyValue for PyEllipsis {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.ellipsis_type()
+    }
 }
 
 #[pyimpl]
