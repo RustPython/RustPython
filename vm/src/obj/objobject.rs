@@ -1,5 +1,5 @@
 use super::objbool;
-use super::objdict::PyDictRef;
+use super::objdict::{PyDict, PyDictRef};
 use super::objlist::PyList;
 use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
@@ -147,7 +147,7 @@ impl PyBaseObject {
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let attributes: PyAttributes = obj.class().get_attributes();
 
-        let dict = PyDictRef::from_attributes(attributes, vm)?;
+        let dict = PyDict::from_attributes(attributes, vm)?.into_ref(vm);
 
         // Get instance attributes:
         if let Some(object_dict) = obj.dict() {
