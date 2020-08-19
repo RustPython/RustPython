@@ -657,6 +657,7 @@ mod fileio {
     type FileIORef = PyRef<FileIO>;
 
     impl PyValue for FileIO {
+        const HAVE_DICT: bool = true;
         fn class(vm: &VirtualMachine) -> PyClassRef {
             vm.class("_io", "FileIO")
         }
@@ -674,7 +675,7 @@ mod fileio {
         opener: Option<PyObjectRef>,
     }
 
-    #[pyimpl(flags(HAS_DICT))]
+    #[pyimpl]
     impl FileIO {
         #[pyslot]
         fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<FileIORef> {
