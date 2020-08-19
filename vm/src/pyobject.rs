@@ -118,6 +118,7 @@ impl PyValue for PyNotImplemented {
 
 pub type PyEllipsisRef = PyRef<PyEllipsis>;
 
+#[pyclass(name="EllipsisType")]
 #[derive(Debug)]
 pub struct PyEllipsis;
 
