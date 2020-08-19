@@ -95,7 +95,6 @@ pub struct PyContext {
     pub false_value: PyIntRef,
     pub none: PyNoneRef,
     pub empty_tuple: PyTupleRef,
-    pub ellipsis_type: PyClassRef,
     pub ellipsis: PyEllipsisRef,
     pub not_implemented: PyNotImplementedRef,
 
@@ -118,13 +117,13 @@ impl PyValue for PyNotImplemented {
 
 pub type PyEllipsisRef = PyRef<PyEllipsis>;
 
-#[pyclass(name="EllipsisType")]
+#[pyclass(name = "EllipsisType")]
 #[derive(Debug)]
 pub struct PyEllipsis;
 
 impl PyValue for PyEllipsis {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.ellipsis_type.clone()
+        vm.ctx.ellipsis_type()
     }
 }
 
@@ -145,8 +144,7 @@ impl PyContext {
         let none_type = create_type("NoneType", &types.type_type, &types.object_type);
         let none = create_object(PyNone, &none_type);
 
-        let ellipsis_type = create_type("EllipsisType", &types.type_type, &types.object_type);
-        let ellipsis = create_object(PyEllipsis, &ellipsis_type);
+        let ellipsis = create_object(PyEllipsis, &types.ellipsis_type);
 
         let not_implemented_type =
             create_type("NotImplementedType", &types.type_type, &types.object_type);
@@ -174,7 +172,6 @@ impl PyContext {
             none,
             empty_tuple,
             ellipsis,
-            ellipsis_type,
 
             types,
             exceptions,
@@ -381,6 +378,10 @@ impl PyContext {
 
     pub fn ellipsis(&self) -> PyObjectRef {
         self.ellipsis.clone().into_object()
+    }
+
+    pub fn ellipsis_type(&self) -> PyClassRef {
+        self.types.ellipsis_type.clone()
     }
 
     pub fn not_implemented(&self) -> PyObjectRef {
