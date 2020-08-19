@@ -7,6 +7,9 @@ bitflags! {
         const HEAPTYPE = 1 << 9;
         const BASETYPE = 1 << 10;
         const HAS_DICT = 1 << 40;
+
+        #[cfg(debug_assertions)]
+        const _CREATED_WITH_FLAGS = 1 << 63;
     }
 }
 
@@ -16,6 +19,14 @@ impl PyTpFlags {
 
     pub fn has_feature(self, flag: Self) -> bool {
         self.contains(flag)
+    }
+
+    pub fn is_created_with_flags(self) -> bool {
+        if cfg!(debug_assertions) {
+            self.contains(Self::_CREATED_WITH_FLAGS)
+        } else {
+            true
+        }
     }
 }
 
