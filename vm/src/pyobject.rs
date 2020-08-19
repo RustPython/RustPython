@@ -130,7 +130,7 @@ impl PyContext {
             PyRef::new_ref(payload, cls.clone(), None)
         }
 
-        let none_type = create_type("NoneType", &types.type_type, &types.object_type);
+        let none_type = PyNone::create_bare_type(&types.type_type, &types.object_type);
         let none = create_object(PyNone, &none_type);
 
         let ellipsis = create_object(PyEllipsis, &types.ellipsis_type);
@@ -1446,7 +1446,10 @@ pub trait PyClassImpl: PyClassDef {
     fn impl_extend_class(ctx: &PyContext, class: &PyClassRef);
 
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
-        debug_assert!(class.flags.is_created_with_flags());
+        #[cfg(debug_assertions)]
+        {
+            assert!(class.flags.is_created_with_flags());
+        }
         if Self::TP_FLAGS.has_feature(PyTpFlags::HAS_DICT) {
             class.set_str_attr(
                 "__dict__",

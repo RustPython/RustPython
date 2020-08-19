@@ -555,7 +555,7 @@ macro_rules! dict_iterator {
     ( $name: ident, $iter_name: ident, $class: ident, $iter_class: ident, $class_name: literal, $iter_class_name: literal, $result_fn: expr) => {
         #[pyclass(name = $class_name)]
         #[derive(Debug)]
-        struct $name {
+        pub(crate) struct $name {
             pub dict: PyDictRef,
         }
 
@@ -600,7 +600,7 @@ macro_rules! dict_iterator {
 
         #[pyclass(name = $iter_class_name)]
         #[derive(Debug)]
-        struct $iter_name {
+        pub(crate) struct $iter_name {
             pub dict: PyDictRef,
             pub size: dictdatatype::DictSize,
             pub position: AtomicCell<usize>,

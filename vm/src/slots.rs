@@ -21,12 +21,9 @@ impl PyTpFlags {
         self.contains(flag)
     }
 
+    #[cfg(debug_assertions)]
     pub fn is_created_with_flags(self) -> bool {
-        if cfg!(debug_assertions) {
-            self.contains(Self::_CREATED_WITH_FLAGS)
-        } else {
-            true
-        }
+        self.contains(Self::_CREATED_WITH_FLAGS)
     }
 }
 
