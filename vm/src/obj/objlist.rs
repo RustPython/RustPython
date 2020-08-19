@@ -837,7 +837,7 @@ pub struct PyListIterator {
 
 impl PyValue for PyListIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.listiterator_type()
+        vm.ctx.list_iterator_type()
     }
 }
 
@@ -876,7 +876,7 @@ pub struct PyListReverseIterator {
 
 impl PyValue for PyListReverseIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.listreverseiterator_type()
+        vm.ctx.list_reverseiterator_type()
     }
 }
 
@@ -909,6 +909,6 @@ pub fn init(context: &PyContext) {
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
 
-    PyListIterator::extend_class(context, &context.types.listiterator_type);
-    PyListReverseIterator::extend_class(context, &context.types.listreverseiterator_type);
+    PyListIterator::extend_class(context, &context.types.list_iterator_type);
+    PyListReverseIterator::extend_class(context, &context.types.list_reverseiterator_type);
 }

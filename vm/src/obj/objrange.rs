@@ -125,7 +125,7 @@ pub fn get_value(obj: &PyObjectRef) -> PyRange {
 
 pub fn init(context: &PyContext) {
     PyRange::extend_class(context, &context.types.range_type);
-    PyRangeIterator::extend_class(context, &context.types.rangeiterator_type);
+    PyRangeIterator::extend_class(context, &context.types.range_iterator_type);
 }
 
 type PyRangeRef = PyRef<PyRange>;
@@ -409,7 +409,7 @@ pub struct PyRangeIterator {
 
 impl PyValue for PyRangeIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.rangeiterator_type()
+        vm.ctx.range_iterator_type()
     }
 }
 

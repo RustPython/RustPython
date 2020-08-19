@@ -52,9 +52,9 @@ pub struct TypeZoo {
     pub async_generator_athrow: PyClassRef,
     pub async_generator_wrapped_value: PyClassRef,
     pub bytes_type: PyClassRef,
-    pub bytesiterator_type: PyClassRef,
+    pub bytes_iterator_type: PyClassRef,
     pub bytearray_type: PyClassRef,
-    pub bytearrayiterator_type: PyClassRef,
+    pub bytearray_iterator_type: PyClassRef,
     pub bool_type: PyClassRef,
     pub callable_iterator: PyClassRef,
     pub classmethod_type: PyClassRef,
@@ -72,27 +72,27 @@ pub struct TypeZoo {
     pub iter_type: PyClassRef,
     pub complex_type: PyClassRef,
     pub list_type: PyClassRef,
-    pub listiterator_type: PyClassRef,
-    pub listreverseiterator_type: PyClassRef,
-    pub striterator_type: PyClassRef,
-    pub strreverseiterator_type: PyClassRef,
-    pub dictkeyiterator_type: PyClassRef,
-    pub dictvalueiterator_type: PyClassRef,
-    pub dictitemiterator_type: PyClassRef,
-    pub dictkeys_type: PyClassRef,
-    pub dictvalues_type: PyClassRef,
-    pub dictitems_type: PyClassRef,
+    pub list_iterator_type: PyClassRef,
+    pub list_reverseiterator_type: PyClassRef,
+    pub str_iterator_type: PyClassRef,
+    pub str_reverseiterator_type: PyClassRef,
+    pub dict_keyiterator_type: PyClassRef,
+    pub dict_valueiterator_type: PyClassRef,
+    pub dict_itemiterator_type: PyClassRef,
+    pub dict_keys_type: PyClassRef,
+    pub dict_values_type: PyClassRef,
+    pub dict_items_type: PyClassRef,
     pub map_type: PyClassRef,
     pub memoryview_type: PyClassRef,
     pub tuple_type: PyClassRef,
-    pub tupleiterator_type: PyClassRef,
+    pub tuple_iterator_type: PyClassRef,
     pub set_type: PyClassRef,
-    pub setiterator_type: PyClassRef,
+    pub set_iterator_type: PyClassRef,
     pub staticmethod_type: PyClassRef,
     pub super_type: PyClassRef,
     pub str_type: PyClassRef,
     pub range_type: PyClassRef,
-    pub rangeiterator_type: PyClassRef,
+    pub range_iterator_type: PyClassRef,
     pub slice_type: PyClassRef,
     pub type_type: PyClassRef,
     pub zip_type: PyClassRef,
@@ -149,30 +149,30 @@ impl TypeZoo {
         let bound_method_type = create_type("method", &type_type, &object_type);
         let str_type = create_type("str", &type_type, &object_type);
         let list_type = create_type("list", &type_type, &object_type);
-        let listiterator_type = create_type("list_iterator", &type_type, &object_type);
-        let listreverseiterator_type =
+        let list_iterator_type = create_type("list_iterator", &type_type, &object_type);
+        let list_reverseiterator_type =
             create_type("list_reverseiterator", &type_type, &object_type);
-        let striterator_type = create_type("str_iterator", &type_type, &object_type);
-        let strreverseiterator_type = create_type("str_reverseiterator", &type_type, &object_type);
-        let dictkeys_type = create_type("dict_keys", &type_type, &object_type);
-        let dictvalues_type = create_type("dict_values", &type_type, &object_type);
-        let dictitems_type = create_type("dict_items", &type_type, &object_type);
-        let dictkeyiterator_type = create_type("dict_keyiterator", &type_type, &object_type);
-        let dictvalueiterator_type = create_type("dict_valueiterator", &type_type, &object_type);
-        let dictitemiterator_type = create_type("dict_itemiterator", &type_type, &object_type);
+        let str_iterator_type = create_type("str_iterator", &type_type, &object_type);
+        let str_reverseiterator_type = create_type("str_reverseiterator", &type_type, &object_type);
+        let dict_keys_type = create_type("dict_keys", &type_type, &object_type);
+        let dict_values_type = create_type("dict_values", &type_type, &object_type);
+        let dict_items_type = create_type("dict_items", &type_type, &object_type);
+        let dict_keyiterator_type = create_type("dict_keyiterator", &type_type, &object_type);
+        let dict_valueiterator_type = create_type("dict_valueiterator", &type_type, &object_type);
+        let dict_itemiterator_type = create_type("dict_itemiterator", &type_type, &object_type);
         let set_type = create_type("set", &type_type, &object_type);
         let frozenset_type = create_type("frozenset", &type_type, &object_type);
-        let setiterator_type = create_type("set_iterator", &type_type, &object_type);
+        let set_iterator_type = create_type("set_iterator", &type_type, &object_type);
         let int_type = create_type("int", &type_type, &object_type);
         let float_type = create_type("float", &type_type, &object_type);
         let frame_type = create_type("frame", &type_type, &object_type);
         let complex_type = create_type("complex", &type_type, &object_type);
         let bytes_type = create_type("bytes", &type_type, &object_type);
-        let bytesiterator_type = create_type("bytes_iterator", &type_type, &object_type);
+        let bytes_iterator_type = create_type("bytes_iterator", &type_type, &object_type);
         let bytearray_type = create_type("bytearray", &type_type, &object_type);
-        let bytearrayiterator_type = create_type("bytearray_iterator", &type_type, &object_type);
+        let bytearray_iterator_type = create_type("bytearray_iterator", &type_type, &object_type);
         let tuple_type = create_type("tuple", &type_type, &object_type);
-        let tupleiterator_type = create_type("tuple_iterator", &type_type, &object_type);
+        let tuple_iterator_type = create_type("tuple_iterator", &type_type, &object_type);
         let iter_type = create_type("iter", &type_type, &object_type);
         let enumerate_type = create_type("enumerate", &type_type, &object_type);
         let filter_type = create_type("filter", &type_type, &object_type);
@@ -182,7 +182,7 @@ impl TypeZoo {
         let memoryview_type = create_type("memoryview", &type_type, &object_type);
         let code_type = create_type("code", &type_type, &object_type);
         let range_type = create_type("range", &type_type, &object_type);
-        let rangeiterator_type = create_type("range_iterator", &type_type, &object_type);
+        let range_iterator_type = create_type("range_iterator", &type_type, &object_type);
         let slice_type = create_type("slice", &type_type, &object_type);
         let mappingproxy_type = create_type("mappingproxy", &type_type, &object_type);
         let traceback_type = create_type("traceback", &type_type, &object_type);
@@ -196,9 +196,9 @@ impl TypeZoo {
             bool_type,
             memoryview_type,
             bytearray_type,
-            bytearrayiterator_type,
+            bytearray_iterator_type,
             bytes_type,
-            bytesiterator_type,
+            bytes_iterator_type,
             callable_iterator,
             code_type,
             coroutine_type,
@@ -210,21 +210,21 @@ impl TypeZoo {
             frame_type,
             staticmethod_type,
             list_type,
-            listiterator_type,
-            listreverseiterator_type,
-            striterator_type,
-            strreverseiterator_type,
-            dictkeys_type,
-            dictvalues_type,
-            dictitems_type,
-            dictkeyiterator_type,
-            dictvalueiterator_type,
-            dictitemiterator_type,
+            list_iterator_type,
+            list_reverseiterator_type,
+            str_iterator_type,
+            str_reverseiterator_type,
+            dict_keys_type,
+            dict_values_type,
+            dict_items_type,
+            dict_keyiterator_type,
+            dict_valueiterator_type,
+            dict_itemiterator_type,
             set_type,
             frozenset_type,
-            setiterator_type,
+            set_iterator_type,
             tuple_type,
-            tupleiterator_type,
+            tuple_iterator_type,
             iter_type,
             enumerate_type,
             filter_type,
@@ -233,7 +233,7 @@ impl TypeZoo {
             dict_type,
             str_type,
             range_type,
-            rangeiterator_type,
+            range_iterator_type,
             slice_type,
             object_type,
             function_type,

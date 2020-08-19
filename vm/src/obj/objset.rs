@@ -833,7 +833,7 @@ pub(crate) struct PySetIterator {
 impl fmt::Debug for PySetIterator {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
-        f.write_str("setiterator")
+        f.write_str("set_iterator")
     }
 }
 
@@ -877,12 +877,12 @@ impl PySetIterator {
 
 impl PyValue for PySetIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.setiterator_type()
+        vm.ctx.set_iterator_type()
     }
 }
 
 pub fn init(context: &PyContext) {
     PySet::extend_class(context, &context.types.set_type);
     PyFrozenSet::extend_class(context, &context.types.frozenset_type);
-    PySetIterator::extend_class(context, &context.types.setiterator_type);
+    PySetIterator::extend_class(context, &context.types.set_iterator_type);
 }

@@ -89,7 +89,7 @@ pub(crate) fn init(context: &PyContext) {
         "maketrans" => context.new_method(PyBytesInner::maketrans),
     });
 
-    PyByteArrayIterator::extend_class(context, &context.types.bytearrayiterator_type);
+    PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
 }
 
 #[pyimpl(flags(BASETYPE))]
@@ -615,7 +615,7 @@ pub struct PyByteArrayIterator {
 
 impl PyValue for PyByteArrayIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.bytearrayiterator_type()
+        vm.ctx.bytearray_iterator_type()
     }
 }
 

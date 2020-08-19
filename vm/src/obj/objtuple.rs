@@ -264,7 +264,7 @@ pub struct PyTupleIterator {
 
 impl PyValue for PyTupleIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.tupleiterator_type()
+        vm.ctx.tuple_iterator_type()
     }
 }
 
@@ -290,5 +290,5 @@ pub fn init(context: &PyContext) {
     let tuple_type = &context.types.tuple_type;
     PyTuple::extend_class(context, tuple_type);
 
-    PyTupleIterator::extend_class(context, &context.types.tupleiterator_type);
+    PyTupleIterator::extend_class(context, &context.types.tuple_iterator_type);
 }
