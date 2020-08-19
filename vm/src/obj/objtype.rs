@@ -544,15 +544,11 @@ fn call_tp_new(
                 return vm.invoke(&new_meth, args.insert(typ.clone().into_object()));
             }
         }
+        if let Some(tp_new) = cls.slots.read().new.as_ref() {
+            return tp_new(vm, args.insert(subtype.into_object()));
+        }
     }
-    let class_with_new_slot = typ
-        .iter_mro()
-        .cloned()
-        .find(|cls| cls.slots.read().new.is_some())
-        .expect("Should be able to find a new slot somewhere in the mro");
-    let slots = class_with_new_slot.slots.read();
-    let new_slot = slots.new.as_ref().unwrap();
-    new_slot(vm, args.insert(subtype.into_object()))
+    unreachable!("Should be able to find a new slot somewhere in the mro")
 }
 
 pub fn tp_new_wrapper(
