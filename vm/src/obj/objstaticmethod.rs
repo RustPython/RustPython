@@ -43,10 +43,7 @@ impl PyStaticMethod {
         callable: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyStaticMethodRef> {
-        PyStaticMethod {
-            callable: callable.clone(),
-        }
-        .into_ref_with_type(vm, cls)
+        PyStaticMethod { callable }.into_ref_with_type(vm, cls)
     }
 }
 

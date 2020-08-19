@@ -36,7 +36,7 @@ impl PyMap {
             .map(|iterable| objiter::get_iter(vm, &iterable))
             .collect::<Result<Vec<_>, _>>()?;
         PyMap {
-            mapper: function.clone(),
+            mapper: function,
             iterators,
         }
         .into_ref_with_type(vm, cls)

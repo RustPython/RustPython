@@ -35,7 +35,7 @@ impl PyFilter {
         let iterator = objiter::get_iter(vm, &iterable)?;
 
         PyFilter {
-            predicate: function.clone(),
+            predicate: function,
             iterator,
         }
         .into_ref_with_type(vm, cls)

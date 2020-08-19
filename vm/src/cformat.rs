@@ -292,10 +292,9 @@ impl CFormatSpec {
                 let result = match preconversor {
                     CFormatPreconversor::Str => vm.to_str(&obj)?,
                     CFormatPreconversor::Repr | CFormatPreconversor::Ascii => vm.to_repr(&obj)?,
-                    CFormatPreconversor::Bytes => TryFromObject::try_from_object(
-                        vm,
-                        vm.call_method(&obj.clone(), "decode", vec![])?,
-                    )?,
+                    CFormatPreconversor::Bytes => {
+                        TryFromObject::try_from_object(vm, vm.call_method(&obj, "decode", vec![])?)?
+                    }
                 };
                 Ok(self.format_string(result.borrow_value().to_owned()))
             }

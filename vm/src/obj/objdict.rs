@@ -341,7 +341,7 @@ impl PyDictRef {
 
     #[pymethod(name = "__ior__")]
     fn ior(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let dicted: Result<PyDictRef, _> = other.clone().downcast();
+        let dicted: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = dicted {
             PyDictRef::merge_dict(&self.entries, other, vm)?;
             return Ok(self.into_object());
@@ -351,7 +351,7 @@ impl PyDictRef {
 
     #[pymethod(name = "__ror__")]
     fn ror(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDict> {
-        let dicted: Result<PyDictRef, _> = other.clone().downcast();
+        let dicted: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = dicted {
             let other_cp = other.copy();
             PyDictRef::merge_dict(&other_cp.entries, self, vm)?;
@@ -362,7 +362,7 @@ impl PyDictRef {
 
     #[pymethod(name = "__or__")]
     fn or(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDict> {
-        let dicted: Result<PyDictRef, _> = other.clone().downcast();
+        let dicted: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = dicted {
             let self_cp = self.copy();
             PyDictRef::merge_dict(&self_cp.entries, other, vm)?;

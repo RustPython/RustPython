@@ -175,13 +175,9 @@ mod decl {
 
     #[pyfunction]
     fn divmod(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.call_or_reflection(
-            a.clone(),
-            b.clone(),
-            "__divmod__",
-            "__rdivmod__",
-            |vm, a, b| Err(vm.new_unsupported_operand_error(a, b, "divmod")),
-        )
+        vm.call_or_reflection(a, b, "__divmod__", "__rdivmod__", |vm, a, b| {
+            Err(vm.new_unsupported_operand_error(a, b, "divmod"))
+        })
     }
 
     #[cfg(feature = "rustpython-compiler")]
@@ -307,7 +303,7 @@ mod decl {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let ret = vm.get_attribute(obj.clone(), attr);
+        let ret = vm.get_attribute(obj, attr);
         if let OptionalArg::Present(default) = default {
             ret.or_else(|ex| catch_attr_exception(ex, default, vm))
         } else {
@@ -322,7 +318,7 @@ mod decl {
 
     #[pyfunction]
     fn hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Err(ex) = vm.get_attribute(obj.clone(), attr) {
+        if let Err(ex) = vm.get_attribute(obj, attr) {
             catch_attr_exception(ex, false, vm)
         } else {
             Ok(true)
@@ -533,7 +529,7 @@ mod decl {
                 if objtype::isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
                     match default_value {
                         OptionalArg::Missing => Err(value),
-                        OptionalArg::Present(value) => Ok(value.clone()),
+                        OptionalArg::Present(value) => Ok(value),
                     }
                 } else {
                     Err(value)
@@ -595,7 +591,7 @@ mod decl {
     ) -> PyResult {
         match mod_value {
             OptionalArg::Missing => {
-                vm.call_or_reflection(x.clone(), y.clone(), "__pow__", "__rpow__", |vm, x, y| {
+                vm.call_or_reflection(x, y, "__pow__", "__rpow__", |vm, x, y| {
                     Err(vm.new_unsupported_operand_error(x, y, "pow"))
                 })
             }

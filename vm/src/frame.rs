@@ -1394,7 +1394,7 @@ impl ExecutingFrame<'_> {
         needle: PyObjectRef,
         haystack: PyObjectRef,
     ) -> PyResult<bool> {
-        let found = vm._membership(haystack.clone(), needle)?;
+        let found = vm._membership(haystack, needle)?;
         Ok(objbool::boolval(vm, found)?)
     }
 
@@ -1404,7 +1404,7 @@ impl ExecutingFrame<'_> {
         needle: PyObjectRef,
         haystack: PyObjectRef,
     ) -> PyResult<bool> {
-        let found = vm._membership(haystack.clone(), needle)?;
+        let found = vm._membership(haystack, needle)?;
         Ok(!objbool::boolval(vm, found)?)
     }
 

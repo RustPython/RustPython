@@ -66,10 +66,7 @@ impl PyClassMethod {
         callable: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyClassMethodRef> {
-        PyClassMethod {
-            callable: callable.clone(),
-        }
-        .into_ref_with_type(vm, cls)
+        PyClassMethod { callable }.into_ref_with_type(vm, cls)
     }
 
     #[pyproperty(name = "__func__")]
