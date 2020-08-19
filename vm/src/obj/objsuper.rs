@@ -21,7 +21,7 @@ use itertools::Itertools;
 
 pub type PySuperRef = PyRef<PySuper>;
 
-#[pyclass]
+#[pyclass(name = "super")]
 #[derive(Debug)]
 pub struct PySuper {
     typ: PyClassRef,

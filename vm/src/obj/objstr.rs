@@ -103,7 +103,7 @@ impl TryIntoRef<PyString> for &str {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "str_iterator")]
 #[derive(Debug)]
 pub struct PyStringIterator {
     pub string: PyStringRef,
@@ -136,7 +136,7 @@ impl PyStringIterator {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "str_reverseiterator")]
 #[derive(Debug)]
 pub struct PyStringReverseIterator {
     pub position: AtomicCell<isize>,

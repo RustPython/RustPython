@@ -488,7 +488,7 @@ impl PyBytes {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "bytes_iterator")]
 #[derive(Debug)]
 pub struct PyBytesIterator {
     position: AtomicCell<usize>,

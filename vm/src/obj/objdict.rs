@@ -18,7 +18,7 @@ use std::mem::size_of;
 
 pub type DictContentType = dictdatatype::Dict;
 
-#[pyclass]
+#[pyclass(name = "dict")]
 #[derive(Default)]
 pub struct PyDict {
     entries: DictContentType,

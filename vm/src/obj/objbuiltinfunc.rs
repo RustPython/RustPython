@@ -9,7 +9,7 @@ use crate::pyobject::{
 use crate::slots::{SlotCall, SlotDescriptor};
 use crate::vm::VirtualMachine;
 
-#[pyclass]
+#[pyclass(name = "builtin_function_or_method")]
 pub struct PyBuiltinFunction {
     value: PyNativeFunc,
     module: Option<PyStringRef>,
@@ -70,7 +70,7 @@ impl PyBuiltinFunction {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "method_descriptor")]
 pub struct PyBuiltinMethod {
     function: PyBuiltinFunction,
 }

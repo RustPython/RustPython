@@ -149,7 +149,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
     Ok(Some(hint))
 }
 
-#[pyclass]
+#[pyclass(name = "iter")]
 #[derive(Debug)]
 pub struct PySequenceIterator {
     pub position: AtomicCell<isize>,

@@ -606,7 +606,7 @@ impl PyByteArray {
 //     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
 // }
 
-#[pyclass]
+#[pyclass(name = "bytearray_iterator")]
 #[derive(Debug)]
 pub struct PyByteArrayIterator {
     position: AtomicCell<usize>,

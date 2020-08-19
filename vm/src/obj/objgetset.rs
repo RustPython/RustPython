@@ -144,7 +144,7 @@ where
     }
 }
 
-#[pyclass]
+#[pyclass(name = "getset_descriptor")]
 pub struct PyGetSet {
     name: String,
     getter: Option<PyGetterFunc>,
