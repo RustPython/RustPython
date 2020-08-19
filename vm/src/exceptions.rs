@@ -45,12 +45,14 @@ pub trait IntoPyException {
 }
 
 impl PyValue for PyBaseException {
+    const HAVE_DICT: bool = true;
+
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.exceptions.base_exception_type.clone()
     }
 }
 
-#[pyimpl(flags(BASETYPE, HAS_DICT))]
+#[pyimpl(flags(BASETYPE))]
 impl PyBaseException {
     pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
         PyBaseException {
@@ -465,7 +467,7 @@ impl ExceptionZoo {
     pub fn new(type_type: &PyClassRef, object_type: &PyClassRef) -> Self {
         let create_exception_type = |name: &str, base: &PyClassRef| {
             let typ = create_type(name, type_type, base);
-            typ.slots.write().flags |= PyTpFlags::BASETYPE | PyTpFlags::HAS_DICT;
+            typ.slots.write().flags |= PyTpFlags::BASETYPE;
             typ
         };
         // Sorted By Hierarchy then alphabetized.
