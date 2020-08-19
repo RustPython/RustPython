@@ -20,8 +20,8 @@ use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    BorrowValue, BufferProtocol, Either, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject,
+    BorrowValue, BufferProtocol, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -197,7 +197,7 @@ impl PyStringIORef {
         if !self.closed.load() {
             Ok(self.buffer.write())
         } else {
-            Err(vm.new_value_error("I/O operation on closed file.".to_owned()))
+            Err(io_closed_error(vm))
         }
     }
 
@@ -322,7 +322,7 @@ impl PyBytesIORef {
         if !self.closed.load() {
             Ok(self.buffer.write())
         } else {
-            Err(vm.new_value_error("I/O operation on closed file.".to_owned()))
+            Err(io_closed_error(vm))
         }
     }
 
@@ -461,6 +461,10 @@ fn io_base_readline(
     Ok(res)
 }
 
+fn io_closed_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+    vm.new_value_error("I/O operation on closed file".to_owned())
+}
+
 fn io_base_checkclosed(
     instance: PyObjectRef,
     msg: OptionalOption<PyObjectRef>,
@@ -469,7 +473,7 @@ fn io_base_checkclosed(
     if objbool::boolval(vm, vm.get_attribute(instance, "closed")?)? {
         let msg = msg
             .flatten()
-            .unwrap_or_else(|| vm.ctx.new_str("I/O operation on closed file."));
+            .unwrap_or_else(|| vm.ctx.new_str("I/O operation on closed file"));
         Err(vm.new_exception(vm.ctx.exceptions.value_error.clone(), vec![msg]))
     } else {
         Ok(())
@@ -643,6 +647,21 @@ mod fileio {
         flag as u32
     }
 
+    #[pyclass]
+    #[derive(Debug)]
+    struct FileIO {
+        fd: AtomicCell<i64>,
+        closefd: AtomicCell<bool>,
+    }
+
+    type FileIORef = PyRef<FileIO>;
+
+    impl PyValue for FileIO {
+        fn class(vm: &VirtualMachine) -> PyClassRef {
+            vm.class("_io", "FileIO")
+        }
+    }
+
     #[derive(FromArgs)]
     struct FileIOArgs {
         #[pyarg(positional_only)]
@@ -654,202 +673,217 @@ mod fileio {
         #[pyarg(positional_or_keyword, default = "None")]
         opener: Option<PyObjectRef>,
     }
-    fn file_io_init(file_io: PyObjectRef, args: FileIOArgs, vm: &VirtualMachine) -> PyResult {
-        let mode = args
-            .mode
-            .map(|mode| mode.borrow_value().to_owned())
-            .unwrap_or_else(|| "r".to_owned());
-        let (name, file_no) = match args.name {
-            Either::A(name) => {
-                if !args.closefd {
-                    return Err(
-                        vm.new_value_error("Cannot use closefd=False with file name".to_owned())
-                    );
+
+    #[pyimpl(flags(HAS_DICT))]
+    impl FileIO {
+        #[pyslot]
+        fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<FileIORef> {
+            FileIO {
+                fd: AtomicCell::new(-1),
+                closefd: AtomicCell::new(false),
+            }
+            .into_ref_with_type(vm, cls)
+        }
+
+        #[pymethod(magic)]
+        fn init(zelf: PyRef<Self>, args: FileIOArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let mode = args
+                .mode
+                .map(|mode| mode.borrow_value().to_owned())
+                .unwrap_or_else(|| "r".to_owned());
+            let (name, file_no) = match args.name {
+                Either::A(name) => {
+                    if !args.closefd {
+                        return Err(vm.new_value_error(
+                            "Cannot use closefd=False with file name".to_owned(),
+                        ));
+                    }
+                    let mode = compute_c_flag(&mode);
+                    let fd = if let Some(opener) = args.opener {
+                        let fd = vm.invoke(
+                            &opener,
+                            vec![name.clone().into_object(), vm.ctx.new_int(mode)],
+                        )?;
+                        if !vm.isinstance(&fd, &vm.ctx.types.int_type)? {
+                            return Err(
+                                vm.new_type_error("expected integer from opener".to_owned())
+                            );
+                        }
+                        let fd = i64::try_from_object(vm, fd)?;
+                        if fd < 0 {
+                            return Err(vm.new_os_error("Negative file descriptor".to_owned()));
+                        }
+                        fd
+                    } else {
+                        os::open(
+                            os::PyPathLike::new_str(name.borrow_value().to_owned()),
+                            mode as _,
+                            OptionalArg::Missing,
+                            OptionalArg::Missing,
+                            vm,
+                        )?
+                    };
+                    (name.into_object(), fd)
                 }
-                let mode = compute_c_flag(&mode);
-                let fd = if let Some(opener) = args.opener {
-                    let fd = vm.invoke(
-                        &opener,
-                        vec![name.clone().into_object(), vm.ctx.new_int(mode)],
-                    )?;
-                    if !vm.isinstance(&fd, &vm.ctx.types.int_type)? {
-                        return Err(vm.new_type_error("expected integer from opener".to_owned()));
-                    }
-                    let fd = i64::try_from_object(vm, fd)?;
-                    if fd < 0 {
-                        return Err(vm.new_os_error("Negative file descriptor".to_owned()));
-                    }
-                    fd
-                } else {
-                    os::open(
-                        os::PyPathLike::new_str(name.borrow_value().to_owned()),
-                        mode as _,
-                        OptionalArg::Missing,
-                        OptionalArg::Missing,
-                        vm,
-                    )?
-                };
-                (name.into_object(), fd)
-            }
-            Either::B(fno) => (vm.ctx.new_int(fno), fno),
-        };
+                Either::B(fno) => (vm.ctx.new_int(fno), fno),
+            };
 
-        vm.set_attr(&file_io, "name", name)?;
-        vm.set_attr(&file_io, "mode", vm.ctx.new_str(mode))?;
-        vm.set_attr(&file_io, "__fileno", vm.ctx.new_int(file_no))?;
-        vm.set_attr(&file_io, "closefd", vm.ctx.new_bool(args.closefd))?;
-        vm.set_attr(&file_io, "__closed", vm.ctx.new_bool(false))?;
-        Ok(vm.get_none())
-    }
-
-    fn fio_get_fileno(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult<fs::File> {
-        io_base_checkclosed(instance.clone(), OptionalArg::Missing, vm)?;
-        let fileno = i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
-        Ok(os::rust_file(fileno))
-    }
-    fn fio_set_fileno(instance: &PyObjectRef, f: fs::File, vm: &VirtualMachine) -> PyResult<()> {
-        let updated = os::raw_file_number(f);
-        vm.set_attr(&instance, "__fileno", vm.ctx.new_int(updated))?;
-        Ok(())
-    }
-
-    fn file_io_read(
-        instance: PyObjectRef,
-        read_byte: OptionalSize,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
-        let mut handle = fio_get_fileno(&instance, vm)?;
-        let bytes = if let Some(read_byte) = read_byte.to_usize() {
-            let mut bytes = vec![0; read_byte as usize];
-            let n = handle
-                .read(&mut bytes)
-                .map_err(|err| err.into_pyexception(vm))?;
-            bytes.truncate(n);
-            bytes
-        } else {
-            let mut bytes = vec![];
-            handle
-                .read_to_end(&mut bytes)
-                .map_err(|err| err.into_pyexception(vm))?;
-            bytes
-        };
-        fio_set_fileno(&instance, handle, vm)?;
-
-        Ok(bytes)
-    }
-
-    fn file_io_readinto(
-        instance: PyObjectRef,
-        obj: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        if !obj.readonly() {
-            return Err(vm.new_type_error(
-                "readinto() argument must be read-write bytes-like object".to_owned(),
-            ));
+            zelf.fd.store(file_no);
+            zelf.closefd.store(args.closefd);
+            vm.set_attr(zelf.as_object(), "name", name)?;
+            vm.set_attr(zelf.as_object(), "mode", vm.ctx.new_str(mode))?;
+            Ok(())
         }
 
-        //extract length of buffer
-        let py_length = vm.call_method(&obj, "__len__", PyFuncArgs::default())?;
-        let length = objint::get_value(&py_length).to_u64().unwrap();
-
-        let handle = fio_get_fileno(&instance, vm)?;
-
-        let mut f = handle.take(length);
-        if let Some(bytes) = obj.payload::<PyByteArray>() {
-            //TODO: Implement for MemoryView
-
-            let value_mut = &mut bytes.borrow_value_mut().elements;
-            value_mut.clear();
-            match f.read_to_end(value_mut) {
-                Ok(_) => {}
-                Err(_) => return Err(vm.new_value_error("Error reading from Take".to_owned())),
-            }
-        };
-
-        fio_set_fileno(&instance, f.into_inner(), vm)?;
-
-        Ok(())
-    }
-
-    fn file_io_write(
-        instance: PyObjectRef,
-        obj: PyBytesLike,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
-        let mut handle = fio_get_fileno(&instance, vm)?;
-
-        let len = obj
-            .with_ref(|b| handle.write(b))
-            .map_err(|err| err.into_pyexception(vm))?;
-
-        fio_set_fileno(&instance, handle, vm)?;
-
-        //return number of bytes written
-        Ok(len)
-    }
-
-    fn file_io_close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let closefd = objbool::boolval(vm, vm.get_attribute(instance.clone(), "closefd")?)?;
-        if closefd {
-            let raw_handle =
-                i64::try_from_object(vm, vm.get_attribute(instance.clone(), "__fileno")?)?;
-            drop(os::rust_file(raw_handle));
+        #[pyproperty]
+        fn closed(&self) -> bool {
+            self.fd.load() < 0
         }
-        vm.set_attr(&instance, "__closed", vm.ctx.new_bool(true))?;
-        Ok(())
-    }
 
-    fn file_io_seekable(_self: PyObjectRef) -> bool {
-        true
-    }
+        #[pyproperty]
+        fn closefd(&self) -> bool {
+            self.closefd.load()
+        }
 
-    fn file_io_seek(
-        instance: PyObjectRef,
-        offset: PyObjectRef,
-        how: OptionalArg<i32>,
-        vm: &VirtualMachine,
-    ) -> PyResult<u64> {
-        let mut handle = fio_get_fileno(&instance, vm)?;
+        #[pymethod]
+        fn fileno(&self, vm: &VirtualMachine) -> PyResult<i64> {
+            let fd = self.fd.load();
+            if fd >= 0 {
+                Ok(fd)
+            } else {
+                Err(io_closed_error(vm))
+            }
+        }
 
-        let new_pos = handle
-            .seek(seekfrom(vm, offset, how)?)
-            .map_err(|err| err.into_pyexception(vm))?;
+        fn get_file(&self, vm: &VirtualMachine) -> PyResult<fs::File> {
+            let fileno = self.fileno(vm)?;
+            Ok(os::rust_file(fileno))
+        }
 
-        fio_set_fileno(&instance, handle, vm)?;
+        fn set_file(&self, f: fs::File) -> PyResult<()> {
+            let updated = os::raw_file_number(f);
+            self.fd.store(updated);
+            Ok(())
+        }
 
-        Ok(new_pos)
-    }
+        #[pymethod]
+        fn read(&self, read_byte: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            let mut handle = self.get_file(vm)?;
+            let bytes = if let Some(read_byte) = read_byte.to_usize() {
+                let mut bytes = vec![0; read_byte as usize];
+                let n = handle
+                    .read(&mut bytes)
+                    .map_err(|err| err.into_pyexception(vm))?;
+                bytes.truncate(n);
+                bytes
+            } else {
+                let mut bytes = vec![];
+                handle
+                    .read_to_end(&mut bytes)
+                    .map_err(|err| err.into_pyexception(vm))?;
+                bytes
+            };
+            self.set_file(handle)?;
 
-    fn file_io_tell(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<u64> {
-        let mut handle = fio_get_fileno(&instance, vm)?;
+            Ok(bytes)
+        }
 
-        let pos = handle
-            .seek(SeekFrom::Current(0))
-            .map_err(|err| err.into_pyexception(vm))?;
+        #[pymethod]
+        fn readinto(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            if !obj.readonly() {
+                return Err(vm.new_type_error(
+                    "readinto() argument must be read-write bytes-like object".to_owned(),
+                ));
+            }
 
-        fio_set_fileno(&instance, handle, vm)?;
+            //extract length of buffer
+            let py_length = vm.call_method(&obj, "__len__", PyFuncArgs::default())?;
+            let length = objint::get_value(&py_length).to_u64().unwrap();
 
-        Ok(pos)
-    }
+            let handle = self.get_file(vm)?;
 
-    fn file_io_fileno(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.get_attribute(instance, "__fileno")
+            let mut f = handle.take(length);
+            if let Some(bytes) = obj.payload::<PyByteArray>() {
+                //TODO: Implement for MemoryView
+
+                let value_mut = &mut bytes.borrow_value_mut().elements;
+                value_mut.clear();
+                match f.read_to_end(value_mut) {
+                    Ok(_) => {}
+                    Err(_) => return Err(vm.new_value_error("Error reading from Take".to_owned())),
+                }
+            };
+
+            self.set_file(f.into_inner())?;
+
+            Ok(())
+        }
+
+        #[pymethod]
+        fn write(&self, obj: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+            let mut handle = self.get_file(vm)?;
+
+            let len = obj
+                .with_ref(|b| handle.write(b))
+                .map_err(|err| err.into_pyexception(vm))?;
+
+            self.set_file(handle)?;
+
+            //return number of bytes written
+            Ok(len)
+        }
+
+        #[pymethod]
+        fn close(&self) {
+            let fd = self.fd.swap(-1);
+            if fd >= 0 && self.closefd.load() {
+                let _ = os::rust_file(fd);
+            }
+        }
+
+        #[pymethod]
+        fn seekable(&self) -> bool {
+            true
+        }
+
+        #[pymethod]
+        fn seek(
+            &self,
+            offset: PyObjectRef,
+            how: OptionalArg<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<u64> {
+            let mut handle = self.get_file(vm)?;
+
+            let new_pos = handle
+                .seek(seekfrom(vm, offset, how)?)
+                .map_err(|err| err.into_pyexception(vm))?;
+
+            self.set_file(handle)?;
+
+            Ok(new_pos)
+        }
+
+        #[pymethod]
+        fn tell(&self, vm: &VirtualMachine) -> PyResult<u64> {
+            let mut handle = self.get_file(vm)?;
+
+            let pos = handle
+                .seek(SeekFrom::Current(0))
+                .map_err(|err| err.into_pyexception(vm))?;
+
+            self.set_file(handle)?;
+
+            Ok(pos)
+        }
     }
 
     pub fn make_fileio(ctx: &crate::pyobject::PyContext, raw_io_base: PyClassRef) -> PyClassRef {
-        py_class!(ctx, "FileIO", raw_io_base, {
-            "__init__" => ctx.new_method(file_io_init),
+        let class = py_class!(ctx, "FileIO", raw_io_base, {
             "name" => ctx.str_type(),
-            "read" => ctx.new_method(file_io_read),
-            "readinto" => ctx.new_method(file_io_readinto),
-            "write" => ctx.new_method(file_io_write),
-            "close" => ctx.new_method(file_io_close),
-            "seekable" => ctx.new_method(file_io_seekable),
-            "seek" => ctx.new_method(file_io_seek),
-            "tell" => ctx.new_method(file_io_tell),
-            "fileno" => ctx.new_method(file_io_fileno),
-        })
+        });
+        FileIO::extend_class(ctx, &class);
+        class
     }
 }
 

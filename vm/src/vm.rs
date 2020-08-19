@@ -247,7 +247,7 @@ impl VirtualMachine {
                         // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
                         // require the Python stdlib to be present
                         let io = self.import("_io", &[], 0)?;
-                        let io_open = self.get_attribute(io.clone(), "open")?;
+                        let io_open = self.get_attribute(io, "open")?;
                         let set_stdio = |name, fd, mode: &str| {
                             let stdio = self.invoke(
                                 &io_open,
