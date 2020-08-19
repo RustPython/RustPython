@@ -190,16 +190,16 @@ impl PyContext {
         self.types.bytearray_type.clone()
     }
 
-    pub fn bytearrayiterator_type(&self) -> PyClassRef {
-        self.types.bytearrayiterator_type.clone()
+    pub fn bytearray_iterator_type(&self) -> PyClassRef {
+        self.types.bytearray_iterator_type.clone()
     }
 
     pub fn bytes_type(&self) -> PyClassRef {
         self.types.bytes_type.clone()
     }
 
-    pub fn bytesiterator_type(&self) -> PyClassRef {
-        self.types.bytesiterator_type.clone()
+    pub fn bytes_iterator_type(&self) -> PyClassRef {
+        self.types.bytes_iterator_type.clone()
     }
 
     pub fn code_type(&self) -> PyClassRef {
@@ -230,20 +230,20 @@ impl PyContext {
         self.types.list_type.clone()
     }
 
-    pub fn listiterator_type(&self) -> PyClassRef {
-        self.types.listiterator_type.clone()
+    pub fn list_iterator_type(&self) -> PyClassRef {
+        self.types.list_iterator_type.clone()
     }
 
-    pub fn listreverseiterator_type(&self) -> PyClassRef {
-        self.types.listreverseiterator_type.clone()
+    pub fn list_reverseiterator_type(&self) -> PyClassRef {
+        self.types.list_reverseiterator_type.clone()
     }
 
-    pub fn striterator_type(&self) -> PyClassRef {
-        self.types.striterator_type.clone()
+    pub fn str_iterator_type(&self) -> PyClassRef {
+        self.types.str_iterator_type.clone()
     }
 
-    pub fn strreverseiterator_type(&self) -> PyClassRef {
-        self.types.strreverseiterator_type.clone()
+    pub fn str_reverseiterator_type(&self) -> PyClassRef {
+        self.types.str_reverseiterator_type.clone()
     }
 
     pub fn module_type(&self) -> PyClassRef {
@@ -258,16 +258,16 @@ impl PyContext {
         self.types.set_type.clone()
     }
 
-    pub fn setiterator_type(&self) -> PyClassRef {
-        self.types.setiterator_type.clone()
+    pub fn set_iterator_type(&self) -> PyClassRef {
+        self.types.set_iterator_type.clone()
     }
 
     pub fn range_type(&self) -> PyClassRef {
         self.types.range_type.clone()
     }
 
-    pub fn rangeiterator_type(&self) -> PyClassRef {
-        self.types.rangeiterator_type.clone()
+    pub fn range_iterator_type(&self) -> PyClassRef {
+        self.types.range_iterator_type.clone()
     }
 
     pub fn slice_type(&self) -> PyClassRef {
@@ -290,8 +290,8 @@ impl PyContext {
         self.types.tuple_type.clone()
     }
 
-    pub fn tupleiterator_type(&self) -> PyClassRef {
-        self.types.tupleiterator_type.clone()
+    pub fn tuple_iterator_type(&self) -> PyClassRef {
+        self.types.tuple_iterator_type.clone()
     }
 
     pub fn iter_type(&self) -> PyClassRef {

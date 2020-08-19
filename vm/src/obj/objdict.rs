@@ -654,42 +654,42 @@ macro_rules! dict_iterator {
 dict_iterator! {
     PyDictKeys,
     PyDictKeyIterator,
-    dictkeys_type,
-    dictkeyiterator_type,
+    dict_keys_type,
+    dict_keyiterator_type,
     "dict_keys",
-    "dictkeyiterator",
+    "dict_keyiterator",
     |_vm: &VirtualMachine, key: PyObjectRef, _value: PyObjectRef| key
 }
 
 dict_iterator! {
     PyDictValues,
     PyDictValueIterator,
-    dictvalues_type,
-    dictvalueiterator_type,
+    dict_values_type,
+    dict_valueiterator_type,
     "dict_values",
-    "dictvalueiterator",
+    "dict_valueiterator",
     |_vm: &VirtualMachine, _key: PyObjectRef, value: PyObjectRef| value
 }
 
 dict_iterator! {
     PyDictItems,
     PyDictItemIterator,
-    dictitems_type,
-    dictitemiterator_type,
+    dict_items_type,
+    dict_itemiterator_type,
     "dict_items",
-    "dictitemiterator",
+    "dict_itemiterator",
     |vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef|
         vm.ctx.new_tuple(vec![key, value])
 }
 
 pub(crate) fn init(context: &PyContext) {
     PyDictRef::extend_class(context, &context.types.dict_type);
-    PyDictKeys::extend_class(context, &context.types.dictkeys_type);
-    PyDictKeyIterator::extend_class(context, &context.types.dictkeyiterator_type);
-    PyDictValues::extend_class(context, &context.types.dictvalues_type);
-    PyDictValueIterator::extend_class(context, &context.types.dictvalueiterator_type);
-    PyDictItems::extend_class(context, &context.types.dictitems_type);
-    PyDictItemIterator::extend_class(context, &context.types.dictitemiterator_type);
+    PyDictKeys::extend_class(context, &context.types.dict_keys_type);
+    PyDictKeyIterator::extend_class(context, &context.types.dict_keyiterator_type);
+    PyDictValues::extend_class(context, &context.types.dict_values_type);
+    PyDictValueIterator::extend_class(context, &context.types.dict_valueiterator_type);
+    PyDictItems::extend_class(context, &context.types.dict_items_type);
+    PyDictItemIterator::extend_class(context, &context.types.dict_itemiterator_type);
 }
 
 pub struct PyMapping {
