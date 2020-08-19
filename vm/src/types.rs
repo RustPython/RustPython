@@ -63,6 +63,7 @@ pub struct TypeZoo {
     pub coroutine_wrapper_type: PyClassRef,
     pub dict_type: PyClassRef,
     pub enumerate_type: PyClassRef,
+    pub ellipsis_type: PyClassRef,
     pub filter_type: PyClassRef,
     pub float_type: PyClassRef,
     pub frame_type: PyClassRef,
@@ -173,6 +174,7 @@ impl TypeZoo {
         let tuple_iterator_type = create_type("tuple_iterator", &type_type, &object_type);
         let iter_type = create_type("iter", &type_type, &object_type);
         let enumerate_type = create_type("enumerate", &type_type, &object_type);
+        let ellipsis_type = create_type("ellipsis", &type_type, &object_type);
         let filter_type = create_type("filter", &type_type, &object_type);
         let map_type = create_type("map", &type_type, &object_type);
         let zip_type = create_type("zip", &type_type, &object_type);
@@ -225,6 +227,7 @@ impl TypeZoo {
             tuple_iterator_type,
             iter_type,
             enumerate_type,
+            ellipsis_type,
             filter_type,
             map_type,
             zip_type,
