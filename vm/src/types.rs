@@ -100,7 +100,6 @@ pub struct TypeZoo {
     pub builtin_function_or_method_type: PyClassRef,
     pub method_descriptor_type: PyClassRef,
     pub property_type: PyClassRef,
-    pub readonly_property_type: PyClassRef,
     pub getset_type: PyClassRef,
     pub module_type: PyClassRef,
     pub namespace_type: PyClassRef,
@@ -132,7 +131,6 @@ impl TypeZoo {
             create_type("builtin_function_or_method", &type_type, &object_type);
         let method_descriptor_type = create_type("method_descriptor", &type_type, &object_type);
         let property_type = create_type("property", &type_type, &object_type);
-        let readonly_property_type = create_type("readonly_property", &type_type, &object_type);
         let getset_type = create_type("getset_descriptor", &type_type, &object_type);
         let super_type = create_type("super", &type_type, &object_type);
         let weakref_type = create_type("ref", &type_type, &object_type);
@@ -242,7 +240,6 @@ impl TypeZoo {
             super_type,
             mappingproxy_type,
             property_type,
-            readonly_property_type,
             getset_type,
             generator_type,
             module_type,

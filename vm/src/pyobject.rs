@@ -338,10 +338,6 @@ impl PyContext {
         self.types.property_type.clone()
     }
 
-    pub fn readonly_property_type(&self) -> PyClassRef {
-        self.types.readonly_property_type.clone()
-    }
-
     pub fn getset_type(&self) -> PyClassRef {
         self.types.getset_type.clone()
     }
