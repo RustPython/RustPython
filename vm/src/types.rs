@@ -40,7 +40,7 @@ use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::pyobject::{PyAttributes, PyContext, PyObject};
-use crate::slots::{PyClassSlots, PyTpFlags};
+use crate::slots::PyTpFlags;
 use rustpython_common::{cell::PyRwLock, rc::PyRc};
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -258,6 +258,15 @@ impl TypeZoo {
 }
 
 pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
+    create_type_with_flags(name, type_type, base, Default::default())
+}
+
+pub fn create_type_with_flags(
+    name: &str,
+    type_type: &PyClassRef,
+    base: &PyClassRef,
+    flags: PyTpFlags,
+) -> PyClassRef {
     let dict = PyAttributes::new();
     objtype::new(
         type_type.clone(),
@@ -265,7 +274,7 @@ pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyC
         base.clone(),
         vec![base.clone()],
         dict,
-        Default::default(),
+        PyTpFlags::default() | flags,
     )
     .expect("Failed to create a new type in internal code.")
 }
@@ -312,10 +321,8 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
                     mro: vec![],
                     subclasses: PyRwLock::default(),
                     attributes: PyRwLock::new(PyAttributes::new()),
-                    slots: PyRwLock::new(PyClassSlots {
-                        flags: PyTpFlags::default() | PyTpFlags::BASETYPE,
-                        ..Default::default()
-                    }),
+                    flags: PyTpFlags::DEFAULT | PyTpFlags::BASETYPE,
+                    slots: PyRwLock::default(),
                 },
             },
             Uninit { typ }
@@ -330,10 +337,8 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
                     mro: vec![],
                     subclasses: PyRwLock::default(),
                     attributes: PyRwLock::new(PyAttributes::new()),
-                    slots: PyRwLock::new(PyClassSlots {
-                        flags: PyTpFlags::default() | PyTpFlags::BASETYPE,
-                        ..Default::default()
-                    }),
+                    flags: PyTpFlags::DEFAULT | PyTpFlags::BASETYPE,
+                    slots: PyRwLock::default(),
                 },
             },
             Uninit { typ },

@@ -32,6 +32,7 @@ pub struct PyClass {
     pub mro: Vec<PyClassRef>,
     pub subclasses: PyRwLock<Vec<PyWeak>>,
     pub attributes: PyRwLock<PyAttributes>,
+    pub flags: PyTpFlags,
     pub slots: PyRwLock<PyClassSlots>,
 }
 
@@ -84,7 +85,7 @@ impl PyClassRef {
 
     #[pyproperty(magic)]
     fn flags(self) -> u64 {
-        self.slots.read().flags.bits()
+        self.flags.bits()
     }
 
     #[pymethod(magic)]
@@ -340,11 +341,8 @@ impl PyClassRef {
             );
         }
 
-        let slots = PyClassSlots {
-            // TODO: how do we know if it should have a dict?
-            flags: base.slots.read().flags | PyTpFlags::HAS_DICT,
-            ..Default::default()
-        };
+        // TODO: how do we know if it should have a dict?
+        let flags = base.flags | PyTpFlags::HAS_DICT;
 
         let typ = new(
             metatype,
@@ -352,7 +350,7 @@ impl PyClassRef {
             base,
             bases,
             attributes,
-            slots,
+            flags,
         )
         .map_err(|e| vm.new_type_error(e))?;
 
@@ -665,7 +663,7 @@ pub fn new(
     base: PyClassRef,
     bases: Vec<PyClassRef>,
     attrs: HashMap<String, PyObjectRef>,
-    mut slots: PyClassSlots,
+    mut flags: PyTpFlags,
 ) -> Result<PyClassRef, String> {
     // Check for duplicates in bases.
     let mut unique_bases = HashSet::new();
@@ -680,8 +678,9 @@ pub fn new(
         .map(|x| x.iter_mro().cloned().collect())
         .collect();
     let mro = linearise_mro(mros)?;
-    if base.slots.read().flags.has_feature(PyTpFlags::HAS_DICT) {
-        slots.flags |= PyTpFlags::HAS_DICT
+
+    if base.flags.has_feature(PyTpFlags::HAS_DICT) {
+        flags |= PyTpFlags::HAS_DICT
     }
     let new_type = PyRef::new_ref(
         PyClass {
@@ -691,7 +690,8 @@ pub fn new(
             mro,
             subclasses: PyRwLock::default(),
             attributes: PyRwLock::new(attrs),
-            slots: PyRwLock::new(slots),
+            flags,
+            slots: PyRwLock::default(),
         },
         typ,
         None,
@@ -749,7 +749,7 @@ fn best_base<'a>(bases: &'a [PyClassRef], vm: &VirtualMachine) -> PyResult<PyCla
         //         return NULL;
         // }
 
-        if !base_i.slots.read().flags.has_feature(PyTpFlags::BASETYPE) {
+        if !base_i.flags.has_feature(PyTpFlags::BASETYPE) {
             return Err(vm.new_type_error(format!(
                 "type '{}' is not an acceptable base type",
                 base_i.name

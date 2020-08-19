@@ -37,7 +37,7 @@ use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::scope::Scope;
 use crate::slots::PyTpFlags;
-use crate::types::{create_type, initialize_types, TypeZoo};
+use crate::types::{create_type, create_type_with_flags, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
 use rustpython_common::cell::{PyRwLock, PyRwLockReadGuard};
 use rustpython_common::rc::PyRc;
@@ -464,8 +464,8 @@ impl PyContext {
             .unwrap()
     }
 
-    pub fn new_class(&self, name: &str, base: PyClassRef) -> PyClassRef {
-        create_type(name, &self.type_type(), &base)
+    pub fn new_class(&self, name: &str, base: PyClassRef, flags: PyTpFlags) -> PyClassRef {
+        create_type_with_flags(name, &self.type_type(), &base, flags)
     }
 
     pub fn new_namespace(&self) -> PyObjectRef {
@@ -1352,7 +1352,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     fn into_ref_with_type_unchecked(self, cls: PyClassRef, vm: &VirtualMachine) -> PyRef<Self> {
-        let dict = if cls.slots.read().flags.has_feature(PyTpFlags::HAS_DICT) {
+        let dict = if cls.flags.has_feature(PyTpFlags::HAS_DICT) {
             Some(vm.ctx.new_dict())
         } else {
             None
@@ -1457,7 +1457,6 @@ pub trait PyClassImpl: PyClassDef {
             );
         }
         Self::impl_extend_class(ctx, class);
-        class.slots.write().flags = Self::TP_FLAGS;
         ctx.add_tp_new_wrapper(&class);
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc));
@@ -1465,11 +1464,11 @@ pub trait PyClassImpl: PyClassDef {
     }
 
     fn make_class(ctx: &PyContext) -> PyClassRef {
-        Self::make_class_with_base(ctx, ctx.object())
+        Self::make_class_with_base(ctx, Self::NAME, ctx.object())
     }
 
-    fn make_class_with_base(ctx: &PyContext, base: PyClassRef) -> PyClassRef {
-        let py_class = ctx.new_class(Self::NAME, base);
+    fn make_class_with_base(ctx: &PyContext, name: &str, base: PyClassRef) -> PyClassRef {
+        let py_class = ctx.new_class(name, base, Self::TP_FLAGS);
         Self::extend_class(ctx, &py_class);
         py_class
     }
