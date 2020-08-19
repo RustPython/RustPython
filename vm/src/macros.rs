@@ -34,14 +34,15 @@ macro_rules! extend_module {
 #[macro_export]
 macro_rules! py_class {
     ( $ctx:expr, $class_name:expr, $class_base:expr, { $($name:tt => $value:expr),* $(,)* }) => {
+        py_class!($ctx, $class_name, $class_base, Default::default(), { $($name => $value),* })
+    };
+    ( $ctx:expr, $class_name:expr, $class_base:expr, $flags:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         {
-            let py_class = $ctx.new_class($class_name, $class_base);
-            // FIXME: setting flag here probably wrong
-            py_class.slots.write().flags |= $crate::slots::PyTpFlags::BASETYPE;
+            let py_class = $ctx.new_class($class_name, $class_base, $flags);
             $crate::extend_class!($ctx, &py_class, { $($name => $value),* });
             py_class
         }
-    }
+    };
 }
 
 #[macro_export]

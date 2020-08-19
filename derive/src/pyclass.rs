@@ -561,7 +561,7 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             fn make_class(
                 ctx: &::rustpython_vm::pyobject::PyContext,
             ) -> ::rustpython_vm::obj::objtype::PyClassRef {
-                let py_class = ctx.new_class(<Self as ::rustpython_vm::pyobject::PyClassDef>::NAME, ctx.tuple_type());
+                let py_class = ctx.new_class(<Self as ::rustpython_vm::pyobject::PyClassDef>::NAME, ctx.tuple_type(), Self::TP_FLAGS);
                 Self::extend_class(ctx, &py_class);
                 py_class
             }
