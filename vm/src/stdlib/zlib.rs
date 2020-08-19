@@ -371,7 +371,7 @@ mod decl {
         unconsumed: Vec<u8>,
     }
 
-    #[pyclass]
+    #[pyclass(name = "Compress")]
     #[derive(Debug)]
     struct PyCompress {
         inner: PyMutex<CompressInner>,
