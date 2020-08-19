@@ -123,6 +123,9 @@ impl PyValue for PyAsyncGenWrappedValue {
     }
 }
 
+#[pyimpl]
+impl PyAsyncGenWrappedValue {}
+
 impl PyAsyncGenWrappedValue {
     fn unbox(ag: &PyAsyncGen, val: PyResult, vm: &VirtualMachine) -> PyResult {
         if let Err(ref e) = val {
@@ -157,7 +160,7 @@ enum AwaitableState {
 
 #[pyclass(name = "async_generator_asend")]
 #[derive(Debug)]
-struct PyAsyncGenASend {
+pub(crate) struct PyAsyncGenASend {
     ag: PyAsyncGenRef,
     state: AtomicCell<AwaitableState>,
     value: PyObjectRef,
@@ -252,7 +255,7 @@ impl PyAsyncGenASend {
 
 #[pyclass(name = "async_generator_athrow")]
 #[derive(Debug)]
-struct PyAsyncGenAThrow {
+pub(crate) struct PyAsyncGenAThrow {
     ag: PyAsyncGenRef,
     aclose: bool,
     state: AtomicCell<AwaitableState>,

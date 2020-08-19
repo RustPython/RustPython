@@ -20,8 +20,8 @@ use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    BorrowValue, BufferProtocol, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject,
+    BorrowValue, BufferProtocol, Either, IntoPyObject, PyClassDef, PyClassImpl, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
@@ -879,11 +879,7 @@ mod fileio {
     }
 
     pub fn make_fileio(ctx: &crate::pyobject::PyContext, raw_io_base: PyClassRef) -> PyClassRef {
-        let class = py_class!(ctx, "FileIO", raw_io_base, {
-            "name" => ctx.str_type(),
-        });
-        FileIO::extend_class(ctx, &class);
-        class
+        FileIO::make_class_with_base(ctx, FileIO::NAME, raw_io_base)
     }
 }
 
