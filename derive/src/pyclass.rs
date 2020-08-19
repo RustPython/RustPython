@@ -295,6 +295,12 @@ fn extract_impl_items(mut items: Vec<ItemIdent>) -> Result<TokenStream2, Diagnos
 fn extract_impl_attrs(attr: AttributeArgs) -> Result<(TokenStream2, TokenStream2), Diagnostic> {
     let mut withs = Vec::new();
     let mut flags = vec![quote! { ::rustpython_vm::slots::PyTpFlags::DEFAULT.bits() }];
+    #[cfg(debug_assertions)]
+    {
+        flags.push(quote! {
+            | ::rustpython_vm::slots::PyTpFlags::_CREATED_WITH_FLAGS.bits()
+        });
+    }
 
     for attr in attr {
         match attr {

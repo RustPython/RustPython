@@ -1446,6 +1446,7 @@ pub trait PyClassImpl: PyClassDef {
     fn impl_extend_class(ctx: &PyContext, class: &PyClassRef);
 
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
+        debug_assert!(class.flags.is_created_with_flags());
         if Self::TP_FLAGS.has_feature(PyTpFlags::HAS_DICT) {
             class.set_str_attr(
                 "__dict__",
@@ -1471,6 +1472,10 @@ pub trait PyClassImpl: PyClassDef {
         let py_class = ctx.new_class(name, base, Self::TP_FLAGS);
         Self::extend_class(ctx, &py_class);
         py_class
+    }
+
+    fn create_bare_type(type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
+        create_type_with_flags(Self::NAME, type_type, base, Self::TP_FLAGS)
     }
 }
 

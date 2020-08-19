@@ -55,6 +55,9 @@ impl PyModuleRef {
         doc: OptionalOption<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        debug_assert!(crate::pyobject::TypeProtocol::lease_class(self.as_object())
+            .flags
+            .has_feature(crate::slots::PyTpFlags::HAS_DICT));
         init_module_dict(
             vm,
             &self.as_object().dict().unwrap(),
