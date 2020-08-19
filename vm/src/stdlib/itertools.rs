@@ -1067,7 +1067,7 @@ mod decl {
             PyItertoolsProduct {
                 pools,
                 idxs: PyRwLock::new(vec![0; l]),
-                cur: AtomicCell::new(l - 1),
+                cur: AtomicCell::new(l.wrapping_sub(1)),
                 stop: AtomicCell::new(false),
             }
             .into_ref_with_type(vm, cls)
@@ -1104,6 +1104,11 @@ mod decl {
         }
 
         fn update_idxs(&self, mut idxs: PyRwLockWriteGuard<'_, Vec<usize>>) {
+            if idxs.len() == 0 {
+                self.stop.store(true);
+                return;
+            }
+
             let cur = self.cur.load();
             let lst_idx = &self.pools[cur].len() - 1;
 
