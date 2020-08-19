@@ -78,6 +78,7 @@ class ImportHooksBaseTestCase(unittest.TestCase):
         support.modules_cleanup(*self.modules_before)
 
 
+@unittest.skip('TODO: RUSTPYTHON')
 class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
 
     compression = ZIP_STORED
