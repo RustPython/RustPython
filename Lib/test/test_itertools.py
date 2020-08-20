@@ -392,8 +392,8 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(len(set(map(id, cwr('abcde', 3)))), 1)
         self.assertNotEqual(len(set(map(id, list(cwr('abcde', 3))))), 1)
 
-    # TODO: RUSTPYTHON - panics with 'index out of bounds: the len is 0 but the index is 18446744073709551615'
-    @unittest.skip("panics")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_permutations(self):
         self.assertRaises(TypeError, permutations)              # too few arguments
         self.assertRaises(TypeError, permutations, 'abc', 2, 1) # too many arguments
@@ -467,8 +467,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(len(set(map(id, permutations('abcde', 3)))), 1)
         self.assertNotEqual(len(set(map(id, list(permutations('abcde', 3))))), 1)
 
-    # TODO: RUSTPYTHON - panics with 'index out of bounds: the len is 0 but the index is 18446744073709551615'
-    @unittest.skip("panics")
     def test_combinatorics(self):
         # Test relationships between product(), permutations(),
         # combinations() and combinations_with_replacement().
@@ -1055,8 +1053,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(next(it), (1, 2))
         self.assertRaises(RuntimeError, next, it)
 
-    # TODO: RUSTPYTHON - panics with 'index out of bounds: the len is 0 but the index is 18446744073709551615'
-    @unittest.skip("panics")
     def test_product(self):
         for args, result in [
             ([], [()]),                     # zero iterables
@@ -1125,8 +1121,8 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(len(set(map(id, product('abc', 'def')))), 1)
         self.assertNotEqual(len(set(map(id, list(product('abc', 'def'))))), 1)
 
-    # TODO: RUSTPYTHON - panics with 'index out of bounds: the len is 0 but the index is 18446744073709551615'
-    @unittest.skip("panics")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_product_pickling(self):
         # check copy, deepcopy, pickle
         for args, result in [
