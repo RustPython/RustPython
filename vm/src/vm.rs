@@ -786,7 +786,8 @@ impl VirtualMachine {
     }
 
     pub fn call_get_descriptor(&self, descr: PyObjectRef, obj: PyObjectRef) -> Option<PyResult> {
-        self.call_get_descriptor_specific(descr, Some(obj.clone()), Some(obj.class().into_object()))
+        let cls = obj.class().into_object();
+        self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
     }
 
     pub fn call_if_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {

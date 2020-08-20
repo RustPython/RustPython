@@ -14,7 +14,7 @@ use super::objweakref::PyWeak;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
-    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
@@ -27,6 +27,7 @@ use std::ops::Deref;
 #[pyclass(name = "type")]
 pub struct PyClass {
     pub name: String,
+    pub base: Option<PyClassRef>,
     pub bases: Vec<PyClassRef>,
     pub mro: Vec<PyClassRef>,
     pub subclasses: PyRwLock<Vec<PyWeak>>,
@@ -60,6 +61,10 @@ impl PyClassRef {
         std::iter::once(self).chain(self.mro.iter())
     }
 
+    pub fn iter_base_chain(&self) -> impl Iterator<Item = &PyClassRef> {
+        std::iter::successors(Some(self), |cls| cls.base.as_ref())
+    }
+
     #[pyproperty(name = "__mro__")]
     fn get_mro(self) -> PyTuple {
         let elements: Vec<PyObjectRef> = self.iter_mro().map(|x| x.as_object().clone()).collect();
@@ -70,6 +75,16 @@ impl PyClassRef {
     fn bases(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
             .new_tuple(self.bases.iter().map(|x| x.as_object().clone()).collect())
+    }
+
+    #[pyproperty(magic)]
+    fn base(self) -> Option<PyClassRef> {
+        self.base.clone()
+    }
+
+    #[pyproperty(magic)]
+    fn flags(self) -> u64 {
+        self.slots.read().flags.bits()
     }
 
     #[pymethod(magic)]
@@ -320,11 +335,8 @@ impl PyClassRef {
         if !attributes.contains_key("__dict__") {
             attributes.insert(
                 "__dict__".to_owned(),
-                vm.ctx.new_getset(
-                    "__dict__",
-                    objobject::object_get_dict,
-                    objobject::object_set_dict,
-                ),
+                vm.ctx
+                    .new_getset("__dict__", subtype_get_dict, subtype_set_dict),
             );
         }
 
@@ -334,13 +346,6 @@ impl PyClassRef {
             ..Default::default()
         };
 
-        // TODO: is this correct behavior?
-        let cls_dict = if metatype.is(&vm.ctx.types.type_type) {
-            None
-        } else {
-            Some(vm.ctx.new_dict())
-        };
-
         let typ = new(
             metatype,
             name.borrow_value(),
@@ -348,7 +353,6 @@ impl PyClassRef {
             bases,
             attributes,
             slots,
-            cls_dict,
         )
         .map_err(|e| vm.new_type_error(e))?;
 
@@ -420,6 +424,51 @@ impl PyClassRef {
             "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
         ))
     }
+}
+
+fn find_base_dict_descr(cls: &PyClassRef, vm: &VirtualMachine) -> Option<PyObjectRef> {
+    cls.iter_base_chain().skip(1).find_map(|cls| {
+        // TODO: should actually be some translation of:
+        // cls.tp_dictoffset != 0 && !cls.flags.contains(HEAPTYPE)
+        if cls.is(&vm.ctx.types.type_type) {
+            cls.get_attr("__dict__")
+        } else {
+            None
+        }
+    })
+}
+
+fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let cls = obj.class();
+    let ret = match find_base_dict_descr(&cls, vm) {
+        Some(descr) => vm.call_get_descriptor(descr, obj).unwrap_or_else(|| {
+            Err(vm.new_type_error(format!(
+                "this __dict__ descriptor does not support '{}' objects",
+                cls.name
+            )))
+        })?,
+        None => objobject::object_get_dict(obj, vm)?.into_object(),
+    };
+    Ok(ret)
+}
+
+fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    let cls = obj.class();
+    match find_base_dict_descr(&cls, vm) {
+        Some(descr) => {
+            descr
+                .get_class_attr("__set__")
+                .map(|set| vm.invoke(&set, vec![descr, obj, value]))
+                .unwrap_or_else(|| {
+                    Err(vm.new_type_error(format!(
+                        "this __dict__ descriptor does not support '{}' objects",
+                        cls.name
+                    )))
+                })?;
+        }
+        None => objobject::object_set_dict(obj, PyDictRef::try_from_object(vm, value)?, vm)?,
+    }
+    Ok(())
 }
 
 /*
@@ -617,7 +666,6 @@ pub fn new(
     bases: Vec<PyClassRef>,
     attrs: HashMap<String, PyObjectRef>,
     mut slots: PyClassSlots,
-    dict: Option<PyDictRef>,
 ) -> Result<PyClassRef, String> {
     // Check for duplicates in bases.
     let mut unique_bases = HashSet::new();
@@ -638,6 +686,7 @@ pub fn new(
     let new_type = PyRef::new_ref(
         PyClass {
             name: String::from(name),
+            base: Some(base),
             bases,
             mro,
             subclasses: PyRwLock::default(),
@@ -645,7 +694,7 @@ pub fn new(
             slots: PyRwLock::new(slots),
         },
         typ,
-        dict,
+        None,
     );
 
     for base in &new_type.bases {
@@ -752,7 +801,6 @@ mod tests {
             vec![object.clone()],
             HashMap::new(),
             Default::default(),
-            None,
         )
         .unwrap();
         let b = new(
@@ -762,7 +810,6 @@ mod tests {
             vec![object.clone()],
             HashMap::new(),
             Default::default(),
-            None,
         )
         .unwrap();
 
