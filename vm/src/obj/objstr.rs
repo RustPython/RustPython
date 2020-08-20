@@ -103,7 +103,7 @@ impl TryIntoRef<PyString> for &str {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "str_iterator")]
 #[derive(Debug)]
 pub struct PyStringIterator {
     pub string: PyStringRef,
@@ -112,7 +112,7 @@ pub struct PyStringIterator {
 
 impl PyValue for PyStringIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.striterator_type()
+        vm.ctx.str_iterator_type()
     }
 }
 
@@ -136,7 +136,7 @@ impl PyStringIterator {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "str_reverseiterator")]
 #[derive(Debug)]
 pub struct PyStringReverseIterator {
     pub position: AtomicCell<isize>,
@@ -145,7 +145,7 @@ pub struct PyStringReverseIterator {
 
 impl PyValue for PyStringReverseIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.strreverseiterator_type()
+        vm.ctx.str_reverseiterator_type()
     }
 }
 
@@ -1171,8 +1171,8 @@ impl FindArgs {
 pub fn init(ctx: &PyContext) {
     PyString::extend_class(ctx, &ctx.types.str_type);
 
-    PyStringIterator::extend_class(ctx, &ctx.types.striterator_type);
-    PyStringReverseIterator::extend_class(ctx, &ctx.types.strreverseiterator_type);
+    PyStringIterator::extend_class(ctx, &ctx.types.str_iterator_type);
+    PyStringReverseIterator::extend_class(ctx, &ctx.types.str_reverseiterator_type);
 }
 
 pub fn clone_value(obj: &PyObjectRef) -> String {

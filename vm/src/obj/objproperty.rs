@@ -43,7 +43,7 @@ use crate::vm::VirtualMachine;
 ///     @x.deleter
 ///     def x(self):
 ///         del self._x
-#[pyclass]
+#[pyclass(name = "property")]
 #[derive(Debug)]
 pub struct PyProperty {
     getter: Option<PyObjectRef>,

@@ -27,7 +27,7 @@ use crate::vm::{ReprGuard, VirtualMachine};
 ///
 /// If no argument is given, the constructor creates a new empty list.
 /// The argument must be an iterable if specified.
-#[pyclass]
+#[pyclass(name = "list")]
 #[derive(Default)]
 pub struct PyList {
     elements: PyRwLock<Vec<PyObjectRef>>,
@@ -828,7 +828,7 @@ fn do_sort(
     Ok(())
 }
 
-#[pyclass]
+#[pyclass(name = "list_iterator")]
 #[derive(Debug)]
 pub struct PyListIterator {
     pub position: AtomicCell<usize>,
@@ -837,7 +837,7 @@ pub struct PyListIterator {
 
 impl PyValue for PyListIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.listiterator_type()
+        vm.ctx.list_iterator_type()
     }
 }
 
@@ -867,7 +867,7 @@ impl PyListIterator {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "list_reverseiterator")]
 #[derive(Debug)]
 pub struct PyListReverseIterator {
     pub position: AtomicCell<isize>,
@@ -876,7 +876,7 @@ pub struct PyListReverseIterator {
 
 impl PyValue for PyListReverseIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.listreverseiterator_type()
+        vm.ctx.list_reverseiterator_type()
     }
 }
 
@@ -909,6 +909,6 @@ pub fn init(context: &PyContext) {
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
 
-    PyListIterator::extend_class(context, &context.types.listiterator_type);
-    PyListReverseIterator::extend_class(context, &context.types.listreverseiterator_type);
+    PyListIterator::extend_class(context, &context.types.list_iterator_type);
+    PyListReverseIterator::extend_class(context, &context.types.list_reverseiterator_type);
 }

@@ -8,7 +8,7 @@ use crate::vm::VirtualMachine;
 ///
 /// Make an iterator that computes the function using arguments from
 /// each of the iterables.  Stops when the shortest iterable is exhausted.
-#[pyclass]
+#[pyclass(name = "map")]
 #[derive(Debug)]
 pub struct PyMap {
     mapper: PyObjectRef,

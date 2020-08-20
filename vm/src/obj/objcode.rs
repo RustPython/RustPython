@@ -12,7 +12,7 @@ use crate::vm::VirtualMachine;
 
 pub type PyCodeRef = PyRef<PyCode>;
 
-#[pyclass]
+#[pyclass(name = "code")]
 pub struct PyCode {
     pub code: bytecode::CodeObject,
 }

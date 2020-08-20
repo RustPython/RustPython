@@ -25,7 +25,7 @@ use rustpython_common::hash::PyHash;
 /// start defaults to 0, and stop is omitted!  range(4) produces 0, 1, 2, 3.
 /// These are exactly the valid indices for a list of 4 elements.
 /// When step is given, it specifies the increment (or decrement).
-#[pyclass]
+#[pyclass(name = "range")]
 #[derive(Debug, Clone)]
 pub struct PyRange {
     pub start: PyIntRef,
@@ -125,7 +125,7 @@ pub fn get_value(obj: &PyObjectRef) -> PyRange {
 
 pub fn init(context: &PyContext) {
     PyRange::extend_class(context, &context.types.range_type);
-    PyRangeIterator::extend_class(context, &context.types.rangeiterator_type);
+    PyRangeIterator::extend_class(context, &context.types.range_iterator_type);
 }
 
 type PyRangeRef = PyRef<PyRange>;
@@ -400,7 +400,7 @@ impl PyRange {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "range_iterator")]
 #[derive(Debug)]
 pub struct PyRangeIterator {
     position: AtomicCell<usize>,
@@ -409,7 +409,7 @@ pub struct PyRangeIterator {
 
 impl PyValue for PyRangeIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.rangeiterator_type()
+        vm.ctx.range_iterator_type()
     }
 }
 
