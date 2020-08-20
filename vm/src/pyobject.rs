@@ -1346,28 +1346,28 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        pyvalue_into_ref(self, Self::class(vm), vm)
+        self.into_ref_with_type_unchecked(Self::class(vm), vm)
     }
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
         let class = Self::class(vm);
         if objtype::issubclass(&cls, &class) {
-            Ok(pyvalue_into_ref(self, cls, vm))
+            Ok(self.into_ref_with_type_unchecked(cls, vm))
         } else {
             let subtype = vm.to_str(&cls.obj)?;
             let basetype = vm.to_str(&class.obj)?;
             Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
         }
     }
-}
 
-fn pyvalue_into_ref<T: PyValue>(value: T, cls: PyClassRef, vm: &VirtualMachine) -> PyRef<T> {
-    let dict = if cls.slots.read().flags.has_feature(PyTpFlags::HAS_DICT) {
-        Some(vm.ctx.new_dict())
-    } else {
-        None
-    };
-    PyRef::new_ref(value, cls, dict)
+    fn into_ref_with_type_unchecked(self, cls: PyClassRef, vm: &VirtualMachine) -> PyRef<Self> {
+        let dict = if cls.slots.read().flags.has_feature(PyTpFlags::HAS_DICT) {
+            Some(vm.ctx.new_dict())
+        } else {
+            None
+        };
+        PyRef::new_ref(self, cls, dict)
+    }
 }
 
 pub trait BorrowValue<'a>: PyValue {
