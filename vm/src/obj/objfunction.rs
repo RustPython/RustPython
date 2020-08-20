@@ -259,7 +259,7 @@ impl PyValue for PyFunction {
     }
 }
 
-#[pyimpl(with(SlotDescriptor))]
+#[pyimpl(with(SlotDescriptor), flags(HAS_DICT))]
 impl PyFunction {
     #[pyslot]
     #[pymethod(magic)]
@@ -309,7 +309,7 @@ impl PyBoundMethod {
     }
 }
 
-#[pyimpl(with(SlotCall))]
+#[pyimpl(with(SlotCall), flags(HAS_DICT))]
 impl PyBoundMethod {
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {

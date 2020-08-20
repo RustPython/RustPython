@@ -6,14 +6,15 @@ use super::objclassmethod::PyClassMethod;
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objmappingproxy::PyMappingProxy;
+use super::objobject;
 use super::objstaticmethod::PyStaticMethod;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use super::objweakref::PyWeak;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease, PyObject,
-    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    BorrowValue, IdProtocol, PyAttributes, PyClassImpl, PyContext, PyIterable, PyLease,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::slots::{PyClassSlots, PyTpFlags};
 use crate::vm::VirtualMachine;
@@ -26,6 +27,7 @@ use std::ops::Deref;
 #[pyclass(name = "type")]
 pub struct PyClass {
     pub name: String,
+    pub base: Option<PyClassRef>,
     pub bases: Vec<PyClassRef>,
     pub mro: Vec<PyClassRef>,
     pub subclasses: PyRwLock<Vec<PyWeak>>,
@@ -59,6 +61,10 @@ impl PyClassRef {
         std::iter::once(self).chain(self.mro.iter())
     }
 
+    pub fn iter_base_chain(&self) -> impl Iterator<Item = &PyClassRef> {
+        std::iter::successors(Some(self), |cls| cls.base.as_ref())
+    }
+
     #[pyproperty(name = "__mro__")]
     fn get_mro(self) -> PyTuple {
         let elements: Vec<PyObjectRef> = self.iter_mro().map(|x| x.as_object().clone()).collect();
@@ -69,6 +75,16 @@ impl PyClassRef {
     fn bases(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
             .new_tuple(self.bases.iter().map(|x| x.as_object().clone()).collect())
+    }
+
+    #[pyproperty(magic)]
+    fn base(self) -> Option<PyClassRef> {
+        self.base.clone()
+    }
+
+    #[pyproperty(magic)]
+    fn flags(self) -> u64 {
+        self.slots.read().flags.bits()
     }
 
     #[pymethod(magic)]
@@ -316,16 +332,30 @@ impl PyClassRef {
             }
         }
 
+        if !attributes.contains_key("__dict__") {
+            attributes.insert(
+                "__dict__".to_owned(),
+                vm.ctx
+                    .new_getset("__dict__", subtype_get_dict, subtype_set_dict),
+            );
+        }
+
+        let slots = PyClassSlots {
+            // TODO: how do we know if it should have a dict?
+            flags: base.slots.read().flags | PyTpFlags::HAS_DICT,
+            ..Default::default()
+        };
+
         let typ = new(
             metatype,
             name.borrow_value(),
-            base.clone(),
+            base,
             bases,
             attributes,
+            slots,
         )
         .map_err(|e| vm.new_type_error(e))?;
 
-        typ.slots.write().flags = base.slots.read().flags;
         vm.ctx.add_tp_new_wrapper(&typ);
 
         for (name, obj) in typ.attributes.read().clone().iter() {
@@ -394,6 +424,51 @@ impl PyClassRef {
             "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
         ))
     }
+}
+
+fn find_base_dict_descr(cls: &PyClassRef, vm: &VirtualMachine) -> Option<PyObjectRef> {
+    cls.iter_base_chain().skip(1).find_map(|cls| {
+        // TODO: should actually be some translation of:
+        // cls.tp_dictoffset != 0 && !cls.flags.contains(HEAPTYPE)
+        if cls.is(&vm.ctx.types.type_type) {
+            cls.get_attr("__dict__")
+        } else {
+            None
+        }
+    })
+}
+
+fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let cls = obj.class();
+    let ret = match find_base_dict_descr(&cls, vm) {
+        Some(descr) => vm.call_get_descriptor(descr, obj).unwrap_or_else(|| {
+            Err(vm.new_type_error(format!(
+                "this __dict__ descriptor does not support '{}' objects",
+                cls.name
+            )))
+        })?,
+        None => objobject::object_get_dict(obj, vm)?.into_object(),
+    };
+    Ok(ret)
+}
+
+fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    let cls = obj.class();
+    match find_base_dict_descr(&cls, vm) {
+        Some(descr) => {
+            descr
+                .get_class_attr("__set__")
+                .map(|set| vm.invoke(&set, vec![descr, obj, value]))
+                .unwrap_or_else(|| {
+                    Err(vm.new_type_error(format!(
+                        "this __dict__ descriptor does not support '{}' objects",
+                        cls.name
+                    )))
+                })?;
+        }
+        None => objobject::object_set_dict(obj, PyDictRef::try_from_object(vm, value)?, vm)?,
+    }
+    Ok(())
 }
 
 /*
@@ -587,9 +662,10 @@ fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Result<Vec<PyClassRef>, Str
 pub fn new(
     typ: PyClassRef,
     name: &str,
-    _base: PyClassRef,
+    base: PyClassRef,
     bases: Vec<PyClassRef>,
-    dict: HashMap<String, PyObjectRef>,
+    attrs: HashMap<String, PyObjectRef>,
+    mut slots: PyClassSlots,
 ) -> Result<PyClassRef, String> {
     // Check for duplicates in bases.
     let mut unique_bases = HashSet::new();
@@ -604,21 +680,22 @@ pub fn new(
         .map(|x| x.iter_mro().cloned().collect())
         .collect();
     let mro = linearise_mro(mros)?;
-    let new_type = PyObject {
-        payload: PyClass {
+    if base.slots.read().flags.has_feature(PyTpFlags::HAS_DICT) {
+        slots.flags |= PyTpFlags::HAS_DICT
+    }
+    let new_type = PyRef::new_ref(
+        PyClass {
             name: String::from(name),
+            base: Some(base),
             bases,
             mro,
             subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(dict),
-            slots: PyRwLock::default(),
+            attributes: PyRwLock::new(attrs),
+            slots: PyRwLock::new(slots),
         },
-        dict: None,
-        typ: PyRwLock::new(typ.into_typed_pyobj()),
-    }
-    .into_ref();
-
-    let new_type: PyClassRef = new_type.downcast().unwrap();
+        typ,
+        None,
+    );
 
     for base in &new_type.bases {
         base.subclasses
@@ -723,6 +800,7 @@ mod tests {
             object.clone(),
             vec![object.clone()],
             HashMap::new(),
+            Default::default(),
         )
         .unwrap();
         let b = new(
@@ -731,6 +809,7 @@ mod tests {
             object.clone(),
             vec![object.clone()],
             HashMap::new(),
+            Default::default(),
         )
         .unwrap();
 

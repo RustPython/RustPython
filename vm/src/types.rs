@@ -40,6 +40,7 @@ use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::pyobject::{PyAttributes, PyContext, PyObject};
+use crate::slots::{PyClassSlots, PyTpFlags};
 use rustpython_common::{cell::PyRwLock, rc::PyRc};
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -261,6 +262,7 @@ pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyC
         base.clone(),
         vec![base.clone()],
         dict,
+        Default::default(),
     )
     .expect("Failed to create a new type in internal code.")
 }
@@ -302,11 +304,15 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
                 dict: None,
                 payload: PyClass {
                     name: String::from("type"),
+                    base: None,
                     bases: vec![],
                     mro: vec![],
                     subclasses: PyRwLock::default(),
                     attributes: PyRwLock::new(PyAttributes::new()),
-                    slots: PyRwLock::default(),
+                    slots: PyRwLock::new(PyClassSlots {
+                        flags: PyTpFlags::default() | PyTpFlags::BASETYPE,
+                        ..Default::default()
+                    }),
                 },
             },
             Uninit { typ }
@@ -316,11 +322,15 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
                 dict: None,
                 payload: PyClass {
                     name: String::from("object"),
+                    base: None,
                     bases: vec![],
                     mro: vec![],
                     subclasses: PyRwLock::default(),
                     attributes: PyRwLock::new(PyAttributes::new()),
-                    slots: PyRwLock::default(),
+                    slots: PyRwLock::new(PyClassSlots {
+                        flags: PyTpFlags::default() | PyTpFlags::BASETYPE,
+                        ..Default::default()
+                    }),
                 },
             },
             Uninit { typ },
@@ -348,6 +358,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
 
             (*type_type_ptr).payload.mro = vec![object_type.clone()];
             (*type_type_ptr).payload.bases = vec![object_type.clone()];
+            (*type_type_ptr).payload.base = Some(object_type.clone());
 
             (type_type, object_type)
         }
