@@ -11,13 +11,12 @@ use crate::vm::VirtualMachine;
 pub struct PyNamespace;
 
 impl PyValue for PyNamespace {
-    const HAVE_DICT: bool = true;
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.namespace_type()
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE, HAS_DICT))]
 impl PyNamespace {
     #[pyslot]
     fn tp_new(cls: PyClassRef, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
