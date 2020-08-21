@@ -295,6 +295,12 @@ fn extract_impl_items(mut items: Vec<ItemIdent>) -> Result<TokenStream2, Diagnos
 fn extract_impl_attrs(attr: AttributeArgs) -> Result<(TokenStream2, TokenStream2), Diagnostic> {
     let mut withs = Vec::new();
     let mut flags = vec![quote! { ::rustpython_vm::slots::PyTpFlags::DEFAULT.bits() }];
+    #[cfg(debug_assertions)]
+    {
+        flags.push(quote! {
+            | ::rustpython_vm::slots::PyTpFlags::_CREATED_WITH_FLAGS.bits()
+        });
+    }
 
     for attr in attr {
         match attr {
@@ -548,6 +554,9 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
         }
 
         impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
+            #[cfg(debug_assertions)]
+            const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::_CREATED_WITH_FLAGS;
+
             fn impl_extend_class(
                 ctx: &::rustpython_vm::pyobject::PyContext,
                 class: &::rustpython_vm::obj::objtype::PyClassRef,
@@ -561,7 +570,7 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             fn make_class(
                 ctx: &::rustpython_vm::pyobject::PyContext,
             ) -> ::rustpython_vm::obj::objtype::PyClassRef {
-                let py_class = ctx.new_class(<Self as ::rustpython_vm::pyobject::PyClassDef>::NAME, ctx.tuple_type());
+                let py_class = Self::create_bare_type(&ctx.type_type(), &ctx.tuple_type());
                 Self::extend_class(ctx, &py_class);
                 py_class
             }

@@ -644,8 +644,7 @@ pub(crate) fn parse(vm: &VirtualMachine, source: &str, mode: Mode) -> PyResult {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let ast_base = py_class!(ctx, "AST", ctx.object(), {});
-    ast_base.slots.write().flags |= PyTpFlags::HAS_DICT;
+    let ast_base = py_class!(ctx, "AST", ctx.object(), PyTpFlags::HAS_DICT, {});
     py_module!(vm, MODULE_NAME, {
         // TODO: There's got to be a better way!
         "alias" => py_class!(ctx, "alias", ast_base.clone(), {}),

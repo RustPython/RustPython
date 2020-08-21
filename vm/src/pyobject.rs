@@ -20,6 +20,7 @@ use crate::obj::objcode;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objcomplex::PyComplex;
 use crate::obj::objdict::{PyDict, PyDictRef};
+use crate::obj::objellipsis::PyEllipsis;
 use crate::obj::objfloat::PyFloat;
 use crate::obj::objfunction::{PyBoundMethod, PyFunction};
 use crate::obj::objgetset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet};
@@ -36,7 +37,7 @@ use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::scope::Scope;
 use crate::slots::PyTpFlags;
-use crate::types::{create_type, initialize_types, TypeZoo};
+use crate::types::{create_type, create_type_with_flags, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
 use rustpython_common::cell::{PyRwLock, PyRwLockReadGuard};
 use rustpython_common::rc::PyRc;
@@ -95,8 +96,7 @@ pub struct PyContext {
     pub false_value: PyIntRef,
     pub none: PyNoneRef,
     pub empty_tuple: PyTupleRef,
-    pub ellipsis_type: PyClassRef,
-    pub ellipsis: PyEllipsisRef,
+    pub ellipsis: PyRef<PyEllipsis>,
     pub not_implemented: PyNotImplementedRef,
 
     pub types: TypeZoo,
@@ -116,17 +116,6 @@ impl PyValue for PyNotImplemented {
     }
 }
 
-pub type PyEllipsisRef = PyRef<PyEllipsis>;
-
-#[derive(Debug)]
-pub struct PyEllipsis;
-
-impl PyValue for PyEllipsis {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.ellipsis_type.clone()
-    }
-}
-
 // Basic objects:
 impl PyContext {
     pub const INT_CACHE_POOL_MIN: i32 = -5;
@@ -141,11 +130,10 @@ impl PyContext {
             PyRef::new_ref(payload, cls.clone(), None)
         }
 
-        let none_type = create_type("NoneType", &types.type_type, &types.object_type);
+        let none_type = PyNone::create_bare_type(&types.type_type, &types.object_type);
         let none = create_object(PyNone, &none_type);
 
-        let ellipsis_type = create_type("EllipsisType", &types.type_type, &types.object_type);
-        let ellipsis = create_object(PyEllipsis, &ellipsis_type);
+        let ellipsis = create_object(PyEllipsis, &types.ellipsis_type);
 
         let not_implemented_type =
             create_type("NotImplementedType", &types.type_type, &types.object_type);
@@ -173,7 +161,6 @@ impl PyContext {
             none,
             empty_tuple,
             ellipsis,
-            ellipsis_type,
 
             types,
             exceptions,
@@ -382,6 +369,10 @@ impl PyContext {
         self.ellipsis.clone().into_object()
     }
 
+    pub fn ellipsis_type(&self) -> PyClassRef {
+        self.types.ellipsis_type.clone()
+    }
+
     pub fn not_implemented(&self) -> PyObjectRef {
         self.not_implemented.clone().into_object()
     }
@@ -473,8 +464,8 @@ impl PyContext {
             .unwrap()
     }
 
-    pub fn new_class(&self, name: &str, base: PyClassRef) -> PyClassRef {
-        create_type(name, &self.type_type(), &base)
+    pub fn new_class(&self, name: &str, base: PyClassRef, flags: PyTpFlags) -> PyClassRef {
+        create_type_with_flags(name, &self.type_type(), &base, flags)
     }
 
     pub fn new_namespace(&self) -> PyObjectRef {
@@ -1361,7 +1352,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     fn into_ref_with_type_unchecked(self, cls: PyClassRef, vm: &VirtualMachine) -> PyRef<Self> {
-        let dict = if cls.slots.read().flags.has_feature(PyTpFlags::HAS_DICT) {
+        let dict = if cls.flags.has_feature(PyTpFlags::HAS_DICT) {
             Some(vm.ctx.new_dict())
         } else {
             None
@@ -1455,6 +1446,10 @@ pub trait PyClassImpl: PyClassDef {
     fn impl_extend_class(ctx: &PyContext, class: &PyClassRef);
 
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
+        #[cfg(debug_assertions)]
+        {
+            assert!(class.flags.is_created_with_flags());
+        }
         if Self::TP_FLAGS.has_feature(PyTpFlags::HAS_DICT) {
             class.set_str_attr(
                 "__dict__",
@@ -1466,7 +1461,6 @@ pub trait PyClassImpl: PyClassDef {
             );
         }
         Self::impl_extend_class(ctx, class);
-        class.slots.write().flags = Self::TP_FLAGS;
         ctx.add_tp_new_wrapper(&class);
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc));
@@ -1474,13 +1468,17 @@ pub trait PyClassImpl: PyClassDef {
     }
 
     fn make_class(ctx: &PyContext) -> PyClassRef {
-        Self::make_class_with_base(ctx, ctx.object())
+        Self::make_class_with_base(ctx, Self::NAME, ctx.object())
     }
 
-    fn make_class_with_base(ctx: &PyContext, base: PyClassRef) -> PyClassRef {
-        let py_class = ctx.new_class(Self::NAME, base);
+    fn make_class_with_base(ctx: &PyContext, name: &str, base: PyClassRef) -> PyClassRef {
+        let py_class = ctx.new_class(name, base, Self::TP_FLAGS);
         Self::extend_class(ctx, &py_class);
         py_class
+    }
+
+    fn create_bare_type(type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
+        create_type_with_flags(Self::NAME, type_type, base, Self::TP_FLAGS)
     }
 }
 

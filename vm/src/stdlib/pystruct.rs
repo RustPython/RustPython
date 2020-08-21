@@ -967,7 +967,11 @@ mod _struct {
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let struct_error = ctx.new_class("struct.error", ctx.exceptions.exception_type.clone());
+    let struct_error = ctx.new_class(
+        "struct.error",
+        ctx.exceptions.exception_type.clone(),
+        Default::default(),
+    );
 
     let module = _struct::make_module(vm);
     extend_module!(vm, module, {
