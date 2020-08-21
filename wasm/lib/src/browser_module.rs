@@ -248,7 +248,7 @@ impl PyPromise {
     }
 }
 
-#[pyclass]
+#[pyclass(name)]
 #[derive(Debug)]
 struct Document {
     doc: web_sys::Document,
@@ -276,7 +276,7 @@ impl Document {
     }
 }
 
-#[pyclass]
+#[pyclass(name)]
 #[derive(Debug)]
 struct Element {
     elem: web_sys::Element,

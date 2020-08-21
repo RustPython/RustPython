@@ -1,8 +1,7 @@
-use super::Diagnostic;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::collections::HashMap;
-use syn::{spanned::Spanned, Attribute, Ident, Lit, Meta, MetaList, NestedMeta, Path, Result};
+use syn::{spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Path, Result};
 use syn_ext::ext::{AttributeExt as SynAttributeExt, *};
 use syn_ext::types::PunctuatedNestedMeta;
 
@@ -205,74 +204,51 @@ impl ItemMeta for SimpleItemMeta {
     }
 }
 
+pub(crate) struct ClassItemMeta(ItemMetaInner);
+
+impl ItemMeta for ClassItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["module", "name"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
+impl ClassItemMeta {
+    pub fn class_name(&self) -> Result<String> {
+        const KEY: &str = "name";
+        let inner = self.inner();
+        let value = if let Some((_, meta)) = inner.meta.get(KEY) {
+            match meta {
+                Meta::NameValue(syn::MetaNameValue {
+                    lit: syn::Lit::Str(lit),
+                    ..
+                }) => Some(lit.value()),
+                Meta::Path(_) => Some(inner.ident.to_string()),
+                _ => None,
+            }
+        } else {
+            None
+        }.ok_or_else(|| syn::Error::new_spanned(
+            &inner.ident,
+            format!(
+                "#[{attr_name}(name = ...)] must exist as a string. Try #[{attr_name}(name)] to use rust type name.",
+                attr_name=inner.parent_type
+            ),
+        ))?;
+        Ok(value)
+    }
+
+    pub fn module(&self) -> Result<Option<String>> {
+        self.inner()._optional_str("module")
+    }
+}
+
 pub(crate) fn path_eq(path: &Path, s: &str) -> bool {
     path.get_ident().map_or(false, |id| id == s)
-}
-
-pub(crate) fn def_to_name(
-    attr_name: &'static str,
-    ident: &Ident,
-    attrs: &[NestedMeta],
-) -> std::result::Result<String, Diagnostic> {
-    optional_attribute_arg(attr_name, "name", attrs)
-        .transpose()
-        .unwrap_or_else(|| Ok(ident.to_string()))
-}
-
-pub(crate) fn attribute_arg(
-    attr_name: &'static str,
-    arg_name: &'static str,
-    attrs: &[NestedMeta],
-) -> std::result::Result<String, Diagnostic> {
-    if let Some(r) = optional_attribute_arg(attr_name, arg_name, attrs).transpose() {
-        r
-    } else {
-        bail_span!(
-            attrs[0],
-            "#[{}({} = ...)] must exist but not found",
-            attr_name,
-            arg_name
-        )
-    }
-}
-
-pub(crate) fn optional_attribute_arg<'a, I>(
-    attr_name: &'static str,
-    arg_name: &'static str,
-    attrs: I,
-) -> std::result::Result<Option<String>, Diagnostic>
-where
-    I: std::iter::IntoIterator<Item = &'a NestedMeta>,
-{
-    let mut arg_value = None;
-    for attr in attrs {
-        match attr {
-            NestedMeta::Meta(Meta::NameValue(name_value))
-                if path_eq(&name_value.path, arg_name) =>
-            {
-                if let Lit::Str(lit) = &name_value.lit {
-                    if arg_value.is_some() {
-                        bail_span!(
-                            name_value.lit,
-                            "#[{}({} = ...)] must be unique but found multiple times",
-                            attr_name,
-                            arg_name
-                        );
-                    }
-                    arg_value = Some(lit.value());
-                } else {
-                    bail_span!(
-                        name_value.lit,
-                        "#[{}({} = ...)] must be a string",
-                        attr_name,
-                        arg_name
-                    );
-                }
-            }
-            _ => continue,
-        }
-    }
-    Ok(arg_value)
 }
 
 pub(crate) trait AttributeExt: SynAttributeExt {

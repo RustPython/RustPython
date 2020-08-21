@@ -1,7 +1,7 @@
 use super::Diagnostic;
 use crate::util::{
-    attribute_arg, def_to_name, optional_attribute_arg, path_eq, AttributeExt, ContentItem,
-    ContentItemInner, ItemIdent, ItemMeta, ItemMetaInner,
+    path_eq, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner, ItemIdent, ItemMeta,
+    ItemMetaInner,
 };
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
@@ -563,17 +563,18 @@ fn generate_class_def(
 }
 
 pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
-    let (item, ident, attrs) = match item {
-        Item::Struct(struc) => (quote!(#struc), struc.ident, struc.attrs),
-        Item::Enum(enu) => (quote!(#enu), enu.ident, enu.attrs),
+    let (ident, attrs) = match &item {
+        Item::Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
+        Item::Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
         other => bail_span!(
             other,
             "#[pyclass] can only be on a struct or enum declaration"
         ),
     };
 
-    let class_name = def_to_name("pyclass", &ident, &attr)?;
-    let module_name = optional_attribute_arg("pystruct_sequence", "module", &attr)?;
+    let class_meta = ClassItemMeta::from_nested("pyclass", ident, attr.into_iter())?;
+    let class_name = class_meta.class_name()?;
+    let module_name = class_meta.module()?;
     let class_def = generate_class_def(&ident, &class_name, module_name.as_deref(), &attrs)?;
 
     let ret = quote! {
@@ -592,8 +593,10 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             "#[pystruct_sequence] can only be on a struct declaration"
         )
     };
-    let module_name = attribute_arg("pystruct_sequence", "module", &attr)?;
-    let class_name = def_to_name("pystruct_sequence", &struc.ident, &attr)?;
+    let class_meta =
+        ClassItemMeta::from_nested("pystruct_sequence", &struc.ident, attr.into_iter())?;
+    let class_name = class_meta.class_name()?;
+    let module_name = class_meta.module()?.unwrap();
 
     let class_def =
         generate_class_def(&struc.ident, &class_name, Some(&module_name), &struc.attrs)?;

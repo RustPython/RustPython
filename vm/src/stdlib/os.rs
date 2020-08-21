@@ -475,7 +475,7 @@ mod _os {
     }
 
     #[pyattr]
-    #[pyclass]
+    #[pyclass(name)]
     #[derive(Debug)]
     struct DirEntry {
         entry: fs::DirEntry,

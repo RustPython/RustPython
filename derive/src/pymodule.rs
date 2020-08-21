@@ -1,6 +1,6 @@
 use crate::error::Diagnostic;
 use crate::util::{
-    AttributeExt, ContentItem, ContentItemInner, ItemMeta, ItemMetaInner, ItemNursery,
+    AttributeExt, ClassItemMeta, ContentItem, ContentItemInner, ItemMeta, ItemNursery,
     SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
@@ -195,19 +195,6 @@ where
     Ok((result, cfgs))
 }
 
-struct ClassItemMeta(ItemMetaInner);
-
-impl ItemMeta for ClassItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["module", "name"];
-
-    fn from_inner(inner: ItemMetaInner) -> Self {
-        Self(inner)
-    }
-    fn inner(&self) -> &ItemMetaInner {
-        &self.0
-    }
-}
-
 /// #[pyfunction]
 struct FunctionItem {
     inner: ContentItemInner,
@@ -322,8 +309,13 @@ impl ModuleItem for ClassItem {
                     ));
                 }
             }
+            let static_name = match self.attr_name() {
+                "pyclass" => "pyclass",
+                "pystruct_sequence" => "pystruct_sequence",
+                _ => unreachable!(),
+            };
             let class_meta = ClassItemMeta::from_nested(
-                "pyclass/pystruct_sequence",
+                static_name,
                 &args.ident,
                 class_attr.promoted_nested()?.into_iter(),
             )?;
@@ -331,7 +323,7 @@ impl ModuleItem for ClassItem {
             class_attr.fill_nested_meta("module", || {
                 parse_quote! {module = #module_name}
             })?;
-            let class_name = class_meta.simple_name()?;
+            let class_name = class_meta.class_name()?;
             (module_name, class_name)
         };
         for attr_index in self.pyattrs.iter().rev() {
