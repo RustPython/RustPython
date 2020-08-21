@@ -542,7 +542,7 @@ impl PyArray {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "array_iterator")]
 #[derive(Debug)]
 pub struct PyArrayIter {
     position: AtomicCell<usize>,
