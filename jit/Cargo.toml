@@ -1,0 +1,14 @@
+[package]
+name = "rustpython-jit"
+version = "0.1.2"
+description = "Experimental JIT(just in time) compiler for python code."
+authors = [ "RustPython Team" ]
+repository = "https://github.com/RustPython/RustPython"
+license = "MIT"
+edition = "2018"
+
+[dependencies]
+cranelift = "0.66.0"
+cranelift-module = "0.66.0"
+cranelift-simplejit = "0.66.0"
+

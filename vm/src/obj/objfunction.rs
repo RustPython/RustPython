@@ -17,6 +17,8 @@ use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
 use crate::VirtualMachine;
 use itertools::Itertools;
+use rustpython_common::cell::PyMutex;
+use rustpython_jit::CompiledCode;
 
 pub type PyFunctionRef = PyRef<PyFunction>;
 
@@ -24,6 +26,7 @@ pub type PyFunctionRef = PyRef<PyFunction>;
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyCodeRef,
+    jitted_code: PyMutex<Option<CompiledCode>>,
     scope: Scope,
     defaults: Option<PyTupleRef>,
     kw_only_defaults: Option<PyDictRef>,
@@ -54,6 +57,7 @@ impl PyFunction {
     ) -> Self {
         PyFunction {
             code,
+            jitted_code: PyMutex::new(None),
             scope,
             defaults,
             kw_only_defaults,
@@ -223,6 +227,11 @@ impl PyFunction {
         scope: &Scope,
         vm: &VirtualMachine,
     ) -> PyResult {
+        if let Some(jitted_code) = &*self.jitted_code.lock() {
+            jitted_code.invoke();
+            return Ok(vm.get_none());
+        }
+
         let code = &self.code;
 
         let scope = if self.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
@@ -284,6 +293,12 @@ impl PyFunction {
     #[pyproperty(magic)]
     fn globals(&self) -> PyDictRef {
         self.scope.globals.clone()
+    }
+
+    #[pymethod(magic)]
+    fn jit(&self) {
+        let mut guard = self.jitted_code.lock();
+        *guard = Some(rustpython_jit::compile());
     }
 }
 
