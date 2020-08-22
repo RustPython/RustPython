@@ -10,9 +10,9 @@ use crate::pyobject::{
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
 
-pub type PyGetterFunc = Box<dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult + Send + Sync>;
+pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;
 pub type PySetterFunc =
-    Box<dyn Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult<()> + Send + Sync>;
+    Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult<()>)>;
 
 pub trait IntoPyGetterFunc<T> {
     fn into_getter(self) -> PyGetterFunc;

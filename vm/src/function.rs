@@ -9,7 +9,8 @@ use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{
-    BorrowValue, IntoPyResult, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -476,15 +477,8 @@ tuple_from_py_func_args!(A, B, C, D);
 tuple_from_py_func_args!(A, B, C, D, E);
 tuple_from_py_func_args!(A, B, C, D, E, F);
 
-// can't use PyThreadingConstraint for this since it's not an auto trait, and therefore we can't
-// add it ad-hoc to a trait object
-#[cfg(not(feature = "threading"))]
-pub type NativeFuncObj = dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static;
-#[cfg(feature = "threading")]
-pub type NativeFuncObj = dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + Send + Sync + 'static;
-
 /// A built-in Python function.
-pub type PyNativeFunc = Box<NativeFuncObj>;
+pub type PyNativeFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult)>;
 
 /// Implemented by types that are or can generate built-in functions.
 ///
@@ -500,7 +494,7 @@ pub type PyNativeFunc = Box<NativeFuncObj>;
 ///
 /// A bare `PyNativeFunc` also implements this trait, allowing the above to be
 /// done manually, for rare situations that don't fit into this model.
-pub trait IntoPyNativeFunc<T, R, VM>: Sized + Send + Sync + 'static {
+pub trait IntoPyNativeFunc<T, R, VM>: Sized + PyThreadingConstraint + 'static {
     fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult;
     fn into_func(self) -> PyNativeFunc {
         Box::new(move |vm: &VirtualMachine, args| self.call(vm, args))
@@ -509,7 +503,7 @@ pub trait IntoPyNativeFunc<T, R, VM>: Sized + Send + Sync + 'static {
 
 impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult, VirtualMachine> for F
 where
-    F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static + Send + Sync,
+    F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + PyThreadingConstraint + 'static,
 {
     fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         (self)(vm, args)
@@ -527,7 +521,7 @@ macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),*) => {
         impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
-            F: Fn($($T,)* &VirtualMachine) -> R + 'static + Send + Sync,
+            F: Fn($($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
@@ -540,7 +534,7 @@ macro_rules! into_py_native_func_tuple {
 
         impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
-            F: Fn(&S, $($T,)* &VirtualMachine) -> R + 'static  + Send + Sync,
+            F: Fn(&S, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
             S: PyValue,
             $($T: FromArgs,)*
             R: IntoPyResult,
@@ -554,7 +548,7 @@ macro_rules! into_py_native_func_tuple {
 
         impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, ()> for F
         where
-            F: Fn($($T,)*) -> R + 'static  + Send + Sync,
+            F: Fn($($T,)*) -> R + PyThreadingConstraint + 'static,
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
@@ -567,7 +561,7 @@ macro_rules! into_py_native_func_tuple {
 
         impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
         where
-            F: Fn(&S, $($T,)*) -> R + 'static  + Send + Sync,
+            F: Fn(&S, $($T,)*) -> R + PyThreadingConstraint + 'static,
             S: PyValue,
             $($T: FromArgs,)*
             R: IntoPyResult,
@@ -645,18 +639,16 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn test_intonativefunc_noalloc() {
-        macro_rules! check_size {
-            ($f:expr) => {
-                let f = super::IntoPyNativeFunc::into_func(py_func);
-                assert_eq!(std::mem::size_of_val(f.as_ref()), 0);
-            };
-        }
+        let check_zst = |f: PyNativeFunc| assert_eq!(std::mem::size_of_val(f.as_ref()), 0);
         fn py_func(_b: bool, _vm: &crate::VirtualMachine) -> i32 {
             1
         }
-        check_size!(py_func);
-        check_size!(|| "foo".to_owned());
+        check_zst(py_func.into_func());
+        let empty_closure = || "foo".to_owned();
+        check_zst(empty_closure.into_func());
     }
 }
