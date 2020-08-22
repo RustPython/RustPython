@@ -11,4 +11,5 @@ edition = "2018"
 cranelift = "0.66.0"
 cranelift-module = "0.66.0"
 cranelift-simplejit = "0.66.0"
-
+num-traits = "0.2"
+rustpython-bytecode = { path = "../bytecode", version = "0.1.1" }

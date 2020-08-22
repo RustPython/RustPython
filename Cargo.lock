@@ -1538,6 +1538,8 @@ dependencies = [
  "cranelift",
  "cranelift-module",
  "cranelift-simplejit",
+ "num-traits",
+ "rustpython-bytecode",
 ]
 
 [[package]]

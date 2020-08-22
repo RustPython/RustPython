@@ -10,8 +10,8 @@ use crate::obj::objasyncgenerator::PyAsyncGen;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objgenerator::PyGenerator;
 use crate::pyobject::{
-    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
@@ -228,8 +228,7 @@ impl PyFunction {
         vm: &VirtualMachine,
     ) -> PyResult {
         if let Some(jitted_code) = &*self.jitted_code.lock() {
-            jitted_code.invoke();
-            return Ok(vm.get_none());
+            return Ok(jitted_code.invoke().into_pyobject(vm));
         }
 
         let code = &self.code;
@@ -296,9 +295,15 @@ impl PyFunction {
     }
 
     #[pymethod(magic)]
-    fn jit(&self) {
+    fn jit(&self, vm: &VirtualMachine) -> PyResult<()> {
         let mut guard = self.jitted_code.lock();
-        *guard = Some(rustpython_jit::compile());
+        match rustpython_jit::compile(&self.code.code) {
+            Ok(code) => {
+                *guard = Some(code);
+                Ok(())
+            }
+            Err(err) => Err(vm.new_runtime_error(err.to_string())),
+        }
     }
 }
 
