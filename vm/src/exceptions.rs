@@ -7,8 +7,8 @@ use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::py_io::{self, Write};
 use crate::pyobject::{
-    BorrowValue, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    BorrowValue, PyClassDef, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::types::create_type_with_flags;
 use crate::VirtualMachine;
@@ -21,7 +21,7 @@ use std::io::{self, BufRead, BufReader};
 
 use crossbeam_utils::atomic::AtomicCell;
 
-#[pyclass]
+#[pyclass(name = "BaseException")]
 pub struct PyBaseException {
     traceback: PyRwLock<Option<PyTracebackRef>>,
     cause: PyRwLock<Option<PyBaseExceptionRef>>,
@@ -466,7 +466,7 @@ impl ExceptionZoo {
             create_type_with_flags(name, type_type, base, PyBaseException::TP_FLAGS)
         };
         // Sorted By Hierarchy then alphabetized.
-        let base_exception_type = create_exception_type("BaseException", &object_type);
+        let base_exception_type = create_exception_type(PyBaseExceptionRef::NAME, &object_type);
         let system_exit = create_exception_type("SystemExit", &base_exception_type);
         let keyboard_interrupt = create_exception_type("KeyboardInterrupt", &base_exception_type);
         let generator_exit = create_exception_type("GeneratorExit", &base_exception_type);

@@ -13,7 +13,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 /// The most base type
-#[pyclass]
+#[pyclass(name = "object")]
 #[derive(Debug)]
 pub struct PyBaseObject;
 
