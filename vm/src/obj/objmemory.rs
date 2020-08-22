@@ -6,7 +6,7 @@ use crate::pyobject::{
 use crate::stdlib::array::PyArray;
 use crate::vm::VirtualMachine;
 
-#[pyclass(name = "memoryview")]
+#[pyclass(module = false, name = "memoryview")]
 #[derive(Debug)]
 pub struct PyMemoryView {
     obj_ref: PyObjectRef,

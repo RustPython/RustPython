@@ -243,7 +243,47 @@ impl ClassItemMeta {
     }
 
     pub fn module(&self) -> Result<Option<String>> {
-        self.inner()._optional_str("module")
+        const KEY: &str = "module";
+        let inner = self.inner();
+        let value = if let Some((_, meta)) = inner.meta.get(KEY) {
+            match meta {
+                Meta::NameValue(syn::MetaNameValue {
+                    lit: syn::Lit::Str(lit),
+                    ..
+                }) => Ok(Some(lit.value())),
+                Meta::NameValue(syn::MetaNameValue {
+                    lit: syn::Lit::Bool(lit),
+                    ..
+                }) => if lit.value {
+                    Err(lit.span())
+                } else {
+                    Ok(None)
+                }
+                other => Err(other.span()),
+            }
+        } else {
+            Err(inner.ident.span())
+        }.map_err(|span| syn::Error::new(
+            span,
+            format!(
+                "#[{attr_name}(module = ...)] must exist as a string or false. Try #[{attr_name}(module=false)] for built-in types.",
+                attr_name=inner.parent_type
+            ),
+        ))?;
+        Ok(value)
+    }
+
+    pub fn mandatory_module(&self) -> Result<String> {
+        let inner = self.inner();
+        let value = self.module().ok().flatten().
+        ok_or_else(|| syn::Error::new_spanned(
+            &inner.ident,
+            format!(
+                "#[{attr_name}(module = ...)] must exist as a string. Built-in module is not allowed here.",
+                attr_name=inner.parent_type
+            ),
+        ))?;
+        Ok(value)
     }
 }
 

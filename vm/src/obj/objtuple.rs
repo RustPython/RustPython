@@ -18,7 +18,7 @@ use rustpython_common::hash::PyHash;
 /// tuple(iterable) -> tuple initialized from iterable's items
 ///
 /// If the argument is a tuple, the return value is the same object.
-#[pyclass(name = "tuple")]
+#[pyclass(module = false, name = "tuple")]
 pub struct PyTuple {
     elements: Vec<PyObjectRef>,
 }
@@ -255,7 +255,7 @@ impl PyTuple {
     }
 }
 
-#[pyclass(name = "tuple_iterator")]
+#[pyclass(module = false, name = "tuple_iterator")]
 #[derive(Debug)]
 pub struct PyTupleIterator {
     position: AtomicCell<usize>,

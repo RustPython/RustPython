@@ -149,7 +149,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
     Ok(Some(hint))
 }
 
-#[pyclass(name = "iter")]
+#[pyclass(module = false, name = "iter")]
 #[derive(Debug)]
 pub struct PySequenceIterator {
     pub position: AtomicCell<isize>,
@@ -222,7 +222,7 @@ pub fn seq_iter_method(obj: PyObjectRef) -> PySequenceIterator {
     PySequenceIterator::new_forward(obj)
 }
 
-#[pyclass(name = "callable_iterator")]
+#[pyclass(module = false, name = "callable_iterator")]
 #[derive(Debug)]
 pub struct PyCallableIterator {
     callable: PyCallable,

@@ -24,7 +24,7 @@ use std::ops::Deref;
 /// type(object_or_name, bases, dict)
 /// type(object) -> the object's type
 /// type(name, bases, dict) -> a new type
-#[pyclass(name = "type")]
+#[pyclass(module = false, name = "type")]
 pub struct PyClass {
     pub name: String,
     pub base: Option<PyClassRef>,

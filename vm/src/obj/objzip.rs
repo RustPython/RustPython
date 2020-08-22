@@ -6,7 +6,7 @@ use crate::vm::VirtualMachine;
 
 pub type PyZipRef = PyRef<PyZip>;
 
-#[pyclass(name = "zip")]
+#[pyclass(module = false, name = "zip")]
 #[derive(Debug)]
 pub struct PyZip {
     iterators: Vec<PyObjectRef>,

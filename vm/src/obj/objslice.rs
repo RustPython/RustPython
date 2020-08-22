@@ -9,7 +9,7 @@ use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
-#[pyclass(name = "slice")]
+#[pyclass(module = false, name = "slice")]
 #[derive(Debug)]
 pub struct PySlice {
     pub start: Option<PyObjectRef>,

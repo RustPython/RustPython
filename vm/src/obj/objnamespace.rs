@@ -6,7 +6,7 @@ use crate::vm::VirtualMachine;
 /// A simple attribute-based namespace.
 ///
 /// SimpleNamespace(**kwargs)
-#[pyclass(name = "SimpleNamespace")]
+#[pyclass(module = false, name = "SimpleNamespace")]
 #[derive(Debug)]
 pub struct PyNamespace;
 

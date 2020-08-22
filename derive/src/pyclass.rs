@@ -596,7 +596,7 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
     let class_meta =
         ClassItemMeta::from_nested("pystruct_sequence", &struc.ident, attr.into_iter())?;
     let class_name = class_meta.class_name()?;
-    let module_name = class_meta.module()?.unwrap();
+    let module_name = class_meta.mandatory_module()?;
 
     let class_def =
         generate_class_def(&struc.ident, &class_name, Some(&module_name), &struc.attrs)?;

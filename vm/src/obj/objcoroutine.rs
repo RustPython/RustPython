@@ -9,7 +9,7 @@ use crate::vm::VirtualMachine;
 
 pub type PyCoroutineRef = PyRef<PyCoroutine>;
 
-#[pyclass(name = "coroutine")]
+#[pyclass(module = false, name = "coroutine")]
 #[derive(Debug)]
 pub struct PyCoroutine {
     inner: Coro,
@@ -95,7 +95,7 @@ impl PyCoroutine {
     }
 }
 
-#[pyclass(name = "coroutine_wrapper")]
+#[pyclass(module = false, name = "coroutine_wrapper")]
 #[derive(Debug)]
 pub struct PyCoroutineWrapper {
     coro: PyCoroutineRef,

@@ -9,7 +9,7 @@ use crate::vm::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
 
-#[pyclass(name = "async_generator")]
+#[pyclass(name = "async_generator", module = false)]
 #[derive(Debug)]
 pub struct PyAsyncGen {
     inner: Coro,
@@ -114,7 +114,7 @@ impl PyAsyncGen {
     }
 }
 
-#[pyclass(name = "async_generator_wrapped_value")]
+#[pyclass(module = false, name = "async_generator_wrapped_value")]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenWrappedValue(pub PyObjectRef);
 impl PyValue for PyAsyncGenWrappedValue {
@@ -158,7 +158,7 @@ enum AwaitableState {
     Closed,
 }
 
-#[pyclass(name = "async_generator_asend")]
+#[pyclass(module = false, name = "async_generator_asend")]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenASend {
     ag: PyAsyncGenRef,
@@ -253,7 +253,7 @@ impl PyAsyncGenASend {
     }
 }
 
-#[pyclass(name = "async_generator_athrow")]
+#[pyclass(module = false, name = "async_generator_athrow")]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenAThrow {
     ag: PyAsyncGenRef,

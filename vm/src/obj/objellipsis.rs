@@ -6,7 +6,7 @@ pub(crate) fn init(context: &PyContext) {
     PyEllipsis::extend_class(context, &context.ellipsis_type());
 }
 
-#[pyclass(name = "EllipsisType")]
+#[pyclass(module = false, name = "EllipsisType")]
 #[derive(Debug)]
 pub struct PyEllipsis;
 

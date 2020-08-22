@@ -9,7 +9,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-#[pyclass(name = "mappingproxy")]
+#[pyclass(module = false, name = "mappingproxy")]
 #[derive(Debug)]
 pub struct PyMappingProxy {
     mapping: MappingProxyInner,

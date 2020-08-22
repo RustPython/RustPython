@@ -21,7 +21,7 @@ pub type SetContentType = dictdatatype::Dict<()>;
 /// set(iterable) -> new set object
 ///
 /// Build an unordered collection of unique elements.
-#[pyclass(name = "set")]
+#[pyclass(module = false, name = "set")]
 #[derive(Default)]
 pub struct PySet {
     inner: PySetInner,
@@ -32,7 +32,7 @@ pub type PySetRef = PyRef<PySet>;
 /// frozenset(iterable) -> frozenset object
 ///
 /// Build an immutable unordered collection of unique elements.
-#[pyclass(name = "frozenset")]
+#[pyclass(module = false, name = "frozenset")]
 #[derive(Default)]
 pub struct PyFrozenSet {
     inner: PySetInner,
@@ -824,7 +824,7 @@ struct SetSizeInfo {
     position: usize,
 }
 
-#[pyclass(name = "set_iterator")]
+#[pyclass(module = false, name = "set_iterator")]
 pub(crate) struct PySetIterator {
     dict: PyRc<SetContentType>,
     size_info: crossbeam_utils::atomic::AtomicCell<SetSizeInfo>,

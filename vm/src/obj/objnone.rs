@@ -4,7 +4,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-#[pyclass(name = "NoneType")]
+#[pyclass(module = false, name = "NoneType")]
 #[derive(Debug)]
 pub struct PyNone;
 pub type PyNoneRef = PyRef<PyNone>;

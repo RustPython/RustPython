@@ -33,7 +33,7 @@ use crate::vm::VirtualMachine;
 ///  - a bytes or a buffer object\n  \
 ///  - any object implementing the buffer API.\n  \
 ///  - an integer";
-#[pyclass(name = "bytearray")]
+#[pyclass(module = false, name = "bytearray")]
 #[derive(Debug)]
 pub struct PyByteArray {
     inner: PyRwLock<PyBytesInner>,
@@ -606,7 +606,7 @@ impl PyByteArray {
 //     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
 // }
 
-#[pyclass(name = "bytearray_iterator")]
+#[pyclass(module = false, name = "bytearray_iterator")]
 #[derive(Debug)]
 pub struct PyByteArrayIterator {
     position: AtomicCell<usize>,

@@ -40,7 +40,7 @@ use rustpython_common::hash;
 /// Base 0 means to interpret the base from the string as an integer literal.
 /// >>> int('0b100', base=0)
 /// 4
-#[pyclass(name = "int")]
+#[pyclass(module = false, name = "int")]
 #[derive(Debug)]
 pub struct PyInt {
     value: BigInt,

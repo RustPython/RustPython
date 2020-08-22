@@ -41,7 +41,7 @@ use rustpython_common::hash;
 /// or repr(object).
 /// encoding defaults to sys.getdefaultencoding().
 /// errors defaults to 'strict'."
-#[pyclass(name = "str")]
+#[pyclass(module = false, name = "str")]
 #[derive(Debug)]
 pub struct PyString {
     value: String,
@@ -102,7 +102,7 @@ impl TryIntoRef<PyString> for &str {
     }
 }
 
-#[pyclass(name = "str_iterator")]
+#[pyclass(module = false, name = "str_iterator")]
 #[derive(Debug)]
 pub struct PyStringIterator {
     pub string: PyStringRef,
@@ -135,7 +135,7 @@ impl PyStringIterator {
     }
 }
 
-#[pyclass(name = "str_reverseiterator")]
+#[pyclass(module = false, name = "str_reverseiterator")]
 #[derive(Debug)]
 pub struct PyStringReverseIterator {
     pub position: AtomicCell<isize>,

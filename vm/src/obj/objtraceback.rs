@@ -3,7 +3,7 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyRef, PyValue};
 use crate::vm::VirtualMachine;
 
-#[pyclass(name = "traceback")]
+#[pyclass(module = false, name = "traceback")]
 #[derive(Debug)]
 pub struct PyTraceback {
     pub next: Option<PyTracebackRef>, // TODO: Make mutable
