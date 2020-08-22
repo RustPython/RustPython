@@ -1444,7 +1444,6 @@ dependencies = [
  "sha-1",
  "sha2",
  "sha3",
- "smallbox",
  "socket2",
  "statrs",
  "thread_local",
@@ -1624,12 +1623,6 @@ name = "siphasher"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa8f3741c7372e75519bd9346068370c9cdaabcc1f9599cbcf2a2719352286b7"
-
-[[package]]
-name = "smallbox"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa0eec6425219a55511a35afac416a2eecc62f5fa1bec14f9b97de0caa7daebe"
 
 [[package]]
 name = "smallvec"

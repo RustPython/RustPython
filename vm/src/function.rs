@@ -4,7 +4,6 @@ use std::ops::RangeInclusive;
 
 use indexmap::IndexMap;
 use result_like::impl_option_like;
-use smallbox::{smallbox, space::S1, SmallBox};
 
 use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtuple::PyTupleRef;
@@ -477,12 +476,15 @@ tuple_from_py_func_args!(A, B, C, D);
 tuple_from_py_func_args!(A, B, C, D, E);
 tuple_from_py_func_args!(A, B, C, D, E, F);
 
-/// A container that can hold a `dyn Fn*` trait object, but doesn't allocate if it's only a fn() pointer
-pub type FunctionBox<T> = SmallBox<T, S1>;
+// can't use PyThreadingConstraint for this since it's not an auto trait, and therefore we can't
+// add it ad-hoc to a trait object
+#[cfg(not(feature = "threading"))]
+pub type NativeFuncObj = dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static;
+#[cfg(feature = "threading")]
+pub type NativeFuncObj = dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + Send + Sync + 'static;
 
 /// A built-in Python function.
-pub type PyNativeFunc =
-    FunctionBox<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static + Send + Sync>;
+pub type PyNativeFunc = Box<NativeFuncObj>;
 
 /// Implemented by types that are or can generate built-in functions.
 ///
@@ -498,16 +500,19 @@ pub type PyNativeFunc =
 ///
 /// A bare `PyNativeFunc` also implements this trait, allowing the above to be
 /// done manually, for rare situations that don't fit into this model.
-pub trait IntoPyNativeFunc<T, R, VM> {
-    fn into_func(self) -> PyNativeFunc;
+pub trait IntoPyNativeFunc<T, R, VM>: Sized + Send + Sync + 'static {
+    fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult;
+    fn into_func(self) -> PyNativeFunc {
+        Box::new(move |vm: &VirtualMachine, args| self.call(vm, args))
+    }
 }
 
 impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult, VirtualMachine> for F
 where
     F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static + Send + Sync,
 {
-    fn into_func(self) -> PyNativeFunc {
-        smallbox!(self)
+    fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+        (self)(vm, args)
     }
 }
 
@@ -526,12 +531,10 @@ macro_rules! into_py_native_func_tuple {
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
-            fn into_func(self) -> PyNativeFunc {
-                smallbox!(move |vm: &VirtualMachine, args: PyFuncArgs| {
-                    let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
+            fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+                let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
-                    (self)($($n,)* vm).into_pyresult(vm)
-                })
+                (self)($($n,)* vm).into_pyresult(vm)
             }
         }
 
@@ -542,12 +545,10 @@ macro_rules! into_py_native_func_tuple {
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
-            fn into_func(self) -> PyNativeFunc {
-                smallbox!(move |vm: &VirtualMachine, args: PyFuncArgs| {
-                    let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
+            fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+                let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
 
-                    (self)(&zelf, $($n,)* vm).into_pyresult(vm)
-                })
+                (self)(&zelf, $($n,)* vm).into_pyresult(vm)
             }
         }
 
@@ -557,8 +558,10 @@ macro_rules! into_py_native_func_tuple {
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
-            fn into_func(self) -> PyNativeFunc {
-                IntoPyNativeFunc::into_func(move |$($n,)* _vm: &VirtualMachine| (self)($($n,)*))
+            fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+                let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
+
+                (self)($($n,)*).into_pyresult(vm)
             }
         }
 
@@ -569,8 +572,10 @@ macro_rules! into_py_native_func_tuple {
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
-            fn into_func(self) -> PyNativeFunc {
-                IntoPyNativeFunc::into_func(move |zelf: &S, $($n,)* _vm: &VirtualMachine| (self)(zelf, $($n,)*))
+            fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+                let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
+
+                (self)(&zelf, $($n,)*).into_pyresult(vm)
             }
         }
     };
@@ -641,11 +646,17 @@ where
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_functionbox_noalloc() {
+    fn test_intonativefunc_noalloc() {
+        macro_rules! check_size {
+            ($f:expr) => {
+                let f = super::IntoPyNativeFunc::into_func(py_func);
+                assert_eq!(std::mem::size_of_val(f.as_ref()), 0);
+            };
+        }
         fn py_func(_b: bool, _vm: &crate::VirtualMachine) -> i32 {
             1
         }
-        let f = super::IntoPyNativeFunc::into_func(py_func);
-        assert!(!f.is_heap());
+        check_size!(py_func);
+        check_size!(|| "foo".to_owned());
     }
 }
