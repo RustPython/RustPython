@@ -7,11 +7,13 @@ use syn_ext::types::PunctuatedNestedMeta;
 
 pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "pymethod",
+    "pyclassmethod",
     "pyproperty",
     "pyfunction",
     "pyclass",
     "pystruct_sequence",
     "pyattr",
+    "pyslot",
 ];
 
 #[derive(Default)]
@@ -198,6 +200,14 @@ pub(crate) trait ItemMeta: Sized {
 
     fn optional_name(&self) -> Option<String> {
         self.inner()._optional_str("name").ok().flatten()
+    }
+
+    fn new_meta_error(&self, msg: &str) -> syn::Error {
+        let inner = self.inner();
+        syn::Error::new_spanned(
+            &inner.meta_ident,
+            format!("#[{}] {}", inner.meta_name(), msg),
+        )
     }
 }
 pub(crate) struct SimpleItemMeta(pub ItemMetaInner);
@@ -387,7 +397,27 @@ impl AttributeExt for Attribute {
     }
 }
 
-pub(crate) struct ItemIdent<'a> {
-    pub attrs: &'a mut Vec<Attribute>,
-    pub ident: &'a Ident,
+pub(crate) trait ErrorVec {
+    fn into_error(self) -> syn::Error;
+    fn ok_or_push<T>(&mut self, r: Result<T>) -> Option<T>;
+}
+
+impl ErrorVec for Vec<syn::Error> {
+    fn into_error(self) -> syn::Error {
+        let mut iter = self.into_iter();
+        let mut first = iter.next().expect("Cannot convert empty vec to syn::Error");
+        for err in iter {
+            first.combine(err);
+        }
+        first
+    }
+    fn ok_or_push<T>(&mut self, r: Result<T>) -> Option<T> {
+        match r {
+            Ok(v) => Some(v),
+            Err(e) => {
+                self.push(e);
+                None
+            }
+        }
+    }
 }

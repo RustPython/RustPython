@@ -8,7 +8,7 @@ use quote::{quote, quote_spanned, ToTokens};
 use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Result, UseTree};
 use syn_ext::ext::*;
 
-struct Module {
+struct ModuleContext {
     name: String,
     module_extend_items: ItemNursery,
 }
@@ -24,36 +24,33 @@ pub fn impl_pymodule(
     let fake_ident = Ident::new("pymodule", module_item.span());
     let module_meta =
         SimpleItemMeta::from_nested(module_item.ident.clone(), fake_ident, attr.into_iter())?;
-    let mut module_context = Module {
+
+    // generation resources
+    let mut module_context = ModuleContext {
         name: module_meta.simple_name()?,
         module_extend_items: ItemNursery::default(),
     };
-    let items = module_item.unbraced_content_mut()?;
+    let items = module_item.items_mut().ok_or_else(|| {
+        module_meta.new_meta_error("requires actual module, not a module declaration")
+    })?;
 
-    let debug_attrs: Vec<Attribute> = vec![parse_quote!(#[RustPython derive bug!])];
+    // collect to context
     for item in items.iter_mut() {
-        let mut attrs = if let Ok(attrs) = item.attrs_mut() {
-            std::mem::replace(attrs, debug_attrs.clone())
-        } else {
-            continue;
-        };
-        let mut gen_module_item = || -> Result<()> {
-            let (pyitems, cfgs) = attrs_to_pyitems(&attrs, new_item)?;
+        item.try_split_attr_mut(|attrs, item| {
+            let (pyitems, cfgs) = attrs_to_module_items(&attrs, new_module_item)?;
             for pyitem in pyitems.iter().rev() {
                 pyitem.gen_module_item(ModuleItemArgs {
                     item,
-                    attrs: &mut attrs,
+                    attrs,
                     module: &mut module_context,
                     cfgs: cfgs.as_slice(),
                 })?;
             }
             Ok(())
-        };
-        let result = gen_module_item();
-        let _ = std::mem::replace(item.attrs_mut().unwrap(), attrs);
-        result?
+        })?;
     }
 
+    // append additional items
     let module_name = module_context.name.as_str();
     let module_extend_items = module_context.module_extend_items;
     items.extend(vec![
@@ -83,7 +80,11 @@ pub fn impl_pymodule(
     Ok(module_item.into_token_stream())
 }
 
-fn new_item(index: usize, attr_name: String, pyattrs: Option<Vec<usize>>) -> Box<dyn ModuleItem> {
+fn new_module_item(
+    index: usize,
+    attr_name: String,
+    pyattrs: Option<Vec<usize>>,
+) -> Box<dyn ModuleItem> {
     assert!(ALL_ALLOWED_NAMES.contains(&attr_name.as_str()));
     match attr_name.as_str() {
         "pyfunction" => Box::new(FunctionItem {
@@ -100,7 +101,7 @@ fn new_item(index: usize, attr_name: String, pyattrs: Option<Vec<usize>>) -> Box
     }
 }
 
-fn attrs_to_pyitems<F, R>(attrs: &[Attribute], new_item: F) -> Result<(Vec<R>, Vec<Attribute>)>
+fn attrs_to_module_items<F, R>(attrs: &[Attribute], new_item: F) -> Result<(Vec<R>, Vec<Attribute>)>
 where
     F: Fn(usize, String, Option<Vec<usize>>) -> R,
 {
@@ -218,7 +219,7 @@ impl ContentItem for AttributeItem {
 struct ModuleItemArgs<'a> {
     item: &'a Item,
     attrs: &'a mut Vec<Attribute>,
-    module: &'a mut Module,
+    module: &'a mut ModuleContext,
     cfgs: &'a [Attribute],
 }
 
@@ -269,7 +270,9 @@ impl ModuleItem for ClassItem {
         let ident = match args.item {
             Item::Struct(syn::ItemStruct { ident, .. }) => ident.clone(),
             Item::Enum(syn::ItemEnum { ident, .. }) => ident.clone(),
-            other => return Err(self.new_syn_error(other.span(), "can only be on a function")),
+            other => {
+                return Err(self.new_syn_error(other.span(), "can only be on a struct or enum"))
+            }
         };
         let (module_name, class_name) = {
             let class_attr = &mut args.attrs[self.inner.index];
