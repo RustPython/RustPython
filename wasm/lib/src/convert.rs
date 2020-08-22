@@ -1,4 +1,3 @@
-use generational_arena::Arena;
 use std::cell::RefCell;
 
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
