@@ -10,7 +10,7 @@ use syn_ext::ext::*;
 
 struct Module {
     name: String,
-    items: ItemNursery,
+    module_extend_items: ItemNursery,
 }
 
 pub fn impl_pymodule(
@@ -26,30 +26,37 @@ pub fn impl_pymodule(
         SimpleItemMeta::from_nested(module_item.ident.clone(), fake_ident, attr.into_iter())?;
     let mut module_context = Module {
         name: module_meta.simple_name()?,
-        items: ItemNursery::default(),
+        module_extend_items: ItemNursery::default(),
     };
-    let content = module_item.unbraced_content_mut()?;
+    let items = module_item.unbraced_content_mut()?;
 
-    for item in content.iter_mut() {
-        let (attrs, ident) = if let Some(v) = item_declaration(item) {
-            v
+    let debug_attrs: Vec<Attribute> = vec![parse_quote!(#[RustPython derive bug!])];
+    for item in items.iter_mut() {
+        let mut attrs = if let Ok(attrs) = item.attrs_mut() {
+            std::mem::replace(attrs, debug_attrs.clone())
         } else {
             continue;
         };
-        let (pyitems, cfgs) = attrs_to_items(attrs, new_item)?;
-        for pyitem in pyitems.iter().rev() {
-            pyitem.gen_module_item(ModuleItemArgs {
-                ident: ident.clone(),
-                item,
-                module: &mut module_context,
-                cfgs: cfgs.as_slice(),
-            })?;
-        }
+        let mut gen_module_item = || -> Result<()> {
+            let (pyitems, cfgs) = attrs_to_pyitems(&attrs, new_item)?;
+            for pyitem in pyitems.iter().rev() {
+                pyitem.gen_module_item(ModuleItemArgs {
+                    item,
+                    attrs: &mut attrs,
+                    module: &mut module_context,
+                    cfgs: cfgs.as_slice(),
+                })?;
+            }
+            Ok(())
+        };
+        let result = gen_module_item();
+        let _ = std::mem::replace(item.attrs_mut().unwrap(), attrs);
+        result?
     }
 
     let module_name = module_context.name.as_str();
-    let items = module_context.items;
-    content.extend(vec![
+    let module_extend_items = module_context.module_extend_items;
+    items.extend(vec![
         parse_quote! {
             pub(crate) const MODULE_NAME: &'static str = #module_name;
         },
@@ -58,7 +65,7 @@ pub fn impl_pymodule(
                 vm: &::rustpython_vm::vm::VirtualMachine,
                 module: &::rustpython_vm::pyobject::PyObjectRef,
             ) {
-                #items
+                #module_extend_items
             }
         },
         parse_quote! {
@@ -74,28 +81,6 @@ pub fn impl_pymodule(
     ]);
 
     Ok(module_item.into_token_stream())
-}
-
-fn item_declaration(item: &syn::Item) -> Option<(&[syn::Attribute], Ident)> {
-    let (attrs, ident) = match &item {
-        Item::Fn(i @ syn::ItemFn { .. }) => (i.attrs.as_slice(), &i.sig.ident),
-        Item::Struct(syn::ItemStruct { attrs, ident, .. }) => (attrs.as_slice(), ident),
-        Item::Enum(syn::ItemEnum { attrs, ident, .. }) => (attrs.as_slice(), ident),
-        Item::Const(syn::ItemConst { attrs, ident, .. }) => (attrs.as_slice(), ident),
-        Item::Use(syn::ItemUse { attrs, tree, .. }) => {
-            let ident = match tree {
-                UseTree::Path(path) => match &*path.tree {
-                    UseTree::Name(name) => &name.ident,
-                    UseTree::Rename(rename) => &rename.rename,
-                    _ => return None,
-                },
-                _ => return None,
-            };
-            (attrs.as_slice(), ident)
-        }
-        _ => return None,
-    };
-    Some((attrs, ident.clone()))
 }
 
 fn new_item(index: usize, attr_name: String, pyattrs: Option<Vec<usize>>) -> Box<dyn ModuleItem> {
@@ -115,7 +100,7 @@ fn new_item(index: usize, attr_name: String, pyattrs: Option<Vec<usize>>) -> Box
     }
 }
 
-fn attrs_to_items<F, R>(attrs: &[Attribute], new_item: F) -> Result<(Vec<R>, Vec<Attribute>)>
+fn attrs_to_pyitems<F, R>(attrs: &[Attribute], new_item: F) -> Result<(Vec<R>, Vec<Attribute>)>
 where
     F: Fn(usize, String, Option<Vec<usize>>) -> R,
 {
@@ -231,8 +216,8 @@ impl ContentItem for AttributeItem {
 }
 
 struct ModuleItemArgs<'a> {
-    ident: Ident,
-    item: &'a mut Item,
+    item: &'a Item,
+    attrs: &'a mut Vec<Attribute>,
     module: &'a mut Module,
     cfgs: &'a [Attribute],
 }
@@ -240,12 +225,6 @@ struct ModuleItemArgs<'a> {
 impl<'a> ModuleItemArgs<'a> {
     fn module_name(&'a self) -> &'a str {
         self.module.name.as_str()
-    }
-    fn with_quote_args<F>(&self, f: F) -> TokenStream
-    where
-        F: Fn(&Ident, &str) -> TokenStream,
-    {
-        f(&self.ident, self.module_name())
     }
 }
 
@@ -255,29 +234,31 @@ trait ModuleItem: ContentItem {
 
 impl ModuleItem for FunctionItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
-        let attrs = match args.item {
-            Item::Fn(syn::ItemFn { ref mut attrs, .. }) => attrs,
+        let ident = match args.item {
+            Item::Fn(syn::ItemFn { sig, .. }) => sig.ident.clone(),
             other => return Err(self.new_syn_error(other.span(), "can only be on a function")),
         };
-        let item_attr = attrs.remove(self.index());
+
+        let item_attr = args.attrs.remove(self.index());
         let item_meta = SimpleItemMeta::from_nested(
-            args.ident.clone(),
+            ident.clone(),
             item_attr.get_ident().unwrap().clone(),
             item_attr.promoted_nested()?.into_iter(),
         )?;
 
         let py_name = item_meta.simple_name()?;
-        let item = args.with_quote_args(|ident, module| {
+        let item = {
+            let module = args.module_name();
             let new_func = quote_spanned!(
-                args.ident.span() => vm.ctx.new_function_named(#ident, #module.to_owned(), #py_name.to_owned())
+                ident.span() => vm.ctx.new_function_named(#ident, #module.to_owned(), #py_name.to_owned())
             );
             quote! {
                 vm.__module_set_attr(&module, #py_name, #new_func).unwrap();
             }
-        });
+        };
 
         args.module
-            .items
+            .module_extend_items
             .add_item(py_name, args.cfgs.to_vec(), item)?;
         Ok(())
     }
@@ -285,17 +266,13 @@ impl ModuleItem for FunctionItem {
 
 impl ModuleItem for ClassItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
-        let attrs = match args.item {
-            Item::Struct(syn::ItemStruct { ref mut attrs, .. }) => attrs,
-            Item::Enum(syn::ItemEnum { ref mut attrs, .. }) => attrs,
-            other => {
-                return Err(
-                    self.new_syn_error(other.span(), "can only be on a struct or enum declaration")
-                );
-            }
+        let ident = match args.item {
+            Item::Struct(syn::ItemStruct { ident, .. }) => ident.clone(),
+            Item::Enum(syn::ItemEnum { ident, .. }) => ident.clone(),
+            other => return Err(self.new_syn_error(other.span(), "can only be on a function")),
         };
         let (module_name, class_name) = {
-            let class_attr = &mut attrs[self.inner.index];
+            let class_attr = &mut args.attrs[self.inner.index];
             if self.pyattrs.is_empty() {
                 // check noattr before ClassItemMeta::from_nested
                 let noattr = class_attr.try_remove_name("noattr")?;
@@ -312,7 +289,7 @@ impl ModuleItem for ClassItem {
             }
 
             let class_meta = ClassItemMeta::from_nested(
-                args.ident.clone(),
+                ident.clone(),
                 class_attr.get_ident().unwrap().clone(),
                 class_attr.promoted_nested()?.into_iter(),
             )?;
@@ -324,18 +301,14 @@ impl ModuleItem for ClassItem {
             (module_name, class_name)
         };
         for attr_index in self.pyattrs.iter().rev() {
-            let attr_attr = attrs.remove(*attr_index);
+            let attr_attr = args.attrs.remove(*attr_index);
             let (meta_ident, nested) = attr_attr.ident_and_promoted_nested()?;
-            let item_meta = SimpleItemMeta::from_nested(
-                args.ident.clone(),
-                meta_ident.clone(),
-                nested.into_iter(),
-            )?;
+            let item_meta =
+                SimpleItemMeta::from_nested(ident.clone(), meta_ident.clone(), nested.into_iter())?;
 
             let py_name = item_meta
                 .optional_name()
                 .unwrap_or_else(|| class_name.clone());
-            let ident = &args.ident;
             let new_class = quote_spanned!(ident.span() =>
                 #ident::make_class(&vm.ctx);
             );
@@ -346,7 +319,7 @@ impl ModuleItem for ClassItem {
             };
 
             args.module
-                .items
+                .module_extend_items
                 .add_item(py_name.clone(), args.cfgs.to_vec(), item)?;
         }
         Ok(())
@@ -355,39 +328,47 @@ impl ModuleItem for ClassItem {
 
 impl ModuleItem for AttributeItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
-        let ident = &args.ident;
-        let get_py_name = |attrs: &mut Vec<Attribute>| -> Result<_> {
+        let get_py_name = |attrs: &mut Vec<Attribute>, ident: &Ident| -> Result<_> {
             let (meta_ident, nested) = attrs[self.inner.index].ident_and_promoted_nested()?;
             let item_meta =
                 SimpleItemMeta::from_nested(ident.clone(), meta_ident.clone(), nested.into_iter())?;
             let py_name = item_meta.simple_name()?;
             Ok(py_name)
         };
-        let (attrs, py_name, tokens) = match args.item {
-            Item::Fn(syn::ItemFn { ref mut attrs, .. }) => {
-                let py_name = get_py_name(attrs)?;
+        let (py_name, tokens) = match args.item {
+            Item::Fn(syn::ItemFn { sig, .. }) => {
+                let ident = &sig.ident;
+                let py_name = get_py_name(args.attrs, &ident)?;
                 (
-                    attrs,
                     py_name.clone(),
                     quote! {
                         vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident(vm))).unwrap();
                     },
                 )
             }
-            Item::Const(syn::ItemConst { ref mut attrs, .. }) => {
-                let py_name = get_py_name(attrs)?;
+            Item::Const(syn::ItemConst { ident, .. }) => {
+                let py_name = get_py_name(args.attrs, &ident)?;
                 (
-                    attrs,
                     py_name.clone(),
                     quote! {
                         vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident)).unwrap();
                     },
                 )
             }
-            Item::Use(syn::ItemUse { ref mut attrs, .. }) => {
-                let py_name = get_py_name(attrs)?;
+            Item::Use(syn::ItemUse {
+                tree: UseTree::Path(path),
+                ..
+            }) => {
+                let ident = match &*path.tree {
+                    UseTree::Name(name) => &name.ident,
+                    UseTree::Rename(rename) => &rename.rename,
+                    other => {
+                        return Err(self.new_syn_error(other.span(), "can only be a simple use"));
+                    }
+                };
+
+                let py_name = get_py_name(args.attrs, &ident)?;
                 (
-                    attrs,
                     py_name.clone(),
                     quote! {
                         vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident)).unwrap();
@@ -400,10 +381,10 @@ impl ModuleItem for AttributeItem {
                 )
             }
         };
-        attrs.remove(self.index());
+        args.attrs.remove(self.index());
 
         args.module
-            .items
+            .module_extend_items
             .add_item(py_name, args.cfgs.to_vec(), tokens)?;
 
         Ok(())

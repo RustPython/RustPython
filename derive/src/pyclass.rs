@@ -7,8 +7,8 @@ use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
 use syn::{
-    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Index, Item, Lit, Meta,
-    NestedMeta,
+    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, ImplItem, Index, Item, Lit,
+    Meta, NestedMeta, TraitItem,
 };
 use syn_ext::types::*;
 
