@@ -54,7 +54,7 @@ mod c {
     };
 }
 
-#[pyclass(name = "socket")]
+#[pyclass(module = "socket", name = "socket")]
 #[derive(Debug)]
 pub struct PySocket {
     kind: AtomicCell<i32>,

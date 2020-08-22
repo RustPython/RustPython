@@ -92,7 +92,7 @@ macro_rules! repr_lock_impl {
     }};
 }
 
-#[pyclass(name = "lock")]
+#[pyclass(module = "thread", name = "lock")]
 struct PyLock {
     mu: RawMutex,
 }
@@ -146,7 +146,7 @@ impl PyLock {
 }
 
 pub type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
-#[pyclass(name = "RLock")]
+#[pyclass(module = "thread", name = "RLock")]
 struct PyRLock {
     mu: RawRMutex,
 }
@@ -277,7 +277,7 @@ fn thread_count(vm: &VirtualMachine) -> usize {
     vm.state.thread_count.load()
 }
 
-#[pyclass(name = "_local")]
+#[pyclass(module = "thread", name = "_local")]
 #[derive(Debug)]
 struct PyLocal {
     data: ThreadLocal<PyDictRef>,

@@ -14,7 +14,7 @@ use sha1::Sha1;
 use sha2::{Sha224, Sha256, Sha384, Sha512};
 use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512}; // TODO: , Shake128, Shake256};
 
-#[pyclass(name = "hasher")]
+#[pyclass(module = "hashlib", name = "hasher")]
 struct PyHasher {
     name: String,
     buffer: PyRwLock<HashWrapper>,

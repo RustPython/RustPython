@@ -647,7 +647,7 @@ mod fileio {
         flag as u32
     }
 
-    #[pyclass(name)]
+    #[pyclass(module = "io", name)]
     #[derive(Debug)]
     struct FileIO {
         fd: AtomicCell<i64>,
