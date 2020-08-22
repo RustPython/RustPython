@@ -397,19 +397,29 @@ impl AttributeExt for Attribute {
     }
 }
 
-pub(crate) trait ErrorVec {
-    fn into_error(self) -> syn::Error;
+pub(crate) trait ErrorVec: Sized {
+    fn into_error(self) -> Option<syn::Error>;
+    fn into_result(self) -> Result<()> {
+        if let Some(error) = self.into_error() {
+            Err(error)
+        } else {
+            Ok(())
+        }
+    }
     fn ok_or_push<T>(&mut self, r: Result<T>) -> Option<T>;
 }
 
 impl ErrorVec for Vec<syn::Error> {
-    fn into_error(self) -> syn::Error {
+    fn into_error(self) -> Option<syn::Error> {
         let mut iter = self.into_iter();
-        let mut first = iter.next().expect("Cannot convert empty vec to syn::Error");
-        for err in iter {
-            first.combine(err);
+        if let Some(mut first) = iter.next() {
+            for err in iter {
+                first.combine(err);
+            }
+            Some(first)
+        } else {
+            None
         }
-        first
     }
     fn ok_or_push<T>(&mut self, r: Result<T>) -> Option<T> {
         match r {

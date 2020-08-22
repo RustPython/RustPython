@@ -16,92 +16,99 @@ use syn_ext::ext::*;
 struct ImplContext {
     impl_extend_items: ItemNursery,
     getset_items: GetSetNursery,
+    errors: Vec<syn::Error>,
 }
 
 pub(crate) fn impl_pyimpl(
     attr: AttributeArgs,
     item: Item,
 ) -> std::result::Result<TokenStream, Diagnostic> {
-    match item {
+    let mut context = ImplContext::default();
+    let mut tokens = match item {
         Item::Impl(mut imp) => {
-            let mut context = ImplContext::default();
             for item in imp.items.iter_mut() {
-                item.try_split_attr_mut(|attrs, item| {
+                let r = item.try_split_attr_mut(|attrs, item| {
                     let (pyitems, cfgs) =
                         attrs_to_content_items(&attrs, new_impl_item::<syn::ImplItem>)?;
                     for pyitem in pyitems.iter().rev() {
-                        pyitem.gen_impl_item(ImplItemArgs {
+                        let r = pyitem.gen_impl_item(ImplItemArgs {
                             item,
                             attrs,
                             context: &mut context,
                             cfgs: cfgs.as_slice(),
-                        })?;
+                        });
+                        context.errors.ok_or_push(r);
                     }
                     Ok(())
-                })?;
+                });
+                context.errors.ok_or_push(r);
             }
-            context.getset_items.validate()?;
+            context.errors.ok_or_push(context.getset_items.validate());
 
-            let tokens = {
-                let (with_impl, flags) = extract_impl_attrs(attr)?;
-                let ty = &imp.self_ty;
-                let getset_impl = &context.getset_items;
-                let extend_impl = &context.impl_extend_items;
-                quote! {
-                    #imp
-                    impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
-                        const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::from_bits_truncate(#flags);
+            let (with_impl, flags) = extract_impl_attrs(attr)?;
+            let ty = &imp.self_ty;
+            let getset_impl = &context.getset_items;
+            let extend_impl = &context.impl_extend_items;
+            quote! {
+                #imp
+                impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
+                    const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::from_bits_truncate(#flags);
 
-                        fn impl_extend_class(
-                            ctx: &::rustpython_vm::pyobject::PyContext,
-                            class: &::rustpython_vm::obj::objtype::PyClassRef,
-                        ) {
-                            #getset_impl
-                            #extend_impl
-                            #with_impl
-                        }
-                    }
-                }
-            };
-            Ok(tokens)
-        }
-        Item::Trait(mut trai) => {
-            let mut context = ImplContext::default();
-            for item in trai.items.iter_mut() {
-                item.try_split_attr_mut(|attrs, item| {
-                    let (pyitems, cfgs) =
-                        attrs_to_content_items(&attrs, new_impl_item::<syn::TraitItem>)?;
-                    for pyitem in pyitems.iter().rev() {
-                        pyitem.gen_impl_item(ImplItemArgs {
-                            item,
-                            attrs,
-                            context: &mut context,
-                            cfgs: cfgs.as_slice(),
-                        })?;
-                    }
-                    Ok(())
-                })?;
-            }
-            context.getset_items.validate()?;
-
-            let tokens = {
-                let getset_impl = &context.getset_items;
-                let extend_impl = &context.impl_extend_items;
-                trai.items.push(parse_quote! {
-                    fn __extend_py_class(
+                    fn impl_extend_class(
                         ctx: &::rustpython_vm::pyobject::PyContext,
                         class: &::rustpython_vm::obj::objtype::PyClassRef,
                     ) {
                         #getset_impl
                         #extend_impl
+                        #with_impl
                     }
-                });
-                trai.into_token_stream()
-            };
-            Ok(tokens)
+                }
+            }
         }
-        item => Ok(quote!(#item)),
+        Item::Trait(mut trai) => {
+            let mut context = ImplContext::default();
+            for item in trai.items.iter_mut() {
+                let r = item.try_split_attr_mut(|attrs, item| {
+                    let (pyitems, cfgs) =
+                        attrs_to_content_items(&attrs, new_impl_item::<syn::TraitItem>)?;
+                    for pyitem in pyitems.iter().rev() {
+                        let r = pyitem.gen_impl_item(ImplItemArgs {
+                            item,
+                            attrs,
+                            context: &mut context,
+                            cfgs: cfgs.as_slice(),
+                        });
+                        context.errors.ok_or_push(r);
+                    }
+                    Ok(())
+                });
+                context.errors.ok_or_push(r);
+            }
+            context.errors.ok_or_push(context.getset_items.validate());
+
+            let getset_impl = &context.getset_items;
+            let extend_impl = &context.impl_extend_items;
+            trai.items.push(parse_quote! {
+                fn __extend_py_class(
+                    ctx: &::rustpython_vm::pyobject::PyContext,
+                    class: &::rustpython_vm::obj::objtype::PyClassRef,
+                ) {
+                    #getset_impl
+                    #extend_impl
+                }
+            });
+            trai.into_token_stream()
+        }
+        item => quote!(#item),
+    };
+    if let Some(error) = context.errors.into_error() {
+        let error = Diagnostic::from(error);
+        tokens = quote! {
+            #tokens
+            #error
+        }
     }
+    Ok(tokens)
 }
 
 fn generate_class_def(
@@ -478,9 +485,7 @@ impl GetSetNursery {
                 ));
             };
         }
-        if !errors.is_empty() {
-            return Err(errors.into_error());
-        }
+        errors.into_result()?;
         self.validated = true;
         Ok(())
     }

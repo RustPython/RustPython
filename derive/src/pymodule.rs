@@ -1,6 +1,6 @@
 use crate::error::Diagnostic;
 use crate::util::{
-    AttributeExt, ClassItemMeta, ContentItem, ContentItemInner, ItemMeta, ItemNursery,
+    AttributeExt, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ItemMeta, ItemNursery,
     SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
@@ -8,9 +8,11 @@ use quote::{quote, quote_spanned, ToTokens};
 use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Result, UseTree};
 use syn_ext::ext::*;
 
+#[derive(Default)]
 struct ModuleContext {
     name: String,
     module_extend_items: ItemNursery,
+    errors: Vec<syn::Error>,
 }
 
 pub fn impl_pymodule(
@@ -19,16 +21,16 @@ pub fn impl_pymodule(
 ) -> std::result::Result<TokenStream, Diagnostic> {
     let mut module_item = match module_item {
         Item::Mod(m) => m,
-        other => bail_span!(other, "#[pymodule] can only be on a module declaration"),
+        other => bail_span!(other, "#[pymodule] can only be on a full module"),
     };
     let fake_ident = Ident::new("pymodule", module_item.span());
     let module_meta =
         SimpleItemMeta::from_nested(module_item.ident.clone(), fake_ident, attr.into_iter())?;
 
     // generation resources
-    let mut module_context = ModuleContext {
+    let mut context = ModuleContext {
         name: module_meta.simple_name()?,
-        module_extend_items: ItemNursery::default(),
+        ..Default::default()
     };
     let items = module_item.items_mut().ok_or_else(|| {
         module_meta.new_meta_error("requires actual module, not a module declaration")
@@ -36,23 +38,25 @@ pub fn impl_pymodule(
 
     // collect to context
     for item in items.iter_mut() {
-        item.try_split_attr_mut(|attrs, item| {
+        let r = item.try_split_attr_mut(|attrs, item| {
             let (pyitems, cfgs) = attrs_to_module_items(&attrs, new_module_item)?;
             for pyitem in pyitems.iter().rev() {
-                pyitem.gen_module_item(ModuleItemArgs {
+                let r = pyitem.gen_module_item(ModuleItemArgs {
                     item,
                     attrs,
-                    module: &mut module_context,
+                    context: &mut context,
                     cfgs: cfgs.as_slice(),
-                })?;
+                });
+                context.errors.ok_or_push(r);
             }
             Ok(())
-        })?;
+        });
+        context.errors.ok_or_push(r);
     }
 
     // append additional items
-    let module_name = module_context.name.as_str();
-    let module_extend_items = module_context.module_extend_items;
+    let module_name = context.name.as_str();
+    let module_extend_items = context.module_extend_items;
     items.extend(vec![
         parse_quote! {
             pub(crate) const MODULE_NAME: &'static str = #module_name;
@@ -77,7 +81,15 @@ pub fn impl_pymodule(
         },
     ]);
 
-    Ok(module_item.into_token_stream())
+    Ok(if let Some(error) = context.errors.into_error() {
+        let error = Diagnostic::from(error);
+        quote! {
+            #module_item
+            #error
+        }
+    } else {
+        module_item.into_token_stream()
+    })
 }
 
 fn new_module_item(
@@ -219,13 +231,13 @@ impl ContentItem for AttributeItem {
 struct ModuleItemArgs<'a> {
     item: &'a Item,
     attrs: &'a mut Vec<Attribute>,
-    module: &'a mut ModuleContext,
+    context: &'a mut ModuleContext,
     cfgs: &'a [Attribute],
 }
 
 impl<'a> ModuleItemArgs<'a> {
     fn module_name(&'a self) -> &'a str {
-        self.module.name.as_str()
+        self.context.name.as_str()
     }
 }
 
@@ -258,7 +270,7 @@ impl ModuleItem for FunctionItem {
             }
         };
 
-        args.module
+        args.context
             .module_extend_items
             .add_item(py_name, args.cfgs.to_vec(), item)?;
         Ok(())
@@ -284,7 +296,7 @@ impl ModuleItem for ClassItem {
                         class_attr,
                         format!(
                             "#[{name}] requires #[pyattr] to be a module attribute. \
-                         To keep it free type, try #[{name}(noattr)]",
+                             To keep it free type, try #[{name}(noattr)]",
                             name = self.attr_name()
                         ),
                     ));
@@ -296,7 +308,7 @@ impl ModuleItem for ClassItem {
                 class_attr.get_ident().unwrap().clone(),
                 class_attr.promoted_nested()?.into_iter(),
             )?;
-            let module_name = args.module.name.clone();
+            let module_name = args.context.name.clone();
             class_attr.fill_nested_meta("module", || {
                 parse_quote! {module = #module_name}
             })?;
@@ -304,26 +316,34 @@ impl ModuleItem for ClassItem {
             (module_name, class_name)
         };
         for attr_index in self.pyattrs.iter().rev() {
-            let attr_attr = args.attrs.remove(*attr_index);
-            let (meta_ident, nested) = attr_attr.ident_and_promoted_nested()?;
-            let item_meta =
-                SimpleItemMeta::from_nested(ident.clone(), meta_ident.clone(), nested.into_iter())?;
+            let mut loop_unit = || {
+                let attr_attr = args.attrs.remove(*attr_index);
+                let (meta_ident, nested) = attr_attr.ident_and_promoted_nested()?;
+                let item_meta = SimpleItemMeta::from_nested(
+                    ident.clone(),
+                    meta_ident.clone(),
+                    nested.into_iter(),
+                )?;
 
-            let py_name = item_meta
-                .optional_name()
-                .unwrap_or_else(|| class_name.clone());
-            let new_class = quote_spanned!(ident.span() =>
-                #ident::make_class(&vm.ctx);
-            );
-            let item = quote! {
-                let new_class = #new_class;
-                new_class.set_str_attr("__module__", vm.ctx.new_str(#module_name));
-                vm.__module_set_attr(&module, #py_name, new_class).unwrap();
+                let py_name = item_meta
+                    .optional_name()
+                    .unwrap_or_else(|| class_name.clone());
+                let new_class = quote_spanned!(ident.span() =>
+                    #ident::make_class(&vm.ctx);
+                );
+                let item = quote! {
+                    let new_class = #new_class;
+                    new_class.set_str_attr("__module__", vm.ctx.new_str(#module_name));
+                    vm.__module_set_attr(&module, #py_name, new_class).unwrap();
+                };
+
+                args.context
+                    .module_extend_items
+                    .add_item(py_name, args.cfgs.to_vec(), item)?;
+                Ok(())
             };
-
-            args.module
-                .module_extend_items
-                .add_item(py_name.clone(), args.cfgs.to_vec(), item)?;
+            let r = loop_unit();
+            args.context.errors.ok_or_push(r);
         }
         Ok(())
     }
@@ -386,7 +406,7 @@ impl ModuleItem for AttributeItem {
         };
         args.attrs.remove(self.index());
 
-        args.module
+        args.context
             .module_extend_items
             .add_item(py_name, args.cfgs.to_vec(), tokens)?;
 
