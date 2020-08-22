@@ -21,8 +21,9 @@ pub fn impl_pymodule(
         Item::Mod(m) => m,
         other => bail_span!(other, "#[pymodule] can only be on a module declaration"),
     };
+    let fake_ident = Ident::new("pymodule", module_item.span());
     let module_meta =
-        SimpleItemMeta::from_nested("pymodule", &module_item.ident, attr.into_iter())?;
+        SimpleItemMeta::from_nested(module_item.ident.clone(), fake_ident, attr.into_iter())?;
     let mut module_context = Module {
         name: module_meta.simple_name()?,
         items: ItemNursery::default(),
@@ -260,8 +261,8 @@ impl ModuleItem for FunctionItem {
         };
         let item_attr = attrs.remove(self.index());
         let item_meta = SimpleItemMeta::from_nested(
-            "pyfunction",
-            &args.ident,
+            args.ident.clone(),
+            item_attr.get_ident().unwrap().clone(),
             item_attr.promoted_nested()?.into_iter(),
         )?;
 
@@ -309,14 +310,10 @@ impl ModuleItem for ClassItem {
                     ));
                 }
             }
-            let static_name = match self.attr_name() {
-                "pyclass" => "pyclass",
-                "pystruct_sequence" => "pystruct_sequence",
-                _ => unreachable!(),
-            };
+
             let class_meta = ClassItemMeta::from_nested(
-                static_name,
-                &args.ident,
+                args.ident.clone(),
+                class_attr.get_ident().unwrap().clone(),
                 class_attr.promoted_nested()?.into_iter(),
             )?;
             let module_name = args.module.name.clone();
@@ -328,8 +325,12 @@ impl ModuleItem for ClassItem {
         };
         for attr_index in self.pyattrs.iter().rev() {
             let attr_attr = attrs.remove(*attr_index);
-            let nested = attr_attr.promoted_nested()?;
-            let item_meta = SimpleItemMeta::from_nested("pyattr", &args.ident, nested.into_iter())?;
+            let (meta_ident, nested) = attr_attr.ident_and_promoted_nested()?;
+            let item_meta = SimpleItemMeta::from_nested(
+                args.ident.clone(),
+                meta_ident.clone(),
+                nested.into_iter(),
+            )?;
 
             let py_name = item_meta
                 .optional_name()
@@ -356,8 +357,9 @@ impl ModuleItem for AttributeItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
         let ident = &args.ident;
         let get_py_name = |attrs: &mut Vec<Attribute>| -> Result<_> {
-            let nested = attrs[self.inner.index].promoted_nested()?;
-            let item_meta = SimpleItemMeta::from_nested("pyattr", &ident, nested.into_iter())?;
+            let (meta_ident, nested) = attrs[self.inner.index].ident_and_promoted_nested()?;
+            let item_meta =
+                SimpleItemMeta::from_nested(ident.clone(), meta_ident.clone(), nested.into_iter())?;
             let py_name = item_meta.simple_name()?;
             Ok(py_name)
         };

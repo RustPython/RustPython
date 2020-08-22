@@ -90,35 +90,38 @@ impl Class {
     }
 
     fn extract_method(
-        ident: &Ident,
-        nested: PunctuatedNestedMeta,
+        item: &Ident,
+        (meta, nested): (&Ident, PunctuatedNestedMeta),
     ) -> Result<ClassItem, Diagnostic> {
-        let item_meta = MethodItemMeta::from_nested("pymethod", &ident, nested.into_iter())?;
+        let item_meta =
+            MethodItemMeta::from_nested(item.clone(), meta.clone(), nested.into_iter())?;
         Ok(ClassItem::Method {
-            item_ident: ident.clone(),
+            item_ident: item.clone(),
             py_name: item_meta.method_name()?,
         })
     }
 
     fn extract_classmethod(
-        ident: &Ident,
-        nested: PunctuatedNestedMeta,
+        item: &Ident,
+        (meta, nested): (&Ident, PunctuatedNestedMeta),
     ) -> Result<ClassItem, Diagnostic> {
-        let item_meta = MethodItemMeta::from_nested("pyclassmethod", &ident, nested.into_iter())?;
+        let item_meta =
+            MethodItemMeta::from_nested(item.clone(), meta.clone(), nested.into_iter())?;
         Ok(ClassItem::ClassMethod {
-            item_ident: ident.clone(),
+            item_ident: item.clone(),
             py_name: item_meta.method_name()?,
         })
     }
 
     fn extract_property(
-        ident: &Ident,
-        nested: PunctuatedNestedMeta,
+        item: &Ident,
+        (meta, nested): (&Ident, PunctuatedNestedMeta),
     ) -> Result<ClassItem, Diagnostic> {
-        let item_meta = PropertyItemMeta::from_nested("pyproperty", &ident, nested.into_iter())?;
+        let item_meta =
+            PropertyItemMeta::from_nested(item.clone(), meta.clone(), nested.into_iter())?;
         Ok(ClassItem::Property {
+            item_ident: item.clone(),
             py_name: item_meta.property_name()?,
-            item_ident: ident.clone(),
             setter: item_meta.setter()?,
         })
     }
@@ -159,9 +162,13 @@ impl Class {
             };
 
             let item = match name.to_string().as_str() {
-                "pymethod" => Self::extract_method(item.ident, attr.promoted_nested()?)?,
-                "pyclassmethod" => Self::extract_classmethod(item.ident, attr.promoted_nested()?)?,
-                "pyproperty" => Self::extract_property(item.ident, attr.promoted_nested()?)?,
+                "pymethod" => Self::extract_method(item.ident, attr.ident_and_promoted_nested()?)?,
+                "pyclassmethod" => {
+                    Self::extract_classmethod(item.ident, attr.ident_and_promoted_nested()?)?
+                }
+                "pyproperty" => {
+                    Self::extract_property(item.ident, attr.ident_and_promoted_nested()?)?
+                }
                 "pyslot" => Self::extract_slot(item.ident, attr.promoted_nested()?)?,
                 _ => {
                     continue;
@@ -208,7 +215,7 @@ impl MethodItemMeta {
         Ok(if let Some(name) = name {
             name
         } else {
-            let name = inner.ident.to_string();
+            let name = inner.item_name();
             if magic {
                 format!("__{}__", name)
             } else {
@@ -241,24 +248,24 @@ impl PropertyItemMeta {
         Ok(if let Some(name) = name {
             name
         } else {
-            let sig_name = inner.ident.to_string();
+            let sig_name = inner.item_name();
             let name = if setter {
                 if let Some(name) = sig_name.strip_prefix("set_") {
                     if name.is_empty() {
                         bail_span!(
-                            &inner.ident,
+                            &inner.meta_ident,
                             "A #[{}(setter)] fn with a set_* name must \
                              have something after \"set_\"",
-                            inner.parent_type
+                            inner.meta_name()
                         )
                     }
                     name.to_string()
                 } else {
                     bail_span!(
-                        &inner.ident,
+                        &inner.meta_ident,
                         "A #[{}(setter)] fn must either have a `name` \
                          parameter or a fn name along the lines of \"set_*\"",
-                        inner.parent_type
+                        inner.meta_name()
                     )
                 }
             } else {
@@ -572,7 +579,8 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
         ),
     };
 
-    let class_meta = ClassItemMeta::from_nested("pyclass", ident, attr.into_iter())?;
+    let fake_ident = Ident::new("pyclass", item.span());
+    let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
     let class_name = class_meta.class_name()?;
     let module_name = class_meta.module()?;
     let class_def = generate_class_def(&ident, &class_name, module_name.as_deref(), &attrs)?;
@@ -593,8 +601,8 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
             "#[pystruct_sequence] can only be on a struct declaration"
         )
     };
-    let class_meta =
-        ClassItemMeta::from_nested("pystruct_sequence", &struc.ident, attr.into_iter())?;
+    let fake_ident = Ident::new("pystruct_sequence", struc.span());
+    let class_meta = ClassItemMeta::from_nested(struc.ident.clone(), fake_ident, attr.into_iter())?;
     let class_name = class_meta.class_name()?;
     let module_name = class_meta.mandatory_module()?;
 

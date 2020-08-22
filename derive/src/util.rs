@@ -68,22 +68,22 @@ pub(crate) trait ContentItem {
 }
 
 pub(crate) struct ItemMetaInner {
-    pub ident: Ident,
-    pub parent_type: &'static str,
-    pub meta: HashMap<String, (usize, Meta)>,
+    pub item_ident: Ident,
+    pub meta_ident: Ident,
+    pub meta_map: HashMap<String, (usize, Meta)>,
 }
 
 impl ItemMetaInner {
     pub fn from_nested<I>(
-        parent_type: &'static str,
-        ident: &Ident,
+        item_ident: Ident,
+        meta_ident: Ident,
         nested: I,
         allowed_names: &[&'static str],
     ) -> Result<Self>
     where
         I: std::iter::Iterator<Item = NestedMeta>,
     {
-        let (named_map, lits) = nested.into_unique_map_and_lits(|path| {
+        let (meta_map, lits) = nested.into_unique_map_and_lits(|path| {
             if let Some(ident) = path.get_ident() {
                 let name = ident.to_string();
                 if allowed_names.contains(&name.as_str()) {
@@ -93,7 +93,7 @@ impl ItemMetaInner {
                         ident,
                         format!(
                             "#[{}({})] is not one of allowed attributes {}",
-                            parent_type,
+                            meta_ident.to_string(),
                             name,
                             allowed_names.join(", ")
                         ),
@@ -105,20 +105,28 @@ impl ItemMetaInner {
         })?;
         if !lits.is_empty() {
             return Err(syn::Error::new_spanned(
-                ident,
-                format!("#[{}(..)] cannot contain literal", parent_type),
+                &meta_ident,
+                format!("#[{}(..)] cannot contain literal", meta_ident.to_string()),
             ));
         }
 
         Ok(Self {
-            ident: ident.clone(),
-            parent_type,
-            meta: named_map,
+            item_ident,
+            meta_ident,
+            meta_map,
         })
     }
 
+    pub fn item_name(&self) -> String {
+        self.item_ident.to_string()
+    }
+
+    pub fn meta_name(&self) -> String {
+        self.meta_ident.to_string()
+    }
+
     pub fn _optional_str(&self, key: &str) -> Result<Option<String>> {
-        let value = if let Some((_, meta)) = self.meta.get(key) {
+        let value = if let Some((_, meta)) = self.meta_map.get(key) {
             match meta {
                 Meta::NameValue(syn::MetaNameValue {
                     lit: syn::Lit::Str(lit),
@@ -129,7 +137,8 @@ impl ItemMetaInner {
                         other,
                         format!(
                             "#[{}({} = ...)] must exist as a string",
-                            self.parent_type, key
+                            self.meta_name(),
+                            key
                         ),
                     ));
                 }
@@ -141,7 +150,7 @@ impl ItemMetaInner {
     }
 
     pub fn _bool(&self, key: &str) -> Result<bool> {
-        let value = if let Some((_, meta)) = self.meta.get(key) {
+        let value = if let Some((_, meta)) = self.meta_map.get(key) {
             match meta {
                 Meta::NameValue(syn::MetaNameValue {
                     lit: syn::Lit::Bool(lit),
@@ -151,7 +160,7 @@ impl ItemMetaInner {
                 other => {
                     return Err(syn::Error::new_spanned(
                         other,
-                        format!("#[{}({})] is expected", self.parent_type, key),
+                        format!("#[{}({})] is expected", self.meta_name(), key),
                     ))
                 }
             }
@@ -165,13 +174,13 @@ impl ItemMetaInner {
 pub(crate) trait ItemMeta: Sized {
     const ALLOWED_NAMES: &'static [&'static str];
 
-    fn from_nested<I>(parent_type: &'static str, ident: &Ident, nested: I) -> Result<Self>
+    fn from_nested<I>(item_ident: Ident, meta_ident: Ident, nested: I) -> Result<Self>
     where
         I: std::iter::Iterator<Item = NestedMeta>,
     {
         Ok(Self::from_inner(ItemMetaInner::from_nested(
-            parent_type,
-            ident,
+            item_ident,
+            meta_ident,
             nested,
             Self::ALLOWED_NAMES,
         )?))
@@ -184,7 +193,7 @@ pub(crate) trait ItemMeta: Sized {
         let inner = self.inner();
         Ok(inner
             ._optional_str("name")?
-            .unwrap_or_else(|| inner.ident.to_string()))
+            .unwrap_or_else(|| inner.item_name()))
     }
 
     fn optional_name(&self) -> Option<String> {
@@ -221,22 +230,22 @@ impl ClassItemMeta {
     pub fn class_name(&self) -> Result<String> {
         const KEY: &str = "name";
         let inner = self.inner();
-        let value = if let Some((_, meta)) = inner.meta.get(KEY) {
+        let value = if let Some((_, meta)) = inner.meta_map.get(KEY) {
             match meta {
                 Meta::NameValue(syn::MetaNameValue {
                     lit: syn::Lit::Str(lit),
                     ..
                 }) => Some(lit.value()),
-                Meta::Path(_) => Some(inner.ident.to_string()),
+                Meta::Path(_) => Some(inner.item_name()),
                 _ => None,
             }
         } else {
             None
         }.ok_or_else(|| syn::Error::new_spanned(
-            &inner.ident,
+            &inner.meta_ident,
             format!(
                 "#[{attr_name}(name = ...)] must exist as a string. Try #[{attr_name}(name)] to use rust type name.",
-                attr_name=inner.parent_type
+                attr_name=inner.meta_name()
             ),
         ))?;
         Ok(value)
@@ -245,7 +254,7 @@ impl ClassItemMeta {
     pub fn module(&self) -> Result<Option<String>> {
         const KEY: &str = "module";
         let inner = self.inner();
-        let value = if let Some((_, meta)) = inner.meta.get(KEY) {
+        let value = if let Some((_, meta)) = inner.meta_map.get(KEY) {
             match meta {
                 Meta::NameValue(syn::MetaNameValue {
                     lit: syn::Lit::Str(lit),
@@ -262,12 +271,12 @@ impl ClassItemMeta {
                 other => Err(other.span()),
             }
         } else {
-            Err(inner.ident.span())
+            Err(inner.item_ident.span())
         }.map_err(|span| syn::Error::new(
             span,
             format!(
                 "#[{attr_name}(module = ...)] must exist as a string or false. Try #[{attr_name}(module=false)] for built-in types.",
-                attr_name=inner.parent_type
+                attr_name=inner.meta_name()
             ),
         ))?;
         Ok(value)
@@ -277,10 +286,10 @@ impl ClassItemMeta {
         let inner = self.inner();
         let value = self.module().ok().flatten().
         ok_or_else(|| syn::Error::new_spanned(
-            &inner.ident,
+            &inner.meta_ident,
             format!(
                 "#[{attr_name}(module = ...)] must exist as a string. Built-in module is not allowed here.",
-                attr_name=inner.parent_type
+                attr_name=inner.meta_name()
             ),
         ))?;
         Ok(value)
@@ -293,6 +302,7 @@ pub(crate) fn path_eq(path: &Path, s: &str) -> bool {
 
 pub(crate) trait AttributeExt: SynAttributeExt {
     fn promoted_nested(&self) -> Result<PunctuatedNestedMeta>;
+    fn ident_and_promoted_nested(&self) -> Result<(&Ident, PunctuatedNestedMeta)>;
     fn try_remove_name(&mut self, name: &str) -> Result<Option<syn::NestedMeta>>;
     fn fill_nested_meta<F>(&mut self, name: &str, new_item: F) -> Result<()>
     where
@@ -314,6 +324,9 @@ impl AttributeExt for Attribute {
             e
         })?;
         Ok(list.nested)
+    }
+    fn ident_and_promoted_nested(&self) -> Result<(&Ident, PunctuatedNestedMeta)> {
+        Ok((self.get_ident().unwrap(), self.promoted_nested()?))
     }
 
     fn try_remove_name(&mut self, item_name: &str) -> Result<Option<syn::NestedMeta>> {
