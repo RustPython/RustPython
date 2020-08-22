@@ -9,15 +9,19 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objasyncgenerator::PyAsyncGen;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objgenerator::PyGenerator;
+#[cfg(feature = "jit")]
+use crate::pyobject::IntoPyObject;
 use crate::pyobject::{
-    BorrowValue, IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef,
+    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef,
     PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
 use crate::VirtualMachine;
 use itertools::Itertools;
+#[cfg(feature = "jit")]
 use rustpython_common::cell::PyMutex;
+#[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
 pub type PyFunctionRef = PyRef<PyFunction>;
@@ -26,6 +30,7 @@ pub type PyFunctionRef = PyRef<PyFunction>;
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyCodeRef,
+    #[cfg(feature = "jit")]
     jitted_code: PyMutex<Option<CompiledCode>>,
     scope: Scope,
     defaults: Option<PyTupleRef>,
@@ -57,6 +62,7 @@ impl PyFunction {
     ) -> Self {
         PyFunction {
             code,
+            #[cfg(feature = "jit")]
             jitted_code: PyMutex::new(None),
             scope,
             defaults,
@@ -227,6 +233,7 @@ impl PyFunction {
         scope: &Scope,
         vm: &VirtualMachine,
     ) -> PyResult {
+        #[cfg(feature = "jit")]
         if let Some(jitted_code) = &*self.jitted_code.lock() {
             return Ok(jitted_code.invoke().into_pyobject(vm));
         }
@@ -294,15 +301,24 @@ impl PyFunction {
         self.scope.globals.clone()
     }
 
+    #[allow(unused_variables)]
     #[pymethod(magic)]
     fn jit(&self, vm: &VirtualMachine) -> PyResult<()> {
-        let mut guard = self.jitted_code.lock();
-        match rustpython_jit::compile(&self.code.code) {
-            Ok(code) => {
-                *guard = Some(code);
-                Ok(())
+        // TODO move cfg onto function when https://github.com/RustPython/RustPython/pull/2120 lands
+        #[cfg(feature = "jit")]
+        {
+            let mut guard = self.jitted_code.lock();
+            match rustpython_jit::compile(&self.code.code) {
+                Ok(code) => {
+                    *guard = Some(code);
+                    Ok(())
+                }
+                Err(err) => Err(vm.new_runtime_error(err.to_string())),
             }
-            Err(err) => Err(vm.new_runtime_error(err.to_string())),
+        }
+        #[cfg(not(feature = "jit"))]
+        {
+            Ok(())
         }
     }
 }

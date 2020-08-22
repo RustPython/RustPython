@@ -19,6 +19,7 @@ path = "./benchmarks/bench.rs"
 default = ["threading", "pylib"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
+jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading"]
 
 ssl = ["rustpython-vm/ssl"]

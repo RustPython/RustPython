@@ -13,6 +13,7 @@ default = ["compile-parse", "threading"]
 vm-tracing-logging = []
 flame-it = ["flame", "flamer"]
 freeze-stdlib = ["rustpython-pylib"]
+jit = ["rustpython-jit"]
 threading = ["rustpython-common/threading"]
 compile-parse = ["rustpython-parser", "rustpython-compiler"]
 
@@ -43,7 +44,7 @@ rustpython-derive = { path = "../derive", version = "0.1.2" }
 rustpython-parser = { path = "../parser", optional = true, version = "0.1.2" }
 rustpython-compiler = { path = "../compiler", optional = true, version = "0.1.2" }
 rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
-rustpython-jit = { path = "../jit", version = "0.1.2" }
+rustpython-jit = { path = "../jit", optional = true, version = "0.1.2" }
 rustpython-pylib = { path = "pylib-crate", optional = true, version = "0.1.0" }
 serde = { version = "1.0.66", features = ["derive"] }
 byteorder = "1.2.6"
