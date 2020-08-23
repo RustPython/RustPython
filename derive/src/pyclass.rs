@@ -1,7 +1,7 @@
 use super::Diagnostic;
 use crate::util::{
-    path_eq, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ItemMeta,
-    ItemMetaInner, ItemNursery, ALL_ALLOWED_NAMES,
+    path_eq, pyclass_ident_and_attrs, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner,
+    ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
@@ -165,15 +165,7 @@ pub(crate) fn impl_pyclass(
     attr: AttributeArgs,
     item: Item,
 ) -> std::result::Result<TokenStream, Diagnostic> {
-    let (ident, attrs) = match &item {
-        Item::Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
-        Item::Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
-        other => bail_span!(
-            other,
-            "#[pyclass] can only be on a struct or enum declaration"
-        ),
-    };
-
+    let (ident, attrs) = pyclass_ident_and_attrs(&item)?;
     let fake_ident = Ident::new("pyclass", item.span());
     let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
     let class_name = class_meta.class_name()?;

@@ -1,7 +1,7 @@
 use crate::error::Diagnostic;
 use crate::util::{
-    AttributeExt, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ItemMeta, ItemNursery,
-    SimpleItemMeta, ALL_ALLOWED_NAMES,
+    pyclass_ident_and_attrs, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec,
+    ItemMeta, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
@@ -279,13 +279,7 @@ impl ModuleItem for FunctionItem {
 
 impl ModuleItem for ClassItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
-        let ident = match args.item {
-            Item::Struct(syn::ItemStruct { ident, .. }) => ident.clone(),
-            Item::Enum(syn::ItemEnum { ident, .. }) => ident.clone(),
-            other => {
-                return Err(self.new_syn_error(other.span(), "can only be on a struct or enum"))
-            }
-        };
+        let (ident, _) = pyclass_ident_and_attrs(&args.item)?;
         let (module_name, class_name) = {
             let class_attr = &mut args.attrs[self.inner.index];
             if self.pyattrs.is_empty() {

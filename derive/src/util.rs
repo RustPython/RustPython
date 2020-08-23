@@ -397,6 +397,18 @@ impl AttributeExt for Attribute {
     }
 }
 
+pub(crate) fn pyclass_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Attribute])> {
+    use syn::Item::*;
+    match item {
+        Struct(syn::ItemStruct { ident, attrs, .. }) => Ok((ident, attrs)),
+        Enum(syn::ItemEnum { ident, attrs, .. }) => Ok((ident, attrs)),
+        other => Err(syn::Error::new_spanned(
+            other,
+            "#[pyclass] can only be on a struct or enum declaration",
+        )),
+    }
+}
+
 pub(crate) trait ErrorVec: Sized {
     fn into_error(self) -> Option<syn::Error>;
     fn into_result(self) -> Result<()> {
