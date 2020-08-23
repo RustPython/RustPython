@@ -301,18 +301,15 @@ impl PyFunction {
         self.scope.globals.clone()
     }
 
-    #[allow(unused_variables)]
+    #[cfg(feature = "jit")]
     #[pymethod(magic)]
     fn jit(&self, vm: &VirtualMachine) -> PyResult<()> {
-        // TODO move cfg onto function when https://github.com/RustPython/RustPython/pull/2120 lands
-        #[cfg(feature = "jit")]
-        {
-            self.jitted_code.get_or_try_init(|| {
+        self.jitted_code
+            .get_or_try_init(|| {
                 rustpython_jit::compile(&self.code.code)
                     .map_err(|err| vm.new_runtime_error(err.to_string()))
-            })?;
-        }
-        Ok(())
+            })
+            .map(drop)
     }
 }
 
