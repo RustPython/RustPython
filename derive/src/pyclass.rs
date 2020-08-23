@@ -7,8 +7,8 @@ use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
 use syn::{
-    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Index, Item, Lit, Meta,
-    NestedMeta, Result,
+    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Index, Item, Meta, NestedMeta,
+    Result,
 };
 use syn_ext::ext::*;
 
@@ -117,29 +117,11 @@ fn generate_class_def(
     module_name: Option<&str>,
     attrs: &[Attribute],
 ) -> std::result::Result<TokenStream, Diagnostic> {
-    let mut doc: Option<Vec<String>> = None;
-    for attr in attrs.iter() {
-        if attr.path.is_ident("doc") {
-            let meta = attr.parse_meta().expect("expected doc attr to be a meta");
-            if let Meta::NameValue(name_value) = meta {
-                if let Lit::Str(s) = name_value.lit {
-                    let val = s.value().trim().to_owned();
-                    match doc {
-                        Some(ref mut doc) => doc.push(val),
-                        None => doc = Some(vec![val]),
-                    }
-                }
-            }
-        }
-    }
-    let doc = match doc {
-        Some(doc) => {
-            let doc = doc.join("\n");
-            quote!(Some(#doc))
-        }
-        None => quote!(None),
+    let doc = if let Some(doc) = attrs.doc() {
+        quote!(Some(#doc))
+    } else {
+        quote!(None)
     };
-
     let module_class_name = if let Some(module_name) = module_name {
         format!("{}.{}", module_name, name)
     } else {
