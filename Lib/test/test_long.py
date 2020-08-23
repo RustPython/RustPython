@@ -933,7 +933,6 @@ class LongTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             42 >> -(1 << 1000)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_lshift_of_zero(self):
         self.assertEqual(0 << 0, 0)
         self.assertEqual(0 << 10, 0)

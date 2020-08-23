@@ -192,8 +192,13 @@ fn inner_divmod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
 }
 
 fn inner_lshift(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
-    let n_bits = get_shift_amount(int2, vm)?;
-    Ok(vm.ctx.new_int(int1 << n_bits))
+    if int2.is_negative() {
+        return Err(vm.new_value_error("negative shift count".to_owned()));
+    } else if int1.is_zero() {
+        return Ok(vm.ctx.new_int(0));
+    } else {
+        return Ok(vm.ctx.new_int(int1 << int2.to_usize().unwrap()));
+    }
 }
 
 fn inner_rshift(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
