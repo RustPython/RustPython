@@ -12,15 +12,15 @@ use crate::obj::objgenerator::PyGenerator;
 #[cfg(feature = "jit")]
 use crate::pyobject::IntoPyObject;
 use crate::pyobject::{
-    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
 use crate::VirtualMachine;
 use itertools::Itertools;
 #[cfg(feature = "jit")]
-use rustpython_common::cell::PyMutex;
+use rustpython_common::cell::OnceCell;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
@@ -31,7 +31,7 @@ pub type PyFunctionRef = PyRef<PyFunction>;
 pub struct PyFunction {
     code: PyCodeRef,
     #[cfg(feature = "jit")]
-    jitted_code: PyMutex<Option<CompiledCode>>,
+    jitted_code: OnceCell<CompiledCode>,
     scope: Scope,
     defaults: Option<PyTupleRef>,
     kw_only_defaults: Option<PyDictRef>,
@@ -63,7 +63,7 @@ impl PyFunction {
         PyFunction {
             code,
             #[cfg(feature = "jit")]
-            jitted_code: PyMutex::new(None),
+            jitted_code: OnceCell::new(),
             scope,
             defaults,
             kw_only_defaults,
@@ -234,7 +234,7 @@ impl PyFunction {
         vm: &VirtualMachine,
     ) -> PyResult {
         #[cfg(feature = "jit")]
-        if let Some(jitted_code) = &*self.jitted_code.lock() {
+        if let Some(jitted_code) = self.jitted_code.get() {
             return Ok(jitted_code.invoke().into_pyobject(vm));
         }
 
@@ -307,19 +307,12 @@ impl PyFunction {
         // TODO move cfg onto function when https://github.com/RustPython/RustPython/pull/2120 lands
         #[cfg(feature = "jit")]
         {
-            let mut guard = self.jitted_code.lock();
-            match rustpython_jit::compile(&self.code.code) {
-                Ok(code) => {
-                    *guard = Some(code);
-                    Ok(())
-                }
-                Err(err) => Err(vm.new_runtime_error(err.to_string())),
-            }
+            self.jitted_code.get_or_try_init(|| {
+                rustpython_jit::compile(&self.code.code)
+                    .map_err(|err| vm.new_runtime_error(err.to_string()))
+            })?;
         }
-        #[cfg(not(feature = "jit"))]
-        {
-            Ok(())
-        }
+        Ok(())
     }
 }
 

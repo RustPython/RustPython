@@ -130,6 +130,7 @@ impl CompiledCode {
 }
 
 unsafe impl Send for CompiledCode {}
+unsafe impl Sync for CompiledCode {}
 
 impl Drop for CompiledCode {
     fn drop(&mut self) {

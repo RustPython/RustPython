@@ -1,4 +1,8 @@
 #[cfg(feature = "threading")]
+pub use once_cell::sync::{Lazy, OnceCell};
+#[cfg(not(feature = "threading"))]
+pub use once_cell::unsync::{Lazy, OnceCell};
+#[cfg(feature = "threading")]
 use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, MutexGuard, RwLock, RwLockReadGuard,
     RwLockWriteGuard,
