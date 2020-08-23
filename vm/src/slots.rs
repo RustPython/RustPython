@@ -35,6 +35,7 @@ impl Default for PyTpFlags {
 
 #[derive(Default)]
 pub struct PyClassSlots {
+    pub name: Option<String>, // tp_name, not class name
     pub new: Option<PyNativeFunc>,
     pub call: Option<PyNativeFunc>,
     pub descr_get: Option<PyDescrGetFunc>,

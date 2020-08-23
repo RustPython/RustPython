@@ -56,6 +56,25 @@ impl PyValue for PyClass {
     }
 }
 
+impl PyClassRef {
+    fn tp_name(zelf: Self, vm: &VirtualMachine) -> String {
+        let opt_name = zelf.slots.read().name.clone();
+        opt_name.unwrap_or_else(|| {
+            let module = zelf.attributes.read().get("__module__").cloned();
+            let new_name = if let Some(module) = module {
+                // FIXME: "unknown" case is a bug.
+                let module_str = PyStringRef::try_from_object(vm, module.clone())
+                    .map_or("<unknown>".to_owned(), |m| m.borrow_value().to_owned());
+                format!("{}.{}", module_str, &zelf.name)
+            } else {
+                zelf.name.clone()
+            };
+            zelf.slots.write().name = Some(new_name.clone());
+            new_name
+        })
+    }
+}
+
 #[pyimpl(flags(BASETYPE))]
 impl PyClassRef {
     pub fn iter_mro(&self) -> impl Iterator<Item = &PyClassRef> + DoubleEndedIterator {
@@ -114,8 +133,8 @@ impl PyClassRef {
     }
 
     #[pymethod(magic)]
-    fn repr(self) -> String {
-        format!("<class '{}'>", self.name)
+    fn repr(self, vm: &VirtualMachine) -> String {
+        format!("<class '{}'>", Self::tp_name(self, vm))
     }
 
     #[pyproperty(magic)]
@@ -139,6 +158,7 @@ impl PyClassRef {
 
     #[pyproperty(magic, setter)]
     fn set_module(self, value: PyObjectRef) {
+        self.slots.write().name = None;
         self.attributes
             .write()
             .insert("__module__".to_owned(), value);

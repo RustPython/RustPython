@@ -782,10 +782,10 @@ where
             PyRef::from_obj(obj, vm)
         } else {
             let class = T::class(vm);
-            let expected_type = vm.to_pystr(&class)?;
-            let actual_type = vm.to_pystr(&obj.class())?;
+            let expected_type = &class.name;
+            let actual_type = &obj.lease_class().name;
             Err(vm.new_type_error(format!(
-                "Expected type {}, not {}",
+                "Expected type '{}', not '{}'",
                 expected_type, actual_type,
             )))
         }
@@ -1434,6 +1434,7 @@ where
 
 pub trait PyClassDef {
     const NAME: &'static str;
+    const MODULE_NAME: Option<&'static str>;
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
 }
@@ -1443,6 +1444,7 @@ where
     T: PyClassDef,
 {
     const NAME: &'static str = T::NAME;
+    const MODULE_NAME: Option<&'static str> = T::MODULE_NAME;
     const TP_NAME: &'static str = T::TP_NAME;
     const DOC: Option<&'static str> = T::DOC;
 }
@@ -1468,9 +1470,13 @@ pub trait PyClassImpl: PyClassDef {
             );
         }
         Self::impl_extend_class(ctx, class);
+        class.slots.write().name = Some(Self::TP_NAME.to_owned());
         ctx.add_tp_new_wrapper(&class);
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc));
+        }
+        if let Some(module_name) = Self::MODULE_NAME {
+            class.set_str_attr("__module__", ctx.new_str(module_name));
         }
     }
 
