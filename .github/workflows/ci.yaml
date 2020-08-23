@@ -6,7 +6,7 @@ on:
 name: CI
 
 env:
-  CARGO_ARGS: --features ssl
+  CARGO_ARGS: --features ssl jit
 
 jobs:
   rust_tests:
