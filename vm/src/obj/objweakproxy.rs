@@ -12,7 +12,7 @@ pub struct PyWeakProxy {
 
 impl PyValue for PyWeakProxy {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.weakproxy_type()
+        vm.ctx.types.weakproxy_type.clone()
     }
 }
 

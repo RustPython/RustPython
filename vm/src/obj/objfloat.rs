@@ -33,7 +33,7 @@ impl PyFloat {
 
 impl PyValue for PyFloat {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.float_type()
+        vm.ctx.types.float_type.clone()
     }
 }
 

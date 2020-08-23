@@ -111,7 +111,7 @@ pub struct PyStringIterator {
 
 impl PyValue for PyStringIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.str_iterator_type()
+        vm.ctx.types.str_iterator_type.clone()
     }
 }
 
@@ -144,7 +144,7 @@ pub struct PyStringReverseIterator {
 
 impl PyValue for PyStringReverseIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.str_reverseiterator_type()
+        vm.ctx.types.str_reverseiterator_type.clone()
     }
 }
 
@@ -997,7 +997,7 @@ impl PyString {
         none_str: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let new_dict = vm.context().new_dict();
+        let new_dict = vm.ctx.new_dict();
         if let OptionalArg::Present(to_str) = to_str {
             match dict_or_str.downcast::<PyString>() {
                 Ok(from_str) => {
@@ -1109,7 +1109,7 @@ pub(crate) fn encode_string(
 
 impl PyValue for PyString {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.str_type()
+        vm.ctx.types.str_type.clone()
     }
 }
 
@@ -1304,7 +1304,7 @@ mod tests {
     fn str_maketrans_and_translate() {
         let vm: VirtualMachine = Default::default();
 
-        let table = vm.context().new_dict();
+        let table = vm.ctx.new_dict();
         table.set_item("a", vm.ctx.new_str("🎅"), &vm).unwrap();
         table.set_item("b", vm.get_none(), &vm).unwrap();
         table.set_item("c", vm.ctx.new_str("xda"), &vm).unwrap();

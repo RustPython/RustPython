@@ -254,7 +254,7 @@ impl PyFunction {
 
 impl PyValue for PyFunction {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.function_type()
+        vm.ctx.types.function_type.clone()
     }
 }
 
@@ -344,7 +344,7 @@ impl PyBoundMethod {
 
 impl PyValue for PyBoundMethod {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.bound_method_type()
+        vm.ctx.types.bound_method_type.clone()
     }
 }
 

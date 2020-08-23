@@ -617,20 +617,8 @@ impl VirtualMachine {
         }
     }
 
-    pub fn get_type(&self) -> PyClassRef {
-        self.ctx.type_type()
-    }
-
-    pub fn get_object(&self) -> PyClassRef {
-        self.ctx.object()
-    }
-
     pub fn get_locals(&self) -> PyDictRef {
         self.current_scope().get_locals()
-    }
-
-    pub fn context(&self) -> &PyContext {
-        &self.ctx
     }
 
     // Container of the virtual machine state:
@@ -885,7 +873,7 @@ impl VirtualMachine {
     pub fn extract_elements<T: TryFromObject>(&self, value: &PyObjectRef) -> PyResult<Vec<T>> {
         // Extract elements from item, if possible:
         let cls = value.class();
-        if cls.is(&self.ctx.tuple_type()) {
+        if cls.is(&self.ctx.types.tuple_type) {
             value
                 .payload::<PyTuple>()
                 .unwrap()
@@ -893,7 +881,7 @@ impl VirtualMachine {
                 .iter()
                 .map(|obj| T::try_from_object(self, obj.clone()))
                 .collect()
-        } else if cls.is(&self.ctx.list_type()) {
+        } else if cls.is(&self.ctx.types.list_type) {
             value
                 .payload::<PyList>()
                 .unwrap()

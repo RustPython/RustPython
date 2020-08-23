@@ -19,7 +19,7 @@ pub struct PyFilter {
 
 impl PyValue for PyFilter {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.filter_type()
+        vm.ctx.types.filter_type.clone()
     }
 }
 

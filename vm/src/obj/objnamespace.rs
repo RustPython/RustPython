@@ -12,7 +12,7 @@ pub struct PyNamespace;
 
 impl PyValue for PyNamespace {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.namespace_type()
+        vm.ctx.types.namespace_type.clone()
     }
 }
 

@@ -784,7 +784,7 @@ mod decl {
         let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
             PyClassRef::try_from_object(vm, metaclass)?
         } else {
-            vm.get_type()
+            vm.ctx.types.type_type.clone()
         };
 
         for base in bases.clone() {
@@ -865,31 +865,31 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
         "__name__" => ctx.new_str(String::from("__main__")),
 
-        "bool" => ctx.bool_type(),
-        "bytearray" => ctx.bytearray_type(),
-        "bytes" => ctx.bytes_type(),
-        "classmethod" => ctx.classmethod_type(),
-        "complex" => ctx.complex_type(),
-        "dict" => ctx.dict_type(),
-        "enumerate" => ctx.enumerate_type(),
-        "float" => ctx.float_type(),
-        "frozenset" => ctx.frozenset_type(),
-        "filter" => ctx.filter_type(),
-        "int" => ctx.int_type(),
-        "list" => ctx.list_type(),
-        "map" => ctx.map_type(),
-        "memoryview" => ctx.memoryview_type(),
-        "object" => ctx.object(),
-        "property" => ctx.property_type(),
-        "range" => ctx.range_type(),
-        "set" => ctx.set_type(),
-        "slice" => ctx.slice_type(),
-        "staticmethod" => ctx.staticmethod_type(),
-        "str" => ctx.str_type(),
-        "super" => ctx.super_type(),
-        "tuple" => ctx.tuple_type(),
-        "type" => ctx.type_type(),
-        "zip" => ctx.zip_type(),
+        "bool" => ctx.types.bool_type.clone(),
+        "bytearray" => ctx.types.bytearray_type.clone(),
+        "bytes" => ctx.types.bytes_type.clone(),
+        "classmethod" => ctx.types.classmethod_type.clone(),
+        "complex" => ctx.types.complex_type.clone(),
+        "dict" => ctx.types.dict_type.clone(),
+        "enumerate" => ctx.types.enumerate_type.clone(),
+        "float" => ctx.types.float_type.clone(),
+        "frozenset" => ctx.types.frozenset_type.clone(),
+        "filter" => ctx.types.filter_type.clone(),
+        "int" => ctx.types.int_type.clone(),
+        "list" => ctx.types.list_type.clone(),
+        "map" => ctx.types.map_type.clone(),
+        "memoryview" => ctx.types.memoryview_type.clone(),
+        "object" => ctx.types.object_type.clone(),
+        "property" => ctx.types.property_type.clone(),
+        "range" => ctx.types.range_type.clone(),
+        "set" => ctx.types.set_type.clone(),
+        "slice" => ctx.types.slice_type.clone(),
+        "staticmethod" => ctx.types.staticmethod_type.clone(),
+        "str" => ctx.types.str_type.clone(),
+        "super" => ctx.types.super_type.clone(),
+        "tuple" => ctx.types.tuple_type.clone(),
+        "type" => ctx.types.type_type.clone(),
+        "zip" => ctx.types.zip_type.clone(),
 
         // Constants
         "NotImplemented" => ctx.not_implemented(),

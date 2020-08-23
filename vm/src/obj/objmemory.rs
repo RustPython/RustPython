@@ -71,7 +71,7 @@ impl PyMemoryView {
 
 impl PyValue for PyMemoryView {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.memoryview_type()
+        vm.ctx.types.memoryview_type.clone()
     }
 }
 

@@ -20,7 +20,7 @@ pub struct PyGenerator {
 
 impl PyValue for PyGenerator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.generator_type()
+        vm.ctx.types.generator_type.clone()
     }
 }
 

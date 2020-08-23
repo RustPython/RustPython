@@ -35,7 +35,7 @@ pub struct PyRange {
 
 impl PyValue for PyRange {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.range_type()
+        vm.ctx.types.range_type.clone()
     }
 }
 
@@ -309,7 +309,7 @@ impl PyRange {
             .map(|x| x.as_object().clone())
             .collect();
         let range_paramters_tuple = PyTuple::from(range_paramters);
-        (vm.ctx.range_type(), range_paramters_tuple)
+        (vm.ctx.types.range_type.clone(), range_paramters_tuple)
     }
 
     #[pymethod(name = "index")]
@@ -409,7 +409,7 @@ pub struct PyRangeIterator {
 
 impl PyValue for PyRangeIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.range_iterator_type()
+        vm.ctx.types.range_iterator_type.clone()
     }
 }
 

@@ -14,7 +14,7 @@ pub struct PyZip {
 
 impl PyValue for PyZip {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.zip_type()
+        vm.ctx.types.zip_type.clone()
     }
 }
 

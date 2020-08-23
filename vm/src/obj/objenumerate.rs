@@ -21,7 +21,7 @@ type PyEnumerateRef = PyRef<PyEnumerate>;
 
 impl PyValue for PyEnumerate {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.enumerate_type()
+        vm.ctx.types.enumerate_type.clone()
     }
 }
 

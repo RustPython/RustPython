@@ -19,7 +19,7 @@ pub struct PySlice {
 
 impl PyValue for PySlice {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.slice_type()
+        vm.ctx.types.slice_type.clone()
     }
 }
 

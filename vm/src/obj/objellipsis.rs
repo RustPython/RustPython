@@ -3,7 +3,7 @@ use crate::pyobject::{PyClassImpl, PyContext, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 pub(crate) fn init(context: &PyContext) {
-    PyEllipsis::extend_class(context, &context.ellipsis_type());
+    PyEllipsis::extend_class(context, &context.types.ellipsis_type);
 }
 
 #[pyclass(module = false, name = "EllipsisType")]
@@ -12,7 +12,7 @@ pub struct PyEllipsis;
 
 impl PyValue for PyEllipsis {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.ellipsis_type()
+        vm.ctx.types.ellipsis_type.clone()
     }
 }
 
@@ -20,7 +20,7 @@ impl PyValue for PyEllipsis {
 impl PyEllipsis {
     #[pyslot]
     fn tp_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
-        if issubclass(&cls, &vm.ctx.ellipsis_type()) {
+        if issubclass(&cls, &vm.ctx.types.ellipsis_type) {
             Ok(vm.ctx.ellipsis())
         } else {
             Err(vm.new_type_error(format!(

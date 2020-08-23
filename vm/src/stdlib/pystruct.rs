@@ -897,7 +897,7 @@ mod _struct {
             let fmt_str = match fmt {
                 Either::A(s) => s,
                 Either::B(b) => PyString::from(std::str::from_utf8(b.borrow_value()).unwrap())
-                    .into_ref_with_type(vm, vm.ctx.str_type())?,
+                    .into_ref_with_type(vm, vm.ctx.types.str_type.clone())?,
             };
             PyStruct { spec, fmt_str }.into_ref_with_type(vm, cls)
         }
