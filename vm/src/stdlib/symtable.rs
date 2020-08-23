@@ -60,6 +60,7 @@ mod decl {
     type PySymbolTableRef = PyRef<PySymbolTable>;
     type PySymbolRef = PyRef<PySymbol>;
 
+    #[pyattr]
     #[pyclass(name = "SymbolTable")]
     struct PySymbolTable {
         symtable: symboltable::SymbolTable,
@@ -176,6 +177,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "Symbol")]
     struct PySymbol {
         symbol: symboltable::Symbol,

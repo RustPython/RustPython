@@ -17,6 +17,7 @@ mod _collections {
 
     use crossbeam_utils::atomic::AtomicCell;
 
+    #[pyattr]
     #[pyclass(name = "deque")]
     #[derive(Debug)]
     struct PyDeque {
@@ -402,6 +403,7 @@ mod _collections {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "_deque_iterator")]
     #[derive(Debug)]
     struct PyDequeIterator {

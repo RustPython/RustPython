@@ -786,6 +786,7 @@ mod _struct {
             .with_ref(|buf| format_spec.unpack(&buf[offset..offset + size], vm))
     }
 
+    #[pyattr]
     #[pyclass(name = "unpack_iterator")]
     #[derive(Debug)]
     struct UnpackIterator {
@@ -870,6 +871,7 @@ mod _struct {
         Ok(format_spec.size())
     }
 
+    #[pyattr]
     #[pyclass(name = "Struct")]
     #[derive(Debug)]
     struct PyStruct {
@@ -970,7 +972,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let struct_error = ctx.new_class(
         "struct.error",
-        ctx.exceptions.exception_type.clone(),
+        &ctx.exceptions.exception_type,
         Default::default(),
     );
 

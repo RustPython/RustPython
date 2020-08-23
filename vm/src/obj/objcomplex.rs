@@ -14,7 +14,7 @@ use rustpython_common::{float_ops, hash};
 /// Create a complex number from a real part and an optional imaginary part.
 ///
 /// This is equivalent to (real + imag*1j) where imag defaults to 0.
-#[pyclass(name = "complex")]
+#[pyclass(module = false, name = "complex")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyComplex {
     value: Complex64,

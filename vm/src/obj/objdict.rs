@@ -18,7 +18,7 @@ use std::mem::size_of;
 
 pub type DictContentType = dictdatatype::Dict;
 
-#[pyclass(name = "dict")]
+#[pyclass(module = false, name = "dict")]
 #[derive(Default)]
 pub struct PyDict {
     entries: DictContentType,
@@ -553,7 +553,7 @@ impl Iterator for DictIter {
 
 macro_rules! dict_iterator {
     ( $name: ident, $iter_name: ident, $class: ident, $iter_class: ident, $class_name: literal, $iter_class_name: literal, $result_fn: expr) => {
-        #[pyclass(name = $class_name)]
+        #[pyclass(module=false,name = $class_name)]
         #[derive(Debug)]
         pub(crate) struct $name {
             pub dict: PyDictRef,
@@ -598,7 +598,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyclass(name = $iter_class_name)]
+        #[pyclass(module=false,name = $iter_class_name)]
         #[derive(Debug)]
         pub(crate) struct $iter_name {
             pub dict: PyDictRef,

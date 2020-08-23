@@ -32,7 +32,7 @@ use rustpython_common::hash::PyHash;
 /// - a text string encoded using the specified encoding\n  \
 /// - any object implementing the buffer API.\n  \
 /// - an integer";
-#[pyclass(name = "bytes")]
+#[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]
 pub struct PyBytes {
     inner: PyBytesInner,
@@ -488,7 +488,7 @@ impl PyBytes {
     }
 }
 
-#[pyclass(name = "bytes_iterator")]
+#[pyclass(module = false, name = "bytes_iterator")]
 #[derive(Debug)]
 pub struct PyBytesIterator {
     position: AtomicCell<usize>,

@@ -26,7 +26,7 @@ use crate::vm::VirtualMachine;
 ///
 /// Class methods are different than C++ or Java static methods.
 /// If you want those, see the staticmethod builtin.
-#[pyclass(name = "classmethod")]
+#[pyclass(module = false, name = "classmethod")]
 #[derive(Clone, Debug)]
 pub struct PyClassMethod {
     callable: PyObjectRef,

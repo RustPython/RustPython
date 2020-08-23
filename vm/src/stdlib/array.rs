@@ -246,7 +246,7 @@ def_array_enum!(
     (Double, f64, 'd'),
 );
 
-#[pyclass(name = "array")]
+#[pyclass(module = "array", name = "array")]
 #[derive(Debug)]
 pub struct PyArray {
     array: PyRwLock<ArrayContentType>,
@@ -530,7 +530,7 @@ impl PyArray {
     }
 }
 
-#[pyclass(name = "array_iterator")]
+#[pyclass(module = "array", name = "array_iterator")]
 #[derive(Debug)]
 pub struct PyArrayIter {
     position: AtomicCell<usize>,

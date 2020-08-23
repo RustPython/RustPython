@@ -30,7 +30,7 @@ extern "C" {
     fn instance_of(lhs: &JsValue, rhs: &JsValue) -> Result<bool, JsValue>;
 }
 
-#[pyclass(name = "JsValue")]
+#[pyclass(module = "_js", name = "JsValue")]
 #[derive(Debug)]
 pub struct PyJsValue {
     value: JsValue,

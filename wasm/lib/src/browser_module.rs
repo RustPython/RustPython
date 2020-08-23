@@ -162,7 +162,7 @@ fn browser_cancel_animation_frame(id: i32, vm: &VirtualMachine) -> PyResult {
     Ok(vm.get_none())
 }
 
-#[pyclass(name = "Promise")]
+#[pyclass(module = "browser", name = "Promise")]
 #[derive(Debug)]
 pub struct PyPromise {
     value: Promise,
@@ -248,7 +248,7 @@ impl PyPromise {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "browser", name)]
 #[derive(Debug)]
 struct Document {
     doc: web_sys::Document,
@@ -276,7 +276,7 @@ impl Document {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "browser", name)]
 #[derive(Debug)]
 struct Element {
     elem: web_sys::Element,

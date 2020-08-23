@@ -87,7 +87,7 @@ struct FrameState {
     blocks: Vec<Block>,
 }
 
-#[pyclass(name = "frame")]
+#[pyclass(module = false, name = "frame")]
 pub struct Frame {
     pub code: PyCodeRef,
     pub scope: Scope,

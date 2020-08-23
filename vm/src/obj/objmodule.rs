@@ -7,7 +7,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-#[pyclass(name = "module")]
+#[pyclass(module = false, name = "module")]
 #[derive(Debug)]
 pub struct PyModule {}
 pub type PyModuleRef = PyRef<PyModule>;

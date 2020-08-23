@@ -647,7 +647,7 @@ mod fileio {
         flag as u32
     }
 
-    #[pyclass]
+    #[pyclass(module = "io", name)]
     #[derive(Debug)]
     struct FileIO {
         fd: AtomicCell<i64>,
@@ -877,7 +877,7 @@ mod fileio {
     }
 
     pub fn make_fileio(ctx: &crate::pyobject::PyContext, raw_io_base: PyClassRef) -> PyClassRef {
-        FileIO::make_class_with_base(ctx, FileIO::NAME, raw_io_base)
+        FileIO::make_class_with_base(ctx, FileIO::NAME, &raw_io_base)
     }
 }
 
@@ -1268,7 +1268,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     // IOBase the abstract base class of the IO Module
-    let io_base = py_class!(ctx, "_IOBase", ctx.object(), {
+    let io_base = py_class!(ctx, "_IOBase", &ctx.object(), {
         "__enter__" => ctx.new_method(io_base_cm_enter),
         "__exit__" => ctx.new_method(io_base_cm_exit),
         "seekable" => ctx.new_method(io_base_seekable),
@@ -1289,17 +1289,17 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     // IOBase Subclasses
-    let raw_io_base = py_class!(ctx, "_RawIOBase", io_base.clone(), {
+    let raw_io_base = py_class!(ctx, "_RawIOBase", &io_base, {
         "read" => ctx.new_method(raw_io_base_read),
     });
 
-    let buffered_io_base = py_class!(ctx, "_BufferedIOBase", io_base.clone(), {});
+    let buffered_io_base = py_class!(ctx, "_BufferedIOBase", &io_base, {});
 
     //TextIO Base has no public constructor
-    let text_io_base = py_class!(ctx, "_TextIOBase", io_base.clone(), {});
+    let text_io_base = py_class!(ctx, "_TextIOBase", &io_base, {});
 
     // BufferedIOBase Subclasses
-    let buffered_reader = py_class!(ctx, "BufferedReader", buffered_io_base.clone(), {
+    let buffered_reader = py_class!(ctx, "BufferedReader", &buffered_io_base, {
         //workaround till the buffered classes can be fixed up to be more
         //consistent with the python model
         //For more info see: https://github.com/RustPython/RustPython/issues/547
@@ -1314,7 +1314,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "mode" => ctx.new_readonly_getset("mode", buffered_io_base_mode),
     });
 
-    let buffered_writer = py_class!(ctx, "BufferedWriter", buffered_io_base.clone(), {
+    let buffered_writer = py_class!(ctx, "BufferedWriter", &buffered_io_base, {
         //workaround till the buffered classes can be fixed up to be more
         //consistent with the python model
         //For more info see: https://github.com/RustPython/RustPython/issues/547
@@ -1330,7 +1330,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     //TextIOBase Subclass
-    let text_io_wrapper = py_class!(ctx, "TextIOWrapper", text_io_base.clone(), {
+    let text_io_wrapper = py_class!(ctx, "TextIOWrapper", &text_io_base, {
         "__init__" => ctx.new_method(text_io_wrapper_init),
         "seekable" => ctx.new_method(text_io_wrapper_seekable),
         "seek" => ctx.new_method(text_io_wrapper_seek),
@@ -1344,7 +1344,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     //StringIO: in-memory text
-    let string_io = py_class!(ctx, "StringIO", text_io_base.clone(), {
+    let string_io = py_class!(ctx, "StringIO", &text_io_base, {
         "__module__" => ctx.new_str("_io"),
         (slot new) => string_io_new,
         "seek" => ctx.new_method(PyStringIORef::seek),
@@ -1360,7 +1360,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     //BytesIO: in-memory bytes
-    let bytes_io = py_class!(ctx, "BytesIO", buffered_io_base.clone(), {
+    let bytes_io = py_class!(ctx, "BytesIO", &buffered_io_base, {
         (slot new) => bytes_io_new,
         "read" => ctx.new_method(PyBytesIORef::read),
         "read1" => ctx.new_method(PyBytesIORef::read),

@@ -4,7 +4,7 @@ use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyVa
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
 
-#[pyclass(name = "staticmethod")]
+#[pyclass(module = false, name = "staticmethod")]
 #[derive(Clone, Debug)]
 pub struct PyStaticMethod {
     pub callable: PyObjectRef,

@@ -124,7 +124,7 @@ impl ReadState {
     }
 }
 
-#[pyclass(name = "Reader")]
+#[pyclass(module = "csv", name = "Reader")]
 struct Reader {
     state: PyRwLock<ReadState>,
 }

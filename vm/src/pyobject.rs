@@ -464,8 +464,8 @@ impl PyContext {
             .unwrap()
     }
 
-    pub fn new_class(&self, name: &str, base: PyClassRef, flags: PyTpFlags) -> PyClassRef {
-        create_type_with_flags(name, &self.type_type(), &base, flags)
+    pub fn new_class(&self, name: &str, base: &PyClassRef, flags: PyTpFlags) -> PyClassRef {
+        create_type_with_flags(name, &self.type_type(), base, flags)
     }
 
     pub fn new_namespace(&self) -> PyObjectRef {
@@ -1481,10 +1481,10 @@ pub trait PyClassImpl: PyClassDef {
     }
 
     fn make_class(ctx: &PyContext) -> PyClassRef {
-        Self::make_class_with_base(ctx, Self::NAME, ctx.object())
+        Self::make_class_with_base(ctx, Self::NAME, &ctx.object())
     }
 
-    fn make_class_with_base(ctx: &PyContext, name: &str, base: PyClassRef) -> PyClassRef {
+    fn make_class_with_base(ctx: &PyContext, name: &str, base: &PyClassRef) -> PyClassRef {
         let py_class = ctx.new_class(name, base, Self::TP_FLAGS);
         Self::extend_class(ctx, &py_class);
         py_class

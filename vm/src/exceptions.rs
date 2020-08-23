@@ -21,7 +21,7 @@ use std::io::{self, BufRead, BufReader};
 
 use crossbeam_utils::atomic::AtomicCell;
 
-#[pyclass(name = "BaseException")]
+#[pyclass(module = false, name = "BaseException")]
 pub struct PyBaseException {
     traceback: PyRwLock<Option<PyTracebackRef>>,
     cause: PyRwLock<Option<PyBaseExceptionRef>>,

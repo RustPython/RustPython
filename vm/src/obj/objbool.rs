@@ -81,7 +81,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
 /// Returns True when the argument x is true, False otherwise.
 /// The builtins True and False are the only two instances of the class bool.
 /// The class bool is a subclass of the class int, and cannot be subclassed.
-#[pyclass(name = "bool")]
+#[pyclass(name = "bool", module = false)]
 pub(crate) struct PyBool;
 
 #[pyimpl]

@@ -27,7 +27,7 @@ use crate::vm::{ReprGuard, VirtualMachine};
 ///
 /// If no argument is given, the constructor creates a new empty list.
 /// The argument must be an iterable if specified.
-#[pyclass(name = "list")]
+#[pyclass(module = false, name = "list")]
 #[derive(Default)]
 pub struct PyList {
     elements: PyRwLock<Vec<PyObjectRef>>,
@@ -825,7 +825,7 @@ fn do_sort(
     Ok(())
 }
 
-#[pyclass(name = "list_iterator")]
+#[pyclass(module = false, name = "list_iterator")]
 #[derive(Debug)]
 pub struct PyListIterator {
     pub position: AtomicCell<usize>,
@@ -864,7 +864,7 @@ impl PyListIterator {
     }
 }
 
-#[pyclass(name = "list_reverseiterator")]
+#[pyclass(module = false, name = "list_reverseiterator")]
 #[derive(Debug)]
 pub struct PyListReverseIterator {
     pub position: AtomicCell<isize>,

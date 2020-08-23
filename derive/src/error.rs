@@ -43,19 +43,19 @@ macro_rules! bail_span {
     )
 }
 
-macro_rules! push_err_span {
-    ($diagnostics:expr, $($t:tt)*) => {
-        $diagnostics.push(err_span!($($t)*))
-    };
-}
+// macro_rules! push_err_span {
+//     ($diagnostics:expr, $($t:tt)*) => {
+//         $diagnostics.push(err_span!($($t)*))
+//     };
+// }
 
-macro_rules! push_diag_result {
-    ($diags:expr, $x:expr $(,)?) => {
-        if let Err(e) = $x {
-            $diags.push(e);
-        }
-    };
-}
+// macro_rules! push_diag_result {
+//     ($diags:expr, $x:expr $(,)?) => {
+//         if let Err(e) = $x {
+//             $diags.push(e);
+//         }
+//     };
+// }
 
 #[derive(Debug)]
 pub struct Diagnostic {

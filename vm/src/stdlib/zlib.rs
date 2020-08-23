@@ -213,6 +213,7 @@ mod decl {
             unconsumed_tail: PyMutex::new(PyBytes::from(vec![]).into_ref(vm)),
         }
     }
+    #[pyattr]
     #[pyclass(name = "Decompress")]
     #[derive(Debug)]
     struct PyDecompress {
@@ -373,6 +374,7 @@ mod decl {
         unconsumed: Vec<u8>,
     }
 
+    #[pyattr]
     #[pyclass(name = "Compress")]
     #[derive(Debug)]
     struct PyCompress {

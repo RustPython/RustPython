@@ -20,7 +20,7 @@ use itertools::Itertools;
 
 pub type PyFunctionRef = PyRef<PyFunction>;
 
-#[pyclass(name = "function")]
+#[pyclass(module = false, name = "function")]
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyCodeRef,
@@ -287,7 +287,7 @@ impl PyFunction {
     }
 }
 
-#[pyclass(name = "method")]
+#[pyclass(module = false, name = "method")]
 #[derive(Debug)]
 pub struct PyBoundMethod {
     // TODO: these shouldn't be public
