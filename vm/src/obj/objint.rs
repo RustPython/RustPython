@@ -73,7 +73,7 @@ where
 
 impl PyValue for PyInt {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.int_type()
+        vm.ctx.types.int_type.clone()
     }
 
     fn into_simple_object(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -239,7 +239,7 @@ impl PyInt {
     where
         T: Into<BigInt> + ToPrimitive,
     {
-        if cls.is(&vm.ctx.int_type()) {
+        if cls.is(&vm.ctx.types.int_type) {
             Ok(vm.ctx.new_int(value).downcast().unwrap())
         } else {
             PyInt::from(value).into_ref_with_type(vm, cls)

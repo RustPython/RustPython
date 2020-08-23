@@ -24,7 +24,7 @@ type PyComplexRef = PyRef<PyComplex>;
 
 impl PyValue for PyComplex {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.complex_type()
+        vm.ctx.types.complex_type.clone()
     }
 }
 

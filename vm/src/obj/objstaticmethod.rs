@@ -13,7 +13,7 @@ pub type PyStaticMethodRef = PyRef<PyStaticMethod>;
 
 impl PyValue for PyStaticMethod {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.staticmethod_type()
+        vm.ctx.types.staticmethod_type.clone()
     }
 }
 

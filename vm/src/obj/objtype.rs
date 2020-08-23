@@ -52,7 +52,7 @@ pub type PyClassRef = PyRef<PyClass>;
 
 impl PyValue for PyClass {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.type_type()
+        vm.ctx.types.type_type.clone()
     }
 }
 
@@ -306,7 +306,7 @@ impl PyClassRef {
 
         let bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
         let (metatype, base, bases) = if bases.is_empty() {
-            let base = vm.ctx.object();
+            let base = vm.ctx.types.object_type.clone();
             (metatype, base.clone(), vec![base])
         } else {
             // TODO
@@ -340,13 +340,13 @@ impl PyClassRef {
 
         let mut attributes = dict.to_attributes();
         if let Some(f) = attributes.get_mut("__new__") {
-            if f.class().is(&vm.ctx.function_type()) {
+            if f.class().is(&vm.ctx.types.function_type) {
                 *f = PyStaticMethod::from(f.clone()).into_ref(vm).into_object();
             }
         }
 
         if let Some(f) = attributes.get_mut("__init_subclass__") {
-            if f.class().is(&vm.ctx.function_type()) {
+            if f.class().is(&vm.ctx.types.function_type) {
                 *f = PyClassMethod::from(f.clone()).into_ref(vm).into_object();
             }
         }

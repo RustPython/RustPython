@@ -34,7 +34,7 @@ impl fmt::Debug for PyDict {
 
 impl PyValue for PyDict {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.dict_type()
+        vm.ctx.types.dict_type.clone()
     }
 }
 
@@ -448,7 +448,7 @@ impl PyDictRef {
         // and prevent the creation of the KeyError exception.
         // Also note, that we prevent the creation of a full PyString object
         // if we lookup local names (which happens all of the time).
-        if self.lease_class().is(&vm.ctx.dict_type()) {
+        if self.lease_class().is(&vm.ctx.types.dict_type) {
             // We can take the short path here!
             match self.inner_getitem_option(key, vm) {
                 Err(exc) => {
@@ -486,7 +486,7 @@ where
     }
 
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if self.lease_class().is(&vm.ctx.dict_type()) {
+        if self.lease_class().is(&vm.ctx.types.dict_type) {
             self.inner_setitem_fast(key, value, vm)
                 .map(|_| vm.ctx.none())
         } else {
@@ -496,7 +496,7 @@ where
     }
 
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        if self.lease_class().is(&vm.ctx.dict_type()) {
+        if self.lease_class().is(&vm.ctx.types.dict_type) {
             self.entries.delete(vm, key).map(|_| vm.ctx.none())
         } else {
             // Fall back to slow path if we are in a dict subclass:

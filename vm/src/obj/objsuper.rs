@@ -30,7 +30,7 @@ pub struct PySuper {
 
 impl PyValue for PySuper {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.super_type()
+        vm.ctx.types.super_type.clone()
     }
 }
 

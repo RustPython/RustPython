@@ -46,7 +46,7 @@ impl<'a> BorrowValue<'a> for PyTuple {
 
 impl PyValue for PyTuple {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.tuple_type()
+        vm.ctx.types.tuple_type.clone()
     }
 }
 
@@ -264,7 +264,7 @@ pub struct PyTupleIterator {
 
 impl PyValue for PyTupleIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.tuple_iterator_type()
+        vm.ctx.types.tuple_iterator_type.clone()
     }
 }
 

@@ -248,7 +248,7 @@ pub(crate) fn impl_pystruct_sequence(
                 ctx: &::rustpython_vm::pyobject::PyContext,
             ) -> ::rustpython_vm::obj::objtype::PyClassRef {
                 use crate::pyobject::PyClassDef;
-                Self::make_class_with_base(ctx, Self::NAME,  &ctx.tuple_type())
+                Self::make_class_with_base(ctx, Self::NAME,  &ctx.types.tuple_type)
             }
         }
     };
@@ -472,7 +472,7 @@ impl ToTokens for GetSetNursery {
                     #name,
                     ::rustpython_vm::pyobject::PyObject::new(
                         ::rustpython_vm::obj::objgetset::PyGetSet::#constructor(#name.into(), &Self::#getter #setter),
-                        ctx.getset_type(), None)
+                        ctx.types.getset_type.clone(), None)
                 );
             }
         }));

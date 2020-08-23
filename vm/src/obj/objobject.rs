@@ -19,7 +19,7 @@ pub struct PyBaseObject;
 
 impl PyValue for PyBaseObject {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.object()
+        vm.ctx.types.object_type.clone()
     }
 }
 
@@ -29,7 +29,7 @@ impl PyBaseObject {
     fn tp_new(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
         // more or less __new__ operator
         let cls = PyClassRef::try_from_object(vm, args.shift())?;
-        let dict = if cls.is(&vm.ctx.object()) {
+        let dict = if cls.is(&vm.ctx.types.object_type) {
             None
         } else {
             Some(vm.ctx.new_dict())

@@ -16,7 +16,7 @@ pub type PyTracebackRef = PyRef<PyTraceback>;
 
 impl PyValue for PyTraceback {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.traceback_type()
+        vm.ctx.types.traceback_type.clone()
     }
 }
 

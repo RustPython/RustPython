@@ -77,7 +77,7 @@ impl From<Vec<u8>> for PyByteArray {
 
 impl PyValue for PyByteArray {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.bytearray_type()
+        vm.ctx.types.bytearray_type.clone()
     }
 }
 
@@ -615,7 +615,7 @@ pub struct PyByteArrayIterator {
 
 impl PyValue for PyByteArrayIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.bytearray_iterator_type()
+        vm.ctx.types.bytearray_iterator_type.clone()
     }
 }
 

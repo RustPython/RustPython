@@ -18,7 +18,7 @@ pub struct PyBuiltinFunction {
 
 impl PyValue for PyBuiltinFunction {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.builtin_function_or_method_type()
+        vm.ctx.types.builtin_function_or_method_type.clone()
     }
 }
 
@@ -77,7 +77,7 @@ pub struct PyBuiltinMethod {
 
 impl PyValue for PyBuiltinMethod {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.method_descriptor_type()
+        vm.ctx.types.method_descriptor_type.clone()
     }
 }
 

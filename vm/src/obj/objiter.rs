@@ -159,7 +159,7 @@ pub struct PySequenceIterator {
 
 impl PyValue for PySequenceIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.iter_type()
+        vm.ctx.types.iter_type.clone()
     }
 }
 

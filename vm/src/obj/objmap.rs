@@ -18,7 +18,7 @@ type PyMapRef = PyRef<PyMap>;
 
 impl PyValue for PyMap {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.map_type()
+        vm.ctx.types.map_type.clone()
     }
 }
 
