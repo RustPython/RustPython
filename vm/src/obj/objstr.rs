@@ -16,7 +16,6 @@ use super::objbytes::{PyBytes, PyBytesRef};
 use super::objdict::PyDict;
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
-use super::objnone::PyNone;
 use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::IntoPyException;
@@ -969,17 +968,17 @@ impl PyString {
                     if let Some(text) = value.payload::<PyString>() {
                         translated.push_str(&text.value);
                     } else if let Some(bigint) = value.payload::<PyInt>() {
-                        match bigint.borrow_value().to_u32().and_then(std::char::from_u32) {
-                            Some(ch) => translated.push(ch as char),
-                            None => {
-                                return Err(vm.new_value_error(
+                        let ch = bigint
+                            .borrow_value()
+                            .to_u32()
+                            .and_then(std::char::from_u32)
+                            .ok_or_else(|| {
+                                vm.new_value_error(
                                     "character mapping must be in range(0x110000)".to_owned(),
-                                ));
-                            }
-                        }
-                    } else if value.payload::<PyNone>().is_some() {
-                        // Do Nothing
-                    } else {
+                                )
+                            })?;
+                        translated.push(ch as char);
+                    } else if !vm.is_none(&value) {
                         return Err(vm.new_type_error(
                             "character mapping must return integer, None or str".to_owned(),
                         ));

@@ -1,7 +1,6 @@
-use std::fmt::{self, Debug, Formatter};
-
 use csv as rust_csv;
-use itertools::join;
+use itertools::{self, Itertools};
+use std::fmt::{self, Debug, Formatter};
 
 use crate::common::cell::PyRwLock;
 use crate::function::PyFuncArgs;
@@ -31,27 +30,27 @@ struct ReaderOption {
 impl ReaderOption {
     fn new(args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         let delimiter = if let Some(delimiter) = args.get_optional_kwarg("delimiter") {
-            let bytes = objstr::borrow_value(&delimiter).as_bytes();
-            match bytes.len() {
-                1 => bytes[0],
-                _ => {
+            *objstr::borrow_value(&delimiter)
+                .as_bytes()
+                .iter()
+                .exactly_one()
+                .map_err(|_| {
                     let msg = r#""delimiter" must be a 1-character string"#;
-                    return Err(vm.new_type_error(msg.to_owned()));
-                }
-            }
+                    vm.new_type_error(msg.to_owned())
+                })?
         } else {
             b','
         };
 
         let quotechar = if let Some(quotechar) = args.get_optional_kwarg("quotechar") {
-            let bytes = objstr::borrow_value(&quotechar).as_bytes();
-            match bytes.len() {
-                1 => bytes[0],
-                _ => {
+            *objstr::borrow_value(&quotechar)
+                .as_bytes()
+                .iter()
+                .exactly_one()
+                .map_err(|_| {
                     let msg = r#""quotechar" must be a 1-character string"#;
-                    return Err(vm.new_type_error(msg.to_owned()));
-                }
-            }
+                    vm.new_type_error(msg.to_owned())
+                })?
         } else {
             b'"'
         };
@@ -107,7 +106,7 @@ impl ReadState {
     fn cast_to_reader(&mut self, vm: &VirtualMachine) -> PyResult<()> {
         if let ReadState::PyIter(ref iterable, ref config) = self {
             let lines = into_strings(iterable, vm)?;
-            let contents = join(lines, "\n");
+            let contents = itertools::join(lines, "\n");
 
             let bytes = Vec::from(contents.as_bytes());
             let reader = MemIO::new(bytes);

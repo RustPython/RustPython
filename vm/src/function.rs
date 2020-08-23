@@ -172,32 +172,25 @@ impl PyFuncArgs {
     /// during the conversion will halt the binding and return the error.
     pub fn bind<T: FromArgs>(mut self, vm: &VirtualMachine) -> PyResult<T> {
         let given_args = self.args.len();
-        let bound = match T::from_args(vm, &mut self) {
-            Ok(args) => args,
-            Err(ArgumentError::TooFewArgs) => {
-                return Err(vm.new_type_error(format!(
-                    "Expected at least {} arguments ({} given)",
-                    T::arity().start(),
-                    given_args,
-                )));
+        let bound = T::from_args(vm, &mut self).map_err(|e| match e {
+            ArgumentError::TooFewArgs => vm.new_type_error(format!(
+                "Expected at least {} arguments ({} given)",
+                T::arity().start(),
+                given_args,
+            )),
+            ArgumentError::TooManyArgs => vm.new_type_error(format!(
+                "Expected at most {} arguments ({} given)",
+                T::arity().end(),
+                given_args,
+            )),
+            ArgumentError::InvalidKeywordArgument(name) => {
+                vm.new_type_error(format!("{} is an invalid keyword argument", name))
             }
-            Err(ArgumentError::TooManyArgs) => {
-                return Err(vm.new_type_error(format!(
-                    "Expected at most {} arguments ({} given)",
-                    T::arity().end(),
-                    given_args,
-                )));
+            ArgumentError::RequiredKeywordArgument(name) => {
+                vm.new_type_error(format!("Required keyqord only argument {}", name))
             }
-            Err(ArgumentError::InvalidKeywordArgument(name)) => {
-                return Err(vm.new_type_error(format!("{} is an invalid keyword argument", name)));
-            }
-            Err(ArgumentError::RequiredKeywordArgument(name)) => {
-                return Err(vm.new_type_error(format!("Required keyqord only argument {}", name)));
-            }
-            Err(ArgumentError::Exception(ex)) => {
-                return Err(ex);
-            }
-        };
+            ArgumentError::Exception(ex) => ex,
+        })?;
 
         if !self.args.is_empty() {
             Err(vm.new_type_error(format!(

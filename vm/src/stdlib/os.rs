@@ -1516,16 +1516,13 @@ mod posix {
     #[pyfunction]
     fn execv(
         path: PyStringRef,
-        argv_list: Either<PyListRef, PyTupleRef>,
+        argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let path = ffi::CString::new(path.borrow_value())
             .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
 
-        let argv: Vec<ffi::CString> = match argv_list {
-            Either::A(list) => vm.extract_elements(list.as_object())?,
-            Either::B(tuple) => vm.extract_elements(tuple.as_object())?,
-        };
+        let argv: Vec<ffi::CString> = vm.extract_elements(argv.as_object())?;
         let argv: Vec<&ffi::CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
 
         let first = argv
@@ -1545,20 +1542,17 @@ mod posix {
     #[pyfunction]
     fn execve(
         path: PyPathLike,
-        args: Either<PyListRef, PyTupleRef>,
+        argv: Either<PyListRef, PyTupleRef>,
         env: PyDictRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let path = ffi::CString::new(path.into_bytes())
             .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
 
-        let args: Vec<ffi::CString> = match args {
-            Either::A(list) => vm.extract_elements(list.as_object())?,
-            Either::B(tuple) => vm.extract_elements(tuple.as_object())?,
-        };
-        let args: Vec<&ffi::CStr> = args.iter().map(|entry| entry.as_c_str()).collect();
+        let argv: Vec<ffi::CString> = vm.extract_elements(argv.as_object())?;
+        let argv: Vec<&ffi::CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
 
-        let first = args
+        let first = argv
             .first()
             .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty".to_owned()))?;
 
@@ -1587,7 +1581,7 @@ mod posix {
 
         let env: Vec<&ffi::CStr> = env.iter().map(|entry| entry.as_c_str()).collect();
 
-        unistd::execve(&path, &args, &env).map_err(|err| err.into_pyexception(vm))?;
+        unistd::execve(&path, &argv, &env).map_err(|err| err.into_pyexception(vm))?;
         Ok(())
     }
 
@@ -2509,7 +2503,7 @@ mod nt {
     #[pyfunction]
     fn execv(
         path: PyStringRef,
-        argv_list: Either<PyListRef, PyTupleRef>,
+        argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         use std::iter::once;
@@ -2522,10 +2516,7 @@ mod nt {
             .chain(once(0u16))
             .collect();
 
-        let argv: Vec<ffi::OsString> = match argv_list {
-            Either::A(list) => vm.extract_elements(list.as_object())?,
-            Either::B(tuple) => vm.extract_elements(tuple.as_object())?,
-        };
+        let argv: Vec<ffi::OsString> = vm.extract_elements(argv.as_object())?;
 
         let first = argv
             .first()

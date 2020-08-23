@@ -7,7 +7,7 @@ use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
 
 use num_bigint::BigInt;
-use num_traits::{One, Zero};
+use num_traits::{One, Signed, Zero};
 
 use crate::function::{Args, OptionalArg};
 use crate::obj::objfloat::{self, IntoPyFloat, PyFloatRef};
@@ -304,7 +304,7 @@ fn math_lcm(args: Args<PyIntRef>) -> BigInt {
 
 fn math_factorial(value: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
     let value = value.borrow_value();
-    if *value < BigInt::zero() {
+    if value.is_negative() {
         return Err(vm.new_value_error("factorial() not defined for negative values".to_owned()));
     } else if *value <= BigInt::one() {
         return Ok(BigInt::from(1u64));

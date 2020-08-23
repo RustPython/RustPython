@@ -732,11 +732,10 @@ mod decl {
 
     #[pyfunction]
     fn sorted(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-        let iterable = args.take_positional();
-        if iterable.is_none() {
-            return Err(vm.new_type_error("sorted expected 1 arguments, got 0".to_string()));
-        }
-        let items = vm.extract_elements(&iterable.unwrap())?;
+        let iterable = args
+            .take_positional()
+            .ok_or_else(|| vm.new_type_error("sorted expected 1 arguments, got 0".to_string()))?;
+        let items = vm.extract_elements(&iterable)?;
         let lst = vm.ctx.new_list(items);
 
         vm.call_method(&lst, "sort", args)?;

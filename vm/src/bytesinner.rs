@@ -1,4 +1,5 @@
 use bstr::ByteSlice;
+use itertools::Itertools;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::ops::Range;
@@ -126,13 +127,10 @@ impl ByteInnerNewOptions {
                         let mut data_bytes = vec![];
                         for elem in elements {
                             let v = objint::to_int(vm, &elem)?;
-                            if let Some(i) = v.to_u8() {
-                                data_bytes.push(i);
-                            } else {
-                                return Err(
-                                    vm.new_value_error("bytes must be in range(0, 256)".to_owned())
-                                );
-                            }
+                            let i = v.to_u8().ok_or_else(|| {
+                                vm.new_value_error("bytes must be in range(0, 256)".to_owned())
+                            })?;
+                            data_bytes.push(i);
                         }
                         Ok(data_bytes)
                     }
@@ -184,20 +182,14 @@ pub struct ByteInnerPaddingOptions {
 impl ByteInnerPaddingOptions {
     fn get_value(self, fn_name: &str, vm: &VirtualMachine) -> PyResult<(isize, u8)> {
         let fillchar = if let OptionalArg::Present(v) = self.fillchar {
-            try_as_bytes(v.clone(), |bytes| {
-                if bytes.len() == 1 {
-                    Some(bytes[0])
-                } else {
-                    None
-                }
-            })
-            .flatten()
-            .ok_or_else(|| {
-                vm.new_type_error(format!(
-                    "{}() argument 2 must be a byte string of length 1, not {}",
-                    fn_name, &v
-                ))
-            })?
+            try_as_bytes(v.clone(), |bytes| bytes.iter().copied().exactly_one().ok())
+                .flatten()
+                .ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "{}() argument 2 must be a byte string of length 1, not {}",
+                        fn_name, &v
+                    ))
+                })?
         } else {
             b' ' // default is space
         };

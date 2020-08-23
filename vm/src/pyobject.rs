@@ -1383,6 +1383,13 @@ pub enum Either<A, B> {
 }
 
 impl<A: PyValue, B: PyValue> Either<PyRef<A>, PyRef<B>> {
+    pub fn as_object(&self) -> &PyObjectRef {
+        match self {
+            Either::A(a) => a.as_object(),
+            Either::B(b) => b.as_object(),
+        }
+    }
+
     pub fn into_object(self) -> PyObjectRef {
         match self {
             Either::A(a) => a.into_object(),

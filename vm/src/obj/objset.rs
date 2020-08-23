@@ -846,13 +846,13 @@ impl PySetIterator {
         if let Some(set_size) = size_info.size {
             if set_size == self.dict.len() {
                 let index = size_info.position;
-                if let Some(item) = self.dict.keys().get(index) {
-                    size_info.position += 1;
-                    self.size_info.store(size_info);
-                    return Ok(item.clone());
-                } else {
-                    return Err(objiter::new_stop_iteration(vm));
-                }
+                let keys = self.dict.keys();
+                let item = keys
+                    .get(index)
+                    .ok_or_else(|| objiter::new_stop_iteration(vm))?;
+                size_info.position += 1;
+                self.size_info.store(size_info);
+                return Ok(item.clone());
             } else {
                 size_info.size = None;
                 self.size_info.store(size_info);

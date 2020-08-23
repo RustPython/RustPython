@@ -124,10 +124,10 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
     let result = match vm.invoke(&hint, vec![]) {
         Ok(res) => res,
         Err(e) => {
-            if objtype::isinstance(&e, &vm.ctx.exceptions.type_error) {
-                return Ok(None);
+            return if objtype::isinstance(&e, &vm.ctx.exceptions.type_error) {
+                Ok(None)
             } else {
-                return Err(e);
+                Err(e)
             }
         }
     };

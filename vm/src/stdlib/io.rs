@@ -808,10 +808,8 @@ mod fileio {
 
                 let value_mut = &mut bytes.borrow_value_mut().elements;
                 value_mut.clear();
-                match f.read_to_end(value_mut) {
-                    Ok(_) => {}
-                    Err(_) => return Err(vm.new_value_error("Error reading from Take".to_owned())),
-                }
+                f.read_to_end(value_mut)
+                    .map_err(|_| vm.new_value_error("Error reading from Take".to_owned()))?;
             };
 
             self.set_file(f.into_inner())?;
@@ -941,7 +939,7 @@ fn text_io_wrapper_init(
 
     let mut encoding: Option<PyStringRef> = args.encoding.clone();
     let mut self_encoding = None; // TODO: Try os.device_encoding(fileno)
-    if encoding.is_none() && self_encoding.is_none() {
+    if let (None, None) = (&encoding, &self_encoding) {
         // TODO: locale module
         self_encoding = Some("utf-8");
     }
@@ -1099,39 +1097,38 @@ fn split_mode_string(mode_string: &str) -> Result<(String, String), String> {
     let mut typ: char = '\0';
     let mut plus_is_set = false;
 
+    let invalid_mode = || Err(format!("invalid mode: '{}'", mode_string));
     for ch in mode_string.chars() {
         match ch {
             '+' => {
                 if plus_is_set {
-                    return Err(format!("invalid mode: '{}'", mode_string));
+                    return invalid_mode();
                 }
                 plus_is_set = true;
             }
             't' | 'b' => {
                 if typ != '\0' {
-                    if typ == ch {
+                    return if typ == ch {
                         // no duplicates allowed
-                        return Err(format!("invalid mode: '{}'", mode_string));
+                        invalid_mode()
                     } else {
-                        return Err("can't have text and binary mode at once".to_owned());
-                    }
+                        Err("can't have text and binary mode at once".to_owned())
+                    };
                 }
                 typ = ch;
             }
             'a' | 'r' | 'w' => {
                 if mode != '\0' {
-                    if mode == ch {
+                    return if mode == ch {
                         // no duplicates allowed
-                        return Err(format!("invalid mode: '{}'", mode_string));
+                        invalid_mode()
                     } else {
-                        return Err(
-                            "must have exactly one of create/read/write/append mode".to_owned()
-                        );
-                    }
+                        Err("must have exactly one of create/read/write/append mode".to_owned())
+                    };
                 }
                 mode = ch;
             }
-            _ => return Err(format!("invalid mode: '{}'", mode_string)),
+            _ => return invalid_mode(),
         }
     }
 
@@ -1206,13 +1203,7 @@ pub fn io_open(
 ) -> PyResult {
     // mode is optional: 'rt' is the default mode (open from reading text)
     let mode_string = mode.unwrap_or("rt");
-
-    let (mode, typ) = match split_mode_string(mode_string) {
-        Ok((mode, typ)) => (mode, typ),
-        Err(error_message) => {
-            return Err(vm.new_value_error(error_message));
-        }
-    };
+    let (mode, typ) = split_mode_string(mode_string).map_err(|e| vm.new_value_error(e))?;
 
     let io_module = vm.import("_io", &[], 0)?;
 

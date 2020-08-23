@@ -132,7 +132,8 @@ impl PyFunction {
         // Handle keyword arguments
         for (name, value) in func_args.kwargs {
             // Check if we have a parameter with this name:
-            if code_object.arg_names.contains(&name) || code_object.kwonlyarg_names.contains(&name)
+            let dict = if code_object.arg_names.contains(&name)
+                || code_object.kwonlyarg_names.contains(&name)
             {
                 if posonly_args.contains(&name) {
                     posonly_passed_as_kwarg.push(name);
@@ -142,15 +143,13 @@ impl PyFunction {
                         vm.new_type_error(format!("Got multiple values for argument '{}'", name))
                     );
                 }
-
-                locals.set_item(name.as_str(), value, vm)?;
-            } else if let Some(d) = &kwargs {
-                d.set_item(name.as_str(), value, vm)?;
+                locals
             } else {
-                return Err(
+                kwargs.as_ref().ok_or_else(|| {
                     vm.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
-                );
-            }
+                })?
+            };
+            dict.set_item(name.as_str(), value, vm)?;
         }
         if !posonly_passed_as_kwarg.is_empty() {
             return Err(vm.new_type_error(format!(

@@ -267,11 +267,11 @@ where
     {
         if range.is_normal() {
             let start = range.start;
-            if let Some(index) = find(self.get_chars(range), &needle) {
-                return Some(start + index);
-            }
+            let index = find(self.get_chars(range), &needle)?;
+            Some(start + index)
+        } else {
+            None
         }
-        None
     }
 
     #[inline]

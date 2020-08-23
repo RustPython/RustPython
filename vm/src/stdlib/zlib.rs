@@ -133,17 +133,20 @@ mod decl {
 
                 buf.reserve_exact(additional);
                 let prev_in = d.total_in();
-                match d.decompress_vec(chunk, &mut buf, flush) {
+                let status = d
+                    .decompress_vec(chunk, &mut buf, flush)
+                    .map_err(|_| new_zlib_error("invalid input data", vm))?;
+                match status {
                     // we've reached the end of the stream, we're done
-                    Ok(Status::StreamEnd) => {
+                    Status::StreamEnd => {
                         buf.shrink_to_fit();
                         return Ok((buf, true));
                     }
                     // we have hit the maximum length that we can decompress, so stop
-                    Ok(_) if max_length.map_or(false, |max_length| buf.len() == max_length) => {
+                    _ if max_length.map_or(false, |max_length| buf.len() == max_length) => {
                         return Ok((buf, false));
                     }
-                    Ok(_) => {
+                    _ => {
                         chunk = &chunk[(d.total_in() - prev_in) as usize..];
 
                         if !chunk.is_empty() {
@@ -163,7 +166,6 @@ mod decl {
                             break;
                         }
                     }
-                    Err(_) => return Err(new_zlib_error("invalid input data", vm)),
                 }
             }
         }
@@ -421,17 +423,17 @@ mod decl {
             'outer: for chunk in unconsumed.chunks(CHUNKSIZE).chain(data.chunks(CHUNKSIZE)) {
                 loop {
                     buf.reserve(DEF_BUF_SIZE);
-                    match self
+                    let status = self
                         .compress
                         .compress_vec(chunk, &mut buf, FlushCompress::None)
-                    {
-                        Ok(_) if buf.len() == buf.capacity() => continue,
-                        Ok(Status::StreamEnd) => break 'outer,
-                        Ok(_) => break,
-                        Err(_) => {
+                        .map_err(|_| {
                             self.save_unconsumed_input(data, orig_in);
-                            return Err(new_zlib_error("error while compressing", vm));
-                        }
+                            new_zlib_error("error while compressing", vm)
+                        })?;
+                    match status {
+                        _ if buf.len() == buf.capacity() => continue,
+                        Status::StreamEnd => break 'outer,
+                        _ => break,
                     }
                 }
             }
@@ -452,13 +454,13 @@ mod decl {
                 if buf.len() == buf.capacity() {
                     buf.reserve(DEF_BUF_SIZE);
                 }
-                match self
+                let status = self
                     .compress
                     .compress_vec(chunk, &mut buf, FlushCompress::Finish)
-                {
-                    Ok(Status::StreamEnd) => break,
-                    Ok(_) => continue,
-                    Err(_) => return Err(new_zlib_error("error while compressing", vm)),
+                    .map_err(|_| new_zlib_error("error while compressing", vm))?;
+                match status {
+                    Status::StreamEnd => break,
+                    _ => continue,
                 }
             }
 

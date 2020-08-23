@@ -16,6 +16,7 @@ use crate::VirtualMachine;
 mod _struct {
     use byteorder::{ReadBytesExt, WriteBytesExt};
     use crossbeam_utils::atomic::AtomicCell;
+    use itertools::Itertools;
     use num_bigint::BigInt;
     use num_traits::ToPrimitive;
     use std::io::{Cursor, Read, Write};
@@ -253,13 +254,14 @@ mod _struct {
             let c = chars.next();
             match c {
                 Some('n') | Some('N') if size_and_align == SizeAndAlignment::Standard => {
-                    return Err("bad char in struct format".to_owned())
+                    Err("bad char in struct format".to_owned())
                 }
                 Some(c) if is_supported_format_character(c) => {
-                    codes.push(FormatCode { repeat, code: c })
+                    codes.push(FormatCode { repeat, code: c });
+                    Ok(())
                 }
-                _ => return Err(format!("Illegal format code {:?}", c)),
-            }
+                _ => Err(format!("Illegal format code {:?}", c)),
+            }?
         }
 
         Ok(codes)
@@ -469,15 +471,14 @@ mod _struct {
 
     fn pack_char(vm: &VirtualMachine, arg: &PyObjectRef, data: &mut dyn Write) -> PyResult<()> {
         let v = PyBytesRef::try_from_object(vm, arg.clone())?;
-        if v.len() == 1 {
-            data.write_u8(v[0]).unwrap();
-            Ok(())
-        } else {
-            Err(new_struct_error(
+        let ch = *v.borrow_value().iter().exactly_one().map_err(|_| {
+            new_struct_error(
                 vm,
                 "char format requires a bytes object of length 1".to_owned(),
-            ))
-        }
+            )
+        })?;
+        data.write_u8(ch).unwrap();
+        Ok(())
     }
 
     fn pack_item<Endianness>(

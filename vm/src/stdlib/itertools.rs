@@ -305,7 +305,7 @@ mod decl {
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             if let Some(ref times) = self.times {
                 let mut times = times.write();
-                if *times <= BigInt::zero() {
+                if !times.is_positive() {
                     return Err(new_stop_iteration(vm));
                 }
                 *times -= 1;

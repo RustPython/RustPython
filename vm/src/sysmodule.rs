@@ -289,11 +289,8 @@ fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::obj::objtuple::
                 .last()
                 .unwrap_or((0, &0));
             let sp = OsString::from_wide(&version.szCSDVersion[..last]);
-            if let Ok(string) = sp.into_string() {
-                string
-            } else {
-                return Err(vm.new_os_error("service pack is not ASCII".to_owned()));
-            }
+            sp.into_string()
+                .map_err(|_| vm.new_os_error("service pack is not ASCII".to_owned()))?
         };
         WindowsVersion {
             major: version.dwMajorVersion,

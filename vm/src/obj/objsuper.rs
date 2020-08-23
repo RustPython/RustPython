@@ -89,15 +89,16 @@ impl PySuper {
         let typ = if let OptionalArg::Present(ty) = py_type {
             ty
         } else {
-            match vm.current_scope().load_cell(vm, "__class__") {
-                Some(obj) => PyClassRef::try_from_object(vm, obj)?,
-                _ => {
-                    return Err(vm.new_type_error(
+            let obj = vm
+                .current_scope()
+                .load_cell(vm, "__class__")
+                .ok_or_else(|| {
+                    vm.new_type_error(
                         "super must be called with 1 argument or from inside class method"
                             .to_owned(),
-                    ));
-                }
-            }
+                    )
+                })?;
+            PyClassRef::try_from_object(vm, obj)?
         };
 
         // Check type argument:
@@ -114,19 +115,12 @@ impl PySuper {
         } else {
             let frame = vm.current_frame().expect("no current frame for super()");
             if let Some(first_arg) = frame.code.arg_names.get(0) {
-                match frame
-                    .scope
-                    .get_locals()
+                let locals = frame.scope.get_locals();
+                locals
                     .get_item_option(first_arg.as_str(), vm)?
-                {
-                    Some(obj) => obj,
-                    _ => {
-                        return Err(vm.new_type_error(format!(
-                            "super argument {} was not supplied",
-                            first_arg
-                        )));
-                    }
-                }
+                    .ok_or_else(|| {
+                        vm.new_type_error(format!("super argument {} was not supplied", first_arg))
+                    })?
             } else {
                 vm.get_none()
             }
