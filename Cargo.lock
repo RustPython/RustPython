@@ -553,15 +553,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b980f2816d6ee8673b6517b52cb0e808a180efc92e5c19d02cdda79066703ef"
 
 [[package]]
-name = "generational-arena"
-version = "0.2.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e1d3b771574f62d0548cee0ad9057857e9fc25d7a3335f140c84f6acd0bf601"
-dependencies = [
- "cfg-if",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1398,7 +1389,6 @@ dependencies = [
  "flamer",
  "flate2",
  "foreign-types-shared",
- "generational-arena",
  "gethostname",
  "getrandom",
  "hex",
@@ -1444,7 +1434,6 @@ dependencies = [
  "sha-1",
  "sha2",
  "sha3",
- "smallbox",
  "socket2",
  "statrs",
  "thread_local",
@@ -1470,7 +1459,6 @@ version = "0.1.2"
 dependencies = [
  "cfg-if",
  "futures",
- "generational-arena",
  "js-sys",
  "parking_lot",
  "rustpython-compiler",
@@ -1624,12 +1612,6 @@ name = "siphasher"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa8f3741c7372e75519bd9346068370c9cdaabcc1f9599cbcf2a2719352286b7"
-
-[[package]]
-name = "smallbox"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa0eec6425219a55511a35afac416a2eecc62f5fa1bec14f9b97de0caa7daebe"
 
 [[package]]
 name = "smallvec"

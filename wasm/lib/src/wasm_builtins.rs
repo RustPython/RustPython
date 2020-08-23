@@ -21,7 +21,7 @@ pub fn sys_stdout_write_console(data: &str, _vm: &VirtualMachine) -> PyResult<()
 
 pub fn make_stdout_object(
     vm: &VirtualMachine,
-    write_f: impl Fn(&str, &VirtualMachine) -> PyResult<()> + Send + Sync + 'static,
+    write_f: impl Fn(&str, &VirtualMachine) -> PyResult<()> + 'static,
 ) -> PyObjectRef {
     let ctx = &vm.ctx;
     let write_method = ctx.new_method(
