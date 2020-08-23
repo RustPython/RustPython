@@ -425,9 +425,26 @@ mod decl {
     }
 
     #[pyfunction]
-    fn max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    fn max(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+        let default = args.take_keyword("default");
+        let key_func = args.take_keyword("key");
+        if !args.kwargs.is_empty() {
+            let invalid_keyword = args.kwargs.get_index(0).unwrap();
+            return Err(vm.new_type_error(format!(
+                "'{}' is an invalid keyword argument for max()",
+                invalid_keyword.0
+            )));
+        }
         let candidates = match args.args.len().cmp(&1) {
-            std::cmp::Ordering::Greater => args.args.clone(),
+            std::cmp::Ordering::Greater => {
+                if default.is_some() {
+                    return Err(vm.new_type_error(
+                        "Cannot specify a default for max() with multiple positional arguments"
+                            .to_owned(),
+                    ));
+                }
+                args.args.clone()
+            }
             std::cmp::Ordering::Equal => vm.extract_elements(&args.args[0])?,
             std::cmp::Ordering::Less => {
                 // zero arguments means type error:
@@ -436,12 +453,9 @@ mod decl {
         };
 
         if candidates.is_empty() {
-            let default = args.get_optional_kwarg("default");
             return default
                 .ok_or_else(|| vm.new_value_error("max() arg is an empty sequence".to_owned()));
         }
-
-        let key_func = args.get_optional_kwarg("key");
 
         // Start with first assumption:
         let mut candidates_iter = candidates.into_iter();
@@ -449,14 +463,22 @@ mod decl {
         // TODO: this key function looks pretty duplicate. Maybe we can create
         // a local function?
         let mut x_key = if let Some(ref f) = &key_func {
-            vm.invoke(f, vec![x.clone()])?
+            if vm.is_none(f) {
+                x.clone()
+            } else {
+                vm.invoke(f, vec![x.clone()])?
+            }
         } else {
             x.clone()
         };
 
         for y in candidates_iter {
             let y_key = if let Some(ref f) = &key_func {
-                vm.invoke(f, vec![y.clone()])?
+                if vm.is_none(f) {
+                    y.clone()
+                } else {
+                    vm.invoke(f, vec![y.clone()])?
+                }
             } else {
                 y.clone()
             };
