@@ -972,7 +972,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let struct_error = ctx.new_class(
         "struct.error",
-        ctx.exceptions.exception_type.clone(),
+        &ctx.exceptions.exception_type,
         Default::default(),
     );
 
