@@ -360,10 +360,7 @@ impl<Item> ImplItem<Item> for PropertyItem
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
-    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()>
-    where
-        Item: ItemLike + ToTokens + GetIdent,
-    {
+    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
         let ident = if args.item.is_function_or_method() {
             Ok(args.item.get_ident().unwrap())
         } else {
@@ -390,10 +387,7 @@ impl<Item> ImplItem<Item> for SlotItem
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
-    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()>
-    where
-        Item: ItemLike + ToTokens + GetIdent,
-    {
+    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
         let ident = if args.item.is_function_or_method() {
             Ok(args.item.get_ident().unwrap())
         } else {
