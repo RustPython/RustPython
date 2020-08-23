@@ -265,9 +265,8 @@ pub(crate) fn impl_pystruct_sequence(
             fn make_class(
                 ctx: &::rustpython_vm::pyobject::PyContext,
             ) -> ::rustpython_vm::obj::objtype::PyClassRef {
-                let py_class = Self::create_bare_type(&ctx.type_type(), &ctx.tuple_type());
-                Self::extend_class(ctx, &py_class);
-                py_class
+                use crate::pyobject::PyClassDef;
+                Self::make_class_with_base(ctx, Self::NAME,  &ctx.tuple_type())
             }
         }
     };
