@@ -44,13 +44,13 @@ impl Error for JITCompileError {
     }
 }
 
-struct JIT {
+struct Jit {
     builder_context: FunctionBuilderContext,
     ctx: codegen::Context,
     module: Module<SimpleJITBackend>,
 }
 
-impl JIT {
+impl Jit {
     fn new() -> Self {
         let builder = SimpleJITBuilder::new(cranelift_module::default_libcall_names());
         let module = Module::new(builder);
@@ -104,7 +104,7 @@ impl JIT {
 }
 
 pub fn compile(bytecode: &bytecode::CodeObject) -> Result<CompiledCode, JITCompileError> {
-    let mut jit = JIT::new();
+    let mut jit = Jit::new();
 
     let id = jit.build_function(bytecode)?;
 
