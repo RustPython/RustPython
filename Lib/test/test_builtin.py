@@ -873,8 +873,7 @@ class BuiltinTest(unittest.TestCase):
             m2 = map(map_char, "Is this the real life?")
             self.check_iter_pickle(m1, list(m2), proto)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_max(self):
         self.assertEqual(max('123123'), '3')
         self.assertEqual(max(1, 2, 3), 3)
