@@ -1,5 +1,5 @@
-use futures::Future;
 use js_sys::Promise;
+use std::future::Future;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
@@ -14,14 +14,6 @@ use rustpython_vm::pyobject::{
 use rustpython_vm::VirtualMachine;
 
 use crate::{convert, vm_class::weak_vm, wasm_builtins::window};
-
-// TODO: Fix this when threading is supported in WASM.
-unsafe impl Send for PyPromise {}
-unsafe impl Sync for PyPromise {}
-unsafe impl Send for Document {}
-unsafe impl Sync for Document {}
-unsafe impl Send for Element {}
-unsafe impl Sync for Element {}
 
 enum FetchResponseFormat {
     Json,
@@ -109,14 +101,13 @@ fn browser_fetch(url: PyStringRef, args: FetchArgs, vm: &VirtualMachine) -> PyRe
     let window = window();
     let request_prom = window.fetch_with_request(&request);
 
-    let future = JsFuture::from(request_prom)
-        .and_then(move |val| {
-            let response = val
-                .dyn_into::<web_sys::Response>()
-                .expect("val to be of type Response");
-            response_format.get_response(&response)
-        })
-        .and_then(JsFuture::from);
+    let future = async move {
+        let val = JsFuture::from(request_prom).await?;
+        let response = val
+            .dyn_into::<web_sys::Response>()
+            .expect("val to be of type Response");
+        JsFuture::from(response_format.get_response(&response)?).await
+    };
 
     Ok(PyPromise::from_future(future).into_ref(vm).into_object())
 }
@@ -182,7 +173,7 @@ impl PyPromise {
     }
     pub fn from_future<F>(future: F) -> PyPromise
     where
-        F: Future<Item = JsValue, Error = JsValue> + 'static,
+        F: Future<Output = Result<JsValue, JsValue>> + 'static,
     {
         PyPromise::new(future_to_promise(future))
     }
@@ -198,13 +189,14 @@ impl PyPromise {
         vm: &VirtualMachine,
     ) -> PyPromiseRef {
         let weak_vm = weak_vm(vm);
+        let prom = JsFuture::from(self.value.clone());
 
-        let ret_future = JsFuture::from(self.value.clone()).then(move |res| {
+        let ret_future = async move {
             let stored_vm = &weak_vm
                 .upgrade()
                 .expect("that the vm is valid when the promise resolves");
             let vm = &stored_vm.vm;
-            let ret = match res {
+            let ret = match prom.await {
                 Ok(val) => {
                     let args = if val.is_null() {
                         vec![]
@@ -223,7 +215,7 @@ impl PyPromise {
                 }
             };
             convert::pyresult_to_jsresult(vm, ret)
-        });
+        };
 
         PyPromise::from_future(ret_future).into_ref(vm)
     }
@@ -231,18 +223,21 @@ impl PyPromise {
     #[pymethod]
     fn catch(&self, on_reject: PyCallable, vm: &VirtualMachine) -> PyPromiseRef {
         let weak_vm = weak_vm(vm);
+        let prom = JsFuture::from(self.value.clone());
 
-        let ret_future = JsFuture::from(self.value.clone()).then(move |res| {
-            res.or_else(|err| {
-                let stored_vm = weak_vm
-                    .upgrade()
-                    .expect("that the vm is valid when the promise resolves");
-                let vm = &stored_vm.vm;
-                let err = convert::js_to_py(vm, err);
-                let res = vm.invoke(&on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]));
-                convert::pyresult_to_jsresult(vm, res)
-            })
-        });
+        let ret_future = async move {
+            let err = match prom.await {
+                Ok(x) => return Ok(x),
+                Err(e) => e,
+            };
+            let stored_vm = weak_vm
+                .upgrade()
+                .expect("that the vm is valid when the promise resolves");
+            let vm = &stored_vm.vm;
+            let err = convert::js_to_py(vm, err);
+            let res = vm.invoke(&on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]));
+            convert::pyresult_to_jsresult(vm, res)
+        };
 
         PyPromise::from_future(ret_future).into_ref(vm)
     }
@@ -323,26 +318,23 @@ fn browser_load_module(module: PyStringRef, path: PyStringRef, vm: &VirtualMachi
     let window = window();
     let request_prom = window.fetch_with_request(&request);
 
-    let future = JsFuture::from(request_prom)
-        .and_then(move |val| {
-            let response = val
-                .dyn_into::<web_sys::Response>()
-                .expect("val to be of type Response");
-            response.text()
-        })
-        .and_then(JsFuture::from)
-        .and_then(move |text| {
-            let stored_vm = &weak_vm
-                .upgrade()
-                .expect("that the vm is valid when the promise resolves");
-            let vm = &stored_vm.vm;
-            let resp_text = text.as_string().unwrap();
-            let res = import_file(vm, module.borrow_value(), "WEB".to_owned(), resp_text);
-            match res {
-                Ok(_) => Ok(JsValue::null()),
-                Err(err) => Err(convert::py_err_to_js_err(vm, &err)),
-            }
-        });
+    let future = async move {
+        let val = JsFuture::from(request_prom).await?;
+        let response = val
+            .dyn_into::<web_sys::Response>()
+            .expect("val to be of type Response");
+        let text = JsFuture::from(response.text()?).await?;
+        let stored_vm = &weak_vm
+            .upgrade()
+            .expect("that the vm is valid when the promise resolves");
+        let vm = &stored_vm.vm;
+        let resp_text = text.as_string().unwrap();
+        let res = import_file(vm, module.borrow_value(), "WEB".to_owned(), resp_text);
+        match res {
+            Ok(_) => Ok(JsValue::null()),
+            Err(err) => Err(convert::py_err_to_js_err(vm, &err)),
+        }
+    };
 
     Ok(PyPromise::from_future(future).into_ref(vm).into_object())
 }
