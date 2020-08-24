@@ -4,14 +4,8 @@ pub mod js_module;
 pub mod vm_class;
 pub mod wasm_builtins;
 
-extern crate futures;
-extern crate js_sys;
 #[macro_use]
 extern crate rustpython_vm;
-extern crate rustpython_compiler;
-extern crate wasm_bindgen;
-extern crate wasm_bindgen_futures;
-extern crate web_sys;
 
 use js_sys::{Object, Reflect, TypeError};
 use rustpython_compiler::compile::Mode;
