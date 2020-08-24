@@ -138,7 +138,7 @@ class SampleTestCase(unittest.TestCase):
 
         # cargo stuff
         profile_args = [] if RUST_DEBUG else ["--release"]
-        subprocess.check_call(["cargo", "build", "--features", *RUSTPYTHON_FEATURES, *profile_args])
+        subprocess.check_call(["cargo", "build", "--features", ",".join(RUSTPYTHON_FEATURES), *profile_args])
 
     @classmethod
     def tearDownClass(cls):
