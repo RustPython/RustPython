@@ -4,7 +4,7 @@ use gethostname::gethostname;
 use nix::unistd::sethostname;
 use socket2::{Domain, Protocol, Socket, Type as SocketType};
 use std::convert::TryFrom;
-use std::io::{self, prelude::*};
+use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
@@ -20,7 +20,7 @@ use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
     StaticType, TryFromObject,
 };
-use crate::vm::VirtualMachine;
+use crate::{py_io, VirtualMachine};
 
 #[cfg(unix)]
 type RawSocket = std::os::unix::io::RawFd;
@@ -48,7 +48,8 @@ mod c {
     pub use winapi::shared::ws2def::*;
     pub use winapi::um::winsock2::{
         SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SOCK_DGRAM, SOCK_RAW,
-        SOCK_RDM, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_REUSEADDR, SO_TYPE, *,
+        SOCK_RDM, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_ERROR, SO_OOBINLINE, SO_REUSEADDR,
+        SO_TYPE, *,
     };
 }
 
@@ -71,7 +72,7 @@ pub type PySocketRef = PyRef<PySocket>;
 
 #[pyimpl(flags(BASETYPE))]
 impl PySocket {
-    fn sock(&self) -> PyRwLockReadGuard<'_, Socket> {
+    pub fn sock(&self) -> PyRwLockReadGuard<'_, Socket> {
         self.sock.read()
     }
 
@@ -167,52 +168,90 @@ impl PySocket {
     }
 
     #[pymethod]
-    fn recv(&self, bufsize: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn recv(
+        &self,
+        bufsize: usize,
+        flags: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let flags = flags.unwrap_or(0);
         let mut buffer = vec![0u8; bufsize];
         let n = self
             .sock()
-            .recv(&mut buffer)
+            .recv_with_flags(&mut buffer, flags)
             .map_err(|err| convert_sock_error(vm, err))?;
         buffer.truncate(n);
         Ok(buffer)
     }
 
     #[pymethod]
-    fn recv_into(&self, buf: PyRwBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
-        buf.with_ref(|buf| self.sock().recv(buf))
+    fn recv_into(
+        &self,
+        buf: PyRwBytesLike,
+        flags: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        let flags = flags.unwrap_or(0);
+        buf.with_ref(|buf| self.sock().recv_with_flags(buf, flags))
             .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
-    fn recvfrom(&self, bufsize: usize, vm: &VirtualMachine) -> PyResult<(Vec<u8>, AddrTuple)> {
+    fn recvfrom(
+        &self,
+        bufsize: usize,
+        flags: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Vec<u8>, AddrTuple)> {
+        let flags = flags.unwrap_or(0);
         let mut buffer = vec![0u8; bufsize];
         let (n, addr) = self
             .sock()
-            .recv_from(&mut buffer)
+            .recv_from_with_flags(&mut buffer, flags)
             .map_err(|err| convert_sock_error(vm, err))?;
         buffer.truncate(n);
         Ok((buffer, get_addr_tuple(addr)))
     }
 
     #[pymethod]
-    fn send(&self, bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+    fn send(
+        &self,
+        bytes: PyBytesLike,
+        flags: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        let flags = flags.unwrap_or(0);
         bytes
-            .with_ref(|b| self.sock().send(b))
+            .with_ref(|b| self.sock().send_with_flags(b, flags))
             .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
-    fn sendall(&self, bytes: PyBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+    fn sendall(
+        &self,
+        bytes: PyBytesLike,
+        flags: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let flags = flags.unwrap_or(0);
+        let sock = self.sock();
         bytes
-            .with_ref(|b| self.sock_mut().write_all(b))
+            .with_ref(|buf| py_io::write_all(buf, |b| sock.send_with_flags(b, flags)))
             .map_err(|err| convert_sock_error(vm, err))
     }
 
     #[pymethod]
-    fn sendto(&self, bytes: PyBytesLike, address: Address, vm: &VirtualMachine) -> PyResult<()> {
+    fn sendto(
+        &self,
+        bytes: PyBytesLike,
+        address: Address,
+        flags: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let flags = flags.unwrap_or(0);
         let addr = get_addr(vm, address, Some(self.family.load()))?;
         bytes
-            .with_ref(|b| self.sock().send_to(b, &addr))
+            .with_ref(|b| self.sock().send_to_with_flags(b, &addr, flags))
             .map_err(|err| convert_sock_error(vm, err))?;
         Ok(())
     }
@@ -411,15 +450,15 @@ impl PySocket {
 
 impl io::Read for PySocketRef {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        <Socket as io::Read>::read(&mut self.sock_mut(), buf)
+        <&Socket as io::Read>::read(&mut &*self.sock(), buf)
     }
 }
 impl io::Write for PySocketRef {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        <Socket as io::Write>::write(&mut self.sock_mut(), buf)
+        <&Socket as io::Write>::write(&mut &*self.sock(), buf)
     }
     fn flush(&mut self) -> io::Result<()> {
-        <Socket as io::Write>::flush(&mut self.sock_mut())
+        <&Socket as io::Write>::flush(&mut &*self.sock())
     }
 }
 
@@ -850,7 +889,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SO_REUSEADDR" => ctx.new_int(c::SO_REUSEADDR),
         "SO_TYPE" => ctx.new_int(c::SO_TYPE),
         "SO_BROADCAST" => ctx.new_int(c::SO_BROADCAST),
-        // "SO_EXCLUSIVEADDRUSE" => ctx.new_int(c::SO_EXCLUSIVEADDRUSE),
+        "SO_OOBINLINE" => ctx.new_int(c::SO_OOBINLINE),
+        "SO_ERROR" => ctx.new_int(c::SO_ERROR),
         "TCP_NODELAY" => ctx.new_int(c::TCP_NODELAY),
         "AI_ALL" => ctx.new_int(c::AI_ALL),
         "AI_PASSIVE" => ctx.new_int(c::AI_PASSIVE),
