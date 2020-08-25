@@ -25,6 +25,7 @@ extern crate log;
 #[macro_use]
 extern crate maplit;
 // extern crate env_logger;
+extern crate bincode;
 
 #[macro_use]
 extern crate rustpython_derive;

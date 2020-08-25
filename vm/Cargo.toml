@@ -76,6 +76,7 @@ generational-arena = "0.2"
 parking_lot = "0.11"
 thread_local = "1.0"
 cfg-if = "0.1.10"
+bincode = "1.3"
 
 ## unicode stuff
 unicode_names2 = "0.4"

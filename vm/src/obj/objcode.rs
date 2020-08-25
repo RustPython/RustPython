@@ -2,11 +2,14 @@
 
 */
 
+use bincode;
 use std::fmt;
 use std::ops::Deref;
 
 use super::objtype::PyClassRef;
+use crate::bincode::Options;
 use crate::bytecode;
+use crate::obj::objbytes::PyBytes;
 use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -110,6 +113,17 @@ impl PyCodeRef {
     fn co_varnames(self, vm: &VirtualMachine) -> PyObjectRef {
         let varnames = self.code.varnames().map(|s| vm.ctx.new_str(s)).collect();
         vm.ctx.new_tuple(varnames)
+    }
+
+    #[pyproperty]
+    fn co_code(self, vm: &VirtualMachine) -> PyBytes {
+        let instructions = &self.code.instructions;
+        let encoded: Vec<u8> = bincode::DefaultOptions::new()
+            .with_varint_encoding()
+            .serialize(&instructions)
+            .unwrap();
+
+        PyBytes::from(encoded)
     }
 }
 
