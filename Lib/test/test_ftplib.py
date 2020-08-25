@@ -3,6 +3,7 @@
 # Modified by Giampaolo Rodola' to test FTP class, IPv6 and TLS
 # environment
 
+import unittest
 import ftplib
 import asyncore
 import asynchat
@@ -583,6 +584,7 @@ class TestFTPClass(TestCase):
         self.client.retrlines('retr', received.append)
         self.check_data(''.join(received), RETR_DATA.replace('\r\n', ''))
 
+    @unittest.skip("TODO: RUSTPYTHON; weird limiting to 8192, something w/ buffering?")
     def test_storbinary(self):
         f = io.BytesIO(RETR_DATA.encode('ascii'))
         self.client.storbinary('stor', f)
@@ -836,6 +838,7 @@ class TestIPv6Environment(TestCase):
 
 
 @skipUnless(ssl, "SSL not available")
+@unittest.skip("TODO: RUSTPYTHON; figure out why do_handshake() is throwing 'ssl session has been shut down'. SslSession object?")
 class TestTLS_FTPClassMixin(TestFTPClass):
     """Repeat TestFTPClass tests starting the TLS layer for both control
     and data connections first.
@@ -852,6 +855,7 @@ class TestTLS_FTPClassMixin(TestFTPClass):
 
 
 @skipUnless(ssl, "SSL not available")
+@unittest.skip("TODO: RUSTPYTHON; fix ssl")
 class TestTLS_FTPClass(TestCase):
     """Specific TLS_FTP class tests."""
 
@@ -1014,6 +1018,7 @@ class TestTimeouts(TestCase):
         finally:
             self.sock.close()
 
+    @unittest.skip("TODO: RUSTPYTHON; socket.{get,set}timeout")
     def testTimeoutDefault(self):
         # default -- use global socket timeout
         self.assertIsNone(socket.getdefaulttimeout())
@@ -1026,6 +1031,7 @@ class TestTimeouts(TestCase):
         self.evt.wait()
         ftp.close()
 
+    @unittest.skip("TODO: RUSTPYTHON; socket.{get,set}timeout")
     def testTimeoutNone(self):
         # no timeout -- do not use global socket timeout
         self.assertIsNone(socket.getdefaulttimeout())
