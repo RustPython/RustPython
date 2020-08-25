@@ -162,10 +162,9 @@ fn sys_gettrace(vm: &VirtualMachine) -> PyObjectRef {
     vm.trace_func.borrow().clone()
 }
 
-fn sys_settrace(tracefunc: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+fn sys_settrace(tracefunc: PyObjectRef, vm: &VirtualMachine) {
     vm.trace_func.replace(tracefunc);
     update_use_tracing(vm);
-    vm.ctx.none()
 }
 
 fn update_use_tracing(vm: &VirtualMachine) {
