@@ -164,6 +164,7 @@ fn sys_gettrace(vm: &VirtualMachine) -> PyObjectRef {
 
 fn sys_settrace(tracefunc: PyObjectRef, vm: &VirtualMachine) {
     vm.trace_func.replace(tracefunc);
+    vm.skip_tracing_next.set(true);
     update_use_tracing(vm);
 }
 
