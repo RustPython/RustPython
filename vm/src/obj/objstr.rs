@@ -16,7 +16,6 @@ use super::objbytes::{PyBytes, PyBytesRef};
 use super::objdict::PyDict;
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
-use super::objnone::PyNone;
 use super::objsequence::{PySliceableSequence, SequenceIndex};
 use super::objtype::{self, PyClassRef};
 use crate::exceptions::IntoPyException;
@@ -42,7 +41,7 @@ use rustpython_common::hash;
 /// or repr(object).
 /// encoding defaults to sys.getdefaultencoding().
 /// errors defaults to 'strict'."
-#[pyclass(name = "str")]
+#[pyclass(module = false, name = "str")]
 #[derive(Debug)]
 pub struct PyString {
     value: String,
@@ -103,7 +102,7 @@ impl TryIntoRef<PyString> for &str {
     }
 }
 
-#[pyclass]
+#[pyclass(module = false, name = "str_iterator")]
 #[derive(Debug)]
 pub struct PyStringIterator {
     pub string: PyStringRef,
@@ -112,7 +111,7 @@ pub struct PyStringIterator {
 
 impl PyValue for PyStringIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.striterator_type()
+        vm.ctx.types.str_iterator_type.clone()
     }
 }
 
@@ -136,7 +135,7 @@ impl PyStringIterator {
     }
 }
 
-#[pyclass]
+#[pyclass(module = false, name = "str_reverseiterator")]
 #[derive(Debug)]
 pub struct PyStringReverseIterator {
     pub position: AtomicCell<isize>,
@@ -145,7 +144,7 @@ pub struct PyStringReverseIterator {
 
 impl PyValue for PyStringReverseIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.strreverseiterator_type()
+        vm.ctx.types.str_reverseiterator_type.clone()
     }
 }
 
@@ -969,17 +968,17 @@ impl PyString {
                     if let Some(text) = value.payload::<PyString>() {
                         translated.push_str(&text.value);
                     } else if let Some(bigint) = value.payload::<PyInt>() {
-                        match bigint.borrow_value().to_u32().and_then(std::char::from_u32) {
-                            Some(ch) => translated.push(ch as char),
-                            None => {
-                                return Err(vm.new_value_error(
+                        let ch = bigint
+                            .borrow_value()
+                            .to_u32()
+                            .and_then(std::char::from_u32)
+                            .ok_or_else(|| {
+                                vm.new_value_error(
                                     "character mapping must be in range(0x110000)".to_owned(),
-                                ));
-                            }
-                        }
-                    } else if value.payload::<PyNone>().is_some() {
-                        // Do Nothing
-                    } else {
+                                )
+                            })?;
+                        translated.push(ch as char);
+                    } else if !vm.is_none(&value) {
                         return Err(vm.new_type_error(
                             "character mapping must return integer, None or str".to_owned(),
                         ));
@@ -998,7 +997,7 @@ impl PyString {
         none_str: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let new_dict = vm.context().new_dict();
+        let new_dict = vm.ctx.new_dict();
         if let OptionalArg::Present(to_str) = to_str {
             match dict_or_str.downcast::<PyString>() {
                 Ok(from_str) => {
@@ -1110,7 +1109,7 @@ pub(crate) fn encode_string(
 
 impl PyValue for PyString {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.str_type()
+        vm.ctx.types.str_type.clone()
     }
 }
 
@@ -1171,8 +1170,8 @@ impl FindArgs {
 pub fn init(ctx: &PyContext) {
     PyString::extend_class(ctx, &ctx.types.str_type);
 
-    PyStringIterator::extend_class(ctx, &ctx.types.striterator_type);
-    PyStringReverseIterator::extend_class(ctx, &ctx.types.strreverseiterator_type);
+    PyStringIterator::extend_class(ctx, &ctx.types.str_iterator_type);
+    PyStringReverseIterator::extend_class(ctx, &ctx.types.str_reverseiterator_type);
 }
 
 pub fn clone_value(obj: &PyObjectRef) -> String {
@@ -1305,7 +1304,7 @@ mod tests {
     fn str_maketrans_and_translate() {
         let vm: VirtualMachine = Default::default();
 
-        let table = vm.context().new_dict();
+        let table = vm.ctx.new_dict();
         table.set_item("a", vm.ctx.new_str("🎅"), &vm).unwrap();
         table.set_item("b", vm.get_none(), &vm).unwrap();
         table.set_item("c", vm.ctx.new_str("xda"), &vm).unwrap();

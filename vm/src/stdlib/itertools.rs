@@ -22,6 +22,7 @@ mod decl {
     };
     use crate::vm::VirtualMachine;
 
+    #[pyattr]
     #[pyclass(name = "chain")]
     #[derive(Debug)]
     struct PyItertoolsChain {
@@ -107,6 +108,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "compress")]
     #[derive(Debug)]
     struct PyItertoolsCompress {
@@ -158,6 +160,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "count")]
     #[derive(Debug)]
     struct PyItertoolsCount {
@@ -210,6 +213,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "cycle")]
     #[derive(Debug)]
     struct PyItertoolsCycle {
@@ -235,7 +239,7 @@ mod decl {
             let iter = get_iter(vm, &iterable)?;
 
             PyItertoolsCycle {
-                iter: iter.clone(),
+                iter,
                 saved: PyRwLock::new(Vec::new()),
                 index: AtomicCell::new(0),
             }
@@ -271,6 +275,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "repeat")]
     #[derive(Debug)]
     struct PyItertoolsRepeat {
@@ -298,18 +303,14 @@ mod decl {
                 None => None,
             };
 
-            PyItertoolsRepeat {
-                object: object.clone(),
-                times,
-            }
-            .into_ref_with_type(vm, cls)
+            PyItertoolsRepeat { object, times }.into_ref_with_type(vm, cls)
         }
 
         #[pymethod(name = "__next__")]
         fn next(&self, vm: &VirtualMachine) -> PyResult {
             if let Some(ref times) = self.times {
                 let mut times = times.write();
-                if *times <= BigInt::zero() {
+                if !times.is_positive() {
                     return Err(new_stop_iteration(vm));
                 }
                 *times -= 1;
@@ -332,6 +333,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "starmap")]
     #[derive(Debug)]
     struct PyItertoolsStarmap {
@@ -373,6 +375,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "takewhile")]
     #[derive(Debug)]
     struct PyItertoolsTakewhile {
@@ -432,6 +435,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "dropwhile")]
     #[derive(Debug)]
     struct PyItertoolsDropwhile {
@@ -516,6 +520,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "groupby")]
     struct PyItertoolsGroupBy {
         iterable: PyObjectRef,
@@ -624,6 +629,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "_grouper")]
     #[derive(Debug)]
     struct PyItertoolsGrouper {
@@ -675,6 +681,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "islice")]
     #[derive(Debug)]
     struct PyItertoolsIslice {
@@ -801,6 +808,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "filterfalse")]
     #[derive(Debug)]
     struct PyItertoolsFilterFalse {
@@ -857,6 +865,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "accumulate")]
     #[derive(Debug)]
     struct PyItertoolsAccumulate {
@@ -898,12 +907,12 @@ mod decl {
             let acc_value = self.acc_value.read().clone();
 
             let next_acc_value = match acc_value {
-                None => obj.clone(),
+                None => obj,
                 Some(value) => {
                     if self.binop.is(&vm.get_none()) {
-                        vm._add(value.clone(), obj.clone())?
+                        vm._add(value, obj)?
                     } else {
-                        vm.invoke(&self.binop, vec![value.clone(), obj.clone()])?
+                        vm.invoke(&self.binop, vec![value, obj])?
                     }
                 }
             };
@@ -941,6 +950,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "tee")]
     #[derive(Debug)]
     struct PyItertoolsTee {
@@ -1019,6 +1029,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "product")]
     #[derive(Debug)]
     struct PyItertoolsProduct {
@@ -1071,7 +1082,7 @@ mod decl {
             PyItertoolsProduct {
                 pools,
                 idxs: PyRwLock::new(vec![0; l]),
-                cur: AtomicCell::new(l - 1),
+                cur: AtomicCell::new(l.wrapping_sub(1)),
                 stop: AtomicCell::new(false),
             }
             .into_ref_with_type(vm, cls)
@@ -1108,6 +1119,11 @@ mod decl {
         }
 
         fn update_idxs(&self, mut idxs: PyRwLockWriteGuard<'_, Vec<usize>>) {
+            if idxs.len() == 0 {
+                self.stop.store(true);
+                return;
+            }
+
             let cur = self.cur.load();
             let lst_idx = &self.pools[cur].len() - 1;
 
@@ -1131,6 +1147,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "combinations")]
     #[derive(Debug)]
     struct PyItertoolsCombinations {
@@ -1230,6 +1247,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "combinations_with_replacement")]
     #[derive(Debug)]
     struct PyItertoolsCombinationsWithReplacement {
@@ -1324,6 +1342,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "permutations")]
     #[derive(Debug)]
     struct PyItertoolsPermutations {
@@ -1374,7 +1393,7 @@ mod decl {
             PyItertoolsPermutations {
                 pool,
                 indices: PyRwLock::new((0..n).collect()),
-                cycles: PyRwLock::new((0..r).map(|i| n - i).collect()),
+                cycles: PyRwLock::new((0..r.min(n)).map(|i| n - i).collect()),
                 result: PyRwLock::new(None),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(r > n),
@@ -1417,7 +1436,7 @@ mod decl {
                         // rotation: indices[i:] = indices[i+1:] + indices[i:i+1]
                         let index = indices[i];
                         for j in i..n - 1 {
-                            indices[j] = indices[j + i];
+                            indices[j] = indices[j + 1];
                         }
                         indices[n - 1] = index;
                         cycles[i] = n - i;
@@ -1454,6 +1473,7 @@ mod decl {
         }
     }
 
+    #[pyattr]
     #[pyclass(name = "zip_longest")]
     #[derive(Debug)]
     struct PyItertoolsZipLongest {

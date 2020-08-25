@@ -30,7 +30,7 @@ extern "C" {
     fn instance_of(lhs: &JsValue, rhs: &JsValue) -> Result<bool, JsValue>;
 }
 
-#[pyclass(name = "JsValue")]
+#[pyclass(module = "_js", name = "JsValue")]
 #[derive(Debug)]
 pub struct PyJsValue {
     value: JsValue,
@@ -255,7 +255,7 @@ fn new_js_error(vm: &VirtualMachine, err: JsValue) -> PyBaseExceptionRef {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     py_module!(vm, "_js", {
-        "JsError" => create_type("JsError", &ctx.type_type(), &ctx.exceptions.exception_type),
+        "JsError" => create_type("JsError", &ctx.types.type_type, &ctx.exceptions.exception_type),
         "JsValue" => PyJsValue::make_class(ctx),
     })
 }

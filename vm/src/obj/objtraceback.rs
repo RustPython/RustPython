@@ -3,7 +3,7 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyContext, PyRef, PyValue};
 use crate::vm::VirtualMachine;
 
-#[pyclass]
+#[pyclass(module = false, name = "traceback")]
 #[derive(Debug)]
 pub struct PyTraceback {
     pub next: Option<PyTracebackRef>, // TODO: Make mutable
@@ -16,7 +16,7 @@ pub type PyTracebackRef = PyRef<PyTraceback>;
 
 impl PyValue for PyTraceback {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.traceback_type()
+        vm.ctx.types.traceback_type.clone()
     }
 }
 

@@ -1,23 +1,20 @@
 use num_complex::Complex64;
 use num_traits::Zero;
-use std::str::FromStr;
 
-use super::objfloat::{self, IntoPyFloat, PyFloat};
-use super::objint::{self, PyInt};
+use super::objfloat;
 use super::objstr::PyString;
-use super::objtype::PyClassRef;
-use crate::function::OptionalArg;
+use super::objtype::{self, PyClassRef};
 use crate::pyobject::{
     BorrowValue, IntoPyObject, Never, PyArithmaticValue, PyClassImpl, PyComparisonValue, PyContext,
     PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use rustpython_common::hash;
+use rustpython_common::{float_ops, hash};
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///
 /// This is equivalent to (real + imag*1j) where imag defaults to 0.
-#[pyclass(name = "complex")]
+#[pyclass(module = false, name = "complex")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyComplex {
     value: Complex64,
@@ -27,7 +24,7 @@ type PyComplexRef = PyRef<PyComplex>;
 
 impl PyValue for PyComplex {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.complex_type()
+        vm.ctx.types.complex_type.clone()
     }
 }
 
@@ -244,46 +241,50 @@ impl PyComplex {
     }
 
     #[pyslot]
-    fn tp_new(
-        cls: PyClassRef,
-        real: OptionalArg<PyObjectRef>,
-        imag: OptionalArg<IntoPyFloat>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComplexRef> {
-        let real = match real {
-            OptionalArg::Missing => 0.0,
-            OptionalArg::Present(obj) => match_class!(match obj {
-                i @ PyInt => {
-                    objint::try_float(i.borrow_value(), vm)?
-                }
-                f @ PyFloat => {
-                    f.to_f64()
-                }
-                s @ PyString => {
-                    if imag.into_option().is_some() {
+    fn tp_new(cls: PyClassRef, args: ComplexArgs, vm: &VirtualMachine) -> PyResult<PyComplexRef> {
+        let real = match args.real {
+            None => Complex64::new(0.0, 0.0),
+            Some(obj) => {
+                if let Some(c) = try_complex(&obj, vm)? {
+                    c
+                } else if let Some(s) = obj.payload_if_subclass::<PyString>(vm) {
+                    if args.imag.is_some() {
                         return Err(vm.new_type_error(
                             "complex() can't take second arg if first is a string".to_owned(),
                         ));
                     }
-                    let value = Complex64::from_str(s.borrow_value())
-                        .map_err(|err| vm.new_value_error(err.to_string()))?;
+                    let value = parse_str(s.borrow_value().trim()).ok_or_else(|| {
+                        vm.new_value_error("complex() arg is a malformed string".to_owned())
+                    })?;
                     return Self::from(value).into_ref_with_type(vm, cls);
-                }
-                obj => {
+                } else {
                     return Err(vm.new_type_error(format!(
                         "complex() first argument must be a string or a number, not '{}'",
                         obj.class()
                     )));
                 }
-            }),
+            }
         };
 
-        let imag = match imag {
-            OptionalArg::Missing => 0.0,
-            OptionalArg::Present(ref value) => value.to_f64(),
+        let imag = match args.imag {
+            None => Complex64::new(0.0, 0.0),
+            Some(obj) => {
+                if let Some(c) = try_complex(&obj, vm)? {
+                    c
+                } else if objtype::issubclass(obj.lease_class(), &vm.ctx.types.str_type) {
+                    return Err(
+                        vm.new_type_error("complex() second arg can't be a string".to_owned())
+                    );
+                } else {
+                    return Err(vm.new_type_error(format!(
+                        "complex() second argument must be a number, not '{}'",
+                        obj.class()
+                    )));
+                }
+            }
         };
 
-        let value = Complex64::new(real, imag);
+        let value = Complex64::new(real.re - imag.im, real.im + imag.re);
         Self::from(value).into_ref_with_type(vm, cls)
     }
 
@@ -298,4 +299,49 @@ impl PyComplex {
         vm.ctx
             .new_tuple(vec![vm.ctx.new_float(re), vm.ctx.new_float(im)])
     }
+}
+
+#[derive(FromArgs)]
+struct ComplexArgs {
+    #[pyarg(positional_or_keyword, default = "None")]
+    real: Option<PyObjectRef>,
+    #[pyarg(positional_or_keyword, default = "None")]
+    imag: Option<PyObjectRef>,
+}
+
+fn parse_str(s: &str) -> Option<Complex64> {
+    // Handle parentheses
+    let s = match s.strip_prefix('(') {
+        None => s,
+        Some(s) => match s.strip_suffix(')') {
+            None => return None,
+            Some(s) => s.trim(),
+        },
+    };
+
+    let value = match s.strip_suffix(|c| c == 'j' || c == 'J') {
+        None => Complex64::new(float_ops::parse_str(s)?, 0.0),
+        Some(mut s) => {
+            let mut real = 0.0;
+            // Find the central +/- operator. If it exists, parse the real part.
+            for (i, w) in s.as_bytes().windows(2).enumerate() {
+                if (w[1] == b'+' || w[1] == b'-') && !(w[0] == b'e' || w[0] == b'E') {
+                    real = float_ops::parse_str(&s[..=i])?;
+                    s = &s[i + 1..];
+                    break;
+                }
+            }
+
+            let imag = match s {
+                // "j", "+j"
+                "" | "+" => 1.0,
+                // "-j"
+                "-" => -1.0,
+                s => float_ops::parse_str(s)?,
+            };
+
+            Complex64::new(real, imag)
+        }
+    };
+    Some(value)
 }

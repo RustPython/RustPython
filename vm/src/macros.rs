@@ -34,14 +34,15 @@ macro_rules! extend_module {
 #[macro_export]
 macro_rules! py_class {
     ( $ctx:expr, $class_name:expr, $class_base:expr, { $($name:tt => $value:expr),* $(,)* }) => {
+        py_class!($ctx, $class_name, $class_base, $crate::slots::PyTpFlags::BASETYPE, { $($name => $value),* })
+    };
+    ( $ctx:expr, $class_name:expr, $class_base:expr, $flags:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         {
-            let py_class = $ctx.new_class($class_name, $class_base);
-            // FIXME: setting flag here probably wrong
-            py_class.slots.write().flags |= $crate::slots::PyTpFlags::BASETYPE;
+            let py_class = $ctx.new_class($class_name, $class_base, $crate::slots::PyTpFlags::DEFAULT | $flags);
             $crate::extend_class!($ctx, &py_class, { $($name => $value),* });
             py_class
         }
-    }
+    };
 }
 
 #[macro_export]
@@ -221,7 +222,7 @@ macro_rules! class_or_notimplemented {
     ($vm:expr, $t:ty, $obj:expr) => {
         match $crate::pyobject::PyObject::downcast::<$t>($obj) {
             Ok(pyref) => pyref,
-            Err(_) => return Ok($vm.ctx.not_implemented()),
+            Err(_) => return Ok(PyArithmaticValue::NotImplemented),
         }
     };
 }
@@ -238,4 +239,22 @@ macro_rules! named_function {
             )
         }
     }};
+}
+
+// can't use PyThreadingConstraint for stuff like this since it's not an auto trait, and
+// therefore we can't add it ad-hoc to a trait object
+cfg_if::cfg_if! {
+    if #[cfg(feature = "threading")] {
+        macro_rules! py_dyn_fn {
+            (dyn Fn($($arg:ty),*$(,)*) -> $ret:ty) => {
+                dyn Fn($($arg),*) -> $ret + Send + Sync + 'static
+            };
+        }
+    } else {
+        macro_rules! py_dyn_fn {
+            (dyn Fn($($arg:ty),*$(,)*) -> $ret:ty) => {
+                dyn Fn($($arg),*) -> $ret + 'static
+            };
+        }
+    }
 }

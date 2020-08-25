@@ -11,7 +11,7 @@ use rustpython_common::rc::{PyRc, PyWeak as Weak};
 
 use crossbeam_utils::atomic::AtomicCell;
 
-#[pyclass]
+#[pyclass(module = false, name = "weakref")]
 #[derive(Debug)]
 pub struct PyWeak {
     referent: Weak<PyObject<dyn PyObjectPayload>>,
@@ -33,7 +33,7 @@ impl PyWeak {
 
 impl PyValue for PyWeak {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.weakref_type()
+        vm.ctx.types.weakref_type.clone()
     }
 }
 

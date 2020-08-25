@@ -9,7 +9,7 @@ use crate::pyobject::{
 use crate::slots::{SlotCall, SlotDescriptor};
 use crate::vm::VirtualMachine;
 
-#[pyclass]
+#[pyclass(name = "builtin_function_or_method", module = false)]
 pub struct PyBuiltinFunction {
     value: PyNativeFunc,
     module: Option<PyStringRef>,
@@ -18,9 +18,8 @@ pub struct PyBuiltinFunction {
 
 impl PyValue for PyBuiltinFunction {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.builtin_function_or_method_type()
+        vm.ctx.types.builtin_function_or_method_type.clone()
     }
-    const HAVE_DICT: bool = true;
 }
 
 impl fmt::Debug for PyBuiltinFunction {
@@ -59,7 +58,7 @@ impl SlotCall for PyBuiltinFunction {
     }
 }
 
-#[pyimpl(with(SlotCall))]
+#[pyimpl(with(SlotCall), flags(HAS_DICT))]
 impl PyBuiltinFunction {
     #[pyproperty(magic)]
     fn module(&self) -> Option<PyStringRef> {
@@ -71,14 +70,14 @@ impl PyBuiltinFunction {
     }
 }
 
-#[pyclass]
+#[pyclass(module = false, name = "method_descriptor")]
 pub struct PyBuiltinMethod {
     function: PyBuiltinFunction,
 }
 
 impl PyValue for PyBuiltinMethod {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.method_descriptor_type()
+        vm.ctx.types.method_descriptor_type.clone()
     }
 }
 

@@ -124,10 +124,10 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
     let result = match vm.invoke(&hint, vec![]) {
         Ok(res) => res,
         Err(e) => {
-            if objtype::isinstance(&e, &vm.ctx.exceptions.type_error) {
-                return Ok(None);
+            return if objtype::isinstance(&e, &vm.ctx.exceptions.type_error) {
+                Ok(None)
             } else {
-                return Err(e);
+                Err(e)
             }
         }
     };
@@ -149,7 +149,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
     Ok(Some(hint))
 }
 
-#[pyclass]
+#[pyclass(module = false, name = "iter")]
 #[derive(Debug)]
 pub struct PySequenceIterator {
     pub position: AtomicCell<isize>,
@@ -159,7 +159,7 @@ pub struct PySequenceIterator {
 
 impl PyValue for PySequenceIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.iter_type()
+        vm.ctx.types.iter_type.clone()
     }
 }
 
@@ -222,7 +222,7 @@ pub fn seq_iter_method(obj: PyObjectRef) -> PySequenceIterator {
     PySequenceIterator::new_forward(obj)
 }
 
-#[pyclass(name = "callable_iterator")]
+#[pyclass(module = false, name = "callable_iterator")]
 #[derive(Debug)]
 pub struct PyCallableIterator {
     callable: PyCallable,

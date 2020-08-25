@@ -18,7 +18,7 @@ use rustpython_common::hash::PyHash;
 /// tuple(iterable) -> tuple initialized from iterable's items
 ///
 /// If the argument is a tuple, the return value is the same object.
-#[pyclass]
+#[pyclass(module = false, name = "tuple")]
 pub struct PyTuple {
     elements: Vec<PyObjectRef>,
 }
@@ -46,7 +46,7 @@ impl<'a> BorrowValue<'a> for PyTuple {
 
 impl PyValue for PyTuple {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.tuple_type()
+        vm.ctx.types.tuple_type.clone()
     }
 }
 
@@ -208,7 +208,7 @@ impl PyTuple {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        get_item(vm, zelf.as_object(), &zelf.elements, needle.clone())
+        get_item(vm, zelf.as_object(), &zelf.elements, needle)
     }
 
     #[pymethod(name = "index")]
@@ -255,7 +255,7 @@ impl PyTuple {
     }
 }
 
-#[pyclass]
+#[pyclass(module = false, name = "tuple_iterator")]
 #[derive(Debug)]
 pub struct PyTupleIterator {
     position: AtomicCell<usize>,
@@ -264,7 +264,7 @@ pub struct PyTupleIterator {
 
 impl PyValue for PyTupleIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.tupleiterator_type()
+        vm.ctx.types.tuple_iterator_type.clone()
     }
 }
 
@@ -290,5 +290,5 @@ pub fn init(context: &PyContext) {
     let tuple_type = &context.types.tuple_type;
     PyTuple::extend_class(context, tuple_type);
 
-    PyTupleIterator::extend_class(context, &context.types.tupleiterator_type);
+    PyTupleIterator::extend_class(context, &context.types.tuple_iterator_type);
 }

@@ -26,7 +26,7 @@ use crate::vm::VirtualMachine;
 ///
 /// Class methods are different than C++ or Java static methods.
 /// If you want those, see the staticmethod builtin.
-#[pyclass]
+#[pyclass(module = false, name = "classmethod")]
 #[derive(Clone, Debug)]
 pub struct PyClassMethod {
     callable: PyObjectRef,
@@ -40,10 +40,8 @@ impl From<PyObjectRef> for PyClassMethod {
 }
 
 impl PyValue for PyClassMethod {
-    const HAVE_DICT: bool = true;
-
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.classmethod_type()
+        vm.ctx.types.classmethod_type.clone()
     }
 }
 
@@ -60,7 +58,7 @@ impl SlotDescriptor for PyClassMethod {
     }
 }
 
-#[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
+#[pyimpl(with(SlotDescriptor), flags(BASETYPE, HAS_DICT))]
 impl PyClassMethod {
     #[pyslot]
     fn tp_new(
@@ -68,10 +66,7 @@ impl PyClassMethod {
         callable: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyClassMethodRef> {
-        PyClassMethod {
-            callable: callable.clone(),
-        }
-        .into_ref_with_type(vm, cls)
+        PyClassMethod { callable }.into_ref_with_type(vm, cls)
     }
 
     #[pyproperty(name = "__func__")]

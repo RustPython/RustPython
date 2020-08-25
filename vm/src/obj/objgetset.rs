@@ -2,7 +2,7 @@
 
 */
 use super::objtype::PyClassRef;
-use crate::function::{FunctionBox, OptionalArg, OwnedParam, RefParam};
+use crate::function::{OptionalArg, OwnedParam, RefParam};
 use crate::pyobject::{
     IntoPyResult, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -10,9 +10,9 @@ use crate::pyobject::{
 use crate::slots::SlotDescriptor;
 use crate::vm::VirtualMachine;
 
-pub type PyGetterFunc = FunctionBox<dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult + Send + Sync>;
+pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;
 pub type PySetterFunc =
-    FunctionBox<dyn Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult<()> + Send + Sync>;
+    Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult<()>)>;
 
 pub trait IntoPyGetterFunc<T> {
     fn into_getter(self) -> PyGetterFunc;
@@ -25,7 +25,7 @@ where
     R: IntoPyResult,
 {
     fn into_getter(self) -> PyGetterFunc {
-        smallbox::smallbox!(move |vm: &VirtualMachine, obj| {
+        Box::new(move |vm: &VirtualMachine, obj| {
             let obj = T::try_from_object(vm, obj)?;
             (self)(obj, vm).into_pyresult(vm)
         })
@@ -39,7 +39,7 @@ where
     R: IntoPyResult,
 {
     fn into_getter(self) -> PyGetterFunc {
-        smallbox::smallbox!(move |vm: &VirtualMachine, obj| {
+        Box::new(move |vm: &VirtualMachine, obj| {
             let zelf = PyRef::<S>::try_from_object(vm, obj)?;
             (self)(&zelf, vm).into_pyresult(vm)
         })
@@ -96,7 +96,7 @@ where
     R: IntoPyNoResult,
 {
     fn into_setter(self) -> PySetterFunc {
-        smallbox::smallbox!(move |vm: &VirtualMachine, obj, value| {
+        Box::new(move |vm: &VirtualMachine, obj, value| {
             let obj = T::try_from_object(vm, obj)?;
             let value = V::try_from_object(vm, value)?;
             (self)(obj, value, vm).into_noresult()
@@ -112,7 +112,7 @@ where
     R: IntoPyNoResult,
 {
     fn into_setter(self) -> PySetterFunc {
-        smallbox::smallbox!(move |vm: &VirtualMachine, obj, value| {
+        Box::new(move |vm: &VirtualMachine, obj, value| {
             let zelf = PyRef::<S>::try_from_object(vm, obj)?;
             let value = V::try_from_object(vm, value)?;
             (self)(&zelf, value, vm).into_noresult()
@@ -144,7 +144,7 @@ where
     }
 }
 
-#[pyclass]
+#[pyclass(module = false, name = "getset_descriptor")]
 pub struct PyGetSet {
     name: String,
     getter: Option<PyGetterFunc>,
@@ -174,7 +174,7 @@ impl std::fmt::Debug for PyGetSet {
 
 impl PyValue for PyGetSet {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.getset_type()
+        vm.ctx.types.getset_type.clone()
     }
 }
 

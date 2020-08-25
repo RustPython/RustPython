@@ -1,15 +1,15 @@
-use super::objdict::PyDictRef;
+use super::objdict::PyDict;
 use super::objiter;
 use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    BorrowValue, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject,
+    BorrowValue, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject,
 };
 use crate::vm::VirtualMachine;
 
-#[pyclass]
+#[pyclass(module = false, name = "mappingproxy")]
 #[derive(Debug)]
 pub struct PyMappingProxy {
     mapping: MappingProxyInner,
@@ -88,7 +88,7 @@ impl PyMappingProxy {
             MappingProxyInner::Dict(d) => d.clone(),
             MappingProxyInner::Class(c) => {
                 // TODO: something that's much more efficient than this
-                PyDictRef::from_attributes(c.attributes.read().clone(), vm)?.into_object()
+                PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
             }
         };
         objiter::get_iter(vm, &obj)
@@ -98,7 +98,7 @@ impl PyMappingProxy {
         let obj = match &self.mapping {
             MappingProxyInner::Dict(d) => d.clone(),
             MappingProxyInner::Class(c) => {
-                PyDictRef::from_attributes(c.attributes.read().clone(), vm)?.into_object()
+                PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
             }
         };
         vm.call_method(&obj, "items", vec![])
@@ -108,7 +108,7 @@ impl PyMappingProxy {
         let obj = match &self.mapping {
             MappingProxyInner::Dict(d) => d.clone(),
             MappingProxyInner::Class(c) => {
-                PyDictRef::from_attributes(c.attributes.read().clone(), vm)?.into_object()
+                PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
             }
         };
         vm.call_method(&obj, "keys", vec![])
@@ -118,7 +118,7 @@ impl PyMappingProxy {
         let obj = match &self.mapping {
             MappingProxyInner::Dict(d) => d.clone(),
             MappingProxyInner::Class(c) => {
-                PyDictRef::from_attributes(c.attributes.read().clone(), vm)?.into_object()
+                PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
             }
         };
         vm.call_method(&obj, "values", vec![])

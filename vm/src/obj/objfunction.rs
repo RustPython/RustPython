@@ -9,6 +9,8 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objasyncgenerator::PyAsyncGen;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objgenerator::PyGenerator;
+#[cfg(feature = "jit")]
+use crate::pyobject::IntoPyObject;
 use crate::pyobject::{
     BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue, TypeProtocol,
@@ -17,13 +19,19 @@ use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
 use crate::VirtualMachine;
 use itertools::Itertools;
+#[cfg(feature = "jit")]
+use rustpython_common::cell::OnceCell;
+#[cfg(feature = "jit")]
+use rustpython_jit::CompiledCode;
 
 pub type PyFunctionRef = PyRef<PyFunction>;
 
-#[pyclass]
+#[pyclass(module = false, name = "function")]
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyCodeRef,
+    #[cfg(feature = "jit")]
+    jitted_code: OnceCell<CompiledCode>,
     scope: Scope,
     defaults: Option<PyTupleRef>,
     kw_only_defaults: Option<PyDictRef>,
@@ -54,6 +62,8 @@ impl PyFunction {
     ) -> Self {
         PyFunction {
             code,
+            #[cfg(feature = "jit")]
+            jitted_code: OnceCell::new(),
             scope,
             defaults,
             kw_only_defaults,
@@ -132,7 +142,8 @@ impl PyFunction {
         // Handle keyword arguments
         for (name, value) in func_args.kwargs {
             // Check if we have a parameter with this name:
-            if code_object.arg_names.contains(&name) || code_object.kwonlyarg_names.contains(&name)
+            let dict = if code_object.arg_names.contains(&name)
+                || code_object.kwonlyarg_names.contains(&name)
             {
                 if posonly_args.contains(&name) {
                     posonly_passed_as_kwarg.push(name);
@@ -142,15 +153,13 @@ impl PyFunction {
                         vm.new_type_error(format!("Got multiple values for argument '{}'", name))
                     );
                 }
-
-                locals.set_item(name.as_str(), value, vm)?;
-            } else if let Some(d) = &kwargs {
-                d.set_item(name.as_str(), value, vm)?;
+                locals
             } else {
-                return Err(
+                kwargs.as_ref().ok_or_else(|| {
                     vm.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
-                );
-            }
+                })?
+            };
+            dict.set_item(name.as_str(), value, vm)?;
         }
         if !posonly_passed_as_kwarg.is_empty() {
             return Err(vm.new_type_error(format!(
@@ -224,6 +233,11 @@ impl PyFunction {
         scope: &Scope,
         vm: &VirtualMachine,
     ) -> PyResult {
+        #[cfg(feature = "jit")]
+        if let Some(jitted_code) = self.jitted_code.get() {
+            return Ok(jitted_code.invoke().into_pyobject(vm));
+        }
+
         let code = &self.code;
 
         let scope = if self.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
@@ -255,11 +269,11 @@ impl PyFunction {
 
 impl PyValue for PyFunction {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.function_type()
+        vm.ctx.types.function_type.clone()
     }
 }
 
-#[pyimpl(with(SlotDescriptor))]
+#[pyimpl(with(SlotDescriptor), flags(HAS_DICT))]
 impl PyFunction {
     #[pyslot]
     #[pymethod(magic)]
@@ -286,9 +300,20 @@ impl PyFunction {
     fn globals(&self) -> PyDictRef {
         self.scope.globals.clone()
     }
+
+    #[cfg(feature = "jit")]
+    #[pymethod(magic)]
+    fn jit(&self, vm: &VirtualMachine) -> PyResult<()> {
+        self.jitted_code
+            .get_or_try_init(|| {
+                rustpython_jit::compile(&self.code.code)
+                    .map_err(|err| vm.new_runtime_error(err.to_string()))
+            })
+            .map(drop)
+    }
 }
 
-#[pyclass]
+#[pyclass(module = false, name = "method")]
 #[derive(Debug)]
 pub struct PyBoundMethod {
     // TODO: these shouldn't be public
@@ -309,7 +334,7 @@ impl PyBoundMethod {
     }
 }
 
-#[pyimpl(with(SlotCall))]
+#[pyimpl(with(SlotCall), flags(HAS_DICT))]
 impl PyBoundMethod {
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
@@ -345,7 +370,7 @@ impl PyBoundMethod {
 
 impl PyValue for PyBoundMethod {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.bound_method_type()
+        vm.ctx.types.bound_method_type.clone()
     }
 }
 

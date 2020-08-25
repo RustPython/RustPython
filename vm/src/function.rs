@@ -4,13 +4,13 @@ use std::ops::RangeInclusive;
 
 use indexmap::IndexMap;
 use result_like::impl_option_like;
-use smallbox::{smallbox, space::S1, SmallBox};
 
 use crate::exceptions::PyBaseExceptionRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{
-    BorrowValue, IntoPyResult, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -128,8 +128,8 @@ impl PyFuncArgs {
                 if isinstance(&kwarg, &ty) {
                     Ok(Some(kwarg))
                 } else {
-                    let expected_ty_name = vm.to_pystr(&ty)?;
-                    let actual_ty_name = vm.to_pystr(&kwarg.class())?;
+                    let expected_ty_name = &ty.name;
+                    let actual_ty_name = &kwarg.class().name;
                     Err(vm.new_type_error(format!(
                         "argument of type {} is required for named parameter `{}` (got: {})",
                         expected_ty_name, key, actual_ty_name
@@ -172,32 +172,25 @@ impl PyFuncArgs {
     /// during the conversion will halt the binding and return the error.
     pub fn bind<T: FromArgs>(mut self, vm: &VirtualMachine) -> PyResult<T> {
         let given_args = self.args.len();
-        let bound = match T::from_args(vm, &mut self) {
-            Ok(args) => args,
-            Err(ArgumentError::TooFewArgs) => {
-                return Err(vm.new_type_error(format!(
-                    "Expected at least {} arguments ({} given)",
-                    T::arity().start(),
-                    given_args,
-                )));
+        let bound = T::from_args(vm, &mut self).map_err(|e| match e {
+            ArgumentError::TooFewArgs => vm.new_type_error(format!(
+                "Expected at least {} arguments ({} given)",
+                T::arity().start(),
+                given_args,
+            )),
+            ArgumentError::TooManyArgs => vm.new_type_error(format!(
+                "Expected at most {} arguments ({} given)",
+                T::arity().end(),
+                given_args,
+            )),
+            ArgumentError::InvalidKeywordArgument(name) => {
+                vm.new_type_error(format!("{} is an invalid keyword argument", name))
             }
-            Err(ArgumentError::TooManyArgs) => {
-                return Err(vm.new_type_error(format!(
-                    "Expected at most {} arguments ({} given)",
-                    T::arity().end(),
-                    given_args,
-                )));
+            ArgumentError::RequiredKeywordArgument(name) => {
+                vm.new_type_error(format!("Required keyqord only argument {}", name))
             }
-            Err(ArgumentError::InvalidKeywordArgument(name)) => {
-                return Err(vm.new_type_error(format!("{} is an invalid keyword argument", name)));
-            }
-            Err(ArgumentError::RequiredKeywordArgument(name)) => {
-                return Err(vm.new_type_error(format!("Required keyqord only argument {}", name)));
-            }
-            Err(ArgumentError::Exception(ex)) => {
-                return Err(ex);
-            }
-        };
+            ArgumentError::Exception(ex) => ex,
+        })?;
 
         if !self.args.is_empty() {
             Err(vm.new_type_error(format!(
@@ -477,12 +470,8 @@ tuple_from_py_func_args!(A, B, C, D);
 tuple_from_py_func_args!(A, B, C, D, E);
 tuple_from_py_func_args!(A, B, C, D, E, F);
 
-/// A container that can hold a `dyn Fn*` trait object, but doesn't allocate if it's only a fn() pointer
-pub type FunctionBox<T> = SmallBox<T, S1>;
-
 /// A built-in Python function.
-pub type PyNativeFunc =
-    FunctionBox<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static + Send + Sync>;
+pub type PyNativeFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult)>;
 
 /// Implemented by types that are or can generate built-in functions.
 ///
@@ -498,16 +487,19 @@ pub type PyNativeFunc =
 ///
 /// A bare `PyNativeFunc` also implements this trait, allowing the above to be
 /// done manually, for rare situations that don't fit into this model.
-pub trait IntoPyNativeFunc<T, R, VM> {
-    fn into_func(self) -> PyNativeFunc;
+pub trait IntoPyNativeFunc<T, R, VM>: Sized + PyThreadingConstraint + 'static {
+    fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult;
+    fn into_func(self) -> PyNativeFunc {
+        Box::new(move |vm: &VirtualMachine, args| self.call(vm, args))
+    }
 }
 
 impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult, VirtualMachine> for F
 where
-    F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static + Send + Sync,
+    F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + PyThreadingConstraint + 'static,
 {
-    fn into_func(self) -> PyNativeFunc {
-        smallbox!(self)
+    fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+        (self)(vm, args)
     }
 }
 
@@ -522,55 +514,55 @@ macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),*) => {
         impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
-            F: Fn($($T,)* &VirtualMachine) -> R + 'static + Send + Sync,
+            F: Fn($($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
-            fn into_func(self) -> PyNativeFunc {
-                smallbox!(move |vm: &VirtualMachine, args: PyFuncArgs| {
-                    let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
+            fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+                let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
-                    (self)($($n,)* vm).into_pyresult(vm)
-                })
+                (self)($($n,)* vm).into_pyresult(vm)
             }
         }
 
         impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
-            F: Fn(&S, $($T,)* &VirtualMachine) -> R + 'static  + Send + Sync,
+            F: Fn(&S, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
             S: PyValue,
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
-            fn into_func(self) -> PyNativeFunc {
-                smallbox!(move |vm: &VirtualMachine, args: PyFuncArgs| {
-                    let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
+            fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+                let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
 
-                    (self)(&zelf, $($n,)* vm).into_pyresult(vm)
-                })
+                (self)(&zelf, $($n,)* vm).into_pyresult(vm)
             }
         }
 
         impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R, ()> for F
         where
-            F: Fn($($T,)*) -> R + 'static  + Send + Sync,
+            F: Fn($($T,)*) -> R + PyThreadingConstraint + 'static,
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
-            fn into_func(self) -> PyNativeFunc {
-                IntoPyNativeFunc::into_func(move |$($n,)* _vm: &VirtualMachine| (self)($($n,)*))
+            fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+                let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
+
+                (self)($($n,)*).into_pyresult(vm)
             }
         }
 
         impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
         where
-            F: Fn(&S, $($T,)*) -> R + 'static  + Send + Sync,
+            F: Fn(&S, $($T,)*) -> R + PyThreadingConstraint + 'static,
             S: PyValue,
             $($T: FromArgs,)*
             R: IntoPyResult,
         {
-            fn into_func(self) -> PyNativeFunc {
-                IntoPyNativeFunc::into_func(move |zelf: &S, $($n,)* _vm: &VirtualMachine| (self)(zelf, $($n,)*))
+            fn call(&self, vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+                let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
+
+                (self)(&zelf, $($n,)*).into_pyresult(vm)
             }
         }
     };
@@ -640,12 +632,16 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn test_functionbox_noalloc() {
+    fn test_intonativefunc_noalloc() {
+        let check_zst = |f: PyNativeFunc| assert_eq!(std::mem::size_of_val(f.as_ref()), 0);
         fn py_func(_b: bool, _vm: &crate::VirtualMachine) -> i32 {
             1
         }
-        let f = super::IntoPyNativeFunc::into_func(py_func);
-        assert!(!f.is_heap());
+        check_zst(py_func.into_func());
+        let empty_closure = || "foo".to_owned();
+        check_zst(empty_closure.into_func());
     }
 }

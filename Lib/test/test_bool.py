@@ -279,8 +279,6 @@ class BoolTest(unittest.TestCase):
         self.assertIs(marshal.loads(marshal.dumps(True)), True)
         self.assertIs(marshal.loads(marshal.dumps(False)), False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         import pickle
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):

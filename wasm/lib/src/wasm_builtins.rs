@@ -21,7 +21,7 @@ pub fn sys_stdout_write_console(data: &str, _vm: &VirtualMachine) -> PyResult<()
 
 pub fn make_stdout_object(
     vm: &VirtualMachine,
-    write_f: impl Fn(&str, &VirtualMachine) -> PyResult<()> + Send + Sync + 'static,
+    write_f: impl Fn(&str, &VirtualMachine) -> PyResult<()> + 'static,
 ) -> PyObjectRef {
     let ctx = &vm.ctx;
     let write_method = ctx.new_method(
@@ -32,7 +32,7 @@ pub fn make_stdout_object(
     let flush_method = ctx.new_method(|_self: PyObjectRef| {});
     // there's not really any point to storing this class so that there's a consistent type object,
     // we just want a half-decent repr() output
-    let cls = py_class!(ctx, "JSStdout", vm.ctx.object(), {
+    let cls = py_class!(ctx, "JSStdout", &vm.ctx.types.object_type, {
         "write" => write_method,
         "flush" => flush_method,
     });

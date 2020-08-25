@@ -254,24 +254,24 @@ impl CFormatSpec {
                     _ => 6,
                 };
                 let magnitude = num.abs();
-                format!("{:.*}", precision, magnitude)
+                Ok(format!("{:.*}", precision, magnitude))
             }
             CFormatType::Float(CFloatType::Exponent(_)) => {
-                return Err("Not yet implemented for %e and %E".to_owned())
+                Err("Not yet implemented for %e and %E".to_owned())
             }
             CFormatType::Float(CFloatType::General(_)) => {
-                return Err("Not yet implemented for %g and %G".to_owned())
+                Err("Not yet implemented for %g and %G".to_owned())
             }
             _ => unreachable!(),
-        };
+        }?;
 
-        if self.flags.contains(CConversionFlags::ZERO_PAD) {
+        let formatted = if self.flags.contains(CConversionFlags::ZERO_PAD) {
             let fill_char = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
                 '0'
             } else {
                 ' '
             };
-            Ok(format!(
+            format!(
                 "{}{}",
                 sign_string,
                 self.fill_string(
@@ -279,25 +279,25 @@ impl CFormatSpec {
                     fill_char,
                     Some(sign_string.chars().count())
                 )
-            ))
+            )
         } else {
-            Ok(self.fill_string(format!("{}{}", sign_string, magnitude_string), ' ', None))
-        }
+            self.fill_string(format!("{}{}", sign_string, magnitude_string), ' ', None)
+        };
+        Ok(formatted)
     }
 
     fn format(&self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<String> {
         // do the formatting by type
-        match &self.format_type {
+        let formatted = match &self.format_type {
             CFormatType::String(preconversor) => {
                 let result = match preconversor {
                     CFormatPreconversor::Str => vm.to_str(&obj)?,
                     CFormatPreconversor::Repr | CFormatPreconversor::Ascii => vm.to_repr(&obj)?,
-                    CFormatPreconversor::Bytes => TryFromObject::try_from_object(
-                        vm,
-                        vm.call_method(&obj.clone(), "decode", vec![])?,
-                    )?,
+                    CFormatPreconversor::Bytes => {
+                        TryFromObject::try_from_object(vm, vm.call_method(&obj, "decode", vec![])?)?
+                    }
                 };
-                Ok(self.format_string(result.borrow_value().to_owned()))
+                self.format_string(result.borrow_value().to_owned())
             }
             CFormatType::Number(number_type) => {
                 if !objtype::isinstance(&obj, &vm.ctx.types.int_type) {
@@ -312,20 +312,19 @@ impl CFormatSpec {
                         obj.lease_class()
                     )));
                 }
-                Ok(self.format_number(objint::get_value(&obj)))
+                self.format_number(objint::get_value(&obj))
             }
-            CFormatType::Float(_) => if let Some(value) = objfloat::try_float(&obj, vm)? {
+            CFormatType::Float(_) => {
+                let value = objfloat::try_float(&obj, vm)?.ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "%{} format: an floating point or integer is required, not {}",
+                        self.format_char,
+                        obj.lease_class().name
+                    ))
+                })?;
                 self.format_float(value)
-            } else {
-                let required_type_string = "an floating point or integer";
-                return Err(vm.new_type_error(format!(
-                    "%{} format: {} is required, not {}",
-                    self.format_char,
-                    required_type_string,
-                    obj.lease_class()
-                )));
+                    .map_err(|e| vm.new_not_implemented_error(e))?
             }
-            .map_err(|e| vm.new_not_implemented_error(e)),
             CFormatType::Character => {
                 let ch = {
                     if objtype::isinstance(&obj, &vm.ctx.types.int_type) {
@@ -349,9 +348,10 @@ impl CFormatSpec {
                         Err(vm.new_type_error("%c requires int or char".to_owned()))
                     }
                 }?;
-                Ok(self.format_char(ch))
+                self.format_char(ch)
             }
-        }
+        };
+        Ok(formatted)
     }
 }
 
@@ -602,11 +602,11 @@ fn parse_literal(text: &str) -> Result<(CFormatPart, &str, usize), ParsingError>
                 cur_text = remaining;
             }
             Err(err) => {
-                if !result_string.is_empty() {
-                    return Ok((CFormatPart::Literal(result_string), cur_text, consumed));
+                return if !result_string.is_empty() {
+                    Ok((CFormatPart::Literal(result_string), cur_text, consumed))
                 } else {
-                    return Err((err, consumed));
-                }
+                    Err((err, consumed))
+                };
             }
         }
     }
@@ -622,23 +622,19 @@ fn parse_text_inside_parentheses(text: &str) -> Option<(String, &str)> {
     let mut chars = text.chars();
     let mut contained_text = String::new();
     while counter > 0 {
-        let c = chars.next();
-
+        let c = chars.next()?;
         match c {
-            Some('(') => {
+            '(' => {
                 counter += 1;
             }
-            Some(')') => {
+            ')' => {
                 counter -= 1;
-            }
-            None => {
-                return None;
             }
             _ => (),
         }
 
         if counter > 0 {
-            contained_text.push(c.unwrap());
+            contained_text.push(c);
         }
     }
 

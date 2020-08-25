@@ -4,7 +4,7 @@ use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-#[pyclass]
+#[pyclass(module = false, name = "weakproxy")]
 #[derive(Debug)]
 pub struct PyWeakProxy {
     weak: PyWeak,
@@ -12,7 +12,7 @@ pub struct PyWeakProxy {
 
 impl PyValue for PyWeakProxy {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.weakproxy_type()
+        vm.ctx.types.weakproxy_type.clone()
     }
 }
 

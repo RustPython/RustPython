@@ -26,13 +26,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     py_module!(vm, "_weakref", {
-        "ref" => ctx.weakref_type(),
-        "proxy" => ctx.weakproxy_type(),
+        "ref" => ctx.types.weakref_type.clone(),
+        "proxy" => ctx.types.weakproxy_type.clone(),
         "getweakrefcount" => ctx.new_function(weakref_getweakrefcount),
         "getweakrefs" => ctx.new_function(weakref_getweakrefs),
-        "ReferenceType" => ctx.weakref_type(),
-        "ProxyType" => ctx.weakproxy_type(),
-        "CallableProxyType" => ctx.weakproxy_type(),
+        "ReferenceType" => ctx.types.weakref_type.clone(),
+        "ProxyType" => ctx.types.weakproxy_type.clone(),
+        "CallableProxyType" => ctx.types.weakproxy_type.clone(),
         "_remove_dead_weakref" => ctx.new_function(weakref_remove_dead_weakref),
     })
 }

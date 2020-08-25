@@ -33,7 +33,7 @@ use crate::vm::VirtualMachine;
 ///  - a bytes or a buffer object\n  \
 ///  - any object implementing the buffer API.\n  \
 ///  - an integer";
-#[pyclass(name = "bytearray")]
+#[pyclass(module = false, name = "bytearray")]
 #[derive(Debug)]
 pub struct PyByteArray {
     inner: PyRwLock<PyBytesInner>,
@@ -77,7 +77,7 @@ impl From<Vec<u8>> for PyByteArray {
 
 impl PyValue for PyByteArray {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.bytearray_type()
+        vm.ctx.types.bytearray_type.clone()
     }
 }
 
@@ -89,7 +89,7 @@ pub(crate) fn init(context: &PyContext) {
         "maketrans" => context.new_method(PyBytesInner::maketrans),
     });
 
-    PyByteArrayIterator::extend_class(context, &context.types.bytearrayiterator_type);
+    PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
 }
 
 #[pyimpl(flags(BASETYPE))]
@@ -121,6 +121,11 @@ impl PyByteArray {
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.borrow_value().eq(other, vm)
+    }
+
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
+        self.borrow_value().ne(other, vm)
     }
 
     #[pymethod(name = "__ge__")]
@@ -601,7 +606,7 @@ impl PyByteArray {
 //     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
 // }
 
-#[pyclass]
+#[pyclass(module = false, name = "bytearray_iterator")]
 #[derive(Debug)]
 pub struct PyByteArrayIterator {
     position: AtomicCell<usize>,
@@ -610,7 +615,7 @@ pub struct PyByteArrayIterator {
 
 impl PyValue for PyByteArrayIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.bytearrayiterator_type()
+        vm.ctx.types.bytearray_iterator_type.clone()
     }
 }
 

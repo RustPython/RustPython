@@ -21,12 +21,10 @@ rustpython-parser = { path = "../../parser" }
 rustpython-vm = { path = "../../vm", default-features = false, features = ["compile-parse"]  }
 cfg-if = "0.1.2"
 wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.3"
+wasm-bindgen-futures = "0.4"
 serde-wasm-bindgen = "0.1"
 serde = "1.0"
 js-sys = "0.3"
-futures = "0.1"
-generational-arena = "0.2"
 # make parking_lot use wasm-bingden for instant
 parking_lot = { version = "0.11", features = ["wasm-bindgen"] }
 

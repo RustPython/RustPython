@@ -6,7 +6,7 @@ use crate::vm::VirtualMachine;
 
 pub type PyZipRef = PyRef<PyZip>;
 
-#[pyclass]
+#[pyclass(module = false, name = "zip")]
 #[derive(Debug)]
 pub struct PyZip {
     iterators: Vec<PyObjectRef>,
@@ -14,7 +14,7 @@ pub struct PyZip {
 
 impl PyValue for PyZip {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.zip_type()
+        vm.ctx.types.zip_type.clone()
     }
 }
 

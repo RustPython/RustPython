@@ -32,7 +32,7 @@ use rustpython_common::hash::PyHash;
 /// - a text string encoded using the specified encoding\n  \
 /// - any object implementing the buffer API.\n  \
 /// - an integer";
-#[pyclass(name = "bytes")]
+#[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]
 pub struct PyBytes {
     inner: PyBytesInner,
@@ -72,7 +72,7 @@ impl Deref for PyBytes {
 
 impl PyValue for PyBytes {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.bytes_type()
+        vm.ctx.types.bytes_type.clone()
     }
 }
 
@@ -82,7 +82,7 @@ pub(crate) fn init(context: &PyContext) {
     extend_class!(context, bytes_type, {
         "maketrans" => context.new_method(PyBytesInner::maketrans),
     });
-    PyBytesIterator::extend_class(context, &context.types.bytesiterator_type);
+    PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
 
 #[pyimpl(flags(BASETYPE))]
@@ -488,7 +488,7 @@ impl PyBytes {
     }
 }
 
-#[pyclass]
+#[pyclass(module = false, name = "bytes_iterator")]
 #[derive(Debug)]
 pub struct PyBytesIterator {
     position: AtomicCell<usize>,
@@ -497,7 +497,7 @@ pub struct PyBytesIterator {
 
 impl PyValue for PyBytesIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.bytesiterator_type()
+        vm.ctx.types.bytes_iterator_type.clone()
     }
 }
 

@@ -136,18 +136,23 @@ impl<T: Clone> Dict<T> {
         K: DictKey,
     {
         // This does not need to be accurate so we can take the lock mutiple times.
-        if self.borrow_value().indices.len() > 2 * self.borrow_value().size {
+        let (indices_len, size) = {
+            let borrowed = self.borrow_value();
+            (borrowed.indices.len(), borrowed.size)
+        };
+        if indices_len > 2 * size {
             self.resize();
         }
-        loop {
+        let _removed = loop {
             match self.lookup(vm, &key)? {
                 LookupResult::Existing(index) => {
                     let mut inner = self.borrow_value_mut();
                     // Update existing key
                     if let Some(ref mut entry) = inner.entries[index] {
                         // They entry might have changed since we did lookup. Should we update the key?
-                        entry.value = value;
-                        break Ok(());
+                        let removed = std::mem::replace(&mut entry.value, value);
+                        // defer dec RC
+                        break Some(removed);
                     } else {
                         // The dict was changed since we did lookup. Let's try again.
                         continue;
@@ -159,10 +164,11 @@ impl<T: Clone> Dict<T> {
                 } => {
                     // New key:
                     self.unchecked_push(hash_index, hash_value, key.into_pyobject(vm), value);
-                    break Ok(());
+                    break None;
                 }
             }
-        }
+        };
+        Ok(())
     }
 
     pub fn contains<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool> {
@@ -191,37 +197,49 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn clear(&self) {
-        let mut inner = self.borrow_value_mut();
-        inner.entries.clear();
-        inner.indices.clear();
-        inner.size = 0
+        let _removed = {
+            let mut inner = self.borrow_value_mut();
+            inner.indices.clear();
+            inner.size = 0;
+            // defer dec rc
+            std::mem::replace(&mut inner.entries, Vec::new())
+        };
     }
 
     /// Delete a key
-    pub fn delete(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<()> {
-        if self.delete_if_exists(vm, key)? {
+    pub fn delete<K>(&self, vm: &VirtualMachine, key: K) -> PyResult<()>
+    where
+        K: DictKey,
+    {
+        if self.delete_if_exists(vm, &key)? {
             Ok(())
         } else {
-            Err(vm.new_key_error(key.clone()))
+            Err(vm.new_key_error(key.into_pyobject(vm)))
         }
     }
 
-    pub fn delete_if_exists(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<bool> {
-        loop {
+    pub fn delete_if_exists<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool>
+    where
+        K: DictKey,
+    {
+        let deleted = loop {
             if let LookupResult::Existing(entry_index) = self.lookup(vm, key)? {
                 let mut inner = self.borrow_value_mut();
-                if inner.entries[entry_index].is_some() {
-                    inner.entries[entry_index] = None;
+                let entry = inner.entries.get_mut(entry_index).unwrap();
+                if entry.is_some() {
+                    // defer rc out of borrow
+                    let deleted = std::mem::take(entry);
                     inner.size -= 1;
-                    break Ok(true);
+                    break deleted;
                 } else {
                     // The dict was changed since we did lookup. Let's try again.
                     continue;
                 }
             } else {
-                break Ok(false);
+                break None;
             }
-        }
+        };
+        Ok(deleted.is_some())
     }
 
     pub fn delete_or_insert(
@@ -230,14 +248,16 @@ impl<T: Clone> Dict<T> {
         key: &PyObjectRef,
         value: T,
     ) -> PyResult<()> {
-        loop {
+        let _removed = loop {
             match self.lookup(vm, key)? {
                 LookupResult::Existing(entry_index) => {
                     let mut inner = self.borrow_value_mut();
-                    if inner.entries[entry_index].is_some() {
-                        inner.entries[entry_index] = None;
+                    let entry = inner.entries.get_mut(entry_index).unwrap();
+                    if entry.is_some() {
+                        // defer dec RC
+                        let entry = std::mem::take(entry);
                         inner.size -= 1;
-                        break Ok(());
+                        break entry;
                     } else {
                         // The dict was changed since we did lookup. Let's try again.
                         continue;
@@ -248,10 +268,11 @@ impl<T: Clone> Dict<T> {
                     hash_index,
                 } => {
                     self.unchecked_push(hash_index, hash_value, key.clone(), value);
-                    break Ok(());
+                    break None;
                 }
             };
-        }
+        };
+        Ok(())
     }
 
     pub fn len(&self) -> usize {
@@ -359,22 +380,22 @@ impl<T: Clone> Dict<T> {
 
     /// Retrieve and delete a key
     pub fn pop<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
-        loop {
+        let removed = loop {
             if let LookupResult::Existing(index) = self.lookup(vm, key)? {
                 let mut inner = self.borrow_value_mut();
-                if let Some(entry) = &inner.entries[index] {
-                    let value = entry.value.clone();
-                    inner.entries[index] = None;
+                if let Some(entry) = inner.entries.get_mut(index) {
+                    let popped = std::mem::take(entry);
                     inner.size -= 1;
-                    break Ok(Some(value));
+                    break Some(popped.unwrap().value);
                 } else {
                     // The dict was changed since we did lookup. Let's try again.
                     continue;
                 }
             } else {
-                break Ok(None);
+                break None;
             }
-        }
+        };
+        Ok(removed)
     }
 
     pub fn pop_front(&self) -> Option<(PyObjectRef, T)> {
@@ -504,7 +525,7 @@ mod tests {
         dict.insert(&vm, key1.clone(), value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
-        dict.delete(&vm, &key1).unwrap();
+        dict.delete(&vm, key1.clone()).unwrap();
         assert_eq!(1, dict.len());
 
         dict.insert(&vm, key1.clone(), value2.clone()).unwrap();

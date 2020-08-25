@@ -8,7 +8,7 @@ use crate::vm::VirtualMachine;
 ///
 /// Make an iterator that computes the function using arguments from
 /// each of the iterables.  Stops when the shortest iterable is exhausted.
-#[pyclass]
+#[pyclass(module = false, name = "map")]
 #[derive(Debug)]
 pub struct PyMap {
     mapper: PyObjectRef,
@@ -18,7 +18,7 @@ type PyMapRef = PyRef<PyMap>;
 
 impl PyValue for PyMap {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.map_type()
+        vm.ctx.types.map_type.clone()
     }
 }
 
@@ -36,7 +36,7 @@ impl PyMap {
             .map(|iterable| objiter::get_iter(vm, &iterable))
             .collect::<Result<Vec<_>, _>>()?;
         PyMap {
-            mapper: function.clone(),
+            mapper: function,
             iterators,
         }
         .into_ref_with_type(vm, cls)

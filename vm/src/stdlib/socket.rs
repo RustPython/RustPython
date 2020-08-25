@@ -54,7 +54,7 @@ mod c {
     };
 }
 
-#[pyclass]
+#[pyclass(module = "socket", name = "socket")]
 #[derive(Debug)]
 pub struct PySocket {
     kind: AtomicCell<i32>,
@@ -652,8 +652,16 @@ fn convert_sock_error(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
-    let socket_timeout = ctx.new_class("socket.timeout", vm.ctx.exceptions.os_error.clone());
-    let socket_gaierror = ctx.new_class("socket.gaierror", vm.ctx.exceptions.os_error.clone());
+    let socket_timeout = ctx.new_class(
+        "socket.timeout",
+        &vm.ctx.exceptions.os_error,
+        Default::default(),
+    );
+    let socket_gaierror = ctx.new_class(
+        "socket.gaierror",
+        &vm.ctx.exceptions.os_error,
+        Default::default(),
+    );
 
     let module = py_module!(vm, "_socket", {
         "socket" => PySocket::make_class(ctx),

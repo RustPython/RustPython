@@ -228,7 +228,7 @@ fn ssl_rand_pseudo_bytes(n: i32, vm: &VirtualMachine) -> PyResult<(Vec<u8>, bool
     }
 }
 
-#[pyclass(name = "_SSLContext")]
+#[pyclass(module = "ssl", name = "_SSLContext")]
 struct PySslContext {
     ctx: PyRwLock<SslContextBuilder>,
     check_hostname: bool,
@@ -370,7 +370,7 @@ impl PySslContext {
         args: LoadVerifyLocationsArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if args.cafile.is_none() && args.capath.is_none() && args.cadata.is_none() {
+        if let (None, None, None) = (&args.cafile, &args.capath, &args.cadata) {
             return Err(
                 vm.new_type_error("cafile, capath and cadata cannot be all omitted".to_owned())
             );
@@ -504,7 +504,7 @@ struct LoadVerifyLocationsArgs {
     cadata: Option<Either<PyStringRef, PyBytesLike>>,
 }
 
-#[pyclass(name = "_SSLSocket")]
+#[pyclass(module = "ssl", name = "_SSLSocket")]
 struct PySslSocket {
     ctx: PyRef<PySslContext>,
     stream: PyRwLock<Option<ssl::SslStreamBuilder<PySocketRef>>>,

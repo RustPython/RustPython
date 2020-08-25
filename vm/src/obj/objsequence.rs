@@ -219,43 +219,36 @@ pub fn get_item(
     subscript: PyObjectRef,
 ) -> PyResult {
     if let Some(i) = subscript.payload::<PyInt>() {
-        return match i.borrow_value().to_isize() {
-            Some(value) => {
-                if let Some(pos_index) = get_pos(value, elements.len()) {
-                    let obj = elements[pos_index].clone();
-                    Ok(obj)
-                } else {
-                    Err(vm.new_index_error("Index out of bounds!".to_owned()))
-                }
-            }
-            None => {
-                Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned()))
-            }
-        };
+        let value = i.borrow_value().to_isize().ok_or_else(|| {
+            vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
+        })?;
+        let pos_index = get_pos(value, elements.len())
+            .ok_or_else(|| vm.new_index_error("Index out of bounds!".to_owned()))?;
+        return Ok(elements[pos_index].clone());
     }
 
-    if let Some(slice) = subscript.payload::<PySlice>() {
-        if sequence.payload::<PyList>().is_some() {
-            Ok(PyObject::new(
-                PyList::from(elements.get_slice_items(vm, slice)?),
-                sequence.class(),
-                None,
-            ))
-        } else if sequence.payload::<PyTuple>().is_some() {
-            Ok(PyObject::new(
-                PyTuple::from(elements.get_slice_items(vm, slice)?),
-                sequence.class(),
-                None,
-            ))
-        } else {
-            panic!("sequence get_item called for non-sequence")
-        }
-    } else {
-        Err(vm.new_type_error(format!(
+    let slice = subscript.payload::<PySlice>().ok_or_else(|| {
+        vm.new_type_error(format!(
             "{} indices must be integers or slices",
             sequence.lease_class().name
-        )))
-    }
+        ))
+    })?;
+    let items = if sequence.payload::<PyList>().is_some() {
+        PyObject::new(
+            PyList::from(elements.get_slice_items(vm, slice)?),
+            sequence.class(),
+            None,
+        )
+    } else if sequence.payload::<PyTuple>().is_some() {
+        PyObject::new(
+            PyTuple::from(elements.get_slice_items(vm, slice)?),
+            sequence.class(),
+            None,
+        )
+    } else {
+        panic!("sequence get_item called for non-sequence")
+    };
+    Ok(items)
 }
 
 //Check if given arg could be used with PySliceableSequence.get_slice_range()
@@ -291,13 +284,9 @@ pub fn opt_len(obj: &PyObjectRef, vm: &VirtualMachine) -> Option<PyResult<usize>
         if len.is_negative() {
             return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
         }
-        let len = if let Some(len) = len.to_isize() {
-            len
-        } else {
-            return Err(
-                vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
-            );
-        };
+        let len = len.to_isize().ok_or_else(|| {
+            vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
+        })?;
         Ok(len as usize)
     })
 }

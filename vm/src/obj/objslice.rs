@@ -9,7 +9,7 @@ use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
-#[pyclass]
+#[pyclass(module = false, name = "slice")]
 #[derive(Debug)]
 pub struct PySlice {
     pub start: Option<PyObjectRef>,
@@ -19,7 +19,7 @@ pub struct PySlice {
 
 impl PyValue for PySlice {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.slice_type()
+        vm.ctx.types.slice_type.clone()
     }
 }
 

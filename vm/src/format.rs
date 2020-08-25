@@ -35,10 +35,7 @@ impl FormatPreconversor {
             return None;
         }
 
-        match chars.next() {
-            None => None, // Should fail instead?
-            Some(c) => FormatPreconversor::from_char(c),
-        }
+        FormatPreconversor::from_char(chars.next()?)
     }
 
     fn parse_and_consume(text: &str) -> (Option<FormatPreconversor>, &str) {
@@ -686,14 +683,15 @@ impl FormatString {
         let mut chars = text.chars();
         // This should never be called with an empty str
         let first_char = chars.next().unwrap();
+        // isn't this detectable only with bytes operation?
         if first_char == '{' || first_char == '}' {
             let maybe_next_char = chars.next();
             // if we see a bracket, it has to be escaped by doubling up to be in a literal
-            if maybe_next_char.is_none() || maybe_next_char.unwrap() != first_char {
-                return Err(FormatParseError::UnescapedStartBracketInLiteral);
+            return if maybe_next_char.is_none() || maybe_next_char.unwrap() != first_char {
+                Err(FormatParseError::UnescapedStartBracketInLiteral)
             } else {
-                return Ok((first_char, chars.as_str()));
-            }
+                Ok((first_char, chars.as_str()))
+            };
         }
         Ok((first_char, chars.as_str()))
     }
@@ -708,11 +706,11 @@ impl FormatString {
                     cur_text = remaining;
                 }
                 Err(err) => {
-                    if !result_string.is_empty() {
-                        return Ok((FormatPart::Literal(result_string), cur_text));
+                    return if !result_string.is_empty() {
+                        Ok((FormatPart::Literal(result_string), cur_text))
                     } else {
-                        return Err(err);
-                    }
+                        Err(err)
+                    };
                 }
             }
         }
@@ -735,20 +733,16 @@ impl FormatString {
         // before the bang is a keyword or arg index, after the comma is maybe a conversor spec.
         let arg_part = parts[0];
 
-        let preconversion_spec = if let Some(conversion) = parts.get(1) {
-            let mut chars = conversion.chars();
-            if let Some(ch) = chars.next() {
+        let preconversion_spec = parts
+            .get(1)
+            .map(|conversion| {
                 // conversions are only every one character
-                if chars.next().is_some() {
-                    return Err(FormatParseError::UnknownConversion);
-                }
-                Some(ch)
-            } else {
-                return Err(FormatParseError::UnknownConversion);
-            }
-        } else {
-            None
-        };
+                conversion
+                    .chars()
+                    .exactly_one()
+                    .map_err(|_| FormatParseError::UnknownConversion)
+            })
+            .transpose()?;
 
         Ok(FormatPart::Field {
             field_name: arg_part.to_owned(),
@@ -910,9 +904,10 @@ fn call_object_format(
 
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.types.str_type) {
-        let result_type = result.class();
-        let actual_type = vm.to_pystr(&result_type)?;
-        return Err(vm.new_type_error(format!("__format__ must return a str, not {}", actual_type)));
+        return Err(vm.new_type_error(format!(
+            "__format__ must return a str, not {}",
+            &result.class().name
+        )));
     }
     Ok(result)
 }

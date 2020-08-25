@@ -25,6 +25,8 @@ TEST_DIRS = {_TestType.functional: os.path.join(TEST_ROOT, "snippets")}
 CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, "py_code_object"))
 RUSTPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR))
 RUSTPYTHON_LIB_DIR = os.path.abspath(os.path.join(ROOT_DIR, "Lib"))
+RUSTPYTHON_FEATURES = ["jit"]
+
 
 @contextlib.contextmanager
 def pushd(path):
@@ -136,7 +138,7 @@ class SampleTestCase(unittest.TestCase):
 
         # cargo stuff
         profile_args = [] if RUST_DEBUG else ["--release"]
-        subprocess.check_call(["cargo", "build", *profile_args])
+        subprocess.check_call(["cargo", "build", "--features", ",".join(RUSTPYTHON_FEATURES), *profile_args])
 
     @classmethod
     def tearDownClass(cls):

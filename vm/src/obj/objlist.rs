@@ -27,7 +27,7 @@ use crate::vm::{ReprGuard, VirtualMachine};
 ///
 /// If no argument is given, the constructor creates a new empty list.
 /// The argument must be an iterable if specified.
-#[pyclass]
+#[pyclass(module = false, name = "list")]
 #[derive(Default)]
 pub struct PyList {
     elements: PyRwLock<Vec<PyObjectRef>>,
@@ -56,7 +56,7 @@ impl FromIterator<PyObjectRef> for PyList {
 
 impl PyValue for PyList {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.list_type()
+        vm.ctx.types.list_type.clone()
     }
 }
 
@@ -76,22 +76,19 @@ impl PyList {
     pub(crate) fn to_byte_inner(&self, vm: &VirtualMachine) -> PyResult<bytesinner::PyBytesInner> {
         let mut elements = Vec::<u8>::with_capacity(self.borrow_value().len());
         for elem in self.borrow_value().iter() {
-            match PyIntRef::try_from_object(vm, elem.clone()) {
-                Ok(result) => match result.borrow_value().to_u8() {
-                    Some(result) => elements.push(result),
-                    None => {
-                        return Err(vm.new_value_error("bytes must be in range (0, 256)".to_owned()))
-                    }
-                },
-                _ => {
-                    return Err(vm.new_type_error(format!(
-                        "'{}' object cannot be interpreted as an integer",
-                        elem.class().name
-                    )))
-                }
-            }
+            let py_int = PyIntRef::try_from_object(vm, elem.clone()).map_err(|_| {
+                vm.new_type_error(format!(
+                    "'{}' object cannot be interpreted as an integer",
+                    elem.class().name
+                ))
+            })?;
+            let result = py_int
+                .borrow_value()
+                .to_u8()
+                .ok_or_else(|| vm.new_value_error("bytes must be in range (0, 256)".to_owned()))?;
+            elements.push(result);
         }
-        Ok(bytesinner::PyBytesInner { elements })
+        Ok(elements.into())
     }
 }
 
@@ -131,7 +128,7 @@ impl PyList {
         };
         // Bound it by [0, vec.len()]
         let position = unbounded_position.min(vec_len).to_usize().unwrap_or(0);
-        elements.insert(position, element.clone());
+        elements.insert(position, element);
     }
 
     #[pymethod(name = "__add__")]
@@ -168,7 +165,7 @@ impl PyList {
 
     #[pymethod]
     fn clear(&self) {
-        self.borrow_value_mut().clear();
+        let _removed = std::mem::replace(self.borrow_value_mut().deref_mut(), Vec::new());
     }
 
     #[pymethod]
@@ -202,7 +199,7 @@ impl PyList {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        get_item(vm, zelf.as_object(), &zelf.borrow_value(), needle.clone())
+        get_item(vm, zelf.as_object(), &zelf.borrow_value(), needle)
     }
 
     #[pymethod(name = "__iter__")]
@@ -231,10 +228,10 @@ impl PyList {
         }
     }
 
-    fn setindex(&self, index: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn setindex(&self, index: isize, mut value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let mut elements = self.borrow_value_mut();
         if let Some(pos_index) = get_pos(index, elements.len()) {
-            elements[pos_index] = value;
+            std::mem::swap(&mut elements[pos_index], &mut value);
             Ok(vm.get_none())
         } else {
             Err(vm.new_index_error("list assignment index out of range".to_owned()))
@@ -521,13 +518,13 @@ impl PyList {
         }
 
         if let Some(index) = ri {
-            // TODO: Check if value was removed after lock released
-            self.borrow_value_mut().remove(index);
-            Ok(())
+            // defer delete out of borrow
+            Ok(self.borrow_value_mut().remove(index))
         } else {
             let needle_str = vm.to_str(&needle)?;
             Err(vm.new_value_error(format!("'{}' is not in list", needle_str.borrow_value())))
         }
+        .map(drop)
     }
 
     #[inline]
@@ -597,13 +594,16 @@ impl PyList {
     }
 
     fn delindex(&self, index: isize, vm: &VirtualMachine) -> PyResult<()> {
-        let mut elements = self.borrow_value_mut();
-        if let Some(pos_index) = get_pos(index, elements.len()) {
-            elements.remove(pos_index);
-            Ok(())
-        } else {
-            Err(vm.new_index_error("Index out of bounds!".to_owned()))
-        }
+        let removed = {
+            let mut elements = self.borrow_value_mut();
+            if let Some(pos_index) = get_pos(index, elements.len()) {
+                // defer delete out of borrow
+                Ok(elements.remove(pos_index))
+            } else {
+                Err(vm.new_index_error("Index out of bounds!".to_owned()))
+            }
+        };
+        removed.map(drop)
     }
 
     fn delslice(&self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -825,7 +825,7 @@ fn do_sort(
     Ok(())
 }
 
-#[pyclass]
+#[pyclass(module = false, name = "list_iterator")]
 #[derive(Debug)]
 pub struct PyListIterator {
     pub position: AtomicCell<usize>,
@@ -834,7 +834,7 @@ pub struct PyListIterator {
 
 impl PyValue for PyListIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.listiterator_type()
+        vm.ctx.types.list_iterator_type.clone()
     }
 }
 
@@ -864,7 +864,7 @@ impl PyListIterator {
     }
 }
 
-#[pyclass]
+#[pyclass(module = false, name = "list_reverseiterator")]
 #[derive(Debug)]
 pub struct PyListReverseIterator {
     pub position: AtomicCell<isize>,
@@ -873,7 +873,7 @@ pub struct PyListReverseIterator {
 
 impl PyValue for PyListReverseIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.listreverseiterator_type()
+        vm.ctx.types.list_reverseiterator_type.clone()
     }
 }
 
@@ -906,6 +906,6 @@ pub fn init(context: &PyContext) {
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
 
-    PyListIterator::extend_class(context, &context.types.listiterator_type);
-    PyListReverseIterator::extend_class(context, &context.types.listreverseiterator_type);
+    PyListIterator::extend_class(context, &context.types.list_iterator_type);
+    PyListReverseIterator::extend_class(context, &context.types.list_reverseiterator_type);
 }

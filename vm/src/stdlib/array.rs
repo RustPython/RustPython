@@ -1,3 +1,7 @@
+use crate::common::cell::{
+    PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
+    PyRwLockWriteGuard,
+};
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objslice::PySliceRef;
@@ -5,18 +9,13 @@ use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, PyClassImpl, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject,
+    BorrowValue, Either, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue,
+    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
-
-use crate::common::cell::{
-    PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
-    PyRwLockWriteGuard,
-};
-use std::fmt;
-
 use crossbeam_utils::atomic::AtomicCell;
+use itertools::Itertools;
+use std::fmt;
 
 struct ArrayTypeSpecifierError {
     _priv: (),
@@ -114,14 +113,8 @@ macro_rules! def_array_enum {
                     $(ArrayContentType::$n(v) => {
                         let pos = <Option<$t>>::try_from_object(vm, obj)?.map_or(None, |val| {
                             v.iter().position(|&a| a == val)
-                        });
-
-                        match pos {
-                            Some(x) => {
-                                v.remove(x);
-                            },
-                            None => return Err(vm.new_value_error("array.remove(x): x not in array".to_owned()))
-                        }
+                        }).ok_or_else(||vm.new_value_error("array.remove(x): x not in array".to_owned()) )?;
+                        v.remove(pos);
                     })*
                 }
                 Ok(())
@@ -253,7 +246,7 @@ def_array_enum!(
     (Double, f64, 'd'),
 );
 
-#[pyclass(name = "array")]
+#[pyclass(module = "array", name = "array")]
 #[derive(Debug)]
 pub struct PyArray {
     array: PyRwLock<ArrayContentType>,
@@ -284,14 +277,9 @@ impl PyArray {
         init: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyArrayRef> {
-        let spec = match spec.borrow_value().len() {
-            1 => spec.borrow_value().chars().next().unwrap(),
-            _ => {
-                return Err(vm.new_type_error(
-                    "array() argument 1 must be a unicode character, not str".to_owned(),
-                ))
-            }
-        };
+        let spec = spec.borrow_value().chars().exactly_one().map_err(|_| {
+            vm.new_type_error("array() argument 1 must be a unicode character, not str".to_owned())
+        })?;
         let array =
             ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err.to_string()))?;
         let zelf = PyArray {
@@ -438,94 +426,94 @@ impl PyArray {
     }
 
     #[pymethod(name = "__eq__")]
-    fn eq(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let lhs = class_or_notimplemented!(vm, Self, lhs);
-        let rhs = class_or_notimplemented!(vm, Self, rhs);
-        let lhs = lhs.borrow_value();
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        let lhs = self.borrow_value();
+        let rhs = class_or_notimplemented!(vm, Self, other);
         let rhs = rhs.borrow_value();
         if lhs.len() != rhs.len() {
-            Ok(vm.ctx.new_bool(false))
+            Ok(PyArithmaticValue::Implemented(false))
         } else {
             for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
                 let ne = objbool::boolval(vm, vm._ne(a, b)?)?;
                 if ne {
-                    return Ok(vm.ctx.new_bool(false));
+                    return Ok(PyArithmaticValue::Implemented(false));
                 }
             }
-            Ok(vm.ctx.new_bool(true))
+            Ok(PyArithmaticValue::Implemented(true))
         }
     }
 
+    #[pymethod(name = "__ne__")]
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        Ok(self.eq(other, vm)?.map(|v| !v))
+    }
+
     #[pymethod(name = "__lt__")]
-    fn lt(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let lhs = class_or_notimplemented!(vm, Self, lhs);
-        let rhs = class_or_notimplemented!(vm, Self, rhs);
-        let lhs = lhs.borrow_value();
+    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        let lhs = self.borrow_value();
+        let rhs = class_or_notimplemented!(vm, Self, other);
         let rhs = rhs.borrow_value();
 
         for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
             let lt = objbool::boolval(vm, vm._lt(a, b)?)?;
 
             if lt {
-                return Ok(vm.ctx.new_bool(true));
+                return Ok(PyArithmaticValue::Implemented(true));
             }
         }
 
-        Ok(vm.ctx.new_bool(lhs.len() < rhs.len()))
+        Ok(PyArithmaticValue::Implemented(lhs.len() < rhs.len()))
     }
 
     #[pymethod(name = "__le__")]
-    fn le(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let lhs = class_or_notimplemented!(vm, Self, lhs);
-        let rhs = class_or_notimplemented!(vm, Self, rhs);
-        let lhs = lhs.borrow_value();
+    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        let lhs = self.borrow_value();
+        let rhs = class_or_notimplemented!(vm, Self, other);
         let rhs = rhs.borrow_value();
 
         for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
             let le = objbool::boolval(vm, vm._le(a, b)?)?;
 
             if le {
-                return Ok(vm.ctx.new_bool(true));
+                return Ok(PyArithmaticValue::Implemented(true));
             }
         }
 
-        Ok(vm.ctx.new_bool(lhs.len() <= rhs.len()))
+        Ok(PyArithmaticValue::Implemented(lhs.len() <= rhs.len()))
     }
 
     #[pymethod(name = "__gt__")]
-    fn gt(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let lhs = class_or_notimplemented!(vm, Self, lhs);
-        let rhs = class_or_notimplemented!(vm, Self, rhs);
-        let lhs = lhs.borrow_value();
+    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        let lhs = self.borrow_value();
+        let rhs = class_or_notimplemented!(vm, Self, other);
         let rhs = rhs.borrow_value();
 
         for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
             let gt = objbool::boolval(vm, vm._gt(a, b)?)?;
 
             if gt {
-                return Ok(vm.ctx.new_bool(true));
+                return Ok(PyArithmaticValue::Implemented(true));
             }
         }
 
-        Ok(vm.ctx.new_bool(lhs.len() > rhs.len()))
+        Ok(PyArithmaticValue::Implemented(lhs.len() > rhs.len()))
     }
 
     #[pymethod(name = "__ge__")]
-    fn ge(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let lhs = class_or_notimplemented!(vm, Self, lhs);
-        let rhs = class_or_notimplemented!(vm, Self, rhs);
-        let lhs = lhs.borrow_value();
+    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        let lhs = self.borrow_value();
+        let rhs = class_or_notimplemented!(vm, Self, other);
         let rhs = rhs.borrow_value();
 
         for (a, b) in lhs.iter(vm).zip(rhs.iter(vm)) {
             let ge = objbool::boolval(vm, vm._ge(a, b)?)?;
 
             if ge {
-                return Ok(vm.ctx.new_bool(true));
+                return Ok(PyArithmaticValue::Implemented(true));
             }
         }
 
-        Ok(vm.ctx.new_bool(lhs.len() >= rhs.len()))
+        Ok(PyArithmaticValue::Implemented(lhs.len() >= rhs.len()))
     }
 
     #[pymethod(name = "__len__")]
@@ -542,7 +530,7 @@ impl PyArray {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "array", name = "array_iterator")]
 #[derive(Debug)]
 pub struct PyArrayIter {
     position: AtomicCell<usize>,

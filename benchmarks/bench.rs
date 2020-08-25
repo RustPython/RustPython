@@ -1,19 +1,20 @@
 #![feature(test)]
 
-extern crate cpython;
-extern crate rustpython_parser;
-extern crate rustpython_vm;
 extern crate test;
 
 use rustpython_compiler::compile;
 use rustpython_vm::pyobject::PyResult;
 use rustpython_vm::VirtualMachine;
 
+const MINIDOM: &str = include_str!("./benchmarks/minidom.py");
+const NBODY: &str = include_str!("./benchmarks/nbody.py");
+const MANDELBROT: &str = include_str!("./benchmarks/mandelbrot.py");
+
 #[bench]
 fn bench_tokenization(b: &mut test::Bencher) {
     use rustpython_parser::lexer::{make_tokenizer, Tok};
 
-    let source = include_str!("./benchmarks/minidom.py");
+    let source = MINIDOM;
 
     b.bytes = source.len() as _;
     b.iter(|| {
@@ -28,7 +29,7 @@ fn bench_tokenization(b: &mut test::Bencher) {
 fn bench_rustpy_parse_to_ast(b: &mut test::Bencher) {
     use rustpython_parser::parser::parse_program;
 
-    let source = include_str!("./benchmarks/minidom.py");
+    let source = MINIDOM;
 
     b.bytes = source.len() as _;
     b.iter(|| parse_program(source).unwrap())
@@ -36,7 +37,7 @@ fn bench_rustpy_parse_to_ast(b: &mut test::Bencher) {
 
 #[bench]
 fn bench_cpython_parse_to_ast(b: &mut test::Bencher) {
-    let source = include_str!("./benchmarks/minidom.py");
+    let source = MINIDOM;
 
     let gil = cpython::Python::acquire_gil();
     let python = gil.python();
@@ -55,10 +56,7 @@ fn bench_cpython_parse_to_ast(b: &mut test::Bencher) {
     })
 }
 
-#[bench]
-fn bench_cpython_nbody(b: &mut test::Bencher) {
-    let source = include_str!("./benchmarks/nbody.py");
-
+fn bench_cpython(b: &mut test::Bencher, source: &str) {
     let gil = cpython::Python::acquire_gil();
     let python = gil.python();
 
@@ -72,53 +70,36 @@ fn bench_cpython_nbody(b: &mut test::Bencher) {
 }
 
 #[bench]
+fn bench_cpython_nbody(b: &mut test::Bencher) {
+    bench_cpython(b, NBODY)
+}
+
+#[bench]
 fn bench_cpython_mandelbrot(b: &mut test::Bencher) {
-    let source = include_str!("./benchmarks/mandelbrot.py");
+    bench_cpython(b, MANDELBROT)
+}
 
-    let gil = cpython::Python::acquire_gil();
-    let python = gil.python();
+fn bench_rustpy(b: &mut test::Bencher, name: &str, source: &str) {
+    // NOTE: Take long time.
+    let vm = VirtualMachine::default();
 
-    let globals = None;
-    let locals = None;
+    let code = vm
+        .compile(source, compile::Mode::Exec, name.to_owned())
+        .unwrap();
 
     b.iter(|| {
-        let res: cpython::PyResult<()> = python.run(source, globals, locals);
-        assert!(res.is_ok());
+        let scope = vm.new_scope_with_builtins();
+        let res: PyResult = vm.run_code_obj(code.clone(), scope);
+        vm.unwrap_pyresult(res);
     })
 }
 
 #[bench]
 fn bench_rustpy_nbody(b: &mut test::Bencher) {
-    // NOTE: Take long time.
-    let source = include_str!("./benchmarks/nbody.py");
-
-    let vm = VirtualMachine::default();
-
-    let code = vm
-        .compile(source, compile::Mode::Exec, "<stdin>".to_owned())
-        .unwrap();
-
-    b.iter(|| {
-        let scope = vm.new_scope_with_builtins();
-        let res: PyResult = vm.run_code_obj(code.clone(), scope);
-        vm.unwrap_pyresult(res);
-    })
+    bench_rustpy(b, "nbody.py", NBODY)
 }
 
 #[bench]
 fn bench_rustpy_mandelbrot(b: &mut test::Bencher) {
-    // NOTE: Take long time.
-    let source = include_str!("./benchmarks/mandelbrot.py");
-
-    let vm = VirtualMachine::default();
-
-    let code = vm
-        .compile(source, compile::Mode::Exec, "<stdin>".to_owned())
-        .unwrap();
-
-    b.iter(|| {
-        let scope = vm.new_scope_with_builtins();
-        let res: PyResult = vm.run_code_obj(code.clone(), scope);
-        vm.unwrap_pyresult(res);
-    })
+    bench_rustpy(b, "mandelbrot.py", MANDELBROT)
 }

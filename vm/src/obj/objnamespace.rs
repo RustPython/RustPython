@@ -6,18 +6,17 @@ use crate::vm::VirtualMachine;
 /// A simple attribute-based namespace.
 ///
 /// SimpleNamespace(**kwargs)
-#[pyclass(name = "SimpleNamespace")]
+#[pyclass(module = false, name = "SimpleNamespace")]
 #[derive(Debug)]
 pub struct PyNamespace;
 
 impl PyValue for PyNamespace {
-    const HAVE_DICT: bool = true;
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.namespace_type()
+        vm.ctx.types.namespace_type.clone()
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE, HAS_DICT))]
 impl PyNamespace {
     #[pyslot]
     fn tp_new(cls: PyClassRef, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {

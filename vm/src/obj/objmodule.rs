@@ -7,16 +7,14 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-#[pyclass]
+#[pyclass(module = false, name = "module")]
 #[derive(Debug)]
 pub struct PyModule {}
 pub type PyModuleRef = PyRef<PyModule>;
 
 impl PyValue for PyModule {
-    const HAVE_DICT: bool = true;
-
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.module_type()
+        vm.ctx.types.module_type.clone()
     }
 }
 
@@ -43,7 +41,7 @@ pub fn init_module_dict(
         .expect("Failed to set __spec__ on module");
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE, HAS_DICT))]
 impl PyModuleRef {
     #[pyslot]
     fn tp_new(cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PyModuleRef> {
@@ -57,6 +55,9 @@ impl PyModuleRef {
         doc: OptionalOption<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        debug_assert!(crate::pyobject::TypeProtocol::lease_class(self.as_object())
+            .flags
+            .has_feature(crate::slots::PyTpFlags::HAS_DICT));
         init_module_dict(
             vm,
             &self.as_object().dict().unwrap(),

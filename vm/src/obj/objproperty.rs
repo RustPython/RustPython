@@ -43,7 +43,7 @@ use crate::vm::VirtualMachine;
 ///     @x.deleter
 ///     def x(self):
 ///         del self._x
-#[pyclass]
+#[pyclass(module = false, name = "property")]
 #[derive(Debug)]
 pub struct PyProperty {
     getter: Option<PyObjectRef>,
@@ -54,7 +54,7 @@ pub struct PyProperty {
 
 impl PyValue for PyProperty {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.property_type()
+        vm.ctx.types.property_type.clone()
     }
 }
 

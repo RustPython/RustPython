@@ -11,7 +11,7 @@ use crate::function::OptionalArg;
 use crate::pyobject::{BorrowValue, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-#[pyclass]
+#[pyclass(module = false, name = "enumerate")]
 #[derive(Debug)]
 pub struct PyEnumerate {
     counter: PyRwLock<BigInt>,
@@ -21,7 +21,7 @@ type PyEnumerateRef = PyRef<PyEnumerate>;
 
 impl PyValue for PyEnumerate {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.enumerate_type()
+        vm.ctx.types.enumerate_type.clone()
     }
 }
 

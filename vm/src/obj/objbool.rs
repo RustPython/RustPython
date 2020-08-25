@@ -53,28 +53,22 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
 
             get_value(&bool_obj)
         }
-        None => match vm.get_method(obj.clone(), "__len__") {
+        None => match vm.get_method(obj, "__len__") {
             Some(method_or_err) => {
                 let method = method_or_err?;
                 let bool_obj = vm.invoke(&method, PyFuncArgs::default())?;
-                match bool_obj.payload::<PyInt>() {
-                    Some(int_obj) => {
-                        let len_val = int_obj.borrow_value();
-                        if len_val.sign() == Sign::Minus {
-                            return Err(
-                                vm.new_value_error("__len__() should return >= 0".to_owned())
-                            );
-                        }
+                let int_obj = bool_obj.payload::<PyInt>().ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "'{}' object cannot be interpreted as an integer",
+                        bool_obj.lease_class().name
+                    ))
+                })?;
 
-                        !len_val.is_zero()
-                    }
-                    None => {
-                        return Err(vm.new_type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
-                            bool_obj.lease_class().name
-                        )))
-                    }
+                let len_val = int_obj.borrow_value();
+                if len_val.sign() == Sign::Minus {
+                    return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
                 }
+                !len_val.is_zero()
             }
             None => true,
         },
@@ -87,8 +81,8 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
 /// Returns True when the argument x is true, False otherwise.
 /// The builtins True and False are the only two instances of the class bool.
 /// The class bool is a subclass of the class int, and cannot be subclassed.
-#[pyclass]
-struct PyBool;
+#[pyclass(name = "bool", module = false)]
+pub(crate) struct PyBool;
 
 #[pyimpl]
 impl PyBool {
@@ -120,7 +114,7 @@ impl PyBool {
             let rhs = get_value(&rhs);
             (lhs || rhs).into_pyobject(vm)
         } else {
-            get_py_int(&lhs).or(rhs.clone(), vm).into_pyobject(vm)
+            get_py_int(&lhs).or(rhs, vm).into_pyobject(vm)
         }
     }
 
@@ -134,7 +128,7 @@ impl PyBool {
             let rhs = get_value(&rhs);
             (lhs && rhs).into_pyobject(vm)
         } else {
-            get_py_int(&lhs).and(rhs.clone(), vm).into_pyobject(vm)
+            get_py_int(&lhs).and(rhs, vm).into_pyobject(vm)
         }
     }
 
@@ -148,22 +142,21 @@ impl PyBool {
             let rhs = get_value(&rhs);
             (lhs ^ rhs).into_pyobject(vm)
         } else {
-            get_py_int(&lhs).xor(rhs.clone(), vm).into_pyobject(vm)
+            get_py_int(&lhs).xor(rhs, vm).into_pyobject(vm)
         }
     }
 
     #[pyslot]
     fn tp_new(zelf: PyObjectRef, x: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&zelf, &vm.ctx.types.type_type) {
-            let zelf_typ = zelf.class();
-            let actual_type = vm.to_pystr(&zelf_typ)?;
+            let actual_type = &zelf.class().name;
             return Err(vm.new_type_error(format!(
                 "requires a 'type' object but received a '{}'",
                 actual_type
             )));
         }
         let val = match x {
-            OptionalArg::Present(val) => boolval(vm, val.clone())?,
+            OptionalArg::Present(val) => boolval(vm, val)?,
             OptionalArg::Missing => false,
         };
         Ok(vm.ctx.new_bool(val))

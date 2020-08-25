@@ -1,5 +1,5 @@
 use super::objbool;
-use super::objdict::PyDictRef;
+use super::objdict::{PyDict, PyDictRef};
 use super::objlist::PyList;
 use super::objstr::PyStringRef;
 use super::objtype::PyClassRef;
@@ -13,13 +13,13 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 /// The most base type
-#[pyclass]
+#[pyclass(module = false, name = "object")]
 #[derive(Debug)]
 pub struct PyBaseObject;
 
 impl PyValue for PyBaseObject {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.object()
+        vm.ctx.types.object_type.clone()
     }
 }
 
@@ -29,7 +29,7 @@ impl PyBaseObject {
     fn tp_new(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
         // more or less __new__ operator
         let cls = PyClassRef::try_from_object(vm, args.shift())?;
-        let dict = if cls.is(&vm.ctx.object()) {
+        let dict = if cls.is(&vm.ctx.types.object_type) {
             None
         } else {
             Some(vm.ctx.new_dict())
@@ -103,7 +103,7 @@ impl PyBaseObject {
     fn delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(attr) = obj.get_class_attr(attr_name.borrow_value()) {
             if let Some(descriptor) = attr.get_class_attr("__delete__") {
-                return vm.invoke(&descriptor, vec![attr, obj.clone()]).map(|_| ());
+                return vm.invoke(&descriptor, vec![attr, obj]).map(|_| ());
             }
         }
 
@@ -147,14 +147,11 @@ impl PyBaseObject {
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let attributes: PyAttributes = obj.class().get_attributes();
 
-        let dict = PyDictRef::from_attributes(attributes, vm)?;
+        let dict = PyDict::from_attributes(attributes, vm)?.into_ref(vm);
 
         // Get instance attributes:
         if let Some(object_dict) = obj.dict() {
-            vm.invoke(
-                &vm.get_attribute(dict.clone().into_object(), "update")?,
-                object_dict.into_object(),
-            )?;
+            vm.call_method(dict.as_object(), "update", vec![object_dict.into_object()])?;
         }
 
         let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k).collect();
@@ -197,7 +194,7 @@ impl PyBaseObject {
                     Ok(())
                 }
                 Err(value) => {
-                    let type_repr = vm.to_pystr(&value.class())?;
+                    let type_repr = &value.class().name;
                     Err(vm.new_type_error(format!(
                         "__class__ must be set to a class, not '{}' object",
                         type_repr
@@ -209,26 +206,6 @@ impl PyBaseObject {
                 "__class__ assignment only supported for types without a payload".to_owned(),
             ))
         }
-    }
-
-    #[pyproperty(magic)]
-    fn dict(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        object.dict().ok_or_else(|| {
-            vm.new_attribute_error(format!(
-                "'{}' object has no attribute '__dict__'",
-                object.lease_class().name
-            ))
-        })
-    }
-
-    #[pyproperty(magic, setter)]
-    fn set_dict(instance: PyObjectRef, value: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
-        instance.set_dict(value).map_err(|_| {
-            vm.new_attribute_error(format!(
-                "'{}' object has no attribute '__dict__'",
-                instance.lease_class().name
-            ))
-        })
     }
 
     #[pymethod(magic)]
@@ -254,6 +231,15 @@ impl PyBaseObject {
     }
 }
 
+pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    obj.dict()
+        .ok_or_else(|| vm.new_attribute_error("This object has no __dict__".to_owned()))
+}
+pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+    obj.set_dict(dict)
+        .map_err(|_| vm.new_attribute_error("This object has no __dict__".to_owned()))
+}
+
 #[cfg_attr(feature = "flame-it", flame)]
 pub(crate) fn setattr(
     obj: PyObjectRef,
@@ -265,9 +251,7 @@ pub(crate) fn setattr(
 
     if let Some(attr) = obj.get_class_attr(attr_name.borrow_value()) {
         if let Some(descriptor) = attr.get_class_attr("__set__") {
-            return vm
-                .invoke(&descriptor, vec![attr, obj.clone(), value])
-                .map(|_| ());
+            return vm.invoke(&descriptor, vec![attr, obj, value]).map(|_| ());
         }
     }
 

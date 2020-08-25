@@ -14,7 +14,7 @@ use std::io;
 use winapi::shared::winerror;
 use winreg::{enums::RegType, RegKey, RegValue};
 
-#[pyclass]
+#[pyclass(module = "winreg", name = "HKEYType")]
 #[derive(Debug)]
 struct PyHKEY {
     key: PyRwLock<RegKey>,

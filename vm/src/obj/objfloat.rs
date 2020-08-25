@@ -19,7 +19,7 @@ use crate::vm::VirtualMachine;
 use rustpython_common::{float_ops, hash};
 
 /// Convert a string or number to a floating point number, if possible.
-#[pyclass(name = "float")]
+#[pyclass(module = false, name = "float")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyFloat {
     value: f64,
@@ -33,7 +33,7 @@ impl PyFloat {
 
 impl PyValue for PyFloat {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.float_type()
+        vm.ctx.types.float_type.clone()
     }
 }
 

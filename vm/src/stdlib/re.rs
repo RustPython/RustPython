@@ -16,7 +16,7 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{BorrowValue, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromObject};
 use crate::vm::VirtualMachine;
 
-#[pyclass(name = "Pattern")]
+#[pyclass(module = "re", name = "Pattern")]
 #[derive(Debug)]
 struct PyPattern {
     regex: Regex,
@@ -69,7 +69,7 @@ impl PyValue for PyPattern {
 }
 
 /// Inner data for a match object.
-#[pyclass(name = "Match")]
+#[pyclass(module = "re", name = "Match")]
 struct PyMatch {
     haystack: PyStringRef,
     captures: Vec<Option<Range<usize>>>,

@@ -25,7 +25,7 @@ use rustpython_common::hash::PyHash;
 /// start defaults to 0, and stop is omitted!  range(4) produces 0, 1, 2, 3.
 /// These are exactly the valid indices for a list of 4 elements.
 /// When step is given, it specifies the increment (or decrement).
-#[pyclass]
+#[pyclass(module = false, name = "range")]
 #[derive(Debug, Clone)]
 pub struct PyRange {
     pub start: PyIntRef,
@@ -35,7 +35,7 @@ pub struct PyRange {
 
 impl PyValue for PyRange {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.range_type()
+        vm.ctx.types.range_type.clone()
     }
 }
 
@@ -125,7 +125,7 @@ pub fn get_value(obj: &PyObjectRef) -> PyRange {
 
 pub fn init(context: &PyContext) {
     PyRange::extend_class(context, &context.types.range_type);
-    PyRangeIterator::extend_class(context, &context.types.rangeiterator_type);
+    PyRangeIterator::extend_class(context, &context.types.range_iterator_type);
 }
 
 type PyRangeRef = PyRef<PyRange>;
@@ -309,7 +309,7 @@ impl PyRange {
             .map(|x| x.as_object().clone())
             .collect();
         let range_paramters_tuple = PyTuple::from(range_paramters);
-        (vm.ctx.range_type(), range_paramters_tuple)
+        (vm.ctx.types.range_type.clone(), range_paramters_tuple)
     }
 
     #[pymethod(name = "index")]
@@ -400,7 +400,7 @@ impl PyRange {
     }
 }
 
-#[pyclass]
+#[pyclass(module = false, name = "range_iterator")]
 #[derive(Debug)]
 pub struct PyRangeIterator {
     position: AtomicCell<usize>,
@@ -409,7 +409,7 @@ pub struct PyRangeIterator {
 
 impl PyValue for PyRangeIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.rangeiterator_type()
+        vm.ctx.types.range_iterator_type.clone()
     }
 }
 

@@ -9,7 +9,7 @@ use crate::vm::VirtualMachine;
 
 use crossbeam_utils::atomic::AtomicCell;
 
-#[pyclass(name = "async_generator")]
+#[pyclass(name = "async_generator", module = false)]
 #[derive(Debug)]
 pub struct PyAsyncGen {
     inner: Coro,
@@ -114,7 +114,7 @@ impl PyAsyncGen {
     }
 }
 
-#[pyclass(name = "async_generator_wrapped_value")]
+#[pyclass(module = false, name = "async_generator_wrapped_value")]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenWrappedValue(pub PyObjectRef);
 impl PyValue for PyAsyncGenWrappedValue {
@@ -122,6 +122,9 @@ impl PyValue for PyAsyncGenWrappedValue {
         vm.ctx.types.async_generator_wrapped_value.clone()
     }
 }
+
+#[pyimpl]
+impl PyAsyncGenWrappedValue {}
 
 impl PyAsyncGenWrappedValue {
     fn unbox(ag: &PyAsyncGen, val: PyResult, vm: &VirtualMachine) -> PyResult {
@@ -155,9 +158,9 @@ enum AwaitableState {
     Closed,
 }
 
-#[pyclass(name = "async_generator_asend")]
+#[pyclass(module = false, name = "async_generator_asend")]
 #[derive(Debug)]
-struct PyAsyncGenASend {
+pub(crate) struct PyAsyncGenASend {
     ag: PyAsyncGenRef,
     state: AtomicCell<AwaitableState>,
     value: PyObjectRef,
@@ -250,9 +253,9 @@ impl PyAsyncGenASend {
     }
 }
 
-#[pyclass(name = "async_generator_athrow")]
+#[pyclass(module = false, name = "async_generator_athrow")]
 #[derive(Debug)]
-struct PyAsyncGenAThrow {
+pub(crate) struct PyAsyncGenAThrow {
     ag: PyAsyncGenRef,
     aclose: bool,
     state: AtomicCell<AwaitableState>,

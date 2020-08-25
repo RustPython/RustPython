@@ -40,7 +40,7 @@ use rustpython_common::hash;
 /// Base 0 means to interpret the base from the string as an integer literal.
 /// >>> int('0b100', base=0)
 /// 4
-#[pyclass]
+#[pyclass(module = false, name = "int")]
 #[derive(Debug)]
 pub struct PyInt {
     value: BigInt,
@@ -73,7 +73,7 @@ where
 
 impl PyValue for PyInt {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.int_type()
+        vm.ctx.types.int_type.clone()
     }
 
     fn into_simple_object(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -239,7 +239,7 @@ impl PyInt {
     where
         T: Into<BigInt> + ToPrimitive,
     {
-        if cls.is(&vm.ctx.int_type()) {
+        if cls.is(&vm.ctx.types.int_type) {
             Ok(vm.ctx.new_int(value).downcast().unwrap())
         } else {
             PyInt::from(value).into_ref_with_type(vm, cls)
@@ -496,14 +496,13 @@ impl PyInt {
             OptionalArg::Missing => (),
             OptionalArg::Present(ref value) => {
                 if !vm.get_none().is(value) {
-                    if let Some(_ndigits) = value.payload_if_subclass::<PyInt>(vm) {
-                        // Only accept int type ndigits
-                    } else {
-                        return Err(vm.new_type_error(format!(
+                    // Only accept int type ndigits
+                    let _ndigits = value.payload_if_subclass::<PyInt>(vm).ok_or_else(|| {
+                        vm.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",
                             value.lease_class().name
-                        )));
-                    }
+                        ))
+                    })?;
                 } else {
                     return Err(vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
@@ -637,23 +636,15 @@ impl PyInt {
             return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_owned()));
         }
 
-        let byte_len = if let Some(byte_len) = args.length.borrow_value().to_usize() {
-            byte_len
-        } else {
-            return Err(
-                vm.new_overflow_error("Python int too large to convert to C ssize_t".to_owned())
-            );
-        };
+        let byte_len = args.length.borrow_value().to_usize().ok_or_else(|| {
+            vm.new_overflow_error("Python int too large to convert to C ssize_t".to_owned())
+        })?;
 
-        let mut origin_bytes = match args.byteorder.borrow_value() {
-            "big" => match signed {
-                true => value.to_signed_bytes_be(),
-                false => value.to_bytes_be().1,
-            },
-            "little" => match signed {
-                true => value.to_signed_bytes_le(),
-                false => value.to_bytes_le().1,
-            },
+        let mut origin_bytes = match (args.byteorder.borrow_value(), signed) {
+            ("big", true) => value.to_signed_bytes_be(),
+            ("big", false) => value.to_bytes_be().1,
+            ("little", true) => value.to_signed_bytes_le(),
+            ("little", false) => value.to_bytes_le().1,
             _ => {
                 return Err(
                     vm.new_value_error("byteorder must be either 'little' or 'big'".to_owned())
@@ -671,18 +662,19 @@ impl PyInt {
             _ => vec![0u8; byte_len - origin_len],
         };
 
-        let mut bytes = vec![];
-        match args.byteorder.borrow_value() {
+        let bytes = match args.byteorder.borrow_value() {
             "big" => {
-                bytes = append_bytes;
+                let mut bytes = append_bytes;
                 bytes.append(&mut origin_bytes);
+                bytes
             }
             "little" => {
-                bytes = origin_bytes;
+                let mut bytes = origin_bytes;
                 bytes.append(&mut append_bytes);
+                bytes
             }
-            _ => (),
-        }
+            _ => Vec::new(),
+        };
         Ok(bytes.into())
     }
     #[pyproperty]

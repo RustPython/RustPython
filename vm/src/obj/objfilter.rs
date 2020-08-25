@@ -10,7 +10,7 @@ pub type PyFilterRef = PyRef<PyFilter>;
 ///
 /// Return an iterator yielding those items of iterable for which function(item)
 /// is true. If function is None, return the items that are true.
-#[pyclass]
+#[pyclass(module = false, name = "filter")]
 #[derive(Debug)]
 pub struct PyFilter {
     predicate: PyObjectRef,
@@ -19,7 +19,7 @@ pub struct PyFilter {
 
 impl PyValue for PyFilter {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.filter_type()
+        vm.ctx.types.filter_type.clone()
     }
 }
 
@@ -35,7 +35,7 @@ impl PyFilter {
         let iterator = objiter::get_iter(vm, &iterable)?;
 
         PyFilter {
-            predicate: function.clone(),
+            predicate: function,
             iterator,
         }
         .into_ref_with_type(vm, cls)

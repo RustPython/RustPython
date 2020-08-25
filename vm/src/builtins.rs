@@ -175,13 +175,9 @@ mod decl {
 
     #[pyfunction]
     fn divmod(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.call_or_reflection(
-            a.clone(),
-            b.clone(),
-            "__divmod__",
-            "__rdivmod__",
-            |vm, a, b| Err(vm.new_unsupported_operand_error(a, b, "divmod")),
-        )
+        vm.call_or_reflection(a, b, "__divmod__", "__rdivmod__", |vm, a, b| {
+            Err(vm.new_unsupported_operand_error(a, b, "divmod"))
+        })
     }
 
     #[cfg(feature = "rustpython-compiler")]
@@ -307,7 +303,7 @@ mod decl {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let ret = vm.get_attribute(obj.clone(), attr);
+        let ret = vm.get_attribute(obj, attr);
         if let OptionalArg::Present(default) = default {
             ret.or_else(|ex| catch_attr_exception(ex, default, vm))
         } else {
@@ -322,7 +318,7 @@ mod decl {
 
     #[pyfunction]
     fn hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Err(ex) = vm.get_attribute(obj.clone(), attr) {
+        if let Err(ex) = vm.get_attribute(obj, attr) {
             catch_attr_exception(ex, false, vm)
         } else {
             Ok(true)
@@ -429,9 +425,26 @@ mod decl {
     }
 
     #[pyfunction]
-    fn max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    fn max(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+        let default = args.take_keyword("default");
+        let key_func = args.take_keyword("key");
+        if !args.kwargs.is_empty() {
+            let invalid_keyword = args.kwargs.get_index(0).unwrap();
+            return Err(vm.new_type_error(format!(
+                "'{}' is an invalid keyword argument for max()",
+                invalid_keyword.0
+            )));
+        }
         let candidates = match args.args.len().cmp(&1) {
-            std::cmp::Ordering::Greater => args.args.clone(),
+            std::cmp::Ordering::Greater => {
+                if default.is_some() {
+                    return Err(vm.new_type_error(
+                        "Cannot specify a default for max() with multiple positional arguments"
+                            .to_owned(),
+                    ));
+                }
+                args.args.clone()
+            }
             std::cmp::Ordering::Equal => vm.extract_elements(&args.args[0])?,
             std::cmp::Ordering::Less => {
                 // zero arguments means type error:
@@ -440,12 +453,9 @@ mod decl {
         };
 
         if candidates.is_empty() {
-            let default = args.get_optional_kwarg("default");
             return default
                 .ok_or_else(|| vm.new_value_error("max() arg is an empty sequence".to_owned()));
         }
-
-        let key_func = args.get_optional_kwarg("key");
 
         // Start with first assumption:
         let mut candidates_iter = candidates.into_iter();
@@ -453,14 +463,22 @@ mod decl {
         // TODO: this key function looks pretty duplicate. Maybe we can create
         // a local function?
         let mut x_key = if let Some(ref f) = &key_func {
-            vm.invoke(f, vec![x.clone()])?
+            if vm.is_none(f) {
+                x.clone()
+            } else {
+                vm.invoke(f, vec![x.clone()])?
+            }
         } else {
             x.clone()
         };
 
         for y in candidates_iter {
             let y_key = if let Some(ref f) = &key_func {
-                vm.invoke(f, vec![y.clone()])?
+                if vm.is_none(f) {
+                    y.clone()
+                } else {
+                    vm.invoke(f, vec![y.clone()])?
+                }
             } else {
                 y.clone()
             };
@@ -533,7 +551,7 @@ mod decl {
                 if objtype::isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
                     match default_value {
                         OptionalArg::Missing => Err(value),
-                        OptionalArg::Present(value) => Ok(value.clone()),
+                        OptionalArg::Present(value) => Ok(value),
                     }
                 } else {
                     Err(value)
@@ -595,7 +613,7 @@ mod decl {
     ) -> PyResult {
         match mod_value {
             OptionalArg::Missing => {
-                vm.call_or_reflection(x.clone(), y.clone(), "__pow__", "__rpow__", |vm, x, y| {
+                vm.call_or_reflection(x, y, "__pow__", "__rpow__", |vm, x, y| {
                     Err(vm.new_unsupported_operand_error(x, y, "pow"))
                 })
             }
@@ -736,11 +754,10 @@ mod decl {
 
     #[pyfunction]
     fn sorted(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-        let iterable = args.take_positional();
-        if iterable.is_none() {
-            return Err(vm.new_type_error("sorted expected 1 arguments, got 0".to_string()));
-        }
-        let items = vm.extract_elements(&iterable.unwrap())?;
+        let iterable = args
+            .take_positional()
+            .ok_or_else(|| vm.new_type_error("sorted expected 1 arguments, got 0".to_string()))?;
+        let items = vm.extract_elements(&iterable)?;
         let lst = vm.ctx.new_list(items);
 
         vm.call_method(&lst, "sort", args)?;
@@ -789,7 +806,7 @@ mod decl {
         let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
             PyClassRef::try_from_object(vm, metaclass)?
         } else {
-            vm.get_type()
+            vm.ctx.types.type_type.clone()
         };
 
         for base in bases.clone() {
@@ -870,31 +887,31 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
         "__name__" => ctx.new_str(String::from("__main__")),
 
-        "bool" => ctx.bool_type(),
-        "bytearray" => ctx.bytearray_type(),
-        "bytes" => ctx.bytes_type(),
-        "classmethod" => ctx.classmethod_type(),
-        "complex" => ctx.complex_type(),
-        "dict" => ctx.dict_type(),
-        "enumerate" => ctx.enumerate_type(),
-        "float" => ctx.float_type(),
-        "frozenset" => ctx.frozenset_type(),
-        "filter" => ctx.filter_type(),
-        "int" => ctx.int_type(),
-        "list" => ctx.list_type(),
-        "map" => ctx.map_type(),
-        "memoryview" => ctx.memoryview_type(),
-        "object" => ctx.object(),
-        "property" => ctx.property_type(),
-        "range" => ctx.range_type(),
-        "set" => ctx.set_type(),
-        "slice" => ctx.slice_type(),
-        "staticmethod" => ctx.staticmethod_type(),
-        "str" => ctx.str_type(),
-        "super" => ctx.super_type(),
-        "tuple" => ctx.tuple_type(),
-        "type" => ctx.type_type(),
-        "zip" => ctx.zip_type(),
+        "bool" => ctx.types.bool_type.clone(),
+        "bytearray" => ctx.types.bytearray_type.clone(),
+        "bytes" => ctx.types.bytes_type.clone(),
+        "classmethod" => ctx.types.classmethod_type.clone(),
+        "complex" => ctx.types.complex_type.clone(),
+        "dict" => ctx.types.dict_type.clone(),
+        "enumerate" => ctx.types.enumerate_type.clone(),
+        "float" => ctx.types.float_type.clone(),
+        "frozenset" => ctx.types.frozenset_type.clone(),
+        "filter" => ctx.types.filter_type.clone(),
+        "int" => ctx.types.int_type.clone(),
+        "list" => ctx.types.list_type.clone(),
+        "map" => ctx.types.map_type.clone(),
+        "memoryview" => ctx.types.memoryview_type.clone(),
+        "object" => ctx.types.object_type.clone(),
+        "property" => ctx.types.property_type.clone(),
+        "range" => ctx.types.range_type.clone(),
+        "set" => ctx.types.set_type.clone(),
+        "slice" => ctx.types.slice_type.clone(),
+        "staticmethod" => ctx.types.staticmethod_type.clone(),
+        "str" => ctx.types.str_type.clone(),
+        "super" => ctx.types.super_type.clone(),
+        "tuple" => ctx.types.tuple_type.clone(),
+        "type" => ctx.types.type_type.clone(),
+        "zip" => ctx.types.zip_type.clone(),
 
         // Constants
         "NotImplemented" => ctx.not_implemented(),

@@ -21,7 +21,7 @@ pub type SetContentType = dictdatatype::Dict<()>;
 /// set(iterable) -> new set object
 ///
 /// Build an unordered collection of unique elements.
-#[pyclass]
+#[pyclass(module = false, name = "set")]
 #[derive(Default)]
 pub struct PySet {
     inner: PySetInner,
@@ -32,7 +32,7 @@ pub type PySetRef = PyRef<PySet>;
 /// frozenset(iterable) -> frozenset object
 ///
 /// Build an immutable unordered collection of unique elements.
-#[pyclass]
+#[pyclass(module = false, name = "frozenset")]
 #[derive(Default)]
 pub struct PyFrozenSet {
     inner: PySetInner,
@@ -55,13 +55,13 @@ impl fmt::Debug for PyFrozenSet {
 
 impl PyValue for PySet {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.set_type()
+        vm.ctx.types.set_type.clone()
     }
 }
 
 impl PyValue for PyFrozenSet {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.frozenset_type()
+        vm.ctx.types.frozenset_type.clone()
     }
 }
 
@@ -266,11 +266,11 @@ impl PySetInner {
     }
 
     fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.content.delete(vm, &item)
+        self.content.delete(vm, item)
     }
 
     fn discard(&self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.content.delete_if_exists(vm, &item)
+        self.content.delete_if_exists(vm, item)
     }
 
     fn clear(&self) {
@@ -824,8 +824,8 @@ struct SetSizeInfo {
     position: usize,
 }
 
-#[pyclass]
-struct PySetIterator {
+#[pyclass(module = false, name = "set_iterator")]
+pub(crate) struct PySetIterator {
     dict: PyRc<SetContentType>,
     size_info: crossbeam_utils::atomic::AtomicCell<SetSizeInfo>,
 }
@@ -833,7 +833,7 @@ struct PySetIterator {
 impl fmt::Debug for PySetIterator {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
-        f.write_str("setiterator")
+        f.write_str("set_iterator")
     }
 }
 
@@ -846,13 +846,13 @@ impl PySetIterator {
         if let Some(set_size) = size_info.size {
             if set_size == self.dict.len() {
                 let index = size_info.position;
-                if let Some(item) = self.dict.keys().get(index) {
-                    size_info.position += 1;
-                    self.size_info.store(size_info);
-                    return Ok(item.clone());
-                } else {
-                    return Err(objiter::new_stop_iteration(vm));
-                }
+                let keys = self.dict.keys();
+                let item = keys
+                    .get(index)
+                    .ok_or_else(|| objiter::new_stop_iteration(vm))?;
+                size_info.position += 1;
+                self.size_info.store(size_info);
+                return Ok(item.clone());
             } else {
                 size_info.size = None;
                 self.size_info.store(size_info);
@@ -877,12 +877,12 @@ impl PySetIterator {
 
 impl PyValue for PySetIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.setiterator_type()
+        vm.ctx.types.set_iterator_type.clone()
     }
 }
 
 pub fn init(context: &PyContext) {
     PySet::extend_class(context, &context.types.set_type);
     PyFrozenSet::extend_class(context, &context.types.frozenset_type);
-    PySetIterator::extend_class(context, &context.types.setiterator_type);
+    PySetIterator::extend_class(context, &context.types.set_iterator_type);
 }

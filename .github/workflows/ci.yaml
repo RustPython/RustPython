@@ -6,7 +6,7 @@ on:
 name: CI
 
 env:
-  CARGO_ARGS: --all --features ssl
+  CARGO_ARGS: --features "ssl jit"
 
 jobs:
   rust_tests:
@@ -112,6 +112,11 @@ jobs:
         with:
           command: clippy
           args: ${{ env.CARGO_ARGS }} -- -Dwarnings
+      - name: run clippy on wasm
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
       - uses: actions/setup-python@v1
         with:
           python-version: 3.8

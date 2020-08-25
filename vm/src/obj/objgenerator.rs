@@ -12,7 +12,7 @@ use crate::vm::VirtualMachine;
 
 pub type PyGeneratorRef = PyRef<PyGenerator>;
 
-#[pyclass(name = "generator")]
+#[pyclass(module = false, name = "generator")]
 #[derive(Debug)]
 pub struct PyGenerator {
     inner: Coro,
@@ -20,7 +20,7 @@ pub struct PyGenerator {
 
 impl PyValue for PyGenerator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.generator_type()
+        vm.ctx.types.generator_type.clone()
     }
 }
 

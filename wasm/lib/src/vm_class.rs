@@ -12,7 +12,7 @@ use rustpython_vm::scope::{NameProtocol, Scope};
 use rustpython_vm::{InitParameter, PySettings, VirtualMachine};
 
 use crate::browser_module::setup_browser_module;
-use crate::convert::{self, JsHandle, PyResultExt};
+use crate::convert::{self, PyResultExt};
 use crate::js_module;
 use crate::wasm_builtins;
 use rustpython_compiler::mode::Mode;
@@ -227,9 +227,8 @@ impl WASMVirtualMachine {
                     _ => return Err(error()),
                 }
             } else if stdout.is_function() {
-                let func_handle = JsHandle::new(stdout);
+                let func = js_sys::Function::from(stdout);
                 make_stdout_object(vm, move |data, vm| {
-                    let func = js_sys::Function::from(func_handle.get());
                     func.call1(&JsValue::UNDEFINED, &data.into())
                         .map_err(|err| convert::js_py_typeerror(vm, err))?;
                     Ok(())
