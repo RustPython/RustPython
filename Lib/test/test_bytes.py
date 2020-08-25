@@ -165,8 +165,6 @@ class BaseBytesTest:
         self.assertEqual(self.type2test(b'0'), b'0')
         self.assertRaises(OverflowError, self.type2test, sys.maxsize + 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor_type_errors(self):
         self.assertRaises(TypeError, self.type2test, 0.0)
         class C:
