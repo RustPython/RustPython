@@ -9,6 +9,8 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objasyncgenerator::PyAsyncGen;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objgenerator::PyGenerator;
+#[cfg(feature = "jit")]
+use crate::pyobject::IntoPyObject;
 use crate::pyobject::{
     BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue, TypeProtocol,
@@ -17,6 +19,10 @@ use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
 use crate::VirtualMachine;
 use itertools::Itertools;
+#[cfg(feature = "jit")]
+use rustpython_common::cell::OnceCell;
+#[cfg(feature = "jit")]
+use rustpython_jit::CompiledCode;
 
 pub type PyFunctionRef = PyRef<PyFunction>;
 
@@ -24,6 +30,8 @@ pub type PyFunctionRef = PyRef<PyFunction>;
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyCodeRef,
+    #[cfg(feature = "jit")]
+    jitted_code: OnceCell<CompiledCode>,
     scope: Scope,
     defaults: Option<PyTupleRef>,
     kw_only_defaults: Option<PyDictRef>,
@@ -54,6 +62,8 @@ impl PyFunction {
     ) -> Self {
         PyFunction {
             code,
+            #[cfg(feature = "jit")]
+            jitted_code: OnceCell::new(),
             scope,
             defaults,
             kw_only_defaults,
@@ -223,6 +233,11 @@ impl PyFunction {
         scope: &Scope,
         vm: &VirtualMachine,
     ) -> PyResult {
+        #[cfg(feature = "jit")]
+        if let Some(jitted_code) = self.jitted_code.get() {
+            return Ok(jitted_code.invoke().into_pyobject(vm));
+        }
+
         let code = &self.code;
 
         let scope = if self.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
@@ -284,6 +299,17 @@ impl PyFunction {
     #[pyproperty(magic)]
     fn globals(&self) -> PyDictRef {
         self.scope.globals.clone()
+    }
+
+    #[cfg(feature = "jit")]
+    #[pymethod(magic)]
+    fn jit(&self, vm: &VirtualMachine) -> PyResult<()> {
+        self.jitted_code
+            .get_or_try_init(|| {
+                rustpython_jit::compile(&self.code.code)
+                    .map_err(|err| vm.new_runtime_error(err.to_string()))
+            })
+            .map(drop)
     }
 }
 
