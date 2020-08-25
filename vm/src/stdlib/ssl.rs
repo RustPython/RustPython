@@ -1,18 +1,20 @@
+use super::os::PyPathLike;
 use super::socket::PySocketRef;
 use crate::builtins::bytearray::PyByteArrayRef;
 use crate::builtins::pystr::PyStrRef;
 use crate::builtins::{pytype::PyTypeRef, weakref::PyWeak};
 use crate::byteslike::PyBytesLike;
-use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
-use crate::function::OptionalArg;
+use crate::function::{OptionalArg, OptionalOption};
 use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult,
-    PyValue, StaticType,
+    BorrowValue, Either, IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef,
+    PyResult, PyValue, StaticType,
 };
 use crate::types::create_simple_type;
 use crate::VirtualMachine;
 
+use crossbeam_utils::atomic::AtomicCell;
 use foreign_types_shared::{ForeignType, ForeignTypeRef};
 use openssl::{
     asn1::{Asn1Object, Asn1ObjectRef},
@@ -24,6 +26,7 @@ use openssl::{
 use std::convert::TryFrom;
 use std::ffi::{CStr, CString};
 use std::fmt;
+use std::time::Instant;
 
 mod sys {
     #![allow(non_camel_case_types, unused)]
@@ -231,7 +234,7 @@ fn _ssl_rand_pseudo_bytes(n: i32, vm: &VirtualMachine) -> PyResult<(Vec<u8>, boo
 #[pyclass(module = "ssl", name = "_SSLContext")]
 struct PySslContext {
     ctx: PyRwLock<SslContextBuilder>,
-    check_hostname: bool,
+    check_hostname: AtomicCell<bool>,
 }
 
 impl fmt::Debug for PySslContext {
@@ -246,6 +249,10 @@ impl PyValue for PySslContext {
     }
 }
 
+fn builder_as_ctx(x: &SslContextBuilder) -> &ssl::SslContextRef {
+    unsafe { ssl::SslContextRef::from_ptr(x.as_ptr()) }
+}
+
 #[pyimpl(flags(BASETYPE))]
 impl PySslContext {
     fn builder(&self) -> PyRwLockWriteGuard<'_, SslContextBuilder> {
@@ -256,7 +263,7 @@ impl PySslContext {
         F: Fn(&ssl::SslContextRef) -> R,
     {
         let c = self.ctx.read();
-        func(unsafe { &**(&*c as *const SslContextBuilder as *const ssl::SslContext) })
+        func(builder_as_ctx(&c))
     }
     fn ptr(&self) -> *mut sys::SSL_CTX {
         (*self.ctx.write()).as_ptr()
@@ -309,7 +316,7 @@ impl PySslContext {
 
         PySslContext {
             ctx: PyRwLock::new(builder),
-            check_hostname,
+            check_hostname: AtomicCell::new(check_hostname),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -340,10 +347,11 @@ impl PySslContext {
     }
     #[pyproperty(setter)]
     fn set_verify_mode(&self, cert: i32, vm: &VirtualMachine) -> PyResult<()> {
+        let mut ctx = self.builder();
         let cert_req = CertRequirements::try_from(cert)
             .map_err(|_| vm.new_value_error("invalid value for verify_mode".to_owned()))?;
         let mode = match cert_req {
-            CertRequirements::None if self.check_hostname => {
+            CertRequirements::None if self.check_hostname.load() => {
                 return Err(vm.new_value_error(
                     "Cannot set verify_mode to CERT_NONE when check_hostname is enabled."
                         .to_owned(),
@@ -353,8 +361,20 @@ impl PySslContext {
             CertRequirements::Optional => SslVerifyMode::PEER,
             CertRequirements::Required => SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT,
         };
-        self.builder().set_verify(mode);
+        ctx.set_verify(mode);
         Ok(())
+    }
+    #[pyproperty]
+    fn check_hostname(&self) -> bool {
+        self.check_hostname.load()
+    }
+    #[pyproperty(setter)]
+    fn set_check_hostname(&self, ch: bool) {
+        let mut ctx = self.builder();
+        if ch && builder_as_ctx(&ctx).verify_mode() == SslVerifyMode::NONE {
+            ctx.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
+        }
+        self.check_hostname.store(ch);
     }
 
     #[pymethod]
@@ -443,6 +463,30 @@ impl PySslContext {
     }
 
     #[pymethod]
+    fn load_cert_chain(
+        &self,
+        certfile: PyPathLike,
+        keyfile: OptionalArg<PyPathLike>,
+        password: OptionalOption<Either<PyStrRef, PyCallable>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // TODO: requires passing a callback to C
+        if password.flatten().is_some() {
+            return Err(vm.new_not_implemented_error("password arg not yet supported".to_owned()));
+        }
+        let mut ctx = self.builder();
+        ctx.set_certificate_chain_file(&certfile)
+            .and_then(|()| {
+                ctx.set_private_key_file(
+                    keyfile.as_ref().unwrap_or(&certfile),
+                    ssl::SslFiletype::PEM,
+                )
+            })
+            .and_then(|()| ctx.check_private_key())
+            .map_err(|e| convert_openssl_error(vm, e))
+    }
+
+    #[pymethod]
     fn _wrap_socket(
         zelf: PyRef<Self>,
         args: WrapSocketArgs,
@@ -471,7 +515,7 @@ impl PySslContext {
 
         Ok(PySslSocket {
             ctx: zelf,
-            stream: PyRwLock::new(Some(stream)),
+            stream: PyRwLock::new(stream),
             socket_type,
             server_hostname: args.server_hostname,
             owner: PyRwLock::new(args.owner.as_ref().map(PyWeak::downgrade)),
@@ -507,7 +551,7 @@ struct LoadVerifyLocationsArgs {
 #[pyclass(module = "ssl", name = "_SSLSocket")]
 struct PySslSocket {
     ctx: PyRef<PySslContext>,
-    stream: PyRwLock<Option<ssl::SslStreamBuilder<PySocketRef>>>,
+    stream: PyRwLock<ssl::SslStreamBuilder<PySocketRef>>,
     socket_type: SslServerOrClient,
     server_hostname: Option<PyStrRef>,
     owner: PyRwLock<Option<PyWeak>>,
@@ -527,20 +571,19 @@ impl PyValue for PySslSocket {
 
 #[pyimpl]
 impl PySslSocket {
-    fn stream_builder(&self) -> ssl::SslStreamBuilder<PySocketRef> {
-        std::mem::replace(&mut *self.stream.write(), None).unwrap()
-    }
-    fn exec_stream<F, R>(&self, func: F) -> R
-    where
-        F: Fn(&mut ssl::SslStream<PySocketRef>) -> R,
-    {
-        let mut b = self.stream.write();
-        func(unsafe {
-            &mut *(b.as_mut().unwrap() as *mut ssl::SslStreamBuilder<_> as *mut ssl::SslStream<_>)
+    fn stream(&self) -> impl std::ops::Deref<Target = ssl::SslStream<PySocketRef>> + '_ {
+        let s = self.stream.read();
+        // SAFETY: SslStreamBuilder is just a wrapper around SslStream
+        PyRwLockReadGuard::map(s, |s| unsafe {
+            &*(s as *const _ as *const ssl::SslStream<_>)
         })
     }
-    fn set_stream(&self, stream: ssl::SslStream<PySocketRef>) {
-        *self.stream.write() = Some(unsafe { std::mem::transmute(stream) });
+    fn stream_mut(&self) -> impl std::ops::DerefMut<Target = ssl::SslStream<PySocketRef>> + '_ {
+        let s = self.stream.write();
+        // SAFETY: SslStreamBuilder is just a wrapper around SslStream
+        PyRwLockWriteGuard::map(s, |s| unsafe {
+            &mut *(s as *mut _ as *mut ssl::SslStream<_>)
+        })
     }
 
     #[pyproperty]
@@ -571,35 +614,58 @@ impl PySslSocket {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         let binary = binary.unwrap_or(false);
-        if !self.exec_stream(|stream| stream.ssl().is_init_finished()) {
+        let stream = self.stream();
+        if !stream.ssl().is_init_finished() {
             return Err(vm.new_value_error("handshake not done yet".to_owned()));
         }
-        self.exec_stream(|stream| stream.ssl().peer_certificate())
+        stream
+            .ssl()
+            .peer_certificate()
             .map(|cert| cert_to_py(vm, &cert, binary))
             .transpose()
     }
 
     #[pymethod]
     fn do_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
-        // Either a stream builder or a mid-handshake stream from WANT_READ or WANT_WRITE
-        let mut handshaker: Either<_, ssl::MidHandshakeSslStream<_>> =
-            Either::A(self.stream_builder());
+        let stream_builder = self.stream.write();
+        let timeout = stream_builder
+            .get_ref()
+            .sock()
+            .read_timeout()
+            .ok()
+            .flatten()
+            .map(|dur| (dur, Instant::now()));
+        let mut stream = unsafe { std::ptr::read(&*stream_builder) };
         loop {
-            let handshake_result = match handshaker {
-                Either::A(s) => s.handshake(),
-                Either::B(s) => s.handshake(),
-            };
-            match handshake_result {
-                Ok(stream) => {
-                    self.set_stream(stream);
+            match stream.handshake() {
+                Ok(s) => {
+                    // s and stream_builder are the same thing
+                    std::mem::forget(s);
                     return Ok(());
                 }
-                Err(ssl::HandshakeError::SetupFailure(e)) => {
-                    return Err(convert_openssl_error(vm, e))
+                Err(ssl::HandshakeError::SetupFailure(_e)) => {
+                    // handshake() error handling code never constructs this
+                    unreachable!();
+                    // return Err(convert_openssl_error(vm, e))
                 }
-                Err(ssl::HandshakeError::WouldBlock(s)) => handshaker = Either::B(s),
+                Err(ssl::HandshakeError::WouldBlock(s)) => {
+                    std::mem::forget(s);
+                    stream = unsafe { std::ptr::read(&*stream_builder) };
+                }
                 Err(ssl::HandshakeError::Failure(s)) => {
-                    return Err(convert_ssl_error(vm, s.into_error()))
+                    let err = convert_ssl_error(vm, s.error());
+                    std::mem::forget(s);
+                    return Err(err);
+                }
+            }
+            if let Some((timeout, ref start)) = timeout {
+                if start.elapsed() >= timeout {
+                    std::mem::forget(stream);
+                    let socket_timeout = vm.class("_socket", "timeout");
+                    return Err(vm.new_exception_msg(
+                        socket_timeout,
+                        "The handshake operation timed out".to_owned(),
+                    ));
                 }
             }
         }
@@ -607,25 +673,42 @@ impl PySslSocket {
 
     #[pymethod]
     fn write(&self, data: PyBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
-        data.with_ref(|b| self.exec_stream(|stream| stream.ssl_write(b)))
+        let mut stream = self.stream_mut();
+        data.with_ref(|b| stream.ssl_write(b))
             .map_err(|e| convert_ssl_error(vm, e))
     }
 
     #[pymethod]
     fn read(&self, n: usize, buffer: OptionalArg<PyByteArrayRef>, vm: &VirtualMachine) -> PyResult {
-        if let OptionalArg::Present(buffer) = buffer {
-            let n = self
-                .exec_stream(|stream| {
-                    let mut buf = buffer.borrow_value_mut();
-                    stream.ssl_read(&mut buf.elements)
-                })
-                .map_err(|e| convert_ssl_error(vm, e))?;
-            Ok(vm.ctx.new_int(n))
+        let mut stream = self.stream_mut();
+        let ret_nread = buffer.is_present();
+        let ssl_res = if let OptionalArg::Present(buffer) = buffer {
+            let mut buf = buffer.borrow_value_mut();
+            stream
+                .ssl_read(&mut buf.elements)
+                .map(|n| vm.ctx.new_int(n))
         } else {
             let mut buf = vec![0u8; n];
-            buf.truncate(n);
-            Ok(vm.ctx.new_bytes(buf))
-        }
+            stream.ssl_read(&mut buf).map(|n| {
+                buf.truncate(n);
+                vm.ctx.new_bytes(buf)
+            })
+        };
+        ssl_res.or_else(|e| {
+            if e.code() == ssl::ErrorCode::ZERO_RETURN
+                && stream.get_shutdown() == ssl::ShutdownState::RECEIVED
+            {
+                Ok(if ret_nread {
+                    vm.ctx.new_int(0)
+                } else {
+                    vm.ctx.new_bytes(vec![])
+                })
+            } else {
+                Err(convert_ssl_error(vm, e))
+            }
+        })
+
+        // .map_err(|e| convert_ssl_error(vm, e))?;
     }
 }
 
@@ -645,15 +728,28 @@ fn convert_openssl_error(vm: &VirtualMachine, err: ErrorStack) -> PyBaseExceptio
             // );
             // TODO: map the error codes to code names, e.g. "CERTIFICATE_VERIFY_FAILED", just requires a big hashmap/dict
             let msg = e.to_string();
-            vm.new_exception_msg(cls, msg)
+            vm.new_exception(cls, vec![vm.ctx.new_int(e.code()), vm.ctx.new_str(msg)])
         }
         None => vm.new_exception_empty(cls),
     }
 }
-fn convert_ssl_error(vm: &VirtualMachine, e: ssl::Error) -> PyBaseExceptionRef {
-    match e.into_io_error() {
-        Ok(io_err) => io_err.into_pyexception(vm),
-        Err(e) => convert_openssl_error(vm, e.ssl_error().unwrap().clone()),
+fn convert_ssl_error(
+    vm: &VirtualMachine,
+    e: impl std::borrow::Borrow<ssl::Error>,
+) -> PyBaseExceptionRef {
+    let e = e.borrow();
+    match e.io_error() {
+        Some(io_err) => io_err.into_pyexception(vm),
+        None => match e.ssl_error() {
+            Some(e) => convert_openssl_error(vm, e.clone()),
+            None => vm.new_exception(
+                ssl_error(vm),
+                vec![
+                    vm.ctx.new_int(e.code().as_raw()),
+                    vm.ctx.new_str(e.to_string()),
+                ],
+            ),
+        },
     }
 }
 
@@ -805,7 +901,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "SSL_ERROR_SYSCALL" => ctx.new_int(sys::SSL_ERROR_SYSCALL),
         "SSL_ERROR_SSL" => ctx.new_int(sys::SSL_ERROR_SSL),
         "SSL_ERROR_WANT_CONNECT" => ctx.new_int(sys::SSL_ERROR_WANT_CONNECT),
-        // "SSL_ERROR_EOF" => ctx.new_int(sys::SSL_ERROR_EOF),
+        "SSL_ERROR_EOF" => ctx.new_int(8), // custom for python
         // "SSL_ERROR_INVALID_ERROR_CODE" => ctx.new_int(sys::SSL_ERROR_INVALID_ERROR_CODE),
         // TODO: so many more of these
         "ALERT_DESCRIPTION_DECODE_ERROR" => ctx.new_int(sys::SSL_AD_DECODE_ERROR),
