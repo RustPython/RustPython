@@ -22,7 +22,17 @@ use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_common::cell::OnceCell;
 #[cfg(feature = "jit")]
-use rustpython_jit::CompiledCode;
+use rustpython_jit::{AbiValue, CompiledCode};
+
+#[cfg(feature = "jit")]
+impl IntoPyObject for AbiValue {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        match self {
+            AbiValue::Int(i) => i.into_pyobject(vm),
+            AbiValue::Float(f) => f.into_pyobject(vm),
+        }
+    }
+}
 
 pub type PyFunctionRef = PyRef<PyFunction>;
 

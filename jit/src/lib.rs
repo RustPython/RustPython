@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::fmt;
 use std::mem;
 
@@ -10,38 +9,16 @@ use rustpython_bytecode::bytecode;
 
 mod instructions;
 
-use self::instructions::FunctionCompiler;
+use instructions::{FunctionCompiler, JitSig, JitType};
 
-#[derive(Debug)]
-pub enum JITCompileError {
+#[derive(Debug, thiserror::Error)]
+pub enum JitCompileError {
+    #[error("function can't be jitted")]
     NotSupported,
+    #[error("bad bytecode")]
     BadBytecode,
-    CraneliftError(ModuleError),
-}
-
-impl From<ModuleError> for JITCompileError {
-    fn from(err: ModuleError) -> Self {
-        JITCompileError::CraneliftError(err)
-    }
-}
-
-impl fmt::Display for JITCompileError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            JITCompileError::NotSupported => f.write_str("Function can't be jitted."),
-            JITCompileError::BadBytecode => f.write_str("Bad bytecode."),
-            JITCompileError::CraneliftError(ref err) => err.fmt(f),
-        }
-    }
-}
-
-impl Error for JITCompileError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match *self {
-            JITCompileError::CraneliftError(ref err) => Some(err),
-            _ => None,
-        }
-    }
+    #[error("error while compiling to machine code: {0}")]
+    CraneliftError(#[from] ModuleError),
 }
 
 struct Jit {
@@ -64,13 +41,24 @@ impl Jit {
     fn build_function(
         &mut self,
         bytecode: &bytecode::CodeObject,
-    ) -> Result<FuncId, JITCompileError> {
-        // currently always returns an int
-        self.ctx
-            .func
-            .signature
-            .returns
-            .push(AbiParam::new(types::I64));
+    ) -> Result<(FuncId, JitSig), JitCompileError> {
+        let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+        let entry_block = builder.create_block();
+        // builder.append_block_params_for_function_params(entry_block);
+        builder.switch_to_block(entry_block);
+        builder.seal_block(entry_block);
+
+        let sig = {
+            let mut compiler = FunctionCompiler::new(&mut builder);
+
+            for instruction in &bytecode.instructions {
+                compiler.add_instruction(instruction)?;
+            }
+
+            compiler.sig
+        };
+
+        builder.finalize();
 
         let id = self.module.declare_function(
             &format!("jit_{}", bytecode.obj_name),
@@ -78,55 +66,59 @@ impl Jit {
             &self.ctx.func.signature,
         )?;
 
-        let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
-        let entry_block = builder.create_block();
-        // builder.append_block_params_for_function_params(entry_block);
-        builder.switch_to_block(entry_block);
-        builder.seal_block(entry_block);
-
-        {
-            let mut compiler = FunctionCompiler::new(&mut builder);
-
-            for instruction in &bytecode.instructions {
-                compiler.add_instruction(instruction)?;
-            }
-        };
-
-        builder.finalize();
-
         self.module
             .define_function(id, &mut self.ctx, &mut codegen::binemit::NullTrapSink {})?;
 
         self.module.clear_context(&mut self.ctx);
 
-        Ok(id)
+        Ok((id, sig))
     }
 }
 
-pub fn compile(bytecode: &bytecode::CodeObject) -> Result<CompiledCode, JITCompileError> {
+pub fn compile(bytecode: &bytecode::CodeObject) -> Result<CompiledCode, JitCompileError> {
     let mut jit = Jit::new();
 
-    let id = jit.build_function(bytecode)?;
+    let (id, sig) = jit.build_function(bytecode)?;
 
     jit.module.finalize_definitions();
 
     let code = jit.module.get_finalized_function(id);
     Ok(CompiledCode {
+        sig,
         code,
         memory: jit.module.finish(),
     })
 }
 
 pub struct CompiledCode {
+    sig: JitSig,
     code: *const u8,
     memory: <SimpleJITBackend as Backend>::Product,
 }
 
 impl CompiledCode {
-    pub fn invoke(&self) -> i64 {
-        let func = unsafe { mem::transmute::<_, fn() -> i64>(self.code) };
-        func()
+    pub fn invoke(&self) -> Option<AbiValue> {
+        match self.sig.ret {
+            Some(JitType::Int) => {
+                let func = unsafe { mem::transmute::<_, fn() -> i64>(self.code) };
+                Some(AbiValue::Int(func()))
+            }
+            Some(JitType::Float) => {
+                let func = unsafe { mem::transmute::<_, fn() -> f64>(self.code) };
+                Some(AbiValue::Float(func()))
+            }
+            None => {
+                let func = unsafe { mem::transmute::<_, fn()>(self.code) };
+                func();
+                None
+            }
+        }
     }
+}
+
+pub enum AbiValue {
+    Float(f64),
+    Int(i64),
 }
 
 unsafe impl Send for CompiledCode {}

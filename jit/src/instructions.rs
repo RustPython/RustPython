@@ -3,12 +3,44 @@ use num_traits::cast::ToPrimitive;
 use rustpython_bytecode::bytecode::{BinaryOperator, Constant, Instruction, NameScope};
 use std::collections::HashMap;
 
-use super::JITCompileError;
+use super::JitCompileError;
+
+#[derive(Default)]
+pub struct JitSig {
+    pub ret: Option<JitType>,
+}
+
+#[derive(Clone, PartialEq)]
+pub enum JitType {
+    Int,
+    Float,
+}
+
+impl JitType {
+    fn to_cranelift(&self) -> types::Type {
+        match self {
+            Self::Int => types::I64,
+            Self::Float => types::F64,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct Local {
+    var: Variable,
+    ty: JitType,
+}
+
+struct JitValue {
+    val: Value,
+    ty: JitType,
+}
 
 pub struct FunctionCompiler<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,
-    stack: Vec<Value>,
-    variables: HashMap<String, Variable>,
+    stack: Vec<JitValue>,
+    variables: HashMap<String, Local>,
+    pub sig: JitSig,
 }
 
 impl<'a, 'b> FunctionCompiler<'a, 'b> {
@@ -17,37 +49,46 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             builder,
             stack: Vec::new(),
             variables: HashMap::new(),
+            sig: JitSig::default(),
         }
     }
 
-    pub fn add_instruction(&mut self, instruction: &Instruction) -> Result<(), JITCompileError> {
+    pub fn add_instruction(&mut self, instruction: &Instruction) -> Result<(), JitCompileError> {
         match instruction {
             Instruction::LoadName {
                 name,
                 scope: NameScope::Local,
             } => {
-                let var = self
+                let local = self
                     .variables
                     .get(name)
-                    .ok_or(JITCompileError::BadBytecode)?;
-                self.stack.push(self.builder.use_var(*var));
+                    .ok_or(JitCompileError::BadBytecode)?;
+                self.stack.push(JitValue {
+                    val: self.builder.use_var(local.var),
+                    ty: local.ty.clone(),
+                });
                 Ok(())
             }
             Instruction::StoreName {
                 name,
                 scope: NameScope::Local,
             } => {
-                let var = match self.variables.get(name) {
-                    Some(var) => *var,
-                    None => {
-                        let var = Variable::new(self.variables.len());
-                        self.variables.insert(name.clone(), var);
-                        self.builder.declare_var(var, types::I64);
-                        var
-                    }
-                };
-                self.builder
-                    .def_var(var, self.stack.pop().ok_or(JITCompileError::BadBytecode)?);
+                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                let len = self.variables.len();
+                let builder = &mut self.builder;
+                let local = self.variables.entry(name.clone()).or_insert_with(|| {
+                    let var = Variable::new(len);
+                    let local = Local {
+                        var,
+                        ty: val.ty.clone(),
+                    };
+                    builder.declare_var(var, val.ty.to_cranelift());
+                    local
+                });
+                if val.ty != local.ty {
+                    return Err(JitCompileError::NotSupported);
+                }
+                self.builder.def_var(local.var, val.val);
                 Ok(())
             }
             Instruction::LoadConst {
@@ -55,45 +96,109 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             } => {
                 let val = self.builder.ins().iconst(
                     types::I64,
-                    value.to_i64().ok_or(JITCompileError::NotSupported)?,
+                    value.to_i64().ok_or(JitCompileError::NotSupported)?,
                 );
-                self.stack.push(val);
+                self.stack.push(JitValue {
+                    val,
+                    ty: JitType::Int,
+                });
+                Ok(())
+            }
+            Instruction::LoadConst {
+                value: Constant::Float { value },
+            } => {
+                let val = self.builder.ins().f64const(*value);
+                self.stack.push(JitValue {
+                    val,
+                    ty: JitType::Float,
+                });
                 Ok(())
             }
             Instruction::ReturnValue => {
-                self.builder
-                    .ins()
-                    .return_(&[self.stack.pop().ok_or(JITCompileError::BadBytecode)?]);
+                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                if let Some(ref ty) = self.sig.ret {
+                    if val.ty != *ty {
+                        return Err(JitCompileError::NotSupported);
+                    }
+                } else {
+                    self.sig.ret = Some(val.ty.clone());
+                    self.builder
+                        .func
+                        .signature
+                        .returns
+                        .push(AbiParam::new(val.ty.to_cranelift()));
+                }
+                self.builder.ins().return_(&[val.val]);
                 Ok(())
             }
             Instruction::BinaryOperation { op, .. } => {
-                let a = self.stack.pop().ok_or(JITCompileError::BadBytecode)?;
-                let b = self.stack.pop().ok_or(JITCompileError::BadBytecode)?;
-                match op {
-                    BinaryOperator::Add => {
-                        let (out, carry) = self.builder.ins().iadd_ifcout(a, b);
-                        self.builder.ins().trapif(
-                            IntCC::Overflow,
-                            carry,
-                            TrapCode::IntegerOverflow,
-                        );
-                        self.stack.push(out);
-                        Ok(())
-                    }
-                    BinaryOperator::Subtract => {
-                        let (out, carry) = self.builder.ins().isub_ifbout(a, b);
-                        self.builder.ins().trapif(
-                            IntCC::Overflow,
-                            carry,
-                            TrapCode::IntegerOverflow,
-                        );
-                        self.stack.push(out);
-                        Ok(())
-                    }
-                    _ => Err(JITCompileError::NotSupported),
+                let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                match (a.ty, b.ty) {
+                    (JitType::Int, JitType::Int) => match op {
+                        BinaryOperator::Add => {
+                            let (out, carry) = self.builder.ins().iadd_ifcout(a.val, b.val);
+                            self.builder.ins().trapif(
+                                IntCC::Overflow,
+                                carry,
+                                TrapCode::IntegerOverflow,
+                            );
+                            self.stack.push(JitValue {
+                                val: out,
+                                ty: JitType::Int,
+                            });
+                            Ok(())
+                        }
+                        BinaryOperator::Subtract => {
+                            let (out, carry) = self.builder.ins().isub_ifbout(a.val, b.val);
+                            self.builder.ins().trapif(
+                                IntCC::Overflow,
+                                carry,
+                                TrapCode::IntegerOverflow,
+                            );
+                            self.stack.push(JitValue {
+                                val: out,
+                                ty: JitType::Int,
+                            });
+                            Ok(())
+                        }
+                        _ => Err(JitCompileError::NotSupported),
+                    },
+                    (JitType::Float, JitType::Float) => match op {
+                        BinaryOperator::Add => {
+                            self.stack.push(JitValue {
+                                val: self.builder.ins().fadd(a.val, b.val),
+                                ty: JitType::Float,
+                            });
+                            Ok(())
+                        }
+                        BinaryOperator::Subtract => {
+                            self.stack.push(JitValue {
+                                val: self.builder.ins().fsub(a.val, b.val),
+                                ty: JitType::Float,
+                            });
+                            Ok(())
+                        }
+                        BinaryOperator::Multiply => {
+                            self.stack.push(JitValue {
+                                val: self.builder.ins().fmul(a.val, b.val),
+                                ty: JitType::Float,
+                            });
+                            Ok(())
+                        }
+                        BinaryOperator::Divide => {
+                            self.stack.push(JitValue {
+                                val: self.builder.ins().fdiv(a.val, b.val),
+                                ty: JitType::Float,
+                            });
+                            Ok(())
+                        }
+                        _ => Err(JitCompileError::NotSupported),
+                    },
+                    _ => Err(JitCompileError::NotSupported),
                 }
             }
-            _ => Err(JITCompileError::NotSupported),
+            _ => Err(JitCompileError::NotSupported),
         }
     }
 }

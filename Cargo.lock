@@ -1541,6 +1541,7 @@ dependencies = [
  "cranelift-simplejit",
  "num-traits",
  "rustpython-bytecode",
+ "thiserror",
 ]
 
 [[package]]
