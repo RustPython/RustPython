@@ -90,6 +90,11 @@ jobs:
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
         if: runner.os == 'macOS'
+      - name: run cpython tests (windows partial - fixme)
+        run: target/release/rustpython -m test -x test_argparse -x test_json -x test_bytes -x test_long -x test_pwd -x test_bool -x test_cgi -x test_complex -x test_exception_hierarchy -x test_glob -x test_importlib -x test_iter -x test_list -x test_os -x test_pathlib -x test_py_compile -x test_set -x test_shutil -x test_sys -x test_unicode -x test_unittest -x test_venv -x test_zipimport -v
+        env:
+          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
+        if: runner.os == 'Windows'
 
   lint:
     name: Check Rust code with rustfmt and clippy
