@@ -62,85 +62,101 @@ impl TryFromObject for PyBytesInner {
 
 #[derive(FromArgs)]
 pub struct ByteInnerNewOptions {
-    #[pyarg(positional_only, optional = true)]
-    val_option: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    source: OptionalArg<PyObjectRef>,
     #[pyarg(positional_or_keyword, optional = true)]
     encoding: OptionalArg<PyStringRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    errors: OptionalArg<PyStringRef>,
 }
 
 impl ByteInnerNewOptions {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        // First handle bytes(string, encoding[, errors])
-        if let OptionalArg::Present(enc) = self.encoding {
-            if let OptionalArg::Present(eval) = self.val_option {
-                if let Ok(input) = eval.downcast::<PyString>() {
-                    let bytes = objstr::encode_string(input, Some(enc), None, vm)?;
-                    Ok(PyBytesInner {
-                        elements: bytes.borrow_value().to_vec(),
-                    })
-                } else {
+        match self.source {
+            OptionalArg::Missing => {
+                if let OptionalArg::Present(_) = self.encoding {
                     Err(vm.new_type_error("encoding without a string argument".to_owned()))
+                } else if let OptionalArg::Present(_) = self.errors {
+                    Err(vm.new_type_error("errors without a string argument".to_owned()))
+                } else {
+                    Ok(PyBytesInner {
+                        elements: Vec::new(),
+                    })
                 }
-            } else {
-                Err(vm.new_type_error("encoding without a string argument".to_owned()))
             }
-        // Only one argument
-        } else {
-            let value = if let OptionalArg::Present(ival) = self.val_option {
-                match_class!(match ival {
-                    i @ PyInt => {
-                        let size =
-                            objint::get_value(&i.into_object())
-                                .to_isize()
-                                .ok_or_else(|| {
-                                    vm.new_overflow_error(
-                                        "cannot fit 'int' into an index-sized integer".to_owned(),
-                                    )
-                                })?;
-                        let size = if size < 0 {
-                            return Err(vm.new_value_error("negative count".to_owned()));
+            OptionalArg::Present(obj) => {
+                match obj.downcast::<PyString>() {
+                    Ok(s) => {
+                        // Handle bytes(string, encoding[, errors])
+                        if let OptionalArg::Present(enc) = self.encoding {
+                            let bytes =
+                                objstr::encode_string(s, Some(enc), self.errors.into_option(), vm)?;
+                            Ok(PyBytesInner {
+                                elements: bytes.borrow_value().to_vec(),
+                            })
                         } else {
-                            size as usize
-                        };
-                        Ok(vec![0; size])
-                    }
-                    _l @ PyString => {
-                        return Err(
-                            vm.new_type_error("string argument without an encoding".to_owned())
-                        );
-                    }
-                    i @ PyBytes => Ok(i.borrow_value().to_vec()),
-                    j @ PyByteArray => Ok(j.borrow_value().elements.to_vec()),
-                    obj => {
-                        // TODO: only support this method in the bytes() constructor
-                        if let Some(bytes_method) = vm.get_method(obj.clone(), "__bytes__") {
-                            let bytes = vm.invoke(&bytes_method?, vec![])?;
-                            return PyBytesInner::try_from_object(vm, bytes);
+                            Err(vm.new_type_error("string argument without an encoding".to_owned()))
                         }
-                        let elements = vm.extract_elements(&obj).map_err(|_| {
-                            vm.new_type_error(format!(
-                                "cannot convert '{}' object to bytes",
-                                obj.class().name
-                            ))
-                        })?;
+                    }
+                    Err(obj) => {
+                        if let OptionalArg::Present(_) = self.encoding {
+                            Err(vm.new_type_error("encoding without a string argument".to_owned()))
+                        } else if let OptionalArg::Present(_) = self.errors {
+                            Err(vm.new_type_error("errors without a string argument".to_owned()))
+                        } else {
+                            let value = match_class!(match obj {
+                                i @ PyInt => {
+                                    let size = objint::get_value(&i.into_object())
+                                        .to_isize()
+                                        .ok_or_else(|| {
+                                            vm.new_overflow_error(
+                                                "cannot fit 'int' into an index-sized integer"
+                                                    .to_owned(),
+                                            )
+                                        })?;
+                                    let size = if size < 0 {
+                                        return Err(vm.new_value_error("negative count".to_owned()));
+                                    } else {
+                                        size as usize
+                                    };
+                                    Ok(vec![0; size])
+                                }
+                                i @ PyBytes => Ok(i.borrow_value().to_vec()),
+                                j @ PyByteArray => Ok(j.borrow_value().elements.to_vec()),
+                                obj => {
+                                    // TODO: only support this method in the bytes() constructor
+                                    if let Some(bytes_method) =
+                                        vm.get_method(obj.clone(), "__bytes__")
+                                    {
+                                        let bytes = vm.invoke(&bytes_method?, vec![])?;
+                                        return PyBytesInner::try_from_object(vm, bytes);
+                                    }
+                                    let elements = vm.extract_elements::<PyIntRef>(&obj)?;
+                                    // TODO: better error message
+                                    // .map_err(|_| {
+                                    //     vm.new_type_error(format!(
+                                    //         "cannot convert '{}' object to bytes",
+                                    //         obj.class().name
+                                    //     ))
+                                    // })?;
 
-                        let mut data_bytes = vec![];
-                        for elem in elements {
-                            let v = objint::to_int(vm, &elem)?;
-                            let i = v.to_u8().ok_or_else(|| {
-                                vm.new_value_error("bytes must be in range(0, 256)".to_owned())
-                            })?;
-                            data_bytes.push(i);
+                                    elements
+                                        .into_iter()
+                                        .map(|elem| {
+                                            elem.borrow_value().to_u8().ok_or_else(|| {
+                                                vm.new_value_error(
+                                                    "bytes must be in range(0, 256)".to_owned(),
+                                                )
+                                            })
+                                        })
+                                        .collect()
+                                }
+                            });
+
+                            value.map(|v| PyBytesInner { elements: v })
                         }
-                        Ok(data_bytes)
                     }
-                })
-            } else {
-                Ok(vec![])
-            };
-            match value {
-                Ok(val) => Ok(PyBytesInner { elements: val }),
-                Err(err) => Err(err),
+                }
             }
         }
     }
