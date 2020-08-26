@@ -61,6 +61,7 @@ pub struct VirtualMachine {
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
+    pub skip_tracing_next: Cell<bool>,
     pub recursion_limit: Cell<usize>,
     pub signal_handlers: Option<Box<RefCell<[PyObjectRef; NSIG]>>>,
     pub repr_guards: RefCell<HashSet<usize>>,
@@ -198,6 +199,7 @@ impl VirtualMachine {
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
+            skip_tracing_next: Cell::new(false),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 512 }),
             signal_handlers: Some(Box::new(signal_handlers)),
             repr_guards: RefCell::default(),
@@ -293,6 +295,7 @@ impl VirtualMachine {
             profile_func: RefCell::new(self.get_none()),
             trace_func: RefCell::new(self.get_none()),
             use_tracing: Cell::new(false),
+            skip_tracing_next: Cell::new(false),
             recursion_limit: self.recursion_limit.clone(),
             signal_handlers: None,
             repr_guards: RefCell::default(),
@@ -835,6 +838,11 @@ impl VirtualMachine {
     /// Call registered trace function.
     fn trace_event(&self, event: TraceEvent) -> PyResult<()> {
         if self.use_tracing.get() {
+            if self.skip_tracing_next.get() {
+                self.skip_tracing_next.set(false);
+                return Ok(());
+            }
+
             let trace_func = self.trace_func.borrow().clone();
             let profile_func = self.profile_func.borrow().clone();
             if self.is_none(&trace_func) && self.is_none(&profile_func) {
