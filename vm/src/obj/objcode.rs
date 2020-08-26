@@ -2,7 +2,6 @@
 
 */
 
-use bincode;
 use std::fmt;
 use std::ops::Deref;
 
@@ -116,7 +115,7 @@ impl PyCodeRef {
     }
 
     #[pyproperty]
-    fn co_code(self, vm: &VirtualMachine) -> PyBytes {
+    fn co_code(self, _vm: &VirtualMachine) -> PyBytes {
         let instructions = &self.code.instructions;
         let encoded: Vec<u8> = bincode::DefaultOptions::new()
             .with_varint_encoding()
