@@ -140,16 +140,16 @@ impl ByteInnerNewOptions {
                                     //     ))
                                     // })?;
 
-                                    let mut data_bytes = vec![];
-                                    for elem in elements {
-                                        let i = elem.borrow_value().to_u8().ok_or_else(|| {
-                                            vm.new_value_error(
-                                                "bytes must be in range(0, 256)".to_owned(),
-                                            )
-                                        })?;
-                                        data_bytes.push(i);
-                                    }
-                                    Ok(data_bytes)
+                                    elements
+                                        .into_iter()
+                                        .map(|elem| {
+                                            elem.borrow_value().to_u8().ok_or_else(|| {
+                                                vm.new_value_error(
+                                                    "bytes must be in range(0, 256)".to_owned(),
+                                                )
+                                            })
+                                        })
+                                        .collect()
                                 }
                             });
 
