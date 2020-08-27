@@ -62,7 +62,7 @@ impl PyClassRef {
             let module = zelf.attributes.read().get("__module__").cloned();
             let new_name = if let Some(module) = module {
                 // FIXME: "unknown" case is a bug.
-                let module_str = PyStringRef::try_from_object(vm, module.clone())
+                let module_str = PyStringRef::try_from_object(vm, module)
                     .map_or("<unknown>".to_owned(), |m| m.borrow_value().to_owned());
                 format!("{}.{}", module_str, &zelf.name)
             } else {
