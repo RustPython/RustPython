@@ -1640,6 +1640,7 @@ dependencies = [
  "socket2",
  "statrs",
  "thread_local",
+ "timsort",
  "uname",
  "unic-char-property",
  "unic-normal",
@@ -1983,6 +1984,12 @@ dependencies = [
  "libc",
  "winapi",
 ]
+
+[[package]]
+name = "timsort"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a035368bf2997adda2f78c1e2683e2b8e8f584e349e8cb7f8adf294b0a4ad70"
 
 [[package]]
 name = "tinyvec"

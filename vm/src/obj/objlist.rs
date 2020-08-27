@@ -92,8 +92,8 @@ impl PyList {
     }
 }
 
-#[derive(FromArgs)]
-struct SortOptions {
+#[derive(FromArgs, Default)]
+pub(crate) struct SortOptions {
     #[pyarg(keyword_only, default = "None")]
     key: Option<PyObjectRef>,
     #[pyarg(keyword_only, default = "false")]
@@ -729,13 +729,14 @@ impl PyList {
     }
 
     #[pymethod]
-    fn sort(&self, options: SortOptions, vm: &VirtualMachine) -> PyResult<()> {
+    pub(crate) fn sort(&self, options: SortOptions, vm: &VirtualMachine) -> PyResult<()> {
         // replace list contents with [] for duration of sort.
         // this prevents keyfunc from messing with the list and makes it easy to
         // check if it tries to append elements to it.
         let mut elements = std::mem::take(self.borrow_value_mut().deref_mut());
-        do_sort(vm, &mut elements, options.key, options.reverse)?;
+        let res = do_sort(vm, &mut elements, options.key, options.reverse);
         std::mem::swap(self.borrow_value_mut().deref_mut(), &mut elements);
+        res?;
 
         if !elements.is_empty() {
             return Err(vm.new_value_error("list modified during sort".to_owned()));
@@ -760,66 +761,29 @@ impl PyList {
     }
 }
 
-fn quicksort(
-    vm: &VirtualMachine,
-    keys: &mut [PyObjectRef],
-    values: &mut [PyObjectRef],
-) -> PyResult<()> {
-    let len = values.len();
-    if len >= 2 {
-        let pivot = partition(vm, keys, values)?;
-        quicksort(vm, &mut keys[0..pivot], &mut values[0..pivot])?;
-        quicksort(vm, &mut keys[pivot + 1..len], &mut values[pivot + 1..len])?;
-    }
-    Ok(())
-}
-
-fn partition(
-    vm: &VirtualMachine,
-    keys: &mut [PyObjectRef],
-    values: &mut [PyObjectRef],
-) -> PyResult<usize> {
-    let len = values.len();
-    let pivot = len / 2;
-
-    values.swap(pivot, len - 1);
-    keys.swap(pivot, len - 1);
-
-    let mut store_idx = 0;
-    for i in 0..len - 1 {
-        let result = vm._lt(keys[i].clone(), keys[len - 1].clone())?;
-        let boolval = objbool::boolval(vm, result)?;
-        if boolval {
-            values.swap(i, store_idx);
-            keys.swap(i, store_idx);
-            store_idx += 1;
-        }
-    }
-
-    values.swap(store_idx, len - 1);
-    keys.swap(store_idx, len - 1);
-    Ok(store_idx)
-}
-
 fn do_sort(
     vm: &VirtualMachine,
     values: &mut Vec<PyObjectRef>,
     key_func: Option<PyObjectRef>,
     reverse: bool,
 ) -> PyResult<()> {
-    // build a list of keys. If no keyfunc is provided, it's a copy of the list.
-    let mut keys: Vec<PyObjectRef> = vec![];
-    for x in values.iter() {
-        keys.push(match &key_func {
-            None => x.clone(),
-            Some(ref func) => vm.invoke(func, vec![x.clone()])?,
-        });
-    }
+    let cmp = if reverse {
+        VirtualMachine::_lt
+    } else {
+        VirtualMachine::_gt
+    };
+    let cmp =
+        |a: &PyObjectRef, b: &PyObjectRef| objbool::boolval(vm, cmp(vm, a.clone(), b.clone())?);
 
-    quicksort(vm, &mut keys, values)?;
-
-    if reverse {
-        values.reverse();
+    if let Some(ref key_func) = key_func {
+        let mut items = values
+            .iter()
+            .map(|x| Ok((x.clone(), vm.invoke(key_func, vec![x.clone()])?)))
+            .collect::<Result<Vec<_>, _>>()?;
+        timsort::try_sort_by_gt(&mut items, |a, b| cmp(&a.1, &b.1))?;
+        *values = items.into_iter().map(|(val, _)| val).collect();
+    } else {
+        timsort::try_sort_by_gt(values, cmp)?;
     }
 
     Ok(())
