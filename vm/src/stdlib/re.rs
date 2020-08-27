@@ -237,8 +237,7 @@ fn do_split(
     // essentially Regex::split, but it outputs captures as well
     let mut output = Vec::new();
     let mut last = 0;
-    let mut n = 0;
-    for captures in pattern.regex.captures_iter(text) {
+    for (n, captures) in pattern.regex.captures_iter(text).enumerate() {
         let full = captures.get(0).unwrap();
         let matched = &text[last..full.start()];
         last = full.end();
@@ -246,7 +245,6 @@ fn do_split(
         for m in captures.iter().skip(1) {
             output.push(m.map(|m| m.as_bytes()));
         }
-        n += 1;
         if maxsplit != 0 && n >= maxsplit {
             break;
         }
