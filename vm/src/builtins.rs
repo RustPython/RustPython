@@ -24,6 +24,7 @@ mod decl {
     use crate::obj::objfunction::PyFunctionRef;
     use crate::obj::objint::{self, PyIntRef};
     use crate::obj::objiter;
+    use crate::obj::objlist::PyList;
     use crate::obj::objsequence;
     use crate::obj::objstr::{PyString, PyStringRef};
     use crate::obj::objtype::{self, PyClassRef};
@@ -162,14 +163,14 @@ mod decl {
     }
 
     #[pyfunction]
-    fn dir(obj: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    fn dir(obj: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyList> {
         let seq = match obj {
             OptionalArg::Present(obj) => vm.call_method(&obj, "__dir__", vec![])?,
             OptionalArg::Missing => {
                 vm.call_method(&vm.get_locals().into_object(), "keys", vec![])?
             }
         };
-        let sorted = sorted(vm, PyFuncArgs::new(vec![seq], vec![]))?;
+        let sorted = sorted(seq, vm)?;
         Ok(sorted)
     }
 
@@ -753,14 +754,12 @@ mod decl {
     // builtin_slice
 
     #[pyfunction]
-    fn sorted(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-        let iterable = args
-            .take_positional()
-            .ok_or_else(|| vm.new_type_error("sorted expected 1 arguments, got 0".to_string()))?;
+    fn sorted(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let items = vm.extract_elements(&iterable)?;
-        let lst = vm.ctx.new_list(items);
+        let lst = PyList::from(items);
 
-        vm.call_method(&lst, "sort", args)?;
+        lst.sort(Default::default(), vm)?;
+
         Ok(lst)
     }
 
