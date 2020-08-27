@@ -20,8 +20,12 @@ jobs:
       - uses: actions/checkout@master
       - name: Set up the Windows environment
         run: |
+          choco install llvm
           powershell.exe scripts/symlinks-to-hardlinks.ps1
         if: runner.os == 'Windows'
+      - name: Set up the Mac environment
+        run: brew install autoconf automake libtool
+        if: runner.os == 'macOS'
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
@@ -52,8 +56,12 @@ jobs:
       - uses: actions/checkout@master
       - name: Set up the Windows environment
         run: |
+          choco install llvm
           powershell.exe scripts/symlinks-to-hardlinks.ps1
         if: runner.os == 'Windows'
+      - name: Set up the Mac environment
+        run: brew install autoconf automake libtool
+        if: runner.os == 'macOS'
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
