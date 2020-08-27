@@ -10,6 +10,16 @@ pub struct JitSig {
     pub ret: Option<JitType>,
 }
 
+impl JitSig {
+    pub fn to_cif(&self) -> libffi::middle::Cif {
+        let ret = match self.ret {
+            Some(ref ty) => ty.to_libffi(),
+            None => libffi::middle::Type::void(),
+        };
+        libffi::middle::Cif::new(Vec::new(), ret)
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub enum JitType {
     Int,
@@ -21,6 +31,13 @@ impl JitType {
         match self {
             Self::Int => types::I64,
             Self::Float => types::F64,
+        }
+    }
+
+    fn to_libffi(&self) -> libffi::middle::Type {
+        match self {
+            Self::Int => libffi::middle::Type::i64(),
+            Self::Float => libffi::middle::Type::f64(),
         }
     }
 }
@@ -132,8 +149,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(())
             }
             Instruction::BinaryOperation { op, .. } => {
-                let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 match (a.ty, b.ty) {
                     (JitType::Int, JitType::Int) => match op {
                         BinaryOperator::Add => {

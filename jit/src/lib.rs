@@ -1,5 +1,4 @@
 use std::fmt;
-use std::mem;
 
 use cranelift::prelude::*;
 use cranelift_module::{Backend, FuncId, Linkage, Module, ModuleError};
@@ -98,20 +97,13 @@ pub struct CompiledCode {
 
 impl CompiledCode {
     pub fn invoke(&self) -> Option<AbiValue> {
-        match self.sig.ret {
-            Some(JitType::Int) => {
-                let func = unsafe { mem::transmute::<_, fn() -> i64>(self.code) };
-                Some(AbiValue::Int(func()))
-            }
-            Some(JitType::Float) => {
-                let func = unsafe { mem::transmute::<_, fn() -> f64>(self.code) };
-                Some(AbiValue::Float(func()))
-            }
-            None => {
-                let func = unsafe { mem::transmute::<_, fn()>(self.code) };
-                func();
-                None
-            }
+        let cif = self.sig.to_cif();
+        unsafe {
+            let value = cif.call::<UnTypedAbiValue>(
+                libffi::middle::CodePtr::from_ptr(self.code as *const _),
+                &[],
+            );
+            self.sig.ret.as_ref().map(|ty| value.to_typed(ty))
         }
     }
 }
@@ -119,6 +111,21 @@ impl CompiledCode {
 pub enum AbiValue {
     Float(f64),
     Int(i64),
+}
+
+union UnTypedAbiValue {
+    float: f64,
+    int: i64,
+    _void: (),
+}
+
+impl UnTypedAbiValue {
+    unsafe fn to_typed(&self, ty: &JitType) -> AbiValue {
+        match ty {
+            JitType::Int => AbiValue::Int(self.int),
+            JitType::Float => AbiValue::Float(self.float),
+        }
+    }
 }
 
 unsafe impl Send for CompiledCode {}
