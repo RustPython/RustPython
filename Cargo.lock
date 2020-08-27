@@ -1987,9 +1987,9 @@ dependencies = [
 
 [[package]]
 name = "timsort"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4c9a7dfcb3408165a22bb45bcf2f7e251535ca5e91efa2f1e47ddceb924ea7c"
+checksum = "9a035368bf2997adda2f78c1e2683e2b8e8f584e349e8cb7f8adf294b0a4ad70"
 
 [[package]]
 name = "tinyvec"
