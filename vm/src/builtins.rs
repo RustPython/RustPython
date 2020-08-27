@@ -24,7 +24,7 @@ mod decl {
     use crate::obj::objfunction::PyFunctionRef;
     use crate::obj::objint::{self, PyIntRef};
     use crate::obj::objiter;
-    use crate::obj::objlist::PyList;
+    use crate::obj::objlist::{PyList, SortOptions};
     use crate::obj::objsequence;
     use crate::obj::objstr::{PyString, PyStringRef};
     use crate::obj::objtype::{self, PyClassRef};
@@ -170,7 +170,7 @@ mod decl {
                 vm.call_method(&vm.get_locals().into_object(), "keys", vec![])?
             }
         };
-        let sorted = sorted(seq, vm)?;
+        let sorted = sorted(seq, Default::default(), vm)?;
         Ok(sorted)
     }
 
@@ -453,41 +453,32 @@ mod decl {
             }
         };
 
-        if candidates.is_empty() {
-            return default
-                .ok_or_else(|| vm.new_value_error("max() arg is an empty sequence".to_owned()));
-        }
-
-        // Start with first assumption:
         let mut candidates_iter = candidates.into_iter();
-        let mut x = candidates_iter.next().unwrap();
-        // TODO: this key function looks pretty duplicate. Maybe we can create
-        // a local function?
-        let mut x_key = if let Some(ref f) = &key_func {
-            if vm.is_none(f) {
-                x.clone()
-            } else {
-                vm.invoke(f, vec![x.clone()])?
+        let mut x = match candidates_iter.next() {
+            Some(x) => x,
+            None => {
+                return default
+                    .ok_or_else(|| vm.new_value_error("max() arg is an empty sequence".to_owned()))
             }
-        } else {
-            x.clone()
         };
 
-        for y in candidates_iter {
-            let y_key = if let Some(ref f) = &key_func {
-                if vm.is_none(f) {
-                    y.clone()
-                } else {
-                    vm.invoke(f, vec![y.clone()])?
+        let key_func = key_func.filter(|f| !vm.is_none(f));
+        if let Some(ref key_func) = key_func {
+            let mut x_key = vm.invoke(key_func, x.clone())?;
+            for y in candidates_iter {
+                let y_key = vm.invoke(key_func, y.clone())?;
+                let y_gt_x = objbool::boolval(vm, vm._gt(y_key.clone(), x_key.clone())?)?;
+                if y_gt_x {
+                    x = y;
+                    x_key = y_key;
                 }
-            } else {
-                y.clone()
-            };
-            let order = vm._gt(x_key.clone(), y_key.clone())?;
-
-            if !objbool::get_value(&order) {
-                x = y.clone();
-                x_key = y_key;
+            }
+        } else {
+            for y in candidates_iter {
+                let y_gt_x = objbool::boolval(vm, vm._gt(y.clone(), x.clone())?)?;
+                if y_gt_x {
+                    x = y;
+                }
             }
         }
 
@@ -754,12 +745,10 @@ mod decl {
     // builtin_slice
 
     #[pyfunction]
-    fn sorted(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
+    fn sorted(iterable: PyObjectRef, opts: SortOptions, vm: &VirtualMachine) -> PyResult<PyList> {
         let items = vm.extract_elements(&iterable)?;
         let lst = PyList::from(items);
-
-        lst.sort(Default::default(), vm)?;
-
+        lst.sort(opts, vm)?;
         Ok(lst)
     }
 
