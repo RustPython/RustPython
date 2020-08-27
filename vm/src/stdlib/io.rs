@@ -698,6 +698,7 @@ mod fileio {
                             "Cannot use closefd=False with file name".to_owned(),
                         ));
                     }
+                    zelf.closefd.store(args.closefd);
                     let mode = compute_c_flag(&mode);
                     let fd = if let Some(opener) = args.opener {
                         let fd = vm.invoke(
@@ -725,11 +726,13 @@ mod fileio {
                     };
                     (name.into_object(), fd)
                 }
-                Either::B(fno) => (vm.ctx.new_int(fno), fno),
+                Either::B(fno) => {
+                    zelf.closefd.store(args.closefd);
+                    (vm.ctx.new_int(fno), fno)
+                }
             };
 
             zelf.fd.store(file_no);
-            zelf.closefd.store(args.closefd);
             vm.set_attr(zelf.as_object(), "name", name)?;
             vm.set_attr(zelf.as_object(), "mode", vm.ctx.new_str(mode))?;
             Ok(())
