@@ -132,6 +132,7 @@ class TestBase(unittest.TestCase):
 
 class TestBugs(unittest.TestCase):
 
+    @unittest.skip("TODO: RUSTPYTHON; figure out how to detect sort mutation that doesn't change list length")
     def test_bug453523(self):
         # bug 453523 -- list.sort() crasher.
         # If this fails, the most likely outcome is a core dump.
@@ -148,6 +149,7 @@ class TestBugs(unittest.TestCase):
         L = [C() for i in range(50)]
         self.assertRaises(ValueError, L.sort)
 
+    @unittest.skip("TODO: RUSTPYTHON; figure out how to detect sort mutation that doesn't change list length")
     def test_undetected_mutation(self):
         # Python 2.4a1 did not always detect mutation
         memorywaster = []
@@ -205,6 +207,7 @@ class TestDecorateSortUndecorate(unittest.TestCase):
             return x
         self.assertRaises(ValueError, data.sort, key=k)
 
+    @unittest.skip("TODO: RUSTPYTHON; destructors")
     def test_key_with_mutating_del(self):
         data = list(range(10))
         class SortKiller(object):
@@ -217,6 +220,7 @@ class TestDecorateSortUndecorate(unittest.TestCase):
                 return id(self) < id(other)
         self.assertRaises(ValueError, data.sort, key=SortKiller)
 
+    @unittest.skip("TODO: RUSTPYTHON; destructors")
     def test_key_with_mutating_del_and_exception(self):
         data = list(range(10))
         ## dup = data[:]
@@ -305,6 +309,8 @@ class TestOptimizedCompares(unittest.TestCase):
         for L in float_int_lists:
             check_against_PyObject_RichCompareBool(self, L)
 
+    # XXX RUSTPYTHON: added by us but it seems like an implementation detail
+    @support.cpython_only
     def test_unsafe_object_compare(self):
 
         # This test is by ppperry. It ensures that unsafe_object_compare is
