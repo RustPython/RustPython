@@ -1950,8 +1950,6 @@ ELSE
             re.compile(pat, re.DEBUG)
         self.assertEqual(out.getvalue(), dump)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_keyword_parameters(self):
         # Issue #20283: Accepting the string keyword parameter.
         pat = re.compile(r'(ab)')

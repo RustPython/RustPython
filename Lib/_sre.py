@@ -70,12 +70,12 @@ class SRE_Pattern(object):
         else:
             return None
 
-    def fullmatch(self, string):
+    def fullmatch(self, string, pos=0, endpos=sys.maxsize):
         """If the whole string matches the regular expression pattern, return a
         corresponding match object. Return None if the string does not match the
         pattern; note that this is different from a zero-length match."""
-        match = self.match(string)
-        if match and match.start() == 0 and match.end() == len(string):
+        match = self.match(string, pos, endpos)
+        if match and match.start() == pos and match.end() == min(endpos, len(string)):
             return match
         else:
             return None
@@ -193,8 +193,8 @@ class SRE_Pattern(object):
         scanner = self.scanner(string, pos, endpos)
         return iter(scanner.search, None)
 
-    def scanner(self, string, start=0, end=sys.maxsize):
-        return SRE_Scanner(self, string, start, end)
+    def scanner(self, string, pos=0, endpos=sys.maxsize):
+        return SRE_Scanner(self, string, pos, endpos)
 
     def __copy__(self):
         raise TypeError("cannot copy this pattern object")
