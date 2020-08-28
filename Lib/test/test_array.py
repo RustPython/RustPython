@@ -739,8 +739,6 @@ class BaseTest:
         self.assertRaises(IndexError, a.__delitem__, len(self.example))
         self.assertRaises(IndexError, a.__delitem__, -len(self.example)-1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getslice(self):
         a = array.array(self.typecode, self.example)
         self.assertEqual(a[:], a)
@@ -791,8 +789,6 @@ class BaseTest:
             array.array(self.typecode)
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extended_getslice(self):
         # Test extended slicing by comparing with list slicing
         # (Assumes list conversion works correctly, too)
@@ -1206,8 +1202,6 @@ class UnicodeTest(StringTest, unittest.TestCase):
 
 class NumberTest(BaseTest):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extslice(self):
         a = array.array(self.typecode, range(5))
         self.assertEqual(a[::], a)

@@ -4,13 +4,14 @@ use crate::common::cell::{
 };
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
+use crate::obj::objsequence::PySliceableSequence;
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue,
-    PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
@@ -194,6 +195,23 @@ macro_rules! def_array_enum {
                 }
             }
 
+            fn getitem_by_slice(&self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+                match self {
+                    $(ArrayContentType::$n(v) => {
+                        let elements = v.get_slice_items(vm, &slice)?;
+                        let sliced = ArrayContentType::$n(elements);
+                        let obj = PyObject::new(
+                            PyArray {
+                                array: PyRwLock::new(sliced)
+                            },
+                            PyArray::class(vm),
+                            None
+                        );
+                        Ok(obj)
+                    })*
+                }
+            }
+
             fn getitem(&self, needle: Either<isize, PySliceRef>, vm: &VirtualMachine) -> PyResult {
                 match needle {
                     Either::A(i) => {
@@ -201,7 +219,7 @@ macro_rules! def_array_enum {
                             self.getitem_by_idx(i, vm).unwrap()
                         })
                     }
-                    Either::B(_slice) => Err(vm.new_not_implemented_error("array slice is not implemented".to_owned())),
+                    Either::B(slice) => self.getitem_by_slice(slice, vm),
                 }
             }
 
