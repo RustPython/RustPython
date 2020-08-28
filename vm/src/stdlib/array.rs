@@ -199,10 +199,10 @@ macro_rules! def_array_enum {
                 match self {
                     $(ArrayContentType::$n(v) => {
                         let elements = v.get_slice_items(vm, &slice)?;
-                        let zelf = ArrayContentType::$n(elements);
+                        let sliced = ArrayContentType::$n(elements);
                         let obj = PyObject::new(
                             PyArray {
-                                array: PyRwLock::new(zelf)
+                                array: PyRwLock::new(sliced)
                             },
                             PyArray::class(vm),
                             None
