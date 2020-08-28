@@ -192,26 +192,26 @@ fn inner_divmod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
 }
 
 fn inner_lshift(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
-    if int2.is_negative() {
-        return Err(vm.new_value_error("negative shift count".to_owned()));
-    } else if int1.is_zero() {
-        return Ok(vm.ctx.new_int(0));
-    } else if *int2 > BigInt::from(usize::max_value()) {
-        return Err(vm.new_overflow_error("the number is too large to convert to int".to_owned()))
-    } else {
-        return Ok(vm.ctx.new_int(int1 << int2.to_usize().expect("Failed converting {} to rust usize")));
-    }
+    inner_shift(int1, int2, |a, b| a << b, vm)
 }
 
 fn inner_rshift(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
+    inner_shift(int1, int2, |a, b| a >> b, vm)
+}
+
+fn inner_shift<F>(int1: &BigInt, int2: &BigInt, shift_op: F, vm: &VirtualMachine) -> PyResult
+where
+    F: Fn(&BigInt, usize) -> BigInt,
+{
     if int2.is_negative() {
-        return Err(vm.new_value_error("negative shift count".to_owned()));
+        Err(vm.new_value_error("negative shift count".to_owned()))
     } else if int1.is_zero() {
-        return Ok(vm.ctx.new_int(0));
-    } else if *int2 > BigInt::from(usize::max_value()) {
-        return Err(vm.new_overflow_error("the number is too large to convert to int".to_owned()))
+        Ok(vm.ctx.new_int(0))
     } else {
-        return Ok(vm.ctx.new_int(int1 >> int2.to_usize().expect("Failed converting {} to rust usize")));
+        let int2 = int2.to_usize().ok_or_else(|| {
+            vm.new_overflow_error("the number is too large to convert to int".to_owned())
+        })?;
+        Ok(vm.ctx.new_int(shift_op(int1, int2)))
     }
 }
 
