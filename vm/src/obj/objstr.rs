@@ -290,9 +290,9 @@ impl PyString {
     }
 
     #[pymethod(name = "__hash__")]
-    pub(crate) fn hash(&self) -> hash::PyHash {
+    pub(crate) fn hash(&self, vm: &VirtualMachine) -> hash::PyHash {
         self.hash.load().unwrap_or_else(|| {
-            let hash = hash::hash_str(&self.value);
+            let hash = vm.state.hash_secret.hash_str(&self.value);
             self.hash.store(Some(hash));
             hash
         })

@@ -131,8 +131,8 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self) -> PyHash {
-        self.inner.hash()
+    fn hash(&self, vm: &VirtualMachine) -> PyHash {
+        self.inner.hash(vm)
     }
 
     #[pymethod(name = "__iter__")]

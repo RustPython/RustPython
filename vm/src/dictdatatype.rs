@@ -456,8 +456,8 @@ impl DictKey for PyObjectRef {
 }
 
 impl DictKey for PyStringRef {
-    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
-        Ok(self.hash())
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        Ok(self.hash(vm))
     }
 
     fn key_is(&self, other: &PyObjectRef) -> bool {
@@ -480,9 +480,9 @@ impl DictKey for PyStringRef {
 /// Implement trait for the str type, so that we can use strings
 /// to index dictionaries.
 impl DictKey for &str {
-    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStringRef
-        Ok(hash::hash_str(*self))
+        Ok(vm.state.hash_secret.hash_str(*self))
     }
 
     fn key_is(&self, _other: &PyObjectRef) -> bool {

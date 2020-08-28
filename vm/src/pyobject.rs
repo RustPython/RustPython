@@ -1403,7 +1403,7 @@ pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<rustpython_common::hash::PyHash> {
-    rustpython_common::hash::hash_iter(iter, |obj| vm._hash(obj))
+    vm.state.hash_secret.hash_iter(iter, |obj| vm._hash(obj))
 }
 
 pub fn hash_iter_unordered<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
