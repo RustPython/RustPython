@@ -74,6 +74,30 @@ cargo build --release --target wasm32-wasi --features="freeze-stdlib"
 
 > Note: we use the `freeze-stdlib` to include the standard library inside the binary.
 
+### JIT(Just in time) compiler
+
+RustPython has an **very** experimental JIT compiler that compile python functions into native code. 
+
+#### Building
+
+By default the JIT compiler isn't enabled, it's enabled with the `jit` cargo feature.
+
+    $ cargo run --features jit
+    
+This requires autoconf, automake, libtool, and clang to be installed.
+
+#### Using 
+
+To compile a function, call `__jit__()` on it.
+
+```python
+def foo():
+    a = 5
+    return 10 + a
+
+foo.__jit__()  # this will compile foo to native code and subsequent calls will execute that native code
+assert foo() == 15
+```
 
 ## Embedding RustPython into your Rust Applications
 
