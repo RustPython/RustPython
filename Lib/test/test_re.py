@@ -452,8 +452,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual(m.group(2, 1), ('b', 'a'))
         self.assertEqual(m.group(Index(2), Index(1)), ('b', 'a'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_match_getitem(self):
         pat = re.compile('(?:(?P<a1>a)|(?P<b2>b))(?P<c3>c)?')
 
@@ -1189,8 +1187,6 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(r"[\U00110000]", r'bad escape \U00110000', 1)
         self.assertTrue(re.match(r"[\U0001d49c-\U0001d4b5]", "\U0001d49e"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sre_byte_literals(self):
         for i in [0, 8, 16, 32, 64, 127, 128, 255]:
             self.assertTrue(re.match((r"\%03o" % i).encode(), bytes([i])))
@@ -1212,8 +1208,6 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(br"\x1", r'incomplete escape \x1', 0)
         self.checkPatternError(br"\x1z", r'incomplete escape \x1', 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sre_byte_class_literals(self):
         for i in [0, 8, 16, 32, 64, 127, 128, 255]:
             self.assertTrue(re.match((r"[\%o]" % i).encode(), bytes([i])))
