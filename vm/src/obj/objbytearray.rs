@@ -567,7 +567,7 @@ impl PyByteArray {
     #[pymethod(name = "__mod__")]
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
         let formatted = self.borrow_value().cformat(values, vm)?;
-        Ok(formatted.as_str().as_bytes().to_owned().into())
+        Ok(formatted.into_bytes().into())
     }
 
     #[pymethod(name = "__rmod__")]

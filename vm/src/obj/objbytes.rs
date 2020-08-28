@@ -452,7 +452,7 @@ impl PyBytes {
     #[pymethod(name = "__mod__")]
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let formatted = self.inner.cformat(values, vm)?;
-        Ok(vm.ctx.new_bytes(formatted.as_bytes().to_owned()))
+        Ok(vm.ctx.new_bytes(formatted.into_bytes()))
     }
 
     #[pymethod(name = "__rmod__")]
