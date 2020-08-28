@@ -94,10 +94,18 @@ mod decl {
 
     #[pyfunction]
     fn chr(i: u32, vm: &VirtualMachine) -> PyResult<String> {
-        match std::char::from_u32(i) {
-            Some(value) => Ok(value.to_string()),
-            None => Err(vm.new_value_error("chr() arg not in range(0x110000)".to_owned())),
-        }
+        let ch: char = if i < 0x110000 {
+            // std::char::from_u32 rejects invalid unicode point - which is acceptable in python
+            Ok(
+                #[allow(clippy::transmute_int_to_char)]
+                unsafe {
+                    std::mem::transmute(i)
+                },
+            )
+        } else {
+            Err(vm.new_value_error("chr() arg not in range(0x110000)".to_owned()))
+        }?;
+        Ok(ch.to_string())
     }
 
     #[derive(FromArgs)]
