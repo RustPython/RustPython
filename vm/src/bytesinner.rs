@@ -302,8 +302,8 @@ impl PyBytesInner {
         self.cmp(other, |a, b| a < b, vm)
     }
 
-    pub fn hash(&self) -> hash::PyHash {
-        hash::hash_value(&self.elements)
+    pub fn hash(&self, vm: &VirtualMachine) -> hash::PyHash {
+        vm.state.hash_secret.hash_bytes(&self.elements)
     }
 
     pub fn add(&self, other: PyBytesInner) -> Vec<u8> {

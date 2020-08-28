@@ -19,6 +19,7 @@ use rustpython_compiler::{
 
 use crate::builtins::{self, to_ascii};
 use crate::bytecode;
+use crate::common::{hash::HashSecret, rc::PyRc};
 use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
 use crate::frame::{ExecutionResult, Frame, FrameRef};
 use crate::frozen;
@@ -42,7 +43,6 @@ use crate::pyobject::{
 use crate::scope::Scope;
 use crate::stdlib;
 use crate::sysmodule;
-use rustpython_common::rc::PyRc;
 
 // use objects::objects;
 
@@ -74,6 +74,7 @@ pub struct PyGlobalState {
     pub frozen: HashMap<String, bytecode::FrozenModule>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
+    pub hash_secret: HashSecret,
 }
 
 pub const NSIG: usize = 64;
@@ -123,6 +124,9 @@ pub struct PySettings {
     /// Initialization parameter to decide to initialize or not,
     /// and to decide the importer required external filesystem access or not
     pub initialization_parameter: InitParameter,
+
+    /// PYTHONHASHSEED=x
+    pub hash_seed: Option<u32>,
 }
 
 /// Trace events for sys.settrace and sys.setprofile.
@@ -157,6 +161,7 @@ impl Default for PySettings {
             path_list: vec![],
             argv: vec![],
             initialization_parameter: InitParameter::InitializeExternal,
+            hash_seed: None,
         }
     }
 }
@@ -187,6 +192,11 @@ impl VirtualMachine {
         let stdlib_inits = stdlib::get_module_inits();
         let frozen = frozen::get_module_inits();
 
+        let hash_secret = match settings.hash_seed {
+            Some(seed) => HashSecret::new(seed),
+            None => rand::random(),
+        };
+
         let mut vm = VirtualMachine {
             builtins,
             sys_module: sysmod,
@@ -207,6 +217,7 @@ impl VirtualMachine {
                 frozen,
                 stacksize: AtomicCell::new(0),
                 thread_count: AtomicCell::new(0),
+                hash_secret,
             }),
             initialized: false,
         };

@@ -491,9 +491,7 @@ class SysModuleTest(unittest.TestCase):
             else:
                 self.assertIn(sys.hash_info.algorithm, {"fnv", "siphash24"})
         else:
-            # PY_HASH_EXTERNAL
-            # TODO: RUSTPYTHON; use siphash24
-            # self.assertEqual(algo, 0)
+            self.assertEqual(algo, 0)
             pass
         self.assertGreaterEqual(sys.hash_info.cutoff, 0)
         self.assertLess(sys.hash_info.cutoff, 8)
