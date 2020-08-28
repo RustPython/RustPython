@@ -170,7 +170,7 @@ fn time_strptime(
     Ok(PyStructTime::new(vm, instant, -1).into_obj(vm))
 }
 
-#[pystruct_sequence(module = "time", name = "struct_time")]
+#[pystruct_sequence(with_pyimpl, module = "time", name = "struct_time")]
 #[allow(dead_code)]
 struct PyStructTime {
     tm_year: PyObjectRef,
@@ -190,6 +190,7 @@ impl fmt::Debug for PyStructTime {
     }
 }
 
+#[pyimpl(structseq_impl)]
 impl PyStructTime {
     fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
         PyStructTime {
@@ -227,6 +228,7 @@ impl PyStructTime {
             .into_object()
     }
 
+    #[pyslot]
     fn tp_new(cls: PyClassRef, seq: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         Self::try_from_object(vm, seq)?.into_struct_sequence(vm, cls)
     }
@@ -259,11 +261,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     let struct_time_type = PyStructTime::make_class(ctx);
-
-    // TODO: allow $[pyimpl]s for struct_sequences
-    extend_class!(ctx, struct_time_type, {
-        (slot new) => PyStructTime::tp_new,
-    });
 
     py_module!(vm, "time", {
         "asctime" => ctx.new_function(time_asctime),

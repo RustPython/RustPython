@@ -15,7 +15,7 @@ const SERIAL: usize = 0;
 pub const VERSION_HEX: usize =
     (MAJOR << 24) | (MINOR << 16) | (MICRO << 8) | (RELEASELEVEL_N << 4) | SERIAL;
 
-#[pystruct_sequence(module = "sys", name = "version_info")]
+#[pystruct_sequence(with_pyimpl, module = "sys", name = "version_info")]
 #[derive(Default, Debug)]
 pub struct VersionInfo {
     major: usize,
@@ -34,6 +34,7 @@ pub fn get_version() -> String {
     )
 }
 
+#[pyimpl(structseq_impl)]
 impl VersionInfo {
     pub const VERSION: VersionInfo = VersionInfo {
         major: MAJOR,
@@ -42,6 +43,14 @@ impl VersionInfo {
         releaselevel: RELEASELEVEL,
         serial: SERIAL,
     };
+    #[pyslot]
+    fn tp_new(
+        _cls: crate::obj::objtype::PyClassRef,
+        _args: crate::function::PyFuncArgs,
+        vm: &crate::VirtualMachine,
+    ) -> crate::pyobject::PyResult {
+        Err(vm.new_type_error("cannot create 'sys.version_info' instances".to_owned()))
+    }
 }
 
 pub fn get_version_number() -> String {

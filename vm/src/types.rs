@@ -40,7 +40,7 @@ use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::pyobject::{PyAttributes, PyClassDef, PyClassImpl, PyContext, PyObject};
-use crate::slots::PyTpFlags;
+use crate::slots::PyClassSlots;
 use rustpython_common::{cell::PyRwLock, rc::PyRc};
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -202,14 +202,14 @@ impl TypeZoo {
 }
 
 pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
-    create_type_with_flags(name, type_type, base, Default::default())
+    create_type_with_slots(name, type_type, base, Default::default())
 }
 
-pub fn create_type_with_flags(
+pub fn create_type_with_slots(
     name: &str,
     type_type: &PyClassRef,
     base: &PyClassRef,
-    flags: PyTpFlags,
+    slots: PyClassSlots,
 ) -> PyClassRef {
     let dict = PyAttributes::new();
     objtype::new(
@@ -218,7 +218,7 @@ pub fn create_type_with_flags(
         base.clone(),
         vec![base.clone()],
         dict,
-        PyTpFlags::default() | flags,
+        slots,
     )
     .expect("Failed to create a new type in internal code.")
 }
@@ -265,8 +265,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
                     mro: vec![],
                     subclasses: PyRwLock::default(),
                     attributes: PyRwLock::new(PyAttributes::new()),
-                    flags: objtype::PyClassRef::TP_FLAGS,
-                    slots: PyRwLock::default(),
+                    slots: objtype::PyClassRef::make_slots(),
                 },
             },
             Uninit { typ }
@@ -281,8 +280,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
                     mro: vec![],
                     subclasses: PyRwLock::default(),
                     attributes: PyRwLock::new(PyAttributes::new()),
-                    flags: objobject::PyBaseObject::TP_FLAGS,
-                    slots: PyRwLock::default(),
+                    slots: objobject::PyBaseObject::make_slots(),
                 },
             },
             Uninit { typ },

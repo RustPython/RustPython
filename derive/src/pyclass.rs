@@ -16,7 +16,61 @@ use syn_ext::ext::*;
 struct ImplContext {
     impl_extend_items: ItemNursery,
     getset_items: GetSetNursery,
+    extend_slots_items: ItemNursery,
     errors: Vec<syn::Error>,
+}
+
+fn extract_items_into_context<'a, Item>(
+    context: &mut ImplContext,
+    items: impl Iterator<Item = &'a mut Item>,
+) where
+    Item: ItemLike + ToTokens + GetIdent + syn_ext::ext::ItemAttrExt + 'a,
+{
+    for item in items {
+        let r = item.try_split_attr_mut(|attrs, item| {
+            let (pyitems, cfgs) = attrs_to_content_items(&attrs, new_impl_item::<Item>)?;
+            for pyitem in pyitems.iter().rev() {
+                let r = pyitem.gen_impl_item(ImplItemArgs::<Item> {
+                    item,
+                    attrs,
+                    context,
+                    cfgs: cfgs.as_slice(),
+                });
+                context.errors.ok_or_push(r);
+            }
+            Ok(())
+        });
+        context.errors.ok_or_push(r);
+    }
+    context.errors.ok_or_push(context.getset_items.validate());
+}
+
+fn raw_extend_methods<T: syn::parse::Parse>(context: &ImplContext) -> impl Iterator<Item = T> {
+    let getset_impl = &context.getset_items;
+    let extend_impl = &context.impl_extend_items;
+    let slots_impl = &context.extend_slots_items;
+    macro_rules! iter_chain {
+        ($($it:expr),*$(,)?) => {
+            std::iter::empty()
+                $(.chain(std::iter::once($it)))*
+        };
+    }
+    iter_chain![
+        parse_quote! {
+            fn __extend_py_class(
+                ctx: &::rustpython_vm::pyobject::PyContext,
+                class: &::rustpython_vm::obj::objtype::PyClassRef,
+            ) {
+                #getset_impl
+                #extend_impl
+            }
+        },
+        parse_quote! {
+            fn __extend_slots(slots: &mut ::rustpython_vm::slots::PyClassSlots) {
+                #slots_impl
+            }
+        },
+    ]
 }
 
 pub(crate) fn impl_pyimpl(
@@ -26,80 +80,55 @@ pub(crate) fn impl_pyimpl(
     let mut context = ImplContext::default();
     let mut tokens = match item {
         Item::Impl(mut imp) => {
-            for item in imp.items.iter_mut() {
-                let r = item.try_split_attr_mut(|attrs, item| {
-                    let (pyitems, cfgs) =
-                        attrs_to_content_items(&attrs, new_impl_item::<syn::ImplItem>)?;
-                    for pyitem in pyitems.iter().rev() {
-                        let r = pyitem.gen_impl_item(ImplItemArgs {
-                            item,
-                            attrs,
-                            context: &mut context,
-                            cfgs: cfgs.as_slice(),
-                        });
-                        context.errors.ok_or_push(r);
-                    }
-                    Ok(())
-                });
-                context.errors.ok_or_push(r);
-            }
-            context.errors.ok_or_push(context.getset_items.validate());
+            extract_items_into_context(&mut context, imp.items.iter_mut());
 
-            let (with_impl, flags) = extract_impl_attrs(attr)?;
+            let ExtractedImplAttrs {
+                with_impl,
+                flags,
+                with_slots,
+                structseq_impl,
+            } = extract_impl_attrs(attr)?;
+
             let ty = &imp.self_ty;
-            let getset_impl = &context.getset_items;
-            let extend_impl = &context.impl_extend_items;
-            quote! {
-                #imp
-                impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
-                    const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::from_bits_truncate(#flags);
 
-                    fn impl_extend_class(
-                        ctx: &::rustpython_vm::pyobject::PyContext,
-                        class: &::rustpython_vm::obj::objtype::PyClassRef,
-                    ) {
-                        #getset_impl
-                        #extend_impl
-                        #with_impl
+            if structseq_impl {
+                imp.items.extend(raw_extend_methods(&context));
+                imp.into_token_stream()
+            } else {
+                let getset_impl = &context.getset_items;
+                let extend_impl = &context.impl_extend_items;
+                let slots_impl = &context.extend_slots_items;
+                quote! {
+                    #imp
+                    impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
+                        const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::from_bits_truncate(#flags);
+
+                        fn impl_extend_class(
+                            ctx: &::rustpython_vm::pyobject::PyContext,
+                            class: &::rustpython_vm::obj::objtype::PyClassRef,
+                        ) {
+                            #getset_impl
+                            #extend_impl
+                            #with_impl
+                        }
+
+                        fn extend_slots(slots: &mut ::rustpython_vm::slots::PyClassSlots) {
+                            #with_slots
+                            #slots_impl
+                        }
                     }
                 }
             }
         }
         Item::Trait(mut trai) => {
             let mut context = ImplContext::default();
-            for item in trai.items.iter_mut() {
-                let r = item.try_split_attr_mut(|attrs, item| {
-                    let (pyitems, cfgs) =
-                        attrs_to_content_items(&attrs, new_impl_item::<syn::TraitItem>)?;
-                    for pyitem in pyitems.iter().rev() {
-                        let r = pyitem.gen_impl_item(ImplItemArgs {
-                            item,
-                            attrs,
-                            context: &mut context,
-                            cfgs: cfgs.as_slice(),
-                        });
-                        context.errors.ok_or_push(r);
-                    }
-                    Ok(())
-                });
-                context.errors.ok_or_push(r);
-            }
-            context.errors.ok_or_push(context.getset_items.validate());
+            extract_items_into_context(&mut context, trai.items.iter_mut());
 
-            let getset_impl = &context.getset_items;
-            let extend_impl = &context.impl_extend_items;
-            trai.items.push(parse_quote! {
-                fn __extend_py_class(
-                    ctx: &::rustpython_vm::pyobject::PyContext,
-                    class: &::rustpython_vm::obj::objtype::PyClassRef,
-                ) {
-                    #getset_impl
-                    #extend_impl
-                }
-            });
+            trai.items.extend(raw_extend_methods(&context));
+
             trai.into_token_stream()
         }
-        item => quote!(#item),
+        item => item.into_token_stream(),
     };
     if let Some(error) = context.errors.into_error() {
         let error = Diagnostic::from(error);
@@ -161,6 +190,19 @@ pub(crate) fn impl_pyclass(
     Ok(ret)
 }
 
+struct StructSeqItemMeta(ItemMetaInner);
+
+impl ItemMeta for StructSeqItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["module", "name", "with_pyimpl"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
 pub(crate) fn impl_pystruct_sequence(
     attr: AttributeArgs,
     item: Item,
@@ -174,7 +216,9 @@ pub(crate) fn impl_pystruct_sequence(
         )
     };
     let fake_ident = Ident::new("pystruct_sequence", struc.span());
-    let class_meta = ClassItemMeta::from_nested(struc.ident.clone(), fake_ident, attr.into_iter())?;
+    let meta = StructSeqItemMeta::from_nested(struc.ident.clone(), fake_ident, attr.into_iter())?;
+    let with_pyimpl = meta.inner()._bool("with_pyimpl")?;
+    let class_meta = ClassItemMeta(meta.0);
     let class_name = class_meta.class_name()?;
     let module_name = class_meta.mandatory_module()?;
 
@@ -205,6 +249,19 @@ pub(crate) fn impl_pystruct_sequence(
             field_names.push(quote!(#idx));
         }
     }
+
+    let (with_extend, with_slots) = if with_pyimpl {
+        (
+            quote! {
+                Self::__extend_py_class(ctx, class);
+            },
+            quote! {
+                Self::__extend_slots(slots);
+            },
+        )
+    } else {
+        (quote! {}, quote! {})
+    };
 
     let ty = &struc.ident;
     let ret = quote! {
@@ -242,6 +299,7 @@ pub(crate) fn impl_pystruct_sequence(
 
                 #(#properties)*
                 class.set_str_attr("__repr__", ctx.new_method(Self::repr));
+                #with_extend
             }
 
             fn make_class(
@@ -249,6 +307,10 @@ pub(crate) fn impl_pystruct_sequence(
             ) -> ::rustpython_vm::obj::objtype::PyClassRef {
                 use crate::pyobject::PyClassDef;
                 Self::make_class_with_base(ctx, Self::NAME,  &ctx.types.tuple_type)
+            }
+
+            fn extend_slots(slots: &mut ::rustpython_vm::slots::PyClassSlots) {
+                #with_slots
             }
         }
     };
@@ -394,11 +456,11 @@ where
                 #transform(Self::#ident)
             };
             quote! {
-                (*class.slots.write()).#slot_ident = Some(#into_func);
+                slots.#slot_ident = Some(#into_func);
             }
         };
 
-        args.context.impl_extend_items.add_item(
+        args.context.extend_slots_items.add_item(
             format!("(slot {})", slot_name),
             args.cfgs.to_vec(),
             tokens,
@@ -639,11 +701,18 @@ impl SlotItemMeta {
     }
 }
 
-fn extract_impl_attrs(
-    attr: AttributeArgs,
-) -> std::result::Result<(TokenStream, TokenStream), Diagnostic> {
+struct ExtractedImplAttrs {
+    with_impl: TokenStream,
+    with_slots: TokenStream,
+    flags: TokenStream,
+    structseq_impl: bool,
+}
+
+fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplAttrs, Diagnostic> {
     let mut withs = Vec::new();
+    let mut with_slots = Vec::new();
     let mut flags = vec![quote! { ::rustpython_vm::slots::PyTpFlags::DEFAULT.bits() }];
+    let mut structseq_impl = false;
     #[cfg(debug_assertions)]
     {
         flags.push(quote! {
@@ -658,9 +727,21 @@ fn extract_impl_attrs(
                     for meta in nested {
                         match meta {
                             NestedMeta::Meta(Meta::Path(path)) => {
-                                withs.push(quote! {
-                                    <Self as #path>::__extend_py_class(ctx, class);
-                                });
+                                if path_eq(&path, "Self") {
+                                    withs.push(quote! {
+                                        Self::__extend_py_class(ctx, class);
+                                    });
+                                    with_slots.push(quote! {
+                                        Self::__extend_slots(slots);
+                                    });
+                                } else {
+                                    withs.push(quote! {
+                                        <Self as #path>::__extend_py_class(ctx, class);
+                                    });
+                                    with_slots.push(quote! {
+                                        <Self as #path>::__extend_slots(slots);
+                                    });
+                                }
                             }
                             meta => {
                                 bail_span!(meta, "#[pyimpl(with(...))] arguments should be paths")
@@ -691,18 +772,25 @@ fn extract_impl_attrs(
                     bail_span!(path, "Unknown pyimpl attribute")
                 }
             }
+            NestedMeta::Meta(Meta::Path(path)) if path_eq(&path, "structseq_impl") => {
+                structseq_impl = true
+            }
             attr => bail_span!(attr, "Unknown pyimpl attribute"),
         }
     }
 
-    Ok((
-        quote! {
+    Ok(ExtractedImplAttrs {
+        with_impl: quote! {
             #(#withs)*
         },
-        quote! {
+        flags: quote! {
             #(#flags)*
         },
-    ))
+        with_slots: quote! {
+            #(#with_slots)*
+        },
+        structseq_impl,
+    })
 }
 
 fn new_impl_item<Item>(index: usize, attr_name: String) -> Box<dyn ImplItem<Item>>

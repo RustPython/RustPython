@@ -223,7 +223,7 @@ impl ItemMeta for SimpleItemMeta {
     }
 }
 
-pub(crate) struct ClassItemMeta(ItemMetaInner);
+pub(crate) struct ClassItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for ClassItemMeta {
     const ALLOWED_NAMES: &'static [&'static str] = &["module", "name"];

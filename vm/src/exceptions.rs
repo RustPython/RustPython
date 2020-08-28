@@ -10,7 +10,7 @@ use crate::pyobject::{
     BorrowValue, PyClassDef, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol,
 };
-use crate::types::create_type_with_flags;
+use crate::types::create_type_with_slots;
 use crate::VirtualMachine;
 use crate::{py_serde, sysmodule};
 
@@ -463,7 +463,7 @@ pub struct ExceptionZoo {
 impl ExceptionZoo {
     pub fn new(type_type: &PyClassRef, object_type: &PyClassRef) -> Self {
         let create_exception_type = |name: &str, base: &PyClassRef| {
-            create_type_with_flags(name, type_type, base, PyBaseException::TP_FLAGS)
+            create_type_with_slots(name, type_type, base, PyBaseException::make_slots())
         };
         // Sorted By Hierarchy then alphabetized.
         let base_exception_type = create_exception_type(PyBaseExceptionRef::NAME, &object_type);

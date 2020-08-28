@@ -36,8 +36,8 @@ use crate::obj::objstr;
 use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::scope::Scope;
-use crate::slots::PyTpFlags;
-use crate::types::{create_type, create_type_with_flags, initialize_types, TypeZoo};
+use crate::slots::{PyClassSlots, PyTpFlags};
+use crate::types::{create_type, create_type_with_slots, initialize_types, TypeZoo};
 use crate::vm::VirtualMachine;
 use rustpython_common::cell::{PyRwLock, PyRwLockReadGuard};
 use rustpython_common::rc::PyRc;
@@ -276,8 +276,8 @@ impl PyContext {
             .unwrap()
     }
 
-    pub fn new_class(&self, name: &str, base: &PyClassRef, flags: PyTpFlags) -> PyClassRef {
-        create_type_with_flags(name, &self.types.type_type, base, flags)
+    pub fn new_class(&self, name: &str, base: &PyClassRef, slots: PyClassSlots) -> PyClassRef {
+        create_type_with_slots(name, &self.types.type_type, base, slots)
     }
 
     pub fn new_namespace(&self) -> PyObjectRef {
@@ -1177,7 +1177,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     fn into_ref_with_type_unchecked(self, cls: PyClassRef, vm: &VirtualMachine) -> PyRef<Self> {
-        let dict = if cls.flags.has_feature(PyTpFlags::HAS_DICT) {
+        let dict = if cls.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
             Some(vm.ctx.new_dict())
         } else {
             None
@@ -1282,7 +1282,7 @@ pub trait PyClassImpl: PyClassDef {
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
         #[cfg(debug_assertions)]
         {
-            assert!(class.flags.is_created_with_flags());
+            assert!(class.slots.flags.is_created_with_flags());
         }
         if Self::TP_FLAGS.has_feature(PyTpFlags::HAS_DICT) {
             class.set_str_attr(
@@ -1295,7 +1295,6 @@ pub trait PyClassImpl: PyClassDef {
             );
         }
         Self::impl_extend_class(ctx, class);
-        class.slots.write().name = Some(Self::TP_NAME.to_owned());
         ctx.add_tp_new_wrapper(&class);
         if let Some(doc) = Self::DOC {
             class.set_str_attr("__doc__", ctx.new_str(doc));
@@ -1310,13 +1309,23 @@ pub trait PyClassImpl: PyClassDef {
     }
 
     fn make_class_with_base(ctx: &PyContext, name: &str, base: &PyClassRef) -> PyClassRef {
-        let py_class = ctx.new_class(name, base, Self::TP_FLAGS);
+        let py_class = ctx.new_class(name, base, Self::make_slots());
         Self::extend_class(ctx, &py_class);
         py_class
     }
 
     fn create_bare_type(type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
-        create_type_with_flags(Self::NAME, type_type, base, Self::TP_FLAGS)
+        create_type_with_slots(Self::NAME, type_type, base, Self::make_slots())
+    }
+
+    fn extend_slots(slots: &mut PyClassSlots);
+
+    fn make_slots() -> PyClassSlots {
+        let mut slots = PyClassSlots::default();
+        slots.flags = Self::TP_FLAGS;
+        slots.name = PyRwLock::new(Some(Self::TP_NAME.to_owned()));
+        Self::extend_slots(&mut slots);
+        slots
     }
 }
 

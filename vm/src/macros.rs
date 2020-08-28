@@ -38,29 +38,34 @@ macro_rules! py_class {
     };
     ( $ctx:expr, $class_name:expr, $class_base:expr, $flags:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         {
-            let py_class = $ctx.new_class($class_name, $class_base, $crate::slots::PyTpFlags::DEFAULT | $flags);
-            $crate::extend_class!($ctx, &py_class, { $($name => $value),* });
+            #[allow(unused_mut)]
+            let mut slots: $crate::slots::PyClassSlots = ($crate::slots::PyTpFlags::DEFAULT | $flags).into();
+            $($crate::py_class!(@extract_slots($ctx, &mut slots, $name, $value));)*
+            let py_class = $ctx.new_class($class_name, $class_base, slots);
+            $($crate::py_class!(@extract_attrs($ctx, &py_class, $name, $value));)*
+            $ctx.add_tp_new_wrapper(&py_class);
             py_class
         }
+    };
+    (@extract_slots($ctx:expr, $slots:expr, (slot $slot_name:ident), $value:expr)) => {
+        $slots.$slot_name = Some(
+            $crate::function::IntoPyNativeFunc::into_func($value)
+        );
+    };
+    (@extract_slots($ctx:expr, $class:expr, $name:expr, $value:expr)) => {};
+    (@extract_attrs($ctx:expr, $slots:expr, (slot $slot_name:ident), $value:expr)) => {};
+    (@extract_attrs($ctx:expr, $class:expr, $name:expr, $value:expr)) => {
+        $class.set_str_attr($name, $value);
     };
 }
 
 #[macro_export]
 macro_rules! extend_class {
-    ( $ctx:expr, $class:expr, { $($name:tt => $value:expr),* $(,)* }) => {
+    ( $ctx:expr, $class:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         $(
-            $crate::extend_class!(@set_attr($ctx, $class, $name, $value));
+            $class.set_str_attr($name, $value);
         )*
         $ctx.add_tp_new_wrapper(&$class);
-    };
-
-    (@set_attr($ctx:expr, $class:expr, (slot $slot_name:ident), $value:expr)) => {
-        $class.slots.write().$slot_name = Some(
-            $crate::function::IntoPyNativeFunc::into_func($value)
-        );
-    };
-    (@set_attr($ctx:expr, $class:expr, $name:expr, $value:expr)) => {
-        $class.set_str_attr($name, $value);
     };
 }
 

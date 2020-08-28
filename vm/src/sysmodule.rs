@@ -69,7 +69,7 @@ fn getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRe
 /// sys.flags
 ///
 /// Flags provided through command line arguments or environment vars.
-#[pystruct_sequence(name = "flags", module = "sys")]
+#[pystruct_sequence(with_pyimpl, name = "flags", module = "sys")]
 #[derive(Default, Debug)]
 struct SysFlags {
     /// -d
@@ -104,6 +104,7 @@ struct SysFlags {
     utf8_mode: u8,
 }
 
+#[pyimpl(structseq_impl)]
 impl SysFlags {
     fn from_settings(settings: &PySettings) -> Self {
         // Start with sensible defaults:
@@ -118,6 +119,11 @@ impl SysFlags {
         flags.quiet = settings.quiet as u8;
         flags.dont_write_bytecode = settings.dont_write_bytecode as u8;
         flags
+    }
+
+    #[pyslot]
+    fn tp_new(_cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("cannot create 'sys.flags' instances".to_owned()))
     }
 }
 
@@ -433,21 +439,11 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
     let ctx = &vm.ctx;
 
     let flags_type = SysFlags::make_class(ctx);
-    extend_class!(ctx, flags_type, {
-      (slot new) => |_cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine| -> PyResult {
-        Err(vm.new_type_error("cannot create 'sys.flags' instances".to_owned()))
-      },
-    });
     let flags = SysFlags::from_settings(&vm.state.settings)
         .into_struct_sequence(vm, flags_type)
         .unwrap();
 
     let version_info_type = version::VersionInfo::make_class(ctx);
-    extend_class!(ctx, version_info_type, {
-      (slot new) => |_cls: PyClassRef, _args: PyFuncArgs, vm: &VirtualMachine| -> PyResult {
-        Err(vm.new_type_error("cannot create 'sys.version_info' instances".to_owned()))
-      },
-    });
     let version_info = version::VersionInfo::VERSION
         .into_struct_sequence(vm, version_info_type)
         .unwrap();

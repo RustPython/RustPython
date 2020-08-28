@@ -32,8 +32,7 @@ pub struct PyClass {
     pub mro: Vec<PyClassRef>,
     pub subclasses: PyRwLock<Vec<PyWeak>>,
     pub attributes: PyRwLock<PyAttributes>,
-    pub flags: PyTpFlags,
-    pub slots: PyRwLock<PyClassSlots>,
+    pub slots: PyClassSlots,
 }
 
 impl fmt::Display for PyClass {
@@ -58,7 +57,7 @@ impl PyValue for PyClass {
 
 impl PyClassRef {
     fn tp_name(zelf: Self, vm: &VirtualMachine) -> String {
-        let opt_name = zelf.slots.read().name.clone();
+        let opt_name = zelf.slots.name.read().clone();
         opt_name.unwrap_or_else(|| {
             let module = zelf.attributes.read().get("__module__").cloned();
             let new_name = if let Some(module) = module {
@@ -69,7 +68,7 @@ impl PyClassRef {
             } else {
                 zelf.name.clone()
             };
-            zelf.slots.write().name = Some(new_name.clone());
+            *zelf.slots.name.write() = Some(new_name.clone());
             new_name
         })
     }
@@ -104,7 +103,7 @@ impl PyClassRef {
 
     #[pyproperty(magic)]
     fn flags(self) -> u64 {
-        self.flags.bits()
+        self.slots.flags.bits()
     }
 
     #[pymethod(magic)]
@@ -158,7 +157,7 @@ impl PyClassRef {
 
     #[pyproperty(magic, setter)]
     fn set_module(self, value: PyObjectRef) {
-        self.slots.write().name = None;
+        *self.slots.name.write() = None;
         self.attributes
             .write()
             .insert("__module__".to_owned(), value);
@@ -188,7 +187,7 @@ impl PyClassRef {
 
         if let Some(attr) = self.get_attr(&name) {
             let attr_class = attr.class();
-            let slots = attr_class.slots.read();
+            let slots = &attr_class.slots;
             if let Some(ref descr_get) = slots.descr_get {
                 drop(mcl);
                 return descr_get(vm, attr, None, OptionalArg::Present(self.into_object()));
@@ -321,12 +320,10 @@ impl PyClassRef {
             let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
             let metatype = if !winner.is(&metatype) {
                 #[allow(clippy::redundant_clone)] // false positive
-                {
-                    if let Some(ref tp_new) = winner.clone().slots.read().new {
-                        // Pass it to the winner
+                if let Some(ref tp_new) = winner.clone().slots.new {
+                    // Pass it to the winner
 
-                        return tp_new(vm, args.insert(winner.into_object()));
-                    }
+                    return tp_new(vm, args.insert(winner.into_object()));
                 }
                 winner
             } else {
@@ -360,7 +357,7 @@ impl PyClassRef {
         }
 
         // TODO: how do we know if it should have a dict?
-        let flags = base.flags | PyTpFlags::HAS_DICT;
+        let flags = base.slots.flags | PyTpFlags::HAS_DICT;
 
         let typ = new(
             metatype,
@@ -368,7 +365,7 @@ impl PyClassRef {
             base,
             bases,
             attributes,
-            flags,
+            flags.into(),
         )
         .map_err(|e| vm.new_type_error(e))?;
 
@@ -544,7 +541,7 @@ fn call_tp_new(
                 return vm.invoke(&new_meth, args.insert(typ.clone().into_object()));
             }
         }
-        if let Some(tp_new) = cls.slots.read().new.as_ref() {
+        if let Some(tp_new) = cls.slots.new.as_ref() {
             return tp_new(vm, args.insert(subtype.into_object()));
         }
     }
@@ -677,7 +674,7 @@ pub fn new(
     base: PyClassRef,
     bases: Vec<PyClassRef>,
     attrs: HashMap<String, PyObjectRef>,
-    mut flags: PyTpFlags,
+    mut slots: PyClassSlots,
 ) -> Result<PyClassRef, String> {
     // Check for duplicates in bases.
     let mut unique_bases = HashSet::new();
@@ -693,8 +690,8 @@ pub fn new(
         .collect();
     let mro = linearise_mro(mros)?;
 
-    if base.flags.has_feature(PyTpFlags::HAS_DICT) {
-        flags |= PyTpFlags::HAS_DICT
+    if base.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
+        slots.flags |= PyTpFlags::HAS_DICT
     }
     let new_type = PyRef::new_ref(
         PyClass {
@@ -704,8 +701,7 @@ pub fn new(
             mro,
             subclasses: PyRwLock::default(),
             attributes: PyRwLock::new(attrs),
-            flags,
-            slots: PyRwLock::default(),
+            slots,
         },
         typ,
         None,
@@ -763,7 +759,7 @@ fn best_base<'a>(bases: &'a [PyClassRef], vm: &VirtualMachine) -> PyResult<PyCla
         //         return NULL;
         // }
 
-        if !base_i.flags.has_feature(PyTpFlags::BASETYPE) {
+        if !base_i.slots.flags.has_feature(PyTpFlags::BASETYPE) {
             return Err(vm.new_type_error(format!(
                 "type '{}' is not an acceptable base type",
                 base_i.name
