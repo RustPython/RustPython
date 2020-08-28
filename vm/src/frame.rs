@@ -1516,7 +1516,7 @@ impl fmt::Debug for Frame {
             .stack
             .iter()
             .map(|elem| {
-                if elem.payload.as_any().is::<Frame>() {
+                if elem.payload_is::<Frame>() {
                     "\n  > {frame}".to_owned()
                 } else {
                     format!("\n  > {:?}", elem)
