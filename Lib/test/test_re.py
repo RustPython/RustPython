@@ -53,6 +53,8 @@ class ReTests(unittest.TestCase):
             if pos is not None:
                 self.assertEqual(err.pos, pos)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_keep_buffer(self):
         # See bug 14212
         b = bytearray(b'x')
@@ -86,6 +88,8 @@ class ReTests(unittest.TestCase):
         int_value = int(matchobj.group(0))
         return str(int_value + 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic_re_sub(self):
         self.assertTypedEqual(re.sub('y', 'a', 'xyz'), 'xaz')
         self.assertTypedEqual(re.sub('y', S('a'), S('xyz')), 'xaz')
@@ -290,6 +294,8 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.subn("b*", "x", "xyz", 2), ('xxxyz', 2))
         self.assertEqual(re.subn("b*", "x", "xyz", count=2), ('xxxyz', 2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_re_split(self):
         for string in ":a:b::c", S(":a:b::c"):
             self.assertTypedEqual(re.split(":", string),
@@ -343,6 +349,8 @@ class ReTests(unittest.TestCase):
             with self.subTest(sep=sep):
                 self.assertTypedEqual(re.split(sep, ':a:b::c'), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_qualified_re_split(self):
         self.assertEqual(re.split(":", ":a:b::c", 2), ['', 'a', 'b::c'])
         self.assertEqual(re.split(":", ":a:b::c", maxsplit=2), ['', 'a', 'b::c'])
@@ -354,6 +362,8 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.split("(:*)", ":a:b::c", maxsplit=2),
                          ['', ':', '', '', 'a:b::c'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_re_findall(self):
         self.assertEqual(re.findall(":+", "abc"), [])
         for string in "a:b::c:::d", S("a:b::c:::d"):
@@ -384,6 +394,8 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.findall(r"(a|(b))", "aba"),
                          [("a", ""),("b", "b"),("a", "")])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_re_match(self):
         for string in 'a', S('a'):
             self.assertEqual(re.match('a', string).groups(), ())
@@ -417,6 +429,8 @@ class ReTests(unittest.TestCase):
                          (None, 'b', None))
         self.assertEqual(pat.match('ac').group(1, 'b2', 3), ('a', None, 'c'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_group(self):
         class Index:
             def __init__(self, value):
@@ -438,6 +452,8 @@ class ReTests(unittest.TestCase):
         self.assertEqual(m.group(2, 1), ('b', 'a'))
         self.assertEqual(m.group(Index(2), Index(1)), ('b', 'a'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_match_getitem(self):
         pat = re.compile('(?:(?P<a1>a)|(?P<b2>b))(?P<c3>c)?')
 
@@ -482,6 +498,8 @@ class ReTests(unittest.TestCase):
         # No len().
         self.assertRaises(TypeError, len, m)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_re_fullmatch(self):
         # Issue 16203: Proposal: add re.fullmatch() method.
         self.assertEqual(re.fullmatch(r"a", "a").span(), (0, 1))
@@ -575,6 +593,8 @@ class ReTests(unittest.TestCase):
                                   'first second').groupdict(),
                          {'first':'first', 'second':'second'})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_expand(self):
         self.assertEqual(re.match("(?P<first>first) (?P<second>second)",
                                   "first second")
@@ -621,6 +641,8 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(r'x{2,1}',
                                'min repeat greater than max repeat', 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getattr(self):
         self.assertEqual(re.compile("(?i)(a)(b)").pattern, "(?i)(a)(b)")
         self.assertEqual(re.compile("(?i)(a)(b)").flags, re.I | re.U)
@@ -643,6 +665,8 @@ class ReTests(unittest.TestCase):
             p.groupindex['other'] = 0
         self.assertEqual(p.groupindex['other'], 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_special_escapes(self):
         self.assertEqual(re.search(r"\b(b.)\b",
                                    "abcd abc bcd bx").group(1), "bx")
@@ -694,6 +718,8 @@ class ReTests(unittest.TestCase):
             with self.subTest(c):
                 self.assertRaises(re.error, re.compile, '[\\%c]' % c)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_named_unicode_escapes(self):
         # test individual Unicode named escapes
         self.assertTrue(re.match(r'\N{LESS-THAN SIGN}', '<'))
@@ -730,6 +756,8 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(br'\N{LESS-THAN SIGN}', r'bad escape \N', 0)
         self.checkPatternError(br'[\N{LESS-THAN SIGN}]', r'bad escape \N', 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_string_boundaries(self):
         # See http://bugs.python.org/issue10713
         self.assertEqual(re.search(r"\b(abc)\b", "abc").group(1),
@@ -756,6 +784,8 @@ class ReTests(unittest.TestCase):
         # Can match around the whitespace.
         self.assertEqual(len(re.findall(r"\B", " ")), 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bigcharset(self):
         self.assertEqual(re.match("([\u2222\u2223])",
                                   "\u2222").group(1), "\u2222")
@@ -828,6 +858,8 @@ class ReTests(unittest.TestCase):
         self.assertRaises(re.error, re.compile, r'(a)b(?<=(a)(?(2)b|x))(c)')
         self.assertRaises(re.error, re.compile, r'(a)b(?<=(.)(?<=\2))(c)')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ignore_case(self):
         self.assertEqual(re.match("abc", "ABC", re.I).group(0), "ABC")
         self.assertEqual(re.match(b"abc", b"ABC", re.I).group(0), b"ABC")
@@ -877,6 +909,8 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.match(r'[19\ufb05]', '\ufb06', re.I))
         self.assertTrue(re.match(r'[19\ufb06]', '\ufb05', re.I))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ignore_case_range(self):
         # Issues #3511, #17381.
         self.assertTrue(re.match(r'[9-a]', '_', re.I))
@@ -944,6 +978,8 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.search(r"\s([^a])", " b").group(1), "b")
         self.assertEqual(re.search(r"\s([^a]*)", " bb").group(1), "bb")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_possible_set_operations(self):
         s = bytes(range(128)).decode()
         with self.assertWarns(FutureWarning):
@@ -1009,6 +1045,8 @@ class ReTests(unittest.TestCase):
 
     LITERAL_CHARS = string.ascii_letters + string.digits + '!"%\',/:;<=>@_`'
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_re_escape(self):
         p = ''.join(chr(i) for i in range(256))
         for c in p:
@@ -1021,6 +1059,8 @@ class ReTests(unittest.TestCase):
         literal_chars = self.LITERAL_CHARS
         self.assertEqual(re.escape(literal_chars), literal_chars)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_re_escape_bytes(self):
         p = bytes(range(256))
         for i in p:
@@ -1035,6 +1075,8 @@ class ReTests(unittest.TestCase):
         literal_chars = self.LITERAL_CHARS.encode('ascii')
         self.assertEqual(re.escape(literal_chars), literal_chars)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_re_escape_non_ascii(self):
         s = 'xxx\u2620\u2620\u2620xxx'
         s_escaped = re.escape(s)
@@ -1043,6 +1085,8 @@ class ReTests(unittest.TestCase):
         self.assertMatch('.%s+.' % re.escape('\u2620'), s,
                          'x\u2620\u2620\u2620x', (2, 7), re.search)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_re_escape_non_ascii_bytes(self):
         b = 'y\u2620y\u2620y'.encode('utf-8')
         b_escaped = re.escape(b)
@@ -1061,6 +1105,8 @@ class ReTests(unittest.TestCase):
         # current pickle expects the _compile() reconstructor in re module
         from re import _compile
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copying(self):
         import copy
         p = re.compile(r'(?P<int>\d+)(?:\.(?P<frac>\d*))?')
@@ -1143,6 +1189,8 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(r"[\U00110000]", r'bad escape \U00110000', 1)
         self.assertTrue(re.match(r"[\U0001d49c-\U0001d4b5]", "\U0001d49e"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sre_byte_literals(self):
         for i in [0, 8, 16, 32, 64, 127, 128, 255]:
             self.assertTrue(re.match((r"\%03o" % i).encode(), bytes([i])))
@@ -1164,6 +1212,8 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(br"\x1", r'incomplete escape \x1', 0)
         self.checkPatternError(br"\x1z", r'incomplete escape \x1', 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sre_byte_class_literals(self):
         for i in [0, 8, 16, 32, 64, 127, 128, 255]:
             self.assertTrue(re.match((r"[\%o]" % i).encode(), bytes([i])))
@@ -1198,6 +1248,8 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.match(r'(a)|(b)', 'b').end(1), -1)
         self.assertEqual(re.match(r'(a)|(b)', 'b').span(1), (-1, -1))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug_527371(self):
         # bug described in patches 527371/672491
         self.assertIsNone(re.match(r'(a)?a','a').lastindex)
@@ -1206,6 +1258,7 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.match(r"(?P<a>a(b))", "ab").lastgroup, 'a')
         self.assertEqual(re.match(r"((a))", "a").lastindex, 1)
 
+    @unittest.skip('TODO: RUSTPYTHON; takes too long time')
     def test_bug_418626(self):
         # bugs 418626 at al. -- Testing Greg Chapman's addition of op code
         # SRE_OP_MIN_REPEAT_ONE for eliminating recursion on simple uses of
@@ -1222,6 +1275,7 @@ class ReTests(unittest.TestCase):
         pat="["+re.escape("\u2039")+"]"
         self.assertEqual(re.compile(pat) and 1, 1)
 
+    @unittest.skip('TODO: RUSTPYTHON; takes too long time')
     def test_stack_overflow(self):
         # nasty cases that used to overflow the straightforward recursive
         # implementation of repeated groups.
@@ -1247,6 +1301,7 @@ class ReTests(unittest.TestCase):
                         self.checkPatternError(r'x%s%s' % (inner_op, outer_op),
                                 'multiple repeat', 1 + len(inner_op))
 
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_unlimited_zero_width_repeat(self):
         # Issue #9669
         self.assertIsNone(re.match(r'(?:a?)*y', 'z'))
@@ -1366,6 +1421,8 @@ class ReTests(unittest.TestCase):
         self.assertEqual(next(iter).span(), (4, 4))
         self.assertRaises(StopIteration, next, iter)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug_6561(self):
         # '\d' should match characters in Unicode category 'Nd'
         # (Number, Decimal Digit), but not those in 'Nl' (Number,
@@ -1387,6 +1444,8 @@ class ReTests(unittest.TestCase):
         for x in not_decimal_digits:
             self.assertIsNone(re.match(r'^\d$', x))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_empty_array(self):
         # SF buf 1647541
         import array
@@ -1395,6 +1454,8 @@ class ReTests(unittest.TestCase):
             self.assertIsNone(re.compile(b"bla").match(a))
             self.assertEqual(re.compile(b"").match(a).groups(), ())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inline_flags(self):
         # Bug #1700
         upper_char = '\u1ea0' # Latin Capital Letter A with Dot Below
@@ -1509,6 +1570,8 @@ class ReTests(unittest.TestCase):
         self.assertEqual(pattern.sub('#', 'a\nb\nc'), 'a#\nb#\nc#')
         self.assertEqual(pattern.sub('#', '\n'), '#\n#')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bytes_str_mixing(self):
         # Mixing str and bytes is disallowed
         pat = re.compile('.')
@@ -1522,6 +1585,8 @@ class ReTests(unittest.TestCase):
         self.assertRaises(TypeError, bpat.sub, 'b', b'c')
         self.assertRaises(TypeError, bpat.sub, 'b', 'c')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ascii_and_unicode_flag(self):
         # String patterns
         for flags in (0, re.UNICODE):
@@ -1551,6 +1616,8 @@ class ReTests(unittest.TestCase):
         self.assertRaises(ValueError, re.compile, r'(?a)\w', re.UNICODE)
         self.assertRaises(re.error, re.compile, r'(?au)\w')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_locale_flag(self):
         enc = locale.getpreferredencoding()
         # Search non-ASCII letter
@@ -1596,6 +1663,8 @@ class ReTests(unittest.TestCase):
         self.assertRaises(ValueError, re.compile, b'(?a)', re.LOCALE)
         self.assertRaises(re.error, re.compile, b'(?aL)')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_scoped_flags(self):
         self.assertTrue(re.match(r'(?i:a)b', 'Ab'))
         self.assertIsNone(re.match(r'(?i:a)b', 'aB'))
@@ -1634,6 +1703,8 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(r'(?i+', 'missing -, : or )', 3)
         self.checkPatternError(r'(?iz', 'unknown flag', 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug_6509(self):
         # Replacement strings of both types must parse properly.
         # all strings
@@ -1652,6 +1723,8 @@ class ReTests(unittest.TestCase):
         pat = re.compile(b'..')
         self.assertEqual(pat.sub(lambda m: b'bytes', b'a5'), b'bytes')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dealloc(self):
         # issue 3299: check for segfault in debug build
         import _sre
@@ -1673,6 +1746,8 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.search("123.*-", '123\U0010ffff-'))
         self.assertTrue(re.search("123.*-", '123\xe9\u20ac\U0010ffff-'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compile(self):
         # Test return value when given string and pattern as parameter
         pattern = re.compile('random pattern')
@@ -1708,6 +1783,7 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.findall(r"(?i)(a)\1", "aa \u0100"), ['a'])
         self.assertEqual(re.match(r"(?s).{1,3}", "\u0100\u0100").span(), (0, 2))
 
+    @unittest.skip('TODO: RUSTPYTHON; takes too long time')
     def test_repeat_minmax_overflow(self):
         # Issue #13169
         string = "x" * 100000
@@ -1748,6 +1824,8 @@ class ReTests(unittest.TestCase):
         self.checkPatternError('(?P<?foo>)',
                                "bad character in group name '?foo'", 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue17998(self):
         for reps in '*', '+', '?', '{1}':
             for mod in '', '?':
@@ -1758,6 +1836,8 @@ class ReTests(unittest.TestCase):
                 self.assertEqual(re.compile(pattern, re.S).findall(b'xyz'),
                                  [b'xyz'], msg=pattern)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_match_repr(self):
         for string in '[abracadabra]', S('[abracadabra]'):
             m = re.search(r'(.+)(.*?)\1', string)
@@ -1784,6 +1864,8 @@ class ReTests(unittest.TestCase):
         )
         self.assertRegex(repr(second), pattern)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_zerowidth(self):
         # Issues 852532, 1647489, 3262, 25054.
         self.assertEqual(re.split(r"\b", "a::bc"), ['', 'a', '::', 'bc', ''])
@@ -1868,6 +1950,8 @@ ELSE
             re.compile(pat, re.DEBUG)
         self.assertEqual(out.getvalue(), dump)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_keyword_parameters(self):
         # Issue #20283: Accepting the string keyword parameter.
         pat = re.compile(r'(ab)')
@@ -2014,6 +2098,8 @@ ELSE
         self.assertIn('ASCII', str(re.A))
         self.assertIn('DOTALL', str(re.S))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pattern_compare(self):
         pattern1 = re.compile('abc', re.IGNORECASE)
 
@@ -2043,6 +2129,8 @@ ELSE
         with self.assertRaises(TypeError):
             pattern1 < pattern2
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pattern_compare_bytes(self):
         pattern1 = re.compile(b'abc')
 
@@ -2060,6 +2148,8 @@ ELSE
             warnings.simplefilter('error', BytesWarning)
             self.assertNotEqual(pattern3, pattern1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug_29444(self):
         s = bytearray(b'abcdefgh')
         m = re.search(b'[a-h]+', s)
@@ -2112,19 +2202,27 @@ class PatternReprTests(unittest.TestCase):
     def check_flags(self, pattern, flags, expected):
         self.assertEqual(repr(re.compile(pattern, flags)), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_without_flags(self):
         self.check('random pattern',
                    "re.compile('random pattern')")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_single_flag(self):
         self.check_flags('random pattern', re.IGNORECASE,
             "re.compile('random pattern', re.IGNORECASE)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multiple_flags(self):
         self.check_flags('random pattern', re.I|re.S|re.X,
             "re.compile('random pattern', "
             "re.IGNORECASE|re.DOTALL|re.VERBOSE)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unicode_flag(self):
         self.check_flags('random pattern', re.U,
                          "re.compile('random pattern')")
@@ -2132,26 +2230,36 @@ class PatternReprTests(unittest.TestCase):
                          "re.compile('random pattern', "
                          "re.IGNORECASE|re.DOTALL)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inline_flags(self):
         self.check('(?i)pattern',
                    "re.compile('(?i)pattern', re.IGNORECASE)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unknown_flags(self):
         self.check_flags('random pattern', 0x123000,
                          "re.compile('random pattern', 0x123000)")
         self.check_flags('random pattern', 0x123000|re.I,
             "re.compile('random pattern', re.IGNORECASE|0x123000)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bytes(self):
         self.check(b'bytes pattern',
                    "re.compile(b'bytes pattern')")
         self.check_flags(b'bytes pattern', re.A,
                          "re.compile(b'bytes pattern', re.ASCII)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_locale(self):
         self.check_flags(b'bytes pattern', re.L,
                          "re.compile(b'bytes pattern', re.LOCALE)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_quotes(self):
         self.check('random "double quoted" pattern',
             '''re.compile('random "double quoted" pattern')''')
@@ -2160,6 +2268,8 @@ class PatternReprTests(unittest.TestCase):
         self.check('''both 'single' and "double" quotes''',
             '''re.compile('both \\'single\\' and "double" quotes')''')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_long_pattern(self):
         pattern = 'Very %spattern' % ('long ' * 1000)
         r = repr(re.compile(pattern))
@@ -2170,6 +2280,8 @@ class PatternReprTests(unittest.TestCase):
         self.assertEqual(r[:30], "re.compile('Very long long lon")
         self.assertEqual(r[-16:], ", re.IGNORECASE)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_flags_repr(self):
         self.assertEqual(repr(re.I), "re.IGNORECASE")
         self.assertEqual(repr(re.I|re.S|re.X),
@@ -2200,6 +2312,8 @@ class ImplementationTest(unittest.TestCase):
 
 class ExternalTests(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_re_benchmarks(self):
         're_tests benchmarks'
         from test.re_tests import benchmarks
@@ -2215,6 +2329,8 @@ class ExternalTests(unittest.TestCase):
                 self.assertTrue(p.match(s2, 10000, 10000 + len(s)))
                 self.assertTrue(p.fullmatch(s2, 10000, 10000 + len(s)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_re_tests(self):
         're_tests test suite'
         from test.re_tests import tests, SUCCEED, FAIL, SYNTAX_ERROR
