@@ -61,10 +61,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let builder = &mut self.builder;
         let local = self.variables.entry(name).or_insert_with(|| {
             let var = Variable::new(len);
-            let local = Local {
-                var,
-                ty: val.ty,
-            };
+            let local = Local { var, ty: val.ty };
             builder.declare_var(var, val.ty.to_cranelift());
             local
         });
