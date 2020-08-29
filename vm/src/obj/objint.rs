@@ -191,14 +191,6 @@ fn inner_divmod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-fn inner_lshift(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
-    inner_shift(int1, int2, |a, b| a << b, vm)
-}
-
-fn inner_rshift(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
-    inner_shift(int1, int2, |a, b| a >> b, vm)
-}
-
 fn inner_shift<F>(int1: &BigInt, int2: &BigInt, shift_op: F, vm: &VirtualMachine) -> PyResult
 where
     F: Fn(&BigInt, usize) -> BigInt,
@@ -407,22 +399,22 @@ impl PyInt {
 
     #[pymethod(name = "__lshift__")]
     fn lshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_lshift(a, b, vm), vm)
+        self.general_op(other, |a, b| inner_shift(a, b, |a, b| a << b, vm), vm)
     }
 
     #[pymethod(name = "__rlshift__")]
     fn rlshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_lshift(b, a, vm), vm)
+        self.general_op(other, |a, b| inner_shift(a, b, |a, b| a << b, vm), vm)
     }
 
     #[pymethod(name = "__rshift__")]
     fn rshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_rshift(a, b, vm), vm)
+        self.general_op(other, |a, b| inner_shift(a, b, |a, b| a >> b, vm), vm)
     }
 
     #[pymethod(name = "__rrshift__")]
     fn rrshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_rshift(b, a, vm), vm)
+        self.general_op(other, |a, b| inner_shift(a, b, |a, b| a >> b, vm), vm)
     }
 
     #[pymethod(name = "__xor__")]
