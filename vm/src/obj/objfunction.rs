@@ -313,7 +313,7 @@ impl PyFunction {
             .get_or_try_init(|| {
                 let arg_types = jitfunc::get_jit_arg_types(&zelf, vm)?;
                 rustpython_jit::compile(&zelf.code.code, &arg_types)
-                    .map_err(|err| vm.new_runtime_error(err.to_string()))
+                    .map_err(|err| jitfunc::new_jit_error(err.to_string(), vm))
             })
             .map(drop)
     }

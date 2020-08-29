@@ -1,3 +1,4 @@
+use crate::exceptions::PyBaseExceptionRef;
 use crate::function::PyFuncArgs;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::{PyFunction, PyFunctionRef};
@@ -20,6 +21,11 @@ impl IntoPyObject for AbiValue {
     }
 }
 
+pub fn new_jit_error(msg: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    let jit_error = vm.ctx.exceptions.jit_error.clone();
+    vm.new_exception_msg(jit_error, msg)
+}
+
 fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResult<JitType> {
     if let Some(value) = dict.get_item_option(name, vm)? {
         if value.is(&vm.ctx.types.int_type) {
@@ -27,10 +33,16 @@ fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResu
         } else if value.is(&vm.ctx.types.float_type) {
             Ok(JitType::Float)
         } else {
-            Err(vm.new_runtime_error("Jit requires argument to be either int or float".to_owned()))
+            Err(new_jit_error(
+                "Jit requires argument to be either int or float".to_owned(),
+                vm,
+            ))
         }
     } else {
-        Err(vm.new_runtime_error(format!("argument {} needs annotation", name)))
+        Err(new_jit_error(
+            format!("argument {} needs annotation", name),
+            vm,
+        ))
     }
 }
 
@@ -40,8 +52,9 @@ pub fn get_jit_arg_types(func: &PyFunctionRef, vm: &VirtualMachine) -> PyResult<
         .flags
         .intersects(CodeFlags::HAS_VARARGS | CodeFlags::HAS_VARKEYWORDS)
     {
-        return Err(vm.new_runtime_error(
+        return Err(new_jit_error(
             "Can't jit functions with variable number of arguments".to_owned(),
+            vm,
         ));
     }
 
@@ -51,8 +64,9 @@ pub fn get_jit_arg_types(func: &PyFunctionRef, vm: &VirtualMachine) -> PyResult<
 
     let annotations = vm.get_attribute(func.clone().into_object(), "__annotations__")?;
     if vm.is_none(&annotations) {
-        Err(vm.new_runtime_error(
+        Err(new_jit_error(
             "Jitting function requires arguments to have annotations".to_owned(),
+            vm,
         ))
     } else if let Ok(dict) = PyDictRef::try_from_object(vm, annotations) {
         let mut arg_types = Vec::new();
