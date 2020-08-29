@@ -1,5 +1,9 @@
 use super::objcode::PyCodeRef;
 use super::objdict::PyDictRef;
+#[cfg(feature = "jit")]
+use super::objfloat;
+#[cfg(feature = "jit")]
+use super::objint;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTupleRef;
 use super::objtype::PyClassRef;
@@ -9,20 +13,24 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objasyncgenerator::PyAsyncGen;
 use crate::obj::objcoroutine::PyCoroutine;
 use crate::obj::objgenerator::PyGenerator;
-#[cfg(feature = "jit")]
-use crate::pyobject::IntoPyObject;
 use crate::pyobject::{
     BorrowValue, IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
     PyValue, TypeProtocol,
 };
+#[cfg(feature = "jit")]
+use crate::pyobject::{IntoPyObject, TryFromObject};
 use crate::scope::Scope;
 use crate::slots::{SlotCall, SlotDescriptor};
 use crate::VirtualMachine;
 use itertools::Itertools;
 #[cfg(feature = "jit")]
+use num_traits::ToPrimitive;
+#[cfg(feature = "jit")]
+use rustpython_bytecode::bytecode::CodeFlags;
+#[cfg(feature = "jit")]
 use rustpython_common::cell::OnceCell;
 #[cfg(feature = "jit")]
-use rustpython_jit::{AbiValue, CompiledCode};
+use rustpython_jit::{AbiValue, CompiledCode, JitType};
 
 #[cfg(feature = "jit")]
 impl IntoPyObject for AbiValue {
@@ -245,7 +253,11 @@ impl PyFunction {
     ) -> PyResult {
         #[cfg(feature = "jit")]
         if let Some(jitted_code) = self.jitted_code.get() {
-            return Ok(jitted_code.invoke().into_pyobject(vm));
+            if let Some(args) = self.get_jit_args(&func_args, vm) {
+                if let Ok(result) = jitted_code.invoke(&args) {
+                    return Ok(result.into_pyobject(vm));
+                }
+            }
         }
 
         let code = &self.code;
@@ -274,6 +286,153 @@ impl PyFunction {
 
     pub fn invoke(&self, func_args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         self.invoke_with_scope(func_args, &self.scope, vm)
+    }
+
+    #[cfg(feature = "jit")]
+    fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResult<JitType> {
+        if let Some(value) = dict.get_item_option(name, vm)? {
+            if value.is(&vm.ctx.types.int_type) {
+                Ok(JitType::Int)
+            } else if value.is(&vm.ctx.types.float_type) {
+                Ok(JitType::Float)
+            } else {
+                Err(vm.new_runtime_error(
+                    "Jit requires argument to be either int or float".to_owned(),
+                ))
+            }
+        } else {
+            Err(vm.new_runtime_error(format!("argument {} needs annotation", name)))
+        }
+    }
+
+    #[cfg(feature = "jit")]
+    fn get_jit_arg_types(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Vec<JitType>> {
+        if zelf
+            .code
+            .flags
+            .intersects(CodeFlags::HAS_VARARGS | CodeFlags::HAS_VARKEYWORDS)
+        {
+            return Err(vm.new_runtime_error(
+                "Can't jit functions with variable number of arguments".to_owned(),
+            ));
+        }
+
+        if zelf.code.arg_names.is_empty() && zelf.code.kwonlyarg_names.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let annotations = vm.get_attribute(zelf.clone().into_object(), "__annotations__")?;
+        if vm.is_none(&annotations) {
+            Err(vm.new_runtime_error(
+                "Jitting function requires arguments to have annotations".to_owned(),
+            ))
+        } else if let Ok(dict) = PyDictRef::try_from_object(vm, annotations) {
+            let mut arg_types = Vec::new();
+
+            for arg in &zelf.code.arg_names {
+                arg_types.push(Self::get_jit_arg_type(&dict, arg, vm)?);
+            }
+
+            for arg in &zelf.code.kwonlyarg_names {
+                arg_types.push(Self::get_jit_arg_type(&dict, arg, vm)?);
+            }
+
+            Ok(arg_types)
+        } else {
+            Err(vm.new_type_error("Function annotations aren't a dict".to_owned()))
+        }
+    }
+
+    #[cfg(feature = "jit")]
+    fn get_jit_value(vm: &VirtualMachine, obj: &PyObjectRef) -> Option<AbiValue> {
+        // This does exact type checks as subclasses of int/float can't be passed to jitted functions
+        let cls = obj.lease_class();
+        if cls.is(&vm.ctx.types.int_type) {
+            objint::get_value(&obj).to_i64().map(AbiValue::Int)
+        } else if cls.is(&vm.ctx.types.float_type) {
+            Some(AbiValue::Float(objfloat::get_value(&obj)))
+        } else {
+            None
+        }
+    }
+
+    /// Like `fill_locals_from_args` but to populate arguments for calling a jit function.
+    /// This also doesn't do full error handling but instead return None if anything is wrong. In
+    /// that case it falls back to the executing the bytecode version which will call
+    /// `fill_locals_from_args` which will raise the actual exception if needed.
+    #[cfg(feature = "jit")]
+    fn get_jit_args(&self, func_args: &PyFuncArgs, vm: &VirtualMachine) -> Option<Vec<AbiValue>> {
+        let mut args: Vec<Option<AbiValue>> =
+            vec![None; self.code.arg_names.len() + self.code.kwonlyarg_names.len()];
+        let nargs = func_args.args.len();
+
+        if nargs > self.code.arg_names.len() || nargs < self.code.posonlyarg_count {
+            return None;
+        }
+
+        // Add positional arguments
+        for i in 0..nargs {
+            args[i] = Some(Self::get_jit_value(vm, &func_args.args[i])?);
+        }
+
+        // Handle keyword arguments
+        for (name, value) in &func_args.kwargs {
+            if let Some(arg_idx) = self.code.arg_names.iter().position(|arg| arg == name) {
+                if args[arg_idx].is_some() {
+                    return None;
+                }
+                args[arg_idx] = Some(Self::get_jit_value(vm, &value)?);
+            } else if let Some(kwarg_idx) =
+                self.code.kwonlyarg_names.iter().position(|arg| arg == name)
+            {
+                let arg_idx = kwarg_idx + self.code.arg_names.len();
+                if args[arg_idx].is_some() {
+                    return None;
+                }
+                args[arg_idx] = Some(Self::get_jit_value(vm, &value)?);
+            } else {
+                return None;
+            }
+        }
+
+        // fill in positional defaults
+        if let Some(defaults) = &self.defaults {
+            let defaults = defaults.borrow_value();
+            for (i, default) in defaults.iter().enumerate() {
+                let arg_idx = i + self.code.arg_names.len() - defaults.len();
+                if args[arg_idx].is_none() {
+                    args[arg_idx] = Some(Self::get_jit_value(vm, default)?);
+                }
+            }
+        }
+
+        let mut result = Vec::new();
+        result.reserve(args.len());
+
+        for (i, arg) in args.into_iter().enumerate() {
+            if let Some(arg) = arg {
+                result.push(arg);
+            } else if i >= self.code.arg_names.len() {
+                let default = if let Some(kw_only_defaults) = &self.kw_only_defaults {
+                    let arg_name = &self.code.kwonlyarg_names[i - self.code.arg_names.len()];
+                    kw_only_defaults
+                        .get_item(arg_name.as_str(), vm)
+                        .ok()
+                        .and_then(|obj| Self::get_jit_value(vm, &obj))
+                } else {
+                    None
+                };
+                if let Some(default) = default {
+                    result.push(default)
+                } else {
+                    return None;
+                }
+            } else {
+                return None;
+            }
+        }
+
+        Some(result)
     }
 }
 
@@ -313,10 +472,11 @@ impl PyFunction {
 
     #[cfg(feature = "jit")]
     #[pymethod(magic)]
-    fn jit(&self, vm: &VirtualMachine) -> PyResult<()> {
-        self.jitted_code
+    fn jit(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        zelf.jitted_code
             .get_or_try_init(|| {
-                rustpython_jit::compile(&self.code.code)
+                let arg_types = PyFunction::get_jit_arg_types(&zelf, vm)?;
+                rustpython_jit::compile(&zelf.code.code, &arg_types)
                     .map_err(|err| vm.new_runtime_error(err.to_string()))
             })
             .map(drop)

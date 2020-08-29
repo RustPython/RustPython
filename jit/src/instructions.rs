@@ -3,44 +3,7 @@ use num_traits::cast::ToPrimitive;
 use rustpython_bytecode::bytecode::{BinaryOperator, Constant, Instruction, NameScope};
 use std::collections::HashMap;
 
-use super::JitCompileError;
-
-#[derive(Default)]
-pub struct JitSig {
-    pub ret: Option<JitType>,
-}
-
-impl JitSig {
-    pub fn to_cif(&self) -> libffi::middle::Cif {
-        let ret = match self.ret {
-            Some(ref ty) => ty.to_libffi(),
-            None => libffi::middle::Type::void(),
-        };
-        libffi::middle::Cif::new(Vec::new(), ret)
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub enum JitType {
-    Int,
-    Float,
-}
-
-impl JitType {
-    fn to_cranelift(&self) -> types::Type {
-        match self {
-            Self::Int => types::I64,
-            Self::Float => types::F64,
-        }
-    }
-
-    fn to_libffi(&self) -> libffi::middle::Type {
-        match self {
-            Self::Int => libffi::middle::Type::i64(),
-            Self::Float => libffi::middle::Type::f64(),
-        }
-    }
-}
+use super::{JitCompileError, JitSig, JitType};
 
 #[derive(Clone)]
 struct Local {
@@ -53,20 +16,60 @@ struct JitValue {
     ty: JitType,
 }
 
+impl JitValue {
+    fn new(val: Value, ty: JitType) -> JitValue {
+        JitValue { val, ty }
+    }
+}
+
 pub struct FunctionCompiler<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,
     stack: Vec<JitValue>,
     variables: HashMap<String, Local>,
-    pub sig: JitSig,
+    pub(crate) sig: JitSig,
 }
 
 impl<'a, 'b> FunctionCompiler<'a, 'b> {
-    pub fn new(builder: &'a mut FunctionBuilder<'b>) -> FunctionCompiler<'a, 'b> {
-        FunctionCompiler {
+    pub fn new(
+        builder: &'a mut FunctionBuilder<'b>,
+        arg_names: &[String],
+        arg_types: &[JitType],
+        entry_block: Block,
+    ) -> FunctionCompiler<'a, 'b> {
+        let mut compiler = FunctionCompiler {
             builder,
             stack: Vec::new(),
             variables: HashMap::new(),
             sig: JitSig::default(),
+        };
+        let params = compiler.builder.func.dfg.block_params(entry_block).to_vec();
+        debug_assert_eq!(arg_names.len(), arg_types.len());
+        debug_assert_eq!(arg_names.len(), params.len());
+        for ((name, ty), val) in arg_names.iter().zip(arg_types).zip(params) {
+            compiler
+                .store_variable(name.clone(), JitValue::new(val, *ty))
+                .unwrap();
+        }
+        compiler
+    }
+
+    fn store_variable(&mut self, name: String, val: JitValue) -> Result<(), JitCompileError> {
+        let len = self.variables.len();
+        let builder = &mut self.builder;
+        let local = self.variables.entry(name).or_insert_with(|| {
+            let var = Variable::new(len);
+            let local = Local {
+                var,
+                ty: val.ty.clone(),
+            };
+            builder.declare_var(var, val.ty.to_cranelift());
+            local
+        });
+        if val.ty != local.ty {
+            Err(JitCompileError::NotSupported)
+        } else {
+            self.builder.def_var(local.var, val.val);
+            Ok(())
         }
     }
 
@@ -91,22 +94,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 scope: NameScope::Local,
             } => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                let len = self.variables.len();
-                let builder = &mut self.builder;
-                let local = self.variables.entry(name.clone()).or_insert_with(|| {
-                    let var = Variable::new(len);
-                    let local = Local {
-                        var,
-                        ty: val.ty.clone(),
-                    };
-                    builder.declare_var(var, val.ty.to_cranelift());
-                    local
-                });
-                if val.ty != local.ty {
-                    return Err(JitCompileError::NotSupported);
-                }
-                self.builder.def_var(local.var, val.val);
-                Ok(())
+                self.store_variable(name.clone(), val)
             }
             Instruction::LoadConst {
                 value: Constant::Integer { value },

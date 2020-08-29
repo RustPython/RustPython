@@ -8,7 +8,7 @@ use rustpython_bytecode::bytecode;
 
 mod instructions;
 
-use instructions::{FunctionCompiler, JitSig, JitType};
+use instructions::FunctionCompiler;
 
 #[derive(Debug, thiserror::Error)]
 pub enum JitCompileError {
@@ -18,6 +18,12 @@ pub enum JitCompileError {
     BadBytecode,
     #[error("error while compiling to machine code: {0}")]
     CraneliftError(#[from] ModuleError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum JitExecutionError {
+    #[error("argument type differs from what is expected")]
+    ArgTypeMismatch,
 }
 
 struct Jit {
@@ -40,15 +46,26 @@ impl Jit {
     fn build_function(
         &mut self,
         bytecode: &bytecode::CodeObject,
+        args: &[JitType],
     ) -> Result<(FuncId, JitSig), JitCompileError> {
+        for arg in args {
+            self.ctx
+                .func
+                .signature
+                .params
+                .push(AbiParam::new(arg.to_cranelift()));
+        }
+
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
         let entry_block = builder.create_block();
-        // builder.append_block_params_for_function_params(entry_block);
+        builder.append_block_params_for_function_params(entry_block);
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
         let sig = {
-            let mut compiler = FunctionCompiler::new(&mut builder);
+            let mut arg_names = bytecode.arg_names.clone();
+            arg_names.extend(bytecode.kwonlyarg_names.iter().cloned());
+            let mut compiler = FunctionCompiler::new(&mut builder, &arg_names, args, entry_block);
 
             for instruction in &bytecode.instructions {
                 compiler.add_instruction(instruction)?;
@@ -74,10 +91,13 @@ impl Jit {
     }
 }
 
-pub fn compile(bytecode: &bytecode::CodeObject) -> Result<CompiledCode, JitCompileError> {
+pub fn compile(
+    bytecode: &bytecode::CodeObject,
+    args: &[JitType],
+) -> Result<CompiledCode, JitCompileError> {
     let mut jit = Jit::new();
 
-    let (id, sig) = jit.build_function(bytecode)?;
+    let (id, sig) = jit.build_function(bytecode, args)?;
 
     jit.module.finalize_definitions();
 
@@ -96,18 +116,69 @@ pub struct CompiledCode {
 }
 
 impl CompiledCode {
-    pub fn invoke(&self) -> Option<AbiValue> {
+    pub fn invoke(&self, args: &[AbiValue]) -> Result<Option<AbiValue>, JitExecutionError> {
+        let mut cif_args = Vec::new();
+        for (val, ty) in args.iter().zip(&self.sig.args) {
+            match (val, ty) {
+                (AbiValue::Int(ref val), JitType::Int) => {
+                    cif_args.push(libffi::middle::Arg::new(val))
+                }
+                (AbiValue::Float(ref val), JitType::Float) => {
+                    cif_args.push(libffi::middle::Arg::new(val))
+                }
+                _ => return Err(JitExecutionError::ArgTypeMismatch),
+            }
+        }
         let cif = self.sig.to_cif();
         unsafe {
             let value = cif.call::<UnTypedAbiValue>(
                 libffi::middle::CodePtr::from_ptr(self.code as *const _),
-                &[],
+                &cif_args,
             );
-            self.sig.ret.as_ref().map(|ty| value.to_typed(ty))
+            Ok(self.sig.ret.as_ref().map(|ty| value.to_typed(ty)))
         }
     }
 }
 
+#[derive(Default)]
+struct JitSig {
+    args: Vec<JitType>,
+    ret: Option<JitType>,
+}
+
+impl JitSig {
+    fn to_cif(&self) -> libffi::middle::Cif {
+        let ret = match self.ret {
+            Some(ref ty) => ty.to_libffi(),
+            None => libffi::middle::Type::void(),
+        };
+        libffi::middle::Cif::new(Vec::new(), ret)
+    }
+}
+
+#[derive(Copy, Clone, PartialEq)]
+pub enum JitType {
+    Int,
+    Float,
+}
+
+impl JitType {
+    fn to_cranelift(&self) -> types::Type {
+        match self {
+            Self::Int => types::I64,
+            Self::Float => types::F64,
+        }
+    }
+
+    fn to_libffi(&self) -> libffi::middle::Type {
+        match self {
+            Self::Int => libffi::middle::Type::i64(),
+            Self::Float => libffi::middle::Type::f64(),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub enum AbiValue {
     Float(f64),
     Int(i64),
