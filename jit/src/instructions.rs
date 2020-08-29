@@ -63,7 +63,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             let var = Variable::new(len);
             let local = Local {
                 var,
-                ty: val.ty.clone(),
+                ty: val.ty,
             };
             builder.declare_var(var, val.ty.to_cranelift());
             local
@@ -88,7 +88,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     .ok_or(JitCompileError::BadBytecode)?;
                 self.stack.push(JitValue {
                     val: self.builder.use_var(local.var),
-                    ty: local.ty.clone(),
+                    ty: local.ty,
                 });
                 Ok(())
             }
@@ -129,7 +129,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         return Err(JitCompileError::NotSupported);
                     }
                 } else {
-                    self.sig.ret = Some(val.ty.clone());
+                    self.sig.ret = Some(val.ty);
                     self.builder
                         .func
                         .signature
