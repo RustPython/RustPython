@@ -9,9 +9,14 @@ def bar():
     return a / 5.0
 
 
+def baz(a: int, b: int):
+    return a + b + 12
+
+
 def tests():
     assert foo() == 15
     assert bar() == 2e5
+    assert baz(17, 20) == 49
 
 
 tests()
@@ -20,4 +25,5 @@ if hasattr(foo, "__jit__"):
     print("Has jit")
     foo.__jit__()
     bar.__jit__()
+    baz.__jit__()
     tests()

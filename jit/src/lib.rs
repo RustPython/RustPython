@@ -1,4 +1,5 @@
 use std::fmt;
+use std::mem::MaybeUninit;
 
 use cranelift::prelude::*;
 use cranelift_module::{Backend, FuncId, Linkage, Module, ModuleError};
@@ -18,12 +19,6 @@ pub enum JitCompileError {
     BadBytecode,
     #[error("error while compiling to machine code: {0}")]
     CraneliftError(#[from] ModuleError),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum JitExecutionError {
-    #[error("argument type differs from what is expected")]
-    ArgTypeMismatch,
 }
 
 struct Jit {
@@ -116,31 +111,23 @@ pub struct CompiledCode {
 }
 
 impl CompiledCode {
-    pub fn invoke(&self, args: &[AbiValue]) -> Result<Option<AbiValue>, JitExecutionError> {
-        let mut cif_args = Vec::new();
-        for (val, ty) in args.iter().zip(&self.sig.args) {
-            match (val, ty) {
-                (AbiValue::Int(ref val), JitType::Int) => {
-                    cif_args.push(libffi::middle::Arg::new(val))
-                }
-                (AbiValue::Float(ref val), JitType::Float) => {
-                    cif_args.push(libffi::middle::Arg::new(val))
-                }
-                _ => return Err(JitExecutionError::ArgTypeMismatch),
-            }
-        }
+    pub fn args_builder(&self) -> ArgsBuilder<'_> {
+        ArgsBuilder::new(self)
+    }
+
+    pub fn invoke<'a>(&self, args: &Args<'a>) -> Option<AbiValue> {
+        debug_assert_eq!(self as *const _, args.code as *const _);
         let cif = self.sig.to_cif();
         unsafe {
             let value = cif.call::<UnTypedAbiValue>(
                 libffi::middle::CodePtr::from_ptr(self.code as *const _),
-                &cif_args,
+                &args.cif_args,
             );
-            Ok(self.sig.ret.as_ref().map(|ty| value.to_typed(ty)))
+            self.sig.ret.as_ref().map(|ty| value.to_typed(ty))
         }
     }
 }
 
-#[derive(Default)]
 struct JitSig {
     args: Vec<JitType>,
     ret: Option<JitType>,
@@ -152,7 +139,7 @@ impl JitSig {
             Some(ref ty) => ty.to_libffi(),
             None => libffi::middle::Type::void(),
         };
-        libffi::middle::Cif::new(Vec::new(), ret)
+        libffi::middle::Cif::new(self.args.iter().map(JitType::to_libffi), ret)
     }
 }
 
@@ -178,12 +165,22 @@ impl JitType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub enum AbiValue {
     Float(f64),
     Int(i64),
 }
 
+impl AbiValue {
+    fn to_untyped(self) -> UnTypedAbiValue {
+        match self {
+            AbiValue::Float(f) => UnTypedAbiValue { float: f },
+            AbiValue::Int(i) => UnTypedAbiValue { int: i },
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
 union UnTypedAbiValue {
     float: f64,
     int: i64,
@@ -213,4 +210,55 @@ impl fmt::Debug for CompiledCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("[compiled code]")
     }
+}
+
+pub struct ArgsBuilder<'a> {
+    values: Vec<MaybeUninit<UnTypedAbiValue>>,
+    initialised: Vec<bool>,
+    code: &'a CompiledCode,
+}
+
+impl<'a> ArgsBuilder<'a> {
+    fn new(code: &'a CompiledCode) -> ArgsBuilder<'a> {
+        ArgsBuilder {
+            values: vec![MaybeUninit::uninit(); code.sig.args.len()],
+            initialised: vec![false; code.sig.args.len()],
+            code,
+        }
+    }
+
+    pub fn set(&mut self, idx: usize, value: AbiValue) {
+        self.values[idx] = MaybeUninit::new(value.to_untyped());
+        self.initialised[idx] = true;
+    }
+
+    pub fn is_set(&self, idx: usize) -> bool {
+        self.initialised[idx]
+    }
+
+    pub fn into_args(self) -> Option<Args<'a>> {
+        if self.initialised.iter().all(|x| *x) {
+            // SAFETY: we know all elements are initialised so it's safe to transmute away the
+            // MaybeUninit wrapper.
+            let values = unsafe {
+                std::mem::transmute::<Vec<MaybeUninit<UnTypedAbiValue>>, Vec<UnTypedAbiValue>>(
+                    self.values,
+                )
+            };
+            let cif_args = values.iter().map(|v| libffi::middle::Arg::new(v)).collect();
+            Some(Args {
+                _values: values,
+                cif_args,
+                code: self.code,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+pub struct Args<'a> {
+    _values: Vec<UnTypedAbiValue>,
+    cif_args: Vec<libffi::middle::Arg>,
+    code: &'a CompiledCode,
 }

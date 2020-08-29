@@ -30,7 +30,7 @@ use rustpython_bytecode::bytecode::CodeFlags;
 #[cfg(feature = "jit")]
 use rustpython_common::cell::OnceCell;
 #[cfg(feature = "jit")]
-use rustpython_jit::{AbiValue, CompiledCode, JitType};
+use rustpython_jit::{AbiValue, Args, CompiledCode, JitType};
 
 #[cfg(feature = "jit")]
 impl IntoPyObject for AbiValue {
@@ -253,10 +253,8 @@ impl PyFunction {
     ) -> PyResult {
         #[cfg(feature = "jit")]
         if let Some(jitted_code) = self.jitted_code.get() {
-            if let Some(args) = self.get_jit_args(&func_args, vm) {
-                if let Ok(result) = jitted_code.invoke(&args) {
-                    return Ok(result.into_pyobject(vm));
-                }
+            if let Some(args) = self.get_jit_args(&func_args, jitted_code, vm) {
+                return Ok(jitted_code.invoke(&args).into_pyobject(vm));
             }
         }
 
@@ -361,9 +359,13 @@ impl PyFunction {
     /// that case it falls back to the executing the bytecode version which will call
     /// `fill_locals_from_args` which will raise the actual exception if needed.
     #[cfg(feature = "jit")]
-    fn get_jit_args(&self, func_args: &PyFuncArgs, vm: &VirtualMachine) -> Option<Vec<AbiValue>> {
-        let mut args: Vec<Option<AbiValue>> =
-            vec![None; self.code.arg_names.len() + self.code.kwonlyarg_names.len()];
+    fn get_jit_args<'a>(
+        &self,
+        func_args: &PyFuncArgs,
+        jitted_code: &'a CompiledCode,
+        vm: &VirtualMachine,
+    ) -> Option<Args<'a>> {
+        let mut jit_args = jitted_code.args_builder();
         let nargs = func_args.args.len();
 
         if nargs > self.code.arg_names.len() || nargs < self.code.posonlyarg_count {
@@ -372,24 +374,24 @@ impl PyFunction {
 
         // Add positional arguments
         for i in 0..nargs {
-            args[i] = Some(Self::get_jit_value(vm, &func_args.args[i])?);
+            jit_args.set(i, Self::get_jit_value(vm, &func_args.args[i])?);
         }
 
         // Handle keyword arguments
         for (name, value) in &func_args.kwargs {
             if let Some(arg_idx) = self.code.arg_names.iter().position(|arg| arg == name) {
-                if args[arg_idx].is_some() {
+                if jit_args.is_set(arg_idx) {
                     return None;
                 }
-                args[arg_idx] = Some(Self::get_jit_value(vm, &value)?);
+                jit_args.set(arg_idx, Self::get_jit_value(vm, &value)?);
             } else if let Some(kwarg_idx) =
                 self.code.kwonlyarg_names.iter().position(|arg| arg == name)
             {
                 let arg_idx = kwarg_idx + self.code.arg_names.len();
-                if args[arg_idx].is_some() {
+                if jit_args.is_set(arg_idx) {
                     return None;
                 }
-                args[arg_idx] = Some(Self::get_jit_value(vm, &value)?);
+                jit_args.set(arg_idx, Self::get_jit_value(vm, &value)?);
             } else {
                 return None;
             }
@@ -400,39 +402,27 @@ impl PyFunction {
             let defaults = defaults.borrow_value();
             for (i, default) in defaults.iter().enumerate() {
                 let arg_idx = i + self.code.arg_names.len() - defaults.len();
-                if args[arg_idx].is_none() {
-                    args[arg_idx] = Some(Self::get_jit_value(vm, default)?);
+                if !jit_args.is_set(arg_idx) {
+                    jit_args.set(arg_idx, Self::get_jit_value(vm, default)?);
                 }
             }
         }
 
-        let mut result = Vec::new();
-        result.reserve(args.len());
-
-        for (i, arg) in args.into_iter().enumerate() {
-            if let Some(arg) = arg {
-                result.push(arg);
-            } else if i >= self.code.arg_names.len() {
-                let default = if let Some(kw_only_defaults) = &self.kw_only_defaults {
-                    let arg_name = &self.code.kwonlyarg_names[i - self.code.arg_names.len()];
-                    kw_only_defaults
-                        .get_item(arg_name.as_str(), vm)
+        // fill in keyword only defaults
+        if let Some(kw_only_defaults) = &self.kw_only_defaults {
+            for (i, name) in self.code.kwonlyarg_names.iter().enumerate() {
+                let arg_idx = i + self.code.arg_names.len();
+                if !jit_args.is_set(arg_idx) {
+                    let default = kw_only_defaults
+                        .get_item(name.as_str(), vm)
                         .ok()
-                        .and_then(|obj| Self::get_jit_value(vm, &obj))
-                } else {
-                    None
-                };
-                if let Some(default) = default {
-                    result.push(default)
-                } else {
-                    return None;
+                        .and_then(|obj| Self::get_jit_value(vm, &obj))?;
+                    jit_args.set(arg_idx, default);
                 }
-            } else {
-                return None;
             }
         }
 
-        Some(result)
+        jit_args.into_args()
     }
 }
 

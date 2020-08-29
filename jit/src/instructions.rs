@@ -40,7 +40,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             builder,
             stack: Vec::new(),
             variables: HashMap::new(),
-            sig: JitSig::default(),
+            sig: JitSig {
+                args: arg_types.to_vec(),
+                ret: None,
+            },
         };
         let params = compiler.builder.func.dfg.block_params(entry_block).to_vec();
         debug_assert_eq!(arg_names.len(), arg_types.len());
