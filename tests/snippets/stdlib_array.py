@@ -20,3 +20,17 @@ b = a
 assert a.__ne__(b) is False
 b = array("B", [3, 2, 1, 0])
 assert a.__ne__(b) is True
+
+# slice assignment step overflow behaviour test
+T = 'I'
+a = array(T, range(10))
+b = array(T, [100])
+a[::9999999999] = b
+assert a == array(T, [100, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+a[::-9999999999] = b
+assert a == array(T, [100, 1, 2, 3, 4, 5, 6, 7, 8, 100])
+c = array(T)
+a[0:0:9999999999] = c
+assert a == array(T, [100, 1, 2, 3, 4, 5, 6, 7, 8, 100])
+a[0:0:-9999999999] = c
+assert a == array(T, [100, 1, 2, 3, 4, 5, 6, 7, 8, 100])
