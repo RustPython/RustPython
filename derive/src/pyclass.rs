@@ -177,8 +177,11 @@ fn generate_class_def(
     }
 
     let base_class = if is_pystruct {
-        let baseclassdef = quote!(::rustpython_vm::pyobject::BaseClassDef);
-        quote!(const BASE: #baseclassdef = #baseclassdef::tuple();)
+        quote! {
+            fn base_class(ctx: &::rustpython_vm::pyobject::PyContext) -> ::rustpython_vm::obj::objtype::PyClassRef {
+                ctx.types.tuple_type.clone()
+            }
+        }
     } else {
         quote!()
     };

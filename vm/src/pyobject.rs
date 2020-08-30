@@ -1260,29 +1260,14 @@ where
     }
 }
 
-// can be extended in the future to use some sort of pyclass() attr instead of make_class_with_base
-pub struct BaseClassDef {
-    is_tuple: bool,
-}
-impl BaseClassDef {
-    pub const fn tuple() -> Self {
-        BaseClassDef { is_tuple: true }
-    }
-    pub fn get_class(&self, ctx: &PyContext) -> PyClassRef {
-        if self.is_tuple {
-            ctx.types.tuple_type.clone()
-        } else {
-            ctx.types.object_type.clone()
-        }
-    }
-}
-
 pub trait PyClassDef {
     const NAME: &'static str;
     const MODULE_NAME: Option<&'static str>;
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
-    const BASE: BaseClassDef = BaseClassDef { is_tuple: false };
+    fn base_class(ctx: &PyContext) -> PyClassRef {
+        ctx.types.object_type.clone()
+    }
 }
 
 impl<T> PyClassDef for PyRef<T>
@@ -1326,7 +1311,7 @@ pub trait PyClassImpl: PyClassDef {
     }
 
     fn make_class(ctx: &PyContext) -> PyClassRef {
-        Self::make_class_with_base(ctx, Self::NAME, Self::BASE.get_class(ctx))
+        Self::make_class_with_base(ctx, Self::NAME, Self::base_class(ctx))
     }
 
     fn make_class_with_base(ctx: &PyContext, name: &str, base: PyClassRef) -> PyClassRef {
