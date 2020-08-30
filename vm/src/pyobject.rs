@@ -1336,13 +1336,13 @@ pub trait PyClassImpl: PyClassDef {
 }
 
 #[pyimpl]
-pub trait PyStructSequence: PyClassImpl + 'static {
+pub trait PyStructSequence: PyClassImpl + Sized + 'static {
     const FIELD_NAMES: &'static [&'static str];
 
-    fn to_tuple(&self, vm: &VirtualMachine) -> PyTuple;
+    fn into_tuple(self, vm: &VirtualMachine) -> PyTuple;
 
-    fn into_struct_sequence(&self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyTupleRef> {
-        self.to_tuple(vm).into_ref_with_type(vm, cls)
+    fn into_struct_sequence(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyTupleRef> {
+        self.into_tuple(vm).into_ref_with_type(vm, cls)
     }
 
     #[pymethod(magic)]
