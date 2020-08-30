@@ -15,7 +15,8 @@ use crate::pyobject::{
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use crate::vm::VirtualMachine;
+use crate::slots::Hashable;
+use crate::VirtualMachine;
 use rustpython_common::{float_ops, hash};
 
 /// Convert a string or number to a floating point number, if possible.
@@ -131,7 +132,7 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Hashable))]
 #[allow(clippy::trivially_copy_pass_by_ref)]
 impl PyFloat {
     #[pyslot]
@@ -464,11 +465,6 @@ impl PyFloat {
         zelf
     }
 
-    #[pymethod(name = "__hash__")]
-    fn hash(&self) -> hash::PyHash {
-        hash::hash_float(self.value)
-    }
-
     #[pyproperty]
     fn real(zelf: PyRef<Self>) -> PyFloatRef {
         zelf
@@ -518,6 +514,12 @@ impl PyFloat {
     #[pymethod]
     fn hex(&self) -> String {
         float_ops::to_hex(self.value)
+    }
+}
+
+impl Hashable for PyFloat {
+    fn hash(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+        Ok(hash::hash_float(zelf.to_f64()))
     }
 }
 

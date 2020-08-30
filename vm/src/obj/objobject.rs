@@ -85,8 +85,9 @@ impl PyBaseObject {
     }
 
     #[pymethod(magic)]
-    fn hash(zelf: PyObjectRef) -> rustpython_common::hash::PyHash {
-        zelf.get_id() as _
+    #[pyslot]
+    fn hash(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<rustpython_common::hash::PyHash> {
+        Ok(zelf.get_id() as _)
     }
 
     #[pymethod(magic)]

@@ -12,6 +12,7 @@ use crate::pyobject::{
     self, BorrowValue, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
+use crate::slots::Hashable;
 use crate::vm::{ReprGuard, VirtualMachine};
 use rustpython_common::hash::PyHash;
 
@@ -617,7 +618,7 @@ macro_rules! multi_args_frozenset {
     }};
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Hashable))]
 impl PyFrozenSet {
     pub fn from_iter(
         vm: &VirtualMachine,
@@ -790,10 +791,11 @@ impl PyFrozenSet {
         };
         Ok(vm.ctx.new_str(s))
     }
+}
 
-    #[pymethod(name = "__hash__")]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        self.inner.hash(vm)
+impl Hashable for PyFrozenSet {
+    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        zelf.inner.hash(vm)
     }
 }
 

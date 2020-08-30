@@ -1,10 +1,12 @@
 use super::objtype::{issubclass, PyClassRef};
 use crate::bytesinner::try_as_bytes;
+use crate::common::hash::PyHash;
 use crate::pyobject::{
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
+use crate::slots::Hashable;
 use crate::stdlib::array::PyArray;
-use crate::vm::VirtualMachine;
+use crate::VirtualMachine;
 
 #[pyclass(module = false, name = "memoryview")]
 #[derive(Debug)]
@@ -14,7 +16,7 @@ pub struct PyMemoryView {
 
 pub type PyMemoryViewRef = PyRef<PyMemoryView>;
 
-#[pyimpl]
+#[pyimpl(with(Hashable))]
 impl PyMemoryView {
     pub fn try_bytes<F, R>(&self, f: F) -> Option<R>
     where
@@ -53,11 +55,6 @@ impl PyMemoryView {
         self.obj_ref.clone()
     }
 
-    #[pymethod(name = "__hash__")]
-    fn hash(&self, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(&self.obj_ref, "__hash__", vec![])
-    }
-
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.obj_ref.get_item(needle, vm)
@@ -66,6 +63,12 @@ impl PyMemoryView {
     #[pymethod(magic)]
     fn len(&self, vm: &VirtualMachine) -> PyResult {
         vm.call_method(&self.obj_ref, "__len__", vec![])
+    }
+}
+
+impl Hashable for PyMemoryView {
+    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        vm._hash(&zelf.obj_ref)
     }
 }
 

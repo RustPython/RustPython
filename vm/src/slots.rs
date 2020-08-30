@@ -1,4 +1,5 @@
 use crate::common::cell::PyRwLock;
+use crate::common::hash::PyHash;
 use crate::function::{OptionalArg, PyFuncArgs, PyNativeFunc};
 use crate::pyobject::{IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
@@ -41,7 +42,10 @@ pub struct PyClassSlots {
     pub new: Option<PyNativeFunc>,
     pub call: Option<PyNativeFunc>,
     pub descr_get: Option<PyDescrGetFunc>,
+    pub hash: Option<HashFunc>,
 }
+
+type HashFunc = Box<py_dyn_fn!(dyn Fn(PyObjectRef, &VirtualMachine) -> PyResult<PyHash>)>;
 
 impl PyClassSlots {
     pub fn from_flags(flags: PyTpFlags) -> Self {
@@ -138,4 +142,16 @@ pub trait SlotDescriptor: PyValue {
             OptionalArg::Missing => false,
         }
     }
+}
+
+#[pyimpl]
+pub trait Hashable: PyValue {
+    #[pyslot]
+    fn tp_hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+        let zelf = <PyRef<Self>>::try_from_object(vm, zelf)?;
+        Self::hash(zelf, vm)
+    }
+
+    #[pymethod(magic)]
+    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
 }

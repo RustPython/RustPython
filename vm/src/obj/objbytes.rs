@@ -20,6 +20,7 @@ use crate::pyobject::{
     TryFromObject,
 };
 use crate::pystr::{self, PyCommonString};
+use crate::slots::Hashable;
 use crate::vm::VirtualMachine;
 use rustpython_common::hash::PyHash;
 
@@ -85,7 +86,7 @@ pub(crate) fn init(context: &PyContext) {
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Hashable))]
 impl PyBytes {
     #[pyslot]
     fn tp_new(
@@ -128,11 +129,6 @@ impl PyBytes {
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyComparisonValue {
         self.inner.lt(other, vm)
-    }
-
-    #[pymethod(name = "__hash__")]
-    fn hash(&self, vm: &VirtualMachine) -> PyHash {
-        self.inner.hash(vm)
     }
 
     #[pymethod(name = "__iter__")]
@@ -470,6 +466,12 @@ impl PyBytes {
     #[pymethod]
     fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStringRef> {
         bytes_decode(zelf.into_object(), args, vm)
+    }
+}
+
+impl Hashable for PyBytes {
+    fn hash(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        Ok(zelf.inner.hash(vm))
     }
 }
 

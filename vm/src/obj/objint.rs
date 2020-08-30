@@ -21,8 +21,9 @@ use crate::pyobject::{
     PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
+use crate::slots::Hashable;
 use crate::stdlib::array::PyArray;
-use crate::vm::VirtualMachine;
+use crate::VirtualMachine;
 use rustpython_common::hash;
 
 /// int(x=0) -> integer
@@ -225,7 +226,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(Hashable))]
 impl PyInt {
     fn with_value<T>(cls: PyClassRef, value: T, vm: &VirtualMachine) -> PyResult<PyIntRef>
     where
@@ -474,11 +475,6 @@ impl PyInt {
         -(&self.value)
     }
 
-    #[pymethod(name = "__hash__")]
-    fn hash(&self) -> hash::PyHash {
-        hash::hash_bigint(&self.value)
-    }
-
     #[pymethod(name = "__abs__")]
     fn abs(&self) -> BigInt {
         self.value.abs()
@@ -706,6 +702,12 @@ impl PyInt {
             .iter()
             .map(|n| n.count_ones())
             .sum()
+    }
+}
+
+impl Hashable for PyInt {
+    fn hash(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+        Ok(hash::hash_bigint(zelf.borrow_value()))
     }
 }
 
