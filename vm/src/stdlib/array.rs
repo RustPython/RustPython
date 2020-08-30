@@ -4,21 +4,21 @@ use crate::common::cell::{
 };
 use crate::function::OptionalArg;
 use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objsequence::{PySliceableSequence, get_slice_range};
+use crate::obj::objsequence::{get_slice_range, PySliceableSequence};
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
     BorrowValue, Either, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue,
-    PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol
+    PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use std::fmt;
 use num_bigint::BigInt;
-use num_traits::{Zero, One, Signed, ToPrimitive};
+use num_traits::{One, Signed, ToPrimitive, Zero};
+use std::fmt;
 
 struct ArrayTypeSpecifierError {
     _priv: (),
