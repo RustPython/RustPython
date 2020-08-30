@@ -14,6 +14,7 @@ pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "pystruct_sequence",
     "pyattr",
     "pyslot",
+    "extend_class",
 ];
 
 #[derive(Default)]
@@ -292,18 +293,18 @@ impl ClassItemMeta {
         Ok(value)
     }
 
-    pub fn mandatory_module(&self) -> Result<String> {
-        let inner = self.inner();
-        let value = self.module().ok().flatten().
-        ok_or_else(|| syn::Error::new_spanned(
-            &inner.meta_ident,
-            format!(
-                "#[{attr_name}(module = ...)] must exist as a string. Built-in module is not allowed here.",
-                attr_name=inner.meta_name()
-            ),
-        ))?;
-        Ok(value)
-    }
+    // pub fn mandatory_module(&self) -> Result<String> {
+    //     let inner = self.inner();
+    //     let value = self.module().ok().flatten().
+    //     ok_or_else(|| syn::Error::new_spanned(
+    //         &inner.meta_ident,
+    //         format!(
+    //             "#[{attr_name}(module = ...)] must exist as a string. Built-in module is not allowed here.",
+    //             attr_name=inner.meta_name()
+    //         ),
+    //     ))?;
+    //     Ok(value)
+    // }
 }
 
 pub(crate) fn path_eq(path: &Path, s: &str) -> bool {

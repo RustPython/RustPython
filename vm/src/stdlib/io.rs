@@ -877,7 +877,7 @@ mod fileio {
     }
 
     pub fn make_fileio(ctx: &crate::pyobject::PyContext, raw_io_base: PyClassRef) -> PyClassRef {
-        FileIO::make_class_with_base(ctx, FileIO::NAME, &raw_io_base)
+        FileIO::make_class_with_base(ctx, FileIO::NAME, raw_io_base)
     }
 }
 

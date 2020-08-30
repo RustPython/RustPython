@@ -11,7 +11,9 @@ use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{BorrowValue, Either, PyClassImpl, PyObjectRef, PyResult, TryFromObject};
+use crate::pyobject::{
+    BorrowValue, Either, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, TryFromObject,
+};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -170,7 +172,8 @@ fn time_strptime(
     Ok(PyStructTime::new(vm, instant, -1).into_obj(vm))
 }
 
-#[pystruct_sequence(with_pyimpl, module = "time", name = "struct_time")]
+#[pyclass(module = "time", name = "struct_time")]
+#[derive(PyStructSequence)]
 #[allow(dead_code)]
 struct PyStructTime {
     tm_year: PyObjectRef,
@@ -190,7 +193,7 @@ impl fmt::Debug for PyStructTime {
     }
 }
 
-#[pyimpl(structseq_impl)]
+#[pyimpl(with(PyStructSequence))]
 impl PyStructTime {
     fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
         PyStructTime {

@@ -44,7 +44,7 @@ mod decl {
         create_type(
             "error",
             &vm.ctx.types.type_type,
-            &vm.ctx.exceptions.exception_type,
+            vm.ctx.exceptions.exception_type.clone(),
         )
     }
 

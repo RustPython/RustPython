@@ -105,7 +105,7 @@ fn new_module_item(
         "pyattr" => Box::new(AttributeItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        "pystruct_sequence" | "pyclass" => Box::new(ClassItem {
+        "pyclass" => Box::new(ClassItem {
             inner: ContentItemInner { index, attr_name },
             pyattrs: pyattrs.unwrap_or_else(Vec::new),
         }),
@@ -175,7 +175,7 @@ where
         if pyattrs.is_empty() {
             result.push(new_item(i, attr_name, None));
         } else {
-            if !["pyclass", "pystruct_sequence"].contains(&attr_name.as_str()) {
+            if attr_name != "pyclass" {
                 return Err(syn::Error::new_spanned(
                     attr,
                     "#[pyattr] #[pyclass] is the only supported composition",
@@ -199,7 +199,7 @@ struct FunctionItem {
     inner: ContentItemInner,
 }
 
-/// #[pyclass] or #[pystruct_sequence]
+/// #[pyclass]
 struct ClassItem {
     inner: ContentItemInner,
     pyattrs: Vec<usize>,

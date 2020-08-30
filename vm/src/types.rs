@@ -125,10 +125,10 @@ impl TypeZoo {
 
         macro_rules! create_type {
             ($class:ty) => {
-                <$class>::create_bare_type(&type_type, &object_type)
+                <$class>::create_bare_type(&type_type, object_type.clone())
             };
             ($class:ty, $base:expr) => {
-                <$class>::create_bare_type(&type_type, $base)
+                <$class>::create_bare_type(&type_type, $base.clone())
             };
         }
 
@@ -138,7 +138,7 @@ impl TypeZoo {
             async_generator_asend: create_type!(objasyncgenerator::PyAsyncGenASend),
             async_generator_athrow: create_type!(objasyncgenerator::PyAsyncGenAThrow),
             async_generator_wrapped_value: create_type!(objasyncgenerator::PyAsyncGenWrappedValue),
-            bool_type: create_type!(objbool::PyBool, &int_type),
+            bool_type: create_type!(objbool::PyBool, int_type),
             bound_method_type: create_type!(objfunction::PyBoundMethod),
             builtin_function_or_method_type: create_type!(objbuiltinfunc::PyBuiltinFunction),
             bytearray_type: create_type!(objbytearray::PyByteArray),
@@ -201,14 +201,14 @@ impl TypeZoo {
     }
 }
 
-pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
+pub fn create_type(name: &str, type_type: &PyClassRef, base: PyClassRef) -> PyClassRef {
     create_type_with_slots(name, type_type, base, Default::default())
 }
 
 pub fn create_type_with_slots(
     name: &str,
     type_type: &PyClassRef,
-    base: &PyClassRef,
+    base: PyClassRef,
     slots: PyClassSlots,
 ) -> PyClassRef {
     let dict = PyAttributes::new();
@@ -216,7 +216,7 @@ pub fn create_type_with_slots(
         type_type.clone(),
         name,
         base.clone(),
-        vec![base.clone()],
+        vec![base],
         dict,
         slots,
     )

@@ -52,11 +52,10 @@ pub fn pymodule(attr: TokenStream, item: TokenStream) -> TokenStream {
     result_to_tokens(pymodule::impl_pymodule(attr, item))
 }
 
-#[proc_macro_attribute]
-pub fn pystruct_sequence(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let attr = parse_macro_input!(attr as AttributeArgs);
-    let item = parse_macro_input!(item as Item);
-    result_to_tokens(pyclass::impl_pystruct_sequence(attr, item))
+#[proc_macro_derive(PyStructSequence)]
+pub fn pystruct_sequence(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    result_to_tokens(pyclass::impl_pystruct_sequence(input))
 }
 
 #[proc_macro]

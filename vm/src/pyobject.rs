@@ -130,13 +130,16 @@ impl PyContext {
             PyRef::new_ref(payload, cls.clone(), None)
         }
 
-        let none_type = PyNone::create_bare_type(&types.type_type, &types.object_type);
+        let none_type = PyNone::create_bare_type(&types.type_type, types.object_type.clone());
         let none = create_object(PyNone, &none_type);
 
         let ellipsis = create_object(PyEllipsis, &types.ellipsis_type);
 
-        let not_implemented_type =
-            create_type("NotImplementedType", &types.type_type, &types.object_type);
+        let not_implemented_type = create_type(
+            "NotImplementedType",
+            &types.type_type,
+            types.object_type.clone(),
+        );
         let not_implemented = create_object(PyNotImplemented, &not_implemented_type);
 
         let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)
@@ -276,7 +279,7 @@ impl PyContext {
             .unwrap()
     }
 
-    pub fn new_class(&self, name: &str, base: &PyClassRef, slots: PyClassSlots) -> PyClassRef {
+    pub fn new_class(&self, name: &str, base: PyClassRef, slots: PyClassSlots) -> PyClassRef {
         create_type_with_slots(name, &self.types.type_type, base, slots)
     }
 
@@ -1257,11 +1260,29 @@ where
     }
 }
 
+// can be extended in the future to use some sort of pyclass() attr instead of make_class_with_base
+pub struct BaseClassDef {
+    is_tuple: bool,
+}
+impl BaseClassDef {
+    pub const fn tuple() -> Self {
+        BaseClassDef { is_tuple: true }
+    }
+    pub fn get_class(&self, ctx: &PyContext) -> PyClassRef {
+        if self.is_tuple {
+            ctx.types.tuple_type.clone()
+        } else {
+            ctx.types.object_type.clone()
+        }
+    }
+}
+
 pub trait PyClassDef {
     const NAME: &'static str;
     const MODULE_NAME: Option<&'static str>;
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
+    const BASE: BaseClassDef = BaseClassDef { is_tuple: false };
 }
 
 impl<T> PyClassDef for PyRef<T>
@@ -1305,16 +1326,16 @@ pub trait PyClassImpl: PyClassDef {
     }
 
     fn make_class(ctx: &PyContext) -> PyClassRef {
-        Self::make_class_with_base(ctx, Self::NAME, &ctx.types.object_type)
+        Self::make_class_with_base(ctx, Self::NAME, Self::BASE.get_class(ctx))
     }
 
-    fn make_class_with_base(ctx: &PyContext, name: &str, base: &PyClassRef) -> PyClassRef {
+    fn make_class_with_base(ctx: &PyContext, name: &str, base: PyClassRef) -> PyClassRef {
         let py_class = ctx.new_class(name, base, Self::make_slots());
         Self::extend_class(ctx, &py_class);
         py_class
     }
 
-    fn create_bare_type(type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
+    fn create_bare_type(type_type: &PyClassRef, base: PyClassRef) -> PyClassRef {
         create_type_with_slots(Self::NAME, type_type, base, Self::make_slots())
     }
 
@@ -1329,9 +1350,17 @@ pub trait PyClassImpl: PyClassDef {
     }
 }
 
-pub trait PyStructSequenceImpl: PyClassImpl {
+#[pyimpl]
+pub trait PyStructSequence: PyClassImpl + 'static {
     const FIELD_NAMES: &'static [&'static str];
 
+    fn to_tuple(&self, vm: &VirtualMachine) -> PyTuple;
+
+    fn into_struct_sequence(&self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyTupleRef> {
+        self.to_tuple(vm).into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(magic)]
     fn repr(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<String> {
         let format_field = |(value, name)| {
             let s = vm.to_repr(value)?;
@@ -1356,6 +1385,19 @@ pub trait PyStructSequenceImpl: PyClassImpl {
                 (String::new(), "...")
             };
         Ok(format!("{}({}{})", Self::TP_NAME, body, suffix))
+    }
+
+    #[extend_class]
+    fn extend_pyclass(ctx: &PyContext, class: &PyClassRef) {
+        for (i, &name) in Self::FIELD_NAMES.iter().enumerate() {
+            // cast i to a u8 so there's less to store in the getter closure.
+            // Hopefully there's not struct sequences with >=256 elements :P
+            let i = i as u8;
+            class.set_str_attr(
+                name,
+                ctx.new_readonly_getset(name, move |zelf: &PyTuple| zelf.fast_getitem(i.into())),
+            );
+        }
     }
 }
 

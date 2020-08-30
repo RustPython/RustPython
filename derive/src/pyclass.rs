@@ -7,8 +7,8 @@ use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
 use syn::{
-    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Index, Item, Meta, NestedMeta,
-    Result,
+    parse_quote, spanned::Spanned, Attribute, AttributeArgs, DeriveInput, Ident, Index, Item, Meta,
+    NestedMeta, Result,
 };
 use syn_ext::ext::*;
 
@@ -17,6 +17,7 @@ struct ImplContext {
     impl_extend_items: ItemNursery,
     getset_items: GetSetNursery,
     extend_slots_items: ItemNursery,
+    class_extensions: Vec<TokenStream>,
     errors: Vec<syn::Error>,
 }
 
@@ -49,6 +50,7 @@ fn raw_extend_methods<T: syn::parse::Parse>(context: &ImplContext) -> impl Itera
     let getset_impl = &context.getset_items;
     let extend_impl = &context.impl_extend_items;
     let slots_impl = &context.extend_slots_items;
+    let class_extensions = &context.class_extensions;
     macro_rules! iter_chain {
         ($($it:expr),*$(,)?) => {
             std::iter::empty()
@@ -63,6 +65,7 @@ fn raw_extend_methods<T: syn::parse::Parse>(context: &ImplContext) -> impl Itera
             ) {
                 #getset_impl
                 #extend_impl
+                #(#class_extensions)*
             }
         },
         parse_quote! {
@@ -86,36 +89,32 @@ pub(crate) fn impl_pyimpl(
                 with_impl,
                 flags,
                 with_slots,
-                structseq_impl,
             } = extract_impl_attrs(attr)?;
 
             let ty = &imp.self_ty;
 
-            if structseq_impl {
-                imp.items.extend(raw_extend_methods(&context));
-                imp.into_token_stream()
-            } else {
-                let getset_impl = &context.getset_items;
-                let extend_impl = &context.impl_extend_items;
-                let slots_impl = &context.extend_slots_items;
-                quote! {
-                    #imp
-                    impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
-                        const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::from_bits_truncate(#flags);
+            let getset_impl = &context.getset_items;
+            let extend_impl = &context.impl_extend_items;
+            let slots_impl = &context.extend_slots_items;
+            let class_extensions = &context.class_extensions;
+            quote! {
+                #imp
+                impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
+                    const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::from_bits_truncate(#flags);
 
-                        fn impl_extend_class(
-                            ctx: &::rustpython_vm::pyobject::PyContext,
-                            class: &::rustpython_vm::obj::objtype::PyClassRef,
-                        ) {
-                            #getset_impl
-                            #extend_impl
-                            #with_impl
-                        }
+                    fn impl_extend_class(
+                        ctx: &::rustpython_vm::pyobject::PyContext,
+                        class: &::rustpython_vm::obj::objtype::PyClassRef,
+                    ) {
+                        #getset_impl
+                        #extend_impl
+                        #with_impl
+                        #(#class_extensions)*
+                    }
 
-                        fn extend_slots(slots: &mut ::rustpython_vm::slots::PyClassSlots) {
-                            #with_slots
-                            #slots_impl
-                        }
+                    fn extend_slots(slots: &mut ::rustpython_vm::slots::PyClassSlots) {
+                        #with_slots
+                        #slots_impl
                     }
                 }
             }
@@ -160,6 +159,29 @@ fn generate_class_def(
         Some(v) => quote!(Some(#v) ),
         None => quote!(None),
     };
+    let mut is_pystruct = false;
+    'pystruct_check: for attr in attrs {
+        if path_eq(&attr.path, "derive") {
+            if let Ok(Meta::List(l)) = attr.parse_meta() {
+                for nested in l.nested {
+                    if nested
+                        .get_ident()
+                        .map_or(false, |p| p == "PyStructSequence")
+                    {
+                        is_pystruct = true;
+                        break 'pystruct_check;
+                    }
+                }
+            }
+        }
+    }
+
+    let base_class = if is_pystruct {
+        let baseclassdef = quote!(::rustpython_vm::pyobject::BaseClassDef);
+        quote!(const BASE: #baseclassdef = #baseclassdef::tuple();)
+    } else {
+        quote!()
+    };
 
     let tokens = quote! {
         impl ::rustpython_vm::pyobject::PyClassDef for #ident {
@@ -167,6 +189,7 @@ fn generate_class_def(
             const MODULE_NAME: Option<&'static str> = #module_name;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: Option<&'static str> = #doc;
+            #base_class
         }
     };
     Ok(tokens)
@@ -190,127 +213,59 @@ pub(crate) fn impl_pyclass(
     Ok(ret)
 }
 
-struct StructSeqItemMeta(ItemMetaInner);
-
-impl ItemMeta for StructSeqItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["module", "name", "with_pyimpl"];
-
-    fn from_inner(inner: ItemMetaInner) -> Self {
-        Self(inner)
-    }
-    fn inner(&self) -> &ItemMetaInner {
-        &self.0
-    }
-}
-
 pub(crate) fn impl_pystruct_sequence(
-    attr: AttributeArgs,
-    item: Item,
+    input: DeriveInput,
 ) -> std::result::Result<TokenStream, Diagnostic> {
-    let struc = if let Item::Struct(struc) = item {
-        struc
+    let fields = if let syn::Data::Struct(ref struc) = input.data {
+        &struc.fields
     } else {
         bail_span!(
-            item,
+            input,
             "#[pystruct_sequence] can only be on a struct declaration"
         )
     };
-    let fake_ident = Ident::new("pystruct_sequence", struc.span());
-    let meta = StructSeqItemMeta::from_nested(struc.ident.clone(), fake_ident, attr.into_iter())?;
-    let with_pyimpl = meta.inner()._bool("with_pyimpl")?;
-    let class_meta = ClassItemMeta(meta.0);
-    let class_name = class_meta.class_name()?;
-    let module_name = class_meta.mandatory_module()?;
 
-    let class_def =
-        generate_class_def(&struc.ident, &class_name, Some(&module_name), &struc.attrs)?;
     let mut properties = Vec::new();
     let mut field_names = Vec::new();
-    for (i, field) in struc.fields.iter().enumerate() {
-        let idx = Index::from(i);
-        if let Some(ref field_name) = field.ident {
-            let field_name_str = field_name.to_string();
-            // TODO add doc to the generated property
-            let property = quote! {
-                class.set_str_attr(
-                    #field_name_str,
-                    ctx.new_readonly_getset(
+    match fields {
+        syn::Fields::Named(fields) => {
+            for (i, field) in fields.named.iter().enumerate() {
+                let idx = Index::from(i);
+                let field_name = field.ident.as_ref().unwrap();
+                let field_name_str = field_name.to_string();
+                // TODO add doc to the generated property
+                let property = quote! {
+                    class.set_str_attr(
                         #field_name_str,
-                        |zelf: &::rustpython_vm::obj::objtuple::PyTuple,
-                         _vm: &::rustpython_vm::VirtualMachine| {
-                            zelf.fast_getitem(#idx)
-                        }
-                   ),
-                );
-            };
-            properties.push(property);
-            field_names.push(quote!(#field_name));
-        } else {
-            field_names.push(quote!(#idx));
+                        ctx.new_readonly_getset(
+                            #field_name_str,
+                            |zelf: &::rustpython_vm::obj::objtuple::PyTuple,
+                             _vm: &::rustpython_vm::VirtualMachine| {
+                                zelf.fast_getitem(#idx)
+                            }
+                       ),
+                    );
+                };
+                properties.push(property);
+                field_names.push(quote!(#field_name));
+            }
         }
+        _ => bail_span!(
+            input,
+            "#[pystruct_sequence] can only be on a struct with named fields"
+        ),
     }
 
-    let (with_extend, with_slots) = if with_pyimpl {
-        (
-            quote! {
-                Self::__extend_py_class(ctx, class);
-            },
-            quote! {
-                Self::__extend_slots(slots);
-            },
-        )
-    } else {
-        (quote! {}, quote! {})
-    };
-
-    let ty = &struc.ident;
+    let ty = &input.ident;
     let ret = quote! {
-        #struc
-        #class_def
-
-        impl #ty {
-            pub fn into_struct_sequence(&self,
-                vm: &::rustpython_vm::VirtualMachine,
-                cls: ::rustpython_vm::obj::objtype::PyClassRef,
-            ) -> ::rustpython_vm::pyobject::PyResult<::rustpython_vm::obj::objtuple::PyTupleRef> {
-                let tuple = ::rustpython_vm::obj::objtuple::PyTuple::from(
-                    vec![#(::rustpython_vm::pyobject::IntoPyObject::into_pyobject(
-                        ::std::clone::Clone::clone(&self.#field_names),
-                        vm,
-                    )),*],
-                );
-                ::rustpython_vm::pyobject::PyValue::into_ref_with_type(tuple, vm, cls)
-            }
-        }
-
-        impl ::rustpython_vm::pyobject::PyStructSequenceImpl for #ty {
+        impl ::rustpython_vm::pyobject::PyStructSequence for #ty {
             const FIELD_NAMES: &'static [&'static str] = &[#(stringify!(#field_names)),*];
-        }
-
-        impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
-            #[cfg(debug_assertions)]
-            const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::_CREATED_WITH_FLAGS;
-
-            fn impl_extend_class(
-                ctx: &::rustpython_vm::pyobject::PyContext,
-                class: &::rustpython_vm::obj::objtype::PyClassRef,
-            ) {
-                use ::rustpython_vm::pyobject::PyStructSequenceImpl;
-
-                #(#properties)*
-                class.set_str_attr("__repr__", ctx.new_method(Self::repr));
-                #with_extend
-            }
-
-            fn make_class(
-                ctx: &::rustpython_vm::pyobject::PyContext,
-            ) -> ::rustpython_vm::obj::objtype::PyClassRef {
-                use crate::pyobject::PyClassDef;
-                Self::make_class_with_base(ctx, Self::NAME,  &ctx.types.tuple_type)
-            }
-
-            fn extend_slots(slots: &mut ::rustpython_vm::slots::PyClassSlots) {
-                #with_slots
+            fn to_tuple(&self, vm: &::rustpython_vm::VirtualMachine,) -> ::rustpython_vm::obj::objtuple::PyTuple {
+                let items = vec![#(::rustpython_vm::pyobject::IntoPyObject::into_pyobject(
+                    ::std::clone::Clone::clone(&self.#field_names),
+                    vm,
+                )),*];
+                items.into()
             }
         }
     };
@@ -333,6 +288,11 @@ struct SlotItem {
     inner: ContentItemInner,
 }
 
+/// #[extend_class]
+struct ExtendClassItem {
+    inner: ContentItemInner,
+}
+
 impl ContentItem for MethodItem {
     fn inner(&self) -> &ContentItemInner {
         &self.inner
@@ -344,6 +304,11 @@ impl ContentItem for PropertyItem {
     }
 }
 impl ContentItem for SlotItem {
+    fn inner(&self) -> &ContentItemInner {
+        &self.inner
+    }
+}
+impl ContentItem for ExtendClassItem {
     fn inner(&self) -> &ContentItemInner {
         &self.inner
     }
@@ -465,6 +430,26 @@ where
             args.cfgs.to_vec(),
             tokens,
         )?;
+
+        Ok(())
+    }
+}
+impl<Item> ImplItem<Item> for ExtendClassItem
+where
+    Item: ItemLike + ToTokens + GetIdent,
+{
+    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
+        args.attrs.remove(self.index());
+
+        let ident = if args.item.is_function_or_method() {
+            Ok(args.item.get_ident().unwrap())
+        } else {
+            Err(self.new_syn_error(args.item.span(), "can only be on a method"))
+        }?;
+
+        args.context.class_extensions.push(quote! {
+            Self::#ident(ctx, class);
+        });
 
         Ok(())
     }
@@ -705,14 +690,12 @@ struct ExtractedImplAttrs {
     with_impl: TokenStream,
     with_slots: TokenStream,
     flags: TokenStream,
-    structseq_impl: bool,
 }
 
 fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplAttrs, Diagnostic> {
     let mut withs = Vec::new();
     let mut with_slots = Vec::new();
     let mut flags = vec![quote! { ::rustpython_vm::slots::PyTpFlags::DEFAULT.bits() }];
-    let mut structseq_impl = false;
     #[cfg(debug_assertions)]
     {
         flags.push(quote! {
@@ -772,9 +755,6 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
                     bail_span!(path, "Unknown pyimpl attribute")
                 }
             }
-            NestedMeta::Meta(Meta::Path(path)) if path_eq(&path, "structseq_impl") => {
-                structseq_impl = true
-            }
             attr => bail_span!(attr, "Unknown pyimpl attribute"),
         }
     }
@@ -789,7 +769,6 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
         with_slots: quote! {
             #(#with_slots)*
         },
-        structseq_impl,
     })
 }
 
@@ -810,6 +789,9 @@ where
             inner: ContentItemInner { index, attr_name },
         }),
         "pyslot" => Box::new(SlotItem {
+            inner: ContentItemInner { index, attr_name },
+        }),
+        "extend_class" => Box::new(ExtendClassItem {
             inner: ContentItemInner { index, attr_name },
         }),
         other => unreachable!("#[pyimpl] doesn't accept #[{}]", other),

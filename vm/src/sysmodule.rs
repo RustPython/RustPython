@@ -5,7 +5,9 @@ use crate::frame::FrameRef;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
+use crate::pyobject::{
+    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyStructSequence,
+};
 use crate::vm::{PySettings, VirtualMachine};
 use crate::{builtins, exceptions, py_io, version};
 use rustpython_common::hash::{PyHash, PyUHash};
@@ -69,8 +71,8 @@ fn getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRe
 /// sys.flags
 ///
 /// Flags provided through command line arguments or environment vars.
-#[pystruct_sequence(with_pyimpl, name = "flags", module = "sys")]
-#[derive(Default, Debug)]
+#[pyclass(name = "flags", module = "sys")]
+#[derive(Default, Debug, PyStructSequence)]
 struct SysFlags {
     /// -d
     debug: u8,
@@ -104,7 +106,7 @@ struct SysFlags {
     utf8_mode: u8,
 }
 
-#[pyimpl(structseq_impl)]
+#[pyimpl(with(PyStructSequence))]
 impl SysFlags {
     fn from_settings(settings: &PySettings) -> Self {
         // Start with sensible defaults:
@@ -249,8 +251,8 @@ fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
-#[pystruct_sequence(module = "sys", name = "getwindowsversion")]
-#[derive(Default, Debug)]
+#[pyclass(module = "sys", name = "getwindowsversion")]
+#[derive(Default, Debug, PyStructSequence)]
 #[cfg(windows)]
 struct WindowsVersion {
     major: u32,
@@ -264,6 +266,9 @@ struct WindowsVersion {
     product_type: u8,
     platform_version: (u32, u32, u32),
 }
+#[cfg(windows)]
+#[pyimpl(with(PyStructSequence))]
+impl WindowsVersion {}
 
 #[cfg(windows)]
 fn sys_getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::obj::objtuple::PyTupleRef> {
@@ -364,7 +369,8 @@ pub fn sysconfigdata_name() -> String {
     format!("_sysconfigdata_{}_{}_{}", ABIFLAGS, PLATFORM, MULTIARCH)
 }
 
-#[pystruct_sequence(module = "sys", name = "hash_info")]
+#[pyclass(module = "sys", name = "hash_info")]
+#[derive(PyStructSequence)]
 struct PyHashInfo {
     width: usize,
     modulus: PyUHash,
@@ -376,6 +382,7 @@ struct PyHashInfo {
     seed_bits: usize,
     cutoff: usize,
 }
+#[pyimpl(with(PyStructSequence))]
 impl PyHashInfo {
     const INFO: Self = {
         use rustpython_common::hash::*;
@@ -393,7 +400,8 @@ impl PyHashInfo {
     };
 }
 
-#[pystruct_sequence(module = "sys", name = "float_info")]
+#[pyclass(module = "sys", name = "float_info")]
+#[derive(PyStructSequence)]
 struct PyFloatInfo {
     max: f64,
     max_exp: i32,
@@ -407,6 +415,7 @@ struct PyFloatInfo {
     radix: u32,
     rounds: i32,
 }
+#[pyimpl(with(PyStructSequence))]
 impl PyFloatInfo {
     const INFO: Self = PyFloatInfo {
         max: f64::MAX,
@@ -423,11 +432,13 @@ impl PyFloatInfo {
     };
 }
 
-#[pystruct_sequence(module = "sys", name = "int_info")]
+#[pyclass(module = "sys", name = "int_info")]
+#[derive(PyStructSequence)]
 struct PyIntInfo {
     bits_per_digit: usize,
     sizeof_digit: usize,
 }
+#[pyimpl(with(PyStructSequence))]
 impl PyIntInfo {
     const INFO: Self = PyIntInfo {
         bits_per_digit: 30, //?

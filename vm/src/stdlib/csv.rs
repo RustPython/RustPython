@@ -202,7 +202,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let error = create_type(
         "Error",
         &ctx.types.type_type,
-        &ctx.exceptions.exception_type,
+        ctx.exceptions.exception_type.clone(),
     );
 
     py_module!(vm, "_csv", {
