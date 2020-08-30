@@ -1,5 +1,4 @@
 use std::fmt;
-use std::mem::MaybeUninit;
 
 use cranelift::prelude::*;
 use cranelift_module::{Backend, FuncId, Linkage, Module, ModuleError};
@@ -143,7 +142,7 @@ impl JitSig {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum JitType {
     Int,
     Float,
@@ -165,19 +164,10 @@ impl JitType {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub enum AbiValue {
     Float(f64),
     Int(i64),
-}
-
-impl AbiValue {
-    fn to_untyped(self) -> UnTypedAbiValue {
-        match self {
-            AbiValue::Float(f) => UnTypedAbiValue { float: f },
-            AbiValue::Int(i) => UnTypedAbiValue { int: i },
-        }
-    }
 }
 
 #[derive(Copy, Clone)]
@@ -213,52 +203,46 @@ impl fmt::Debug for CompiledCode {
 }
 
 pub struct ArgsBuilder<'a> {
-    values: Vec<MaybeUninit<UnTypedAbiValue>>,
-    initialised: Vec<bool>,
+    values: Vec<Option<AbiValue>>,
     code: &'a CompiledCode,
 }
 
 impl<'a> ArgsBuilder<'a> {
     fn new(code: &'a CompiledCode) -> ArgsBuilder<'a> {
         ArgsBuilder {
-            values: vec![MaybeUninit::uninit(); code.sig.args.len()],
-            initialised: vec![false; code.sig.args.len()],
+            values: vec![None; code.sig.args.len()],
             code,
         }
     }
 
     pub fn set(&mut self, idx: usize, value: AbiValue) {
-        self.values[idx] = MaybeUninit::new(value.to_untyped());
-        self.initialised[idx] = true;
+        self.values[idx] = Some(value);
     }
 
     pub fn is_set(&self, idx: usize) -> bool {
-        self.initialised[idx]
+        self.values[idx].is_some()
     }
 
     pub fn into_args(self) -> Option<Args<'a>> {
-        if self.initialised.iter().all(|x| *x) {
-            // SAFETY: we know all elements are initialised so it's safe to transmute away the
-            // MaybeUninit wrapper.
-            let values = unsafe {
-                std::mem::transmute::<Vec<MaybeUninit<UnTypedAbiValue>>, Vec<UnTypedAbiValue>>(
-                    self.values,
-                )
-            };
-            let cif_args = values.iter().map(|v| libffi::middle::Arg::new(v)).collect();
-            Some(Args {
-                _values: values,
+        self.values
+            .iter()
+            .map(|v| {
+                v.as_ref().map(|v| match v {
+                    AbiValue::Int(ref i) => libffi::middle::Arg::new(i),
+                    AbiValue::Float(ref f) => libffi::middle::Arg::new(f),
+                })
+            })
+            .collect::<Option<_>>()
+            .map(|cif_args| Args {
+                _values: self.values,
                 cif_args,
                 code: self.code,
             })
-        } else {
-            None
-        }
     }
 }
 
 pub struct Args<'a> {
-    _values: Vec<UnTypedAbiValue>,
+    _values: Vec<Option<AbiValue>>,
     cif_args: Vec<libffi::middle::Arg>,
     code: &'a CompiledCode,
 }

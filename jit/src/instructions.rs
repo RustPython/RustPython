@@ -50,7 +50,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         debug_assert_eq!(arg_names.len(), params.len());
         for ((name, ty), val) in arg_names.iter().zip(arg_types).zip(params) {
             compiler
-                .store_variable(name.clone(), JitValue::new(val, *ty))
+                .store_variable(name.clone(), JitValue::new(val, ty.clone()))
                 .unwrap();
         }
         compiler
@@ -61,7 +61,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let builder = &mut self.builder;
         let local = self.variables.entry(name).or_insert_with(|| {
             let var = Variable::new(len);
-            let local = Local { var, ty: val.ty };
+            let local = Local {
+                var,
+                ty: val.ty.clone(),
+            };
             builder.declare_var(var, val.ty.to_cranelift());
             local
         });
@@ -85,7 +88,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     .ok_or(JitCompileError::BadBytecode)?;
                 self.stack.push(JitValue {
                     val: self.builder.use_var(local.var),
-                    ty: local.ty,
+                    ty: local.ty.clone(),
                 });
                 Ok(())
             }
@@ -126,7 +129,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         return Err(JitCompileError::NotSupported);
                     }
                 } else {
-                    self.sig.ret = Some(val.ty);
+                    self.sig.ret = Some(val.ty.clone());
                     self.builder
                         .func
                         .signature
