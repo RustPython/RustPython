@@ -141,8 +141,6 @@ class MiscTests(unittest.TestCase):
                 if support.verbose:
                     print(f"Tested current directory length: {len(cwd)}")
 
-    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'getcwdb')
-    @unittest.expectedFailure
     def test_getcwdb(self):
         cwd = os.getcwdb()
         self.assertIsInstance(cwd, bytes)
