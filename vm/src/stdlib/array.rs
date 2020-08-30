@@ -236,6 +236,20 @@ macro_rules! def_array_enum {
                 }
             }
 
+            fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
+                // we don't need ReprGuard here
+                let s = match self {
+                    $(ArrayContentType::$n(v) => {
+                        if v.is_empty() {
+                            format!("array('{}')", $c)
+                        } else {
+                            format!("array('{}', [{}])", $c, v.iter().format(", "))
+                        }
+                    })*
+                };
+                Ok(s)
+            }
+
             fn iter<'a>(&'a self, vm: &'a VirtualMachine) -> impl Iterator<Item = PyObjectRef> + 'a {
                 let mut i = 0;
                 std::iter::from_fn(move || {
@@ -441,6 +455,11 @@ impl PyArray {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         self.borrow_value_mut().setitem(needle, obj, vm)
+    }
+
+    #[pymethod(name = "__repr__")]
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.borrow_value().repr(vm)
     }
 
     #[pymethod(name = "__eq__")]
