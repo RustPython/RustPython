@@ -243,7 +243,7 @@ macro_rules! def_array_enum {
                         if v.is_empty() {
                             format!("array('{}')", $c)
                         } else {
-                            format!("array('{}', [{}])", $c, v.iter().map(|x| x.to_string()).join(", "))
+                            format!("array('{}', [{}])", $c, v.iter().format(", "))
                         }
                     })*
                 };
