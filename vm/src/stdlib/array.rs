@@ -10,8 +10,9 @@ use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::obj::{objbool, objiter};
 use crate::pyobject::{
-    BorrowValue, Either, IntoPyObject, PyArithmaticValue, PyClassImpl, PyComparisonValue,
-    PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    BorrowValue, Either, IdProtocol, IntoPyObject, PyArithmaticValue, PyClassImpl,
+    PyComparisonValue, PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
@@ -225,7 +226,7 @@ macro_rules! def_array_enum {
                 }
             }
 
-            fn setitem_by_slice(&mut self, slice: PySliceRef, items: ArrayContentType, vm: &VirtualMachine) -> PyResult<()> {
+            fn setitem_by_slice(&mut self, slice: PySliceRef, items: &ArrayContentType, vm: &VirtualMachine) -> PyResult<()> {
                 let start = slice.start_index(vm)?;
                 let stop = slice.stop_index(vm)?;
                 let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
@@ -243,7 +244,7 @@ macro_rules! def_array_enum {
                             } else {
                                 range
                             };
-                            elements.splice(range, items);
+                            elements.splice(range, items.iter().cloned());
                             return Ok(());
                         }
 
@@ -283,11 +284,11 @@ macro_rules! def_array_enum {
 
                             if slicelen == items.len() {
                                 if is_negative_step {
-                                    for (i, item) in range.rev().step_by(step).zip(items) {
+                                    for (i, &item) in range.rev().step_by(step).zip(items) {
                                         elements[i] = item;
                                     }
                                 } else {
-                                    for (i, item) in range.step_by(step).zip(items) {
+                                    for (i, &item) in range.step_by(step).zip(items) {
                                         elements[i] = item;
                                     }
                                 }
@@ -533,26 +534,34 @@ impl PyArray {
 
     #[pymethod(magic)]
     fn setitem(
-        &self,
+        zelf: PyRef<Self>,
         needle: Either<isize, PySliceRef>,
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match needle {
-            Either::A(i) => self.borrow_value_mut().setitem_by_idx(i, obj, vm),
+            Either::A(i) => zelf.borrow_value_mut().setitem_by_idx(i, obj, vm),
             Either::B(slice) => {
-                let items = match obj.payload::<PyArray>() {
-                    // TODO: is there a way to check ref equality between [self] and [obj]
-                    // so we can do clone() only when they are referring the same PyObject
-                    Some(array) => array.borrow_value().clone(),
-                    None => {
-                        return Err(vm.new_type_error(format!(
-                            "can only assign array (not \"{}\") to array slice",
-                            obj.class().name
-                        )));
+                let cloned;
+                let guard;
+                let items = if zelf.is(&obj) {
+                    cloned = zelf.borrow_value().clone();
+                    &cloned
+                } else {
+                    match obj.payload::<PyArray>() {
+                        Some(array) => {
+                            guard = array.borrow_value();
+                            &*guard
+                        }
+                        None => {
+                            return Err(vm.new_type_error(format!(
+                                "can only assign array (not \"{}\") to array slice",
+                                obj.class().name
+                            )));
+                        }
                     }
                 };
-                self.borrow_value_mut().setitem_by_slice(slice, items, vm)
+                zelf.borrow_value_mut().setitem_by_slice(slice, items, vm)
             }
         }
     }
