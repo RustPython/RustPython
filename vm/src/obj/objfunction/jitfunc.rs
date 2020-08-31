@@ -10,7 +10,25 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 use num_traits::ToPrimitive;
 use rustpython_bytecode::bytecode::CodeFlags;
-use rustpython_jit::{AbiValue, Args, CompiledCode, JitType};
+use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};
+
+#[derive(Debug, thiserror::Error)]
+pub enum ArgsError {
+    #[error("wrong number of arguments passed")]
+    WrongNumberOfArgs,
+    #[error("argument passed multiple times")]
+    ArgPassedMultipleTimes,
+    #[error("not a keyword argument")]
+    NotAKeywordArg,
+    #[error("not all arguments passed")]
+    NotAllArgsPassed,
+    #[error("integer can't fit into a machine integer")]
+    IntOverflow,
+    #[error("type can't be used in a jit function")]
+    NonJitType,
+    #[error("{0}")]
+    JitError(#[from] JitArgumentError),
+}
 
 impl IntoPyObject for AbiValue {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -85,15 +103,18 @@ pub fn get_jit_arg_types(func: &PyFunctionRef, vm: &VirtualMachine) -> PyResult<
     }
 }
 
-fn get_jit_value(vm: &VirtualMachine, obj: &PyObjectRef) -> Option<AbiValue> {
+fn get_jit_value(vm: &VirtualMachine, obj: &PyObjectRef) -> Result<AbiValue, ArgsError> {
     // This does exact type checks as subclasses of int/float can't be passed to jitted functions
     let cls = obj.lease_class();
     if cls.is(&vm.ctx.types.int_type) {
-        objint::get_value(&obj).to_i64().map(AbiValue::Int)
+        objint::get_value(&obj)
+            .to_i64()
+            .map(AbiValue::Int)
+            .ok_or(ArgsError::IntOverflow)
     } else if cls.is(&vm.ctx.types.float_type) {
-        Some(AbiValue::Float(objfloat::get_value(&obj)))
+        Ok(AbiValue::Float(objfloat::get_value(&obj)))
     } else {
-        None
+        Err(ArgsError::NonJitType)
     }
 }
 
@@ -107,35 +128,35 @@ pub(crate) fn get_jit_args<'a>(
     func_args: &PyFuncArgs,
     jitted_code: &'a CompiledCode,
     vm: &VirtualMachine,
-) -> Option<Args<'a>> {
+) -> Result<Args<'a>, ArgsError> {
     let mut jit_args = jitted_code.args_builder();
     let nargs = func_args.args.len();
 
     if nargs > func.code.arg_names.len() || nargs < func.code.posonlyarg_count {
-        return None;
+        return Err(ArgsError::WrongNumberOfArgs);
     }
 
     // Add positional arguments
     for i in 0..nargs {
-        jit_args.set(i, get_jit_value(vm, &func_args.args[i])?);
+        jit_args.set(i, get_jit_value(vm, &func_args.args[i])?)?;
     }
 
     // Handle keyword arguments
     for (name, value) in &func_args.kwargs {
         if let Some(arg_idx) = func.code.arg_names.iter().position(|arg| arg == name) {
             if jit_args.is_set(arg_idx) {
-                return None;
+                return Err(ArgsError::ArgPassedMultipleTimes);
             }
-            jit_args.set(arg_idx, get_jit_value(vm, &value)?);
+            jit_args.set(arg_idx, get_jit_value(vm, &value)?)?;
         } else if let Some(kwarg_idx) = func.code.kwonlyarg_names.iter().position(|arg| arg == name)
         {
             let arg_idx = kwarg_idx + func.code.arg_names.len();
             if jit_args.is_set(arg_idx) {
-                return None;
+                return Err(ArgsError::ArgPassedMultipleTimes);
             }
-            jit_args.set(arg_idx, get_jit_value(vm, &value)?);
+            jit_args.set(arg_idx, get_jit_value(vm, &value)?)?;
         } else {
-            return None;
+            return Err(ArgsError::NotAKeywordArg);
         }
     }
 
@@ -145,7 +166,7 @@ pub(crate) fn get_jit_args<'a>(
         for (i, default) in defaults.iter().enumerate() {
             let arg_idx = i + func.code.arg_names.len() - defaults.len();
             if !jit_args.is_set(arg_idx) {
-                jit_args.set(arg_idx, get_jit_value(vm, default)?);
+                jit_args.set(arg_idx, get_jit_value(vm, default)?)?;
             }
         }
     }
@@ -157,12 +178,12 @@ pub(crate) fn get_jit_args<'a>(
             if !jit_args.is_set(arg_idx) {
                 let default = kw_only_defaults
                     .get_item(name.as_str(), vm)
-                    .ok()
+                    .map_err(|_| ArgsError::NotAllArgsPassed)
                     .and_then(|obj| get_jit_value(vm, &obj))?;
-                jit_args.set(arg_idx, default);
+                jit_args.set(arg_idx, default)?;
             }
         }
     }
 
-    jit_args.into_args()
+    jit_args.into_args().ok_or(ArgsError::NotAllArgsPassed)
 }

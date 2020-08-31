@@ -20,6 +20,12 @@ pub enum JitCompileError {
     CraneliftError(#[from] ModuleError),
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum JitArgumentError {
+    #[error("argument is of wrong type")]
+    ArgumentTypeMismatch,
+}
+
 struct Jit {
     builder_context: FunctionBuilderContext,
     ctx: codegen::Context,
@@ -215,8 +221,14 @@ impl<'a> ArgsBuilder<'a> {
         }
     }
 
-    pub fn set(&mut self, idx: usize, value: AbiValue) {
-        self.values[idx] = Some(value);
+    pub fn set(&mut self, idx: usize, value: AbiValue) -> Result<(), JitArgumentError> {
+        match (&self.code.sig.args[idx], &value) {
+            (JitType::Int, AbiValue::Int(_)) | (JitType::Float, AbiValue::Float(_)) => {
+                self.values[idx] = Some(value);
+                Ok(())
+            }
+            _ => Err(JitArgumentError::ArgumentTypeMismatch),
+        }
     }
 
     pub fn is_set(&self, idx: usize) -> bool {

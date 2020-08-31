@@ -17,6 +17,7 @@ def tests():
     assert foo() == 15
     assert bar() == 2e5
     assert baz(17, 20) == 49
+    assert baz(17, 22.5) == 51.5
 
 
 tests()

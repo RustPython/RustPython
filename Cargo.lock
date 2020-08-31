@@ -1758,6 +1758,7 @@ dependencies = [
  "sha3",
  "socket2",
  "statrs",
+ "thiserror",
  "thread_local",
  "timsort",
  "uname",
