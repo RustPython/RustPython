@@ -1,3 +1,5 @@
+import pytest
+
 assert len(dict()) == 0
 
 assert len({}) == 0
@@ -12,3 +14,12 @@ assert repr(d) == "{'a': {...}}"
 assert {'a': 123}.get('a') == 123
 assert {'a': 123}.get('b') == None
 assert {'a': 123}.get('b', 456) == 456
+
+assert 'dict' in dict().__doc__
+with pytest.raises(TypeError) as exc:
+    reversed(dict())
+assert "not reversible" in str(exc.value)
+assert {'b': 345}.__ge__({'a': 123}) == NotImplemented
+assert {'b': 345}.__gt__({'a': 123}) == NotImplemented
+assert {'b': 345}.__le__({'a': 123}) == NotImplemented
+assert {'b': 345}.__lt__({'a': 123}) == NotImplemented
