@@ -1,4 +1,4 @@
-import pytest
+from testutils import assert_raises
 
 assert len(dict()) == 0
 
@@ -16,9 +16,7 @@ assert {'a': 123}.get('b') == None
 assert {'a': 123}.get('b', 456) == 456
 
 assert 'dict' in dict().__doc__
-with pytest.raises(TypeError) as exc:
-    reversed(dict())
-assert "not reversible" in str(exc.value)
+assert_raises(TypeError, lambda: reversed(dict()))
 assert {'b': 345}.__ge__({'a': 123}) == NotImplemented
 assert {'b': 345}.__gt__({'a': 123}) == NotImplemented
 assert {'b': 345}.__le__({'a': 123}) == NotImplemented
