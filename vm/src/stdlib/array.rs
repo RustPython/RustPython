@@ -233,7 +233,7 @@ macro_rules! def_array_enum {
                     Either::B(slice) => self.getitem_by_slice(slice, vm),
                 }
             }
-          
+
             fn setitem_by_slice(&mut self, slice: PySliceRef, items: &ArrayContentType, vm: &VirtualMachine) -> PyResult<()> {
                 let start = slice.start_index(vm)?;
                 let stop = slice.stop_index(vm)?;
@@ -338,7 +338,7 @@ macro_rules! def_array_enum {
             fn setitem_by_idx(&mut self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
                 let i = self.idx(i, "array assignment", vm)?;
                 match self {
-                    $(ArrayContentType::$n(v) => { v[i] = TryFromObject::try_from_object(vm, value)? },)*
+                    $(ArrayContentType::$n(v) => { v[i] = $t::try_into_from_object(vm, value)? },)*
                 }
                 Ok(())
             }
